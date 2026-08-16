@@ -1581,6 +1581,12 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_detection_suppressed_since: str | None = None
         self._arriving_rearm_suppressed_since: str | None = None
         self._away_veto_suppressed_since: str | None = None
+        # PATH-ALPHA D5 (away_transition_blocked) + D6 (tracker_trust_excluded):
+        # instantiated lazily on first _run_inference tick (needs `hass` in
+        # scope; `self.hass` is set by the coordinator base but we defer
+        # object construction to avoid ordering surprises during __init__).
+        self._away_block_tracker: Any | None = None
+        self._trust_excluded_writer: Any | None = None
         # A-MED-2: per-calendar-day dedup guard for the wake-backstop NM emit.
         # The counter (`_wake_backstop_fires`) still increments every tick;
         # only the NM notification is deduped to at most once per local day.
@@ -5755,6 +5761,87 @@ class PresenceCoordinator(BaseCoordinator):
         # Mirror engine's most-recent veto-path verdict for sensor surface.
         self._veto_path = getattr(self._inference_engine, "_veto_path", "none")
 
+        # PATH-ALPHA D5 (away_transition_blocked) + D6
+        # (tracker_trust_excluded): observational writers. Fire-and-
+        # forget; failures never bubble. NO consumer reads either
+        # episode type on an actuation path (memory-ineligible
+        # boundary, arch §8).
+        try:
+            from .. import memory_writers as _mw  # noqa: PLC0415
+
+            _home_like = (
+                HouseState.HOME_DAY,
+                HouseState.HOME_EVENING,
+                HouseState.HOME_NIGHT,
+            )
+            # D5: "blocked" = we are in a home-like state, an indoor
+            # zone is occupied (path β vetoed), and either the trusted
+            # denominator is empty (α starved) or not all trusted
+            # persons are away (α denies). new_state stayed non-AWAY.
+            _alpha_starved = tracked_count == 0
+            _alpha_denies = (
+                tracked_count > 0 and not all_tracked_persons_away
+            )
+            _beta_vetoed = bool(any_indoor_zone_occupied)
+            _blocked = bool(
+                current_state in _home_like
+                and new_state != HouseState.AWAY
+                and _beta_vetoed
+                and (_alpha_starved or _alpha_denies)
+            )
+            _veto_path_str = (
+                "alpha_starved" if _alpha_starved and _beta_vetoed
+                else "alpha_denies" if _alpha_denies and _beta_vetoed
+                else "beta_only" if _beta_vetoed
+                else "none"
+            )
+            _snapshot = {
+                "tracked_persons_count_trusted": int(tracked_count),
+                "tracked_persons_count_raw": int(tracked_count_raw),
+                "all_tracked_persons_away": bool(all_tracked_persons_away),
+                "excluded_persons": dict(self._excluded_persons),
+                "census_count": int(self._census_count),
+                "unidentified_count": int(self._unidentified_count),
+                "veto_path": _veto_path_str,
+                "any_indoor_zone_occupied": bool(any_indoor_zone_occupied),
+                "current_state": current_state.value,
+            }
+            if self._away_block_tracker is None:
+                self._away_block_tracker = _mw.AwayBlockEpisodeTracker(
+                    self.hass,
+                )
+            self.hass.async_create_task(
+                self._away_block_tracker.note_tick(
+                    blocked=_blocked,
+                    snapshot=_snapshot,
+                    now=dt_util.utcnow(),
+                ),
+            )
+            # D6: excluded-persons set diff.
+            if self._trust_excluded_writer is None:
+                self._trust_excluded_writer = (
+                    _mw.TrackerTrustExcludedWriter(self.hass)
+                )
+            _known = None
+            try:
+                pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+                if pc is not None and getattr(pc, "data", None):
+                    _known = list((pc.data or {}).keys())
+            except Exception:  # noqa: BLE001 — defensive
+                _known = None
+            self.hass.async_create_task(
+                self._trust_excluded_writer.observe(
+                    excluded_persons=self._excluded_persons,
+                    known_persons=_known,
+                    now=dt_util.utcnow(),
+                ),
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "D5/D6 memory writers tick failed (non-fatal)",
+                exc_info=True,
+            )
+
         # v4.7.14: log when the person-tracker veto fires to a non-AWAY state.
         # v4.7.14.1 fix-up A-M1: tighten gate to mirror the v4.7.14.1 H1
         # predicate (census_count == 0 AND any_zone_occupied) so this log
@@ -6179,6 +6266,49 @@ class PresenceCoordinator(BaseCoordinator):
                             trigger=trigger,
                             previous_state=current_state.value,
                         )
+                    )
+
+                # PATH-ALPHA D7: house_state_transition memory-episode
+                # mirror with a richer gate-input snapshot. First-tick-
+                # post-boot triggers ("boot", "restore", "initial",
+                # "startup", "restored") are SUPPRESSED by the writer
+                # (see memory_writers.write_house_state_transition
+                # docstring + test_house_state_transition_boot_
+                # suppression). Observational only.
+                try:
+                    from .. import memory_writers as _mw  # noqa: PLC0415
+                    _snapshot = {
+                        "tracked_persons_count_trusted": int(
+                            getattr(self, "_tracked_persons_count_trusted", 0)
+                        ),
+                        "all_tracked_persons_away": bool(
+                            getattr(self, "_all_tracked_persons_away", False)
+                        ),
+                        "census_count": int(
+                            getattr(self, "_census_count", 0)
+                        ),
+                        "unidentified_count": int(
+                            getattr(self, "_unidentified_count", 0)
+                        ),
+                        "excluded_persons": dict(
+                            getattr(self, "_excluded_persons", {}) or {}
+                        ),
+                        "veto_path": str(
+                            getattr(self, "_veto_path", "none")
+                        ),
+                    }
+                    _mw.write_house_state_transition(
+                        self.hass,
+                        old_state=current_state.value,
+                        new_state=new_state.value,
+                        trigger=trigger,
+                        confidence=self._inference_engine.confidence,
+                        snapshot=_snapshot,
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "D7 house_state_transition writer failed "
+                        "(non-fatal)", exc_info=True,
                     )
 
                 # Publish signal (async_dispatcher_send imported at module top —
