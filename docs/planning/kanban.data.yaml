@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-15'
+  last_reconciled: '2026-08-16'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -556,7 +556,8 @@ cards:
 - id: EV-SENSOR-CLEANUP-1
   title: 'EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked'
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: implied
   origin:
     date: '2026-08-16'
@@ -1315,7 +1316,8 @@ cards:
   parent: MEMORY-PROGRAM-EPIC
   title: 'Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)'
   thread: memory
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: unreviewed
   origin:
     date: '2026-08-14'
@@ -1386,7 +1388,8 @@ cards:
 - id: PATH-ALPHA-DENOM-1
   title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: approved_after_investigation
   origin:
     date: '2026-08-13'
@@ -1437,7 +1440,8 @@ cards:
 - id: GAP-A-CENSUS-HOLE-1
   title: Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count)
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: implied
   approved_by: 'operator 2026-08-16 ("Gap A error is big and we have not offered a solution"; "Gap A should be folded in and shipped at the same time")'
   tags: [tier-2db, no-fabrication-verify, context-wide-scoping]
@@ -1466,7 +1470,8 @@ cards:
 - id: GUEST-FP-RESIDUALS-1
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.78.0
   approval: unreviewed
   origin:
     date: '2026-08-13'

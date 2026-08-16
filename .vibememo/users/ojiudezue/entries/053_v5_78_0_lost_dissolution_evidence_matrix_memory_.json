@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "053",
+  "author": "ojiudezue",
+  "session_id": "claude_20260816_161315_ship_v5_78_0",
+  "timestamp": "2026-08-16T16:13:15Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.78.0 shipped: LOST dissolution (evidence matrix) + memory writers + away-veto census hole",
+  "summary": "Closes AWAY-BLOCK-1 on all three paths: 16-row GPS/WiFi/BLE evidence matrix replaces the overloaded LOST state (no-signal can never vote away; BLE-only 0.82 below the 0.9 threshold; liveness-gated BLE axis; per-tick source inventory), path-alpha now gates on camera-provable face evidence instead of BLE-contaminated census_count (forgotten phone no longer blocks away), and phone-left-behind consults room occupancy so camera-less rooms stop producing false flags. Four rate-bounded memory episode writers with wired restart-discharge. Three observability attrs on existing sensors, zero new entities. Riders: guest-FP A1 classifier, EV dupe-sensor removal + per-plug power.",
+  "refs": {
+    "cards": [
+      "PATH-ALPHA-DENOM-1",
+      "MEMORY-WRITERS-1",
+      "GAP-A-CENSUS-HOLE-1",
+      "GUEST-FP-RESIDUALS-1",
+      "EV-SENSOR-CLEANUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.78.0.md"
+    ]
+  }
+}
