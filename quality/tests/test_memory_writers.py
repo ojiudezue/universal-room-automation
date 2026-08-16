@@ -528,6 +528,126 @@ def _presence_py_path() -> Path:
     )
 
 
+def _coordinator_py_path() -> Path:
+    return Path(__file__).resolve().parents[2] / (
+        "custom_components/universal_room_automation/coordinator.py"
+    )
+
+
+def _count_call_names_in_source(src: str, target_names: set[str]) -> int:
+    tree = ast.parse(src)
+    n = 0
+    for sub in ast.walk(tree):
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            fn_name = None
+            if isinstance(fn, ast.Attribute):
+                fn_name = fn.attr
+            elif isinstance(fn, ast.Name):
+                fn_name = fn.id
+            if fn_name in target_names:
+                n += 1
+    return n
+
+
+def test_wire_in_d4_phantom_retro_called_from_coordinator():
+    """AST wire-in anchor for D4. coordinator.py must contain at least
+    one call to write_phantom_retro on a mmwave on->off edge path.
+    Delete the call and this test reddens."""
+    src = _coordinator_py_path().read_text(encoding="utf-8")
+    n = _count_call_names_in_source(src, {"write_phantom_retro"})
+    assert n >= 1, (
+        "WIRE-IN ANCHOR FAILURE: no call to `write_phantom_retro` "
+        "found in coordinator.py. The D4 writer is defined but never "
+        "invoked from the room coordinator — Bug Class #53."
+    )
+
+
+def test_wire_in_d6_tracker_trust_writer_called_from_presence():
+    """AST wire-in anchor for D6. presence.py must call
+    TrackerTrustExcludedWriter.observe(...) inside _run_inference."""
+    src = _presence_py_path().read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    run_infer_fn = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_run_inference"
+        ):
+            run_infer_fn = node
+            break
+    assert run_infer_fn is not None, (
+        "presence.py: _run_inference not found (D6 anchor cannot run)"
+    )
+    n_observe = 0
+    n_ctor = 0
+    for sub in ast.walk(run_infer_fn):
+        if isinstance(sub, ast.Call):
+            fn = sub.func
+            fn_name = fn.attr if isinstance(fn, ast.Attribute) else (
+                fn.id if isinstance(fn, ast.Name) else None
+            )
+            if fn_name == "observe":
+                # Narrow: attribute chain must end in `observe` on a
+                # _trust_excluded_writer attribute.
+                if (
+                    isinstance(fn, ast.Attribute)
+                    and isinstance(fn.value, ast.Attribute)
+                    and fn.value.attr == "_trust_excluded_writer"
+                ):
+                    n_observe += 1
+            if fn_name == "TrackerTrustExcludedWriter":
+                n_ctor += 1
+    assert n_observe >= 1 and n_ctor >= 1, (
+        f"WIRE-IN ANCHOR FAILURE (D6): observe calls={n_observe}, "
+        f"TrackerTrustExcludedWriter constructions={n_ctor} in "
+        "_run_inference. Removing either reddens this anchor."
+    )
+
+
+def test_wire_in_d7_house_state_transition_called_from_presence():
+    """AST wire-in anchor for D7. presence.py must call
+    write_house_state_transition alongside log_house_state_change."""
+    src = _presence_py_path().read_text(encoding="utf-8")
+    n = _count_call_names_in_source(
+        src, {"write_house_state_transition"},
+    )
+    assert n >= 1, (
+        "WIRE-IN ANCHOR FAILURE (D7): no call to "
+        "`write_house_state_transition` in presence.py — the "
+        "house_state_transition writer is defined but never "
+        "invoked."
+    )
+
+
+def test_wire_in_d5_note_tick_called_from_presence():
+    """AST wire-in anchor for D5's per-tick call. presence.py must
+    call AwayBlockEpisodeTracker.note_tick(...) inside
+    _run_inference."""
+    src = _presence_py_path().read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    run_infer_fn = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_run_inference"
+        ):
+            run_infer_fn = node
+            break
+    assert run_infer_fn is not None
+    n = 0
+    for sub in ast.walk(run_infer_fn):
+        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+            if sub.func.attr == "note_tick" and isinstance(
+                sub.func.value, ast.Attribute,
+            ) and sub.func.value.attr == "_away_block_tracker":
+                n += 1
+    assert n >= 1, (
+        "WIRE-IN ANCHOR FAILURE (D5-tick): no `_away_block_tracker."
+        "note_tick(...)` call in _run_inference."
+    )
+
+
 def test_wire_in_reconcile_open_away_block_called_from_async_setup():
     """Wire-in anchor for the D5 restart-discharge reconciler.
 
