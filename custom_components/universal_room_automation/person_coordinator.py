@@ -336,6 +336,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                           "away_gps_only", sources_out)
 
         # GPS unknown/MISSING from here.
+        # Case-(b) via WiFi-only home (operator forest-check: WiFi=home
+        # alone is affirmative → S2). Row 3-equivalent when BLE cold; row
+        # 2-equivalent when BLE silent w/ liveness proof.
+        if wifi_home:
+            conf = 0.85 if ble == "silent" else 0.75
+            return _stamp(TRACKING_STATUS_ACTIVE, "home", conf,
+                          "home_ble_silent", sources_out)
+
         if wifi_not_home and ble == "silent":
             return _stamp(TRACKING_STATUS_ACTIVE, "away", 0.95,
                           "away_wifi_silent_local", sources_out)

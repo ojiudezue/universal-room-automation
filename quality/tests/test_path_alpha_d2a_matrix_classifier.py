@@ -119,6 +119,10 @@ _ha_mods = {
 
 
 def _install_ha_stubs():
+    # Soft-install: don't clobber sibling-test stubs (SUITE-HYGIENE-1
+    # deliberately excludes homeassistant.* from restore). Our defense
+    # against stub-pollution is per-instance attribute re-init in
+    # `_make_coord` below.
     for name, contents in _ha_mods.items():
         if name in sys.modules:
             continue
@@ -136,7 +140,6 @@ _install_ha_stubs()
 # the real production source (not a fake).
 # ---------------------------------------------------------------------------
 def _load_pc_module():
-    # Load the package first (const.py imports transitively).
     pkg_name = "custom_components.universal_room_automation"
     if pkg_name not in sys.modules:
         parent_name = "custom_components"
@@ -206,7 +209,31 @@ def _make_coord(tracked=("oji",)):
     entry.data = {"tracked_persons": list(tracked)}
     entry.options = {}
     coord = pc_mod.PersonTrackingCoordinator(hass, entry)
+    # Defensive: if a sibling test polluted homeassistant.helpers.update_
+    # coordinator.DataUpdateCoordinator with a MagicMock BEFORE our module
+    # loaded, our super().__init__ may have absorbed hass into a Mock.
+    # Re-assert the attributes the real coord relies on.
+    coord.hass = hass
     coord.data = {}
+    coord.tracked_persons = list(tracked)
+    coord.integration_entry = entry
+    coord.decay_timeout = 60
+    coord.high_confidence_distance = 5
+    coord.medium_confidence_distance = 15
+    coord._person_was_away = {}
+    coord._person_lost_since = {}
+    coord._lost_away_since = {}
+    coord._active_visit_ids = {}
+    coord._entity_missing_noted = set()
+    coord._scanner_to_rooms = {}
+    coord._area_id_to_room = {}
+    coord._room_coordinators = {}
+    coord._direct_ble_rooms = set()
+    coord._scanner_map_entry_ids = set()
+    coord._pre_arrival_enabled = False
+    coord._min_away_minutes = 15
+    coord._last_snapshot_time = datetime(2026, 8, 16, 14, 0, 0)
+    coord._SNAPSHOT_INTERVAL_SECONDS = 900
     return coord, hass
 
 
