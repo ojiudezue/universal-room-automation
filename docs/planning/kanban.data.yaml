@@ -1193,7 +1193,7 @@ cards:
 - id: CENSUS-SUFFIX-FIX-1
   title: 'Census regression ROOT-CAUSED: strict-suffix matchers miss all _2 F2 sensors since F1 death (08-13) -> count sensors unmapped -> census pinned at identified count. Fix: disambiguation-tolerant matching.'
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.77.0
   approval: implied
   origin:
@@ -1207,6 +1207,7 @@ cards:
   operator_ruling_ash41b_2026_08_15: 'ASH41B (Study A): stays OUT of camera_person_entities (census) by operator ruling — camera is physically blocked by a screen unless operator is away, so zero-detection history is EXPECTED (not a Frigate pipeline fault; struck from the F2 punch list). Stays configured at room tier (Study A room_cameras, verified enabled). Do not re-raise.'
   live_validation_2026_08_15: 'v5.77.0 LIVE: L1 PASS; L2 organic — census at 4 post-boot pending first camera traversal; PASS = first recorder reading >4 (guests in house tonight = likely within hours).'
   l2_watch_redefined_2026_08_15: 'Guests departed before a >4 traversal registered (census max stayed 4 post-boot). L2 proof redefined: INTERIM = any unidentified contribution (census reads identified+1 on any visitor/delivery in census-camera view — was structurally impossible pre-fix); FULL = census tracks headcount at the NEXT gathering. Mapping itself is drill-anchored in-suite; only live magnitude remains organic.'
+  l2_INTERIM_PASS_2026_08_16: 'ORGANIC PROOF (operator home, ~evening): census reads 6 = identified 4 + unidentified 2, camera_unrecognized 2, source_agreement close, confidence medium, wifi_guest_floor 6 (independent corroboration). Pre-fix this was STRUCTURALLY IMPOSSIBLE — census was pinned at identified count (max 4) because the _2 count sensors matched nothing. Interim criterion (any unidentified contribution) PASSED. Full criterion (headcount tracking at a gathering) still open but the mechanism is proven live.'
 
 
 - id: CENSUS-GUEST-FLOOR-1
