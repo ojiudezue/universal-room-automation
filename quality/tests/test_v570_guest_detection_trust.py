@@ -604,14 +604,29 @@ def test_source_invariant_a1_predicate_exists():
 
 
 def test_source_invariant_path_alpha_unchanged():
-    """WS-I3: path α's all-three-AND conjunction must remain a single block."""
+    """WS-I3 (migrated for GAP-A D8, 2026-08-16): path α's all-three-AND
+    conjunction must remain a single block. The v4.7.14 predicate's
+    `census_count == 0` clause is REPLACED by `face_recognized_count == 0`
+    per PLANNING_gap_a_census_hole.md — camera-provable identity only.
+    The rest of the invariant (single AND-block, ACTIVE-only inputs)
+    stays intact."""
     assert "all_tracked_persons_away" in PRESENCE_SRC
-    # The exact v4.7.14 conjunction is preserved verbatim.
-    idx = PRESENCE_SRC.find("all_tracked_persons_away\n            and unidentified_count == 0\n            and census_count == 0")
-    assert idx >= 0, (
-        "WS-I3: v4.7.14 path-α AND conjunction was modified — must remain "
-        "byte-identical for the ACTIVE-only inputs invariant to hold"
+    # The exact D8 conjunction is preserved verbatim.
+    idx = PRESENCE_SRC.find(
+        "all_tracked_persons_away\n"
+        "            and unidentified_count == 0\n"
+        "            and face_recognized_count == 0"
     )
+    assert idx >= 0, (
+        "WS-I3/D8: path-α AND conjunction was modified — must remain "
+        "byte-identical to the D8 predicate for the invariant to hold"
+    )
+    # And the pre-D8 census_count clause must no longer be part of the
+    # path-α conjunction (rules out an accidental partial revert).
+    assert (
+        "all_tracked_persons_away\n            and unidentified_count == 0\n            and census_count == 0"
+        not in PRESENCE_SRC
+    ), "GAP-A D8: pre-D8 census_count clause resurrected in path α"
 
 
 def test_source_invariant_path_beta_indoor_guard_present():
