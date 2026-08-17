@@ -818,3 +818,248 @@ def test_entity_to_name_init_in_ctor(presence_src: str) -> None:
         r"self\._guest_room_entity_to_name\s*:\s*Dict\[str,\s*str\]\s*=\s*\{\}",
         presence_src,
     ), "D3 requires _guest_room_entity_to_name initialized in __init__"
+
+
+# ===========================================================================
+# HIGH fix-up (2026-08-16): boot-seed false-GUEST closure
+# ---------------------------------------------------------------------------
+# Root cause: `_discover_guest_rooms` seeded `first_seen = last_changed`
+# using an identity check (`_is_known_person_in_room`) whose False fallback
+# fires at boot because `person_coordinator._tracked_persons` is not yet
+# populated. Once seeded, the runtime gate `_guest_room_gate_armed` uses
+# only the cached `current_occupancy_known` flag (set by the state-change
+# LISTENER) — a resident sitting still never toggles occupancy so the flag
+# stays False and the gate fires with hours of elapsed credit.
+#
+# Fix — two parts:
+#   Part 1: `_guest_room_gate_armed` performs a LIVE identity re-check
+#           (`_is_known_person_in_room`) BEFORE firing per-room; if known
+#           person present, clear first_seen, set current_occupancy_known
+#           True, continue.
+#   Part 2: clamp boot-seeded `first_seen` so at least
+#           `GUEST_BOOT_SEED_MIN_RESIDUAL_S` remain before threshold:
+#           `first_seen = max(last_changed, now - threshold_s + residual_s)`.
+#
+# Drill anchors:
+#   FIX-M1. Delete the Part-1 live re-check in _guest_room_gate_armed →
+#           `test_gate_reverify_identity_at_gate_time` fails.
+#   FIX-M2. Delete the Part-2 residual clamp in _discover_guest_rooms →
+#           `test_boot_seed_residual_clamp` fails.
+# ===========================================================================
+
+
+def _seed_bare_pc_with_guest_room(
+    room_name: str,
+    entry_id: str,
+    entity_id: str,
+    last_changed,
+    is_known_at_boot: bool,
+    threshold_min: int = 30,
+):
+    """Shared helper: build a bare PresenceCoordinator + config + registry
+    stub, run _discover_guest_rooms with the given identity oracle, and
+    return the coordinator."""
+    from unittest.mock import patch as _patch
+
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+        CONF_ROOM_IS_GUEST_ROOM,
+        CONF_ROOM_NAME,
+        ENTRY_TYPE_ROOM,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _pres_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_state = {}
+    pc._guest_room_unsubs = {}
+    pc._guest_room_entity_to_name = {}
+    pc._guest_detection_enabled = True
+
+    # Mutable identity oracle — tests can flip after boot.
+    identity_flag = {"known": is_known_at_boot}
+    pc._is_known_person_in_room = lambda rn, _f=identity_flag: _f["known"]  # type: ignore[assignment]
+
+    entry = MagicMock()
+    entry.entry_id = entry_id
+    entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+    entry.options = {
+        CONF_ROOM_NAME: room_name,
+        CONF_ROOM_IS_GUEST_ROOM: True,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: threshold_min,
+    }
+    pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+    fake_reg = MagicMock()
+    fake_reg.async_get_entity_id = MagicMock(return_value=entity_id)
+
+    occ_state = MagicMock()
+    occ_state.state = "on"
+    occ_state.last_changed = last_changed
+    pc.hass.states.get = lambda eid: occ_state if eid == entity_id else None
+
+    import homeassistant.helpers.entity_registry as _er_mod
+    with _patch.object(_er_mod, "async_get", return_value=fake_reg), \
+            _patch.object(
+                _pres_mod, "async_track_state_change_event",
+                MagicMock(return_value=lambda: None),
+            ):
+        pc._discover_guest_rooms()
+
+    return pc, identity_flag
+
+
+def test_gate_reverify_identity_at_gate_time() -> None:
+    """Regression for the boot false-GUEST hole (operator HIGH, 2026-08-16).
+
+    Scenario: resident in a designated guest room across HA restart.
+      * pre-restart occupancy toggled ON hours ago (last_changed = -3h).
+      * At boot, person_coordinator not yet populated →
+        `_is_known_person_in_room` returns False → seed happens.
+      * Post-boot the substrate populates and the room IS occupied by a
+        known person.
+      * The very next inference tick calls `_guest_room_gate_armed`.
+
+    Fixed behaviour: the gate performs a LIVE identity re-check per room
+    before firing; because a known person is now present, it clears
+    first_seen, sets current_occupancy_known=True, and returns False.
+
+    Pre-fix: gate consults ONLY the cached `current_occupancy_known` flag
+    (event-driven, still False from init because occupancy never toggled)
+    and fires with elapsed >> threshold.
+    """
+    from datetime import timedelta as _td, timezone as _tz
+
+    now_boot = datetime.now(_tz.utc)
+    last_changed = now_boot - _td(hours=3)
+
+    pc, identity_flag = _seed_bare_pc_with_guest_room(
+        room_name="Downstairs Guest Bedroom",
+        entry_id="01KTESTFALSEGUEST00000001",
+        entity_id="binary_sensor.downstairs_guest_bedroom_occupied",
+        last_changed=last_changed,
+        is_known_at_boot=False,   # substrate cold → seed plants
+        threshold_min=30,
+    )
+
+    # Precondition: seed planted (bug reachable).
+    state = pc._guest_room_state["Downstairs Guest Bedroom"]
+    assert state["first_seen"] is not None, (
+        "precondition: boot seed must have planted first_seen (bug prereq)"
+    )
+    assert state["current_occupancy_known"] is False, (
+        "precondition: current_occupancy_known init-False (bug prereq)"
+    )
+
+    # Substrate now populated: a known person IS in the room.
+    identity_flag["known"] = True
+
+    # First inference tick — well past the 30-min threshold.
+    tick_now = now_boot + _td(minutes=1)
+    fired = pc._guest_room_gate_armed(now=tick_now)
+
+    assert fired is False, (
+        "gate must NOT fire: a known person is present at gate-check time "
+        "(live re-check should catch the stale seed). Firing here is the "
+        "false-GUEST-at-boot regression."
+    )
+    # And the stale seed must have been cleared by the live re-check.
+    state = pc._guest_room_state["Downstairs Guest Bedroom"]
+    assert state["first_seen"] is None, (
+        "live re-check must clear stale first_seen (Transition 2 semantics)"
+    )
+    assert state["current_occupancy_known"] is True, (
+        "live re-check must set current_occupancy_known=True"
+    )
+
+
+def test_boot_seed_residual_clamp() -> None:
+    """Part 2: boot-seed must never be already-expired.
+
+    Seed from a very old `last_changed` (hours ago) with identity substrate
+    cold at boot → the clamp must guarantee at least
+    GUEST_BOOT_SEED_MIN_RESIDUAL_S seconds of residual dwell remain before
+    threshold at the moment of boot.
+    """
+    from datetime import timedelta as _td, timezone as _tz
+
+    from custom_components.universal_room_automation.const import (
+        GUEST_BOOT_SEED_MIN_RESIDUAL_S,
+    )
+
+    threshold_min = 30
+    threshold_s = threshold_min * 60
+    now_boot = datetime.now(_tz.utc)
+    ancient = now_boot - _td(hours=5)
+
+    pc, _ = _seed_bare_pc_with_guest_room(
+        room_name="Ancient Guest Bedroom",
+        entry_id="01KTESTBOOTCLAMP0000000001",
+        entity_id="binary_sensor.ancient_guest_bedroom_occupied",
+        last_changed=ancient,
+        is_known_at_boot=False,
+        threshold_min=threshold_min,
+    )
+
+    state = pc._guest_room_state["Ancient Guest Bedroom"]
+    first_seen = state["first_seen"]
+    assert first_seen is not None, "seed must plant"
+
+    # Compute observed elapsed at boot; requirement: elapsed <= threshold - residual.
+    # We approximate 'boot time' with a slightly-later tick since we can't
+    # freeze exact utcnow() inside _discover_guest_rooms.
+    tick = datetime.now(_tz.utc) + _td(seconds=1)
+    elapsed_s = (tick - first_seen).total_seconds()
+    assert elapsed_s <= (threshold_s - GUEST_BOOT_SEED_MIN_RESIDUAL_S) + 2, (
+        f"clamp violated: elapsed={elapsed_s}s, threshold={threshold_s}s, "
+        f"residual={GUEST_BOOT_SEED_MIN_RESIDUAL_S}s "
+        f"(need elapsed <= threshold - residual)"
+    )
+
+
+def test_boot_seed_preserves_genuine_guest_credit() -> None:
+    """Part 2 anti-over-correction: a genuine guest scenario must still
+    benefit from the boot seed — pre-restart credit is preserved, not
+    reset to `now`, so a restart mid-visit does not cost the full 30 min.
+
+    Scenario: occupancy ON since 15 min ago (within threshold, well
+    outside the residual clamp). After boot, first_seen should equal the
+    pre-restart last_changed (unclamped), so a tick at 30-min mark still
+    fires per the intended feature.
+    """
+    from datetime import timedelta as _td, timezone as _tz
+
+    threshold_min = 30
+    now_boot = datetime.now(_tz.utc)
+    last_changed = now_boot - _td(minutes=15)
+
+    pc, _ = _seed_bare_pc_with_guest_room(
+        room_name="Genuine Guest Bedroom",
+        entry_id="01KTESTBOOTGENUINE00000001",
+        entity_id="binary_sensor.genuine_guest_bedroom_occupied",
+        last_changed=last_changed,
+        is_known_at_boot=False,
+        threshold_min=threshold_min,
+    )
+    state = pc._guest_room_state["Genuine Guest Bedroom"]
+    fs = state["first_seen"]
+    # Not reset to ~now: at least 10 minutes of pre-restart credit preserved.
+    tick_at_boot = datetime.now(_tz.utc) + _td(seconds=1)
+    elapsed_at_boot_s = (tick_at_boot - fs).total_seconds()
+    assert elapsed_at_boot_s >= 10 * 60, (
+        f"genuine-guest credit lost: elapsed at boot only {elapsed_at_boot_s}s "
+        "(clamp over-corrected — expected ~15 min preserved)"
+    )
+
+    # And the gate fires at the 30-min mark from original arrival.
+    tick_fire = last_changed + _td(minutes=threshold_min, seconds=1)
+    assert pc._guest_room_gate_armed(now=tick_fire) is True, (
+        "genuine guest with 30-min sustained pre-restart occupancy must "
+        "still fire the gate (feature not neutered by clamp)"
+    )

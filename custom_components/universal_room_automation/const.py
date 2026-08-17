@@ -386,6 +386,25 @@ CONF_OCCUPANCY_DEBOUNCE: Final = "occupancy_debounce"
 CONF_ROOM_IS_GUEST_ROOM: Final = "room_is_guest_room"
 CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: Final = "room_guest_occupancy_threshold_min"
 
+# HIGH fix-up (2026-08-16): boot-seed residual-dwell floor for the
+# guest-room sustained-occupancy clock. When _discover_guest_rooms
+# boot-seeds first_seen from the occupancy entity's pre-restart
+# last_changed, this constant guarantees at least this many seconds
+# of residual dwell remain before threshold at the moment of boot —
+# giving the person substrate (person_coordinator._tracked_persons)
+# time to populate so the runtime gate's live identity re-check can
+# distinguish resident-in-guest-room from a real guest before the
+# gate could otherwise fire immediately on a hours-old seed.
+# Rung 1 (module constant): this is a safety margin against a
+# false-GUEST class; changing it should require review.
+# Default 300s (5 min): empirically sufficient for person_coordinator
+# to settle after HA restart in this deployment; leaves 25/30 of the
+# genuine-guest credit intact at the default 30-min threshold.
+# Kill-switch: setting >= threshold_s effectively disables the boot
+# seed (first_seen collapses to ~now); 0 disables the clamp entirely
+# and restores the raw last_changed seed (the pre-fix shape).
+GUEST_BOOT_SEED_MIN_RESIDUAL_S: Final = 300
+
 # Room types
 ROOM_TYPE_BEDROOM: Final = "bedroom"
 ROOM_TYPE_CLOSET: Final = "closet"

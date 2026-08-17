@@ -265,9 +265,9 @@ class TestD5DiscoverGuestRooms:
 
     def test_registers_state_change_listener(self, presence_src):
         idx = presence_src.find("def _discover_guest_rooms(")
-        # Function body can be up to 6000 chars (bumped from 4000 after
-        # Review B-MEDIUM-1 boot-seed block was added, 2026-08-16).
-        body = presence_src[idx:idx + 6000]
+        # Function body can be up to 8000 chars (bumped from 6000 after
+        # HIGH fix-up 2026-08-16 added the residual-dwell clamp block).
+        body = presence_src[idx:idx + 8000]
         assert "async_track_state_change_event" in body, (
             "_discover_guest_rooms must subscribe to occupancy sensor state changes"
         )
@@ -381,7 +381,9 @@ class TestD5GuestRoomGateArmed:
 
     def test_returns_true_on_armed_room(self, presence_src):
         idx = presence_src.find("def _guest_room_gate_armed(")
-        body = presence_src[idx:idx + 1500]
+        # Bumped from 1500 -> 3000 after HIGH fix-up 2026-08-16 added
+        # the live identity re-check block in _guest_room_gate_armed.
+        body = presence_src[idx:idx + 3000]
         assert "return True" in body, (
             "Must return True when at least one guest room has elapsed >= threshold"
         )

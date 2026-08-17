@@ -271,6 +271,14 @@ class _GuestRoomGateShim:
             if _sd.get("first_seen") is not None:
                 _sd["first_seen"] = None
 
+    def _is_known_person_in_room(self, room_name):
+        # HIGH fix-up (2026-08-16): _guest_room_gate_armed now performs a
+        # live identity re-check per room before firing. This shim tests
+        # the kill-switch predicate only, so the identity oracle must
+        # return False (no known person) to let the gate proceed to its
+        # threshold arithmetic.
+        return False
+
 
 def test_guest_room_gate_returns_false_when_kill_switch_off():
     """Path B: OFF → return False even with sustained-unknown occupancy."""

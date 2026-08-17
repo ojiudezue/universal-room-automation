@@ -25,7 +25,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from homeassistant.core import HomeAssistant, callback
@@ -4694,6 +4694,7 @@ class PresenceCoordinator(BaseCoordinator):
         from ..const import (
             CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
             CONF_ROOM_IS_GUEST_ROOM, CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+            GUEST_BOOT_SEED_MIN_RESIDUAL_S,
         )
 
         # Cancel any existing guest-room listeners (handles reconfigure-without-restart).
@@ -4772,12 +4773,36 @@ class PresenceCoordinator(BaseCoordinator):
                 if occ_state is not None and occ_state.state == "on":
                     last_changed = getattr(occ_state, "last_changed", None)
                     if last_changed is not None and not self._is_known_person_in_room(room_name):
-                        self._guest_room_state[room_name]["first_seen"] = last_changed
+                        # HIGH fix-up (2026-08-16): residual-dwell clamp.
+                        # An unclamped seed from a hours-old last_changed
+                        # combined with a cold person substrate at boot
+                        # (identity False fallback) would let the runtime
+                        # gate fire immediately. Guarantee at least
+                        # GUEST_BOOT_SEED_MIN_RESIDUAL_S remain before
+                        # threshold at boot so the identity substrate has
+                        # time to populate before the gate's live re-check
+                        # (Part 1 in _guest_room_gate_armed) runs.
+                        # Arithmetic: need elapsed = now - first_seen <=
+                        # threshold - residual, i.e. first_seen >=
+                        # now - threshold + residual.
+                        threshold_s = threshold_min * 60
+                        # Use tz-aware now; last_changed from HA state is
+                        # always tz-aware, so compare against a tz-aware
+                        # reference to avoid a naive-vs-aware TypeError.
+                        now_utc = datetime.now(timezone.utc)
+                        earliest_allowed = now_utc - timedelta(
+                            seconds=max(0, threshold_s - GUEST_BOOT_SEED_MIN_RESIDUAL_S),
+                        )
+                        seeded = last_changed if last_changed >= earliest_allowed else earliest_allowed
+                        self._guest_room_state[room_name]["first_seen"] = seeded
                         _LOGGER.info(
                             "D5 guest room '%s': boot-seeded first_seen=%s "
-                            "(occupancy ON pre-restart, no known occupant) — "
+                            "(last_changed=%s, residual_floor=%ds, clamped=%s) — "
                             "preserves pre-restart arming clock",
-                            room_name, last_changed.isoformat(),
+                            room_name, seeded.isoformat(),
+                            last_changed.isoformat(),
+                            GUEST_BOOT_SEED_MIN_RESIDUAL_S,
+                            seeded is not last_changed,
                         )
             except Exception:
                 _LOGGER.debug(
@@ -4914,6 +4939,27 @@ class PresenceCoordinator(BaseCoordinator):
             if first_seen is None:
                 continue
             if state_dict.get("current_occupancy_known", False):
+                continue
+            # HIGH fix-up (2026-08-16): LIVE identity re-check before firing.
+            # `current_occupancy_known` is set only by the state-change
+            # LISTENER (_handle_guest_room_occupancy_change); a resident
+            # sitting still across HA restart never toggles occupancy and
+            # so the flag stays False even though person_coordinator
+            # eventually places them in the room. Re-check now against
+            # fresh substrate. If known: treat as Transition 2 — clear
+            # first_seen, set the flag True, continue (do not fire). This
+            # closes the boot false-GUEST hole and any other staleness of
+            # the cached flag. _is_known_person_in_room is a cheap
+            # in-memory dict lookup that reads fresh from hass.data.
+            if self._is_known_person_in_room(room_name):
+                _LOGGER.info(
+                    "D5 guest room '%s': live re-check found known person "
+                    "at gate time — clearing stale first_seen (was %s), "
+                    "not firing",
+                    room_name, first_seen.isoformat(),
+                )
+                state_dict["first_seen"] = None
+                state_dict["current_occupancy_known"] = True
                 continue
             threshold_min = state_dict.get("threshold_min", 30)
             elapsed_min = (now - first_seen).total_seconds() / 60.0
