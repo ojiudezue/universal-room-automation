@@ -1210,6 +1210,24 @@ cards:
   l2_INTERIM_PASS_2026_08_16: 'ORGANIC PROOF (operator home, ~evening): census reads 6 = identified 4 + unidentified 2, camera_unrecognized 2, source_agreement close, confidence medium, wifi_guest_floor 6 (independent corroboration). Pre-fix this was STRUCTURALLY IMPOSSIBLE — census was pinned at identified count (max 4) because the _2 count sensors matched nothing. Interim criterion (any unidentified contribution) PASSED. Full criterion (headcount tracking at a gathering) still open but the mechanism is proven live.'
 
 
+- id: CENSUS-DEDUP-REPAIR-1
+  title: 'Repair the census dedup defenses at source (BLE-cancel returns 0; fresh-face -1 inert) — investigation FIRST, not a plan'
+  thread: presence
+  status: pre_planning
+  approval: unreviewed
+  origin:
+    date: '2026-08-16'
+    gist: 'Operator: "Is this a third cycle?" — yes. Cycle 1 caps the wrong count, cycle 2 fixes timing/scope, cycle 3 makes the count correct at source.'
+  problem_solution:
+  - 'P10 the per-area BLE-cancel subtraction reports ble_cancelled_count 0 every tick while residents ARE being double-counted — cause UNKNOWN. Ruled out: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks one). S10 PROBE FIRST using the diagnostics shipping in cycle 1 (pre-cancel scalar, _last_ble_by_area, _last_ble_cancel_enabled) which for the first time can distinguish ran-and-cancelled-zero from never-ran. No plan until the probe answers it.'
+  - 'P11 the fresh-face -1 per-camera defense is inert because face recognition produces ~0 identities (face_recognized_persons empty with 4 known residents home). S11 gated on the EXTERNAL Frigate detect-stream + enrollment chain (homelab-side) — not fixable in URA code. Track the dependency; re-measure after the face pipeline produces.'
+  why: 'Cycle 1 CAPS the double-count (10 -> 6 for 5 real people); the residual +1 is exactly this unrepaired dedup. Cycle 3 is what makes the count actually right. If it succeeds, cycle 1''s clamp becomes a mostly-inert safety net — which is the correct end state for a guard.'
+  constraints:
+  - 'DO NOT plan before probing — the mechanism is genuinely unexplained and guess-fixing a subtraction that silently returns zero is how a second wrong number gets shipped.'
+  - 'Partly gated on operator/homelab infra (face pipeline). The BLE-cancel half is NOT gated and can proceed as soon as cycle 1 ships its diagnostics.'
+  next: 'After cycle 1 deploys: read the new diagnostics live, answer why cancellation is zero, THEN scope.'
+  refs: [docs/planning/RESEARCH_census_vs_guest_separation.md, docs/planning/RESEARCH_guest_actuation_and_census.md]
+
 - id: CENSUS-DECAY-SEPARATION-1
   title: 'Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior census'
   thread: presence

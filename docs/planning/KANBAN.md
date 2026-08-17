@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T19:13:07-05:00_ - _Data commit: `31c595d866e1`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T20:27:00-05:00_ - _Data commit: `6fe7be89f6b7`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-16T19:13:07-05:00_ - _Data commit: `31c595d866e1`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🧭 Pre-planning | 7 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
@@ -27,7 +27,7 @@ _raw capture_
 
 _(none)_
 
-## 🧭 Pre-planning (7)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -37,6 +37,15 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
+
+### `CENSUS-DEDUP-REPAIR-1` - Repair the census dedup defenses at source (BLE-cancel returns 0; fresh-face -1 inert) — investigation FIRST, not a plan
+thread: **presence** - status: **pre_planning** - approval: **unreviewed**
+- **Origin:** 2026-08-16 - Operator: "Is this a third cycle?" — yes. Cycle 1 caps the wrong count, cycle 2 fixes timing/scope, cycle 3 makes the count correct at source.
+- **Why:** Cycle 1 CAPS the double-count (10 -> 6 for 5 real people); the residual +1 is exactly this unrepaired dedup. Cycle 3 is what makes the count actually right. If it succeeds, cycle 1's clamp becomes a mostly-inert safety net — which is the...
+- **Next:** After cycle 1 deploys: read the new diagnostics live, answer why cancellation is zero, THEN scope.
+- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/RESEARCH_guest_actuation_and_census.md
+- **Forensic keys (1):**
+  - `problem_solution`: P10 the per-area BLE-cancel subtraction reports ble_cancelled_count 0 every tick while residents ARE being double-counted — cause UNKNOWN. Ruled out: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 senso...
 
 ### `CENSUS-DECAY-SEPARATION-1` - Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior census
 thread: **presence** - status: **pre_planning** - approval: **implied**
