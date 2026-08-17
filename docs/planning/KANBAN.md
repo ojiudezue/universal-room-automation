@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T19:08:42-05:00_ - _Data commit: `8599a3142ba3`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T19:13:07-05:00_ - _Data commit: `31c595d866e1`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-16T19:08:42-05:00_ - _Data commit: `8599a3142ba3`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🧭 Pre-planning | 6 |
+| 🧭 Pre-planning | 7 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
@@ -27,7 +27,7 @@ _raw capture_
 
 _(none)_
 
-## 🧭 Pre-planning (6)
+## 🧭 Pre-planning (7)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -37,6 +37,15 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
+
+### `CENSUS-DECAY-SEPARATION-1` - Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior census
+thread: **presence** - status: **pre_planning** - approval: **implied**
+- **Origin:** 2026-08-16 - Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md (aa3e39aa8).
+- **Why:** Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOT...
+- **Next:** Plan after the guest-census cycle ships and its live validation lands (the post-fix census reading is an input).
+- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md
+- **Forensic keys (1):**
+  - `problem_solution`: P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**

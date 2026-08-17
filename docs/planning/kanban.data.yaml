@@ -1210,6 +1210,28 @@ cards:
   l2_INTERIM_PASS_2026_08_16: 'ORGANIC PROOF (operator home, ~evening): census reads 6 = identified 4 + unidentified 2, camera_unrecognized 2, source_agreement close, confidence medium, wifi_guest_floor 6 (independent corroboration). Pre-fix this was STRUCTURALLY IMPOSSIBLE — census was pinned at identified count (max 4) because the _2 count sensors matched nothing. Interim criterion (any unidentified contribution) PASSED. Full criterion (headcount tracking at a gathering) still open but the mechanism is proven live.'
 
 
+- id: CENSUS-DECAY-SEPARATION-1
+  title: 'Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior census'
+  thread: presence
+  status: pre_planning
+  approval: implied
+  approved_by: 'operator 2026-08-16 ("Census and guest are diff states... Census decay is also not the same as Guest decay. Separate concerns.")'
+  origin:
+    date: '2026-08-16'
+    gist: 'Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md (aa3e39aa8).'
+  problem_solution:
+  - 'P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). S5 give each its own timing: census adopts the instant-drop branch ALREADY RUNNING for the exterior zone; guest keeps its own 300s dwell + 300s exit damping.'
+  - 'P6 decay never fires for systematic errors — the peak self-refreshes when fresh == peak, so a permanently-wrong value renews forever while only transients decay (wrong sign on both axes). S6 remove the self-renewing slope; make heldness visible.'
+  - 'P7 consumers cannot distinguish a fresh count from a 20-minute-old latched one. S7 publish peak_held / peak_age / count_as_of — all already computed internally and discarded.'
+  - 'P8 the exterior census is STRANDED: ExteriorTrackLinker.census_counts() is built, live, publishing exterior_unidentified_persons with ZERO consumers. S8 wire it into the census and admit exterior arrivals as a guest CORROBORATOR (a second signal for concern (b) independent of the interior count).'
+  - 'P9 outdoor presence may pollute the interior headcount (outdoor-zone filter designed, unbuilt). S9 apply the filter using the existing CONF_ZONE_IS_OUTDOOR flag.'
+  why: 'Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOTE: the v4.7.18 plan scoped this separation (CensusHoldDecayService + presence peek()) and it was never built — every cycle since has patched measurement accuracy instead.'
+  constraints:
+  - 'MOSTLY COMPOSITION, NOT CONSTRUCTION — already built and just needs composing: the instant-drop branch (running for exterior), peak_held/peak_age, ExteriorTrackLinker.census_counts(), CONF_ZONE_IS_OUTDOOR, guest dwell/exit damping, the raw subtractive derivation.'
+  - 'Do NOT conflate with the guest-census correctness cycle (CENSUS-GHOST-DEDUP-1): that one CAPS and RE-ROUTES; it does not repair or re-time anything. Decay and dedup repair are THIS card.'
+  next: 'Plan after the guest-census cycle ships and its live validation lands (the post-fix census reading is an input).'
+  refs: [docs/planning/RESEARCH_census_vs_guest_separation.md, docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md]
+
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed value'
   thread: presence
