@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T20:27:00-05:00_ - _Data commit: `6fe7be89f6b7`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T20:27:41-05:00_ - _Data commit: `38ffac5a7c74`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -53,8 +53,10 @@ thread: **presence** - status: **pre_planning** - approval: **implied**
 - **Why:** Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOT...
 - **Next:** Plan after the guest-census cycle ships and its live validation lands (the post-fix census reading is an input).
 - **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md
-- **Forensic keys (1):**
+- **Forensic keys (3):**
   - `problem_solution`: P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
+  - `operator_exterior_direction_2026_08_16`: Operator ruling on the exterior work, THREE distinctions: (1) EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior is live, and a dashboard for it already exists at doc...
+  - `regression_context_2026_08_16`: Operator: "I believe we regressed census with our prior work" — CONFIRMED with recorder data. Daily census max: Aug 9-12 = 6-7 (4 residents, chronic over-count of 2-3); Aug 13-14 = 4 (LOOKED perfect, but only because the _2-suffix break ...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
