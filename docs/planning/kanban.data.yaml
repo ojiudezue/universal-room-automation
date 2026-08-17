@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-16'
+  last_reconciled: '2026-08-17'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -13,7 +13,80 @@ meta:
   - waiting_operator
   - waiting_me
   - parked
+  last_reconciled_note: Reconciled 2026-08-17 overnight pass. NOTHING SHIPPED since v5.78.0 — newest tag
+    is v5.78.0 and manifest reads v5.78.0. README_v5.79.0.md exists but is an UNSHIPPED pre-deploy draft,
+    which is why the rung-3 staleness rule (last_reconciled older than newest README) fired as a FALSE
+    POSITIVE. The generator should compare against SHIPPED versions (git tag / manifest), not merely the
+    presence of a README file.
 cards:
+- id: GUEST-ROOM-CONFIG-1
+  title: 'Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)'
+  thread: presence
+  status: done
+  approval: explicit
+  approved_by: operator 2026-08-17 ("Findlay down guest bathroom. Misconfiguration" / "Unflag")
+  origin:
+    date: '2026-08-17'
+    gist: Operator flagged the Down Guest Bathroom designation as a misconfiguration while reviewing which
+      rooms should carry the guest role.
+  problem_solution:
+  - 'P1 `Down Guest Bathroom` (room_name "Guest Bedroom 1 Bathroom", room_type=bathroom) carried room_is_guest_room=True.
+    Under the dead identity oracle (see CENSUS-GHOST-DEDUP-1) EVERY designated guest room arms GUEST after
+    30 min of ANY occupancy, and a bathroom is the worst possible member of that set — frequent, unattributed,
+    often nocturnal occupancy. Likely a live contributor to the unexplained guest episodes. S1 DONE: unflagged
+    via the options flow; room_is_guest_room=False, all 22 sibling options preserved. Designated set is
+    now exactly Guest Bedroom 1 + Upstairs Guestroom, both room_type=bedroom.'
+  why: 'Config correctness, and a prerequisite for D2 being safe: D2 makes the guest-room gate the SOLE
+    arm for GUEST, so the designated set becomes load-bearing.'
+  constraints:
+  - 'INCIDENT NOTE (orchestrator, disclose don''t bury): the FIRST exploratory options-flow call submitted
+    basic_setup with schema defaults and thereby triggered the ROOM-NAME-DESYNC write-through, RENAMING
+    the entry from "Down Guest Bathroom" to "Guest Bedroom 1 Bathroom" and materialising data->options.
+    Values preserved and the rename arguably fixes a title/room_name desync, but it was an unintended
+    live-config mutation from a flow I had not read first. config_flow.py:9193 should have been read BEFORE
+    calling, not after. No-Fabrication applies to APIs, not just to code claims.'
+  - 'API GOTCHA worth remembering: URA''s basic_setup options step signals SUCCESS via async_abort(reason="reconfigure_successful")
+    — deliberately, so the update listener does not fire twice (config_flow.py:9205-9209). The MCP tool
+    surfaces that as an ERROR. The naive reaction is to retry, and retrying a write that already succeeded
+    is how config gets double-applied. Partial input IS safe: the step does merged_options = {**entry.options,
+    **user_input}.'
+  next: 'None — done. Verified live: designated set = Guest Bedroom 1, Upstairs Guestroom.'
+  refs:
+  - custom_components/universal_room_automation/config_flow.py:9193
+  - custom_components/universal_room_automation/const.py:386
+- id: GUEST-IDENTITY-PHONE-LEFT-BEHIND-1
+  title: Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after
+    30 min
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-17'
+    gist: Confirmed by the oracle-fix builder on orchestrator instruction to report-not-fix; surfaced
+      when the operator noted "The guest room presence known person exclusion via BLE is crucial and good
+      finding".
+  problem_solution:
+  - P1 `_is_known_person_in_room` reads person_coord.data[name]["location"], which is Bermuda BLE-sourced
+    (person_coordinator.py:471-541, 1036-1096). A resident physically IN the guest room whose phone is
+    elsewhere — or who carries no BLE beacon — resolves to location != room_name, so the exclusion returns
+    False and GUEST arms on a resident after 30 min. The exclusion inherits the phone-left-behind failure
+    mode wholesale. S1 (candidate, NOT a plan) cross-check room occupancy / the existing phone-left-behind
+    machinery before concluding "unknown occupant".
+  why: Under D2 this exclusion is the SOLE safety check between guest-room occupancy and GUEST mode, so
+    its blind spots are guest-mode false positives. The GUEST_KNOWN_STICKY_S=120 latch shipped in the
+    oracle fix absorbs BLE FLAP but does nothing for a phone that is simply elsewhere — different failure,
+    not covered.
+  constraints:
+  - 'Prior art EXISTS and is NOT reachable from this path: v5.78.0 Gap-B wired phone-left-behind detection
+    to room occupancy, and PersonPhoneLeftBehindSensor exists. The new helper does a raw single-substrate
+    lookup with no cross-check. Verify both surfaces before designing — do not build a third mechanism.'
+  - Deliberately scoped OUT of the guest-census cycle to avoid scope creep; report-only was the instruction.
+  next: 'After the guest-census cycle ships and the repaired oracle has organic evidence: quantify first
+    — how often does a resident occupy a designated guest room while BLE places them elsewhere? Measure
+    before designing.'
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/presence.py
+  - docs/readmes/README_v5.78.0.md
 - id: STUCK-SENSOR-1
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
@@ -1717,7 +1790,7 @@ cards:
   title: 'Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person
     crossing inside can corroborate guest'
   thread: presence
-  status: pre_planning
+  status: planned
   approval: explicit
   approved_by: operator 2026-08-16 ("Agree on recommendations... Card the one you said to park and do
     it next so we have the complete set") — approved as the cycle AFTER the census set (1 guest-census
@@ -1772,16 +1845,16 @@ cards:
     the scope.
   - Do NOT start before cycle 1's guest-room gate is live and organically proven — this cycle corroborates
     that gate, so an unproven gate makes it unverifiable.
-  next: 'Gate check first: confirm cycle-1 D2 guest-room gate is live and organically proven. Then a probe-first
-    measurement per measure-before-you-build — over existing recorder/DB history, how often does an `ura_person_egress_event`
-    fire, what is its direction/confidence distribution, and how often does an approach-classified exterior
-    track terminate at an egress camera? That frequency gates whether P3''s hand-off is worth building
-    at all.'
+  next: 'D0 probe FIRST (gate): 14d of recorder/DB — ura_person_egress_event daily fire counts, confidence
+    histogram, %% with an in-window face sighting, and approach-classified track terminations at egress-adjacent
+    cameras. Go-thresholds in the plan: D1 needs >=30%% face coverage; D2 needs that AND >=3 entry-events/week.
+    Then build D1 ONLY (Tier 2) per the marginal-benefit ruling.'
   refs:
   - custom_components/universal_room_automation/transit_validator.py:829-1140
   - custom_components/universal_room_automation/exterior_track_linker.py:766-777
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
+  - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed
     value'
@@ -1821,9 +1894,10 @@ cards:
     is 2 — suggests the contributions arrived via the unassigned_raw (null-area) path, which invariant
     I3 makes uncancellable BY DESIGN, or the enhanced-census path is not the one producing this count.
     No BLE-cancel INFO log lines observed at all.'
-  next: 'Fix-up round 2 (orchestrator-found HIGH) in flight, then FULLER adversarial re-review (operator
-    ruling 2026-08-16: "Fuller pass"), then ura-validator sequential baseline pair, merge, deploy as v5.79.0,
-    then write observed results into README_v5.79.0.md Live Validation.'
+  next: 'Suite run + NAME-diff at tip 7e3fa18d0 (never completed — blocked all night by concurrent-pytest
+    deadlock, now cleared and guarded by the new hook), THEN re-run the framings against the REPAIRED
+    oracle (operator: "Fix, then re-run all framings"), then merge + deploy as v5.79.0, then write the
+    observed table into README_v5.79.0.md. Operator 2026-08-17: "Don''t hold the cycle."'
   parked_alts:
   - Wait for face recognition to solve it (Frigate/Protect enrollment) — real but slower; the dedup should
     not DEPEND on faces working
@@ -1867,6 +1941,39 @@ cards:
     in a guest room tonight. KNOWN AND DOCUMENTED: this cycle fixes GUEST, not the census NUMBER — D1
     is a no-op when the camera body total is itself inflated (review A per-value table). Count repair
     is CENSUS-DEDUP-REPAIR-1.'
+  fuller_pass_outcome_2026_08_17: 'FULLER ADVERSARIAL PASS (operator ruling "Fuller pass") — THREE MORE
+    framing-disjoint reviews, ALL THREE DO-NOT-SHIP. This pass is the only reason the cycle did not ship
+    broken. D (adversarial completeness, 13ba10861) + E (lifecycle, dcf4b3d09) INDEPENDENTLY found the
+    same CRITICAL by different routes, and it is TWO separate bugs in one 20-line helper `_is_known_person_in_room`
+    — (i) `manager.coordinators.get("person")` always None because the person coordinator is NEVER passed
+    to register_coordinator() (only presence/safety/security/mf/energy/hvac/optimization are; all 7 sibling
+    sites in the same file use hass.data[DOMAIN]["person_coordinator"] — :4814 was the lone outlier),
+    and (ii) `_tracked_persons` does not exist repo-wide (one reference: the read itself; real store is
+    person_coord.data[name]["location"]). It short-circuits on (i), masking (ii) — so a fix addressing
+    only one would still have been silently broken. Orchestrator verified both by grep. CONSEQUENCE: the
+    "known person -> disarm guest gate" Transition has NEVER fired since v4.7.2, so ANY 30-min occupancy
+    of a designated guest room arms GUEST including by residents. This is LIVE, not latent — see guest_room_designation_correction
+    below. F (test authority, 956e366cd) found a THIRD hollow-anchor variant beyond delete and comment-out:
+    ORACLE-ECHO — `test_boot_seed_residual_clamp` imported GUEST_BOOT_SEED_MIN_RESIDUAL_S for its own
+    expected bound, so setting that constant to 0 (its own documented kill-switch value) left the test
+    GREEN. Also a second variant-7 anchor in test_registers_state_change_listener. FIX committed 7e3fa18d0:
+    canonical hass.data lookup + real data shape, plus GUEST_KNOWN_STICKY_S=120 (rung 1) latch because
+    BLE room location FLAPS (prior art: Jaya Bedroom flapping on Bermuda noise) and a flap during the
+    gate re-check would otherwise fire GUEST on a resident. All 4 drills red-then-green incl. both revert-drills.
+    Vocabulary verified live BEFORE coding: person `location` values are CONF_ROOM_NAME verbatim, so no
+    mismatch.'
+  guest_room_designation_correction_2026_08_17: 'ORCHESTRATOR ERROR, CORRECTED BY OPERATOR. I reported
+    "zero rooms designated is_guest_room=True" and concluded D2 would silently DISABLE guest mode. WRONG
+    — I queried a plausible key name instead of the one the code reads. The real key is CONF_ROOM_IS_GUEST_ROOM
+    = "room_is_guest_room" (const.py:386, read at presence.py:4698). THREE rooms were designated: Guest
+    Bedroom 1 (bedroom), Upstairs Guestroom / room_name "Guest Bedroom 2" (bedroom), and Down Guest Bathroom
+    / room_name "Guest Bedroom 1 Bathroom" (bathroom - MISCONFIGURATION). The build agent made the SAME
+    wrong-key error and I "verified" its claim using the same wrong key — two agents agreeing via one
+    shared wrong method, which read as confirmation. Lesson: verify the METHOD, not just the claim. Because
+    rooms ARE designated, the dead-oracle CRITICAL is a LIVE production bug, and it very likely explains
+    the probe finding that 72% of guest minutes had unidentified_count==0 — that is Path B firing on residents
+    through the dead identity check, with no census involvement. Two independent false-guest sources were
+    running at once and we only had evidence of one. RESOLVED tonight: bathroom unflagged (see GUEST-ROOM-CONFIG-1).'
 - id: CENSUS-GUEST-FLOOR-1
   title: Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded
     FLOOR, gated to contain the FP problem that unplugged it
