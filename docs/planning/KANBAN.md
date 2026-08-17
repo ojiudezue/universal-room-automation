@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T20:27:41-05:00_ - _Data commit: `38ffac5a7c74`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T20:36:05-05:00_ - _Data commit: `5b0258f0995e`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -56,6 +56,7 @@ thread: **presence** - status: **pre_planning** - approval: **implied**
 - **Forensic keys (3):**
   - `problem_solution`: P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
   - `operator_exterior_direction_2026_08_16`: Operator ruling on the exterior work, THREE distinctions: (1) EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior is live, and a dashboard for it already exists at doc...
+  - `measured_incident_2026_08_16_guest_7h`: MEASURED end-to-end retrace of a live false-guest episode (operator flagged "5 seen, guest mode, 4 known"). Recorder: house `guest` 13:38:33 -> `home_evening` 20:40:59 = **7h02m of false guest with 4 known residents and zero guests**. Entry was CENSUS-driven (Path A): census hit 6 at 13:38:03, guest 30s later. Census sawtoothed 4..10 all afternoon, never resting at 4 until 20:35:59; guest released 5 min after census finally reached 4. Confirmed constants: `CENSUS_PEAK_SUSTAIN_SECONDS=15` (latch), `DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES=3`, `CENSUS_DECAY_STEP_SECONDS=300` (-1/5min), `DEFAULT_GUEST_PERSISTENCE_SECONDS=300`. **The asymmetry IS the bug:** 15s of phantom latches a peak that costs 3min hold + 5min PER EXCESS PERSON to clear — the observed spike to 10 (identified=4) implies ~33 min of elevated count from a 15-second artifact, and re-spikes arrived faster than the decay drained (peak self-refreshes when `fresh == peak`, so a recurring artifact never decays at all). Decay measured exactly: 10->9->8->7->6->5 at 18:47/18:52/18:57/19:02/19:07. **Cycle-1 impact (verified, not assumed):** D2 KILLS this entry path (guest entry becomes guest-room-only, Path A removed) and D2b decouples the exit from the count — so this exact episode cannot recur. D1's clamp does NOT get the count to 4: it bounds to the pre-cancel camera body total, which is itself inflated (6 for 4 people), so the NUMBER stays wrong until cycle-3 dedup repair. Cycle 2 must fix the latch/decay asymmetry; cycle 3 must fix the camera body total.
   - `regression_context_2026_08_16`: Operator: "I believe we regressed census with our prior work" — CONFIRMED with recorder data. Daily census max: Aug 9-12 = 6-7 (4 residents, chronic over-count of 2-3); Aug 13-14 = 4 (LOOKED perfect, but only because the _2-suffix break ...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
