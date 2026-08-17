@@ -1,0 +1,94 @@
+{
+  "format_version": "2.1",
+  "entry_id": "054",
+  "author": "ojiudezue",
+  "session_id": "claude_20260816_17_guest_census_correctness_fuller_pass",
+  "timestamp": "2026-08-17T07:00:00Z",
+  "type": "counseling",
+  "weight": "critical",
+  "title": "The cycle that shipped nothing: six framing-disjoint reviews to find that guest mode's only safety check had never run",
+  "summary": "A small guest/census correctness cycle (clamp the double-counting census, make guest rooms lead instead of the count) passed three framing-disjoint reviews, then its own fix-up introduced a HIGH, then an operator-ordered FOURTH-through-SIXTH pass found that the load-bearing identity check `_is_known_person_in_room` had never worked in production — two independent bugs in one 20-line helper, hidden behind a fail-open default. Nothing shipped. Three separate regressions were stopped: a false-guest-at-boot, a guest gate resting on a dead oracle, and a whole cycle of dedup work a 10-minute probe proved would buy zero. The night's durable output is process, not code: producer-AND-consumer checks, a third hollow-anchor variant, a pytest-serialization mechanism, and the lesson that agreement between two agents using the same wrong method reads exactly like verification.",
+  "decisions": [
+    {
+      "decision": "Separate census (measurement) from guest (policy state), with guest rooms leading and the count only corroborating.",
+      "why": "Operator ruling: 'Census and guest are diff states... Census decay is also not the same as Guest decay. Separate concerns.' The house sat in `guest` for 7h02m with four known residents and zero guests; entry was census-driven (count hit 6, guest 30s later) and exit was blocked because the exit predicate required unidentified_count == 0. Guest was a function of a decaying measurement, which is the root architectural error, not a tuning problem."
+    },
+    {
+      "decision": "Use the Tier-3 fuller pass (adversarial completeness + lifecycle + test authority) even though three reviews had already returned SHIP.",
+      "why": "Operator answered 'Fuller pass' when offered a single focused re-review. That call is the only reason the cycle did not ship. The three extra framings returned three DO-NOT-SHIPs. A focused pass scoped to the fix-up diff would have missed the dead oracle entirely, because the oracle predated the diff."
+    },
+    {
+      "decision": "Enforce pytest serialization as a PreToolUse hook rather than a prompt instruction.",
+      "why": "The suite runs ~4 min alone and 30-45 min when overlapped; a 43-min straggler was found holding the host while three agents queued. A prompt rule cannot hold because parallel agents each individually believe they are the only one — there is no vantage point inside a single agent from which to see the contention. Mechanism over rule, same reasoning as the disposition-apply forcing function."
+    },
+    {
+      "decision": "Drop the census dedup repair on probe evidence instead of building it.",
+      "why": "Measure-before-you-build: the probe showed BLE-cancel is not broken code at all. The kill switch is on and the map is non-empty; the break is area-set disjointness (3 of 7 camera areas have no URA room, and no interior camera covers any bedroom or bathroom - residents were in a camera-covered room for 3.75% of person-minutes all week). It is a coverage/config problem. Meanwhile 74.5% of elevated-census time had camera_unrecognized == 0 - pure hold/decay tail. The decay work is the high-value item; the dedup work was worth ~0."
+    },
+    {
+      "decision": "Merge the two census cycles and run three cycles in parallel after the operator flagged the pace as slow.",
+      "why": "The complaint was fair. But the throughput problem was never the reviews - it was a 10x pytest tax and a fix-up that skipped its own producer check. Cycles 2 and 3 were both census-side and shared every consumer and test surface, so splitting them bought isolation nobody needed at the cost of a full review round."
+    }
+  ],
+  "alternatives_considered": [
+    {
+      "alternative": "Ship D1/D2b/D3 and hold only D2 (the guest composition change).",
+      "rejected_because": "Operator: 'Don't hold the cycle.' Also moot once the designation error was corrected - with guest rooms genuinely designated, the dead oracle is a live bug that D2 makes load-bearing, so the oracle fix is a prerequisite either way rather than a follow-up."
+    },
+    {
+      "alternative": "Rename the 23 `_2`-suffixed Frigate face entities so the code's constructed slug resolves.",
+      "rejected_because": "It works today and re-breaks on the next collision. The durable fix is registry resolution, for which this very cycle already set precedent: D3 replaced constructed-slug lookup with entity_registry.async_get_entity_id for exactly this failure class."
+    },
+    {
+      "alternative": "Build exterior->guest admission alongside the exterior headcount swap.",
+      "rejected_because": "Marginal-benefit decomposition. The headcount swap is read-only composition of a better number we already own; the admission path would create the FIRST exterior->house-state trust edge for ~5 minutes off a 30-minute dwell in a rare event. Parked with a revisit trigger, not deleted."
+    }
+  ],
+  "implications": [
+    {
+      "implication": "Bug Class #63 - dead oracle behind a fail-open default.",
+      "detail": "`_is_known_person_in_room` looked up `manager.coordinators.get('person')` (the person coordinator is never registered; all 7 sibling sites in the same file use hass.data[DOMAIN]['person_coordinator']) AND read `_tracked_persons` (one reference repo-wide: the read itself). It short-circuited on the first, masking the second, so a fix addressing only one would still have been silently broken. The `except -> return False` made it look defensive while being inert. Detection: for every attribute a predicate depends on, grep for its WRITERS; zero writers IS the finding. Odd-one-out is guilty until proven innocent."
+    },
+    {
+      "implication": "Bug Class #64 - oracle-echo hollow anchor, a third variant beyond delete and comment-out.",
+      "detail": "A test computed its expected bound by importing the production constant it claimed to guard, so both sides moved together. Setting that constant to 0 - its own documented kill-switch value - left the test green. Attack by DETACHING the value, not by removing code."
+    },
+    {
+      "implication": "Composition changes re-scope untouched code.",
+      "detail": "D2 (guest rooms lead) and D3 (repair guest-room resolution) are each harmless alone and jointly dangerous: D3 activated a path that was partly dead, and D2 made that newly-live path the sole authority - over a helper that had never worked. When a change promotes a previously-OR'd path to sole authority, every helper on it must be re-verified as if newly written, even with a zero-line diff."
+    },
+    {
+      "implication": "Two agents agreeing via one shared wrong method reads exactly like verification.",
+      "detail": "The builder reported 'no rooms designated is_guest_room'; I verified it - using the same wrong key. The real key is `room_is_guest_room`. Three rooms WERE designated, including a bathroom (misconfiguration, now unflagged), which made the dead oracle a live bug and likely explains the probe's otherwise-unexplained finding that 72% of guest minutes had unidentified_count == 0: Path B firing on residents with no census involvement. Verify the METHOD, not just the claim."
+    },
+    {
+      "implication": "A reviewer's wrong diff base silently voids its entire framing.",
+      "detail": "Review B used two-dot `A..B` from the cycle's own first commit, which excludes A, so it concluded a whole deliverable was absent and declared its ripple analysis 'vacuous' - i.e. its assigned framing never ran, and it returned a confident SHIP. Caught only because a sibling framing had drilled the same code. Treat 'this framing turned out to be N/A' as a red flag requiring proof, and never inherit a reviewer's claim about branch CONTENTS."
+    }
+  ],
+  "refs": {
+    "docs": [
+      "docs/planning/PLANNING_guest_census_correctness.md",
+      "docs/planning/AUDIT_census_accuracy_probe.md",
+      "docs/planning/PLANNING_exterior_guest_egress.md",
+      "docs/reviews/code-review/guest_census_review_D_completeness.md",
+      "docs/reviews/code-review/guest_census_review_E_lifecycle.md",
+      "docs/reviews/code-review/guest_census_review_F_test_authority.md",
+      "docs/readmes/README_v5.79.0.md"
+    ],
+    "commits": [
+      "7e3fa18d0 oracle fix (canonical lookup + real data shape + BLE-flap sticky latch)",
+      "1107d3b31 fix-up r2 (live re-check + boot-seed clamp)",
+      "0e0ea97a2 fix-up r1 (7 review findings)",
+      "13ba10861 review D",
+      "dcf4b3d09 review E",
+      "956e366cd review F",
+      "987d46b08 pytest serialization guard",
+      "7e4da3426 guard fixes (catch-22 + zombie)",
+      "4f67edfea census accuracy probe"
+    ],
+    "related_entries": ["053", "029"]
+  },
+  "confidence": "high",
+  "revisit_trigger": "If the repaired oracle's first organic guest visit does NOT arm GUEST (over-correction), or if a resident in a designated guest room still arms it (the phone-left-behind path, carded as GUEST-IDENTITY-PHONE-LEFT-BEHIND-1). Either outcome falsifies the fix in a way the suite cannot."
+}
