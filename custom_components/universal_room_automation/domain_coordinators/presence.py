@@ -5386,10 +5386,16 @@ class PresenceCoordinator(BaseCoordinator):
                 census_confidence=self._census_confidence,
                 now=now,
             )
-            # v4.7.2 D5: Sustained-occupancy guest room path (additive OR).
+            # v4.7.2 D5: Sustained-occupancy guest room path.
             # Bug Class #11: D5 timestamps are UTC-aware (dt_util.utcnow()).
             guest_room_gate_armed = self._guest_room_gate_armed(now=dt_util.utcnow())
-            guest_armed = unid_gate_armed or guest_room_gate_armed
+            # GUEST-CENSUS D2 (2026-08-16): guest rooms LEAD; census (Path A)
+            # is a corroborator only. See M1 trade-offs in
+            # docs/planning/PLANNING_guest_census_correctness.md — accepts
+            # that guests in non-flagged rooms or present <30 min will NOT
+            # arm GUEST. Manual override (HouseStateMachine.set_override)
+            # remains an intentional bypass and is not affected.
+            guest_armed = guest_room_gate_armed
         elif current_state == HouseState.GUEST:
             # Already in GUEST state — skip unid gate (side-effect-bearing) but
             # evaluate guest_room gate (pure predicate) so the hold/exit decision
@@ -5406,12 +5412,17 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.2 D5: Confidence layering math (plan §7).
         # unid path: 0.8 (existing). guest_room path: 0.9 (higher specificity).
         # max() when both fire; individual when only one fires.
+        # GUEST-CENSUS D2 confidence: census corroboration bumps room-only
+        # confidence 0.9 → 0.95. Room-only stays 0.9. The census-only branch
+        # is unreachable under the new predicate (guest_armed depends on
+        # room only) but the shape is preserved for readers that inspect
+        # _d5_guest_confidence directly.
         if guest_room_gate_armed and unid_gate_armed:
-            _d5_guest_confidence: float = max(0.8, 0.9)  # = 0.9
+            _d5_guest_confidence: float = 0.95
         elif guest_room_gate_armed:
             _d5_guest_confidence = 0.9
         else:
-            _d5_guest_confidence = 0.8  # unid path only, or neither (ignored)
+            _d5_guest_confidence = 0.8  # unreachable under D2; shape-preserved
 
         # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
         # For each zone, build a weight map keyed by room_name using the
