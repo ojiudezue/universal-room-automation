@@ -265,8 +265,9 @@ class TestD5DiscoverGuestRooms:
 
     def test_registers_state_change_listener(self, presence_src):
         idx = presence_src.find("def _discover_guest_rooms(")
-        # Function body can be up to 4000 chars — use generous window
-        body = presence_src[idx:idx + 4000]
+        # Function body can be up to 6000 chars (bumped from 4000 after
+        # Review B-MEDIUM-1 boot-seed block was added, 2026-08-16).
+        body = presence_src[idx:idx + 6000]
         assert "async_track_state_change_event" in body, (
             "_discover_guest_rooms must subscribe to occupancy sensor state changes"
         )
@@ -420,6 +421,13 @@ class TestD5RunInferenceOr:
         assert "guest_armed = guest_room_gate_armed" in body, (
             "D2: guest_armed must be set from guest_room_gate_armed "
             "(Path B leads, Path A corroborates)"
+        )
+        # Review C-LOW-1 (2026-08-16): explicit negative for symmetry with
+        # the sibling TestD5ExitConditionGuard rewrite. The pre-D2 OR
+        # composition (``unid_gate_armed or ...``) MUST NOT resurface.
+        assert "unid_gate_armed or" not in body, (
+            "D2: the pre-cycle ``unid_gate_armed or guest_room_gate_armed`` "
+            "composition must not be reintroduced (Path A is corroborator only)"
         )
 
     def test_confidence_09_for_guest_room_path(self, presence_src):

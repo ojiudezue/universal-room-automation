@@ -398,6 +398,21 @@ else:
    occurs. D3 addresses the Upstairs Guestroom rename gap; other future
    renames will need the D3 registry-based resolver to keep working
    (which it does, by design).
+4. **Restart mid-visit — RESOLVED in fix-up (Review B-MEDIUM-1, 2026-08-16).**
+   ADDED post-review (was missing from the original M1 list). Because
+   `_guest_room_state` is RAM-only, an HA restart during a genuine
+   in-progress guest visit would previously reset the 30-min sustained
+   clock from scratch — Path A's ~5-min re-arm was gone under D2, so the
+   effective penalty was 30 min per restart, not 5. **Resolved:** the
+   fix-up added an identity-aware boot-seed in `_discover_guest_rooms`
+   that seeds `first_seen = occupancy.last_changed` when the entity is
+   currently ON and no known person is detected in the room. Restart
+   mid-visit now preserves the pre-restart arming clock. Residual: if
+   `person_coordinator` tracking hasn't populated at discover time,
+   `_is_known_person_in_room` falls back to False (safe default) and
+   may seed a resident-occupied room; the runtime gate re-checks
+   `current_occupancy_known` on the next occupancy state-change, and
+   the seeded `first_seen` is discharged via Transition 2. Accepted.
 
 **FP-suppression claim, honestly qualified:** the 50 daytime guest ENTRY
 episodes since 07-13 (RESEARCH §5 GUEST-FP-RESIDUALS-1) are Path-A-shaped.

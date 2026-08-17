@@ -3152,8 +3152,14 @@ class PersonCensus:
         # back to camera_unrecognized). Safe to read
         # ``_last_camera_total_pre_cancel`` here: we called
         # ``_get_unrecognized_camera_count()`` on line above, on this tick.
+        # Review A-LOW-1 (2026-08-16): drop trailing ``or 0`` — the getattr
+        # default already handles the attribute-missing case. The ``or 0``
+        # additionally coerced a legitimate 0 (Step-2 pre_cancel = 0) into
+        # the fallback path, which is indistinguishable from "attribute never
+        # written". No behaviour change on the attribute-missing branch
+        # (default remains 0); the semantically-correct 0 is now preserved.
         camera_total_pre_cancel = int(
-            getattr(self, "_last_camera_total_pre_cancel", 0) or 0
+            getattr(self, "_last_camera_total_pre_cancel", 0)
         )
         raw_total_ceiling = max(camera_total_pre_cancel, identified_count)
         additive_total = identified_count + held_unidentified

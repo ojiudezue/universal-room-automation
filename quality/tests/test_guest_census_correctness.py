@@ -352,12 +352,24 @@ def test_home_like_guest_armed_is_room_only(presence_src: str) -> None:
 
 
 def test_confidence_bump_when_both_gates_fire(presence_src: str) -> None:
-    """D2: confidence 0.95 when both room + census fire (was 0.9)."""
-    # Look near the confidence block.
-    idx = presence_src.find("if guest_room_gate_armed and unid_gate_armed:")
-    assert idx >= 0
-    block = presence_src[idx: idx + 400]
-    assert "0.95" in block, "D2 must set confidence 0.95 for room+census corroboration"
+    """D2: confidence 0.95 when both room + census fire (was 0.9).
+
+    Review C-MED-2 (2026-08-16): upgraded from bare-substring ``"0.95" in
+    block`` to a regex pinned to the assignment site. The prior form was
+    trivially satisfied by any comment containing ``0.95`` (e.g.
+    ``# NOTE: 0.95 removed``) even if the actual assignment was neutered
+    to ``0.9``. Anchor is the exact assignment expression, not the literal.
+    """
+    m = re.search(
+        r"if\s+guest_room_gate_armed\s+and\s+unid_gate_armed:\s*\n"
+        r"\s*_d5_guest_confidence(?:\s*:\s*float)?\s*=\s*0\.95\b",
+        presence_src,
+    )
+    assert m is not None, (
+        "D2: expected assignment ``_d5_guest_confidence = 0.95`` immediately "
+        "under ``if guest_room_gate_armed and unid_gate_armed:`` — a bare "
+        "``0.95`` in a comment does not satisfy the anchor."
+    )
 
 
 def test_inside_guest_branch_unchanged(presence_src: str) -> None:
@@ -396,12 +408,282 @@ def test_discover_uses_registry_lookup(presence_src: str) -> None:
     )
 
 
-def test_unresolvable_room_warns(presence_src: str) -> None:
+def test_unresolvable_room_warns(caplog: pytest.LogCaptureFixture) -> None:
     """D3: an unresolvable flagged guest room must log a WARNING naming
-    the room (must be LOUD, not silent)."""
-    body = _method_body(presence_src, "def _discover_guest_rooms(", span=4000)
-    assert "_LOGGER.warning" in body, "D3 requires WARNING log on registry miss"
-    assert "skipping registration" in body
+    the room AND NOT register it in ``_guest_room_state`` (must be LOUD +
+    silent-continue path is REJECTED).
+
+    Review C-MED-1 (2026-08-16, variant-7 hollow-anchor): replaced the
+    prior source-grep assertions (``"_LOGGER.warning" in body`` +
+    ``"skipping registration" in body``) with a behavioural drive of
+    ``_discover_guest_rooms``. Variant-7 evidence: the prior test PASSED
+    when the WARNING CALL was deleted but the substrings survived in a
+    comment. This test asserts the OBSERVED emit + observed non-registration,
+    which comment-preservation cannot satisfy.
+
+    Drill (D3-M2 both forms):
+      (a) delete the WARNING call outright → this test FAILs (no record).
+      (b) variant-7: replace the call with ``pass  # _LOGGER.warning
+          "skipping registration"`` → still FAILS (no record).
+    """
+    import logging as _stdlogging
+    from unittest.mock import patch as _patch
+
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+        CONF_ROOM_IS_GUEST_ROOM,
+        CONF_ROOM_NAME,
+        DOMAIN,
+        ENTRY_TYPE_ROOM,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _pres_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+
+    # Build a bare PresenceCoordinator without running __init__ (heavy).
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_state = {}
+    pc._guest_room_unsubs = {}
+    pc._guest_room_entity_to_name = {}
+
+    # Config entry: guest room flagged, no matching entity in the registry.
+    entry = MagicMock()
+    entry.entry_id = "01KTESTUNRESOLVABLE0000000"
+    entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+    entry.options = {
+        CONF_ROOM_NAME: "Phantom Guest Room",
+        CONF_ROOM_IS_GUEST_ROOM: True,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: 30,
+    }
+    pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+    # Registry stub returns None for the unique_id → resolution miss.
+    fake_reg = MagicMock()
+    fake_reg.async_get_entity_id = MagicMock(return_value=None)
+
+    import homeassistant.helpers.entity_registry as _er_mod  # stubbed via harness
+    caplog.clear()
+    with caplog.at_level(_stdlogging.WARNING, logger=_pres_mod.__name__), \
+            _patch.object(_er_mod, "async_get", return_value=fake_reg):
+        pc._discover_guest_rooms()
+
+    # (a) The room MUST NOT be registered (silent-continue path is rejected).
+    assert "Phantom Guest Room" not in pc._guest_room_state, (
+        "D3: unresolvable guest room must NOT be registered in _guest_room_state"
+    )
+    assert pc._guest_room_unsubs == {}, "D3: no listener subscribed on miss"
+
+    # (b) A WARNING must have been EMITTED naming the room and the entry.
+    matching = [
+        r for r in caplog.records
+        if r.levelno >= _stdlogging.WARNING
+        and "Phantom Guest Room" in r.getMessage()
+    ]
+    assert matching, (
+        "D3: expected WARNING record naming the unresolvable room; "
+        f"got records: {[(r.levelname, r.getMessage()) for r in caplog.records]}"
+    )
+
+
+def test_discover_boot_seeds_first_seen_when_occupancy_on() -> None:
+    """Review B-MEDIUM-1 (2026-08-16) — identity-aware boot seed.
+
+    ``_guest_room_state`` is RAM-only; a mid-visit HA restart otherwise
+    resets the 30-min sustained clock (Path B is the only D2 arming source).
+    ``_discover_guest_rooms`` must seed ``first_seen`` from the occupancy
+    entity's ``last_changed`` when the entity is currently ``on`` AND no
+    known person is detected in the room.
+
+    Drill anchor: neuter the seed assignment in ``_discover_guest_rooms``
+    (leave the initialisation dict as first_seen=None) → this test FAILs
+    with ``first_seen == None``.
+    """
+    from datetime import timedelta as _td, timezone as _tz
+    from unittest.mock import patch as _patch
+
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+        CONF_ROOM_IS_GUEST_ROOM,
+        CONF_ROOM_NAME,
+        ENTRY_TYPE_ROOM,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _pres_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_state = {}
+    pc._guest_room_unsubs = {}
+    pc._guest_room_entity_to_name = {}
+
+    entry = MagicMock()
+    entry.entry_id = "01KTESTBOOTSEED0000000000"
+    entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+    entry.options = {
+        CONF_ROOM_NAME: "Downstairs Guest Bedroom",
+        CONF_ROOM_IS_GUEST_ROOM: True,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: 30,
+    }
+    pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+    resolved_entity_id = "binary_sensor.downstairs_guest_bedroom_occupied"
+    fake_reg = MagicMock()
+    fake_reg.async_get_entity_id = MagicMock(return_value=resolved_entity_id)
+
+    # Occupancy currently ON, last_changed 20 min ago (mid-visit restart).
+    pre_restart_change = datetime.now(_tz.utc) - _td(minutes=20)
+    occ_state = MagicMock()
+    occ_state.state = "on"
+    occ_state.last_changed = pre_restart_change
+    pc.hass.states.get = lambda eid: occ_state if eid == resolved_entity_id else None
+
+    # No known person in the room (person_coord unavailable → False default).
+    import homeassistant.helpers.entity_registry as _er_mod  # stubbed via harness
+    with _patch.object(_er_mod, "async_get", return_value=fake_reg), \
+            _patch.object(
+                _pres_mod, "async_track_state_change_event",
+                MagicMock(return_value=lambda: None),
+            ):
+        pc._discover_guest_rooms()
+
+    state = pc._guest_room_state.get("Downstairs Guest Bedroom")
+    assert state is not None, "guest room must be registered when resolvable"
+    assert state["first_seen"] == pre_restart_change, (
+        f"boot-seed must set first_seen = occupancy.last_changed "
+        f"(got {state['first_seen']!r}, expected {pre_restart_change!r})"
+    )
+
+
+def test_discover_boot_no_seed_when_occupancy_off() -> None:
+    """Boot-seed must NOT seed first_seen when occupancy is currently OFF.
+
+    Guards against a defensive-fallback shape that seeds unconditionally.
+    """
+    from unittest.mock import patch as _patch
+
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+        CONF_ROOM_IS_GUEST_ROOM,
+        CONF_ROOM_NAME,
+        ENTRY_TYPE_ROOM,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _pres_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_state = {}
+    pc._guest_room_unsubs = {}
+    pc._guest_room_entity_to_name = {}
+
+    entry = MagicMock()
+    entry.entry_id = "01KTESTBOOTSEEDOFF00000000"
+    entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+    entry.options = {
+        CONF_ROOM_NAME: "Empty Guest Bedroom",
+        CONF_ROOM_IS_GUEST_ROOM: True,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: 30,
+    }
+    pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+    resolved_entity_id = "binary_sensor.empty_guest_bedroom_occupied"
+    fake_reg = MagicMock()
+    fake_reg.async_get_entity_id = MagicMock(return_value=resolved_entity_id)
+
+    occ_state = MagicMock()
+    occ_state.state = "off"
+    occ_state.last_changed = datetime.now(timezone.utc)
+    pc.hass.states.get = lambda eid: occ_state if eid == resolved_entity_id else None
+
+    import homeassistant.helpers.entity_registry as _er_mod  # stubbed via harness
+    with _patch.object(_er_mod, "async_get", return_value=fake_reg), \
+            _patch.object(
+                _pres_mod, "async_track_state_change_event",
+                MagicMock(return_value=lambda: None),
+            ):
+        pc._discover_guest_rooms()
+
+    state = pc._guest_room_state["Empty Guest Bedroom"]
+    assert state["first_seen"] is None, (
+        f"boot-seed must not fire when occupancy is OFF (got {state['first_seen']!r})"
+    )
+
+
+def test_discover_boot_no_seed_when_known_person_present() -> None:
+    """Boot-seed identity-aware: MUST NOT seed when a known person is
+    currently in the room (mirrors Transition 2 semantics)."""
+    from datetime import timedelta as _td, timezone as _tz
+    from unittest.mock import patch as _patch
+
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+        CONF_ROOM_IS_GUEST_ROOM,
+        CONF_ROOM_NAME,
+        ENTRY_TYPE_ROOM,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _pres_mod,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_state = {}
+    pc._guest_room_unsubs = {}
+    pc._guest_room_entity_to_name = {}
+    # Force _is_known_person_in_room to return True for this test only.
+    pc._is_known_person_in_room = lambda room_name: True  # type: ignore[assignment]
+
+    entry = MagicMock()
+    entry.entry_id = "01KTESTBOOTSEEDKNOWN000000"
+    entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+    entry.options = {
+        CONF_ROOM_NAME: "Resident-Occupied Guest Bedroom",
+        CONF_ROOM_IS_GUEST_ROOM: True,
+        CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: 30,
+    }
+    pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+    resolved_entity_id = "binary_sensor.resident_occupied_guest_bedroom_occupied"
+    fake_reg = MagicMock()
+    fake_reg.async_get_entity_id = MagicMock(return_value=resolved_entity_id)
+
+    occ_state = MagicMock()
+    occ_state.state = "on"
+    occ_state.last_changed = datetime.now(_tz.utc) - _td(minutes=20)
+    pc.hass.states.get = lambda eid: occ_state if eid == resolved_entity_id else None
+
+    import homeassistant.helpers.entity_registry as _er_mod  # stubbed via harness
+    with _patch.object(_er_mod, "async_get", return_value=fake_reg), \
+            _patch.object(
+                _pres_mod, "async_track_state_change_event",
+                MagicMock(return_value=lambda: None),
+            ):
+        pc._discover_guest_rooms()
+
+    state = pc._guest_room_state["Resident-Occupied Guest Bedroom"]
+    assert state["first_seen"] is None, (
+        f"boot-seed must not fire when a known person is in the room "
+        f"(got {state['first_seen']!r})"
+    )
 
 
 def test_entity_to_name_reverse_map_populated(presence_src: str) -> None:

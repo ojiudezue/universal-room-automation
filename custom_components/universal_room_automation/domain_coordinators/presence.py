@@ -4746,6 +4746,45 @@ class PresenceCoordinator(BaseCoordinator):
                 "threshold_min": threshold_min,
             }
 
+            # Review B-MEDIUM-1 (2026-08-16): boot-seed ``first_seen`` from
+            # the occupancy entity's ``last_changed`` if it is currently ON
+            # and no known occupant is detected. Rationale: ``_guest_room_state``
+            # is RAM-only; a mid-visit HA restart would otherwise reset the
+            # 30-min sustained-occupancy clock from scratch (post-D2 the
+            # census-only Path A no longer arms GUEST, so ONLY Path B can
+            # arm — its clock started at 0 pre-fix, costing genuine guests
+            # up to 30 min of GUEST-mode latency after any restart).
+            #
+            # Identity-aware: mirror Transition 2 semantics — if a known
+            # tracked person is currently in the room, DO NOT seed
+            # (equivalent to Transition 2 having fired). Otherwise seed to
+            # last_changed. Residual: at boot, person_coordinator tracking
+            # may not yet be populated, in which case _is_known_person_in_room
+            # falls back to False (safe default) and we may seed a
+            # resident-occupied guest-designated room. The next occupancy
+            # state-change fires Transition 2 (reset first_seen) once
+            # substrate settles. Accepted trade-off: rare (requires resident
+            # continuously in a designated GUEST room across the restart
+            # window with no occupancy toggle), and the runtime gate at
+            # _guest_room_gate_armed re-checks current_occupancy_known.
+            try:
+                occ_state = self.hass.states.get(occupancy_entity_id)
+                if occ_state is not None and occ_state.state == "on":
+                    last_changed = getattr(occ_state, "last_changed", None)
+                    if last_changed is not None and not self._is_known_person_in_room(room_name):
+                        self._guest_room_state[room_name]["first_seen"] = last_changed
+                        _LOGGER.info(
+                            "D5 guest room '%s': boot-seeded first_seen=%s "
+                            "(occupancy ON pre-restart, no known occupant) — "
+                            "preserves pre-restart arming clock",
+                            room_name, last_changed.isoformat(),
+                        )
+            except Exception:
+                _LOGGER.debug(
+                    "D5 guest room '%s': boot-seed skipped (non-fatal)",
+                    room_name, exc_info=True,
+                )
+
             # Subscribe to the room's URA occupancy sensor.
             # Bug Class #42: listener callback is a bound method; no lambda captures.
             # Bug Class #38: unsub stored for cleanup.
@@ -5450,7 +5489,20 @@ class PresenceCoordinator(BaseCoordinator):
         elif guest_room_gate_armed:
             _d5_guest_confidence = 0.9
         else:
-            _d5_guest_confidence = 0.8  # unreachable under D2; shape-preserved
+            # Review B-LOW-2 (2026-08-16) canary: structurally unreachable
+            # under D2 (guest_armed depends on guest_room_gate_armed only,
+            # so entering this outer ``if guest_armed:`` block with
+            # guest_room_gate_armed=False cannot happen). Kept for shape /
+            # future readers; log-only canary (matches project convention
+            # of "should never happen" defensive warnings, e.g.
+            # energy.py:3188). Firing here indicates a future edit made
+            # this branch reachable — expected to be caught by review.
+            _d5_guest_confidence = 0.8
+            _LOGGER.warning(
+                "D2 canary: _d5_guest_confidence census-only branch reached "
+                "(should be unreachable — guest_armed depends on room only). "
+                "A recent change may have re-composed the arming predicate."
+            )
 
         # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
         # For each zone, build a weight map keyed by room_name using the
