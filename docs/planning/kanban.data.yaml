@@ -1790,7 +1790,7 @@ cards:
   title: Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists,
     is enabled, cancels nothing
   thread: presence
-  status: planned
+  status: review
   approval: implied
   origin:
     date: '2026-08-16'
@@ -1808,9 +1808,9 @@ cards:
     is 2 — suggests the contributions arrived via the unassigned_raw (null-area) path, which invariant
     I3 makes uncancellable BY DESIGN, or the enhanced-census path is not the one producing this count.
     No BLE-cancel INFO log lines observed at all.'
-  next: 'Plan G1+G4 as one small cycle (Tier 2 / 2-DB per standing policy — census is a shared primitive).
-    Acceptance MUST be discriminating: compare census against known ground-truth headcount, never against
-    identified_count (the criterion that hid this bug).'
+  next: 'Fix-up round 2 (orchestrator-found HIGH) in flight, then FULLER adversarial re-review (operator
+    ruling 2026-08-16: "Fuller pass"), then ura-validator sequential baseline pair, merge, deploy as v5.79.0,
+    then write observed results into README_v5.79.0.md Live Validation.'
   parked_alts:
   - Wait for face recognition to solve it (Frigate/Protect enrollment) — real but slower; the dedup should
     not DEPEND on faces working
@@ -1838,6 +1838,22 @@ cards:
     UNFLAGGED 2026-08-16 ("You are correct. Should not be") — bathrooms are transit space; 30min continuous
     occupancy is not a guest signal and would only ever fire on a stuck sensor. Staged as a flush-watcher
     rider for the next restart. OPEN: should Guest Bedroom 2 be flagged? (operator decision, not assumed).'
+  build_state_2026_08_16: 'Branch feature/guest-census. Build c7c308a53 (D1 pre-cancel clamp, D2 guest-rooms-lead
+    composition, D2b exit decoupling, D3 registry resolution, G2 diagnostics). THREE framing-disjoint
+    reviews: A SHIP (6c89dc017), B SHIP-with-notes (f425a8de0, corrected — its first pass used a two-dot
+    diff from the cycle''s own first commit and wrongly reported D1 absent, voiding its ripple framing
+    until redone), C FIX-THEN-SHIP (d9a74e86e, found a CONFIRMED hollow anchor via variant-7 comment-out).
+    Fix-up r1 0e0ea97a2 = 7 findings, suite 9182/26 name-diff empty, zero knobs. ORCHESTRATOR-FOUND HIGH
+    in the fix-up itself: the B-MEDIUM-1 boot-seed created a false-guest path at boot (resident in a guest
+    room + person_coordinator unpopulated -> first_seen seeded hours-old -> gate fires on first tick).
+    Both claimed mitigations were the same event-driven mechanism and inert for a stationary resident.
+    Fix r2 = live identity re-check in the gate (consumer verifies producer) + boot-seed clamp (GUEST_BOOT_SEED_MIN_RESIDUAL_S,
+    rung 1). New invariant INV-GUEST-NO-RESIDENT added to the plan (702d2d472) because INV-GUEST-LEAD
+    was SATISFIED by the defect and therefore did no work. README_v5.79.0.md drafted (fd1829d17) with
+    discriminating acceptance criteria; L3 tests the boot regression for free because a resident is staging
+    in a guest room tonight. KNOWN AND DOCUMENTED: this cycle fixes GUEST, not the census NUMBER — D1
+    is a no-op when the camera body total is itself inflated (review A per-value table). Count repair
+    is CENSUS-DEDUP-REPAIR-1.'
 - id: CENSUS-GUEST-FLOOR-1
   title: Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded
     FLOOR, gated to contain the FP problem that unplugged it

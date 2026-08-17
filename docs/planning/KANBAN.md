@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T20:56:55-05:00_ - _Data commit: `f86873d05999`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T21:16:55-05:00_ - _Data commit: `5bdf670bb2ad`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,9 +13,9 @@ _Generated: 2026-08-16T20:56:55-05:00_ - _Data commit: `f86873d05999`_ - _last_r
 |---|---:|
 | 📥 Inbox | 2 |
 | 🧭 Pre-planning | 9 |
-| 📝 Planned | 1 |
+| 📝 Planned | 0 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 43 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -131,20 +131,10 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Tags:** mutation-drill
 - **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
 
-## 📝 Planned (1)
+## 📝 Planned (0)
 _has plan / acceptance_
 
-### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing
-thread: **presence** - status: **planned** - approval: **implied**
-- **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
-- **Why:** Cameras detect person-bodies but recognize NO faces (face_recognized_persons: [] with 4 known people home), so residents own bodies land in the unidentified bucket alongside their own BLE-identified selves = systematic double-count, and ...
-- **Next:** Plan G1+G4 as one small cycle (Tier 2 / 2-DB per standing policy — census is a shared primitive). Acceptance MUST be discriminating: compare census against known ground-truth headcount, never against identified_count (the criterion that ...
-- **Refs:** docs/planning/PLANNING_census_overcount_dedup_decay.md
-- **Forensic keys (4):**
-  - `investigation_state_2026_08_16`: RULED OUT: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks one, and it never detects). NOT YET EXPLAINED: why area_contributions is empty and ...
-  - `research_2026_08_16`: RESEARCH_guest_actuation_and_census.md (8f55b243d) — root cause found: the ENHANCED census path (default ON) is ADDITIVE (total = identified + camera_unrecognized) and OVERWRITES the RAW subtractive path (total = max(camera, identified))...
-  - `minimal_set_2026_08_16`: OPERATOR-SCOPED MINIMAL SET = G1 + G4 only. G1 subtractive clamp (~10 LoC, no knob) because the count feeds away-inference/sleep-wake/NM/dashboards, not just guest. G4 invert composition so GUEST ROOMS LEAD and census corroborates (~5 Lo...
-  - `guest_room_config_2026_08_16`: Guest-room set audited when G4 (guest-rooms-lead) was proposed — only ONE of three can currently signal. (a) Guest Bedroom 1: WORKS. (b) Upstairs Guestroom: BROKEN — the listener slugifies the room name to binary_sensor.upstairs_guestroo...
+_(none)_
 
 ## 🔨 In progress (1)
 _being built_
@@ -158,10 +148,21 @@ thread: **memory** - status: **in_progress** - approval: **explicit**
 - **Forensic keys (1):**
   - `stages`: Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
+### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing
+thread: **presence** - status: **review** - approval: **implied**
+- **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
+- **Why:** Cameras detect person-bodies but recognize NO faces (face_recognized_persons: [] with 4 known people home), so residents own bodies land in the unidentified bucket alongside their own BLE-identified selves = systematic double-count, and ...
+- **Next:** Fix-up round 2 (orchestrator-found HIGH) in flight, then FULLER adversarial re-review (operator ruling 2026-08-16: "Fuller pass"), then ura-validator sequential baseline pair, merge, deploy as v5.79.0, then write observed results into RE...
+- **Refs:** docs/planning/PLANNING_census_overcount_dedup_decay.md
+- **Forensic keys (5):**
+  - `investigation_state_2026_08_16`: RULED OUT: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks one, and it never detects). NOT YET EXPLAINED: why area_contributions is empty and ...
+  - `research_2026_08_16`: RESEARCH_guest_actuation_and_census.md (8f55b243d) — root cause found: the ENHANCED census path (default ON) is ADDITIVE (total = identified + camera_unrecognized) and OVERWRITES the RAW subtractive path (total = max(camera, identified))...
+  - `minimal_set_2026_08_16`: OPERATOR-SCOPED MINIMAL SET = G1 + G4 only. G1 subtractive clamp (~10 LoC, no knob) because the count feeds away-inference/sleep-wake/NM/dashboards, not just guest. G4 invert composition so GUEST ROOMS LEAD and census corroborates (~5 Lo...
+  - `guest_room_config_2026_08_16`: Guest-room set audited when G4 (guest-rooms-lead) was proposed — only ONE of three can currently signal. (a) Guest Bedroom 1: WORKS. (b) Upstairs Guestroom: BROKEN — the listener slugifies the room name to binary_sensor.upstairs_guestroo...
+  - `build_state_2026_08_16`: Branch feature/guest-census. Build c7c308a53 (D1 pre-cancel clamp, D2 guest-rooms-lead composition, D2b exit decoupling, D3 registry resolution, G2 diagnostics). THREE framing-disjoint reviews: A SHIP (6c89dc017), B SHIP-with-notes (f425...
 
 ## 🚀 Shipped (organic open) (43)
 _live, awaiting proof_
