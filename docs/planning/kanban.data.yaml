@@ -1499,6 +1499,42 @@ cards:
   refs:
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/planning/RESEARCH_guest_actuation_and_census.md
+- id: D3-BEHAVIOURAL-COVERAGE-1
+  title: D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  tags:
+  - test-authority
+  - hollow-anchors
+  origin:
+    date: '2026-08-16'
+    gist: Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as
+      follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.
+  problem_solution:
+  - 'P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR
+    (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable:
+    the sibling anchor test_unresolvable_room_warns PASSED with the production WARNING deleted, because
+    _LOGGER.warning survived in a COMMENT (hollow-anchor variant 7). The same evasion applies to the remaining
+    D3 anchors. S1 add behavioural tests that drive _discover_guest_rooms against a fake entity registry
+    and assert the RESOLVED entity_id, including the unresolvable path.'
+  - 'P2 D3 is now load-bearing: under cycle-1 D2, guest entry depends ENTIRELY on guest-room occupancy,
+    so a silent D3 resolution failure means guest mode never arms at all. Source-shape tests cannot catch
+    a registry lookup that returns the wrong entity or None. S2 treat D3 coverage as guest-mode safety
+    coverage, not test hygiene.'
+  why: The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately
+    does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing
+    guest entry path.
+  constraints:
+  - Every anchor added must survive the variant-7 attack (comment-out of the production call) — apply
+    the attack to the new tests before declaring them green.
+  - 'Small and self-contained: tests only, no production change expected. If a production change turns
+    out to be needed, that is a finding worth surfacing, not absorbing.'
+  next: After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms
+    against a fake registry; drill each new anchor in both plain and variant-7 forms.
+  refs:
+  - docs/reviews/code-review/guest_census_review_C.md
+  - custom_components/universal_room_automation/domain_coordinators/presence.py
 - id: CENSUS-DECAY-SEPARATION-1
   title: Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior
     census

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T20:36:05-05:00_ - _Data commit: `5b0258f0995e`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T20:56:55-05:00_ - _Data commit: `f86873d05999`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-16T20:36:05-05:00_ - _Data commit: `5b0258f0995e`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
@@ -22,8 +22,18 @@ _Generated: 2026-08-16T20:36:05-05:00_ - _Data commit: `5b0258f0995e`_ - _last_r
 | 🅿️ Parked | 5 |
 | ✅ Done | 12 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
+
+### `D3-BEHAVIOURAL-COVERAGE-1` - D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-16 - Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.
+- **Why:** The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing guest entry path.
+- **Next:** After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms against a fake registry; drill each new anchor in both plain and variant-7 forms.
+- **Tags:** test-authority, hollow-anchors
+- **Refs:** docs/reviews/code-review/guest_census_review_C.md; custom_components/universal_room_automation/domain_coordinators/presence.py
+- **Forensic keys (1):**
+  - `problem_solution`: P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable: the sibling anchor test_unresolvable_r...
 
 ### `EXTERIOR-DWELL-LOITER-1` - Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads as pass_by
 thread: **security** - status: **inbox** - approval: **explicit**

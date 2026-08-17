@@ -134,14 +134,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-16T20:36:05-05:00</b></span>
-<span>data <b>5b0258f0995e</b></span>
+<span>generated <b>2026-08-16T20:56:55-05:00</b></span>
+<span>data <b>f86873d05999</b></span>
 <span>reconciled <b>2026-08-16</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
 </div></header>
 <div class="summary">
-<span>Inbox <b>1</b></span>
+<span>Inbox <b>2</b></span>
 <span>Pre-planning <b>9</b></span>
 <span>Planned <b>1</b></span>
 <span>In progress <b>1</b></span>
@@ -154,8 +154,9 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">1</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
 <div class="cards">
+<details class="card ap-unreviewed" data-id="D3-BEHAVIOURAL-COVERAGE-1" draggable="true"><summary><span class="id">D3-BEHAVIOURAL-COVERAGE-1</span><span class="apl">unreviewed</span><span class="title">D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape</span><div class="tagline">presence<span class="sep">·</span>test-authority<span class="sep">·</span>hollow-anchors</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-16 - Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.</dd><dt>Why</dt><dd>The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing guest entry path.</dd><dt>Next</dt><dd>After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms against a fake registry; drill each new anchor in both plain and variant-7 forms.</dd><dt>Refs</dt><dd>docs/reviews/code-review/guest_census_review_C.md; custom_components/universal_room_automation/domain_coordinators/presence.py</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>problem_solution</code>: P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable: the sibling anchor test_unresolvable_r...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 <details class="card ap-explicit" data-id="EXTERIOR-DWELL-LOITER-1" draggable="true"><summary><span class="id">EXTERIOR-DWELL-LOITER-1</span><span class="apl">explicit</span><span class="title">Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads as pass_by</span><div class="tagline">security<span class="sep">·</span>security<span class="sep">·</span>measure-before-build<span class="sep">·</span>no-fabrication-verify</div></summary><div class="body"><dl class="kv"><dt>Origin</dt><dd>2026-08-16 - Surfaced by the exterior track-vs-census investigation while answering the operator&#x27;s question on how the circling work intersects exterior census accuracy. Operator had just made exterior count accuracy a first-class SECURI...</dd><dt>Why</dt><dd>Loitering is the canonical security signal the current classifier is structurally blind to, and the blindness is not an oversight in the data (duration_s is right there) but in the predicate. Directly connected to the shipped linker work...</dd><dt>Next</dt><dd>MEASURE FIRST, per measure-before-you-build — the data already exists. Probe the ~1150 `exterior_track` rows in memory_episodes (one row per CLOSED track; attrs carry duration_s, camera_count, revisit_count, path, classification, identif...</dd><dt>Refs</dt><dd>custom_components/universal_room_automation/exterior_track_linker.py:705-750; custom_components/universal_room_automation/const.py:1842-1875; docs/planning/AUDIT_memory_handbuild_compactor_exterior_track.md; docs/planning/PLANNING_circling_severity.md; docs/planning/PLANNING_circling_label_transition_dispatch.md</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>problem_solution</code>: P1 `ExteriorTrackLinker.classify()` (exterior_track_linker.py:705-750) is PURELY TOPOLOGICAL. `circling` iff revisit_count &gt;= 1 OR (camera_count &gt;= EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS AND non-monotonic path); `approach` iff egress-a...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 </div>
 </section>
@@ -297,7 +298,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>5b0258f0995e</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>f86873d05999</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
