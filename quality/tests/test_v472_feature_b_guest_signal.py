@@ -410,10 +410,16 @@ class TestD5RunInferenceOr:
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
         body = _method_body(presence_src, idx)
-        # The combined gate: unid_gate_armed or guest_room_gate_armed
-        assert "or guest_room_gate_armed" in body or "guest_room_gate_armed or" in body, (
-            "_run_inference must use additive OR: guest_armed = unid_gate_armed or "
-            "guest_room_gate_armed (plan §7)"
+        # GUEST-CENSUS D2 (2026-08-16): the additive OR was inverted —
+        # guest rooms LEAD (Path B), census (Path A) is a corroborator
+        # only (raises confidence 0.9 → 0.95). The composition line is now
+        # ``guest_armed = guest_room_gate_armed``. The intent this test
+        # historically asserted (guest_room_gate_armed is factored into
+        # ``guest_armed``) is preserved by that line. See
+        # docs/planning/PLANNING_guest_census_correctness.md §D2.
+        assert "guest_armed = guest_room_gate_armed" in body, (
+            "D2: guest_armed must be set from guest_room_gate_armed "
+            "(Path B leads, Path A corroborates)"
         )
 
     def test_confidence_09_for_guest_room_path(self, presence_src):
@@ -456,23 +462,34 @@ class TestD5RunInferenceOr:
 
 
 class TestD5ExitConditionGuard:
-    """D5: GUEST exit requires BOTH unidentified_count==0 AND not guest_gate_armed.
+    """GUEST exit predicate — D2b decoupling (2026-08-16).
 
-    Without this guard, a room where the occupant is unknown (count=0 because they
-    haven't been identified by census) would immediately re-exit GUEST state.
+    Historical (v4.7.2 D5): exit required BOTH ``unidentified_count == 0``
+    AND ``not guest_gate_armed``. Under GUEST-CENSUS D2 the room path IS
+    ``guest_gate_armed`` in the home-like composition (Path B leads); the
+    unidentified conjunct then made GUEST terminal whenever the underlying
+    cancellation gap kept unidentified > 0 (D1's expected +1 residual).
+    D2b drops the ``unidentified_count`` conjunct — the room is the sole
+    authority for both entry and exit. See
+    docs/planning/PLANNING_guest_census_correctness.md §D2b.
     """
 
-    def test_exit_uses_combined_condition(self, presence_src):
-        # The exit branch in StateInferenceEngine.infer() must check both
+    def test_exit_predicate_is_room_only(self, presence_src):
         idx = presence_src.find("def infer(")
-        # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
-        # ~700 chars at the top of _run_inference, pushing the D5 confidence
-        # block past the original 5000-char horizon).
         body = _method_body(presence_src, idx)
-        assert "unidentified_count == 0 and not guest_gate_armed" in body, (
-            "GUEST exit condition must require BOTH unidentified_count==0 AND "
-            "not guest_gate_armed — otherwise the D5 guest_room path can't hold "
-            "GUEST state when census count=0 (plan §9)"
+        assert (
+            "current_state == HouseState.GUEST and not guest_gate_armed" in body
+        ), (
+            "D2b: GUEST-exit predicate must be ``current_state == HouseState.GUEST "
+            "and not guest_gate_armed`` (room-only). Restoring the "
+            "``unidentified_count == 0`` conjunct re-latches GUEST terminally."
+        )
+        # Explicit negative — the old conjunct MUST NOT be reintroduced.
+        assert (
+            "unidentified_count == 0 and not guest_gate_armed" not in body
+        ), (
+            "D2b: unidentified_count conjunct must not be in the GUEST-exit "
+            "predicate (would re-latch on D1 residual > 0)."
         )
 
 

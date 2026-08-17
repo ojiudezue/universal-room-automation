@@ -432,6 +432,103 @@ def test_reconfigure_clears_entity_map(presence_src: str) -> None:
     assert "self._guest_room_entity_to_name.clear()" in body
 
 
+# ===========================================================================
+# D2b — GUEST exit decoupling from unidentified_count.
+# ===========================================================================
+
+
+def test_d2b_guest_exits_when_room_clears_even_if_unidentified_stuck() -> None:
+    """D2b regression guard: GUEST + guest_gate_armed=False must exit even
+    when unidentified_count > 0 (the underlying cancellation gap keeps it
+    pinned).
+
+    Pre-D2b: unidentified_count > 0 latched the house in GUEST indefinitely
+    on the tonight-live path (unidentified pinned at 2 by D1's expected
+    residual). Mutation D2b-M1 (restore ``and unidentified_count == 0``)
+    fails here.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        StateInferenceEngine,
+    )
+    engine = StateInferenceEngine(sleep_start_hour=23, sleep_end_hour=6)
+    new_state = engine.infer(
+        census_count=6,
+        current_state=HouseState.GUEST,
+        any_zone_occupied=True,
+        now=datetime(2026, 8, 16, 14, 0, 0),
+        unidentified_count=2,        # D1 residual — cancellation still broken
+        guest_gate_armed=False,      # guest room cleared
+    )
+    assert new_state == HouseState.HOME_DAY, (
+        f"D2b: guest room cleared but house stuck in GUEST "
+        f"(returned {new_state}) — pre-D2b terminal-state bug"
+    )
+
+
+def test_d2b_real_guest_holds_when_room_still_occupied() -> None:
+    """D2b preservation: room still armed → GUEST held even if
+    unidentified_count == 0 (belt-and-braces: room is the authority)."""
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        StateInferenceEngine,
+    )
+    engine = StateInferenceEngine(sleep_start_hour=23, sleep_end_hour=6)
+    new_state = engine.infer(
+        census_count=1,
+        current_state=HouseState.GUEST,
+        any_zone_occupied=True,
+        now=datetime(2026, 8, 16, 14, 0, 0),
+        unidentified_count=0,
+        guest_gate_armed=True,       # room still occupied by unknown
+    )
+    # Exit predicate is False (gate armed) → not HOME_*.
+    assert new_state != HouseState.HOME_DAY
+    assert new_state != HouseState.HOME_NIGHT
+    assert new_state != HouseState.HOME_EVENING
+
+
+def test_d2b_guest_non_terminal_from_room_clear() -> None:
+    """D2b terminal-state guard: from GUEST, infer() MUST return a non-None
+    transition when the guest room clears (regardless of unidentified)."""
+    from custom_components.universal_room_automation.domain_coordinators.house_state import (
+        HouseState,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        StateInferenceEngine,
+    )
+    engine = StateInferenceEngine(sleep_start_hour=23, sleep_end_hour=6)
+    new_state = engine.infer(
+        census_count=6,
+        current_state=HouseState.GUEST,
+        any_zone_occupied=True,
+        now=datetime(2026, 8, 16, 14, 0, 0),
+        unidentified_count=6,        # cancellation still fully broken
+        guest_gate_armed=False,
+    )
+    assert new_state is not None
+    assert new_state != HouseState.GUEST
+
+
+def test_d2b_exit_predicate_source_shape(presence_src: str) -> None:
+    """D2b: the exit predicate must NOT include ``unidentified_count == 0``.
+    Source-guard against silent revert."""
+    # Find the exit predicate line (unique).
+    m = re.search(
+        r"if current_state == HouseState\.GUEST[^\n]*not guest_gate_armed[^\n]*:",
+        presence_src,
+    )
+    assert m is not None, "GUEST-exit predicate not located"
+    assert "unidentified_count" not in m.group(0), (
+        "D2b: unidentified_count conjunct must be removed from GUEST-exit "
+        "predicate (would re-latch the house terminally when D1 residual > 0)"
+    )
+
+
 def test_entity_to_name_init_in_ctor(presence_src: str) -> None:
     """D3: the reverse-map must be initialized in __init__ (not lazily)."""
     # Grep the module for the init assignment.

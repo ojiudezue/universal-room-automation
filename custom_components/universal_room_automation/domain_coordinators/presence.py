@@ -1238,7 +1238,15 @@ class StateInferenceEngine:
         # v4.7.2 D5 semantics preserved: check guest_gate_armed (OR of
         # both paths) not just unidentified_count so the guest_room path
         # can hold the state even with unidentified_count==0.
-        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
+        # GUEST-CENSUS D2b (2026-08-16): INV-GUEST-LEAD applies to ENTRY
+        # AND EXIT — guest_gate_armed (which under D2 IS the room path in
+        # the home-like branch) governs both. The prior
+        # ``unidentified_count == 0`` conjunct made GUEST a terminal state
+        # whenever the underlying cancellation gap kept unidentified > 0
+        # (the census count could not drop even after the room cleared).
+        # Dropping the conjunct makes exit STRICTLY easier — correct
+        # direction, cf. the 2026-07-11 latched-overnight incident.
+        if current_state == HouseState.GUEST and not guest_gate_armed:
             self._confidence = 0.75
             return self._time_based_home(hour)
 
