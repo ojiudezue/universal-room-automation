@@ -1620,6 +1620,12 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_state: Dict[str, dict] = {}
         # Per-room listener unsubs (separate from _unsub_listeners for targeted cleanup)
         self._guest_room_unsubs: Dict[str, Any] = {}
+        # GUEST-CENSUS D3 (2026-08-16): entity_id → room_name reverse map
+        # populated by _discover_guest_rooms via entity-registry lookup on
+        # the well-known unique_id ``f"{entry_id}_occupied"``. Replaces the
+        # fragile slug-string reverse loop that broke when Upstairs
+        # Guestroom was renamed. Cleared in the reconfigure branch.
+        self._guest_room_entity_to_name: Dict[str, str] = {}
 
         # Fan-noise Mode-2 mitigation: room-tier fan-recheck manager. Built
         # lazily in async_setup so we don't import the module at __init__ time
@@ -4690,6 +4696,15 @@ class PresenceCoordinator(BaseCoordinator):
                 pass
         self._guest_room_unsubs.clear()
         self._guest_room_state.clear()
+        self._guest_room_entity_to_name.clear()
+
+        # GUEST-CENSUS D3 (2026-08-16): resolve the room's occupied
+        # binary_sensor via the entity registry using the well-known
+        # unique_id (entity.py:34 + binary_sensor.py:245). Slug-based
+        # string construction ("binary_sensor.<slug>_occupied") is stale
+        # after room renames — the real entity_id may diverge.
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(self.hass)
 
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
@@ -4703,8 +4718,18 @@ class PresenceCoordinator(BaseCoordinator):
                 continue
 
             threshold_min = int(merged.get(CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN, 30))
-            room_slug = room_name.lower().replace(" ", "_")
-            occupancy_entity_id = f"binary_sensor.{room_slug}_occupied"
+            unique_id = f"{entry.entry_id}_occupied"
+            occupancy_entity_id = ent_reg.async_get_entity_id(
+                "binary_sensor", DOMAIN, unique_id
+            )
+            if not occupancy_entity_id:
+                _LOGGER.warning(
+                    "D5 guest room '%s' (entry=%s): no binary_sensor occupied "
+                    "entity registered (unique_id=%s); skipping registration.",
+                    room_name, entry.entry_id, unique_id,
+                )
+                continue
+            self._guest_room_entity_to_name[occupancy_entity_id] = room_name
 
             # Initialise anti-flap state for this room.
             self._guest_room_state[room_name] = {
@@ -4753,14 +4778,9 @@ class PresenceCoordinator(BaseCoordinator):
         else:
             occupied = new_state.state == "on"
 
-        # Identify which guest room this entity belongs to.
-        room_name = None
-        for rn, state_dict in self._guest_room_state.items():
-            rn_slug = rn.lower().replace(" ", "_")
-            if f"binary_sensor.{rn_slug}_occupied" == entity_id:
-                room_name = rn
-                break
-
+        # GUEST-CENSUS D3: identify which guest room via the registry-
+        # populated reverse map (survives room renames).
+        room_name = self._guest_room_entity_to_name.get(entity_id)
         if room_name is None:
             return
 
