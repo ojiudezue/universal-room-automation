@@ -1563,9 +1563,11 @@ cards:
     first and its Q1 (why per-area BLE-cancel returns zero) must identify a specific broken link. If the
     probe cannot establish the mechanism, the dedup repair does NOT get built on speculation — re-split
     it rather than guess.'
-  next: Probe first (AUDIT_census_accuracy_probe.md, running 2026-08-16) -> then ONE plan covering decay
-    separation + dedup repair + exterior swap -> Tier 2-DB plan review -> build. Cycle-1 live census reading
-    is an input, so plan lands after v5.79.0 deploys.
+  next: 'RESCOPED by operator 2026-08-17 to DECAY + SUFFIX FIX (dedup repair dropped — probe measured
+    it buys ~0). Plan: (1) decay/self-refresh separation, targeting the measured 74.5% of elevated time
+    that had camera_unrecognized==0; (2) registry-resolution fix for the four bypassed entity-ID construction
+    sites. Camera-area COVERAGE gap is a config task for the operator, not a build. Tier 2-DB plan review
+    before build.'
   refs:
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md
@@ -1634,6 +1636,26 @@ cards:
     additive derivation double-counts). Kept as one cycle because the D1 clamp shipping in cycle 1 is
     a NO-OP whenever the camera body total is itself inflated — so decay-fixing without dedup-fixing would
     still leave the number wrong, and the two share every consumer and test surface.'
+  suffix_migration_finding_2026_08_17: 'OPERATOR CONFIRMED: the Frigate1->Frigate2 migration WAS done;
+    this aspect was missed. VERIFIED against the live registry (/Users/okosisi/ha-config/.storage/core.entity_registry
+    — note CLAUDE.md documents a STALE path /Users/ojiudezue/...): all 23 `last_recognized_face` entities
+    belong to the Frigate 2 config entry, ALL 23 carry the `_2` suffix, and ZERO bare-slug entities remain.
+    Mechanism: F2 was added alongside F1, slugs collided, HA appended `_2`; F1 was then decommissioned
+    and its entities removed, freeing the bare slug — but HA NEVER retroactively renames existing entities.
+    So F2 kept `_2` permanently and the bare slug sits free and unused. ROOT ISSUE IS NOT THE SUFFIX,
+    IT IS BYPASSED MACHINERY: camera_resolver.py:291 `_strip_disambiguation_suffix()` already exists FOR
+    EXACTLY THIS (added 2026-08-01 from a bench finding on camera.armcrestash41b_2), but four sites construct
+    entity IDs by hand and never consult it — camera_census.py:2383, :2416, :2736 (f"sensor.{base_name}_last_recognized_face",
+    derived by stripping _person_occupancy off a RESOLVED binary_sensor and assuming the face entity shares
+    that base — it does not) and :3023 (f"sensor.frigate_{person_slug}_last_camera", wrong on the suffix
+    AND on the name: live is frigate_oji_* vs configured oji_udezue). Measured consequence: fresh-face
+    -1 has fired ZERO times in 7 days and structurally cannot. FIX = registry resolution, NOT string renaming
+    (renaming re-breaks on the next collision); precedent is cycle-1 D3, which replaced constructed-slug
+    lookup with entity_registry.async_get_entity_id for this exact failure class. NOTE prior art at perimeter_alert.py:1879-1880
+    which already hardcodes BOTH _person_detected and _person_detected_2 — a local coping hack, not a
+    shared fix. PATTERN (third instance tonight, = Bug Class #53 computed-but-not-consumed applied to
+    RESOLVERS): we build the right primitive and then fail to consume it at the sites that need it — cf.
+    ExteriorTrackLinker.census_counts() stranded while the exterior census sums raw per-camera bits.'
 - id: EXTERIOR-DWELL-LOITER-1
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by
