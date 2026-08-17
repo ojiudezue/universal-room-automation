@@ -1466,39 +1466,6 @@ cards:
     count (max 4) because the _2 count sensors matched nothing. Interim criterion (any unidentified contribution)
     PASSED. Full criterion (headcount tracking at a gathering) still open but the mechanism is proven
     live.'
-- id: CENSUS-DEDUP-REPAIR-1
-  title: Repair the census dedup defenses at source (BLE-cancel returns 0; fresh-face -1 inert) — investigation
-    FIRST, not a plan
-  thread: presence
-  status: pre_planning
-  approval: unreviewed
-  origin:
-    date: '2026-08-16'
-    gist: 'Operator: "Is this a third cycle?" — yes. Cycle 1 caps the wrong count, cycle 2 fixes timing/scope,
-      cycle 3 makes the count correct at source.'
-  problem_solution:
-  - 'P10 the per-area BLE-cancel subtraction reports ble_cancelled_count 0 every tick while residents
-    ARE being double-counted — cause UNKNOWN. Ruled out: missing areas on the counting sensors (16 of
-    17 Frigate person-count/occupancy _2 sensors have effective areas; only the screened ASH41B lacks
-    one). S10 PROBE FIRST using the diagnostics shipping in cycle 1 (pre-cancel scalar, _last_ble_by_area,
-    _last_ble_cancel_enabled) which for the first time can distinguish ran-and-cancelled-zero from never-ran.
-    No plan until the probe answers it.'
-  - P11 the fresh-face -1 per-camera defense is inert because face recognition produces ~0 identities
-    (face_recognized_persons empty with 4 known residents home). S11 gated on the EXTERNAL Frigate detect-stream
-    + enrollment chain (homelab-side) — not fixable in URA code. Track the dependency; re-measure after
-    the face pipeline produces.
-  why: Cycle 1 CAPS the double-count (10 -> 6 for 5 real people); the residual +1 is exactly this unrepaired
-    dedup. Cycle 3 is what makes the count actually right. If it succeeds, cycle 1's clamp becomes a mostly-inert
-    safety net — which is the correct end state for a guard.
-  constraints:
-  - DO NOT plan before probing — the mechanism is genuinely unexplained and guess-fixing a subtraction
-    that silently returns zero is how a second wrong number gets shipped.
-  - Partly gated on operator/homelab infra (face pipeline). The BLE-cancel half is NOT gated and can proceed
-    as soon as cycle 1 ships its diagnostics.
-  next: 'After cycle 1 deploys: read the new diagnostics live, answer why cancellation is zero, THEN scope.'
-  refs:
-  - docs/planning/RESEARCH_census_vs_guest_separation.md
-  - docs/planning/RESEARCH_guest_actuation_and_census.md
 - id: D3-BEHAVIOURAL-COVERAGE-1
   title: D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
   thread: presence
@@ -1535,14 +1502,17 @@ cards:
   refs:
   - docs/reviews/code-review/guest_census_review_C.md
   - custom_components/universal_room_automation/domain_coordinators/presence.py
-- id: CENSUS-DECAY-SEPARATION-1
-  title: Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior
-    census
+- id: CENSUS-ACCURACY-1
+  title: 'Census accuracy: separate decay from guest hysteresis, repair the dedup defences at source,
+    and swap the exterior headcount to the track-deduped count'
   thread: presence
   status: pre_planning
   approval: implied
-  approved_by: operator 2026-08-16 ("Census and guest are diff states... Census decay is also not the
-    same as Guest decay. Separate concerns.")
+  approved_by: 'operator 2026-08-16 ("Census and guest are diff states... Census decay is also not the
+    same as Guest decay. Separate concerns.") | MERGE APPROVED operator 2026-08-16: absorbed CENSUS-DEDUP-REPAIR-1
+    into this card. Rationale: both are census-side ("make the number right") and share consumers, tests
+    and reviewers; splitting cost a full extra review round for little isolation benefit. Cycle chain
+    is now 1 CENSUS-GHOST-DEDUP-1 (guest correctness, in review) -> 2 CENSUS-ACCURACY-1 (this) -> 3 EXTERIOR-GUEST-EGRESS-1.'
   origin:
     date: '2026-08-16'
     gist: Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md
@@ -1569,6 +1539,16 @@ cards:
     of scope here, split to EXTERIOR-GUEST-EGRESS-1.'
   - P9 outdoor presence may pollute the interior headcount (outdoor-zone filter designed, unbuilt). S9
     apply the filter using the existing CONF_ZONE_IS_OUTDOOR flag.
+  - 'ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P10 the per-area BLE-cancel subtraction
+    reports ble_cancelled_count 0 every tick while residents ARE being double-counted — cause UNKNOWN.
+    Ruled out: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 sensors
+    have effective areas; only the screened ASH41B lacks one). S10 PROBE FIRST using the diagnostics shipping
+    in cycle 1 (pre-cancel scalar, _last_ble_by_area, _last_ble_cancel_enabled) which for the first time
+    can distinguish ran-and-cancelled-zero from never-ran. No plan until the probe answers it.'
+  - 'ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P11 the fresh-face -1 per-camera defense
+    is inert because face recognition produces ~0 identities (face_recognized_persons empty with 4 known
+    residents home). S11 gated on the EXTERNAL Frigate detect-stream + enrollment chain (homelab-side)
+    — not fixable in URA code. Track the dependency; re-measure after the face pipeline produces.'
   why: 'Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy
     state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which
     is the root architectural error. NOTE: the v4.7.18 plan scoped this separation (CensusHoldDecayService
@@ -1579,13 +1559,19 @@ cards:
     guest dwell/exit damping, the raw subtractive derivation.'
   - 'Do NOT conflate with the guest-census correctness cycle (CENSUS-GHOST-DEDUP-1): that one CAPS and
     RE-ROUTES; it does not repair or re-time anything. Decay and dedup repair are THIS card.'
-  next: Plan after the guest-census cycle ships and its live validation lands (the post-fix census reading
-    is an input).
+  - 'MERGED CARD — the dedup repair (P10/P11) is probe-gated: AUDIT_census_accuracy_probe.md must land
+    first and its Q1 (why per-area BLE-cancel returns zero) must identify a specific broken link. If the
+    probe cannot establish the mechanism, the dedup repair does NOT get built on speculation — re-split
+    it rather than guess.'
+  next: Probe first (AUDIT_census_accuracy_probe.md, running 2026-08-16) -> then ONE plan covering decay
+    separation + dedup repair + exterior swap -> Tier 2-DB plan review -> build. Cycle-1 live census reading
+    is an input, so plan lands after v5.79.0 deploys.
   refs:
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md
   - 'CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8)'
   - 'CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security)'
+  - docs/planning/AUDIT_census_accuracy_probe.md (probe gate)
   operator_exterior_direction_2026_08_16: 'Operator ruling on the exterior work, THREE distinctions: (1)
     EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior
     is live, and a dashboard for it already exists at docs/dashboards/ura_v8_exterior_cycle2_cards.md).
@@ -1643,6 +1629,11 @@ cards:
     — a name-PREFIX classifier would collide; none exists in shipped code. (6) Exterior is FULLY STRANDED
     from house state; the only coupling is one-way severity shaping (NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY
     — guest DEMOTES exterior severity; exterior never promotes guest).'
+  merged_from_2026_08_16: 'Absorbed CENSUS-DEDUP-REPAIR-1 wholesale. That card covered P10/P11: repair
+    the BLE-cancel and fresh-face dedup defences at source (both currently return zero, which is WHY the
+    additive derivation double-counts). Kept as one cycle because the D1 clamp shipping in cycle 1 is
+    a NO-OP whenever the camera body total is itself inflated — so decay-fixing without dedup-fixing would
+    still leave the number wrong, and the two share every consumer and test surface.'
 - id: EXTERIOR-DWELL-LOITER-1
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by

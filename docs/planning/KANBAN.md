@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T21:16:55-05:00_ - _Data commit: `5bdf670bb2ad`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T23:12:37-05:00_ - _Data commit: `7ee80710f8b8`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-16T21:16:55-05:00_ - _Data commit: `5bdf670bb2ad`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 0 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
@@ -45,7 +45,7 @@ thread: **security** - status: **inbox** - approval: **explicit**
 - **Forensic keys (1):**
   - `problem_solution`: P1 `ExteriorTrackLinker.classify()` (exterior_track_linker.py:705-750) is PURELY TOPOLOGICAL. `circling` iff revisit_count >= 1 OR (camera_count >= EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS AND non-monotonic path); `approach` iff egress-a...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -56,27 +56,19 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
 
-### `CENSUS-DEDUP-REPAIR-1` - Repair the census dedup defenses at source (BLE-cancel returns 0; fresh-face -1 inert) — investigation FIRST, not a plan
-thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-- **Origin:** 2026-08-16 - Operator: "Is this a third cycle?" — yes. Cycle 1 caps the wrong count, cycle 2 fixes timing/scope, cycle 3 makes the count correct at source.
-- **Why:** Cycle 1 CAPS the double-count (10 -> 6 for 5 real people); the residual +1 is exactly this unrepaired dedup. Cycle 3 is what makes the count actually right. If it succeeds, cycle 1's clamp becomes a mostly-inert safety net — which is the...
-- **Next:** After cycle 1 deploys: read the new diagnostics live, answer why cancellation is zero, THEN scope.
-- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/RESEARCH_guest_actuation_and_census.md
-- **Forensic keys (1):**
-  - `problem_solution`: P10 the per-area BLE-cancel subtraction reports ble_cancelled_count 0 every tick while residents ARE being double-counted — cause UNKNOWN. Ruled out: missing areas on the counting sensors (16 of 17 Frigate person-count/occupancy _2 senso...
-
-### `CENSUS-DECAY-SEPARATION-1` - Separate census decay (freshness) from guest decay (hysteresis) + wire the stranded exterior census
+### `CENSUS-ACCURACY-1` - Census accuracy: separate decay from guest hysteresis, repair the dedup defences at source, and swap the exterior headcount to the track-deduped count
 thread: **presence** - status: **pre_planning** - approval: **implied**
 - **Origin:** 2026-08-16 - Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md (aa3e39aa8).
 - **Why:** Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOT...
-- **Next:** Plan after the guest-census cycle ships and its live validation lands (the post-fix census reading is an input).
-- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md; CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8); CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security)
-- **Forensic keys (5):**
+- **Next:** Probe first (AUDIT_census_accuracy_probe.md, running 2026-08-16) -> then ONE plan covering decay separation + dedup repair + exterior swap -> Tier 2-DB plan review -> build. Cycle-1 live census reading is an input, so plan lands after v5...
+- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md; CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8); CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security); docs/planning/AUDIT_census_accuracy_probe.md (probe gate)
+- **Forensic keys (6):**
   - `problem_solution`: P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
   - `operator_exterior_direction_2026_08_16`: Operator ruling on the exterior work, THREE distinctions: (1) EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior is live, and a dashboard for it already exists at doc...
   - `regression_context_2026_08_16`: Operator: "I believe we regressed census with our prior work" — CONFIRMED with recorder data. Daily census max: Aug 9-12 = 6-7 (4 residents, chronic over-count of 2-3); Aug 13-14 = 4 (LOOKED perfect, but only because the _2-suffix break ...
   - `measured_incident_2026_08_16_guest_7h`: MEASURED end-to-end retrace of a live false-guest episode (operator flagged "5 seen, guest mode, 4 known"). Recorder: house `guest` 13:38:33 -> `home_evening` 20:40:59 = 7h02m of false guest with 4 known residents and zero guests. Entry ...
   - `exterior_intersection_findings_2026_08_16`: Context-wide read-only investigation answering "how does the circling/exterior-track work intersect the exterior census". ANSWER: IT DOES NOT — zero shared code, two independent readers of the same cameras. (1) Exterior census `_calculat...
+  - `merged_from_2026_08_16`: Absorbed CENSUS-DEDUP-REPAIR-1 wholesale. That card covered P10/P11: repair the BLE-cancel and fresh-face dedup defences at source (both currently return zero, which is WHY the additive derivation double-counts). Kept as one cycle becaus...
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
 thread: **presence** - status: **pre_planning** - approval: **explicit**
