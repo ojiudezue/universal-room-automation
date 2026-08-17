@@ -50,6 +50,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/pytest_serialize.sh\"",
+            "statusMessage": "pytest serialization guard"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "input=$(cat); cmd=$(echo \"$input\" | jq -r '.tool_input.command // empty'); if echo \"$cmd\" | grep -q 'deploy.sh'; then last_test=$(find quality/tests -name '*.py' -newer custom_components/universal_room_automation/const.py 2>/dev/null | head -1); if [ -z \"$last_test\" ]; then echo 'WARNING: Tests may not have been run since last code change' >&2; fi; fi; exit 0"
           },
           {
