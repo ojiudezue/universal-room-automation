@@ -11,8 +11,8 @@ _Generated: 2026-08-16T20:36:05-05:00_ - _Data commit: `5b0258f0995e`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
-| 🧭 Pre-planning | 8 |
+| 📥 Inbox | 1 |
+| 🧭 Pre-planning | 9 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
@@ -22,12 +22,20 @@ _Generated: 2026-08-16T20:36:05-05:00_ - _Data commit: `5b0258f0995e`_ - _last_r
 | 🅿️ Parked | 5 |
 | ✅ Done | 12 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `EXTERIOR-DWELL-LOITER-1` - Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads as pass_by
+thread: **security** - status: **inbox** - approval: **explicit**
+- **Origin:** 2026-08-16 - Surfaced by the exterior track-vs-census investigation while answering the operator's question on how the circling work intersects exterior census accuracy. Operator had just made exterior count accuracy a first-class SECURI...
+- **Why:** Loitering is the canonical security signal the current classifier is structurally blind to, and the blindness is not an oversight in the data (duration_s is right there) but in the predicate. Directly connected to the shipped linker work...
+- **Next:** MEASURE FIRST, per measure-before-you-build — the data already exists. Probe the ~1150 `exterior_track` rows in memory_episodes (one row per CLOSED track; attrs carry duration_s, camera_count, revisit_count, path, classification, identif...
+- **Tags:** security, measure-before-build, no-fabrication-verify
+- **Refs:** custom_components/universal_room_automation/exterior_track_linker.py:705-750; custom_components/universal_room_automation/const.py:1842-1875; docs/planning/AUDIT_memory_handbuild_compactor_exterior_track.md; docs/planning/PLANNING_circling_severity.md; docs/planning/PLANNING_circling_label_transition_dispatch.md
+- **Forensic keys (1):**
+  - `problem_solution`: P1 `ExteriorTrackLinker.classify()` (exterior_track_linker.py:705-750) is PURELY TOPOLOGICAL. `circling` iff revisit_count >= 1 OR (camera_count >= EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS AND non-monotonic path); `approach` iff egress-a...
 
-## 🧭 Pre-planning (8)
+## 🧭 Pre-planning (9)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -52,14 +60,23 @@ thread: **presence** - status: **pre_planning** - approval: **implied**
 - **Origin:** 2026-08-16 - Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md (aa3e39aa8).
 - **Why:** Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOT...
 - **Next:** Plan after the guest-census cycle ships and its live validation lands (the post-fix census reading is an input).
-- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md
-- **Forensic keys (3):**
+- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md; CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8); CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security)
+- **Forensic keys (5):**
   - `problem_solution`: P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
   - `operator_exterior_direction_2026_08_16`: Operator ruling on the exterior work, THREE distinctions: (1) EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior is live, and a dashboard for it already exists at doc...
-  - `exterior_intersection_findings_2026_08_16`: Context-wide read-only investigation answering "how does the circling/exterior-track work intersect the exterior census". ANSWER: **it does not — zero shared code**, two independent readers of the same cameras. (1) Exterior census `_calculate_property_census` camera_census.py:1501-1580 sums one `person_binary_sensor` bit PER CAMERA with NO dedup — one walker past 3 perimeter cams reads 3. (2) `ExteriorTrackLinker` threads sightings across cams via the ratified adjacency graph (`TRACK_LINK_WINDOW_S=180`) — same walker reads 1. **The security work is already the better counter** and it exposes `census_counts()` at exterior_track_linker.py:766-777 (`exterior_person_tracks_active`, `exterior_unidentified_persons`) which NOTHING consumes; census's own `property_count` also has zero readers. => Cycle-2 exterior scope is NOT "build exterior counting", it is "retire the naive per-camera sum in favour of the track-deduped count already built". (3) `single_source` MYSTERY CLOSED: hard-coded on every branch (camera_census.py:1544/1548/1551/1555); exterior path never calls `_cross_validate_platforms()`. Not a platform outage — multi-witness legs exist (perimeter_alert.py enumerates 7 engine legs on the same cams), the census just never asks. (4) EGRESS PRIOR ART EXISTS and predates the track work: `EgressDirectionTracker` transit_validator.py:829-1140 already resolves entry/exit by egress->interior ordering, fires `ura_person_egress_event` with confidence, persists via `log_entry_exit_event`. **Blocker: `person_id` hard-coded None at :1106 and :1121** — cannot express "an UNKNOWN person came inside", which is the whole load-bearing predicate for the operator's guest rule. Also `_get_interior_cameras_near()` :1130-1140 returns ALL interior cams (interior adjacency unmodelled), and there is NO link between the linker and the egress tracker (a track approaching an egress just closes on idle_timeout). (5) Exterior is FULLY STRANDED from house state today; the only coupling is one-way severity shaping (`NM_HAZARD_EXTERIOR_PERSON_GUEST_SEVERITY` — guest DEMOTES exterior severity; exterior never promotes guest). (6) Camera interior/exterior classification is DUPLICATED across 3 unreconciled mechanisms (config lists / linker key allowlist / `CONF_ZONE_IS_OUTDOOR`, which camera_census.py never imports = gap G9); the 2026-08-06 playroom interior-leak hotfix hardened the LINKER only — the census has no equivalent guard, so an interior cam wrongly added to `CONF_PERIMETER_CAMERAS` would inflate the exterior headcount silently. Pool-overhead/Balcony area conflict is real but does NOT bite either exterior surface (linker keys on camera name; exterior census does no area dedup). RECOMMENDATION: do the `census_counts()` swap in cycle 2; PARK exterior->interior guest admission as its own Tier-3 cycle (needs person_id + interior adjacency + a NEW cross-coordinator trust edge). Revisit trigger: cycle-1 guest-room gate live and proven AND person_id available on the egress event.
-  - `security_gap_circling_has_no_dwell_predicate_2026_08_16`: `ExteriorTrackLinker.classify()` exterior_track_linker.py:705-750 is PURELY TOPOLOGICAL — `circling` iff revisit_count>=1 or (camera_count>=N and non-monotonic path); `approach` iff egress-adjacent or camera_count>=N. `duration_s` IS recorded but NEVER gates a classification. Consequence: a person standing still at ONE camera for 20 minutes classifies as `pass_by` and gets DIGEST severity. Operator has made exterior accuracy a first-class SECURITY goal, so a loiter/dwell predicate is a genuine gap. Not carded as its own cycle yet — decide whether it rides cycle 2 or becomes a scoped security cycle.
-  - `measured_incident_2026_08_16_guest_7h`: MEASURED end-to-end retrace of a live false-guest episode (operator flagged "5 seen, guest mode, 4 known"). Recorder: house `guest` 13:38:33 -> `home_evening` 20:40:59 = **7h02m of false guest with 4 known residents and zero guests**. Entry was CENSUS-driven (Path A): census hit 6 at 13:38:03, guest 30s later. Census sawtoothed 4..10 all afternoon, never resting at 4 until 20:35:59; guest released 5 min after census finally reached 4. Confirmed constants: `CENSUS_PEAK_SUSTAIN_SECONDS=15` (latch), `DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES=3`, `CENSUS_DECAY_STEP_SECONDS=300` (-1/5min), `DEFAULT_GUEST_PERSISTENCE_SECONDS=300`. **The asymmetry IS the bug:** 15s of phantom latches a peak that costs 3min hold + 5min PER EXCESS PERSON to clear — the observed spike to 10 (identified=4) implies ~33 min of elevated count from a 15-second artifact, and re-spikes arrived faster than the decay drained (peak self-refreshes when `fresh == peak`, so a recurring artifact never decays at all). Decay measured exactly: 10->9->8->7->6->5 at 18:47/18:52/18:57/19:02/19:07. **Cycle-1 impact (verified, not assumed):** D2 KILLS this entry path (guest entry becomes guest-room-only, Path A removed) and D2b decouples the exit from the count — so this exact episode cannot recur. D1's clamp does NOT get the count to 4: it bounds to the pre-cancel camera body total, which is itself inflated (6 for 4 people), so the NUMBER stays wrong until cycle-3 dedup repair. Cycle 2 must fix the latch/decay asymmetry; cycle 3 must fix the camera body total.
   - `regression_context_2026_08_16`: Operator: "I believe we regressed census with our prior work" — CONFIRMED with recorder data. Daily census max: Aug 9-12 = 6-7 (4 residents, chronic over-count of 2-3); Aug 13-14 = 4 (LOOKED perfect, but only because the _2-suffix break ...
+  - `measured_incident_2026_08_16_guest_7h`: MEASURED end-to-end retrace of a live false-guest episode (operator flagged "5 seen, guest mode, 4 known"). Recorder: house `guest` 13:38:33 -> `home_evening` 20:40:59 = 7h02m of false guest with 4 known residents and zero guests. Entry ...
+  - `exterior_intersection_findings_2026_08_16`: Context-wide read-only investigation answering "how does the circling/exterior-track work intersect the exterior census". ANSWER: IT DOES NOT — zero shared code, two independent readers of the same cameras. (1) Exterior census `_calculat...
+
+### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
+thread: **presence** - status: **pre_planning** - approval: **explicit**
+- **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
+- **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
+- **Next:** Gate check first: confirm cycle-1 D2 guest-room gate is live and organically proven. Then a probe-first measurement per measure-before-you-build — over existing recorder/DB history, how often does an `ura_person_egress_event` fire, what ...
+- **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
+- **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
+- **Forensic keys (1):**
+  - `problem_solution`: P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
