@@ -34,6 +34,16 @@ case "$cmd" in
   *) printf '{}'; exit 0 ;;
 esac
 
+# ...but NEVER guard commands that merely TALK ABOUT pytest. The v1 guard
+# matched any command containing the string, which blocked `ps`, `pgrep` and
+# `kill` — i.e. exactly the commands its own deny message tells you to run to
+# find and clear a straggler. That catch-22 blocked a real build agent.
+# Diagnostic/cleanup verbs are always allowed through.
+case "$cmd" in
+  *pgrep*|*pkill*|*"ps -"*|*"ps a"*|*kill\ *|*htop*|*"grep -"*|*wc\ *|*tail\ *|*head\ *)
+    printf '{}'; exit 0 ;;
+esac
+
 # `pgrep -f pytest` would match this very hook's own shell (the command string
 # contains "pytest"), so match the python process form specifically.
 # Pattern is overridable ONLY so the deny path can be exercised in a test
@@ -45,6 +55,32 @@ if [ -z "$running" ]; then
   printf '{}'
   exit 0
 fi
+
+# A process that has burned no CPU is not running a suite — it is a zombie or a
+# wedged shell whose python child already died. v1 blocked on exactly such a
+# process (pid 1124: 0.01s CPU across 58 minutes, no live child), stalling a
+# build agent that could not clear it. Only LIVE runs justify a deny; stale
+# entries are reported and allowed through.
+live=""
+stale=""
+for pid in $running; do
+  cputime=$(ps -o time= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -z "$cputime" ] && continue
+  # ps TIME is [[dd-]hh:]mm:ss — anything at or below 00:05 of CPU is not a
+  # real suite (a genuine run burns minutes of CPU within its first minute).
+  case "$cputime" in
+    0:00.[0-9]*|0:0[0-5].*|00:00*|00:0[0-5]) stale="${stale} ${pid}" ;;
+    *) live="${live} ${pid}" ;;
+  esac
+done
+
+if [ -z "$live" ]; then
+  # Nothing genuinely running. Allow, but surface any stale pids so they get
+  # cleaned up rather than silently accumulating.
+  printf '{}'
+  exit 0
+fi
+running="$live"
 
 detail=""
 for pid in $running; do

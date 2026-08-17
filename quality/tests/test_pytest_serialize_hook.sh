@@ -32,25 +32,49 @@ check "malformed input fails open" '^{}$' "$out"
 out=$(echo '{"tool_input":{"command":"python3 -m pytest quality/tests/"}}' | $HOOK)
 check "pytest allowed when nothing running" '^{}$' "$out"
 
-# 4. THE LOAD-BEARING CASE: pytest is DENIED while another run is in flight.
-#    A sleep stands in for the running suite via the test-only pattern override.
+# 4. Diagnostic and cleanup commands are NEVER guarded, even though they
+#    contain the word "pytest". v1 blocked `ps`/`pgrep`/`kill`, i.e. exactly the
+#    commands its own deny message instructs you to run — that catch-22 stalled a
+#    real build agent that could not clear a straggler.
+for diag in 'ps -eo pid,command | grep pytest' \
+            'pgrep -f "python3 -m pytest"' \
+            'kill 1124  # stale pytest' \
+            'pkill -f pytest'; do
+  out=$(printf '{"tool_input":{"command":"%s"}}' "$diag" | $HOOK)
+  check "diagnostic allowed: ${diag%% *}" '^{}$' "$out"
+done
+
+# 5. A STALE process does not block. A wedged shell whose python child already
+#    died burns no CPU; v1 denied on exactly such a process (0.01s CPU across
+#    58 min), stalling a build agent. `sleep` burns no CPU, so it stands in.
 sleep 30 &
-victim=$!
+zombie=$!
 sleep 0.3
 out=$(PYTEST_GUARD_PATTERN="sleep 30" \
       sh -c 'echo "{\"tool_input\":{\"command\":\"python3 -m pytest quality/tests/\"}}" | '"$HOOK")
-check "concurrent pytest is DENIED"          '"permissionDecision": "deny"' "$out"
+check "stale/zero-CPU process does NOT block" '^{}$' "$out"
+kill $zombie 2>/dev/null; wait $zombie 2>/dev/null
+
+# 6. THE LOAD-BEARING CASE: pytest is DENIED while a genuinely LIVE run is in
+#    flight. Needs real CPU burn — a suite accrues seconds of CPU immediately,
+#    which is precisely what distinguishes it from case 5.
+sh -c 'while :; do :; done' &
+victim=$!
+sleep 6   # accrue >5s CPU so the guard classifies it live, not stale
+out=$(PYTEST_GUARD_PATTERN="while :; do :; done" \
+      sh -c 'echo "{\"tool_input\":{\"command\":\"python3 -m pytest quality/tests/\"}}" | '"$HOOK")
+check "LIVE concurrent pytest is DENIED"     '"permissionDecision": "deny"' "$out"
 check "deny names the blocking pid"          "pid=${victim}"                "$out"
 check "deny reports elapsed time"            'elapsed='                     "$out"
 check "deny forbids renaming the command"    'Do NOT work around'           "$out"
 
-# 5. Non-pytest commands stay allowed EVEN WHILE a run is in flight —
+# 7. Non-pytest commands stay allowed EVEN WHILE a live run is in flight —
 #    the guard must not become a global lock on all shell work.
-out=$(PYTEST_GUARD_PATTERN="sleep 30" \
+out=$(PYTEST_GUARD_PATTERN="while :; do :; done" \
       sh -c 'echo "{\"tool_input\":{\"command\":\"git log\"}}" | '"$HOOK")
 check "non-pytest still allowed during a run" '^{}$' "$out"
 
-kill $victim 2>/dev/null; wait $victim 2>/dev/null
+kill -9 $victim 2>/dev/null; wait $victim 2>/dev/null
 
 echo
 echo "  ${pass} passed, ${fail} failed"
