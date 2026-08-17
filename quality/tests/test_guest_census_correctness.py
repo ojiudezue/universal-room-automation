@@ -450,6 +450,7 @@ def test_unresolvable_room_warns(caplog: pytest.LogCaptureFixture) -> None:
     pc._guest_room_state = {}
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
+    pc._guest_room_known_last_true = {}
 
     # Config entry: guest room flagged, no matching entity in the registry.
     entry = MagicMock()
@@ -525,6 +526,7 @@ def test_discover_boot_seeds_first_seen_when_occupancy_on() -> None:
     pc._guest_room_state = {}
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
+    pc._guest_room_known_last_true = {}
 
     entry = MagicMock()
     entry.entry_id = "01KTESTBOOTSEED0000000000"
@@ -590,6 +592,7 @@ def test_discover_boot_no_seed_when_occupancy_off() -> None:
     pc._guest_room_state = {}
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
+    pc._guest_room_known_last_true = {}
 
     entry = MagicMock()
     entry.entry_id = "01KTESTBOOTSEEDOFF00000000"
@@ -649,6 +652,7 @@ def test_discover_boot_no_seed_when_known_person_present() -> None:
     pc._guest_room_state = {}
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
+    pc._guest_room_known_last_true = {}
     # Force _is_known_person_in_room to return True for this test only.
     pc._is_known_person_in_room = lambda room_name: True  # type: ignore[assignment]
 
@@ -880,6 +884,7 @@ def _seed_bare_pc_with_guest_room(
     pc._guest_room_state = {}
     pc._guest_room_unsubs = {}
     pc._guest_room_entity_to_name = {}
+    pc._guest_room_known_last_true = {}
     pc._guest_detection_enabled = True
 
     # Mutable identity oracle — tests can flip after boot.
@@ -1016,10 +1021,27 @@ def test_boot_seed_residual_clamp() -> None:
     # freeze exact utcnow() inside _discover_guest_rooms.
     tick = datetime.now(_tz.utc) + _td(seconds=1)
     elapsed_s = (tick - first_seen).total_seconds()
-    assert elapsed_s <= (threshold_s - GUEST_BOOT_SEED_MIN_RESIDUAL_S) + 2, (
-        f"clamp violated: elapsed={elapsed_s}s, threshold={threshold_s}s, "
-        f"residual={GUEST_BOOT_SEED_MIN_RESIDUAL_S}s "
-        f"(need elapsed <= threshold - residual)"
+    # F-HIGH-1 fix (2026-08-17): use a HARD-CODED expected bound derived
+    # from the documented product value (30-min threshold, 300s residual),
+    # not the imported constant. If the two collapsed together (as they did
+    # pre-fix), setting GUEST_BOOT_SEED_MIN_RESIDUAL_S to its documented
+    # kill-switch value 0 would still leave the test green — a hollow
+    # oracle. A separate contract assertion below guards the constant's
+    # value so a drift there also fails.
+    EXPECTED_RESIDUAL_S = 300  # test-local literal (30-min default × 5-min floor)
+    EXPECTED_MAX_ELAPSED_S = (30 * 60) - EXPECTED_RESIDUAL_S + 2  # +2s test slack
+    assert elapsed_s <= EXPECTED_MAX_ELAPSED_S, (
+        f"clamp violated: elapsed={elapsed_s}s, "
+        f"expected <= {EXPECTED_MAX_ELAPSED_S}s "
+        f"(30-min threshold minus {EXPECTED_RESIDUAL_S}s residual)"
+    )
+    # Contract assertion: keep the production constant pinned to the
+    # value this test's oracle is built around. If it drifts, review
+    # this test and the operator-facing documented default together.
+    assert GUEST_BOOT_SEED_MIN_RESIDUAL_S == EXPECTED_RESIDUAL_S, (
+        f"GUEST_BOOT_SEED_MIN_RESIDUAL_S drift: "
+        f"got {GUEST_BOOT_SEED_MIN_RESIDUAL_S}, expected {EXPECTED_RESIDUAL_S}. "
+        f"Update this test AND the operator-facing default together."
     )
 
 
@@ -1063,3 +1085,150 @@ def test_boot_seed_preserves_genuine_guest_credit() -> None:
         "genuine guest with 30-min sustained pre-restart occupancy must "
         "still fire the gate (feature not neutered by clamp)"
     )
+
+
+# ===========================================================================
+# GUEST-CENSUS CRIT (2026-08-17): _is_known_person_in_room helper tests
+# ---------------------------------------------------------------------------
+# Regression against a helper that was silently returning False in
+# production due to (a) wrong coordinator lookup and (b) wrong attribute.
+# These tests exercise the UNPATCHED helper against a fixture shaped like
+# the real ``PersonCoordinator.data``, reached via the real
+# ``hass.data[DOMAIN]["person_coordinator"]`` path — the same access the
+# 7 sibling sites in presence.py use.
+# ===========================================================================
+
+
+def _pc_with_real_person_coord(person_data: dict):
+    """Build a bare PresenceCoordinator whose ``hass.data`` carries a
+    real-shape person_coordinator stub keyed under DOMAIN."""
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_known_last_true = {}
+
+    person_coord = MagicMock()
+    person_coord.data = person_data
+    pc.hass.data = {DOMAIN: {"person_coordinator": person_coord}}
+    return pc
+
+
+def test_is_known_person_reads_canonical_person_coordinator_path():
+    """CRIT-REVERT-DRILL (a): if the lookup regresses to
+    ``manager.coordinators.get("person")``, this test MUST fail. The
+    helper's ONLY route to the substrate is
+    ``hass.data[DOMAIN]["person_coordinator"]``.
+    """
+    pc = _pc_with_real_person_coord({
+        "oji": {"location": "Guest Bedroom 1"},
+    })
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is True
+
+
+def test_is_known_person_reads_data_location_shape():
+    """CRIT-REVERT-DRILL (b): if the attribute regresses to
+    ``getattr(person_coord, "_tracked_persons", {})``, this test MUST
+    fail — the real store is ``person_coord.data[name]["location"]``
+    (person_coordinator.py:452, 528).
+    """
+    pc = _pc_with_real_person_coord({
+        "jaya": {"location": "Jaya Bedroom"},
+        "ziri": {"location": "Ziri Bathroom"},
+    })
+    assert pc._is_known_person_in_room("Jaya Bedroom") is True
+    assert pc._is_known_person_in_room("Ziri Bathroom") is True
+
+
+def test_is_known_person_returns_false_when_no_one_in_room():
+    pc = _pc_with_real_person_coord({
+        "oji": {"location": "Master Bedroom"},
+    })
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is False
+
+
+def test_is_known_person_ignores_unknown_and_away_locations():
+    """A person whose location is 'unknown' / 'away' / '' is NOT in the room."""
+    pc = _pc_with_real_person_coord({
+        "oji": {"location": "unknown"},
+        "jaya": {"location": "away"},
+        "ziri": {"location": ""},
+    })
+    assert pc._is_known_person_in_room("unknown") is False
+    assert pc._is_known_person_in_room("away") is False
+
+
+def test_is_known_person_normalizes_case_and_spaces():
+    """Vocabularies verified match directly on live mount (2026-08-17):
+    both `location` and `room_name` derive from CONF_ROOM_NAME. The
+    normalization is defensive symmetry, not a papered-over mismatch.
+    """
+    pc = _pc_with_real_person_coord({
+        "oji": {"location": "guest_bedroom_1"},
+    })
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is True
+
+
+def test_is_known_person_returns_false_when_person_coordinator_absent():
+    """Absent PC → False (safe default). NOT crash. Substrate may not
+    exist during unit-test-shaped calls."""
+    from custom_components.universal_room_automation.domain_coordinators.presence import (
+        PresenceCoordinator,
+    )
+    pc = PresenceCoordinator.__new__(PresenceCoordinator)
+    pc.hass = make_hass()
+    pc._guest_room_known_last_true = {}
+    # hass.data is {} → get(DOMAIN, {}).get("person_coordinator") is None.
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is False
+
+
+def test_is_known_person_sticky_absorbs_transient_flap():
+    """GUEST-CENSUS 2026-08-17: BLE flap tolerance.
+
+    Sequence:
+      1. Substrate places resident in room → helper returns True and
+         stamps last_true.
+      2. Substrate flaps: same resident momentarily resolves to
+         'unknown' (documented Bermuda BLE behaviour).
+      3. Helper called again within sticky window → returns True from
+         the latch, NOT False from the live substrate. This prevents an
+         un-exclusion at the exact instant `_guest_room_gate_armed`
+         runs its live re-check, which would fire GUEST on a resident.
+    """
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    pc = _pc_with_real_person_coord({"oji": {"location": "Guest Bedroom 1"}})
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is True
+
+    # Flap: resident's location drops to 'unknown'.
+    pc.hass.data[DOMAIN]["person_coordinator"].data = {
+        "oji": {"location": "unknown"},
+    }
+    # Within sticky window, exclusion still holds.
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is True
+
+
+def test_is_known_person_sticky_expires_after_window():
+    """Sticky is a short latch, not a permanent lock. After the window
+    passes with no live hit, the exclusion releases."""
+    from datetime import timedelta as _td
+    from custom_components.universal_room_automation.const import (
+        DOMAIN, GUEST_KNOWN_STICKY_S,
+    )
+
+    pc = _pc_with_real_person_coord({"oji": {"location": "Guest Bedroom 1"}})
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is True
+
+    # Age the last_true stamp past the sticky window.
+    pc._guest_room_known_last_true["Guest Bedroom 1"] = (
+        pc._guest_room_known_last_true["Guest Bedroom 1"]
+        - _td(seconds=GUEST_KNOWN_STICKY_S + 5)
+    )
+    # Substrate no longer places anyone in the room; latch has expired.
+    pc.hass.data[DOMAIN]["person_coordinator"].data = {
+        "oji": {"location": "unknown"},
+    }
+    assert pc._is_known_person_in_room("Guest Bedroom 1") is False

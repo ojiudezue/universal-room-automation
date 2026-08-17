@@ -405,6 +405,18 @@ CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: Final = "room_guest_occupancy_threshold
 # and restores the raw last_changed seed (the pre-fix shape).
 GUEST_BOOT_SEED_MIN_RESIDUAL_S: Final = 300
 
+# GUEST-CENSUS 2026-08-17: sticky window (seconds) for the
+# `_is_known_person_in_room` exclusion. Bermuda BLE `location` for a
+# stationary resident can momentarily resolve elsewhere or to "unknown"
+# (documented behaviour — Jaya Bedroom flap history). Without a latch,
+# a transient BLE dropout in the exact moment `_guest_room_gate_armed`
+# runs its live re-check would un-exclude a known resident and fire
+# GUEST on them. This constant caches the last True per (person, room)
+# so a momentary flap does not cross the exclusion boundary.
+# Rung 1 (module constant): safety margin against a false-GUEST class.
+# Kill-switch: 0 disables the latch (returns to raw live read).
+GUEST_KNOWN_STICKY_S: Final = 120
+
 # Room types
 ROOM_TYPE_BEDROOM: Final = "bedroom"
 ROOM_TYPE_CLOSET: Final = "closet"

@@ -23,6 +23,15 @@ import json
 import re
 import pytest
 
+# F-MED-1 (2026-08-17): pull in the provenance harness so its
+# sys.modules stubs for `homeassistant.*` are established at collection
+# time. The behavioural test at test_registers_state_change_listener
+# imports homeassistant.helpers.entity_registry at run time; without
+# this early stub install the import raises when this file is run in
+# isolation (in the full suite it works accidentally via cross-file
+# poisoning).
+import _provenance_harness  # noqa: F401
+
 
 # ===========================================================================
 # Source-slicing helper
@@ -264,13 +273,74 @@ class TestD5DiscoverGuestRooms:
         assert "CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN" in body
 
     def test_registers_state_change_listener(self, presence_src):
-        idx = presence_src.find("def _discover_guest_rooms(")
-        # Function body can be up to 8000 chars (bumped from 6000 after
-        # HIGH fix-up 2026-08-16 added the residual-dwell clamp block).
-        body = presence_src[idx:idx + 8000]
-        assert "async_track_state_change_event" in body, (
-            "_discover_guest_rooms must subscribe to occupancy sensor state changes"
+        """F-MED-1 fix (2026-08-17): BEHAVIOURAL, not source-grep.
+
+        The prior test stayed green when the real
+        ``async_track_state_change_event(...)`` call was replaced by
+        ``unsub = lambda: None`` plus a comment carrying the keyword.
+        This variant boots the bare coordinator through
+        ``_discover_guest_rooms`` with the real production function
+        patched to a spy — if the production code stops calling the
+        subscription API, the spy is never invoked and this test fails.
+        """
+        from unittest.mock import MagicMock, patch as _patch
+        import homeassistant.helpers.entity_registry as _er_mod
+        from _provenance_harness import make_hass
+        from custom_components.universal_room_automation.const import (
+            CONF_ENTRY_TYPE, CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+            CONF_ROOM_IS_GUEST_ROOM, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
         )
+        from custom_components.universal_room_automation.domain_coordinators import (
+            presence as _pres_mod,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.presence import (
+            PresenceCoordinator,
+        )
+
+        pc = PresenceCoordinator.__new__(PresenceCoordinator)
+        pc.hass = make_hass()
+        pc._guest_room_state = {}
+        pc._guest_room_unsubs = {}
+        pc._guest_room_entity_to_name = {}
+        pc._guest_room_known_last_true = {}
+        pc._guest_detection_enabled = True
+        pc._is_known_person_in_room = lambda rn: False  # type: ignore[assignment]
+
+        entry = MagicMock()
+        entry.entry_id = "01KTESTLISTENER00000000001"
+        entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+        entry.options = {
+            CONF_ROOM_NAME: "Spy Guest Bedroom",
+            CONF_ROOM_IS_GUEST_ROOM: True,
+            CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: 30,
+        }
+        pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+        entity_id = "binary_sensor.spy_guest_bedroom_occupied"
+        fake_reg = MagicMock()
+        fake_reg.async_get_entity_id = MagicMock(return_value=entity_id)
+        pc.hass.states.get = lambda eid: None  # not currently ON → skip boot-seed
+
+        spy = MagicMock(return_value=lambda: None)
+        with _patch.object(_er_mod, "async_get", return_value=fake_reg), \
+                _patch.object(_pres_mod, "async_track_state_change_event", spy):
+            pc._discover_guest_rooms()
+
+        assert spy.called, (
+            "_discover_guest_rooms MUST call async_track_state_change_event "
+            "for each guest room — otherwise no occupancy events reach the "
+            "state machine (feature dead)."
+        )
+        # And the (entity_ids, callback) shape must match production contract.
+        call_args = spy.call_args
+        assert call_args.args[0] is pc.hass
+        assert entity_id in call_args.args[1]
+        assert call_args.args[2] == pc._handle_guest_room_occupancy_change
+        # And the returned unsub must be stashed for teardown (Bug Class #38).
+        assert entity_id in [
+            k for k in pc._guest_room_entity_to_name.keys()
+        ]
+        assert "Spy Guest Bedroom" in pc._guest_room_unsubs
 
     def test_stores_unsub_in_dict(self, presence_src):
         idx = presence_src.find("def _discover_guest_rooms(")
