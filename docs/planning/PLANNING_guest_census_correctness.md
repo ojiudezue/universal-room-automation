@@ -66,6 +66,40 @@ _home_like_states`, GUEST entry requires
 alone MUST NOT be sufficient to enter GUEST. (Path C manual override
 `house_state.py:213-221` is not covered by this invariant — by product design.)
 
+**INV-GUEST-NO-RESIDENT (added 2026-08-16, fix-up round 2).** In **any** reachable
+path — including boot, config-entry reload, guest-room re-discovery, and kill-switch
+toggle — a designated guest room occupied **solely by known tracked residents** MUST
+NOT cause `_guest_room_gate_armed()` to return True.
+
+*Why this invariant is separate from INV-GUEST-LEAD, and why it exists:* INV-GUEST-LEAD
+is satisfied whenever the room gate arms, regardless of **who** is in the room. The
+fix-up-round-1 boot-seed defect satisfied INV-GUEST-LEAD completely while being exactly
+the failure the cycle exists to prevent. An invariant that a real defect can satisfy is
+not doing any work.
+
+*The falsifying repro (must be a permanently failing-then-passing regression test):*
+resident in a designated guest room, occupancy `on` since hours ago → HA restarts →
+`_discover_guest_rooms` runs before `person_coordinator` is populated, so
+`_is_known_person_in_room()` returns its documented `False` fallback → `first_seen`
+seeds to `last_changed` (hours ago) and `current_occupancy_known` initialises `False`
+→ the gate's elapsed already exceeds `threshold_min` → **GUEST arms on the first
+inference tick.**
+
+*The two structural facts that made it reachable, both of which any future change must
+preserve the fix for:*
+1. **`current_occupancy_known` is an event-driven producer.** Every writer of it
+   (`presence.py` Transitions 1/2/3) lives inside `_handle_guest_room_occupancy`, the
+   occupancy **state-change listener**. It is therefore never refreshed for a room whose
+   occupancy does not toggle. Any consumer treating it as live truth is wrong.
+2. **`_is_known_person_in_room()` fails open to `False`** ("unknown = safer for guest
+   detection"). That fallback is only safe while `first_seen` starts at `now`, which
+   guarantees a full `threshold_min` of settling time. Pre-ageing `first_seen` removes
+   that margin and converts the fail-open into a false-arm.
+
+*Consequence for reviewers:* a fix that relies on the occupancy state-change path to
+correct the state does **not** satisfy this invariant, because the repro's defining
+feature is that no state change occurs.
+
 D (adversarial-completeness) reviewer's sole job is to falsify these two.
 
 ---
