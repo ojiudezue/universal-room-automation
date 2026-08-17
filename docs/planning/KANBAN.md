@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-16T18:58:52-05:00_ - _Data commit: `61cd32b1e214`_ - _last_reconciled: 2026-08-16_
+_Generated: 2026-08-16T19:08:42-05:00_ - _Data commit: `8599a3142ba3`_ - _last_reconciled: 2026-08-16_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -19,7 +19,7 @@ _Generated: 2026-08-16T18:58:52-05:00_ - _Data commit: `61cd32b1e214`_ - _last_r
 | 🚀 Shipped (organic open) | 43 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 4 |
+| 🅿️ Parked | 5 |
 | ✅ Done | 12 |
 
 ## 📥 Inbox (0)
@@ -738,7 +738,7 @@ thread: **ops** - status: **waiting_me** - approval: **implied**
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** check + report each
 
-## 🅿️ Parked (4)
+## 🅿️ Parked (5)
 _revisit-trigger set_
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
@@ -753,6 +753,14 @@ thread: **perimeter** - status: **parked** - approval: **explicit**
   - `crosscheck_2026_08_15`: Operator tagged faces in BOTH engines this morning. Protect registry (via Protect API/MCP — HA exposes NO identity attrs on this install, so URA consumption = Protect API, plan note): Oji 21 dets avg-conf 82, Ziri 46 dets (Frigate's blin...
   - `webhook_probe_2026_08_15`: Operator approved the probe. HA listener LIVE: automation.ura_kp_face_webhook_probe (webhook id ura_kp_face_probe, local-only, payload -> event ura_kp_face_probe_received + system_log). Protect-side rule could NOT be created via API (v2 ...
   - `probe_result_2026_08_15`: PROBE FIRED (operator created "Madrone Face Alarm": Face ID known+unknown, Family Room + G6 Entry — the ONLY two Face-ID-capable Protect cams, fisheye silence explained definitively). Test payload captured: trigger key (face_known/face_u...
+
+### `CENSUS-G6-RAW-PERSISTENCE` - G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed value
+thread: **presence** - status: **parked** - approval: **implied**
+- **Origin:** 2026-08-16 - Operator: "Do both [G1+G4]. Card G6 and only use it if needed."
+- **Why:** Census hold(3min)+decay(-1/300s) makes a phantom structurally durable ~25 min, outlasting the 300s guest persistence gate — so "sustained" cannot distinguish sustained-because-real from sustained-because-held. ~15 LoC, D8 threading pattern.
+- **Refs:** docs/planning/RESEARCH_guest_actuation_and_census.md
+- **Forensic keys (1):**
+  - `revisit_trigger`: Build ONLY if, after G1+G4 ship, a phantom or a genuinely transient presence (delivery, brief visitor) still sustains guest mode. Under G4 this should be structurally blocked — no guest room sustaining 30min means no guest activation — s...
 
 ### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it
 thread: **presence** - status: **parked** - approval: **unreviewed**
