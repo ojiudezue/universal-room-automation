@@ -31,7 +31,7 @@ cards:
   status: planned
   approval: pre_approved_gated
   created: 2026-08-18 00:55
-  updated: 2026-08-18 00:55
+  updated: 2026-08-18 01:10
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -60,12 +60,16 @@ cards:
   refs:
   - docs/planning/RESEARCH_protect_face_to_ha.md
   - EXTERIOR-GUEST-EGRESS-1
+  webhook_live_2026_08_18: 'OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the
+    recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook
+    trace / the ura_face_identified event) to confirm the name field + confidence, then wire URA to consume
+    it. The open-watch for the organic face-webhook payload is now the concrete capture step.'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
   approval: unreviewed
   created: 2026-08-18 00:34
-  updated: 2026-08-18 00:34
+  updated: 2026-08-18 01:10
   refinement_status: initial
   title: Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
   problem_solution:
@@ -81,11 +85,19 @@ cards:
     partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
   constraints:
   - 'WATCH only — do not chase now (operator: card investigations, march the cycles). Interpret on occupancy.'
-  next: 'On occupancy: log which cameras contribute to face_lookup_missing_count and why; discriminate
-    benign (no-face-sensor cam probed) from real (resolvable face sensor missed).'
+  next: 'On occupancy: confirm the count DROPS when residents are recognized. If it stays high with recognized
+    residents present, investigate resolution. Optional: split the counter (absent vs no-face-now).'
   refs:
   - docs/readmes/README_v5.80.0.md
   - reference_frigate1_retired_2suffix_permanent.md
+  interpretation_2026_08_18: 'EXPLAINED: face_lookup_missing_count increments when a camera''s face sensor
+    reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT
+    only when the entity is absent. On an EMPTY house no camera has a recognized face, so ~every checked
+    camera counts -> 12 is EXPECTED and BENIGN (fail-closed correct: no face => no -1 credit). It does
+    NOT indicate a naming/resolution bug. THE DISCRIMINATING TEST IS OCCUPANCY: if the count STAYS high
+    while residents are home AND being face-recognized, THAT is a real resolution gap. Minor observability
+    nit: the counter conflates "entity absent" with "no face now" — could split into two counters for
+    a clean health signal. Downgraded from concern to expected-on-empty; re-check on occupancy.'
 - id: FRIGATE-LEG-NAMING-1
   thread: security
   status: inbox
