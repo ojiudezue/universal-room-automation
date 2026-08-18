@@ -68,6 +68,10 @@ from .const import (
     # (stringly-typed cross-module coupling — subscriber at
     # `transit_validator.py:41` imports the same const).
     SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
+    # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18):
+    CONF_FACE_RECOGNITION_ENABLED,
+    CONF_EGRESS_IDENTITY_ENABLED,
+    SIGNAL_URA_FACE_RECOGNITION_CHANGED,
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -5928,6 +5932,21 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
 # CM helper and the integration helper stay independent.
 INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_CAMERA_PERSON_ENTITIES,
+    # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18):
+    # CONF_FACE_RECOGNITION_ENABLED — cached at
+    # `transit_validator.py:259` (self._face_recognition_enabled) AND
+    # `presence.py:2451` (self._face_recognition_enabled). Discharge
+    # signal SIGNAL_URA_FACE_RECOGNITION_CHANGED wired in
+    # `_INTEGRATION_KEY_SIGNAL_TABLE` below; both consumers subscribe
+    # and re-read on receipt.
+    CONF_FACE_RECOGNITION_ENABLED,
+    # CONF_EGRESS_IDENTITY_ENABLED — fresh-read at every consumer:
+    # `camera_census._is_egress_identity_enabled` (2858-2870) and the
+    # indirect `transit_validator.py:1094` path via
+    # `camera_census.register_egress_face` → the same reader. No
+    # cached-consumer discharge signal needed (path (a) of the
+    # suppression-needs-discharge rule).
+    CONF_EGRESS_IDENTITY_ENABLED,
 })
 
 # Rung-1 kill switch (numbers-get-knobs). Flipping to False re-enables
@@ -5946,6 +5965,13 @@ INTEGRATION_RELOAD_SUPPRESS_ENABLED: bool = True
 # (`actuator_reconciler.py:212-214` — `{**data, **options}` per call).
 _INTEGRATION_KEY_SIGNAL_TABLE: dict[str, tuple[str, ...]] = {
     CONF_CAMERA_PERSON_ENTITIES: (SIGNAL_URA_TRANSIT_CONFIG_CHANGED,),
+    # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): face-recognition
+    # cached at transit_validator.py:259 + presence.py:2451.
+    CONF_FACE_RECOGNITION_ENABLED: (SIGNAL_URA_FACE_RECOGNITION_CHANGED,),
+    # CONF_EGRESS_IDENTITY_ENABLED intentionally absent — fresh-read at
+    # all consumers (camera_census._is_egress_identity_enabled +
+    # indirect transit_validator.py:1094). No cached-consumer discharge
+    # needed.
 }
 
 

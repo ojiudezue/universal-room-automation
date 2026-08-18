@@ -2444,14 +2444,73 @@ class PresenceCoordinator(BaseCoordinator):
 
             # v3.19.0: Read face recognition toggle from integration config
             try:
-                from ..const import CONF_FACE_RECOGNITION_ENABLED, ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE
+                from ..const import (
+                    CONF_FACE_RECOGNITION_ENABLED,
+                    DEFAULT_FACE_RECOGNITION_ENABLED,
+                    ENTRY_TYPE_INTEGRATION,
+                    CONF_ENTRY_TYPE,
+                )
                 for config_entry in self.hass.config_entries.async_entries(DOMAIN):
                     if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                         merged = {**config_entry.data, **config_entry.options}
-                        self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
+                        self._face_recognition_enabled = merged.get(
+                            CONF_FACE_RECOGNITION_ENABLED,
+                            DEFAULT_FACE_RECOGNITION_ENABLED,
+                        )
                         break
             except Exception:
+                # L-1 (CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1, 2026-08-18):
+                # degrade-closed on read failure. False is intentional —
+                # a broken read must NOT silently activate face-recog
+                # trust; keeps the operator's kill-switch effective.
                 self._face_recognition_enabled = False
+
+            # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): subscribe
+            # to SIGNAL_URA_FACE_RECOGNITION_CHANGED so a switch or
+            # options-flow toggle refreshes the cached flag WITHOUT the
+            # parent-entry reload (key is in
+            # INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS).
+            try:
+                from ..const import (
+                    SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+                    CONF_FACE_RECOGNITION_ENABLED as _CONF_FR,
+                    DEFAULT_FACE_RECOGNITION_ENABLED as _DEF_FR,
+                    ENTRY_TYPE_INTEGRATION as _ETI,
+                    CONF_ENTRY_TYPE as _CET,
+                )
+
+                def _on_face_recog_changed(*_a) -> None:
+                    previous = self._face_recognition_enabled
+                    for cfg in self.hass.config_entries.async_entries(DOMAIN):
+                        if cfg.data.get(_CET) == _ETI:
+                            try:
+                                merged2 = {**cfg.data, **cfg.options}
+                                self._face_recognition_enabled = merged2.get(
+                                    _CONF_FR, _DEF_FR,
+                                )
+                            except Exception:  # noqa: BLE001
+                                pass
+                            break
+                    if previous != self._face_recognition_enabled:
+                        _LOGGER.info(
+                            "PresenceCoordinator: face-recognition-enabled "
+                            "%s → %s (via SIGNAL_URA_FACE_RECOGNITION_CHANGED)",
+                            previous, self._face_recognition_enabled,
+                        )
+
+                self._unsub_listeners.append(
+                    async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+                        _on_face_recog_changed,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "PresenceCoordinator: could not connect "
+                    "SIGNAL_URA_FACE_RECOGNITION_CHANGED dispatcher",
+                    exc_info=True,
+                )
 
             # v3.6.0.3: Wrap discovery/subscription in try/except so partial
             # failures don't prevent the coordinator from functioning.

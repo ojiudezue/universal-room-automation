@@ -1918,6 +1918,14 @@
       }
     },
     "switch": {
+      "presence_face_matching": {
+        "name": "Presence Face Matching",
+        "description": "Use face-recognition results to identify the person during transit/path validation and presence trust. When ON, camera face events are considered by the transit validator and the presence coordinator; when OFF, the same events are still processed but not attributed to a specific person. Toggling this switch takes effect within seconds — no integration reload."
+      },
+      "name_people_at_doors": {
+        "name": "Name People at Doors",
+        "description": "When someone enters or leaves through a door camera, label them with their name from face recognition instead of 'unidentified' and use that identity in the house count. Requires Presence Face Matching to be working. When OFF, entries and exits are still counted, just not named."
+      },
       "optimizer_kill_switch": {
         "name": "Kill Switch"
       },

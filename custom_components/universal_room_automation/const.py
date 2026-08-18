@@ -2170,7 +2170,12 @@ EGRESS_FACE_UNION_TTL_S: Final = 300
 # an empty set. Net effect: `person_id` on `ura_person_egress_event` stays
 # None; both census fuse sites are byte-identical to pre-cycle behaviour.
 CONF_EGRESS_IDENTITY_ENABLED: Final = "egress_identity_enabled"
-DEFAULT_EGRESS_IDENTITY_ENABLED: Final = False
+# CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): default flipped
+# False → True. Feature is now surfaced as a device switch
+# (`switch.ura_name_people_at_doors`) and defaults ON so validation
+# occurs in production; the switch itself is the operator's live
+# kill-switch backstop.
+DEFAULT_EGRESS_IDENTITY_ENABLED: Final = True
 
 # v3.5.2 Census Mismatch
 CENSUS_MISMATCH_THRESHOLD: Final = 2
@@ -2178,6 +2183,24 @@ CENSUS_MISMATCH_DURATION_MINUTES: Final = 10
 
 # v3.5.2 Face Recognition
 CONF_FACE_RECOGNITION_ENABLED: Final = "face_recognition_enabled"
+# CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): new default
+# constant, True. Feature is now surfaced as a device switch
+# (`switch.ura_presence_face_matching`) and defaults ON. Cached-consumer
+# discharge is via SIGNAL_URA_FACE_RECOGNITION_CHANGED (see below).
+DEFAULT_FACE_RECOGNITION_ENABLED: Final = True
+
+# CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): dispatcher signal
+# fired after `entry.options[CONF_FACE_RECOGNITION_ENABLED]` changes on
+# the INTEGRATION entry. Cached consumers subscribe and re-read the
+# fresh value; discharges the reload-suppress branch's implicit
+# "no refresh path" gap per `feedback_suppression_needs_discharge`.
+# Subscribers:
+#   - transit_validator.py:async_init (self._face_recognition_enabled)
+#   - presence.py:async_setup (self._face_recognition_enabled)
+# Fired from BOTH switch._write AND
+# __init__._dispatch_integration_key_signals (idempotent belt-and-suspenders).
+# Payload: (entry_id: str, key: str)
+SIGNAL_URA_FACE_RECOGNITION_CHANGED: Final = "ura_face_recognition_changed"
 
 # ============================================================================
 # v3.6.0 Domain Coordinators

@@ -340,6 +340,7 @@ from .const import (
     MAX_EXTERIOR_SNAPSHOT_OFFSET_S,
     # v3.5.2: Face Recognition
     CONF_FACE_RECOGNITION_ENABLED,
+    DEFAULT_FACE_RECOGNITION_ENABLED,
     # v3.10.0: Automation Chaining
     CONF_AUTOMATION_CHAINS,
     AUTOMATION_CHAIN_TRIGGERS_M1,
@@ -2956,7 +2957,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # v3.5.2: Face recognition toggle (default False)
             vol.Optional(
                 CONF_FACE_RECOGNITION_ENABLED,
-                default=self._get_current(CONF_FACE_RECOGNITION_ENABLED, False),
+                default=self._get_current(CONF_FACE_RECOGNITION_ENABLED, DEFAULT_FACE_RECOGNITION_ENABLED),
             ): selector.BooleanSelector(),
             # v3.10.1: Enhanced census v2
             vol.Optional(

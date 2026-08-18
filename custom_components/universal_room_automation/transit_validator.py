@@ -39,6 +39,8 @@ from .const import (
     TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT,
     TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS,
     SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
+    SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+    DEFAULT_FACE_RECOGNITION_ENABLED,
     FACE_MATCH_WINDOW_S,
 )
 
@@ -240,6 +242,11 @@ class TransitValidator:
         # F6 fix: dispatcher listener for options-change signal (kept
         # across rebuilds so a re-init doesn't drop this hook).
         self._config_signal_unsub = None
+        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): discharge
+        # signal for CONF_FACE_RECOGNITION_ENABLED (the flag is cached
+        # at boot at :259; the switch/options-flow update is now
+        # reload-suppressed so we MUST refresh via this signal).
+        self._face_recog_signal_unsub = None
 
     async def async_init(self) -> None:
         """Subscribe to camera person detection entities.
@@ -256,7 +263,10 @@ class TransitValidator:
         for config_entry in self.hass.config_entries.async_entries(DOMAIN):
             if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 merged = {**config_entry.data, **config_entry.options}
-                self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
+                self._face_recognition_enabled = merged.get(
+                    CONF_FACE_RECOGNITION_ENABLED,
+                    DEFAULT_FACE_RECOGNITION_ENABLED,
+                )
                 break
 
         # Build camera-entity subscription set (rebuildable path).
@@ -332,6 +342,53 @@ class TransitValidator:
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "TransitValidator: could not connect config-change dispatcher",
+                exc_info=True,
+            )
+
+        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): subscribe to
+        # SIGNAL_URA_FACE_RECOGNITION_CHANGED so a switch/options-flow
+        # toggle of CONF_FACE_RECOGNITION_ENABLED refreshes our cached
+        # flag WITHOUT a parent-entry reload. The signal is fired by
+        # both the switch write and the reload-suppress branch of
+        # `_async_update_listener` (idempotent — both paths re-read the
+        # same persisted value).
+        try:
+            from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+                async_dispatcher_connect,
+            )
+
+            @callback
+            def _on_face_recognition_changed(*_a) -> None:
+                previous = self._face_recognition_enabled
+                for cfg in self.hass.config_entries.async_entries(DOMAIN):
+                    if cfg.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        try:
+                            merged = {**cfg.data, **cfg.options}
+                            self._face_recognition_enabled = merged.get(
+                                CONF_FACE_RECOGNITION_ENABLED,
+                                DEFAULT_FACE_RECOGNITION_ENABLED,
+                            )
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "TransitValidator: face-recog re-read failed",
+                                exc_info=True,
+                            )
+                        break
+                if previous != self._face_recognition_enabled:
+                    _LOGGER.info(
+                        "TransitValidator: face-recognition-enabled %s → %s "
+                        "(via SIGNAL_URA_FACE_RECOGNITION_CHANGED)",
+                        previous, self._face_recognition_enabled,
+                    )
+
+            self._face_recog_signal_unsub = async_dispatcher_connect(
+                self.hass,
+                SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+                _on_face_recognition_changed,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "TransitValidator: could not connect face-recognition dispatcher",
                 exc_info=True,
             )
 
@@ -825,6 +882,13 @@ class TransitValidator:
         except Exception:  # noqa: BLE001
             pass
         self._config_signal_unsub = None
+        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18)
+        try:
+            if self._face_recog_signal_unsub is not None:
+                self._face_recog_signal_unsub()
+        except Exception:  # noqa: BLE001
+            pass
+        self._face_recog_signal_unsub = None
         _LOGGER.debug("TransitValidator torn down")
 
 
