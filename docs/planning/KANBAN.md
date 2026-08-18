@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:14:56-05:00_ - _Data commit: `0f36240735c4`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:19:24-05:00_ - _Data commit: `660aa0ff6234`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-18T01:14:56-05:00_ - _Data commit: `0f36240735c4`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 6 |
+| 📥 Inbox | 5 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -20,9 +20,9 @@ _Generated: 2026-08-18T01:14:56-05:00_ - _Data commit: `0f36240735c4`_ - _last_r
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
-| ✅ Done | 24 |
+| ✅ Done | 25 |
 
-## 📥 Inbox (6)
+## 📥 Inbox (5)
 _raw capture_
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
@@ -93,17 +93,6 @@ thread: **presence** - status: **inbox** - approval: **unreviewed**
 - **Why:** Under D2 this exclusion is the SOLE safety check between guest-room occupancy and GUEST mode, so its blind spots are guest-mode false positives. The GUEST_KNOWN_STICKY_S=120 latch shipped in the oracle fix absorbs BLE FLAP but does nothi...
 - **Next:** After the guest-census cycle ships and the repaired oracle has organic evidence: quantify first — how often does a resident occupy a designated guest room while BLE places them elsewhere? Measure before designing.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/presence.py; docs/readmes/README_v5.78.0.md
-
-### `D3-BEHAVIOURAL-COVERAGE-1` - D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-- **Problem / Solution:**
-  - P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable: the sibling anchor test_unresolvable_r...
-  - P2 D3 is now load-bearing: under cycle-1 D2, guest entry depends ENTIRELY on guest-room occupancy, so a silent D3 resolution failure means guest mode never arms at all. Source-shape tests cannot catch a registry lookup that returns the w...
-- **Origin:** 2026-08-16 - Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.
-- **Why:** The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing guest entry path.
-- **Next:** After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms against a fake registry; drill each new anchor in both plain and variant-7 forms.
-- **Tags:** test-authority, hollow-anchors
-- **Refs:** docs/reviews/code-review/guest_census_review_C.md; custom_components/universal_room_automation/domain_coordinators/presence.py
 
 ## 🧭 Pre-planning (6)
 _idea being decomposed_
@@ -834,7 +823,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (24)
+## ✅ Done (25)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -943,6 +932,18 @@ thread: **presence** - status: **done** - approval: **implied**
   - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L2 organic — census at 4 post-boot pending first camera traversal; PASS = first recorder reading >4 (guests in house tonight = likely within hours).
   - `l2_watch_redefined_2026_08_15`: Guests departed before a >4 traversal registered (census max stayed 4 post-boot). L2 proof redefined: INTERIM = any unidentified contribution (census reads identified+1 on any visitor/delivery in census-camera view — was structurally imp...
   - `l2_INTERIM_PASS_2026_08_16`: ORGANIC PROOF (operator home, ~evening): census reads 6 = identified 4 + unidentified 2, camera_unrecognized 2, source_agreement close, confidence medium, wifi_guest_floor 6 (independent corroboration). Pre-fix this was STRUCTURALLY IMPO...
+
+### `D3-BEHAVIOURAL-COVERAGE-1` - D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
+thread: **presence** - status: **done** - approval: **unreviewed**
+_updated 2026-08-18 02:30_
+- **Problem / Solution:**
+  - P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable: the sibling anchor test_unresolvable_r...
+  - P2 D3 is now load-bearing: under cycle-1 D2, guest entry depends ENTIRELY on guest-room occupancy, so a silent D3 resolution failure means guest mode never arms at all. Source-shape tests cannot catch a registry lookup that returns the w...
+- **Origin:** 2026-08-16 - Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.
+- **Why:** The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing guest entry path.
+- **Next:** DONE (merged 7a2e73aa2, tests-only): 5 behavioural tests driving production _discover_guest_rooms + _handle_guest_room_occupancy_change vs a fake registry; 4 mutation drills (plain+variant-7) red-then-green; zero production change. D3 re...
+- **Tags:** test-authority, hollow-anchors
+- **Refs:** docs/reviews/code-review/guest_census_review_C.md; custom_components/universal_room_automation/domain_coordinators/presence.py
 
 ### `MDNS-SERIAL-HOSTS-1` - mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs
 thread: **devices** - status: **done** - approval: **implied**

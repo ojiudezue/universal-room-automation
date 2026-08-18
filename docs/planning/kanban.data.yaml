@@ -1924,7 +1924,7 @@ cards:
 - id: D3-BEHAVIOURAL-COVERAGE-1
   title: D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
   thread: presence
-  status: inbox
+  status: done
   approval: unreviewed
   tags:
   - test-authority
@@ -1952,11 +1952,13 @@ cards:
     the attack to the new tests before declaring them green.
   - 'Small and self-contained: tests only, no production change expected. If a production change turns
     out to be needed, that is a finding worth surfacing, not absorbing.'
-  next: After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms
-    against a fake registry; drill each new anchor in both plain and variant-7 forms.
+  next: 'DONE (merged 7a2e73aa2, tests-only): 5 behavioural tests driving production _discover_guest_rooms
+    + _handle_guest_room_occupancy_change vs a fake registry; 4 mutation drills (plain+variant-7) red-then-green;
+    zero production change. D3 registry resolution now behaviourally covered (was source-shape only).'
   refs:
   - docs/reviews/code-review/guest_census_review_C.md
   - custom_components/universal_room_automation/domain_coordinators/presence.py
+  updated: 2026-08-18 02:30
 - id: CENSUS-ACCURACY-1
   title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
     resolution (exterior dashboard wiring is a minor bonus)'
