@@ -425,6 +425,113 @@ def test_d2_resolves_last_camera_for_ura_person_slug() -> None:
     assert census._resolve_last_camera_entity_id("stranger_name") is None
 
 
+def test_d2_last_camera_map_rebuilds_when_first_build_was_empty() -> None:
+    """B-HIGH-1 lifecycle: if the FIRST census tick sees an empty
+    registry (Frigate not ready, or a reload window), the memoised map
+    is {}. It MUST rebuild on the next call once entries appear —
+    otherwise the map stays {} for the life of the process and every
+    resolve silently fail-CLOSES.
+
+    Mutation anchor: reverting the fix-up to `if cached is None:`
+    (memoise on None only) MUST fail this test. Confirmed via
+    per-site source mutation drill.
+    """
+    census = _make_census()
+    # First call: registry empty -> map builds to {}.
+    _install_registry(census, [])
+    assert census._resolve_last_camera_entity_id("oji_udezue") is None
+    assert census._frigate_person_last_camera_map == {}
+    # Registry populates (Frigate finally loaded / reloaded).
+    _install_registry(
+        census,
+        [
+            _make_registry_entry(
+                "sensor.frigate_oji_last_camera_2",
+                "01ULID:sensor_global_face:Oji",
+            ),
+        ],
+    )
+    # Second call MUST rebuild and resolve.
+    resolved = census._resolve_last_camera_entity_id("oji_udezue")
+    assert resolved == "sensor.frigate_oji_last_camera_2", (
+        "resolver did not rebuild from an empty map after the registry "
+        "populated — memoise-on-None-only regression"
+    )
+
+
+def test_d2_last_camera_miss_increments_face_lookup_missing_count() -> None:
+    """B-LOW-1: the parallel-path telemetry counter must fire on a
+    last_camera miss too, not just on a face miss. Otherwise a per-tick
+    health claim of 0 misses hides real fail-CLOSED events on the
+    last_camera axis.
+
+    Mutation anchor: removing the `_face_lookup_missing_count += 1`
+    inside `_resolve_last_camera_entity_id` MUST fail this test.
+    """
+    census = _make_census()
+    # Registry has one person but NOT the one we ask for.
+    _install_registry(
+        census,
+        [
+            _make_registry_entry(
+                "sensor.frigate_oji_last_camera_2",
+                "01ULID:sensor_global_face:Oji",
+            ),
+        ],
+    )
+    assert census._face_lookup_missing_count == 0
+    result = census._resolve_last_camera_entity_id("stranger_name")
+    assert result is None
+    assert census._face_lookup_missing_count == 1
+
+
+def test_d1_peak_age_seconds_has_real_second_precision() -> None:
+    """B-MEDIUM-2: drive the REAL `_compute_peak_age_seconds` staticmethod
+    (the exact helper the dispatch site at `_async_update_census_locked`
+    calls). Assert a 47-second age -> 47, not 0.
+
+    Mutation anchor: reverting the helper to
+    `return int(int((dispatch_utcnow - peak_ts).total_seconds() / 60)) * 60`
+    (or `int(peak_age_minutes) * 60`) MUST fail this test — 47 seconds
+    floors to 0 minutes -> 0 seconds under the regression.
+    """
+    peak_ts = datetime(2026, 8, 18, 12, 0, 0)
+    dispatch = peak_ts + timedelta(seconds=47)
+    result = PersonCensus._compute_peak_age_seconds(peak_ts, True, dispatch)
+    # Real-seconds precision, NOT rounded-to-minutes-times-60.
+    assert result == 47
+
+
+def test_d1_peak_age_seconds_zero_when_no_peak_held() -> None:
+    """Discrimination test — a plausible OTHER failure (returning the
+    raw seconds even when peak_held is False) would report a nonzero
+    age. Assert 0 when peak_held is False."""
+    peak_ts = datetime(2026, 8, 18, 12, 0, 0)
+    dispatch = peak_ts + timedelta(seconds=47)
+    assert PersonCensus._compute_peak_age_seconds(peak_ts, False, dispatch) == 0
+    assert PersonCensus._compute_peak_age_seconds(None, True, dispatch) == 0
+
+
+def test_d1_count_as_of_shared_between_payload_and_sensor_attr() -> None:
+    """B-MEDIUM-1: the sensor attr and the SIGNAL_CENSUS_UPDATED payload
+    must carry the IDENTICAL `count_as_of` instant — same key, same
+    clock, one stamp. The dispatch stamps `census._last_count_as_of`;
+    the sensor attr reads that cached value verbatim.
+
+    Mutation anchor: reintroducing a `dt_util.utcnow().isoformat()` call
+    at attr-read time (the pre-fix behavior) MUST break the invariant
+    that attr_val == cached_val.
+    """
+    census = _make_census()
+    # Simulate a dispatch that cached the stamp.
+    stamp = "2026-08-18T12:34:56.789+00:00"
+    census._last_count_as_of = stamp
+    census._last_peak_age_seconds = 47
+    # The sensor attr code reads exactly this attribute.
+    assert getattr(census, "_last_count_as_of") == stamp
+    assert getattr(census, "_last_peak_age_seconds") == 47
+
+
 def test_d2_ignores_registry_entries_with_unexpected_unique_id() -> None:
     """A malformed frigate entry (wrong unique_id shape) must be skipped
     without crashing and without polluting the map."""

@@ -3553,23 +3553,27 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["stuck_cameras"] = list(
                         getattr(census, "_last_stuck_cameras", []) or []
                     )
-                # CENSUS-ACCURACY-1 D1 + D2 (2026-08-17): freshness stamps
-                # and diagnostic counters. `count_as_of` here is stamped at
-                # ATTR-READ time (not dispatch time) — the DISPATCH-time
-                # value is on the SIGNAL_CENSUS_UPDATED payload. Both are
-                # dt_util-based and comparable against consumer clocks.
-                from homeassistant.util import dt as _dt_util_d1
-                attrs["count_as_of"] = _dt_util_d1.utcnow().isoformat()
+                # CENSUS-ACCURACY-1 D1 + D2 freshness stamps + diagnostics.
+                # Review fix-up 2026-08-18 (B-MEDIUM-1 / A-LOW): read the
+                # DISPATCH-TIME cached stamps so this attr and the
+                # SIGNAL_CENSUS_UPDATED payload carry the identical
+                # `count_as_of` instant. Do NOT re-stamp here — that
+                # produced a same-key different-clock discrepancy up to
+                # one census tick wide. Fallback to None when no census
+                # dispatch has fired yet.
+                attrs["count_as_of"] = getattr(census, "_last_count_as_of", None)
                 attrs["peak_refresh_suppressed_count"] = int(
                     getattr(census, "_peak_refresh_suppressed_count", 0) or 0
                 )
                 attrs["face_lookup_missing_count"] = int(
                     getattr(census, "_face_lookup_missing_count", 0) or 0
                 )
-                # peak_age_seconds for short-window discrimination (the
-                # existing peak_age_minutes attr rounds down).
-                _peak_min = int(getattr(result.house, "peak_age_minutes", 0) or 0)
-                attrs["peak_age_seconds"] = _peak_min * 60
+                # B-MEDIUM-2: real second-precision peak age computed at
+                # dispatch time (previously int(minutes) * 60 — 60× coarser
+                # than the name implied).
+                attrs["peak_age_seconds"] = int(
+                    getattr(census, "_last_peak_age_seconds", 0) or 0
+                )
         except Exception:  # pragma: no cover - defensive
             _LOGGER.debug("Failed to attach v5.9.0 census observability attrs", exc_info=True)
         return attrs

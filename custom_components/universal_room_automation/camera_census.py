@@ -1021,6 +1021,12 @@ class PersonCensus:
         # entity_id. Memoised on first use; the enumeration is small
         # (~5 entries). None sentinel means "not yet built".
         self._frigate_person_last_camera_map: dict[str, str] | None = None
+        # CENSUS-ACCURACY-1 D1 review fix-up (B-MEDIUM-1): cached
+        # dispatch-time freshness stamps so the persons_in_house sensor
+        # attr and the SIGNAL_CENSUS_UPDATED payload carry the identical
+        # instant (previously two clocks stamped the same key).
+        self._last_count_as_of: str | None = None
+        self._last_peak_age_seconds: int = 0
 
         # v5.9.0 D-A / D-E observability: last computed area-contribution map
         # for the interior (house) census, and the pre-dedup naive sum. Read
@@ -1217,13 +1223,28 @@ class PersonCensus:
         # documented upper bound, not addressed here). Freshness window
         # is CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s (const.py:2609).
         _face_recognized = getattr(house_result, "face_recognized_persons", []) or []
-        # CENSUS-ACCURACY-1 D1: `count_as_of` is stamped at DISPATCH time
-        # (dt_util.utcnow().isoformat()), NOT compute-start (`now`), so
-        # consumers reading it against their own dt_util.utcnow() can
-        # compute freshness lag correctly. `peak_age_seconds` is derived
-        # from the already-published `peak_age_minutes` (int minutes; the
-        # seconds version gives short-window discrimination).
-        _peak_age_min = int(getattr(house_result, "peak_age_minutes", 0) or 0)
+        # CENSUS-ACCURACY-1 D1 (payload extension, INV-PAYLOAD-DISCRIMINABLE).
+        # Review fix-up 2026-08-18:
+        #   * B-MEDIUM-1 — `count_as_of` was stamped at dispatch time in the
+        #     payload but at attr-read time in the sensor. Same key name,
+        #     different clocks. Stamp ONCE here and cache on the instance;
+        #     the sensor reads the cached value so payload and attr are the
+        #     identical instant.
+        #   * B-MEDIUM-2 — `peak_age_seconds` previously = int(minutes) * 60,
+        #     which is 60× coarser than the name implies and defeats
+        #     short-window discrimination. Compute a real second-precision
+        #     value from the stored peak timestamp against the SAME utcnow
+        #     used for `count_as_of`.
+        _dispatch_utcnow = dt_util.utcnow()
+        _count_as_of_iso = _dispatch_utcnow.isoformat()
+        _peak_age_seconds = self._compute_peak_age_seconds(
+            self._peak_house_timestamp,
+            bool(getattr(house_result, "peak_held", False)),
+            _dispatch_utcnow,
+        )
+        # Cache so the sensor attr can carry the identical instant.
+        self._last_count_as_of = _count_as_of_iso
+        self._last_peak_age_seconds = _peak_age_seconds
         async_dispatcher_send(
             self.hass,
             SIGNAL_CENSUS_UPDATED,
@@ -1240,8 +1261,8 @@ class PersonCensus:
                 "face_recognized_count": len(_face_recognized),
                 # CENSUS-ACCURACY-1 D1 payload extension (INV-PAYLOAD-DISCRIMINABLE).
                 "peak_held": bool(getattr(house_result, "peak_held", False)),
-                "peak_age_seconds": _peak_age_min * 60,
-                "count_as_of": dt_util.utcnow().isoformat(),
+                "peak_age_seconds": _peak_age_seconds,
+                "count_as_of": _count_as_of_iso,
                 "peak_refresh_suppressed_count": (
                     self._peak_refresh_suppressed_count
                 ),
@@ -2426,6 +2447,26 @@ class PersonCensus:
     # See PLANNING_census_accuracy.md rev-2 §D2 + plan_review §3/F1.
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _compute_peak_age_seconds(
+        peak_ts: datetime | None,
+        peak_held: bool,
+        dispatch_utcnow: datetime,
+    ) -> int:
+        """Real second-precision age of the currently-held peak.
+
+        CENSUS-ACCURACY-1 D1 review fix-up (B-MEDIUM-2): must NOT be
+        `int(peak_age_minutes) * 60` — that is 60× coarser than the
+        name implies and defeats short-window discrimination. Returns 0
+        when there is no held peak.
+        """
+        if peak_ts is None or not peak_held:
+            return 0
+        try:
+            return max(0, int((dispatch_utcnow - peak_ts).total_seconds()))
+        except (TypeError, ValueError):
+            return 0
+
     def _resolve_face_entity_id(self, base_name: str) -> str | None:
         """Resolve `sensor.<base>_last_recognized_face` tolerating the `_2`
         disambiguation suffix.
@@ -2542,8 +2583,16 @@ class PersonCensus:
         # Defensive: some legacy tests construct PersonCensus via
         # `object.__new__` (bypassing __init__), so use getattr rather
         # than assuming the instance attribute is set.
+        # B-HIGH-1 (review fix-up 2026-08-18): rebuild on EMPTY, not just
+        # None. If the very first census tick runs before Frigate is in
+        # the registry (or Frigate reloaded, or a person was added after
+        # setup), the initial build returns {} and a memoise-on-None-only
+        # scheme freezes that empty state forever — silently fail-CLOSED
+        # for the life of the process. Rebuilding on empty is idempotent
+        # (still ~5 registry entries) and self-heals as soon as Frigate
+        # entries appear.
         cached = getattr(self, "_frigate_person_last_camera_map", None)
-        if cached is None:
+        if not cached:
             cached = self._build_frigate_person_last_camera_map()
             self._frigate_person_last_camera_map = cached
         # `person_slug` here is the URA slug (e.g. `oji_udezue`); the
@@ -2552,7 +2601,21 @@ class PersonCensus:
         first_token = person_slug.split("_", 1)[0].strip().lower()
         if not first_token:
             return None
-        return self._frigate_person_last_camera_map.get(first_token)
+        resolved = self._frigate_person_last_camera_map.get(first_token)
+        if resolved is None:
+            # B-LOW-1 (review fix-up 2026-08-18): parallel-path telemetry.
+            # The face resolver increments this counter on miss; the
+            # last_camera resolver must too, otherwise a per-tick health
+            # claim of 0 misses hides real fail-CLOSED events on the
+            # last_camera axis (e.g. a URA person with no frigate face
+            # library entry, or a post-reload window where the registry
+            # is stale).
+            try:
+                self._face_lookup_missing_count += 1
+            except AttributeError:
+                # object.__new__ fixtures may not have set the attr.
+                self._face_lookup_missing_count = 1
+        return resolved
 
     def _get_face_recognized_persons(self) -> set[str]:
         """Return set of person IDs from Frigate face recognition sensors.
