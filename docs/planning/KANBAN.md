@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T09:35:49-05:00_ - _Data commit: `75d7f151a8bd`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T09:40:18-05:00_ - _Data commit: `b3cae0dda0a0`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -166,7 +166,7 @@ _has plan / acceptance_
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
-_updated 2026-08-18 09:45_
+_updated 2026-08-18 10:05_
 - **Problem / Solution:**
   - P1 the interior census derives from cameras+BLE+face and does not currently consume the fact that a specific person was OBSERVED crossing an egress from outside to inside. That crossing is strong, causal evidence a body entered the inter...
 - **Origin:** 2026-08-17 - Split from the egress design discussion: identity-on-egress (scope 1) is a prerequisite; using the resulting exterior->interior transitions to reinforce the interior headcount is scope 2.
@@ -175,7 +175,7 @@ _updated 2026-08-18 09:45_
 - **Refs:** docs/planning/PLANNING_exterior_guest_egress.md; depends-on: EXTERIOR-GUEST-EGRESS-1
 - **Forensic keys (2):**
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
-  - `coverage_ceiling_2026_08_18`: AUDIT finding: egress person_id present on only ~7% of crossings (Frigate face coverage at doors is the ceiling). Caps ALL identity-consuming downstreams (G1/G2/G3). Higher-value long play may be a FACE-INDEPENDENT approach-track identit...
+  - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
 ## 🔨 In progress (1)
 _being built_
@@ -1250,36 +1250,39 @@ _created 2026-08-18 03:20 · initial_
 
 ### `CENSUS-IDENTITY-SUPERSESSION-DELETE-1` - Delete superseded census/identity code (gated on L3 validation)
 thread: **planning**
-_created 2026-08-18 09:45 · initial_
-- **Next:** After L3 PASS Wed: delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7 legacy Frigate paths; Tier 1 cleanup.
+_created 2026-08-18 09:45 · updated 2026-08-18 10:05 · initial_
+- **Next:** Tier-1 cleanup: grep-verify S1 zero readers -> delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7 legacy Frigate paths -> delete confirmed-dead sites. Both decidable now.
 - **Forensic keys (3):**
-  - `column`: parked
-  - `problem`: The census/identity arc superseded some code. Marked for deletion AFTER full validation (Wed L3). S1 CENSUS_DECAY_STEP_SECONDS (const.py:2777) = unambiguous safe delete (tombstoned, zero readers). S7 legacy string-built Frigate paths nee...
-  - `parked_reason`: Gated on v5.81.0/v5.82.0 L3 organic validation (Wed). Do NOT delete before L3 confirms the new path works.
+  - `column`: inbox
+  - `problem`: The census/identity arc superseded some code. Each delete-candidate has its OWN concrete, checkable gate (NOT a blanket "when validated fully"):
+  - `parked_reason`: NOT gated on identity L3 (that was a spurious coupling). Each item gates on its OWN grep-check against ALREADY-shipped-and-validated cycles (v5.79.0/v5.80.0). Do the two greps (S1 zero-readers, S7 sweep) to DECIDE and delete — no Wed dep...
 
 ### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
 thread: **security**
-_created 2026-08-18 09:45 · initial_
-- **Next:** Measure-before-build: probe real egress_identities_stamped rate first. Then wire identity into the alert message (graceful-anonymous).
-- **Forensic keys (2):**
+_created 2026-08-18 09:45 · updated 2026-08-18 10:05 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Forensic keys (3):**
   - `column`: inbox
-  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Capped by ~7% egress person_id coverage — ...
+  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Consume identity gracefully (name when kno...
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
 ### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location)
 thread: **presence**
-_created 2026-08-18 09:45 · initial_
-- **Next:** Tier 2-DB (trust-hierarchy). Measure coverage first. Design how door-identity feeds the guest gate w/o over-trusting sparse identity.
-- **Forensic keys (2):**
+_created 2026-08-18 09:45 · updated 2026-08-18 10:05 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Forensic keys (3):**
   - `column`: inbox
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
 ### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id
 thread: **notifications**
-_created 2026-08-18 09:45 · initial_
-- **Next:** Low-risk. Measure coverage; then a notify on ura_person_egress_event when person_id present. Tier 1/2.
-- **Forensic keys (2):**
+_created 2026-08-18 09:45 · updated 2026-08-18 10:05 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Forensic keys (3):**
   - `column`: inbox
-  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Capped by ~7% coverage — only fires when identity is present.
+  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
 ## 🅿️ Parked ideas (top-level list)
 

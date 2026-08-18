@@ -1,5 +1,19 @@
 # AUDIT — Census / Identity Supersession + Producer/Consumer Map + Should-Be-Consuming Gaps
 
+> ⚠️ **CORRECTION 2026-08-18 (operator) — the "~7% egress face coverage" figure used throughout
+> this doc is WRONG as a ceiling and its downstream recommendation is RETRACTED.** The 7% came from
+> `PROBE_protect_face_egress.md`, which measured the WRONG camera (the front door
+> `madrone_g6_entry`). Most family entries are via the **garage**, and Protect names people in the
+> **family room** — i.e. on the *real* entry path. Frigate is on **all** cameras (front overhead +
+> doorbell + foyer; garage doorbell + inside-garage cam), and Protect has face recognition on the
+> doorbell + family room reachable via the **live Alarm Manager webhook**
+> (`EXTERIOR-GUEST-FACE-FASTFOLLOW-1` D2). So the identity path is **viable**; coverage must be
+> **re-measured against garage entries + family-room arrival**, not the front door. The
+> "recommend a face-independent approach-track signal" conclusion below is **RETRACTED** — the
+> operator already chose **identity-first**, and the face-independent arm is a *deferred,
+> gated-on-value fallback* (`EXTERIOR-GUEST-EGRESS-1`, revisit only if identity proves insufficient).
+> Treat every "~7%" / "capped by coverage" / "face-independent" line below as superseded by this note.
+
 **Type:** READ-ONLY audit (no code changed by this doc).
 **Date:** 2026-08-18
 **Scope:** the census / guest / presence-identity cycle group — v5.79.0 (guest correctness),
@@ -170,13 +184,17 @@ reads them yet (see gap G5). Session-lifetime (resets on restart), by design.
    row; nothing turns it into a presence notification. Lowest-risk of the three to build; value capped
    by coverage. **NEEDS A CARD.**
 
-All three are capped by the **~7% egress face-coverage** reality (D0 probe). Recommendation:
-before carding G1/G2/G3 for build, run a fresh one-shot probe of *actual `egress_identities_stamped`
-rate* over a few days of live crossings (measure-before-build) — if coverage is still single-digit,
-G1/G3 are still worth it (graceful-anonymous, cheap) but G2's trust-firm-up should stay parked behind
-`EGRESS-INTERIOR-COUNT-REINFORCE-1`'s existing accuracy gate, and the higher-value move may be a
-**face-independent** approach-track identity signal (already floated on the
-`EGRESS-INTERIOR-COUNT-REINFORCE-1` card's `d0_impact` note) rather than more face plumbing.
+**Recommendation (corrected — see the banner at the top of this doc).** The "~7%" is NOT a
+ceiling; it measured the front door, not the real garage/family-room entry path, and predates the
+Protect-named-face webhook now being wired. So before carding G1/G2/G3 for build, run a fresh
+one-shot **measure-before-build** probe of the *actual* egress identity rate — but measured
+against the **garage entries + family-room arrival** path, and **including Protect named face**
+(via the live `ura_kp_face_probe_received` webhook / `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` D2), not
+Frigate-egress-at-the-front-door alone. All three gaps consume identity **graceful-anonymous**
+(name when known, anonymous otherwise), so none is invalidated by imperfect coverage. Do **not**
+recommend the face-independent approach-track arm here: the operator already chose identity-first,
+and that arm is a **deferred, gated-on-value fallback** (`EXTERIOR-GUEST-EGRESS-1`) — it revisits
+only if the identity path, measured on the real entry path, proves insufficient.
 
 ---
 

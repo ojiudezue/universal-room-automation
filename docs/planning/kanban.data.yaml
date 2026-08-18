@@ -2433,16 +2433,22 @@ cards:
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
-  updated: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
   d0_impact_2026_08_17: 'D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces —
     face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement
     is not viable on current sensing. IF cycle 3 rescopes to the face-independent approach-track signal,
     revisit whether a FACE-INDEPENDENT interior-count reinforcement (an unknown approach-track that enters
     raises the interior unknown count) is worth it. Otherwise stays parked until face coverage improves.'
-  coverage_ceiling_2026_08_18: 'AUDIT finding: egress person_id present on only ~7% of crossings (Frigate
-    face coverage at doors is the ceiling). Caps ALL identity-consuming downstreams (G1/G2/G3). Higher-value
-    long play may be a FACE-INDEPENDENT approach-track identity signal (already floated here) rather than
-    more face plumbing. Measure real egress_identities_stamped rate before building any consumer.'
+  coverage_ceiling_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed
     value'
@@ -4443,62 +4449,105 @@ cards:
   refs: README_v5.79.0/5.80.0/5.81.0; CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
 - id: CENSUS-IDENTITY-SUPERSESSION-DELETE-1
   title: Delete superseded census/identity code (gated on L3 validation)
-  column: parked
+  column: inbox
   thread: planning
   created: 2026-08-18 09:45
-  updated: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
   refinement_status: initial
-  problem: The census/identity arc superseded some code. Marked for deletion AFTER full validation (Wed
-    L3). S1 CENSUS_DECAY_STEP_SECONDS (const.py:2777) = unambiguous safe delete (tombstoned, zero readers).
-    S7 legacy string-built Frigate paths need a focused grep sweep before deletion. S2 old oracle already
-    removed in v5.79.0 (no vestige). S3/S6 KEEP (load-bearing). S4/S5 KEEP/reconcile-later.
+  problem: 'The census/identity arc superseded some code. Each delete-candidate has its OWN concrete,
+    checkable gate (NOT a blanket "when validated fully"):
+
+    - S1 CENSUS_DECAY_STEP_SECONDS (const.py:2777): superseded by v5.80.0 decay separation, which is LIVE
+    + validated. GATE = one grep confirming zero readers remain. ACHIEVABLE NOW — not coupled to the v5.81/v5.82
+    identity L3. Deletable in a Tier-1 cleanup once the grep confirms.
+
+    - S7 legacy string-built Frigate face/last_camera paths: superseded by the v5.80.0 _2-suffix resolver
+    (LIVE). GATE = a focused grep sweep confirming each site has no live reader / is fully replaced. ACHIEVABLE
+    NOW via grep.
+
+    - S2 old oracle: already removed in v5.79.0 (no vestige) — nothing to delete.
+
+    - S3/S6 KEEP (load-bearing: face_recognized_count != identified_count, gates away-veto). S4/S5 KEEP
+    (display-only).'
   origin: 2026-08-18 "Check for what this supersedes so we can mark for deletion when we validate fully"
-  parked_reason: Gated on v5.81.0/v5.82.0 L3 organic validation (Wed). Do NOT delete before L3 confirms
-    the new path works.
-  next: 'After L3 PASS Wed: delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7 legacy Frigate paths; Tier
-    1 cleanup.'
+  parked_reason: NOT gated on identity L3 (that was a spurious coupling). Each item gates on its OWN grep-check
+    against ALREADY-shipped-and-validated cycles (v5.79.0/v5.80.0). Do the two greps (S1 zero-readers,
+    S7 sweep) to DECIDE and delete — no Wed dependency.
+  next: 'Tier-1 cleanup: grep-verify S1 zero readers -> delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7
+    legacy Frigate paths -> delete confirmed-dead sites. Both decidable now.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §1
 - id: PERIMETER-ALERT-NAME-PERSON-1
   title: Perimeter alerts should NAME the person (consume egress/face identity)
   column: inbox
   thread: security
   created: 2026-08-18 09:45
-  updated: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
   refinement_status: initial
   problem: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known
     — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps.
-    Capped by ~7% egress person_id coverage — must consume gracefully (name when known, anonymous otherwise).
+    Consume identity gracefully (name when known, anonymous otherwise). Identity comes from Frigate face
+    (all cams) + Protect named face at doorbell/family-room via the live webhook.
   origin: 2026-08-18 should-be-consuming audit G1
-  next: 'Measure-before-build: probe real egress_identities_stamped rate first. Then wire identity into
-    the alert message (graceful-anonymous).'
+  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
+    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G1; perimeter_alert.py:1316
+  coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
   column: inbox
   thread: presence
   created: 2026-08-18 09:45
-  updated: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
   refinement_status: initial
   problem: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR
     does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent
-    card EGRESS-INTERIOR-COUNT-REINFORCE-1 is count-focused, this is GATE-focused. Capped by ~7% coverage.
+    card EGRESS-INTERIOR-COUNT-REINFORCE-1 is count-focused, this is GATE-focused.
   origin: 2026-08-18 should-be-consuming audit G2
-  next: Tier 2-DB (trust-hierarchy). Measure coverage first. Design how door-identity feeds the guest
-    gate w/o over-trusting sparse identity.
+  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
+    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G2; EGRESS-INTERIOR-COUNT-REINFORCE-1
+  coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
   column: inbox
   thread: notifications
   created: 2026-08-18 09:45
-  updated: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
   refinement_status: initial
   problem: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk
-    build of the gaps. Capped by ~7% coverage — only fires when identity is present.
+    build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   origin: 2026-08-18 should-be-consuming audit G3
-  next: Low-risk. Measure coverage; then a notify on ura_person_egress_event when person_id present. Tier
-    1/2.
+  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
+    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G3
+  coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
