@@ -82,6 +82,9 @@ from custom_components.universal_room_automation.aggregation import (
 from custom_components.universal_room_automation.binary_sensor import (
     URAUnexpectedPersonSensor,
 )
+from custom_components.universal_room_automation.sensor import (
+    UnidentifiedPersonsSensor,
+)
 
 
 DOMAIN = ura_const.DOMAIN
@@ -216,6 +219,13 @@ def _make_zone_sensor(hass: MagicMock) -> ZoneGuestCountSensor:
     sensor.hass = hass
     sensor.zone = "house"
     sensor._guest_count = 0
+    return sensor
+
+
+def _make_unidentified_sensor(hass: MagicMock) -> UnidentifiedPersonsSensor:
+    sensor = UnidentifiedPersonsSensor.__new__(UnidentifiedPersonsSensor)
+    sensor.hass = hass
+    sensor.entry = MagicMock()
     return sensor
 
 
@@ -362,6 +372,153 @@ def test_unexpected_person_is_on_missing_data_returns_false() -> None:
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _AGG_PATH = _REPO_ROOT / "custom_components/universal_room_automation/aggregation.py"
 _BIN_PATH = _REPO_ROOT / "custom_components/universal_room_automation/binary_sensor.py"
+_SEN_PATH = _REPO_ROOT / "custom_components/universal_room_automation/sensor.py"
+_CC_PATH = _REPO_ROOT / "custom_components/universal_room_automation/camera_census.py"
+
+
+# ===========================================================================
+# D3 (added post-Review-B) — UnidentifiedPersonsSensor (site #3) migration
+# ===========================================================================
+
+
+def test_unidentified_persons_reads_deduped_native_value() -> None:
+    """Discriminating scenario: house.unidentified_count=0 while naive
+    ``camera_total - ble_identified`` would have returned 4. Confirms
+    ``sensor.universal_room_automation_unidentified_persons`` (native_value)
+    now emits the deduped value, matching the migrated guest_count."""
+    house = _build_house_result(identified=6, held=0, pre_cancel=6, camera_unrecognized=0)
+    hass = _make_hass_with(house, ble_active=2)
+    # UnidentifiedPersonsSensor also used to read
+    # ``sensor.universal_room_automation_persons_in_house`` via
+    # hass.states.get for camera_total. Ensure a stale state read does NOT
+    # sneak the naive path back in — leave states.get returning None.
+    hass.states = MagicMock()
+    hass.states.get = MagicMock(return_value=None)
+    sensor = _make_unidentified_sensor(hass)
+    assert sensor.native_value == 0
+
+
+def test_unidentified_persons_none_census_returns_none() -> None:
+    """Graceful-degradation: census absent → None (matches pre-migration
+    None-when-source-missing semantics)."""
+    hass = _make_hass_with(house=None, ble_active=0)
+    sensor = _make_unidentified_sensor(hass)
+    assert sensor.native_value is None
+
+
+def test_unidentified_persons_attrs_share_house_snapshot() -> None:
+    """Attributes now expose identified_count + unidentified_count from the
+    same house snapshot as native_value; ble_identified key is retired."""
+    house = _build_house_result(identified=6, held=0, pre_cancel=6, camera_unrecognized=0)
+    hass = _make_hass_with(house, ble_active=2)
+    sensor = _make_unidentified_sensor(hass)
+    attrs = sensor.extra_state_attributes
+    assert attrs["camera_total"] == house.total_persons
+    assert attrs["identified_count"] == house.identified_count
+    assert attrs["unidentified_count"] == house.unidentified_count
+    assert attrs["unidentified_count"] == sensor.native_value
+    # ble_identified key retired (replaced by identified_count).
+    assert "ble_identified" not in attrs
+
+
+# ===========================================================================
+# Shape-invariant test — the FIX for the root cause of Review-B H1.
+# ===========================================================================
+
+
+# Repo-wide (custom_components) shape sweep: NO production site may compute
+# a count via ``max(0, camera_total - <ble-substrate>)``. The token-based
+# grep on ``guest_count`` in the original test suite missed
+# ``sensor.py::UnidentifiedPersonsSensor`` (Review B H1) because that site
+# names the ble input ``ble_identified``. This test enumerates by SHAPE.
+_SHAPE_PATTERN = re.compile(
+    r"max\s*\(\s*0\s*,\s*camera_total\s*-\s*(?:ble|identified)\w*\s*\)"
+)
+
+
+_TRIPLE_STR_RE = re.compile(r'("""|\'\'\')(?:.|\n)*?\1')
+
+
+def _iter_prod_source_lines():
+    """Yield (path, lineno, line) for every code line in the production
+    package with triple-quoted string bodies and ``#`` comments blanked out
+    (so pattern matches inside docstrings/comments do not count).
+
+    We preserve line numbering by replacing string bodies with newlines
+    rather than deleting them.
+    """
+    prod = _REPO_ROOT / "custom_components/universal_room_automation"
+    # camera_census.py is the CANONICAL PRODUCER of house.unidentified_count
+    # (computed as ``max(0, camera_total - identified_count)`` where
+    # identified_count = |face ∪ ble|). That is the deduped source this
+    # cycle migrates CONSUMERS onto; the producer itself is not a consumer
+    # and MUST be excluded from the shape sweep.
+    _PRODUCER_FILE = prod / "camera_census.py"
+    for p in prod.rglob("*.py"):
+        if p == _PRODUCER_FILE:
+            continue
+        src = p.read_text()
+
+        def _blank(m: re.Match) -> str:
+            body = m.group(0)
+            # Preserve newline count so line numbers stay stable.
+            return "\n" * body.count("\n")
+
+        stripped_src = _TRIPLE_STR_RE.sub(_blank, src)
+        for lineno, line in enumerate(stripped_src.splitlines(), start=1):
+            code = line.split("#", 1)[0]
+            if not code.strip():
+                continue
+            yield p, lineno, code
+
+
+def test_shape_invariant_no_naive_camera_minus_ble_count() -> None:
+    """SHAPE invariant (I-GC-SHAPE, root-cause fix for Review B H1):
+    the ``max(0, camera_total - <ble-substrate>)`` count pattern MUST NOT
+    appear on any live production line in ``custom_components/``. The three
+    legitimate remaining occurrences are all inside docstrings/comments
+    (narrative describing what the deduped alternative replaced), which the
+    line iterator filters out.
+
+    A future re-introduction of the naive form at any site fails this test.
+    """
+    hits: list[str] = []
+    for path, lineno, line in _iter_prod_source_lines():
+        if _SHAPE_PATTERN.search(line):
+            hits.append(f"{path.relative_to(_REPO_ROOT)}:{lineno}: {line.strip()}")
+    assert hits == [], (
+        "naive count-shape `max(0, camera_total - <ble>)` reappeared at "
+        "production line(s):\n  " + "\n  ".join(hits)
+    )
+
+
+# ===========================================================================
+# Mutation anchor — sensor.py site #3
+# ===========================================================================
+
+
+def test_migrated_body_calls_house_unidentified_count_sensor() -> None:
+    """Mutation anchor (site #3): UnidentifiedPersonsSensor.native_value must
+    read the deduped house.unidentified_count field, not recompute the naive
+    subtraction. This anchor catches a future refactor that reintroduces the
+    naive form on the site Review B fingered."""
+    # Read just the native_value method body of UnidentifiedPersonsSensor,
+    # not the class docstring (which legitimately references the retired
+    # naive form).
+    src = _SEN_PATH.read_text()
+    cls_idx = src.index("class UnidentifiedPersonsSensor(")
+    next_cls = src.index("\nclass ", cls_idx + 1)
+    cls_src = src[cls_idx:next_cls]
+    # Blank out triple-quoted docstrings so the shape check only sees code.
+    def _blank(m: re.Match) -> str:
+        return "\n" * m.group(0).count("\n")
+    cls_code = _TRIPLE_STR_RE.sub(_blank, cls_src)
+    assert "house.unidentified_count" in cls_code, (
+        "regression: UnidentifiedPersonsSensor no longer reads "
+        "house.unidentified_count"
+    )
+    assert "camera_total - ble_identified" not in cls_code
+    assert "max(0, camera_total" not in cls_code
 
 
 def _extract_method_source(path: pathlib.Path, method_name: str) -> str:
