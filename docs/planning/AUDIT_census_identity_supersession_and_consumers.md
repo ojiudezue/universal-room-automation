@@ -211,3 +211,64 @@ only if the identity path, measured on the real entry path, proves insufficient.
 - Perimeter alert message: `perimeter_alert.py:1316-1345`; template `const.py:1521`.
 - Tombstoned constant: `const.py:2777` (`CENSUS_DECAY_STEP_SECONDS`).
 - D0 coverage evidence: `docs/planning/kanban.data.yaml` card `EGRESS-INTERIOR-COUNT-REINFORCE-1` (`d0_impact_2026_08_17`, ~7% egress face coverage).
+
+---
+
+## ADDENDUM — domain-wide pre-existing supersession sweep (2026-08-18)
+
+**Scope correction.** §1 above was wrongly scoped to the cycle group's OWN files (v5.79.0–v5.82.0
+diff). Supersession is about the code that came BEFORE — pre-existing code the census/guest/
+presence-identity arc made redundant. This addendum re-runs the sweep REPO-WIDE across all of
+`custom_components/universal_room_automation/` (every `domain_coordinators/*.py`, `sensor.py`,
+`binary_sensor.py`, `aggregation.py`, `camera_census.py`, `transit_validator.py`, `camera_resolver.py`),
+not the cycle's diff.
+
+**Method: three-bucket triage** (per CLAUDE.md "Post-Ship Supersession"): DELETE (dead AND no use
+case AND footgun — mark only, never delete), KEEP+WIRE (useful capability missing a consumer /
+needs a resolver migration → gap backlog), KEEP+DOCUMENT (dead-today but plausible future tunable).
+Default KEEP when uncertain.
+
+### Grep patterns run + hit counts (repo-wide, test files excluded)
+
+| Pattern (git grep) | Purpose | Hits (non-test) |
+|---|---|---|
+| `f".*[Ff]rigate` | string-built Frigate ids | 6 — all `perimeter_alert`/`security` **URL/description** builds (snapshot `/api/frigate/...` paths), **zero** entity-id face lookups |
+| `f"sensor\.{...}_last_recognized_face` | string-built face-sensor ids | **3** — `camera_census.py:2523/2524` (the resolver itself: canonical + `_2`) + **`presence.py:4557`** (the one bare build, no `_2` fallback) |
+| `f".*_last_camera"` | string-built last_camera ids | **0** — the last_camera path (`_resolve_last_camera_entity_id`, `camera_census.py:2615`) is registry-scan, not string-built |
+| `f"...{...}_person_count"` / `_person_occupancy"` | string-built count/occupancy ids | 4 (`camera_census.py:417,656,658,835`) — all inside `CameraCensus`; 417/835 already carry `_N`-variant fallback (CENSUS-SUFFIX-FIX); 656/658 are discovery-time sibling candidates checked against the registry |
+| `guest_count` / `_get_guest_count` / `_get_wifi_guest_count` | second-way guest derivations | 12 — the load-bearing hit is **`aggregation.py:5983`** (`camera_total − ble_total`) + `binary_sensor.py:1584` (S4) |
+| `occupant_count` / `persons_home` / `residents_home` | second-way "who's home" | `aggregation.py:1688` (`Identified People Count`, BLE-tracker) |
+| `identified_count` / `face_recognized_count` | census identity producers/consumers | as mapped in §2 (no new second-way producer found) |
+| `decay` / `DECAY` in `camera_census.py` | decay logic post-separation | linear slope already deleted (S1); `_apply_hold_decay` is the retained hold path |
+| `person_id or` / `or "unidentified"` / `person_id is None` | anonymous-only egress handling | `sensor.py:4216,4315` already `person_id or "unidentified"` — **graceful, no hard-anonymous branch survives** |
+
+### Per-hit three-bucket table (findings NEW to this repo-wide pass)
+
+| Item | file:line | Bucket | Superseded by | Reason |
+|---|---|---|---|---|
+| A1 · `_get_face_for_camera` string-built face id (bare `_last_recognized_face`, **no `_2` fallback**) | `presence.py:4557` | **KEEP+WIRE** | `camera_census._resolve_face_entity_id` (`:2509`, canonical+`_2`) | Live camera-face-arrival accelerator; on an `_2`-suffixed Frigate leg it silently returns `None` (memory "frigate 1 retired 2 suffix"). **Already carded — `CENSUS-FACE-RESOLVER-MIGRATE-1`.** This sweep PROVES it is the **only** non-resolver `_last_recognized_face` string build repo-wide. |
+| A2 · `ZoneGuestCountSensor._get_guest_count` naive subtractive `max(0, camera_total − ble_total)` | `aggregation.py:5983` (entity `sensor.<>_zone_<z>_guest_count`) | **KEEP+WIRE** | census deduped `unidentified_count` union (`camera_census.py:1899`) | Pre-existing per-zone guest **entity** computing guest count a second way — camera total minus BLE-active count, the exact additive/subtractive divergence class that caused the census GUEST double-count (memory "cross-investigation synthesis"). Should read census `unidentified_count`, not recompute. **UNCARDED → new bucket-2 card.** Not delete: it backs a live entity. |
+| A3 · S4 sibling: naive `guest_count` attr, same `camera_total − ble_total` formula | `binary_sensor.py:1584` | **KEEP+WIRE** | census `unidentified_count` | Same formula as A2, attribute-only (already S4 in §1). Fold into the A2 migration card so both naive derivations retire together. |
+| A4 · `Identified People Count` / `occupant_count` (BLE person-tracker head-count) | `aggregation.py:1688` | **KEEP+DOCUMENT** | *not superseded* | Distinct semantics: person-tracker "residents home" (BLE), **not** the face∪BLE∪egress per-zone camera census `identified_count`. Overlapping name, different question — same reasoning as S6. Document the overlap; do not wire or delete. |
+| A5 · `camera_census.py:417,656,658,835` `_person_count`/`_person_occupancy` string candidates | `camera_census.py` | **KEEP (no action)** | — | Not superseded: 417/835 already `_N`-suffix-tolerant (CENSUS-SUFFIX-FIX); 656/658 are discovery-time candidates validated against the registry. Proves the resolver migration is unneeded here. |
+| A6 · Egress/entry anonymous handling | `sensor.py:4216,4315` | **KEEP (no action)** | `person_id` fuse (§2.1) | Consumers already emit `person_id or "unidentified"` — graceful-anonymous. **No hard-anonymous branch survives** to supersede (bucket 5 empty). |
+| A7 · Perimeter/security `f"...frigate..."` builds | `perimeter_alert.py:1696,3317,3320,3327,3337`; `security.py:411` | **KEEP (no action)** | — | Snapshot-URL / log-description builds, **not** entity-id face lookups — outside the resolver's remit. |
+
+### Bucket-1 (DELETE) items
+
+**None.** No dead-AND-footgun code was found that the arc left behind. (Consistent with §1's net finding: the v5.79.0 repair replaced in place; it did not leave a vestigial branch.) S1 (`CENSUS_DECAY_STEP_SECONDS`) remains the only tombstoned constant and is a KEEP+DOCUMENT per the later reframe, not a delete.
+
+### Bucket-2 (WIRE) items needing a card — FLAGGED
+
+1. **A1 — face-resolver migration `presence.py:4557`.** Already carded: **`CENSUS-FACE-RESOLVER-MIGRATE-1`**. This sweep confirms that card's scope (only `:4557`) is complete — no other `_last_recognized_face` string build exists repo-wide. No new card.
+2. **A2 + A3 — retire the naive `camera_total − ble_total` guest derivations** (`aggregation.py:5983` entity + `binary_sensor.py:1584` attr) in favor of the census deduped `unidentified_count`. **UNCARDED → NEEDS A CARD.** Tier 2-DB (census ↔ guest ↔ presence ripple; this is the additive/subtractive divergence class behind the historical GUEST double-count, so treat as regression-prone). Suggested id: `GUEST-COUNT-DEDUP-MIGRATE-1`.
+
+### Net
+
+The repo-wide sweep adds **one** genuinely-new supersession finding beyond §1 and beyond the known
+`presence.py:4557`: the pre-existing naive subtractive guest-count derivations (A2/A3) that the
+census deduped `unidentified_count` union now supersedes and which should be wired to it. Everything
+else is either already-carded (A1), distinct-semantics KEEP (A4, S6), already-suffix-tolerant (A5),
+already-graceful (A6), or out-of-remit URL builders (A7). **No deletions.** The claim that
+"`presence.py:4557` is the only face-resolver migration target" is now PROVEN (grep table above),
+not asserted.
