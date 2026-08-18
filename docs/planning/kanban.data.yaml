@@ -26,6 +26,50 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: PERIMETER-PHANTOM-XCORR-1
+  title: Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked
+    across NVRs
+  thread: security
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-17 23:58
+  updated: 2026-08-17 23:58
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the house sent two "Perimeter Alert - Person Detected" messages (back yard hot-tub cam 10:15:56,
+    front PTZ 10:21:16) with photos — but the photos show NO person (back yard is empty; the front shot
+    shows at most a tiny figure out by the PUBLIC ROAD, not on the property). The snapshot timestamps
+    MATCH the detection time to the second, so these are NOT stale/late photos — the camera genuinely
+    fired on nothing (or on the street). Likely false alarms.'
+  - 'Problem: each alert was sent TWICE — the same message and the same photo appear duplicated (a double-send
+    / no-dedup bug).'
+  - 'Problem: the alerts are single-camera. Nothing cross-checks them against the OTHER NVRs watching
+    the same spots (Protect / Frigate-2 / Dahua / Amcrest) before paging. A single camera crying wolf
+    is exactly what a cross-check would filter out.'
+  - 'Solution (candidate, NOT yet planned): (a) cross-correlate a person detection across the NVRs covering
+    that camera before firing a perimeter page; (b) dedup the double-send; (c) mask the public street
+    on the front PTZ so people on the road don''t page; (d) show a friendly camera name, not the raw sensor
+    id; (e) drop the camera debug OSD overlay from security snapshots.'
+  why: 'Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert
+    fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator
+    just mandated for cycle-3 face ID: never trust a single camera.'
+  constraints:
+  - 'SECURITY-relevant — treat false-negative risk carefully: a cross-check must SUPPRESS phantoms without
+    dropping a real intruder seen by only one NVR (a real person may be in only one camera''s view). So
+    cross-correlation raises CONFIDENCE / severity, it does not gate the alert to zero.'
+  operator_note: 'Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they
+    properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear
+    — operator believes an NVR/product already does cross-correlation natively; needs clarification.)'
+  evidence: '4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2
+    + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class
+    as the census fix.'
+  next: 'Verify against the DB: were these single-source (no other NVR/exterior-track corroboration at
+    10:15:56 / 10:21:16 on 08-16)? Then scope: cross-NVR correlation + dedup + street mask + friendly
+    names. Clarify "Camera silver". Relates to the exterior-track linker + the cross-NVR face work in
+    cycle 3.'
+  refs:
+  - custom_components/universal_room_automation/perimeter_alert.py
+  - EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
