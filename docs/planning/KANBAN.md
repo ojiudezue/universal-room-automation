@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T22:38:02-05:00_ - _Data commit: `e990d6a7e3b8`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T22:46:31-05:00_ - _Data commit: `4b1625aaa179`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -39,11 +39,12 @@ thread: **docs** - status: **inbox** - approval: **unreviewed**
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
+_updated 2026-08-17 23:25_
 - **Problem / Solution:**
   - P1 `_is_known_person_in_room` excludes a resident by comparing person_coord.data[name]["location"] against CONF_ROOM_NAME. `_resolve_person_room` no-mapping fallback returns the raw bermuda_area string. If a room is flagged is_guest_room...
 - **Origin:** 2026-08-17 - Review D2 (guest_census_review_D2_completeness.md) INFO-2, surfaced re-reviewing the repaired oracle.
 - **Why:** Under D2 the room set is load-bearing; a designation whose location vocabulary does not match makes the sole safety check inert for that room.
-- **Next:** Orchestrator pre-deploy check: confirm Guest Bedroom 1 and Upstairs Guestroom resolve location==room_name for a present resident before v5.79.0 ship. Then card any future designation with this precondition.
+- **Next:** VERIFIED PASSING (pre-deploy check 2026-08-17): live person locations are CONF_ROOM_NAME verbatim ("Garage A", "Breakfast Nook"); both designated rooms map correctly (guest_bedroom_2->"Guest Bedroom 2", bedroom->"Guest Bedroom 1"). The e...
 - **Refs:** docs/reviews/code-review/guest_census_review_D2_completeness.md; custom_components/universal_room_automation/domain_coordinators/presence.py
 
 ### `GUEST-IDENTITY-PHONE-LEFT-BEHIND-1` - Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after 30 min

@@ -18,6 +18,13 @@ meta:
     which is why the rung-3 staleness rule (last_reconciled older than newest README) fired as a FALSE
     POSITIVE. The generator should compare against SHIPPED versions (git tag / manifest), not merely the
     presence of a README file.
+  sequence_2026_08_17: 'Operator sequence pick 2026-08-17: (1) FINISH the in-flight census/guest/presence
+    cycles — cycle 1 CENSUS-GHOST-DEDUP-1 shipped v5.79.0 (L3/L8 organic Wed); cycle 2 CENSUS-ACCURACY-1
+    building (D1+D2) -> reviews -> deploy; cycle 3 EXTERIOR-GUEST-EGRESS-1 D0 probe running -> gates build.
+    (2) Related FAST-FOLLOWS: DOC-DRIFT-ZONE-AWAY-1 (docs, running now), GUEST-ROOM-LOCATION-MATCH-1 (verified),
+    then the code fast-follows D3-BEHAVIOURAL-COVERAGE-1 / PATHBETA-VESTIGIAL-1 / GUEST-IDENTITY-PHONE-LEFT-BEHIND-1
+    (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
+    Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -113,11 +120,15 @@ cards:
   constraints:
   - Inert today (fix verified for the currently-designated rooms whose locations DO match). Becomes live
     only on a new/mismatched designation.
-  next: 'Orchestrator pre-deploy check: confirm Guest Bedroom 1 and Upstairs Guestroom resolve location==room_name
-    for a present resident before v5.79.0 ship. Then card any future designation with this precondition.'
+  next: 'VERIFIED PASSING (pre-deploy check 2026-08-17): live person locations are CONF_ROOM_NAME verbatim
+    ("Garage A", "Breakfast Nook"); both designated rooms map correctly (guest_bedroom_2->"Guest Bedroom
+    2", bedroom->"Guest Bedroom 1"). The exclusion is live for the current set. ONE residual: a live in-guest-room
+    confirmation (a resident actually standing in one) is not possible with the house empty — organic
+    re-check on occupancy (Wed). Otherwise closable.'
   refs:
   - docs/reviews/code-review/guest_census_review_D2_completeness.md
   - custom_components/universal_room_automation/domain_coordinators/presence.py
+  updated: 2026-08-17 23:25
 - id: GUEST-IDENTITY-PHONE-LEFT-BEHIND-1
   title: Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after
     30 min
