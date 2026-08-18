@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T00:54:18-05:00_ - _Data commit: `7675e01c2202`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T00:57:18-05:00_ - _Data commit: `a4733b45c749`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -165,14 +165,15 @@ _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
-_created 2026-08-18 00:55 · updated 2026-08-18 01:10 · initial_
+_created 2026-08-18 00:55 · updated 2026-08-18 01:30 · initial_
 - **Problem / Solution:**
   - Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect DOES recognize residents by name ...
 - **Why:** Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this says WHO (known resident vs unknown), which is the actual guest/security discriminator.
 - **Next:** GATED on cycle-3 face-independent arm shipping first. Then: (1) capture a live Alarm Manager face POST; (2) wire webhook -> ura_face_identified; (3) URA consumes it as interior-arrival identity. Confirm the Alarm Manager rule is set up (...
 - **Refs:** docs/planning/RESEARCH_protect_face_to_ha.md; EXTERIOR-GUEST-EGRESS-1
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `webhook_live_2026_08_18`: OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook trace / the ura_face_identified event) to confirm the na...
+  - `webhook_verified_2026_08_18`: WEBHOOK RECEIVING SIDE VERIFIED: automation.ura_kp_face_webhook_probe (webhook_id ura_kp_face_probe, local-only POST) captures payloads verbatim -> ura_kp_face_probe_received event + system_log. Test POST returned 200 and logged the payl...
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
 thread: **presence** - status: **planned** - approval: **explicit**

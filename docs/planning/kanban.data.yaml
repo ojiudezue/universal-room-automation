@@ -31,7 +31,7 @@ cards:
   status: planned
   approval: pre_approved_gated
   created: 2026-08-18 00:55
-  updated: 2026-08-18 01:10
+  updated: 2026-08-18 01:30
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -64,6 +64,11 @@ cards:
     recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook
     trace / the ura_face_identified event) to confirm the name field + confidence, then wire URA to consume
     it. The open-watch for the organic face-webhook payload is now the concrete capture step.'
+  webhook_verified_2026_08_18: 'WEBHOOK RECEIVING SIDE VERIFIED: automation.ura_kp_face_webhook_probe
+    (webhook_id ura_kp_face_probe, local-only POST) captures payloads verbatim -> ura_kp_face_probe_received
+    event + system_log. Test POST returned 200 and logged the payload. PENDING (Wed, real face): real
+    Alarm Manager payload shape + name/confidence fields + confirm Protect-side rule POSTs on a match.
+    Probe is ready to capture the first real face event.'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
