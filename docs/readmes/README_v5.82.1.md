@@ -46,4 +46,11 @@ on it. `_face_lookup_missing_count`'s rate change is diagnostic only.
 
 ## Live Validation
 
-_Pending post-restart (L1 boot-clean immediately; the `_2`-camera resolution is organic on Wed)._
+### Validated 2026-08-18 (~15:06 CT, post-restart) — house EMPTY
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | system_log ERROR count for universal_room_automation: 0; `sensor.ura_presence_coordinator_presence_house_state` = `away` (available) |
+| L2 | `_2`-only camera face-confirmed arrival resolves | **ORGANIC-PENDING** | needs a real recognized face on a `_2`-only camera (Wed occupancy). Unit-proven in `test_face_resolver_migrate.py` (suffix-only camera resolves). |
+
+**Boot-clean proven now; the `_2`-camera behavior is organic on Wed occupancy.**
