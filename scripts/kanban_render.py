@@ -52,10 +52,11 @@ COLUMN_META: list[tuple[str, str, str, str]] = [
 STANDARD_FIELDS = {
     "id", "title", "thread", "status", "approval",
     "approved_by", "approved_on", "autonomy",
+    "created", "updated", "refinement_status", "problem_solution",
     "tags", "origin", "why", "next", "refs",
     "parsimony", "constraints", "parked_alts", "refinement",
     "knobs", "depends_on", "blocks", "sibling_of",
-    "batch", "seq",
+    "batch", "seq", "shipped_version",
 }
 
 APPROVAL_COLOR = {
@@ -339,6 +340,34 @@ def _render_card_md(c: dict, pending: dict[str, list[dict]] | None = None) -> li
     if approval: tag_bits.append(f"approval: **{approval}**")
     if tag_bits:
         lines.append(" - ".join(tag_bits))
+
+    # created / updated / refinement status meta line
+    created = str(c.get("created", "") or "")
+    updated = str(c.get("updated", "") or "")
+    ref_status = str(c.get("refinement_status", "") or "")
+    n_refine = len(c.get("refinement") or []) if isinstance(c.get("refinement"), list) else 0
+    meta_bits = []
+    if created: meta_bits.append(f"created {created}")
+    if updated and updated != created: meta_bits.append(f"updated {updated}")
+    if ref_status:
+        rlabel = ref_status
+        if ref_status == "refined" and n_refine:
+            rlabel = f"refined ×{n_refine}"
+        meta_bits.append(rlabel)
+    elif n_refine:  # inferred when the field is absent but a trail exists
+        meta_bits.append(f"refined ×{n_refine}")
+    if meta_bits:
+        lines.append(f"_{' · '.join(meta_bits)}_")
+
+    # Problem / Solution — the plain-language core, rendered prominently.
+    ps = c.get("problem_solution")
+    if isinstance(ps, str) and ps.strip():
+        ps = [ps]
+    if isinstance(ps, list) and ps:
+        lines.append("- **Problem / Solution:**")
+        for item in ps:
+            lines.append(f"  - {_first_line(item)}")
+
     if origin_line:
         lines.append(f"- **Origin:** {_first_line(origin_line)}")
     for label, key in (("Why", "why"), ("Next", "next")):
@@ -456,6 +485,7 @@ main.board { padding:6px 22px 30px; }
 .card.ap-unreviewed .apl { color:var(--warn); }
 .card .title { font-weight:600; margin-top:2px; display:block; font-size:13.5px; line-height:1.35; }
 .tagline { margin-top:5px; font-size:10.5px; color:var(--muted); letter-spacing:0.02em; }
+.cardmeta { font-size:10px; color:var(--muted); margin:2px 0 6px; letter-spacing:0.02em; font-variant-numeric:tabular-nums; }
 .tagline .sep { opacity:0.5; padding:0 4px; }
 
 .card .body { margin-top:8px; border-top:1px solid var(--border); padding-top:7px; }
@@ -751,6 +781,33 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     out.append('</summary>')
 
     out.append('<div class="body"><dl class="kv">')
+
+    # created / updated / refinement status meta line
+    created = str(c.get("created", "") or "")
+    updated = str(c.get("updated", "") or "")
+    ref_status = str(c.get("refinement_status", "") or "")
+    n_refine = len(c.get("refinement") or []) if isinstance(c.get("refinement"), list) else 0
+    meta_bits = []
+    if created: meta_bits.append(f"created {_h(created)}")
+    if updated and updated != created: meta_bits.append(f"updated {_h(updated)}")
+    if ref_status:
+        rlabel = ref_status
+        if ref_status == "refined" and n_refine:
+            rlabel = f"refined ×{n_refine}"
+        meta_bits.append(_h(rlabel))
+    elif n_refine:
+        meta_bits.append(f"refined ×{n_refine}")
+    if meta_bits:
+        out.append(f'<div class="cardmeta">{" · ".join(meta_bits)}</div>')
+
+    # Problem / Solution — the plain-language core, rendered first and prominent.
+    ps = c.get("problem_solution")
+    if isinstance(ps, str) and ps.strip():
+        ps = [ps]
+    if isinstance(ps, list) and ps:
+        joined = "<br>".join(_h(_first_line(item)) for item in ps)
+        out.append(f'<dt>Problem / Solution</dt><dd>{joined}</dd>')
+
     if origin_line:
         out.append(f'<dt>Origin</dt><dd>{_h(_first_line(origin_line))}</dd>')
     if why:

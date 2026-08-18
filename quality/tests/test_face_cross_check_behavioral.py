@@ -147,8 +147,15 @@ def _make_census_with_person(person_state: str | None):
     now = datetime.now(timezone.utc)
     face_last_changed = now - timedelta(seconds=30)  # well inside window
 
+    # CENSUS-ACCURACY-1 D2 (2026-08-17): the last_camera entity_id is now
+    # resolved via a build-time registry enumeration (frigate first-name
+    # lowercased -> entity_id), not constructed from the URA slug. The
+    # live entity is `sensor.frigate_oji_last_camera_2`, not
+    # `sensor.frigate_oji_udezue_last_camera`. This test remains anchored
+    # on the not_home guard (its whole point); we just seed the state
+    # under the correct live entity_id and pre-populate the resolver map.
     states = {
-        "sensor.frigate_oji_udezue_last_camera": _State(
+        "sensor.frigate_oji_last_camera_2": _State(
             "front_door", last_changed=face_last_changed,
         ),
     }
@@ -170,6 +177,11 @@ def _make_census_with_person(person_state: str | None):
     # Skip __init__ (needs camera_manager); face function only uses self.hass.
     census = object.__new__(PersonCensus)
     census.hass = hass
+    # Pre-populate the D2 resolver map so the not_home-guard anchor still
+    # drives the same code path without needing a full entity registry.
+    census._frigate_person_last_camera_map = {
+        "oji": "sensor.frigate_oji_last_camera_2",
+    }
     return census, now
 
 

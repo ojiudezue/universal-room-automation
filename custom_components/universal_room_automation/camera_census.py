@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.79.0
+# Universal Room Automation vv5.80.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -67,7 +67,11 @@ from .const import (
     DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
     DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
     DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
-    CENSUS_DECAY_STEP_SECONDS,
+    # CENSUS-ACCURACY-1 D1 (2026-08-17): CENSUS_DECAY_STEP_SECONDS import
+    # removed. The sole runtime reader (`_apply_hold_decay` house post-hold
+    # linear decay slope) was deleted. The constant remains in const.py
+    # tombstoned for grep-history clarity; do not re-import unless a new
+    # explicit consumer is added.
     CENSUS_PEAK_SUSTAIN_SECONDS,
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     CONF_GUEST_VLAN_SSID,
@@ -999,6 +1003,31 @@ class PersonCensus:
         self._pending_property_peak: int = 0
         self._pending_property_peak_since: datetime | None = None
 
+        # CENSUS-ACCURACY-1 D1 (2026-08-17): LIFETIME monotonic counter that
+        # increments each tick where the deleted `fresh_count == peak`
+        # self-refresh would previously have fired. Published on
+        # SIGNAL_CENSUS_UPDATED + persons_in_house attrs as the positive
+        # discriminator for the empty-house acceptance test (proves the
+        # deleted code path IS on the wire, not merely absent from output).
+        self._peak_refresh_suppressed_count: int = 0
+        # CENSUS-ACCURACY-1 D2 (2026-08-17): PER-TICK counter of face-sensor
+        # lookups that failed to resolve either the un-suffixed or
+        # `_2`-suffixed entity_id. Reset at the top of every census cycle.
+        # Published on SIGNAL_CENSUS_UPDATED + attrs so operators can tell
+        # whether a tick's face-dedup path was healthy.
+        self._face_lookup_missing_count: int = 0
+        # CENSUS-ACCURACY-1 D2: build-time enumerated map from frigate face
+        # library person name (lowercased) -> live `frigate_*_last_camera`
+        # entity_id. Memoised on first use; the enumeration is small
+        # (~5 entries). None sentinel means "not yet built".
+        self._frigate_person_last_camera_map: dict[str, str] | None = None
+        # CENSUS-ACCURACY-1 D1 review fix-up (B-MEDIUM-1): cached
+        # dispatch-time freshness stamps so the persons_in_house sensor
+        # attr and the SIGNAL_CENSUS_UPDATED payload carry the identical
+        # instant (previously two clocks stamped the same key).
+        self._last_count_as_of: str | None = None
+        self._last_peak_age_seconds: int = 0
+
         # v5.9.0 D-A / D-E observability: last computed area-contribution map
         # for the interior (house) census, and the pre-dedup naive sum. Read
         # by the census sensor's extra_state_attributes.
@@ -1114,6 +1143,10 @@ class PersonCensus:
         """Inner census update (must be called under self._update_lock)."""
         now = dt_util.utcnow()
 
+        # CENSUS-ACCURACY-1 D2: per-tick reset of face-lookup miss counter.
+        # LIFETIME peak_refresh_suppressed_count is NOT reset here.
+        self._face_lookup_missing_count = 0
+
         # --- 1. Gather BLE person data from person_coordinator ---
         ble_persons = self._get_ble_persons()
 
@@ -1190,6 +1223,28 @@ class PersonCensus:
         # documented upper bound, not addressed here). Freshness window
         # is CENSUS_FACE_RECOGNITION_WINDOW_SECONDS = 1800s (const.py:2609).
         _face_recognized = getattr(house_result, "face_recognized_persons", []) or []
+        # CENSUS-ACCURACY-1 D1 (payload extension, INV-PAYLOAD-DISCRIMINABLE).
+        # Review fix-up 2026-08-18:
+        #   * B-MEDIUM-1 — `count_as_of` was stamped at dispatch time in the
+        #     payload but at attr-read time in the sensor. Same key name,
+        #     different clocks. Stamp ONCE here and cache on the instance;
+        #     the sensor reads the cached value so payload and attr are the
+        #     identical instant.
+        #   * B-MEDIUM-2 — `peak_age_seconds` previously = int(minutes) * 60,
+        #     which is 60× coarser than the name implies and defeats
+        #     short-window discrimination. Compute a real second-precision
+        #     value from the stored peak timestamp against the SAME utcnow
+        #     used for `count_as_of`.
+        _dispatch_utcnow = dt_util.utcnow()
+        _count_as_of_iso = _dispatch_utcnow.isoformat()
+        _peak_age_seconds = self._compute_peak_age_seconds(
+            self._peak_house_timestamp,
+            bool(getattr(house_result, "peak_held", False)),
+            _dispatch_utcnow,
+        )
+        # Cache so the sensor attr can carry the identical instant.
+        self._last_count_as_of = _count_as_of_iso
+        self._last_peak_age_seconds = _peak_age_seconds
         async_dispatcher_send(
             self.hass,
             SIGNAL_CENSUS_UPDATED,
@@ -1204,6 +1259,14 @@ class PersonCensus:
                 "source_agreement": house_result.source_agreement,
                 # GAP-A D8: camera-only identity count for path-α veto.
                 "face_recognized_count": len(_face_recognized),
+                # CENSUS-ACCURACY-1 D1 payload extension (INV-PAYLOAD-DISCRIMINABLE).
+                "peak_held": bool(getattr(house_result, "peak_held", False)),
+                "peak_age_seconds": _peak_age_seconds,
+                "count_as_of": _count_as_of_iso,
+                "peak_refresh_suppressed_count": (
+                    self._peak_refresh_suppressed_count
+                ),
+                "face_lookup_missing_count": self._face_lookup_missing_count,
             },
         )
 
@@ -2379,6 +2442,181 @@ class PersonCensus:
             )
             return {}
 
+    # ------------------------------------------------------------------
+    # CENSUS-ACCURACY-1 D2 (2026-08-17): _2-suffix-tolerant resolvers.
+    # See PLANNING_census_accuracy.md rev-2 §D2 + plan_review §3/F1.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_peak_age_seconds(
+        peak_ts: datetime | None,
+        peak_held: bool,
+        dispatch_utcnow: datetime,
+    ) -> int:
+        """Real second-precision age of the currently-held peak.
+
+        CENSUS-ACCURACY-1 D1 review fix-up (B-MEDIUM-2): must NOT be
+        `int(peak_age_minutes) * 60` — that is 60× coarser than the
+        name implies and defeats short-window discrimination. Returns 0
+        when there is no held peak.
+        """
+        if peak_ts is None or not peak_held:
+            return 0
+        try:
+            return max(0, int((dispatch_utcnow - peak_ts).total_seconds()))
+        except (TypeError, ValueError):
+            return 0
+
+    def _resolve_face_entity_id(self, base_name: str) -> str | None:
+        """Resolve `sensor.<base>_last_recognized_face` tolerating the `_2`
+        disambiguation suffix.
+
+        Returns the entity_id of the FIRST variant whose live state is not
+        unavailable/unknown/empty; returns None if neither hits. On a full
+        miss the caller MUST fail CLOSED (no fresh-face `-1` credit) and
+        the per-tick `_face_lookup_missing_count` is incremented here so
+        every fail path is measured uniformly.
+
+        Mirrors the shipped v5.78.0 `_has_any_suffix_stripped` pattern
+        (camera_resolver.py:317-327). Does NOT construct Frigate
+        unique_ids — that format is external and not derivable.
+        """
+        canonical = f"sensor.{base_name}_last_recognized_face"
+        suffixed = f"sensor.{base_name}_last_recognized_face_2"
+        for candidate in (canonical, suffixed):
+            try:
+                state = self.hass.states.get(candidate)
+            except Exception:  # noqa: BLE001 — defensive
+                continue
+            if state is None:
+                continue
+            val = state.state if isinstance(state.state, str) else ""
+            if val.strip().lower() in (
+                "unavailable", "unknown", "", "none",
+            ):
+                # State exists but unusable — try the next variant.
+                continue
+            return candidate
+        # Neither variant resolved to a usable state. Fail-CLOSED: caller
+        # gets None -> no `-1` credit. Measure it so operators can tell.
+        self._face_lookup_missing_count += 1
+        return None
+
+    def _build_frigate_person_last_camera_map(self) -> dict[str, str]:
+        """Build (once, memoised) a `frigate_person_key -> entity_id` map
+        from the live entity registry.
+
+        Frigate's `last_camera` per-person entities have unique_ids of the
+        form `<ULID>:sensor_global_face:<PersonName>` where <PersonName>
+        is the frigate face-library name in mixed case (e.g. `Oji`,
+        `Ezinne`, `Jaya`, `Ziri`, `Default`). The URA-configured person
+        slug (`oji_udezue`) does NOT match; matching is done by first-name
+        lowercase (see caller). The observed entity_id carries the `_2`
+        disambiguation suffix, so DO NOT construct it — enumerate.
+        """
+        result: dict[str, str] = {}
+        try:
+            from homeassistant.helpers import entity_registry as er
+            registry = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001 — HA lifecycle-defensive
+            _LOGGER.debug(
+                "D2: entity_registry unavailable; last_camera map empty",
+                exc_info=True,
+            )
+            return result
+
+        try:
+            entries = er.async_entries_for_platform(registry, "frigate")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "D2: async_entries_for_platform(frigate) failed; map empty",
+                exc_info=True,
+            )
+            return result
+
+        for entry in entries:
+            eid = getattr(entry, "entity_id", "") or ""
+            if not eid.startswith("sensor.frigate_"):
+                continue
+            # Match both `sensor.frigate_<name>_last_camera` and its `_2`
+            # variant. The disambiguated variant is what the live system
+            # actually exposes today (per plan review §3 registry probe).
+            if not (
+                eid.endswith("_last_camera")
+                or eid.endswith("_last_camera_2")
+            ):
+                continue
+            uid = getattr(entry, "unique_id", "") or ""
+            # Format: <ULID>:sensor_global_face:<PersonName>
+            parts = uid.split(":")
+            if len(parts) != 3 or parts[1] != "sensor_global_face":
+                _LOGGER.debug(
+                    "D2: skipping frigate last_camera entry with unexpected "
+                    "unique_id %r (entity_id=%s)",
+                    uid,
+                    eid,
+                )
+                continue
+            key = parts[2].strip().lower()
+            if not key:
+                continue
+            # Prefer the canonical (non-`_2`) form when both are present.
+            existing = result.get(key)
+            if existing and not existing.endswith("_2"):
+                continue
+            result[key] = eid
+
+        _LOGGER.info(
+            "D2 frigate last_camera map built: %d entries (%s)",
+            len(result),
+            sorted(result.keys()),
+        )
+        return result
+
+    def _resolve_last_camera_entity_id(self, person_slug: str) -> str | None:
+        """Resolve a URA person slug -> Frigate `last_camera` entity_id.
+
+        Matching key is `person.name.split()[0].lower()` (first-name
+        lowercase). Fail-CLOSED: returns None if no match; caller must NOT
+        grant a face-based `identified` credit via this path.
+        """
+        # Defensive: some legacy tests construct PersonCensus via
+        # `object.__new__` (bypassing __init__), so use getattr rather
+        # than assuming the instance attribute is set.
+        # B-HIGH-1 (review fix-up 2026-08-18): rebuild on EMPTY, not just
+        # None. If the very first census tick runs before Frigate is in
+        # the registry (or Frigate reloaded, or a person was added after
+        # setup), the initial build returns {} and a memoise-on-None-only
+        # scheme freezes that empty state forever — silently fail-CLOSED
+        # for the life of the process. Rebuilding on empty is idempotent
+        # (still ~5 registry entries) and self-heals as soon as Frigate
+        # entries appear.
+        cached = getattr(self, "_frigate_person_last_camera_map", None)
+        if not cached:
+            cached = self._build_frigate_person_last_camera_map()
+            self._frigate_person_last_camera_map = cached
+        # `person_slug` here is the URA slug (e.g. `oji_udezue`); the
+        # frigate axis is first-name lowercase (e.g. `oji`). Use the leading
+        # underscore-separated token as the match key.
+        first_token = person_slug.split("_", 1)[0].strip().lower()
+        if not first_token:
+            return None
+        resolved = self._frigate_person_last_camera_map.get(first_token)
+        if resolved is None:
+            # B-LOW-1 (review fix-up 2026-08-18): parallel-path telemetry.
+            # The face resolver increments this counter on miss; the
+            # last_camera resolver must too, otherwise a per-tick health
+            # claim of 0 misses hides real fail-CLOSED events on the
+            # last_camera axis (e.g. a URA person with no frigate face
+            # library entry, or a post-reload window where the registry
+            # is stale).
+            try:
+                self._face_lookup_missing_count += 1
+            except AttributeError:
+                # object.__new__ fixtures may not have set the attr.
+                self._face_lookup_missing_count = 1
+        return resolved
+
     def _get_face_recognized_persons(self) -> set[str]:
         """Return set of person IDs from Frigate face recognition sensors.
 
@@ -2396,8 +2634,10 @@ class PersonCensus:
             bs_id = camera_info.entity_id
             if bs_id.endswith("_person_occupancy"):
                 base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
-                face_sensor_id = f"sensor.{base_name}_last_recognized_face"
-
+                # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver.
+                face_sensor_id = self._resolve_face_entity_id(base_name)
+                if face_sensor_id is None:
+                    continue
                 state = self.hass.states.get(face_sensor_id)
                 if state and state.state.strip().lower() not in (
                     "unavailable", "unknown", "", "none", "no_match",
@@ -2429,7 +2669,10 @@ class PersonCensus:
             if not bs_id.endswith("_person_occupancy"):
                 continue
             base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
-            face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+            # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver.
+            face_sensor_id = self._resolve_face_entity_id(base_name)
+            if face_sensor_id is None:
+                continue
             try:
                 state = self.hass.states.get(face_sensor_id)
             except Exception:  # noqa: BLE001 — best-effort corroboration read
@@ -2527,10 +2770,13 @@ class PersonCensus:
             spikes below the sustain window never propagate through
             hold/decay. Downward moves keep instant/decay semantics — a real
             departure should not be delayed.
-          - If fresh_count == stored peak: refresh peak timestamp (existing).
+          - CENSUS-ACCURACY-1 D1 (2026-08-17): fresh_count == stored peak
+            NO LONGER refreshes peak_ts (was the systematic-error tail).
           - If within hold window: use stored peak
-          - After hold window (house only): decay -1 per CENSUS_DECAY_STEP_SECONDS
-          - After hold window (property): instant drop to fresh_count
+          - After hold window (BOTH zones, post-D1): instant drop to
+            fresh_count. The prior house-only linear decay slope
+            (`-1 per CENSUS_DECAY_STEP_SECONDS`) has been removed —
+            the property-zone instant-drop is now shared.
         """
         hold_seconds = self._get_hold_seconds(zone)
 
@@ -2599,8 +2845,17 @@ class PersonCensus:
             self._clear_pending(zone)
             return (fresh_count, False, 0)
         elif fresh_count == peak:
-            # Equal to stored peak: refresh timestamp (matches prior semantics).
-            self._store_peak(zone, fresh_count, now)
+            # CENSUS-ACCURACY-1 D1 (2026-08-17): DO NOT refresh peak_ts on
+            # equality. The prior `_store_peak(zone, fresh_count, now)` call
+            # here made a systematic-error peak immortal — every tick where
+            # fresh == peak (steady wrong-high count) reset peak_ts to now,
+            # so the hold + decay window never expired. Probe measured 74.5%
+            # of elevated-census time as this tail. INV-PEAK-NO-SELF-REFRESH.
+            # We still clear pending (a pending latch tracked against this
+            # same peak is no longer meaningful) and return fresh_count with
+            # peak_held=False (the returned COUNT is fresh; only the STORED
+            # peak_ts is untouched so the natural decay path can fire).
+            self._peak_refresh_suppressed_count += 1
             self._clear_pending(zone)
             return (fresh_count, False, 0)
         else:
@@ -2617,24 +2872,14 @@ class PersonCensus:
             age_min = int(elapsed / 60)
             return (peak, True, age_min)
 
-        # After hold window
-        if zone == "house":
-            # Gradual decay: -1 per CENSUS_DECAY_STEP_SECONDS after hold expires
-            elapsed_after_hold = elapsed - hold_seconds
-            decay_steps = int(elapsed_after_hold / CENSUS_DECAY_STEP_SECONDS)
-            decayed = max(fresh_count, peak - decay_steps)
-            if decayed <= fresh_count:
-                # Decay complete — reset peak to fresh
-                self._peak_house_camera_count = fresh_count
-                self._peak_house_timestamp = now
-                return (fresh_count, False, 0)
-            age_min = int(elapsed / 60)
-            return (decayed, True, age_min)
-        else:
-            # Property: instant drop after hold expires
-            self._peak_property_count = fresh_count
-            self._peak_property_timestamp = now
-            return (fresh_count, False, 0)
+        # After hold window: instant drop for both zones.
+        # CENSUS-ACCURACY-1 D1 (2026-08-17): the house branch previously
+        # applied a linear `-1 per CENSUS_DECAY_STEP_SECONDS` slope after
+        # hold expiry, delaying a departure by (peak * step) seconds. The
+        # property branch already used instant-drop; we now share that
+        # semantics for both zones. INV-DECAY-HONEST.
+        self._store_peak(zone, fresh_count, now)
+        return (fresh_count, False, 0)
 
     # v5.9.0 D-B helpers for the sustain-latch state machine ------------------
 
@@ -2749,8 +2994,15 @@ class PersonCensus:
                 continue
 
             base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
-            face_sensor_id = f"sensor.{base_name}_last_recognized_face"
-            face_state = self.hass.states.get(face_sensor_id)
+            # CENSUS-ACCURACY-1 D2: `_2`-suffix-tolerant resolver. Fail-CLOSED
+            # on a miss: with no resolvable face sensor we treat the entire
+            # camera count as unrecognized (raw_contribution = count) via the
+            # `face_is_fresh = False` branch below. This is the SAFE
+            # direction — a missing sensor must NEVER grant a free `-1`.
+            face_sensor_id = self._resolve_face_entity_id(base_name)
+            face_state = (
+                self.hass.states.get(face_sensor_id) if face_sensor_id else None
+            )
 
             face_is_fresh = False
             if face_state and face_state.state.strip().lower() not in (
@@ -3055,8 +3307,16 @@ class PersonCensus:
                 break
 
         for person_slug in tracked_persons:
-            # Frigate uses lowercase names: sensor.frigate_oji_udezue_last_camera
-            sensor_id = f"sensor.frigate_{person_slug.lower()}_last_camera"
+            # CENSUS-ACCURACY-1 D2: DO NOT construct the entity_id. The live
+            # entities are keyed on the FRIGATE face-library first name
+            # (`Oji`), NOT the URA slug (`oji_udezue`), and carry the `_2`
+            # disambiguation suffix. Resolve via the build-time registry
+            # enumeration keyed on person_slug's first token.
+            sensor_id = self._resolve_last_camera_entity_id(person_slug)
+            if sensor_id is None:
+                # Fail-CLOSED: no face-based credit for this person via
+                # this path. BLE path (upstream) is unaffected.
+                continue
             state = self.hass.states.get(sensor_id)
             if state is None:
                 continue

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-17'
+  last_reconciled: '2026-08-18'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -18,11 +18,232 @@ meta:
     which is why the rung-3 staleness rule (last_reconciled older than newest README) fired as a FALSE
     POSITIVE. The generator should compare against SHIPPED versions (git tag / manifest), not merely the
     presence of a README file.
+  sequence_2026_08_17: 'Operator sequence pick 2026-08-17: (1) FINISH the in-flight census/guest/presence
+    cycles — cycle 1 CENSUS-GHOST-DEDUP-1 shipped v5.79.0 (L3/L8 organic Wed); cycle 2 CENSUS-ACCURACY-1
+    building (D1+D2) -> reviews -> deploy; cycle 3 EXTERIOR-GUEST-EGRESS-1 D0 probe running -> gates build.
+    (2) Related FAST-FOLLOWS: DOC-DRIFT-ZONE-AWAY-1 (docs, running now), GUEST-ROOM-LOCATION-MATCH-1 (verified),
+    then the code fast-follows D3-BEHAVIOURAL-COVERAGE-1 / PATHBETA-VESTIGIAL-1 / GUEST-IDENTITY-PHONE-LEFT-BEHIND-1
+    (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
+    Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: FRIGATE-LEG-NAMING-1
+  thread: security
+  status: inbox
+  approval: unreviewed
+  title: Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live
+    F2 on interior, dead F1 on perimeter
+  created: 2026-08-18 02:05
+  updated: 2026-08-18 02:25
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: after Frigate 1 was retired, the INTERIOR cameras were renamed (dead F1 -> _person_occupancy_f1retired,
+    live F2 -> bare _person_occupancy) but the PERIMETER cameras were NOT (live F2 stayed _person_occupancy_2,
+    dead F1 kept the bare name and froze on 08-13). So the SAME bare `_person_occupancy` name means the
+    LIVE camera feed on some cameras and a DEAD frozen feed on others. Any code that identifies the live
+    Frigate leg by name pattern will silently use the DEAD leg for one group.'
+  - 'Solution: standardise the naming (rename perimeter to match interior, or vice versa) OR make URA
+    resolve the live leg by recency/registry never by name. Verify URA''s resolver + the census/perimeter
+    paths pick the LIVE leg for BOTH groups (on perimeter it currently subscribes the dead F1 corpse alongside
+    live F2 = skews agreement telemetry).'
+  why: A name that means opposite things on different cameras is a latent silent-failure generator — it
+    already caused me to misread interior cams as "Protect-only" and underlies the census/perimeter corroboration
+    work.
+  constraints:
+  - Renaming entities has blast radius (every consumer of the old name). Prefer recency/registry resolution
+    in code if renaming is risky. Verify against the cycle-2 D2 face fix (does it pick the live leg for
+    interior cams, whose binary leg is bare while their face leg is still _2?).
+  next: 'LATENT LOW (no live bug). Future: make _prefer_canonical tiebreak by recency not name. No action
+    now.'
+  refs:
+  - reference_frigate1_retired_2suffix_permanent.md (corrected)
+  - camera_resolver.py:214
+  - PERIMETER-PHANTOM-XCORR-1
+  audit_verdict_2026_08_18: 'AUDIT (AUDIT_frigate_dead_leg_correctness.md): NO dead-leg reads. The dead
+    F1 legs are FULLY REMOVED from the registry (404), not frozen-present — so the naming inconsistency
+    causes NO live correctness bug. Every read site is registry/state-gated; an absent dead name -> None.
+    Census SAFE (live leg both groups). Perimeter SAFE. DOWNGRADED to LATENT LOW: the only residual is
+    _prefer_canonical (camera_resolver.py:335) preferring the BARE name over _N — a name-based liveness
+    assumption. No collision today (dead leg gone). IF an F1 perimeter leg ever reappears alongside live
+    _2, census would pin to the frozen leg. Fix (future, not urgent): tiebreak by last_updated recency,
+    not canonical name.'
+- id: PERIMETER-PHANTOM-XCORR-1
+  title: Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked
+    across NVRs
+  thread: security
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-17 23:58
+  updated: 2026-08-18 02:40
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
+    is away) even when no other camera watching the area agreed — because the alert records which cameras
+    fired but throws that agreement away when deciding how loud to be. Verified by hand: both 08-16 alerts
+    were single-source with empty snapshots.'
+  - 'Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement
+    MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced,
+    so a lone-camera real threat still pages); corroborated detections keep/raise severity. Where a camera
+    has only one NVR, fall back to the existing track-linker spatial confidence. Plus the dashboard work
+    to surface corroboration / single-vs-multi source. NOTHING ELSE — not a perimeter-detection redesign.'
+  why: 'Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert
+    fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator
+    just mandated for cycle-3 face ID: never trust a single camera.'
+  constraints:
+  - 'SECURITY-relevant — treat false-negative risk carefully: a cross-check must SUPPRESS phantoms without
+    dropping a real intruder seen by only one NVR (a real person may be in only one camera''s view). So
+    cross-correlation raises CONFIDENCE / severity, it does not gate the alert to zero.'
+  operator_note: 'Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they
+    properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear
+    — operator believes an NVR/product already does cross-correlation natively; needs clarification.)'
+  evidence: '4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2
+    + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class
+    as the census fix.'
+  next: 'Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote
+    floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard
+    surfacing. Separately: BB dummy-Apple-ID fix for the loopback (BB-side, operator); street-mask/OSD/friendly-name
+    as small separate UX items.'
+  refs:
+  - custom_components/universal_room_automation/perimeter_alert.py
+  - EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
+  code_verified_2026_08_17: 'CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558)
+    is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base
+    + _2 + Protect) and dedups them; legs are OR''d, so ANY single leg firing alerts. NO corroboration
+    gate. This is CORRECT for the "don''t gate to zero" rule (a real intruder in one camera must still
+    alert). (2) SEVERITY GAP (the real bug): severity = house_state × track_class × camera_class (:1131-1160).
+    NO confidence/corroboration axis. A single-source phantom when AWAY fires at full CRITICAL — same
+    as an all-NVRs-agree real threat. (3) The agreement data EXISTS but is DISCARDED: per-leg engine tags
+    recorded as "disagreement telemetry" (:537-538, _sensor_engine) but never read by the severity resolver
+    = Bug Class #53 computed-but-not-consumed. (4) The linker DOES escalate/demote (:1162-1187) but that
+    is cross-CAMERA spatial (person moving across property), NOT cross-NVR (multi-integration agreement
+    on ONE camera); and the demote requires camera_count>=2 (:1167), so a single-camera phantom is NEVER
+    demoted.'
+  tags:
+  - tier-3
+  tier: Tier 3 — narrow remit
+  db_verified_2026_08_17: 'BY-HAND DB VERIFY (recorder, 2026-08-16 windows): BOTH alerts were DEFINITIVELY
+    SINGLE-SOURCE. At 15:15:56 UTC ONLY binary_sensor.hot_tub_person_occupancy_2 fired — no other NVR.
+    At 15:21:16 UTC ONLY front_side_ptz_person_occupancy_2 fired — no other NVR (garage_a fired 15:20:13,
+    unrelated area). Positive proof of the single-source diagnosis. CONTRAST: a REAL event on 08-17 15:12-15:13
+    shows front_side_ptz firing repeatedly ALONGSIDE master_hallway/upstairs_hall/staircase/garagehallway
+    = multi-camera corroboration existed for a real person. So the machinery CAN corroborate; the 08-16
+    alerts genuinely had none. NUANCE for the build: cross-NVR corroboration is only POSSIBLE where multiple
+    NVRs overlap on a camera (e.g. the pool overhead 4 integrations). hot_tub and front_side_ptz appear
+    single-NVR (Frigate-2 only) — for those the severity signal must fall back to the track-linker (spatial)
+    confidence, since no NVR-agreement signal exists.'
+  double_send_corrected_2026_08_17: 'CORRECTION (operator): the "double-send" is NOT a URA dedup bug.
+    BlueBubbles texts the operator through his OWN number, so each message shows once as SENT and once
+    as RECEIVED on the same thread = own-number loopback. URA sends ONCE. Fix is BB-side (dedicated/dummy
+    Apple ID on the host Mac), not URA. Removed from URA scope.'
+  remit_2026_08_17: 'OPERATOR SCOPE 2026-08-17: "Tier 3 work with a very narrow remit to make thrown away
+    corroboration matter to notifications. And any dashboard work." So: (1) wire the existing _sensor_engine
+    agreement telemetry (:537-538) into the severity resolver (:1131-1160) — demote single-source (floor
+    LOW), keep/raise corroborated; (2) dashboard surfacing of corroboration state. Tier 3 because it is
+    security-relevant, touches the NM/severity shared primitive, and threads a value into a decision site.
+    Remit is NARROW — do not expand into detection tuning, street-masking, OSD, or friendly-names (those
+    are separate small UX items, NOT this Tier-3 cycle).'
+  corroboration_definition_correction_2026_08_17: 'CORRECTION (operator caught orchestrator over-claim).
+    The 08-17 "multi-camera corroboration" claim was WRONG: front_side_ptz (exterior) co-fired with master_hallway/upstairs_hall/staircase/garagehallway
+    (INTERIOR) — but those interior cameras are NOT in EXTERIOR_ADJACENCY_GRAPH (const.py:1773, 12 exterior
+    cams only), so the linker CANNOT group them. They were INDEPENDENT co-occurring detections (interior
+    movement + an exterior trigger), not a corroborated track. NOT a bad path grouping (the graph excludes
+    interior cams) — but the orchestrator wrongly read co-occurrence as corroboration. PRECISE DEFINITION
+    for the build: corroboration for a PERIMETER alert = (a) multi-NVR agreement on the SAME camera, OR
+    (b) adjacent EXTERIOR camera confirmation via EXTERIOR_ADJACENCY_GRAPH. INTERIOR cameras are NEVER
+    a corroboration source for a perimeter alert. Do not let a co-firing interior sensor raise a perimeter
+    detection confidence.'
+  dual_nvr_disagreement_proof_2026_08_17: 'CORRECTION + STRONG PROOF (operator: "Nah Unifi and frigate
+    2"). hot_tub + front_side_ptz are DUAL-NVR, both legs LIVE: Protect (_person_detected, ~120-150 changes,
+    last 02:50) + Frigate-2 (_person_occupancy_2, last 02:50). (Third leg _person_occupancy = Frigate-1
+    base, DEAD since 08-13 16:37 F1 retirement — stale corpse leg.) URA SUBSCRIBES BOTH (camera_resolver.py:214-216
+    _PERSON_SUFFIXES includes _person_occupancy AND _person_detected). ON 08-16 THE TWO NVRS DISAGREED:
+    hot_tub Frigate-2 on 15:15:56 -> off 15:15:58 (2-SECOND blip), Protect NEVER fired; front Frigate-2
+    on 15:21:16->15:22:05, Protect NEVER fired. So URA had the live disagreement (1 of 2 NVRs) and PAGED
+    CRITICAL anyway — the _sensor_engine agreement telemetry was recorded and DISCARDED by the severity
+    resolver. This is the exact Tier-3 gap with a concrete live proof case. NOT a coverage gap (both subscribed+live).
+    RETIRES the earlier "single-NVR fallback" nuance for these cams — they are dual-NVR with a real agreement
+    signal; the track-linker fallback only matters for GENUINELY single-NVR cameras. NOTE for build: a
+    2-second single-NVR blip that the co-watching NVR refused to confirm is the textbook demote case.'
+  agreement_rate_measured_2026_08_17: 'QUANTIFIED (front_side_ptz, 5 days): Frigate-2 (_person_occupancy_2)
+    = 479 on-events; Protect (_person_detected) = 51 on-events. Agreement: 35 of 51 Protect events (69%)
+    have a Frigate-2 within 60s. But from Frigate-2''s side, only ~35 of 479 (~7%) overlap Protect ->
+    ~93% of Frigate-2 detections are SINGLE-SOURCE. READING: Protect is the conservative/accurate detector;
+    when it fires, Frigate usually agrees. Frigate-2 emits a ~10x FLOOD of extra single-source detections
+    Protect ignores (likely the public road / a tree / shadow in the Frigate detection zone). BOTH the
+    08-16 alerts AND the 08-17 event were part of that 93% single-source Frigate flood; a genuinely corroborated
+    event exists (the 35 both-fired cases) and those are the real-person events. IMPLICATIONS: (1) the
+    corroboration-into-severity fix would demote the 93% Frigate-only flood, keep/raise the 35 corroborated;
+    (2) SEPARATE operator config action: the front_side_ptz FRIGATE-2 detection is over-sensitive vs Protect
+    — worth tuning its zone/threshold (probably includes the public street). The Protect leg is the trustworthy
+    one here.'
+  fleet_pattern_2026_08_18: 'FLEET SAMPLE (13 dual-leg cameras, 5d, Frigate-2/Protect on-event ratio):
+    front_side_ptz is an ISOLATED OUTLIER at 11.4x (455 vs 40). Every other dual-leg camera is 0.56x-3.4x,
+    and MOST have Protect firing MORE than Frigate (garage_a 0.56, front_door_aerial 0.59, doorbell 0.62,
+    g5_bullet 0.65, upstairs_hall 0.73, madrone_g6_entry 0.77, playroom 0.82, rear_ptz 0.89). Mildly elevated:
+    back_yard 3.4x, hot_tub 2.1x. CONCLUSION: NOT a systemic Frigate-over-trigger; front_side_ptz specifically
+    is the problem — its Frigate zone almost certainly includes the PUBLIC ROAD (Protect leg on the same
+    camera is tighter). ~91 Frigate events/day on that one camera = the bulk of phantom pages. FIX (separate
+    from the URA severity work): mask the street / tighten the front_side_ptz Frigate detection zone.
+    COVERAGE NOTE for the Tier-3 build: several interior cams are PROTECT-ONLY (family_room, foyer_fisheye,
+    master_hallway, living_room, stairs_top — no Frigate-2 leg), so cross-NVR agreement cannot exist there;
+    single-leg cams must fall back to track-linker confidence. Frigate-2-only: armcrest, reolinkstudybporchptz.'
+  fleet_correction_2026_08_18: 'OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the
+    front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause
+    is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ creates whole-frame apparent motion Frigate
+    reads as person; Protect handles PTZ motion better — UNVERIFIED). Operator will REBOOT the front PTZ
+    and re-check tomorrow. (2) "All cameras have at least Protect and Frigate-2" — my "interior cams are
+    Protect-only" claim was WRONG: interior cams DO have live Frigate-2, named bare _person_occupancy
+    (not _2) — see FRIGATE-LEG-NAMING-1. Corrected interior ratios (F2/Protect, 5d): family_room 436/1331=0.33,
+    master_hallway 555/1312=0.42 — Protect fires MORE, consistent with the fleet. front_side_ptz remains
+    the SOLE outlier at 11.4x. Cross-NVR corroboration IS possible on interior cams (both legs live).'
+  dead_leg_claim_retracted_2026_08_18: 'RETRACTION: earlier notes said the dead Frigate-1 bare leg is
+    a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found
+    the dead F1 legs are REMOVED from the registry, so resolve_detection_legs cannot return them as a
+    leg. The corroboration telemetry is NOT polluted by a dead leg. The Tier-3 severity gap (agreement
+    recorded but not consumed) still stands; only the dead-leg-inflation sub-claim is void.'
+  ptz_rebooted_2026_08_18: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz
+    Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the
+    fleet norm (~0.5-1x), the over-trigger was a PTZ state/motion artifact cleared by reboot; if it stays
+    11x, it is a persistent Frigate zone/config issue on that camera. Do the re-check tomorrow, not tonight.
+- id: DOC-DRIFT-ZONE-AWAY-1
+  title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
+  thread: docs
+  status: done
+  approval: unreviewed
+  origin:
+    date: '2026-08-17'
+    gist: Operator asked to check manuals against code for house-zone vs HVAC-zone away; AUDIT_zone_away_house_vs_hvac.md
+      (7f54068fb) found 4 drifts.
+  problem_solution:
+  - P1 PRESENCE_COORDINATOR.md away-veto section (:1233) documents ONLY the v4.7.14 predicate — missing
+    D8 (face_recognized_count/census_count clauses), the ENTIRE Path β LOST-admitted veto, and the LOST
+    six-state matrix; infer() pseudocode (:285-300) no longer resembles code. This is the doc a future
+    session consults about away logic — it would actively mislead. S1 rewrite the away-veto + matrix sections
+    against current presence.py:1059-1208 + the matrix classifier.
+  - P2 HVAC_MANAGEMENT_EXPLAINER.md:34 preset-map ref stale (:303 -> :780) + stale "guest planned v4.7.x"
+    note. S2 fix refs.
+  - P3 HVAC_COORDINATOR_MANUAL.md §3.1 omits the per-zone vacancy override (hvac.py:1544-1554) forcing
+    away preset while house home. S3 add it.
+  - 'P4 ABSENCE: no manual documents (a) the ZonePresenceTracker three-tier OR (BLE->sensor->camera) as
+    the house-zone away mechanism, nor (b) that HVAC-zone occupancy = OR of room-level occupied bools
+    (hvac_zones.py:146/546), NOT the zone tracker. S4 document both (the house-vs-HVAC divergence source).'
+  why: These manuals are the institutional-context surface reviewers and planners consult. Stale away-veto
+    docs directly caused wasted cycles this session (assumptions about away logic had to be re-derived
+    from code). Keeping them current is cheap insurance against re-litigation.
+  constraints:
+  - Docs-only, no code. Verify every rewritten claim against file:line (the drift was caused by docs NOT
+    tracking code — do not reintroduce drift).
+  next: DONE (673e91b07). PRESENCE_COORDINATOR.md away-veto + LOST-matrix + house-zone OR rewritten; HVAC
+    explainer preset-map ref + HVAC manual §3.1 vacancy override + HVAC-zone-occupancy-source gaps fixed.
+    Orchestrator spot-check confirmed path α "ignores room sensors" vs base "hard gate" — asymmetry correct.
+  refs:
+  - docs/planning/AUDIT_zone_away_house_vs_hvac.md (7f54068fb)
+  - docs/Coordinator/PRESENCE_COORDINATOR.md
+  - docs/Coordinator/HVAC_COORDINATOR_MANUAL.md
+  updated: 2026-08-17 23:40
 - id: GUEST-ROOM-CONFIG-1
   title: 'Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)'
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.79.0
   approval: explicit
   approved_by: operator 2026-08-17 ("Findlay down guest bathroom. Misconfiguration" / "Unflag")
@@ -31,12 +252,11 @@ cards:
     gist: Operator flagged the Down Guest Bathroom designation as a misconfiguration while reviewing which
       rooms should carry the guest role.
   problem_solution:
-  - 'P1 `Down Guest Bathroom` (room_name "Guest Bedroom 1 Bathroom", room_type=bathroom) carried room_is_guest_room=True.
-    Under the dead identity oracle (see CENSUS-GHOST-DEDUP-1) EVERY designated guest room arms GUEST after
-    30 min of ANY occupancy, and a bathroom is the worst possible member of that set — frequent, unattributed,
-    often nocturnal occupancy. Likely a live contributor to the unexplained guest episodes. S1 DONE: unflagged
-    via the options flow; room_is_guest_room=False, all 22 sibling options preserved. Designated set is
-    now exactly Guest Bedroom 1 + Upstairs Guestroom, both room_type=bedroom.'
+  - 'Problem: a downstairs guest BATHROOM was marked as a "guest room". Because the check that excludes
+    known residents was broken, ANY 30-minute stay in that bathroom would have flipped the whole house
+    into guest mode — and a bathroom gets used often, including at night.'
+  - 'Solution: unmark the bathroom. The only rooms that can trigger guest mode are now the two actual
+    guest bedrooms. (Details and the flow-API gotcha are in the card notes and refs.)'
   why: 'Config correctness, and a prerequisite for D2 being safe: D2 makes the guest-room gate the SOLE
     arm for GUEST, so the designated set becomes load-bearing.'
   constraints:
@@ -55,6 +275,9 @@ cards:
   refs:
   - custom_components/universal_room_automation/config_flow.py:9193
   - custom_components/universal_room_automation/const.py:386
+  created: 2026-08-17 21:20
+  updated: 2026-08-17 23:30
+  refinement_status: initial
 - id: GUEST-ROOM-LOCATION-MATCH-1
   title: 'Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)'
   thread: presence
@@ -77,11 +300,15 @@ cards:
   constraints:
   - Inert today (fix verified for the currently-designated rooms whose locations DO match). Becomes live
     only on a new/mismatched designation.
-  next: 'Orchestrator pre-deploy check: confirm Guest Bedroom 1 and Upstairs Guestroom resolve location==room_name
-    for a present resident before v5.79.0 ship. Then card any future designation with this precondition.'
+  next: 'VERIFIED PASSING (pre-deploy check 2026-08-17): live person locations are CONF_ROOM_NAME verbatim
+    ("Garage A", "Breakfast Nook"); both designated rooms map correctly (guest_bedroom_2->"Guest Bedroom
+    2", bedroom->"Guest Bedroom 1"). The exclusion is live for the current set. ONE residual: a live in-guest-room
+    confirmation (a resident actually standing in one) is not possible with the house empty — organic
+    re-check on occupancy (Wed). Otherwise closable.'
   refs:
   - docs/reviews/code-review/guest_census_review_D2_completeness.md
   - custom_components/universal_room_automation/domain_coordinators/presence.py
+  updated: 2026-08-17 23:25
 - id: GUEST-IDENTITY-PHONE-LEFT-BEHIND-1
   title: Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after
     30 min
@@ -442,7 +669,7 @@ cards:
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
   thread: process
-  status: shipped_organic
+  status: done
   approval: explicit
   approved_by: operator 2026-08-09
   tags:
@@ -497,9 +724,9 @@ cards:
     note: simplest version (banner) was REJECTED by operator as not a forcing function; the marginal cost
       of rung 1 over the banner is one gate in a script that already has one (deploy.sh:32-36)
   knobs: none new (uses existing meta.last_reconciled)
-  next: 'MERGED to develop 2026-08-09 (0b4a22592). Rungs 1+2 live in scripts/deploy.sh. ORGANIC PROOF
-    OPEN: the post-push write path has never executed for real — the next release is its first true run.
-    Failure there is contained (warn + exit 0, release unaffected). Rung 3 rides KHOST-1.'
+  next: 'DONE. Organic proof LANDED 2026-08-17: the post-push write path executed for real for the first
+    time on the v5.79.0 deploy — kanban_ship marked 2 cards shipped + vibememo_ship wrote entry 055 automatically.
+    The forcing function is proven end-to-end.'
   review_record_2026_08_09: 'Reviewed DO-NOT-SHIP -> fixed -> re-verified. H1 YAML reflow: safe_dump round-trip
     rewrote the real board 1296->1455 lines, re-wrapping every card''s prose at 80 cols. Replaced with
     a textual line-anchored writer (parse to VALIDATE, edit as TEXT) — NOT ruamel, which is not installed
@@ -527,6 +754,9 @@ cards:
     "diagnostic" only, unrelated. BACKLOG.md: no match. Planning docs: v4.7.10 deploy_sh retrofit is the
     precedent for HOW deploy.sh gets changed, cited. Catalogs: n/a (process, not a presence primitive).
     NEW, not duplicate.'
+  updated: 2026-08-17 23:12
+  created: 2026-08-09 00:00
+  refinement_status: refined
 - id: WATCHDOG-INERT-1
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
@@ -1301,7 +1531,7 @@ cards:
   title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking
     into operator-visible message bodies
   thread: notifications
-  status: shipped_organic
+  status: done
   shipped_version: v5.75.1
   approval: unreviewed
   origin:
@@ -1318,6 +1548,9 @@ cards:
   next: 'Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment
     fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are
     entering the send path. Fix both in one pass.'
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit
+    "active fail" read was wrong — feature works. Closed.'
 - id: ROOM-NAME-UNIQUE-1
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
@@ -1607,7 +1840,8 @@ cards:
   title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
     resolution (exterior dashboard wiring is a minor bonus)'
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.80.0
   approval: implied
   approved_by: 'operator 2026-08-16 ("Census and guest are diff states... Census decay is also not the
     same as Guest decay. Separate concerns.") | MERGE APPROVED operator 2026-08-16: absorbed CENSUS-DEDUP-REPAIR-1
@@ -1785,7 +2019,7 @@ cards:
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by
   thread: security
-  status: inbox
+  status: parked
   approval: explicit
   approved_by: operator 2026-08-16 ("Card the security finding. May need more investigation before planning.
     Connect it to our work on Linker and this.") — carded for INVESTIGATION FIRST, not straight to planning.
@@ -1823,21 +2057,29 @@ cards:
   - 'False-positive cost is real and asymmetric: a dwell predicate that fires on a parked delivery driver,
     a gardener, or a stationary camera artifact converts a quiet DIGEST into a CRITICAL page. Measure
     before choosing.'
-  next: 'MEASURE FIRST, per measure-before-you-build — the data already exists. Probe the ~1150 `exterior_track`
-    rows in memory_episodes (one row per CLOSED track; attrs carry duration_s, camera_count, revisit_count,
-    path, classification, identified). Read-only questions: (a) what is the duration_s distribution for
-    tracks currently classified `pass_by`, and is there a genuine long tail? (b) how many single-camera
-    long-duration tracks exist per night, and which cameras produce them? (c) how many are plausibly artifacts
-    (same camera, no motion across hops) versus real dwell? That distribution decides whether a dwell
-    predicate is worth building and where any threshold sits. Note TRACK_CLOSE_IDLE_S=300 caps how long
-    an open track survives without a hop, which may itself truncate the very dwell we want to measure
-    — characterise that interaction in the probe.'
+  next: PARKED pending prerequisites (camera-role gating + revived face-ID + track stitching). Face-ID
+    revival is shared with CENSUS-ACCURACY-1 _2-suffix fix — revisit this card once that ships and face-ID
+    is live.
   refs:
   - custom_components/universal_room_automation/exterior_track_linker.py:705-750
   - custom_components/universal_room_automation/const.py:1842-1875
   - docs/planning/AUDIT_memory_handbuild_compactor_exterior_track.md
   - docs/planning/PLANNING_circling_severity.md
   - docs/planning/PLANNING_circling_label_transition_dispatch.md
+  - docs/planning/PROBE_exterior_dwell_loiter.md (491195ed9)
+  probe_outcome_2026_08_17: 'PROBE DONE (PROBE_exterior_dwell_loiter.md, 491195ed9). RECOMMENDATION: DON''T
+    build a raw duration predicate now. 623 person tracks / 11 days. Hypothesis PARTLY confirmed: dwell
+    DOES leak into pass_by (41 tracks >5min, 4 >20min, max 70min) BUT circling already holds 71 of 133
+    tracks >300s (median 407s), so loitering is only partly invisible. KILLER FINDING: of the 56 newly-catchable
+    tracks (camera_count==1, >300s), 19 (34%) are INTERIOR cameras (master_hallway, upstairs_hall, staircase,
+    playroom, family_room = residents INSIDE), and most perimeter ones are own back_yard/pool. Face-ID
+    is DEAD (2/623 identified) so there is NO resident-vs-stranger signal. A raw predicate would convert
+    quiet DIGESTs into CRITICAL pages on the household itself. Also 300s sits exactly on the TRACK_CLOSE_IDLE_S=300
+    fragmentation seam (107 same-camera pairs <=600s gap) so duration_s is a LOWER BOUND. PREREQUISITES
+    before any dwell predicate: (1) camera-role gating (interior/own-yard/perimeter-approach); (2) resident/stranger
+    signal — REVIVE FACE-ID (this is the SAME _2-suffix fix in CENSUS-ACCURACY-1, so there is a real dependency)
+    OR an allowlist; (3) track stitching across the idle-close seam. THEN threshold >=600s on perimeter-approach
+    cameras only. Merit CONFIRMED but gated on prerequisites — parked, not dropped.'
 - id: EXTERIOR-GUEST-EGRESS-1
   title: 'Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person
     crossing inside can corroborate guest'
@@ -1897,16 +2139,42 @@ cards:
     the scope.
   - Do NOT start before cycle 1's guest-room gate is live and organically proven — this cycle corroborates
     that gate, so an unproven gate makes it unverifiable.
-  next: 'D0 probe FIRST (gate): 14d of recorder/DB — ura_person_egress_event daily fire counts, confidence
-    histogram, %% with an in-window face sighting, and approach-classified track terminations at egress-adjacent
-    cameras. Go-thresholds in the plan: D1 needs >=30%% face coverage; D2 needs that AND >=3 entry-events/week.
-    Then build D1 ONLY (Tier 2) per the marginal-benefit ruling.'
+  next: 'BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2
+    + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at
+    egress cams (the D0 blind spot — running now), then (2) replan with both deliverables, then (3) build
+    after cycle-2 merge. Cross-correlate both NVRs is mandatory.'
   refs:
   - custom_components/universal_room_automation/transit_validator.py:829-1140
   - custom_components/universal_room_automation/exterior_track_linker.py:766-777
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
+  updated: 2026-08-17 23:50
+  refinement_status: refined
+  d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
+    identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
+    6651 rows over 166d in person_entry_exit_events; ambiguous filtered out pre-persist so 100% high-confidence;
+    person_id 100% NULL = D1 not built). D1 (populate person_id) = NO-GO: face coverage at egress cameras
+    is 0% today AND only ~7% even AFTER the cycle-2 _2-suffix fix (recognized faces cluster on INTERIOR
+    cameras; only 18/218 face-changes in 7d at door/exterior cams) — below the 30% gate; would identify
+    <1 in 10 entries. D2 (guest corroboration) = NO-GO (depends on D1 coverage). D3 (approach-track corroboration)
+    = GO, strong: 220 approach+person exterior tracks, 207 (94%) terminate at an egress-adjacent/door
+    camera, ~18/day, FACE-INDEPENDENT. RESCOPE: park D1/D2 (revisit trigger: door/exterior face coverage
+    >=30% on a re-run); adopt D3 as the cycle deliverable — wire the approach-track->egress signal as
+    a census_confidence CONTRIBUTION to the existing unidentified gate (INV-4 path b), NEVER a third arm.
+    Needs operator go on the rescope.'
+  operator_ruling_2026_08_17_build_both: 'OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity):
+    "Build both face and face-independent solution and use face as a confidence boost." Plus critical
+    context that INVALIDATES the D0 face measurement: (1) the D0 probe measured FRIGATE face ONLY — it
+    MISSED the UniFi PROTECT face source entirely (probe blind spot). (2) Protect face is sparse but CONCENTRATED
+    on the G6 ENTRY cam + (likely) family room — i.e. exactly the egress-relevant location the identity
+    path needs. So real egress face coverage is HIGHER than the Frigate-only 7%. (3) Frigate-2 NVR tuning
+    is still NEW, so Frigate coverage will improve too. (4) Cycle 2 is barely exercised because the house
+    is empty. MANDATE: cross-correlate BOTH NVRs Face ID (Frigate-2 + UniFi Protect) — never one source
+    alone. RESCOPE cycle 3 to build BOTH: (a) face-independent approach-track->egress corroboration (D0
+    said 94% GO), AND (b) face identity via cross-correlated Frigate-2+Protect face, used as a CONFIDENCE
+    BOOST (not a sole gate, not a third guest-arm). NEXT: re-probe face coverage INCLUDING Protect at
+    egress cameras before replanning.'
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
@@ -1943,6 +2211,12 @@ cards:
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
+  updated: 2026-08-17 23:40
+  d0_impact_2026_08_17: 'D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces —
+    face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement
+    is not viable on current sensing. IF cycle 3 rescopes to the face-independent approach-track signal,
+    revisit whether a FACE-INDEPENDENT interior-count reinforcement (an unknown approach-track that enters
+    raises the interior unknown count) is worth it. Otherwise stays parked until face coverage improves.'
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed
     value'
@@ -2063,6 +2337,16 @@ cards:
     the probe finding that 72% of guest minutes had unidentified_count==0 — that is Path B firing on residents
     through the dead identity check, with no census involvement. Two independent false-guest sources were
     running at once and we only had evidence of one. RESOLVED tonight: bathroom unflagged (see GUEST-ROOM-CONFIG-1).'
+  empty_house_validation_window_2026_08_17: 'OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening;
+    operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0
+    as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident staging in guest room must not flip
+    guest at boot) and L8 (repaired identity check returns True for a resident in a designated guest room)
+    are BOTH BLOCKED — they require a resident physically in a designated guest room, and nobody is home.
+    These are the DISCRIMINATING tests for the dead-oracle repair, so the headline acceptance is ORGANIC-PENDING
+    until people return (Wed PM at the latest). Tonight only proves: boot clean, zero URA ERROR, sensors
+    present/correct, no watchdog restart, and house correctly reads away/empty. The empty-house "no false
+    guest" observation is WEAK (the dead oracle would not have fired on an empty house either), so it
+    must NOT be claimed as proof the fix works — that proof needs an occupied guest room.'
 - id: CENSUS-GUEST-FLOOR-1
   title: Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded
     FLOOR, gated to contain the FP problem that unplugged it
@@ -2158,8 +2442,10 @@ cards:
   - 'Doctrine: memory-first diagnostics -> MEMORY-FIRST-DIAGNOSTICS-1 (skills amended 2026-08-14)'
   - 'Future (architecture, unscheduled): batch adjacency-graph refresh; redaction enable (20k-row trigger);
     NM consumer deepening'
-  next: Land Stage 2 (compactor build -> 2 reviews -> deploy); then adjudicate MEMORY-WRITERS-1 top-2
-    writers.
+  next: 'NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see
+    MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the
+    top 1-2 episode writers (fan-release retro-phantom + away_transition_blocked, the latter firing but
+    rare: 4 rows). Its gate ("after compactor ships") is satisfied, so it is actionable now.'
   refs:
   - docs/planning/VISION_hierarchical_memory.md
   - docs/planning/ARCHITECTURE_hierarchical_memory.md
@@ -2167,12 +2453,20 @@ cards:
   - docs/planning/AUDIT_memory_handbuild_study_a.md
   - docs/reviews/code-review/memory_mvp_tier2db.md
   - docs/planning/AUDIT_memory_retro_value.md
+  updated: 2026-08-17 23:10
+  created: 2026-08-05 00:00
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: we wanted every part of the house (each room, zone, the whole house) to keep a usable memory
+    of what happened to it, instead of events scattered and never summarised. Solution: build it in stages
+    — the raw event writers, then the nightly summariser (both shipped and live), then fill the gaps where
+    events aren''t being recorded. Not blocked; the next piece is the gap-filling writers.'
 - id: MEMORY-COMPACTOR-1
   parent: MEMORY-PROGRAM-EPIC
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume
     (trigger: any episode type >50 rows)'
   thread: memory
-  status: shipped_organic
+  status: done
   shipped_version: v5.76.0
   approval: explicit
   approved_by: operator 2026-08-02 (concept + MVP build approval); compactor deferred BY the MVP as a
@@ -2188,8 +2482,10 @@ cards:
     1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.'
   organic_open: 'Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its
     creation episode within one cycle (live DB check) — verify + write back to this card.'
-  next: Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner
-    from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
+  next: 'ORGANIC CONFIRMED 2026-08-17: compactor runs nightly (wired __init__.py:2031, after incremental_vacuum),
+    wrote 14 memory_facts at 02:30 CT today; memory_facts totals 53 rows across 08-15/16/17. Trigger long
+    met (exterior_track 1327, actuation_conflict 999, occupancy_phantom 73, fan_transition_suppressed
+    54 — all >50). Nothing pending here; move toward done.'
   refs:
   - docs/planning/MVP_hierarchical_memory.md
   - docs/planning/ARCHITECTURE_hierarchical_memory.md
@@ -2212,6 +2508,14 @@ cards:
   live_validation_2026_08_14: 'L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified,
     episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed
     ura_coordinator_manager_*.'
+  updated: 2026-08-17 23:30
+  created: 2026-08-11 00:00
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: the house records thousands of raw memory events but never boils them down, so a reader
+    (or the rooms themselves) can''t consult a compact history — the volume just grows. Solution: a nightly
+    job that reads the raw events and writes a small set of summarised facts. SHIPPED and running — it
+    compressed today''s events into 14 summary facts at 2:30am.'
 - id: MEMORY-FIRST-DIAGNOSTICS-1
   parent: MEMORY-PROGRAM-EPIC
   title: Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace,
@@ -2285,8 +2589,9 @@ cards:
   constraints:
   - each writer is a NEW producer on the write queue — batch discipline (write-flood ghost)
   - writers must not couple to detector gates the way occupancy_phantom did
-  next: 'After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked)
-    for one small Tier-2 cycle; rest parked on the card.'
+  next: 'ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle
+    for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows
+    — fires but rarely). Rest parked on the card. Needs operator go to start.'
   refs:
   - docs/planning/AUDIT_memory_retro_value.md
   folded_2026_08_16: 'FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked,
@@ -2299,6 +2604,14 @@ cards:
     on v5.77.0 the same morning — the bug was live right up to this deploy. L3 not verifiable with an
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
+  updated: 2026-08-17 23:10
+  created: 2026-08-11 00:00
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the house only remembers an event if the detector that watches for it fires — so wherever
+    a detector is missing or blind, that history is simply never recorded (a gap you can''t see). Solution:
+    add a few targeted event-writers for the highest-value gaps, starting with the two most useful, so
+    those histories get captured even when the usual detector misses them.'
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt
@@ -2636,7 +2949,7 @@ cards:
 - id: NM-BB-IMAGE-1
   title: iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
   thread: notifications
-  status: shipped_organic
+  status: done
   shipped_version: v5.73.0
   approval: approved
   origin:
@@ -2650,6 +2963,9 @@ cards:
   parked_alts: 'BB v0.5 also added INBOUND webhooks + phrase triggers (opt-in) — future: NM ack/silence
     via iMessage reply (safe-word flow). Not this cycle; if enabled, use sender allow-list + local-only.'
   next: 'Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.'
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit
+    "active fail" read was wrong — feature works. Closed.'
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification
     tax
@@ -2748,7 +3064,7 @@ cards:
 - id: FAN-LAYER-1
   title: 'DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers'
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.70.0
   approval: explicit
   approved_by: operator 2026-08-11 (\"Fanlayer 1 is high priority\")
@@ -2806,10 +3122,11 @@ cards:
     now DOC-2) — skill gains a cycle-close trigger check. NEW card, revival not duplicate.'
   organic_evidence: 'shipwatch 2026-08-11: v5.70.0 L2 no-fan-flap CONFIRMED (13.3h post-boot, all managed
     fans steady; Jaya 12.5h continuous). L3 holds + L4 safety still organic-open.'
+  updated: 2026-08-17 23:30
 - id: PLAN-TIER-1
   title: 'Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds'
   thread: process
-  status: shipped_organic
+  status: done
   approval: explicit
   approved_by: operator 2026-08-11 ("We should start subjecting plans to a sort of tier review system.
     Quality up front in planning and in the build process")
@@ -2825,6 +3142,9 @@ cards:
     -> 2) — both in flight as this lands; they get the treatment on delivery.
   next: apply to the two in-flight plans on arrival; organic proof = a plan-review finding that demonstrably
     prevents a build round
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as
+    done." Proof was a process/latent-event judgment not observable in live state; operator closed.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
@@ -3595,7 +3915,7 @@ cards:
 - id: CAM-AREA-PENDING
   title: Camera area corrections — RESOLVED
   thread: camera
-  status: shipped_organic
+  status: done
   approval: explicit
   origin:
     date: 2026-08-07
@@ -3609,10 +3929,11 @@ cards:
     out of camera scope.'
   refs:
   - https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
+  updated: 2026-08-17 23:30
 - id: D3-AREA-INHERIT
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
-  status: shipped_organic
+  status: done
   shipped_version: v5.74.0
   approval: implied
   tags:
@@ -3630,6 +3951,9 @@ cards:
   next: set _attr area / registry area from room area on D3 sensor creation
   refs:
   - binary_sensor.py CameraPersonDetectedSensor
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as
+    done." Proof was a process/latent-event judgment not observable in live state; operator closed.'
 - id: F1-SUNSET
   title: Frigate-1 go/no-go
   thread: camera
@@ -3654,11 +3978,12 @@ cards:
   approval: implied
   why: reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58
     organic criteria
-  next: check + report each
+  next: Recurring morning-sweep placeholder; re-fires each session start. No standing action.
+  updated: 2026-08-17 23:12
 - id: v5.59.0
   title: resolver-legs
   thread: perimeter
-  status: shipped_organic
+  status: done
   origin:
     date: 2026-08-07
     gist: shipped + live-validated
@@ -3668,6 +3993,7 @@ cards:
     track, pass_by tracks alert_count=0. Acceptance met. = F1-sunset readiness signal.'
   refs:
   - README_v5.59.0.md
+  updated: 2026-08-17 23:30
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -62,6 +62,42 @@ The HC picks a Carrier preset based on the house state machine:
 - **away** when the presence coordinator declares the house AWAY with
   confidence.
 
+The house-state → preset mapping is `HOUSE_STATE_PRESET_MAP`
+(`hvac_const.py:780`), resolved via
+`HVACPresetManager.get_preset_for_house_state` and applied in
+`HVACCoordinator.evaluate` (`hvac.py:1508-1511`); the transient
+`arriving` state is skipped (`hvac.py:1506`).
+
+**Per-zone away override (D1) — the away preset can fire while the house
+is still HOME.** After the house-state preset is chosen, each HVAC zone
+is re-evaluated: if the zone has been vacant past its grace window
+(`not zone.any_room_occupied` AND `last_occupied_time` is set AND
+elapsed > `grace_minutes`) AND the house-state preset is `home` or
+`sleep`, the zone's `effective_preset` is forced to `"away"` and a
+one-shot vacancy sweep runs (`hvac.py:1544-1560`). So an individual HVAC
+zone can be on the **away** preset even though the presence coordinator
+still reports the house HOME — this is a per-zone, HVAC-local decision
+that is NOT visible in the house-zone presence tracker. (Grace is
+shortened when the Energy Coordinator is coasting/shedding — see §3.2.)
+A separate stale-occupancy failsafe (D6, `hvac.py:1565-1620`) can also
+force `"away"` against a still-`any_room_occupied` zone when multi-source
+confirmation is insufficient (see §3.3).
+
+> **HOUSE zone ≠ HVAC zone.** An HVAC zone is thermostat-keyed (`zone_N`)
+> and by design maps to MULTIPLE house (presence) zones. **HVAC-zone
+> occupancy is derived independently of the presence zone tracker**: it
+> is the OR of the room-level fused `occupied` bools across the rooms in
+> that thermostat's zone — `ZoneState.any_room_occupied` =
+> `any(r.occupied for r in room_conditions)` (`hvac_zones.py:146`), where
+> each `occupied` comes from the room coordinator's `data` dict
+> (`hvac_zones.py:546`). It does NOT read `ZonePresenceTracker`, BLE, or
+> camera at the zone tier, and has no outdoor-exclusion / indoor-aggregate
+> concept. Phone/BLE and camera reach HVAC only INDIRECTLY — via room-level
+> occupancy fusion and via the house state. This separate derivation is the
+> legitimate source of HVAC-zone vs house-zone divergence (a BLE-only or
+> camera-only occupied house zone can still read `any_room_occupied ==
+> False` and retreat to the away preset after grace).
+
 Energy Coordinator constraints (`normal / pre_cool / coast / shed`)
 modulate WITHIN the chosen preset, mostly through setpoint offsets
 (e.g. pre-cool -3°F for 2 hours before peak, then coast +3°F through

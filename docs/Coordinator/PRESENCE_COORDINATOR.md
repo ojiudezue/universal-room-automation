@@ -63,6 +63,51 @@ dependency) and the `_room_provenance` shape are preserved.
 
 ---
 
+## ADDENDUM — HOUSE-zone "away" mechanism (`ZonePresenceTracker._derived_mode`)
+
+**Added 2026-08-17 (audit `AUDIT_zone_away_house_vs_hvac.md`, absence finding).**
+This is the single most load-bearing house-zone-away logic and was previously
+undocumented. Keep the **HOUSE zone vs HVAC zone** distinction crisp: a HOUSE zone
+is a presence grouping (Back Hallway, Master Suite, "Outside") with a per-zone mode
+on `ZonePresenceTracker`; an **HVAC zone** is thermostat-keyed (`zone_N`) and one
+HVAC zone maps to MULTIPLE house zones by design (memory
+`project_house_zones_vs_hvac_zones`). HVAC-zone occupancy is a **separate
+derivation** (room-level `occupied` bools) documented in the HVAC coordinator
+manual — do not conflate it with this tracker.
+
+A house zone's published mode is `ZonePresenceTracker.mode` (`presence.py:597-601`):
+it returns the manual `_override` if one is set (AWAY/OCCUPIED/SLEEP via the Zone
+Presence Override select), else the computed `_derived_mode`.
+
+`_derived_mode` (`presence.py:702-730`) is a **three-tier OR** — any single positive
+tier holds the zone OCCUPIED; AWAY is simply the absence of all three:
+
+1. **Tier 3 — BLE / phone location (checked FIRST, ungated).** `if
+   self._ble_occupied: return OCCUPIED` (`presence.py:710-711`). Evaluated before
+   the others and NOT gated on sensor discovery, because BLE person-location is the
+   most reliable signal. Fed by `_update_ble_zone_presence` — a Bermuda room-resolved
+   person location mapped up to the zone.
+2. **Tier 1 — room occupancy sensors (mmWave / PIR / occupancy).** `if
+   any(self._room_occupied.values()): return OCCUPIED` (`presence.py:716-717`), gated
+   on `self._has_sensors`. `_room_occupied` is the provenance-split OR over
+   `_room_provenance` plus the fan-interference hold, which can only EXTEND occupancy.
+3. **Tier 2 — camera person/motion with timeout.** `if self._any_camera_occupied():
+   return OCCUPIED` (`presence.py:720-721`).
+4. Else **AWAY** (`presence.py:723`); UNKNOWN only when no sensors were ever
+   discovered and no BLE was ever seen (`presence.py:730`).
+
+**Key property — no input can force a zone AWAY against a positive signal.** The
+tiers are a pure OR: BLE, room sensors, and camera each only ever vote OCCUPIED.
+Nothing drives a zone to AWAY against a positive tier. The **only** hard override is
+the manual `_override`, which beats all tiers (`presence.py:598-600`).
+
+Zone modes aggregate up to `any_zone_occupied` (and the outdoor-excluded
+`any_indoor_zone_occupied`), which are the INPUTS the house-STATE away paths consume
+(§3). House-STATE away does not feed back into per-zone mode except for SLEEP-hours
+masking of the tracker mode.
+
+---
+
 ## TABLE OF CONTENTS
 
 1. [Overview](#1-overview)
@@ -212,160 +257,40 @@ class HouseState(Enum):
 
 ### Inference Inputs
 
-```python
-@dataclass
-class PresenceContext:
-    """All inputs for state inference."""
-    
-    # From Census
-    total_occupants: int
-    known_persons: list[str]
-    unknown_persons_detected: bool
-    
-    # Recent events
-    recent_entry: bool                    # Entry in last 15 min
-    recent_exit: bool                     # Exit in last 15 min
-    was_empty_before_entry: bool          # House was empty before this entry
-    last_motion_timestamp: datetime | None
-    
-    # Time context
-    current_time: datetime
-    is_weekday: bool
-    
-    # Activity inference
-    activity_level: float                 # 0.0-1.0 based on motion/events
-    low_activity_duration: timedelta      # How long since significant activity
-    
-    # Configuration
-    sleep_start_time: time                # e.g., 22:00
-    sleep_end_time: time                  # e.g., 07:00
-    
-    # Current state
-    current_state: HouseState
-    current_state_duration: timedelta
-    
-    # External
-    geofence_approaching: list[str]       # Persons approaching home
-    vacation_mode_manual: bool            # Manually set vacation
-    guest_mode_manual: bool               # Manually set guest mode
-    
-    # Safety/Security
-    safety_alert_active: bool
-    security_alert_active: bool
+> **Updated 2026-08-17 (audit `AUDIT_zone_away_house_vs_hvac.md`).** The prior
+> `PresenceContext` / `_infer_empty_house` / `total_occupants` pseudocode in this
+> section no longer resembled the implementation and was removed. The real engine
+> is `StateInferenceEngine.infer()` (`presence.py:981-1208`), a keyword-argument
+> method — not a `PresenceContext` dataclass — whose load-bearing away logic is the
+> three away branches described below. See §3 ("Interaction with the house-STATE
+> AWAY paths") for the full treatment of the away vetoes and the LOST evidence
+> matrix.
 
+`StateInferenceEngine.infer()` (`presence.py:981`) takes, among others,
+`census_count`, `current_state`, `any_zone_occupied`, `unidentified_count`,
+`all_tracked_persons_away`, `face_recognized_count`, and the v5.7.0 path-β
+keyword args (`all_trusted_or_lost_away_persons_away`, `any_indoor_zone_occupied`,
+`grace_elapsed_for_lost_away`, `lost_away_persons_present`, `sleep_exempt_state`,
+`sustained_external_empty`). It returns `Optional[HouseState]` (None = no change),
+and sets `self._confidence` / `self._veto_path` as side effects.
 
-class StateInferenceEngine:
-    """Infer house state from context."""
-    
-    def infer(self, ctx: PresenceContext) -> tuple[HouseState, float]:
-        """
-        Infer current house state.
-        
-        Returns:
-            tuple of (state, confidence)
-        """
-        
-        # Priority 1: Emergency overrides everything
-        if ctx.safety_alert_active or ctx.security_alert_active:
-            return HouseState.EMERGENCY, 0.99
-        
-        # Priority 2: Manual overrides
-        if ctx.vacation_mode_manual:
-            return HouseState.VACATION, 0.99
-        
-        if ctx.guest_mode_manual:
-            return HouseState.GUEST, 0.95
-        
-        # Priority 3: Occupancy-based inference
-        if ctx.total_occupants == 0:
-            return self._infer_empty_house(ctx)
-        else:
-            return self._infer_occupied_house(ctx)
-    
-    def _infer_empty_house(
-        self, 
-        ctx: PresenceContext
-    ) -> tuple[HouseState, float]:
-        """Infer state when house is empty."""
-        
-        # Someone approaching?
-        if ctx.geofence_approaching:
-            return HouseState.ARRIVING, 0.85
-        
-        # Long empty = vacation candidate
-        if ctx.current_state == HouseState.AWAY:
-            if ctx.current_state_duration > timedelta(days=2):
-                return HouseState.VACATION, 0.70
-        
-        return HouseState.AWAY, 0.90
-    
-    def _infer_occupied_house(
-        self, 
-        ctx: PresenceContext
-    ) -> tuple[HouseState, float]:
-        """Infer state when house is occupied."""
-        
-        # Recent arrival from empty?
-        if ctx.recent_entry and ctx.was_empty_before_entry:
-            # Still in arriving transition
-            if ctx.current_state_duration < timedelta(minutes=15):
-                return HouseState.ARRIVING, 0.85
-        
-        # Unknown persons = potential guest
-        if ctx.unknown_persons_detected:
-            return HouseState.GUEST, 0.75
-        
-        # Time-based inference
-        hour = ctx.current_time.hour
-        
-        # Sleep inference
-        if self._is_sleep_hours(ctx):
-            if ctx.low_activity_duration > timedelta(minutes=30):
-                return HouseState.SLEEP, 0.85
-            else:
-                return HouseState.HOME_NIGHT, 0.70
-        
-        # Waking inference
-        if self._is_waking_hours(ctx):
-            if ctx.activity_level > 0.3:
-                return HouseState.WAKING, 0.80
-            else:
-                return HouseState.SLEEP, 0.75
-        
-        # Day/Evening/Night based on time
-        if 6 <= hour < 17:
-            return HouseState.HOME_DAY, 0.80
-        elif 17 <= hour < 21:
-            return HouseState.HOME_EVENING, 0.80
-        elif 21 <= hour < 24:
-            return HouseState.HOME_NIGHT, 0.75
-        else:
-            # Early morning (0-6)
-            if ctx.activity_level > 0.3:
-                return HouseState.WAKING, 0.70
-            else:
-                return HouseState.SLEEP, 0.80
-    
-    def _is_sleep_hours(self, ctx: PresenceContext) -> bool:
-        """Check if current time is in sleep hours."""
-        current = ctx.current_time.time()
-        
-        # Handle overnight wrap (e.g., 22:00 to 07:00)
-        if ctx.sleep_start_time > ctx.sleep_end_time:
-            return current >= ctx.sleep_start_time or current < ctx.sleep_end_time
-        else:
-            return ctx.sleep_start_time <= current < ctx.sleep_end_time
-    
-    def _is_waking_hours(self, ctx: PresenceContext) -> bool:
-        """Check if current time is in waking window."""
-        current = ctx.current_time.time()
-        wake_end = (
-            datetime.combine(date.today(), ctx.sleep_end_time) 
-            + timedelta(hours=1)
-        ).time()
-        
-        return ctx.sleep_end_time <= current < wake_end
-```
+The three explicit AWAY branches, in evaluation order:
+
+1. **Base "nobody home"** — `presence.py:1059-1063`: `census_count == 0 AND not
+   any_zone_occupied` → `HouseState.AWAY`, confidence **0.9**. Room sensors (via
+   `any_zone_occupied`) and census are both hard gates.
+2. **Path α — phones confidently away** — `presence.py:1091-1101`:
+   `all_tracked_persons_away AND unidentified_count == 0 AND
+   face_recognized_count == 0` → AWAY, confidence **0.95**. Ignores room sensors.
+3. **Path β — a phone is LOST/uncertain** — `presence.py:1168-1208`:
+   LOST-admitted denominator + `not indoor_blocked AND census_count == 0` + grace
+   clock / immediate-engage / sleep exemption → AWAY, confidence **0.95**. Respects
+   room sensors.
+
+If none fire and `census_count > 0 or any_zone_occupied`, the house is occupied and
+the engine resolves ARRIVING / SLEEP / WAKING / HOME_* / GUEST variants downstream
+(`presence.py:1210+`). Emergency and manual vacation/guest overrides are applied by
+the `PresenceCoordinator` caller, not inside `infer()`.
 
 ### Confidence Factors
 
@@ -1228,14 +1153,64 @@ The `raw_max`/`sum` collapse in Step 2 mirrors `_dedup_by_area` (same-area max, 
 
 **Accepted sibling of row 4 (residual, not fixed this cycle):** if a resident's phone is FRESH but the resident is actually elsewhere unmapped (e.g. their location resolves to a room without a camera), and a genuine guest walks under that room's *area-siblings* — the `ble_here` count is correctly zero for the guest's area and I1 holds. The narrower case where a fresh-BLE resident is misplaced BY BLE to the guest's area (rather than their true area) reduces to a bad BLE reading and is not addressable at the census layer. Documented as a known limitation of the room→area join fidelity.
 
-### 3. Interaction with the v4.7.14 AWAY veto
+### 3. Interaction with the house-STATE AWAY paths
 
-The AWAY-state person-tracker veto (v4.7.14, `presence.py`) fires when **all** tracked persons are away AND `unidentified_count == 0`. This cycle *strengthens* v4.7.14: by removing spurious unidentified contributions from residents-at-home who are still being camera-detected but face-missed, empty-house AWAY convergence gets cleaner — fewer false unidentifieds means the `== 0` gate fires when it should. No regression risk in the reverse direction: `unidentified_count` can only go DOWN (I3), never spuriously up.
+**Updated 2026-08-17 (audit `AUDIT_zone_away_house_vs_hvac.md`).** The prior text
+here documented only the v4.7.14 predicate (`all tracked persons away AND
+unidentified_count == 0`). The current `StateInferenceEngine.infer()`
+(`presence.py:981-1208`) has **three** away decision points, and this cycle's
+BLE-cancel correction feeds all of them by keeping `unidentified_count` honest.
+
+1. **Base "nobody home"** — `presence.py:1059-1063`: `census_count == 0 AND not
+   any_zone_occupied` → AWAY (conf 0.9). Here **room sensors are a HARD gate** —
+   any occupied zone (via `any_zone_occupied`, itself the OR of `ZonePresenceTracker`
+   modes over BLE/room-sensor/camera tiers) blocks base away, as does a non-zero census.
+
+2. **Path α — phones confidently away (ACTIVE veto)** — `presence.py:1091-1101`:
+   fires when `all_tracked_persons_away AND unidentified_count == 0 AND
+   face_recognized_count == 0` → AWAY (conf 0.95). Path α does **NOT** reference
+   `any_zone_occupied`, so it **ignores room sensors** — a stuck mmWave does not
+   block it. The only things that keep the house home on this path are a
+   camera-confirmed **person**: an unidentified body (`unidentified_count > 0`) or a
+   face-recognized resident (`face_recognized_count > 0`). Camera **motion alone**
+   (Tier-2 ghost) does not block it. The `face_recognized_count == 0` clause is the
+   v5.78.0 D8 addition (commit `2e76a5a91`), replacing the earlier
+   `census_count == 0` gate: a forgotten-phone resident's stale BLE fix used to keep
+   `census_count >= 1` and wrongly block the veto (the census-hole fix).
+
+3. **Path β — a phone is LOST/uncertain (LOST-admitted veto)** —
+   `presence.py:1168-1208`: admits LOST-but-away trackers into the away
+   denominator, and requires `all_trusted_or_lost_away_persons_away AND
+   unidentified_count == 0 AND census_count == 0 AND not indoor_blocked` plus a
+   grace clock (`grace_elapsed_for_lost_away` / `CONF_LOST_AWAY_GRACE_MIN`), a
+   `sustained_external_empty` immediate-engage limb, and a sleep exemption. Because
+   it gates on `not indoor_blocked` (the outdoor-excluded `any_indoor_zone_occupied`,
+   `presence.py:1135-1139`), path β **DOES respect room sensors** — a real indoor
+   occupancy blocks it. This is the conservative path.
+
+**The two phone paths are ASYMMETRIC on room sensors — do not summarise them as
+one rule.** Path α ignores room sensors (only a camera-confirmed person blocks it);
+path β respects them. Precisely: when phones are confidently away, PHONE overrides
+both room sensors and camera motion-ghosts (path α); when a phone is uncertain,
+room-sensor occupancy keeps the house home (path β); base away respects both census
+and zone occupancy.
+
+**Six-state LOST evidence matrix (v5.78.0 PATH-ALPHA).** A phone tracker's raw
+`not_home` / `home` / `unavailable` state is classified into a `tracking_status`
+(e.g. `ACTIVE`, `STALE`, `LOST`) with a `tracking_reason`, and that classification
+determines the tracker's **away-vote**: only ACTIVE-away trackers feed
+`all_tracked_persons_away` (path α), while LOST-but-away trackers are admitted only
+into the relaxed `all_trusted_or_lost_away_persons_away` denominator (path β) behind
+the grace clock. bermuda_decay keeps a departed resident's `location` populated
+during STALE (~300s), which is why STALE/LOST residents are excluded from BLE
+cancellation (§ above) and from the ACTIVE away-vote. The matrix is what makes path
+α (immediate, high-trust) and path β (graced, LOST-admitted) legitimately different
+inputs rather than one predicate.
 
 ### 4. Where the guest gate consumes this
 
-- Guest-gate arming: `custom_components/universal_room_automation/domain_coordinators/presence.py::_guest_gate_armed` (referenced across lines ~912-1046).
-- AWAY veto predicate: same file, lines ~983 and ~1046 — reads `unidentified_count == 0`.
+- Guest-gate arming: `custom_components/universal_room_automation/domain_coordinators/presence.py::_guest_gate_armed`.
+- AWAY veto predicates (read `unidentified_count == 0`): base `presence.py:1059`, path α `presence.py:1091-1101`, path β `presence.py:1168-1208`.
 - HouseState transitions consume `presence._guest_gate_armed`; downstream: HVAC preset, NM announces, anomaly emitter.
 
 ### 5. Known limitation — row 4 double-cover

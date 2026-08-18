@@ -147,6 +147,9 @@ Fill Origin, Why, and Next even when terse. Each field maps to a thing that othe
 | Field | Kills this leak |
 |---|---|
 | **Status / Thread** | which workstream — prevents cross-thread confusion |
+| **Created / Updated** (date + time) | staleness and churn — a card untouched for weeks, or thrashing daily, is visible at a glance |
+| **Refinement status** (initial-intact vs refined) | whether the plan is as-first-written or has been reworked — so a reader knows if they're looking at a raw idea or a hardened one |
+| **Problem / Solution** (plain language — mandatory) | the core — what is wrong and what fixes it, in words anyone can read. See "Problem/Solution framing" below |
 | **Origin** (chat date + the originating push) | the origin pointer — so full intent is reconstructable later |
 | **Why** | rationale — so a settled decision isn't re-litigated |
 | **Constraints** | musts stated in passing ("voice must NOT inherit immunity") |
@@ -188,11 +191,20 @@ Card template (the real schema, as it appears in `kanban.data.yaml`):
 
 ```yaml
 - id: CARD-1
-  title: One-line problem → solution statement
+  title: One-line plain-language problem → solution statement
   thread: area            # workstream
   status: inbox           # one of meta.columns: inbox / pre_planning / planned /
                           # in_progress / review / shipped_organic / waiting_operator /
                           # waiting_me / parked (+ done in history)
+  created: '2026-01-01 14:30'   # date + time the card was born. Set once, never changed.
+  updated: '2026-01-02 09:15'   # date + time of the last material change. Bump on EVERY edit
+                                # (rides the update-hygiene hooks). created == updated on a new card.
+  refinement_status: initial    # 'initial' (as first written) or 'refined' (reworked since).
+                                # Flip to 'refined' the first time the card's plan/scope changes;
+                                # the count of `refinement` beats shows HOW MUCH it was reworked.
+  problem_solution:       # MANDATORY, plain language (see "Problem/Solution framing" below).
+  - 'Problem: <what is wrong, in plain words a non-expert reads once and gets>.
+     Solution: <what we will do about it, same plain words>.'
   approval: unreviewed    # unreviewed / implied / explicit / blocked
   approved_by: 'operator <date> ("quoted go") — scope notes'   # when explicit
   tags: [tier-2db, no-fabrication-verify]   # quality-practice tags
@@ -214,6 +226,64 @@ Card template (the real schema, as it appears in `kanban.data.yaml`):
 
 Free-form extra keys on a card (e.g. `my_miss`, `gaps`, `fix`) are allowed — the renderer
 shows unknown keys as forensic detail rather than dropping them.
+
+## Problem/Solution framing — plain language, mandatory (operator-coined 2026-08-17)
+
+Every card carries a `problem_solution` written so **a person who was not in the room** — the
+operator weeks later, a teammate, a future agent with no context — reads it once and understands
+both what is wrong and what we intend to do. This is not optional decoration; it is the card's
+core. Two rules:
+
+1. **Problem then Solution, explicitly.** State the problem as its own sentence (what is broken
+   or missing, and why it matters), then the solution as its own sentence (what we will do).
+   Not one blurred clause.
+2. **Plain, non-jargon language.** Write it for a smart reader who does NOT carry the codebase in
+   their head. Acronyms, file:line refs, internal symbol names, and shorthand are a *memory
+   burden* — they force the reader to reconstruct context the card should have supplied. Put the
+   dense detail where it belongs (a `refs:` pointer, a `forensic_*` key, the vibememo entry), and
+   keep the problem/solution readable on its own.
+
+This does **not** mean dumbing down or hiding the engineering — it means the entry cannot be
+legible *only* to the person who wrote it that night. If the sentence needs a symbol name to be
+true, name it once and say in words what it does.
+
+**Worked example — the same card, wrong then right:**
+
+> **Too much jargon (memory burden):**
+> "P8 exterior census is STRANDED + naive: `census_counts()` built/live publishing
+> `exterior_unidentified_persons` with ZERO consumers; `_calculate_property_census` sums one
+> `person_binary_sensor` bit/cam (no dedup) → retire per-cam sum for the adjacency-deduped
+> track count."
+
+> **Plain language (anyone reads it once):**
+> "**Problem:** two separate systems count the people outside the house and they disagree — one
+> counts the same person once for every camera that sees them (so one visitor can read as three),
+> and the accurate one that counts each person once isn't shown anywhere. **Solution:** show the
+> accurate count as the headline, and keep the rough over-count as a backup because it never
+> misses a body — useful for security. (Details + file references in `refs`.)"
+
+The second version is longer in words but far cheaper to *read* — no decoding required. That is
+the trade the operator wants: optimize for the reader's effort, not the writer's.
+
+**Retro-fix as you touch.** Do not mass-rewrite the whole board. When you next update ANY card,
+if its problem/solution is jargon-dense, rewrite that one into plain language in the same edit
+(and bump `updated`). The board converges to plain language through the update-hygiene hooks, not
+a big-bang pass.
+
+## Timestamps and refinement status — hooks, not memory (operator-coined 2026-08-17)
+
+- `created` is set once when the card is born and never changed.
+- `updated` is bumped to the current date+time on **every material edit** — it rides the same
+  update-hygiene event hooks that already govern the board (a push, a ship, a review write-back,
+  a refinement beat). A card whose body changed but whose `updated` did not is a hygiene miss,
+  logged like any other drift.
+- `refinement_status` starts at `initial`. The **first** time the card's plan or scope is
+  reworked (not merely a status column move), flip it to `refined`. The `refinement` trail's
+  length then tells the reader *how much* it was reworked. Together these answer the operator's
+  question at a glance: *is this the raw first idea, or has it been through the wringer?*
+
+The renderer surfaces `created` / `updated` / `refinement_status` on each card in both KANBAN.md
+and the Artifact board so staleness and maturity are visible without opening the YAML.
 
 ## Watch results write back to cards — MANDATORY (operator-coined 2026-08-11)
 
