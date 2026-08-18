@@ -33,23 +33,23 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-17 23:58
-  refinement_status: initial
+  updated: 2026-08-18 00:15
+  refinement_status: refined
   problem_solution:
-  - 'Problem: the house sent two "Perimeter Alert - Person Detected" messages (back yard hot-tub cam 10:15:56,
-    front PTZ 10:21:16) with photos — but the photos show NO person (back yard is empty; the front shot
-    shows at most a tiny figure out by the PUBLIC ROAD, not on the property). The snapshot timestamps
-    MATCH the detection time to the second, so these are NOT stale/late photos — the camera genuinely
-    fired on nothing (or on the street). Likely false alarms.'
-  - 'Problem: each alert was sent TWICE — the same message and the same photo appear duplicated (a double-send
-    / no-dedup bug).'
-  - 'Problem: the alerts are single-camera. Nothing cross-checks them against the OTHER NVRs watching
-    the same spots (Protect / Frigate-2 / Dahua / Amcrest) before paging. A single camera crying wolf
-    is exactly what a cross-check would filter out.'
-  - 'Solution (candidate, NOT yet planned): (a) cross-correlate a person detection across the NVRs covering
-    that camera before firing a perimeter page; (b) dedup the double-send; (c) mask the public street
-    on the front PTZ so people on the road don''t page; (d) show a friendly camera name, not the raw sensor
-    id; (e) drop the camera debug OSD overlay from security snapshots.'
+  - 'Problem: a single camera crying "person" pages at FULL severity (CRITICAL when the house is away)
+    even when the photo is empty — because the alert never asks whether the OTHER cameras watching the
+    same spot agreed. The system even records which cameras fired, but throws that agreement away when
+    deciding how loud to be.'
+  - 'Problem: each alert (message + photo) was sent TWICE — a dedup miss in the notify path (separate
+    from the severity issue; needs its own look).'
+  - 'Problem: the front PTZ appears to fire on people out on the PUBLIC ROAD, and the alert text leaks
+    the raw internal sensor name (with the _2 suffix), and the camera''s debug overlay is baked into the
+    security photo.'
+  - 'Solution (candidate): feed cross-NVR AGREEMENT into severity (the data already exists) — a single-source
+    detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pages); multiple
+    NVRs agreeing RAISES confidence/severity. Keep OR-not-AND for the alert DECISION (correct). Separately:
+    fix the double-send, mask the public street on the front PTZ, use friendly camera names, drop the
+    camera OSD from snapshots.'
   why: 'Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert
     fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator
     just mandated for cycle-3 face ID: never trust a single camera.'
@@ -63,13 +63,25 @@ cards:
   evidence: '4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2
     + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class
     as the census fix.'
-  next: 'Verify against the DB: were these single-source (no other NVR/exterior-track corroboration at
-    10:15:56 / 10:21:16 on 08-16)? Then scope: cross-NVR correlation + dedup + street mask + friendly
-    names. Clarify "Camera silver". Relates to the exterior-track linker + the cross-NVR face work in
-    cycle 3.'
+  next: 'Scope a small cycle: wire the existing per-leg agreement (_sensor_engine disagreement telemetry)
+    into the severity resolver — single-source demotes to floor, multi-NVR agreement raises. Keep OR alert
+    gate. Separately triage the double-send (notify-path dedup) and the street-mask/friendly-name/OSD
+    UX items. Optional verify: DB check whether any other NVR saw a person at 10:15:56 / 10:21:16 on 08-16.'
   refs:
   - custom_components/universal_room_automation/perimeter_alert.py
   - EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
+  code_verified_2026_08_17: 'CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558)
+    is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base
+    + _2 + Protect) and dedups them; legs are OR''d, so ANY single leg firing alerts. NO corroboration
+    gate. This is CORRECT for the "don''t gate to zero" rule (a real intruder in one camera must still
+    alert). (2) SEVERITY GAP (the real bug): severity = house_state × track_class × camera_class (:1131-1160).
+    NO confidence/corroboration axis. A single-source phantom when AWAY fires at full CRITICAL — same
+    as an all-NVRs-agree real threat. (3) The agreement data EXISTS but is DISCARDED: per-leg engine tags
+    recorded as "disagreement telemetry" (:537-538, _sensor_engine) but never read by the severity resolver
+    = Bug Class #53 computed-but-not-consumed. (4) The linker DOES escalate/demote (:1162-1187) but that
+    is cross-CAMERA spatial (person moving across property), NOT cross-NVR (multi-integration agreement
+    on ONE camera); and the demote requires camera_count>=2 (:1167), so a single-camera phantom is NEVER
+    demoted.'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs

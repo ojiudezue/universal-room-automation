@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T23:16:18-05:00_ - _Data commit: `8a7b07fecf2b`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T23:22:05-05:00_ - _Data commit: `81c9058253cb`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -27,18 +27,19 @@ _raw capture_
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs
 thread: **security** - status: **inbox** - approval: **unreviewed**
-_created 2026-08-17 23:58 · initial_
+_created 2026-08-17 23:58 · updated 2026-08-18 00:15 · refined_
 - **Problem / Solution:**
-  - Problem: the house sent two "Perimeter Alert - Person Detected" messages (back yard hot-tub cam 10:15:56, front PTZ 10:21:16) with photos — but the photos show NO person (back yard is empty; the front shot shows at most a tiny figure out...
-  - Problem: each alert was sent TWICE — the same message and the same photo appear duplicated (a double-send / no-dedup bug).
-  - Problem: the alerts are single-camera. Nothing cross-checks them against the OTHER NVRs watching the same spots (Protect / Frigate-2 / Dahua / Amcrest) before paging. A single camera crying wolf is exactly what a cross-check would filter...
-  - Solution (candidate, NOT yet planned): (a) cross-correlate a person detection across the NVRs covering that camera before firing a perimeter page; (b) dedup the double-send; (c) mask the public street on the front PTZ so people on the ro...
+  - Problem: a single camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when the photo is empty — because the alert never asks whether the OTHER cameras watching the same spot agreed. The system even record...
+  - Problem: each alert (message + photo) was sent TWICE — a dedup miss in the notify path (separate from the severity issue; needs its own look).
+  - Problem: the front PTZ appears to fire on people out on the PUBLIC ROAD, and the alert text leaks the raw internal sensor name (with the _2 suffix), and the camera's debug overlay is baked into the security photo.
+  - Solution (candidate): feed cross-NVR AGREEMENT into severity (the data already exists) — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pages); multiple NVRs agreeing RAISES confidence/se...
 - **Why:** Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator just mandated for cycle-3 face ID: ne...
-- **Next:** Verify against the DB: were these single-source (no other NVR/exterior-track corroboration at 10:15:56 / 10:21:16 on 08-16)? Then scope: cross-NVR correlation + dedup + street mask + friendly names. Clarify "Camera silver". Relates to th...
+- **Next:** Scope a small cycle: wire the existing per-leg agreement (_sensor_engine disagreement telemetry) into the severity resolver — single-source demotes to floor, multi-NVR agreement raises. Keep OR alert gate. Separately triage the double-se...
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
   - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
+  - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
