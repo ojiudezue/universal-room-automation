@@ -272,3 +272,140 @@ else is either already-carded (A1), distinct-semantics KEEP (A4, S6), already-su
 already-graceful (A6), or out-of-remit URL builders (A7). **No deletions.** The claim that
 "`presence.py:4557` is the only face-resolver migration target" is now PROVEN (grep table above),
 not asserted.
+
+---
+
+## ADDENDUM 2 — tier + coordinator semantic sweep (2026-08-18)
+
+**Gap this addendum closes.** ADDENDUM 1 proved the *string-lookup* (resolver-migration) question
+repo-wide, and §1 mapped the cycle group's own diff. Neither exhaustively walked the **room tier,
+zone tier, house_state tier, and every `domain_coordinator`** for a SECOND way of *computing* what
+the census/guest/presence-identity arc now provides canonically. This pass does that: it reads each
+tier/coordinator surface and asks "does this derive a headcount / guest-count / known-person /
+occupancy-decay a second way that the census canonical (`identified_count` / `unidentified_count` /
+`persons_in_house` union, the repaired `_is_known_person_in_room` oracle, the `_2` resolver, egress
+`person_id`, or the decay-separation) now supersedes?"
+
+**Canonical capabilities a duplicate would be superseded BY (restated):** census `identified_count`
+/ `unidentified_count` / `persons_in_house` (deduped `_cross_correlate_persons` +
+`_apply_enhanced_house_census` union); repaired `_is_known_person_in_room` oracle + guest-room-lead;
+`_2`-suffix face resolver (`camera_resolver.py`); egress `person_id`; decay-separation instant-drop.
+
+### Method
+
+Read each surface end-to-end or grepped its identity/count/guest/decay defs, then three-bucket
+triaged every candidate: **DELETE** (dead AND no use-case AND footgun — mark only), **KEEP+WIRE**
+(useful, missing/mis-fed consumer → card), **KEEP+DOCUMENT** (plausible-future or distinct-semantics
+overlap). Default KEEP when uncertain. A "nothing new" result is only legitimate with the per-file
+read shown below.
+
+### Per-surface coverage checklist (each read/grepped this pass)
+
+**House tier**
+- `domain_coordinators/house_state.py` — **checked, found nothing.** File is the `HouseState` enum +
+  transition-timing map + guest-transition suppression comments only. It holds NO census/guest/
+  identity/headcount derivation; `census_count==0` is merely *referenced* in the AWAY-entry comment
+  (`:96`). The `census_count` value itself is produced by `presence.py:1788` (canonical consumer of
+  `census_data["interior_count"]`, set at `presence.py:4391`) — one producer, no second way.
+- House-level census sensors `sensor.py:3456-3744` (`URAPersonsInHouseSensor`,
+  `URAIdentifiedPersonsInHouseSensor`, `URAUnidentifiedPersonsInHouseSensor`, …) — **checked, canonical
+  consumers** of `result.house.identified_count` / `unidentified_count`. Not a second way.
+- House-level `Identified People Count` (`aggregation.py:1688`, entity `{DOMAIN}_occupant_count`) —
+  **checked = A4 (KEEP+DOCUMENT).** BLE person-tracker head-count (`get_tracked_person_count()`),
+  distinct modality from the face∪BLE∪egress camera census. Overlapping name, different question
+  (same reasoning as S6/A4). Its `persons_home` attr (`:1768`) is a *sensor attribute*, NOT the
+  `context["census"]` security reads (see the security finding below).
+
+**Zone tier**
+- `ZoneAnyoneBinarySensor` (`aggregation.py:3891`) — **checked, found nothing.** Boolean occupancy
+  rollup + Layer-2 sleep veto; no count/guest/identity number. Not superseded.
+- `ZoneGuestCountSensor` (`aggregation.py:5926`, `_get_guest_count` `:5983`) — **checked = A2
+  (KEEP+WIRE), already carded `GUEST-COUNT-DEDUP-MIGRATE-1`.** Naive `camera_total − ble_total`, the
+  additive/subtractive divergence class behind the historical GUEST double-count. Should read census
+  `unidentified_count`. No new card (folded with S4/A3).
+- `ZoneCurrentOccupantsSensor` (`:4784`) / `ZoneOccupantCountSensor` (`:4923`) /
+  `ZoneIdentifiedPersonsSensor` (`:5836`) — **checked = A4-class (KEEP+DOCUMENT).** All are
+  `person_coordinator` BLE room-location rollups (`get_persons_in_zone`), NOT the camera census
+  identity union. Distinct modality; document overlap, do not wire or delete.
+- `check_zone_occupancy_confidence` (`presence.py:2014`) — **checked, found nothing.** Counts
+  *independent occupancy SOURCES* (motion recency etc.) for a confidence tuple; orthogonal to
+  headcount/identity. Not superseded.
+
+**Room tier**
+- `CurrentOccupantsSensor` (`sensor.py:2696`) / `OccupantCountSensor` (`sensor.py:2793`) — **checked =
+  A4-class (KEEP+DOCUMENT).** Per-room `person_coordinator.get_persons_in_room` BLE rollup. Distinct
+  from census. Not superseded.
+- `_is_known_person_in_room` (`presence.py:4988`, repaired v5.79.0) + sticky (`:5054`) — **checked =
+  the canonical oracle itself** (S2/S3), not a duplicate. Its non-consumption of egress identity is
+  gap **G2** (already documented §3).
+- `_room_occupied` (`presence.py:604`) + `occupancy_substrate.py` — **checked, found nothing.** Raw
+  per-room sensor fusion + room-timeout hold; a **different modality** (physical sensor timeout) from
+  the camera-census decay-separation. `occupancy_substrate.py` has zero census/guest/identity/decay
+  hits. Not superseded — the census decay separation did not create a second room-occupancy decay.
+
+**Every `domain_coordinator/`**
+- `presence.py` — census_count consumer (canonical), guest-gate oracle (canonical). No second-way
+  producer. Covered above.
+- `security.py` — **NEW FINDING (see T1 below).** `SanctionChecker` unknown-person path.
+- `hvac.py` — **checked, found nothing.** All `guest`/`census` hits are `house_state in (...,"guest")`
+  consumers or the v4.6.3 `census_count` *anomaly-suppression* note (`:3544-3572`); no headcount /
+  guest / identity derivation of its own.
+- `safety.py`, `energy*.py`, `base.py`, `signals.py`, `coordinator_diagnostics.py`,
+  `occupancy_substrate.py`, `fan_policy_oracle.py`, `notification_manager.py`, `music_following.py` —
+  **checked, found nothing.** Zero guest/census/identified/headcount derivations (grep hit-count 0 each,
+  except `base.py`/`signals.py` whose hits are the `Intent.source` docstring example and the
+  `SIGNAL_CENSUS_UPDATED` name constant — plumbing, not a second derivation).
+
+### Grep patterns run this pass (tier/coordinator scope, non-test)
+
+| Pattern | Purpose | Result |
+|---|---|---|
+| `def .*(census\|guest\|occup\|identif\|count\|known_person\|resident)` in `presence.py` | second-way producers in presence | only canonical `census_count`, guest-gate oracle, zone-confidence — no duplicate |
+| `guest\|census\|identified\|resident\|occupant_count\|known_person` per coordinator | per-coordinator headcount/guest/identity | hits only in `security.py` (T1), `hvac.py` (consumer), `aggregation.py` (A2/A4); 0 in safety/energy/substrate/fan/notify/music |
+| `persons_home\|unknown_present` producers repo-wide | who feeds security's census context | **`persons_home`: 1 (a sensor attr, `aggregation.py:1768`); `unknown_present`: 0 producers** |
+| `source=["']census_update["']` emitters | who fires security's census intent | **0 emitters repo-wide** |
+| `SIGNAL_CENSUS_UPDATED` subscribers | census fan-out | `camera_census`, `sensor.py`, `presence.py` — **security is NOT a subscriber** |
+| `decay\|hold\|linger\|grace` in `occupancy_substrate.py` | second room-decay vs census decay-separation | 0 — no duplicate decay |
+
+### Three-bucket table (findings NEW to this tier/coordinator pass)
+
+| Item | file:line | Bucket | Superseded / should-consume | Reason |
+|---|---|---|---|---|
+| **T1** · `security.SanctionChecker` unknown-person path (`has_unknown_persons` `:312`, `check_entry` `:239`, `_handle_census_intent` `:969`) — reads `context["census"]["unknown_present"]` / `["persons_home"]` | `security.py:239,251-315,969` | **KEEP+WIRE (footgun-cautioned)** | census `unidentified_count > 0` / guest composition (`camera_census.py:1899`) | **Inert today, two ways over.** (1) `unknown_present` has **zero producers** repo-wide — `has_unknown_persons` always returns `False`. (2) No `source="census_update"` intent is emitted anywhere, so `_handle_census_intent` (unknown-person → lock-all-doors) is **never invoked**; security is not even a `SIGNAL_CENSUS_UPDATED` subscriber. This is a designed security consumer that SHOULD consume the now-reliable census `unidentified_count`, but the wiring was never completed. **UNCARDED → NEEDS A CARD** — but see footgun note. |
+| **T2** · House/zone/room BLE occupant rollups (`aggregation.py:1688,4784,4923,5836`; `sensor.py:2696,2793`) | as listed | **KEEP+DOCUMENT** | *not superseded* | `person_coordinator` BLE "who's home / in this room/zone" — distinct modality from the face∪BLE∪egress camera census. Overlapping names, different question (S6/A4 reasoning). No wire, no delete. |
+| **T3** · Room occupancy hold/timeout (`presence.py:604` `_room_occupied`, `occupancy_substrate.py`) | as listed | **KEEP (no action)** | *not superseded* | Physical per-room sensor-timeout hold ≠ the camera-census decay-separation. The decay work did not spawn a duplicate room-decay. |
+
+### Bucket-1 (DELETE) items
+
+**None.** T1 is inert but is a *designed capability with a legitimate consumer intent*, not a
+dead-AND-footgun orphan — default KEEP+WIRE, not delete. (Deleting it would remove the only
+census→security bridge point rather than fix it.) Consistent with §1 and ADDENDUM 1: the arc left
+**no dead code pool** behind.
+
+### Bucket-2 (WIRE) — new card needed
+
+1. **T1 — wire the census unidentified signal into security's unknown-person path.** Suggested id:
+   **`SECURITY-CENSUS-UNKNOWN-WIRE-1`**. Subscribe `security` to `SIGNAL_CENSUS_UPDATED` (or have the
+   manager emit a real `census_update` intent with `context["census"]` populated from
+   `result.house.unidentified_count` / identity composition) so `has_unknown_persons` reflects the
+   canonical census instead of an unpopulated key.
+   **⚠️ FOOTGUN / TIER CAUTION (mandatory on the card):** `_handle_census_intent` **locks all doors**
+   on `unknown_present`. Given the arc's *own* guest-false-positive history (memory "cross-investigation
+   synthesis": census double-counted residents into GUEST when face-recognition was dead; ~7% egress
+   face coverage per D0), wiring raw `unidentified_count>0 → lock-all-doors` would auto-lock on a
+   guest-FP or a coverage gap. This is **Tier 2-DB minimum** (census ↔ security ↔ guest ripple,
+   safety-actuating) and **must** gate on the same confidence/guest-composition the guest gate uses,
+   with a kill switch — NOT a bare `unidentified_count>0`. Recommend carding as *investigate-first*
+   (confirm the capability is even desired) before build, given the actuation risk.
+
+### Net
+
+The tier + coordinator semantic sweep adds **one genuinely-new finding (T1)** beyond §1 and
+ADDENDUM 1: security's `SanctionChecker` unknown-person path is a **designed-but-inert consumer** of
+the census unidentified/identity signal (unfed key + un-emitted intent + not a `SIGNAL_CENSUS_UPDATED`
+subscriber) that the now-reliable census `unidentified_count` should feed — **KEEP+WIRE, footgun-
+cautioned, needs a card (`SECURITY-CENSUS-UNKNOWN-WIRE-1`, Tier 2-DB, investigate-first).** Everything
+else across house_state, the zone tier, the room tier, and the other nine coordinators is either the
+census canonical itself, a distinct-modality BLE rollup (T2, KEEP+DOCUMENT), a different-modality
+room-occupancy hold (T3, KEEP), an already-carded naive guest derivation (A2/`GUEST-COUNT-DEDUP-
+MIGRATE-1`), or plumbing. **No second-way census/guest/identity/decay producer, and no deletions.**
