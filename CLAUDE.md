@@ -362,6 +362,35 @@ asked who READ the count; nobody asked how it was MADE.
 under the fix and under a plausible different failure. If identical, choose another
 observation.
 
+## Post-Ship Supersession & Consumer-Gap Audit — MANDATORY after a capability ships
+
+**Operator-coined 2026-08-18 (census/identity cycle group).** After a cycle ships a new
+capability (a value, signal, sensor, or feature — not a pure bugfix), run a short read-only
+audit BEFORE closing the program. This extends the Producer/Consumer rule from *planning* into
+*post-ship*. It earned its place first time out: caught a README-vs-reality drift, a
+safe-to-delete tombstoned constant, three real should-be-consuming gaps, AND a coverage ceiling
+(~7% egress `person_id`) that reframed the whole downstream value case. Three sections:
+
+1. **Supersession → mark-for-deletion.** What does the new capability make redundant or
+   vestigial? Grep for it. Produce a DELETE-CANDIDATE table (item, file:line, superseded-by,
+   safe-to-delete-when, risk). **Do NOT delete now** — mark it, and gate the deletion cycle on
+   full live validation (the new path must be proven working first). Distinguish "safe-now"
+   (tombstoned, zero readers) from "reconcile-later" (still has readers) from "KEEP" (distinct
+   semantics — e.g. `face_recognized_count` ≠ `identified_count`).
+2. **Producer / Consumer map** of each new value (the standing rule, applied to what shipped):
+   producer arithmetic + dependency health; every consumer with file:line, trust-vs-display.
+3. **Should-be-consuming-but-isn't (the highest-value section).** Enumerate downstreams that
+   OUGHT to use the new capability and don't yet — each a gap with value, tier, and whether a
+   card exists or is needed. (Census/identity example: perimeter alerts still said "person
+   detected" when identity was known; the guest gate ignored door-identity; no
+   arrival/departure notification consumed `person_id`.) **Always measure the real production
+   rate of the new value first** (measure-before-build) — a sparse producer caps every
+   consumer's value and may argue for a different producer, not more consumers.
+
+Trigger: any shipped new capability with downstream reach. Skip for pure hotfixes with no new
+value. The audit doc goes in `docs/planning/AUDIT_*_supersession_and_consumers.md`; findings
+become cards; the delete-candidate list waits for validation.
+
 ## Numbers Get Knobs — placement ladder (operator-coined 2026-07-16)
 
 Any behavioral number (threshold, duration, window, gate value) gets a

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T08:52:26-05:00_ - _Data commit: `907ea0cd8e3e`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T09:35:49-05:00_ - _Data commit: `75d7f151a8bd`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T08:52:26-05:00_ - _Data commit: `907ea0cd8e3e`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 12 |
+| ❓ Other | 16 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -166,15 +166,16 @@ _has plan / acceptance_
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
-_updated 2026-08-17 23:40_
+_updated 2026-08-18 09:45_
 - **Problem / Solution:**
   - P1 the interior census derives from cameras+BLE+face and does not currently consume the fact that a specific person was OBSERVED crossing an egress from outside to inside. That crossing is strong, causal evidence a body entered the inter...
 - **Origin:** 2026-08-17 - Split from the egress design discussion: identity-on-egress (scope 1) is a prerequisite; using the resulting exterior->interior transitions to reinforce the interior headcount is scope 2.
 - **Why:** The gate is deliberate: reinforcing interior count with egress data is only sound if the egress identity signal is itself accurate. Building it on an inaccurate scope-1 would inject a new error source into the interior count — the exact ...
 - **Next:** BLOCKED on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof. Then: measure how often egress crossings are NOT already reflected in the interior count (the gap this would fill) before designing.
 - **Refs:** docs/planning/PLANNING_exterior_guest_egress.md; depends-on: EXTERIOR-GUEST-EGRESS-1
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
+  - `coverage_ceiling_2026_08_18`: AUDIT finding: egress person_id present on only ~7% of crossings (Frigate face coverage at doors is the ceiling). Caps ALL identity-consuming downstreams (G1/G2/G3). Higher-value long play may be a FACE-INDEPENDENT approach-track identit...
 
 ## 🔨 In progress (1)
 _being built_
@@ -1142,7 +1143,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (12)
+## ❓ Other (16)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1246,6 +1247,39 @@ _created 2026-08-18 03:20 · initial_
 - **Forensic keys (2):**
   - `column`: in_progress
   - `problem`: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in the operators head + scattered per-version R...
+
+### `CENSUS-IDENTITY-SUPERSESSION-DELETE-1` - Delete superseded census/identity code (gated on L3 validation)
+thread: **planning**
+_created 2026-08-18 09:45 · initial_
+- **Next:** After L3 PASS Wed: delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7 legacy Frigate paths; Tier 1 cleanup.
+- **Forensic keys (3):**
+  - `column`: parked
+  - `problem`: The census/identity arc superseded some code. Marked for deletion AFTER full validation (Wed L3). S1 CENSUS_DECAY_STEP_SECONDS (const.py:2777) = unambiguous safe delete (tombstoned, zero readers). S7 legacy string-built Frigate paths nee...
+  - `parked_reason`: Gated on v5.81.0/v5.82.0 L3 organic validation (Wed). Do NOT delete before L3 confirms the new path works.
+
+### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
+thread: **security**
+_created 2026-08-18 09:45 · initial_
+- **Next:** Measure-before-build: probe real egress_identities_stamped rate first. Then wire identity into the alert message (graceful-anonymous).
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Capped by ~7% egress person_id coverage — ...
+
+### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location)
+thread: **presence**
+_created 2026-08-18 09:45 · initial_
+- **Next:** Tier 2-DB (trust-hierarchy). Measure coverage first. Design how door-identity feeds the guest gate w/o over-trusting sparse identity.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
+
+### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id
+thread: **notifications**
+_created 2026-08-18 09:45 · initial_
+- **Next:** Low-risk. Measure coverage; then a notify on ura_person_egress_event when person_id present. Tier 1/2.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Capped by ~7% coverage — only fires when identity is present.
 
 ## 🅿️ Parked ideas (top-level list)
 
