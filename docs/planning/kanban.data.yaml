@@ -1603,8 +1603,8 @@ cards:
   - docs/reviews/code-review/guest_census_review_C.md
   - custom_components/universal_room_automation/domain_coordinators/presence.py
 - id: CENSUS-ACCURACY-1
-  title: 'Census accuracy: separate decay from guest hysteresis, repair the dedup defences at source,
-    and swap the exterior headcount to the track-deduped count'
+  title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
+    resolution (exterior dashboard wiring is a minor bonus)'
   thread: presence
   status: pre_planning
   approval: implied
@@ -1769,6 +1769,17 @@ cards:
     shared fix. PATTERN (third instance tonight, = Bug Class #53 computed-but-not-consumed applied to
     RESOLVERS): we build the right primitive and then fail to consume it at the sites that need it — cf.
     ExteriorTrackLinker.census_counts() stranded while the exterior census sums raw per-camera bits.'
+  scope_clarification_2026_08_17: 'Operator scope check 2026-08-17: "Isn''t cycle 2 about interior accuracy?
+    The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes
+    GUEST MODE, not the interior count (its D1 clamp is a no-op when the camera body total is inflated).
+    THIS cycle is the INTERIOR-ACCURACY cycle. CORE (the point): (1) decay/self-refresh separation — targets
+    the measured 74.5%% of over-count time that was the decay tail with no live camera evidence; (2) the
+    _2-suffix fresh-face resolution fix — fresh-face -1 has fired ZERO times in 7 days because the code
+    builds sensor.{base}_last_recognized_face but every live entity carries _2 (missed F1->F2 migration
+    residue). BONUS (not the point, do not let it bloat scope): P12 exterior dashboard wiring (deduped
+    headline + naive fallback + divergence). The original "swap the exterior headcount" is DEAD — KEEP
+    BOTH per AUDIT_exterior_census_supersession.md. Dedup repair also DROPPED (probe: buys ~0; it is camera-area
+    coverage = an operator config task, not a build).'
 - id: EXTERIOR-DWELL-LOITER-1
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by
