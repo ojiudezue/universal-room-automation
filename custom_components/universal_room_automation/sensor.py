@@ -3553,6 +3553,23 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["stuck_cameras"] = list(
                         getattr(census, "_last_stuck_cameras", []) or []
                     )
+                # CENSUS-ACCURACY-1 D1 + D2 (2026-08-17): freshness stamps
+                # and diagnostic counters. `count_as_of` here is stamped at
+                # ATTR-READ time (not dispatch time) — the DISPATCH-time
+                # value is on the SIGNAL_CENSUS_UPDATED payload. Both are
+                # dt_util-based and comparable against consumer clocks.
+                from homeassistant.util import dt as _dt_util_d1
+                attrs["count_as_of"] = _dt_util_d1.utcnow().isoformat()
+                attrs["peak_refresh_suppressed_count"] = int(
+                    getattr(census, "_peak_refresh_suppressed_count", 0) or 0
+                )
+                attrs["face_lookup_missing_count"] = int(
+                    getattr(census, "_face_lookup_missing_count", 0) or 0
+                )
+                # peak_age_seconds for short-window discrimination (the
+                # existing peak_age_minutes attr rounds down).
+                _peak_min = int(getattr(result.house, "peak_age_minutes", 0) or 0)
+                attrs["peak_age_seconds"] = _peak_min * 60
         except Exception:  # pragma: no cover - defensive
             _LOGGER.debug("Failed to attach v5.9.0 census observability attrs", exc_info=True)
         return attrs
