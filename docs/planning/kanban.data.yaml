@@ -65,12 +65,11 @@ cards:
     gist: Operator flagged the Down Guest Bathroom designation as a misconfiguration while reviewing which
       rooms should carry the guest role.
   problem_solution:
-  - 'P1 `Down Guest Bathroom` (room_name "Guest Bedroom 1 Bathroom", room_type=bathroom) carried room_is_guest_room=True.
-    Under the dead identity oracle (see CENSUS-GHOST-DEDUP-1) EVERY designated guest room arms GUEST after
-    30 min of ANY occupancy, and a bathroom is the worst possible member of that set — frequent, unattributed,
-    often nocturnal occupancy. Likely a live contributor to the unexplained guest episodes. S1 DONE: unflagged
-    via the options flow; room_is_guest_room=False, all 22 sibling options preserved. Designated set is
-    now exactly Guest Bedroom 1 + Upstairs Guestroom, both room_type=bedroom.'
+  - 'Problem: a downstairs guest BATHROOM was marked as a "guest room". Because the check that excludes
+    known residents was broken, ANY 30-minute stay in that bathroom would have flipped the whole house
+    into guest mode — and a bathroom gets used often, including at night.'
+  - 'Solution: unmark the bathroom. The only rooms that can trigger guest mode are now the two actual
+    guest bedrooms. (Details and the flow-API gotcha are in the card notes and refs.)'
   why: 'Config correctness, and a prerequisite for D2 being safe: D2 makes the guest-room gate the SOLE
     arm for GUEST, so the designated set becomes load-bearing.'
   constraints:
@@ -89,6 +88,9 @@ cards:
   refs:
   - custom_components/universal_room_automation/config_flow.py:9193
   - custom_components/universal_room_automation/const.py:386
+  created: 2026-08-17 21:20
+  updated: 2026-08-17 22:40
+  refinement_status: initial
 - id: GUEST-ROOM-LOCATION-MATCH-1
   title: 'Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)'
   thread: presence
