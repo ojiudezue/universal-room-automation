@@ -33,7 +33,7 @@ cards:
   title: Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live
     F2 on interior, dead F1 on perimeter
   created: 2026-08-18 02:05
-  updated: 2026-08-18 02:05
+  updated: 2026-08-18 02:25
   refinement_status: initial
   problem_solution:
   - 'Problem: after Frigate 1 was retired, the INTERIOR cameras were renamed (dead F1 -> _person_occupancy_f1retired,
@@ -52,12 +52,20 @@ cards:
   - Renaming entities has blast radius (every consumer of the old name). Prefer recency/registry resolution
     in code if renaming is risky. Verify against the cycle-2 D2 face fix (does it pick the live leg for
     interior cams, whose binary leg is bare while their face leg is still _2?).
-  next: Audit URA leg resolution for both naming schemes; decide rename-vs-resolve-by-recency. Verify
-    cycle-2 D2 handles interior-cam naming before its deploy.
+  next: 'LATENT LOW (no live bug). Future: make _prefer_canonical tiebreak by recency not name. No action
+    now.'
   refs:
   - reference_frigate1_retired_2suffix_permanent.md (corrected)
   - camera_resolver.py:214
   - PERIMETER-PHANTOM-XCORR-1
+  audit_verdict_2026_08_18: 'AUDIT (AUDIT_frigate_dead_leg_correctness.md): NO dead-leg reads. The dead
+    F1 legs are FULLY REMOVED from the registry (404), not frozen-present — so the naming inconsistency
+    causes NO live correctness bug. Every read site is registry/state-gated; an absent dead name -> None.
+    Census SAFE (live leg both groups). Perimeter SAFE. DOWNGRADED to LATENT LOW: the only residual is
+    _prefer_canonical (camera_resolver.py:335) preferring the BARE name over _N — a name-based liveness
+    assumption. No collision today (dead leg gone). IF an F1 perimeter leg ever reappears alongside live
+    _2, census would pin to the frozen leg. Fix (future, not urgent): tiebreak by last_updated recency,
+    not canonical name.'
 - id: PERIMETER-PHANTOM-XCORR-1
   title: Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked
     across NVRs
@@ -65,7 +73,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 02:05
+  updated: 2026-08-18 02:25
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -187,6 +195,11 @@ cards:
     (not _2) — see FRIGATE-LEG-NAMING-1. Corrected interior ratios (F2/Protect, 5d): family_room 436/1331=0.33,
     master_hallway 555/1312=0.42 — Protect fires MORE, consistent with the fleet. front_side_ptz remains
     the SOLE outlier at 11.4x. Cross-NVR corroboration IS possible on interior cams (both legs live).'
+  dead_leg_claim_retracted_2026_08_18: 'RETRACTION: earlier notes said the dead Frigate-1 bare leg is
+    a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found
+    the dead F1 legs are REMOVED from the registry, so resolve_detection_legs cannot return them as a
+    leg. The corroboration telemetry is NOT polluted by a dead leg. The Tier-3 severity gap (agreement
+    recorded but not consumed) still stands; only the dead-leg-inflation sub-claim is void.'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
