@@ -24,10 +24,19 @@ is a **corroboration** input added AFTER a real payload has been captured.
   `_get_face_recognized_persons_fresh` (`:2652`),
   `_get_face_recognized_person_names` (`:3283`). The new work MUST NOT introduce
   a parallel Frigate-face resolver; extend/consume these.
-- REUSED — Census identity union point:
-  `camera_census.py:1855` (`known_persons = face_ids | ble_ids`). Name-level
-  dedup happens implicitly via set union; the new egress-face name set fuses
-  here (S5).
+- REUSED — Census identity union point — **TWO writers, both must fuse
+  (plan-review C-CRIT-1):**
+  (1) `camera_census.py:1855` (`known_persons = face_ids | ble_ids`, raw
+  per-zone in `_cross_correlate_persons`) — necessary but NOT sufficient.
+  (2) `camera_census.py:3391-3392` (`recognized_set = set(ble_persons) |
+  set(face_recognized)`, house-level in `_apply_enhanced_house_census`),
+  returned at `:3440` and OVERWRITING the raw value — THIS is the set that
+  actually flows into `identified_count` (`:1253`), `unidentified_count` via
+  `raw_total_ceiling` (`:3424`), and every guest-math consumer. Fusing
+  `egress_face_ids` into `:1855` ALONE is a house-level no-op (the exact
+  2026-08-17 GUEST-CENSUS double-count geometry, inverted: a silently-dead
+  fuse instead of a silently-additive one). The new egress-face name set MUST
+  be unioned into BOTH sites. Name-level dedup happens via set union (S5).
 - REUSED — Egress event emit + DB write sites: `transit_validator.py:1102-1108`
   (event) and `:1120-1126` (DB) — the `person_id=None` slot lives here (S1).
 - REUSED — Egress downstream consumers already read `person_id`:
@@ -54,9 +63,10 @@ is a **corroboration** input added AFTER a real payload has been captured.
   face-identity producer/annotation layer").
 - NEW (D2 only) — Consumer of `ura_kp_face_probe_received`: audit §B3 confirmed
   zero URA python consumers today. This is the Protect leg.
-- NEW — Census `egress_face_ids` set fed into the union at
-  `camera_census.py:1855`. Additive-vs-subtractive collision avoided by shape:
-  set-union with the existing `face_ids | ble_ids`, not a new count writer.
+- NEW — Census `egress_face_ids` set fed into the union at BOTH
+  `camera_census.py:1855` AND `:3391` (C-CRIT-1). Additive-vs-subtractive
+  collision avoided by shape: set-union with the existing `face_ids | ble_ids`
+  at each site, not a new count writer.
 - NEW knobs (see §7): `FACE_MATCH_WINDOW_S`, `CROSS_NVR_AGREEMENT_WINDOW_S`,
   `PROTECT_CORROBORATION_ENABLED` (options-flow, default OFF until Wed capture),
   `PROTECT_CORROBORATION_CONFIDENCE_BUMP`.
@@ -163,6 +173,18 @@ notion) nor into any `sub_label`/`identified` property in
 `exterior_track_linker.py` (security-track notion). Falsifier: any grep hit
 of the new writer against those stores.
 
+**I5 (NAME-NAMESPACE NORMALIZATION, plan-review C-MED-2).**  All names
+entering the union at BOTH fuse sites are normalized to ONE canonical form
+before set-union, so the same person recognized via different sources cannot
+appear as two set members. The three producers use different casings/forms:
+`:1857 sorted(list(known_persons))`, `:3443 sorted(recognized_set)`,
+`:3388 face_recognized` (Frigate first-name slugs, e.g. `oji`). Falsifier:
+a resident whose Frigate face yields `oji` and whose egress-face yields `Oji`
+increments `identified_count` by 2. Test: case-varied names for the same
+person must union to cardinality 1. The egress-face helper MUST emit names in
+the SAME namespace the census union already uses (Frigate first-name slug);
+if it cannot, it normalizes at the fuse boundary.
+
 ---
 
 ## 3. PRODUCER / CONSUMER checks
@@ -178,6 +200,14 @@ of the new writer against those stores.
   `_get_face_recognized_persons_fresh`) filtered to the stem's face
   sensor; select the freshest recognized name whose recognition
   timestamp is within `FACE_MATCH_WINDOW_S`; return that NAME or `None`.
+- **MUST mirror the fail-open veto (C-LOW-2):** the reused name reader
+  `_get_face_recognized_person_names` (`:3346-3366`) suppresses a
+  recognized name when that person's `person.<slug>` tracker reads
+  `not_home` (a stale-face guard). The new helper reads face state more
+  directly and MUST apply the SAME `person.<slug> == not_home` veto, else
+  it re-admits an identity the census already rejects. Test: face
+  recognized on the egress cam but `person.oji == not_home` ⇒ helper
+  returns `None`.
 - Dependencies: (i) census face resolver healthy (v5.80.0 D2 fix landed;
   watch `sensor.<house>_face_lookup_missing_count`), (ii) Frigate 2
   suffix path live (CENSUS-FACE-MISS-WATCH-1 relevant), (iii) egress
@@ -201,10 +231,15 @@ of the new writer against those stores.
 
 **PRODUCER (post-cycle):** a short-lived per-tick set built in
 `camera_census` from the most-recent egress-face events (bounded age, e.g.
-last 5 minutes — knob: `EGRESS_FACE_UNION_TTL_S`). Set of NAMES ONLY.
-Written into `known_persons = face_ids | ble_ids | egress_face_ids` at
-`:1855`. Not persisted as its own count. Zero new writers on
-`identified_count` — the union is the sole writer and remains so.
+last 5 minutes — knob: `EGRESS_FACE_UNION_TTL_S`). Set of NAMES ONLY,
+normalized to the Frigate-slug namespace (I5). Unioned at **BOTH** identity
+writers (C-CRIT-1):
+- `:1855` — `known_persons = face_ids | ble_ids | egress_face_ids` (raw).
+- `:3391` — `recognized_set = set(ble_persons) | set(face_recognized) |
+  egress_face_ids` (house-level, the one that survives to `identified_count`).
+Not persisted as its own count; no `identified_count` increment outside these
+two set-unions. Reviewer B must prove both fuse sites carry the same set and
+that no third writer recomputes the count downstream of `:3391`.
 
 **CONSUMERS:** unchanged — `identified_count`, `unidentified_count`,
 `face_recognized_count` attrs (`camera_census.py:1253-1261`), guest sensor
@@ -235,7 +270,9 @@ face reader; feed the resulting names into the census union.
   (expose a small accessor for `_resolve_face_entity_id` +
   `_get_face_recognized_persons_fresh` filtered by camera stem, if not
   already reachable; add `egress_face_ids` register + TTL prune; wire
-  into the union at `:1855`).
+  into the union at **BOTH `:1855` AND `:3391`** per C-CRIT-1 — fusing only
+  `:1855` is a house-level no-op because `_apply_enhanced_house_census`
+  recomputes `recognized_set` at `:3391` and overwrites).
 - `custom_components/universal_room_automation/const.py` — new module
   constants (§7).
 - Tests under `quality/tests/` (unit + behavioral; NO wall-clock coupling).
@@ -252,17 +289,30 @@ face reader; feed the resulting names into the census union.
   crossing equals `|face_ids ∪ ble_ids ∪ egress_face_ids|` — NOT the sum
   (I1). Discriminator: if a resident is in BOTH Frigate face scan and
   egress-face for the same tick, `identified_count` does NOT double.
+  DISCRIMINATOR vs the silently-dead-fuse failure (C-CRIT-1): an
+  egress-face-ONLY resident (present in `egress_face_ids`, absent from the
+  Frigate face scan and BLE) MUST raise the house-level `identified_count`
+  by exactly 1 — proving the fuse reached `:3391`, not just `:1855`. If that
+  resident does NOT move the count, the `:3391` fuse is missing.
 - **Test:** unit test — resolver returns `None` when no face sensor
   exists on the camera; returns the fresh name when one exists;
   returns `None` when the recognized-face state is unavailable/unknown
   /empty/none.
 - **Test:** behavioral test — feed a synthetic egress event + a synthetic
   face-recognition state 3s before it; assert the emitted
-  `ura_person_egress_event` carries the expected name. Then age the
-  face state to `FACE_MATCH_WINDOW_S + 1s`; assert `person_id=None`.
-- **Test:** census fuse test — with `face_ids={"Oji"}` and
-  `egress_face_ids={"Oji"}`, `identified_count == 1`. With
-  `face_ids={"Oji"}`, `egress_face_ids={"Ziri"}`, `identified_count == 2`.
+  `ura_person_egress_event` carries the expected name. Then advance an
+  INJECTED clock (freezegun or a passed-in `now`, NOT `time.sleep` — per
+  the wall-clock-coupled-test memory, C-LOW-1) to `FACE_MATCH_WINDOW_S + 1s`
+  past the face state; assert `person_id=None`.
+- **Test:** census fuse test — exercised at the HOUSE level (through
+  `_apply_enhanced_house_census`, not just `:1855`): with `face_ids={"oji"}`
+  and `egress_face_ids={"oji"}`, house `identified_count == 1`. With
+  `face_ids={"oji"}`, `egress_face_ids={"ziri"}`, `identified_count == 2`.
+  With `face_ids={}`, `ble={}`, `egress_face_ids={"ziri"}`, `identified_count
+  == 1` (the C-CRIT-1 discriminator — proves `:3391` fuse present).
+- **Test:** name-normalization (I5, C-MED-2) — `face_ids={"Oji"}` (title
+  case) and `egress_face_ids={"oji"}` (slug) union to `identified_count == 1`,
+  not 2. Both fuse sites normalize before union.
 - **Live:** after deploy, watch for the first real crossing on a
   face-covered camera (family-room-visible entry via garage per the
   card). Confirm `person_id` appears in the DB entry-exit row AND in
@@ -275,6 +325,13 @@ face reader; feed the resulting names into the census union.
   cycle must not regress the CENSUS-FACE-MISS-WATCH-1 metric).
 
 ### D2 — Protect corroboration listener (GATED on Wed payload capture)
+
+> ⛔ **DO NOT BUILD D2 IN THIS CYCLE (plan-review C-MED-1).** D1 is the only
+> deliverable dispatched now. D2 is fully specced here for continuity but is
+> HARD-GATED on a real captured `ura_kp_face_probe_received` payload (Wed) +
+> the §D2-payload appendix + `PROTECT_CORROBORATION_ENABLED` default OFF. A
+> builder inheriting this plan builds D1 ONLY. D2 is out of scope for the D1
+> build and its files/tests must not be touched. This fence is the gate.
 
 Add the FIRST URA python consumer of `ura_kp_face_probe_received`. Convert
 the parsed name into a second `egress_face_ids` contribution and use it as
@@ -353,11 +410,15 @@ without name mapping), park D2 with an evidence trigger and ship D1 alone.
 
 ## 6. Collision-risk design (audit §D)
 
-1. **Census double-count (2026-08-17 precedent).** Mitigation IS the
-   invariant I1 + the shape of the fuse — a name set unioned at the
-   single existing site (`:1855`), not a new count writer. Reviewer B
-   must prove no path anywhere increments `identified_count` from the
-   new source outside the union.
+1. **Census double-count / silently-dead-fuse (2026-08-17 precedent,
+   C-CRIT-1).** Mitigation IS invariant I1 + the shape of the fuse — a
+   normalized name set (I5) unioned at BOTH existing writers (`:1855` raw
+   AND `:3391` house-level), not a new count writer. The 2026-08-17 CRIT
+   fused/computed at the wrong writer; here the same trap appears inverted
+   (fuse only `:1855` ⇒ silently-dead at house level). Reviewer B must
+   prove (a) both fuse sites carry the identical normalized set, and (b) no
+   path anywhere increments `identified_count` from the new source outside
+   these two unions.
 2. **Frigate ↔ Protect same-crossing double-fire.** Existing
    direction-side stem dedup (`transit_validator.py:1063-1073`, 5s
    window) already prevents two egress events per crossing. For the
