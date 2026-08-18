@@ -4221,33 +4221,31 @@ cards:
   updated: 2026-08-17 23:30
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
-  column: inbox
+  column: planned
   thread: memory
   created: 2026-08-18 02:00
-  updated: 2026-08-18 02:00
-  refinement_status: initial
+  updated: 2026-08-18 02:35
+  refinement_status: refined
   problem: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor).
     Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which
     memory layers/artifacts SURVIVE (durability/retention) vs are transient. Needs full context.
   origin: 2026-08-18 "outline a possible roadmap for memory. Critique it and the layout what survives.
     Full context"
-  next: 'ura-planner: read memory epic state (PLANNING_memory_writers.md, shipped writers+compactor, memory-ineligible
-    boundary) -> outline roadmap phases -> critique via marginal-benefit -> table of what survives (recorder
-    retention, compacted narrative, episodic rows, memory files) vs transient.'
+  next: Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+  refs: docs/planning/PLANNING_memory_roadmap_and_critique.md
 - id: ROADMAP-UNDONE-REVIEW-1
   title: Review ROADMAP/VISION — surface undone-but-worthwhile
-  column: inbox
+  column: planned
   thread: planning
   created: 2026-08-18 02:00
-  updated: 2026-08-18 02:00
-  refinement_status: initial
+  updated: 2026-08-18 02:35
+  refinement_status: refined
   problem: 'Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0
     while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that
     is still worthwhile — separating genuinely valuable undone work from obsolete/superseded items.'
   origin: 2026-08-18 "Review roadmap and surface what has not been done that is worthwhile"
-  next: 'Research agent: read docs/ROADMAP_v11.md + VISION_v7.md + backlog + memory project cards -> list
-    undone items -> classify worthwhile / superseded / obsolete with one-line rationale. Feeds a roadmap
-    refresh (ties to ROADMAP-STALE-AGENTIC-LAYER-1).'
+  next: Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+  refs: docs/planning/AUDIT_roadmap_undone_worthwhile.md
 - id: IOS-APP-PLAN-CARD-1
   title: iOS app for HAOS+URA — gated design blueprint (tracked)
   column: parked

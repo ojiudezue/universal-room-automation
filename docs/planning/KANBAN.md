@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:58:32-05:00_ - _Data commit: `93e853c39046`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:59:44-05:00_ - _Data commit: `7523b7436ed9`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1145,18 +1145,18 @@ _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
 thread: **memory**
-_created 2026-08-18 02:00 · initial_
-- **Next:** ura-planner: read memory epic state (PLANNING_memory_writers.md, shipped writers+compactor, memory-ineligible boundary) -> outline roadmap phases -> critique via marginal-benefit -> table of what survives (recorder retention, compacted n...
+_created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
+- **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
 - **Forensic keys (2):**
-  - `column`: inbox
+  - `column`: planned
   - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
 
 ### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile
 thread: **planning**
-_created 2026-08-18 02:00 · initial_
-- **Next:** Research agent: read docs/ROADMAP_v11.md + VISION_v7.md + backlog + memory project cards -> list undone items -> classify worthwhile / superseded / obsolete with one-line rationale. Feeds a roadmap refresh (ties to ROADMAP-STALE-AGENTIC-...
+_created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
+- **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
 - **Forensic keys (2):**
-  - `column`: inbox
+  - `column`: planned
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
 ### `IOS-APP-PLAN-CARD-1` - iOS app for HAOS+URA — gated design blueprint (tracked)
