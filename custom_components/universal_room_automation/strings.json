@@ -721,13 +721,13 @@
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
-          "face_recognition_enabled": "When enabled, face recognition data from camera events is used to confirm the identity of persons during transit validation. Requires a camera integration that provides face recognition. Defaults to off — path validation works without it.",
+          "face_recognition_enabled": "On by default. URA uses face matches from your cameras to confirm who a person is during room presence and transitions. Turn off to fall back to path validation without faces. Requires a camera integration that provides face recognition. The device switch `switch.ura_presence_face_matching` is the live kill-switch — toggling it takes effect within seconds without an integration reload.",
           "enhanced_census": "Enable event-driven sensor fusion with hold/decay, WiFi guest VLAN detection, and Frigate face recognition differentiation. Separates 'people seen' from 'people recognized' for better guest detection.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
           "census_hold_interior": "How long (in minutes) to hold the peak person count for indoor cameras before starting decay. Prevents count drops when people move between rooms or sit in camera blind spots. Default: 15 minutes.",
           "census_hold_exterior": "How long (in minutes) to hold the peak person count for outdoor/perimeter cameras before dropping. Shorter than interior because outdoor detections are more transient. Default: 5 minutes.",
           "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests.",
-          "egress_identity_enabled": "When someone enters or leaves through a door camera, label them with their name from face recognition instead of 'unidentified', and use that identity to help the house count know who's home. Requires Face Recognition (above) to be working. Defaults to off — turn it on after you've confirmed faces are being recognized. When off, entries and exits are still counted, just not named."
+          "egress_identity_enabled": "On by default. People entering or leaving through your door cameras are labeled with their name from face recognition (instead of 'unidentified'), and that identity helps the house count know who's home. Requires Face Recognition (above) to be working. Turn off to count entries and exits without naming them. The device switch `switch.ura_name_people_at_doors` is the live kill-switch — takes effect on the next crossing without an integration reload."
         }
       },
       "perimeter_alerting": {
@@ -1918,6 +1918,14 @@
       }
     },
     "switch": {
+      "presence_face_matching": {
+        "name": "Presence Face Matching",
+        "description": "Use face-recognition results to identify the person during transit/path validation and presence trust. When ON, camera face events are considered by the transit validator and the presence coordinator; when OFF, the same events are still processed but not attributed to a specific person. Toggling this switch takes effect within seconds — no integration reload."
+      },
+      "name_people_at_doors": {
+        "name": "Name People at Doors",
+        "description": "When someone enters or leaves through a door camera, label them with their name from face recognition instead of 'unidentified' and use that identity in the house count. Requires Presence Face Matching to be working. When OFF, entries and exits are still counted, just not named."
+      },
       "optimizer_kill_switch": {
         "name": "Kill Switch"
       },

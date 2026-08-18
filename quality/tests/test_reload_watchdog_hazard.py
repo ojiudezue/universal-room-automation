@@ -150,6 +150,10 @@ def _load_ns(*, kill_switch: bool = True,
         # B-MED-1 fix-up (2026-08-15): the wiring table now references
         # the imported const, so the sliced module reads it at exec time.
         "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
+        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18):
+        "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
+        "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
+        "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
         # CM/HVAC/EC CONF aliases (referenced by module-level frozensets;
         # values don't matter for these tests — string identity only).
         **{k: k.lower() for k in [
@@ -429,10 +433,18 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
     assert "perimeter_cameras" not in allow, (
         "PARKED — see plan follow-up #1."
     )
-    # v1 seed is exactly one key. Adding one is a policy change that
-    # should require review; this size guard makes silent expansion
+    # v1 seed was {camera_person_entities} only. CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
+    # (2026-08-18) added CONF_FACE_RECOGNITION_ENABLED (paired with
+    # SIGNAL_URA_FACE_RECOGNITION_CHANGED discharge to transit_validator
+    # + presence) and CONF_EGRESS_IDENTITY_ENABLED (fresh-read at all
+    # consumers, no signal). Any further expansion is a policy change
+    # that should require review; the size guard makes silent expansion
     # a test failure rather than a live surprise.
-    assert allow == {"camera_person_entities"}
+    assert allow == {
+        "camera_person_entities",
+        "face_recognition_enabled",
+        "egress_identity_enabled",
+    }
 
 
 def test_camera_person_entities_change_dispatches_transit_signal_once(monkeypatch):

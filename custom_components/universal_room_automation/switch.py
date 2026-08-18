@@ -33,6 +33,12 @@ from .const import (
     ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_INTEGRATION,
     VERSION,
+    # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18):
+    CONF_FACE_RECOGNITION_ENABLED,
+    CONF_EGRESS_IDENTITY_ENABLED,
+    DEFAULT_FACE_RECOGNITION_ENABLED,
+    DEFAULT_EGRESS_IDENTITY_ENABLED,
+    SIGNAL_URA_FACE_RECOGNITION_CHANGED,
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
@@ -146,7 +152,39 @@ async def async_setup_entry(
 
     # v3.6.0-c2.4: Integration entry — master coordinators toggle
     if entry_type == ENTRY_TYPE_INTEGRATION:
-        async_add_entities([DomainCoordinatorsSwitch(hass, entry)])
+        # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): expose the
+        # two census-adjacent flags as device switches on the
+        # integration device. Both write to entry.options; the parent
+        # entry does NOT reload because both keys are in
+        # INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS. Face-recognition
+        # fires SIGNAL_URA_FACE_RECOGNITION_CHANGED to refresh the
+        # cached consumers (transit_validator + presence). Egress
+        # identity is fresh-read at all consumers — no signal.
+        async_add_entities([
+            DomainCoordinatorsSwitch(hass, entry),
+            _IntegrationOptionsSwitch(
+                hass, entry,
+                conf_key=CONF_FACE_RECOGNITION_ENABLED,
+                default=DEFAULT_FACE_RECOGNITION_ENABLED,
+                translation_key="presence_face_matching",
+                fallback_name="Presence Face Matching",
+                object_id="ura_presence_face_matching",
+                unique_suffix="presence_face_matching",
+                icon="mdi:face-recognition",
+                fire_signal=SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+            ),
+            _IntegrationOptionsSwitch(
+                hass, entry,
+                conf_key=CONF_EGRESS_IDENTITY_ENABLED,
+                default=DEFAULT_EGRESS_IDENTITY_ENABLED,
+                translation_key="name_people_at_doors",
+                fallback_name="Name People at Doors",
+                object_id="ura_name_people_at_doors",
+                unique_suffix="name_people_at_doors",
+                icon="mdi:badge-account-horizontal",
+                fire_signal=None,
+            ),
+        ])
         return
 
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
@@ -431,6 +469,115 @@ class DomainCoordinatorsSwitch(SwitchEntity):
             options={**self._entry.options, CONF_DOMAIN_COORDINATORS_ENABLED: False},
         )
         await self.hass.config_entries.async_reload(self._entry.entry_id)
+
+
+# ============================================================================
+# CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18)
+# Integration-entry options-backed switches (face_recognition, egress_identity)
+# ============================================================================
+
+
+class _IntegrationOptionsSwitch(SwitchEntity):
+    """A switch that reads/writes a boolean key in the INTEGRATION entry's options.
+
+    Kill-switch semantics: `is_on` reflects the merged options value;
+    toggling persists via `async_update_entry` on the integration entry.
+
+    Load-bearing invariant: this class does NOT call `async_reload`.
+    Reload is short-circuited by the
+    `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS` branch in
+    `__init__._async_update_listener`. Belt-and-suspenders discharge:
+    when `fire_signal` is set, the signal is dispatched from `_write`
+    AFTER the persistence returns AND ALSO from
+    `_dispatch_integration_key_signals` via `_INTEGRATION_KEY_SIGNAL_TABLE`
+    a moment later — subscribers re-read the same fresh value both
+    times; harmless idempotent.
+    """
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        *,
+        conf_key: str,
+        default: bool,
+        translation_key: str,
+        fallback_name: str,
+        object_id: str,
+        unique_suffix: str,
+        icon: str,
+        fire_signal: str | None,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = conf_key
+        self._default = default
+        self._fire_signal = fire_signal
+        # MED-3 (Review C, 2026-08-18): translation_key is the canonical
+        # source of the visible name via strings.json / translations/en.json;
+        # _attr_name is set as an EXPLICIT fallback so a translation-load
+        # failure (missing locale file, JSON parse error) still yields a
+        # human-readable label instead of an entity_id-shaped one. The two
+        # must be kept semantically equivalent; drift here is a UI-truth
+        # defect (same class as HIGH-1 / HIGH-2 in this cycle's review).
+        self._attr_translation_key = translation_key
+        self._attr_name = fallback_name
+        self._attr_icon = icon
+        self._attr_unique_id = f"{DOMAIN}_{unique_suffix}"
+        # Pin entity_id so friendly-name auto-slug drift cannot rename it.
+        self.entity_id = f"switch.{object_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "integration")},
+            name="Universal Room Automation",
+            manufacturer="Universal Room Automation",
+            model="Whole House",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        merged = {**self._entry.data, **self._entry.options}
+        return bool(merged.get(self._conf_key, self._default))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._write(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._write(False)
+
+    async def _write(self, value: bool) -> None:
+        old = self.is_on
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._conf_key: value},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info(
+            "IntegrationOptionsSwitch: %s %s → %s (entry=%s)",
+            self._conf_key, old, value, self._entry.entry_id,
+        )
+        # Belt-and-suspenders discharge. The listener also fires this
+        # signal via _INTEGRATION_KEY_SIGNAL_TABLE; both subscribers
+        # re-read the same fresh entry.options value, so a double-fire
+        # is a no-op. Fires here first so a subscriber connecting
+        # between async_update_entry and the listener still transitions.
+        if self._fire_signal is not None:
+            try:
+                from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+                    async_dispatcher_send,
+                )
+                async_dispatcher_send(
+                    self.hass, self._fire_signal,
+                    self._entry.entry_id, self._conf_key,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "IntegrationOptionsSwitch: dispatch of %s failed (non-fatal)",
+                    self._fire_signal, exc_info=True,
+                )
 
 
 # ============================================================================
