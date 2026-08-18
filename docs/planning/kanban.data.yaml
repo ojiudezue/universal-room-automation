@@ -29,9 +29,9 @@ cards:
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
   status: planned
-  approval: pre_approved_gated
+  approval: explicit
   created: 2026-08-18 00:55
-  updated: 2026-08-18 01:30
+  updated: 2026-08-18 01:45
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -54,9 +54,8 @@ cards:
     direct.'
   - Re-measure coverage against GARAGE entries + family-room arrival, NOT the front door (the first probe
     measured the wrong cam).
-  next: 'GATED on cycle-3 face-independent arm shipping first. Then: (1) capture a live Alarm Manager
-    face POST; (2) wire webhook -> ura_face_identified; (3) URA consumes it as interior-arrival identity.
-    Confirm the Alarm Manager rule is set up (open watch) before building.'
+  next: 'HOLD: consultation (duplicate-vs-complementary) running -> report to operator -> operator go
+    -> then build.'
   refs:
   - docs/planning/RESEARCH_protect_face_to_ha.md
   - EXTERIOR-GUEST-EGRESS-1
@@ -69,6 +68,13 @@ cards:
     event + system_log. Test POST returned 200 and logged the payload. PENDING (Wed, real face): real
     Alarm Manager payload shape + name/confidence fields + confirm Protect-side rule POSTs on a match.
     Probe is ready to capture the first real face event.'
+  promoted_2026_08_18: 'PROMOTED to the PRIMARY cycle-3 build (operator: "let''s build it first and see").
+    Reframe: we ALREADY have single-source identity via Frigate-2 face (sensor.<cam>_last_recognized_face_2,
+    resolvable after v5.80.0 D2). Protect face (via the verified webhook) ADDS CORROBORATION (second source).
+    So the build = cross-correlate Frigate-2 face + Protect face into a person-identity signal, tied to
+    egress. PRE-BUILD GATE (operator): consult the existing egress-awareness + known-person (KP) code
+    and CONFIRM this is COMPLEMENTARY not duplicating, and REPORT to the operator BEFORE building (AUDIT_egress_face_identity_prior_art.md
+    running). No build until the operator reviews the verdict + gives go.'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
@@ -2161,7 +2167,7 @@ cards:
   title: 'Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person
     crossing inside can corroborate guest'
   thread: presence
-  status: planned
+  status: parked
   approval: explicit
   approved_by: operator 2026-08-16 ("Agree on recommendations... Card the one you said to park and do
     it next so we have the complete set") — approved as the cycle AFTER the census set (1 guest-census
@@ -2216,17 +2222,15 @@ cards:
     the scope.
   - Do NOT start before cycle 1's guest-room gate is live and organically proven — this cycle corroborates
     that gate, so an unproven gate makes it unverifiable.
-  next: 'BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2
-    + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at
-    egress cams (the D0 blind spot — running now), then (2) replan with both deliverables, then (3) build
-    after cycle-2 merge. Cross-correlate both NVRs is mandatory.'
+  next: 'PARKED (deferred): the face-independent nudge revisits only if the identity path proves insufficient.
+    Trigger: identity-at-egress shipped + shown to miss real guests.'
   refs:
   - custom_components/universal_room_automation/transit_validator.py:829-1140
   - custom_components/universal_room_automation/exterior_track_linker.py:766-777
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-  updated: 2026-08-18 00:55
+  updated: 2026-08-18 01:45
   refinement_status: refined
   d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
     identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
@@ -2282,6 +2286,11 @@ cards:
     the unidentified gate (INV-4 path b, never a third arm). FACE arm = fast-follow via the Alarm Manager
     webhook path (EXTERIOR-GUEST-FACE-FASTFOLLOW-1, to card). Re-measure egress coverage against the GARAGE
     entries + family-room arrival, not the front door, when scoping the face fast-follow.'
+  direction_2026_08_18: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent
+    Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented
+    on marginal-benefit) is DEFERRED — revisit only if identity proves insufficient. The identity build
+    moves to EXTERIOR-GUEST-FACE-FASTFOLLOW-1 (now primary). Plan rev-2 stays on file for the deferred
+    nudge.
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence

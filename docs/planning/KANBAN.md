@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T00:57:18-05:00_ - _Data commit: `a4733b45c749`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:03:11-05:00_ - _Data commit: `e71e593086c0`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,13 +13,13 @@ _Generated: 2026-08-18T00:57:18-05:00_ - _Data commit: `a4733b45c749`_ - _last_r
 |---|---:|
 | 📥 Inbox | 6 |
 | 🧭 Pre-planning | 6 |
-| 📝 Planned | 3 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 36 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 6 |
+| 🅿️ Parked | 7 |
 | ✅ Done | 23 |
 
 ## 📥 Inbox (6)
@@ -160,40 +160,21 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Tags:** mutation-drill
 - **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
 
-## 📝 Planned (3)
+## 📝 Planned (2)
 _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
-thread: **presence** - status: **planned** - approval: **pre_approved_gated**
-_created 2026-08-18 00:55 · updated 2026-08-18 01:30 · initial_
+thread: **presence** - status: **planned** - approval: **explicit**
+_created 2026-08-18 00:55 · updated 2026-08-18 01:45 · initial_
 - **Problem / Solution:**
   - Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect DOES recognize residents by name ...
 - **Why:** Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this says WHO (known resident vs unknown), which is the actual guest/security discriminator.
-- **Next:** GATED on cycle-3 face-independent arm shipping first. Then: (1) capture a live Alarm Manager face POST; (2) wire webhook -> ura_face_identified; (3) URA consumes it as interior-arrival identity. Confirm the Alarm Manager rule is set up (...
+- **Next:** HOLD: consultation (duplicate-vs-complementary) running -> report to operator -> operator go -> then build.
 - **Refs:** docs/planning/RESEARCH_protect_face_to_ha.md; EXTERIOR-GUEST-EGRESS-1
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `webhook_live_2026_08_18`: OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook trace / the ura_face_identified event) to confirm the na...
   - `webhook_verified_2026_08_18`: WEBHOOK RECEIVING SIDE VERIFIED: automation.ura_kp_face_webhook_probe (webhook_id ura_kp_face_probe, local-only POST) captures payloads verbatim -> ura_kp_face_probe_received event + system_log. Test POST returned 200 and logged the payl...
-
-### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
-thread: **presence** - status: **planned** - approval: **explicit**
-_updated 2026-08-18 00:55 · refined_
-- **Problem / Solution:**
-  - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
-  - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
-  - P3 the exterior track and the egress crossing are never joined — the linker has NO reference to `ura_person_egress_event` and the egress tracker never reads tracks; a track that approaches an egress camera and vanishes just closes on `id...
-  - P4 guest must not be thresholded off exterior presence. S4 exterior arrival is a CORROBORATOR only — it may raise confidence in, or shorten the dwell for, a guest-room-gated entry; it may NEVER solo-arm guest. Operator: "Never 'someone i...
-- **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
-- **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
-- **Next:** BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2 + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at egress cams (the D0 blind spot — run...
-- **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
-- **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-- **Forensic keys (5):**
-  - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
-  - `operator_ruling_2026_08_17_build_both`: OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity): "Build both face and face-independent solution and use face as a confidence boost." Plus critical context that INVALIDATES the D0 face measurement: (1) the D0 probe measure...
-  - `protect_reprobe_2026_08_18`: PROTECT FACE RE-PROBE (PROBE_protect_face_egress.md) — the "build both" face premise does NOT hold on current sensing. Findings: (1) UniFi Protect exposes face to HA ONLY as event.<cam>_smart_detection {event_type:face} = face DETECTION,...
-  - `operator_corrections_2026_08_18`: OPERATOR 2026-08-18 (build face-independent + corrections): (1) SPIKE EXISTS — RESEARCH_protect_face_to_ha.md (2026-08-15) already evaluated getting Protect face NAME into HA. Protect API capability CONFIRMED (name+id+confidence verified...
-  - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
+  - `promoted_2026_08_18`: PROMOTED to the PRIMARY cycle-3 build (operator: "let's build it first and see"). Reframe: we ALREADY have single-source identity via Frigate-2 face (sensor.<cam>_last_recognized_face_2, resolvable after v5.80.0 D2). Protect face (via th...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -768,7 +749,7 @@ _updated 2026-08-17 23:12_
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** Recurring morning-sweep placeholder; re-fires each session start. No standing action.
 
-## 🅿️ Parked (6)
+## 🅿️ Parked (7)
 _revisit-trigger set_
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
@@ -797,6 +778,27 @@ thread: **security** - status: **parked** - approval: **explicit**
 - **Refs:** custom_components/universal_room_automation/exterior_track_linker.py:705-750; custom_components/universal_room_automation/const.py:1842-1875; docs/planning/AUDIT_memory_handbuild_compactor_exterior_track.md; docs/planning/PLANNING_circling_severity.md; docs/planning/PLANNING_circling_label_transition_dispatch.md; docs/planning/PROBE_exterior_dwell_loiter.md (491195ed9)
 - **Forensic keys (1):**
   - `probe_outcome_2026_08_17`: PROBE DONE (PROBE_exterior_dwell_loiter.md, 491195ed9). RECOMMENDATION: DON'T build a raw duration predicate now. 623 person tracks / 11 days. Hypothesis PARTLY confirmed: dwell DOES leak into pass_by (41 tracks >5min, 4 >20min, max 70mi...
+
+### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
+thread: **presence** - status: **parked** - approval: **explicit**
+_updated 2026-08-18 01:45 · refined_
+- **Problem / Solution:**
+  - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
+  - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
+  - P3 the exterior track and the egress crossing are never joined — the linker has NO reference to `ura_person_egress_event` and the egress tracker never reads tracks; a track that approaches an egress camera and vanishes just closes on `id...
+  - P4 guest must not be thresholded off exterior presence. S4 exterior arrival is a CORROBORATOR only — it may raise confidence in, or shorten the dwell for, a guest-room-gated entry; it may NEVER solo-arm guest. Operator: "Never 'someone i...
+- **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
+- **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
+- **Next:** PARKED (deferred): the face-independent nudge revisits only if the identity path proves insufficient. Trigger: identity-at-egress shipped + shown to miss real guests.
+- **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
+- **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
+- **Forensic keys (6):**
+  - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
+  - `operator_ruling_2026_08_17_build_both`: OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity): "Build both face and face-independent solution and use face as a confidence boost." Plus critical context that INVALIDATES the D0 face measurement: (1) the D0 probe measure...
+  - `protect_reprobe_2026_08_18`: PROTECT FACE RE-PROBE (PROBE_protect_face_egress.md) — the "build both" face premise does NOT hold on current sensing. Findings: (1) UniFi Protect exposes face to HA ONLY as event.<cam>_smart_detection {event_type:face} = face DETECTION,...
+  - `operator_corrections_2026_08_18`: OPERATOR 2026-08-18 (build face-independent + corrections): (1) SPIKE EXISTS — RESEARCH_protect_face_to_ha.md (2026-08-15) already evaluated getting Protect face NAME into HA. Protect API capability CONFIRMED (name+id+confidence verified...
+  - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
+  - `direction_2026_08_18`: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented on marginal-benefit) is DEFERRED — re...
 
 ### `CENSUS-G6-RAW-PERSISTENCE` - G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed value
 thread: **presence** - status: **parked** - approval: **implied**
