@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T23:50:21-05:00_ - _Data commit: `67e375baced3`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-18T00:03:38-05:00_ - _Data commit: `34a51ed28713`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-17T23:50:21-05:00_ - _Data commit: `67e375baced3`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 4 |
+| 📥 Inbox | 5 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -22,12 +22,22 @@ _Generated: 2026-08-17T23:50:21-05:00_ - _Data commit: `67e375baced3`_ - _last_r
 | 🅿️ Parked | 6 |
 | ✅ Done | 23 |
 
-## 📥 Inbox (4)
+## 📥 Inbox (5)
 _raw capture_
+
+### `FRIGATE-LEG-NAMING-1` - Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live F2 on interior, dead F1 on perimeter
+thread: **security** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-18 02:05 · initial_
+- **Problem / Solution:**
+  - Problem: after Frigate 1 was retired, the INTERIOR cameras were renamed (dead F1 -> _person_occupancy_f1retired, live F2 -> bare _person_occupancy) but the PERIMETER cameras were NOT (live F2 stayed _person_occupancy_2, dead F1 kept the ...
+  - Solution: standardise the naming (rename perimeter to match interior, or vice versa) OR make URA resolve the live leg by recency/registry never by name. Verify URA's resolver + the census/perimeter paths pick the LIVE leg for BOTH groups...
+- **Why:** A name that means opposite things on different cameras is a latent silent-failure generator — it already caused me to misread interior cams as "Protect-only" and underlies the census/perimeter corroboration work.
+- **Next:** Audit URA leg resolution for both naming schemes; decide rename-vs-resolve-by-recency. Verify cycle-2 D2 handles interior-cam naming before its deploy.
+- **Refs:** reference_frigate1_retired_2suffix_permanent.md (corrected); camera_resolver.py:214; PERIMETER-PHANTOM-XCORR-1
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs
 thread: **security** - status: **inbox** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-08-18 01:55 · refined_
+_created 2026-08-17 23:58 · updated 2026-08-18 02:05 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
@@ -35,7 +45,7 @@ _created 2026-08-17 23:58 · updated 2026-08-18 01:55 · refined_
 - **Next:** Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard surfacing. Separately: BB dummy-Apple-...
 - **Tags:** tier-3
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
   - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
   - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
@@ -47,6 +57,7 @@ _created 2026-08-17 23:58 · updated 2026-08-18 01:55 · refined_
   - `dual_nvr_disagreement_proof_2026_08_17`: CORRECTION + STRONG PROOF (operator: "Nah Unifi and frigate 2"). hot_tub + front_side_ptz are DUAL-NVR, both legs LIVE: Protect (_person_detected, ~120-150 changes, last 02:50) + Frigate-2 (_person_occupancy_2, last 02:50). (Third leg _p...
   - `agreement_rate_measured_2026_08_17`: QUANTIFIED (front_side_ptz, 5 days): Frigate-2 (_person_occupancy_2) = 479 on-events; Protect (_person_detected) = 51 on-events. Agreement: 35 of 51 Protect events (69%) have a Frigate-2 within 60s. But from Frigate-2's side, only ~35 of...
   - `fleet_pattern_2026_08_18`: FLEET SAMPLE (13 dual-leg cameras, 5d, Frigate-2/Protect on-event ratio): front_side_ptz is an ISOLATED OUTLIER at 11.4x (455 vs 40). Every other dual-leg camera is 0.56x-3.4x, and MOST have Protect firing MORE than Frigate (garage_a 0.5...
+  - `fleet_correction_2026_08_18`: OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ cre...
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**

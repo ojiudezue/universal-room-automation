@@ -26,6 +26,38 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: FRIGATE-LEG-NAMING-1
+  thread: security
+  status: inbox
+  approval: unreviewed
+  title: Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live
+    F2 on interior, dead F1 on perimeter
+  created: 2026-08-18 02:05
+  updated: 2026-08-18 02:05
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: after Frigate 1 was retired, the INTERIOR cameras were renamed (dead F1 -> _person_occupancy_f1retired,
+    live F2 -> bare _person_occupancy) but the PERIMETER cameras were NOT (live F2 stayed _person_occupancy_2,
+    dead F1 kept the bare name and froze on 08-13). So the SAME bare `_person_occupancy` name means the
+    LIVE camera feed on some cameras and a DEAD frozen feed on others. Any code that identifies the live
+    Frigate leg by name pattern will silently use the DEAD leg for one group.'
+  - 'Solution: standardise the naming (rename perimeter to match interior, or vice versa) OR make URA
+    resolve the live leg by recency/registry never by name. Verify URA''s resolver + the census/perimeter
+    paths pick the LIVE leg for BOTH groups (on perimeter it currently subscribes the dead F1 corpse alongside
+    live F2 = skews agreement telemetry).'
+  why: A name that means opposite things on different cameras is a latent silent-failure generator — it
+    already caused me to misread interior cams as "Protect-only" and underlies the census/perimeter corroboration
+    work.
+  constraints:
+  - Renaming entities has blast radius (every consumer of the old name). Prefer recency/registry resolution
+    in code if renaming is risky. Verify against the cycle-2 D2 face fix (does it pick the live leg for
+    interior cams, whose binary leg is bare while their face leg is still _2?).
+  next: Audit URA leg resolution for both naming schemes; decide rename-vs-resolve-by-recency. Verify
+    cycle-2 D2 handles interior-cam naming before its deploy.
+  refs:
+  - reference_frigate1_retired_2suffix_permanent.md (corrected)
+  - camera_resolver.py:214
+  - PERIMETER-PHANTOM-XCORR-1
 - id: PERIMETER-PHANTOM-XCORR-1
   title: Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked
     across NVRs
@@ -33,7 +65,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 01:55
+  updated: 2026-08-18 02:05
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -146,6 +178,15 @@ cards:
     COVERAGE NOTE for the Tier-3 build: several interior cams are PROTECT-ONLY (family_room, foyer_fisheye,
     master_hallway, living_room, stairs_top — no Frigate-2 leg), so cross-NVR agreement cannot exist there;
     single-leg cams must fall back to track-linker confidence. Frigate-2-only: armcrest, reolinkstudybporchptz.'
+  fleet_correction_2026_08_18: 'OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the
+    front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause
+    is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ creates whole-frame apparent motion Frigate
+    reads as person; Protect handles PTZ motion better — UNVERIFIED). Operator will REBOOT the front PTZ
+    and re-check tomorrow. (2) "All cameras have at least Protect and Frigate-2" — my "interior cams are
+    Protect-only" claim was WRONG: interior cams DO have live Frigate-2, named bare _person_occupancy
+    (not _2) — see FRIGATE-LEG-NAMING-1. Corrected interior ratios (F2/Protect, 5d): family_room 436/1331=0.33,
+    master_hallway 555/1312=0.42 — Protect fires MORE, consistent with the fleet. front_side_ptz remains
+    the SOLE outlier at 11.4x. Cross-NVR corroboration IS possible on interior cams (both legs live).'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
