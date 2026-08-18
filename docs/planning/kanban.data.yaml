@@ -84,7 +84,7 @@ cards:
   status: planned
   approval: explicit
   created: 2026-08-18 00:55
-  updated: 2026-08-18 02:05
+  updated: 2026-08-18 03:00
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -142,6 +142,11 @@ cards:
     integrate at the union NEVER a parallel count; (b) Frigate<->Protect same-crossing double-fire needs
     cross-platform dedup (mirror transit_validator.py:1063-1073); (c) the "remove after probe" automation
     becomes LOAD-BEARING once S3 wires it.'
+  plan_2026_08_18: 'PLAN PLANNING_egress_face_identity.md — Tier 2-DB. SPLIT: D1 (ship now) Frigate person_id
+    stamp (transit_validator.py:1106/:1121) + census union fuse (camera_census.py:1855) reusing existing
+    face readers; D2 (gated on Wed payload) Protect corroboration, kill switch PROTECT_CORROBORATION_ENABLED
+    default OFF, do NOT hard-code payload fields. Invariant I1: identified_count = |union of name sets|,
+    never a sum. Plan review before build.'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
