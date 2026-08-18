@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "060",
+  "author": "ojiudezue",
+  "session_id": "claude_20260818_211311_ship_v5_83_0",
+  "timestamp": "2026-08-18T21:13:11Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.83.0 shipped: Guest/unidentified counts read the deduped house.unidentified_count (kill the naive camera-ble subtraction at 3 sites)",
+  "summary": "Migrates three enabled/registered naive max(0,camera_total-ble) guest/unidentified derivations (ZoneGuestCountSensor, URAUnexpectedPersonSensor guest_count attr, UnidentifiedPersonsSensor native_value) onto the census deduped house.unidentified_count; adds a shape-invariant test so the naive count pattern can never reappear at any production site. is_on (boolean alarm) parked separately. Tier 2-DB: 3 reviews found+fixed a missed 3rd site, re-review SHIP. Retires the ble_identified attr key (zero consumers).",
+  "refs": {
+    "cards": [
+      "GUEST-COUNT-DEDUP-MIGRATE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.83.0.md"
+    ]
+  }
+}

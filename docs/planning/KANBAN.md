@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T14:53:59-05:00_ - _Data commit: `69b690b749a4`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T14:59:31-05:00_ - _Data commit: `c08f4ca40fc5`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1297,12 +1297,13 @@ _created 2026-08-18 10:20 · initial_
 
 ### `CENSUS-FACE-RESOLVER-MIGRATE-1` - Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)
 thread: **presence**
-_created 2026-08-18 10:35 · updated 2026-08-18 14:20 · initial_
+_created 2026-08-18 10:35 · updated 2026-08-18 15:07 · initial_
 - **Next:** Small Tier-1 hotfix: refactor presence.py:4557 to call camera_census._resolve_face_entity_id(base_name). Test the _2-only-cam case.
-- **Forensic keys (3):**
-  - `column`: in_progress
+- **Forensic keys (4):**
+  - `column`: shipped_organic
   - `problem`: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival) builds f"sensor.{base}_last_recognized_face" WITHOUT _2-suffix tolerance, so it silently misses cameras whose Frigate face sensor exists only a...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): build (Tier-1, worktree face-resolver-migrate)
+  - `shipped_2026_08_18`: SHIPPED v5.82.1 + LIVE. L1 PASS (boot clean, zero URA ERROR, house_state available). Route presence _get_face_for_camera through _resolve_face_entity_id; review SHIP-with-fix (hollow anchor -> real-PersonCensus smoke test, mutation-drill...
 
 ### `GUEST-COUNT-DEDUP-MIGRATE-1` - ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
 thread: **presence**

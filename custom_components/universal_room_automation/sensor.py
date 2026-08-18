@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.82.1
+# Universal Room Automation vv5.83.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4439,7 +4439,14 @@ class LastPersonExitSensor(AggregationEntity, SensorEntity):
 class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
     """House-level unidentified persons — camera sees them but BLE can't identify.
 
-    Uses house-level camera count (PersonCensus) minus BLE identified count.
+    Reads the DEDUPED house-level ``PersonCensus.last_result.house.unidentified_count``
+    (``camera_total - |face_ids ∪ ble_ids|`` — see ``camera_census.py:1899`` /
+    ``:3733``). Prior to the GUEST-COUNT-DEDUP-MIGRATE-1 cycle this sensor
+    computed a naive ``max(0, camera_total - ble_identified)`` subtraction of
+    two independently-fused substrates (camera_total from the census, BLE
+    identified count from ``person_coordinator.data`` where
+    ``location not in (None, "unknown", "away")``), which double-counted
+    residents into "unidentified" whenever face/BLE derivations disagreed.
     Not per-zone: per-zone camera data does not exist in v3.5.1 Slim.
     """
 
@@ -4455,49 +4462,45 @@ class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> int | None:
-        """Return count of unidentified persons (camera total minus BLE identified)."""
-        census_state = self.hass.states.get(
-            "sensor.universal_room_automation_persons_in_house"
-        )
-        if not census_state:
+        """Return DEDUPED house-level unidentified count.
+
+        Reads ``census.last_result.house.unidentified_count``; returns
+        ``None`` as graceful-degradation when the census is unavailable
+        (matching the pre-migration None-when-source-missing semantics).
+        """
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if not census or census.last_result is None:
             return None
         try:
-            camera_total = int(float(census_state.state))
-        except (ValueError, TypeError):
+            return census.last_result.house.unidentified_count
+        except Exception:
             return None
-
-        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-        if not person_coordinator:
-            return None
-        ble_identified = sum(
-            1 for p in person_coordinator.data.values()
-            if p.get("location") not in (None, "unknown", "away")
-        )
-
-        return max(0, camera_total - ble_identified)
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return source details."""
-        census_state = self.hass.states.get(
-            "sensor.universal_room_automation_persons_in_house"
-        )
-        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        """Return source details from the same house snapshot as native_value.
+
+        State and attributes now derive from ONE snapshot of ``house`` so
+        they cannot silently disagree. The prior ``ble_identified`` attribute
+        (BLE-active count fused independently of the census) is replaced by
+        ``identified_count`` from the same ``house`` record.
+        """
+        census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_total = None
-        ble_identified = None
-        if census_state:
+        identified_count = None
+        unidentified_count = None
+        if census and census.last_result is not None:
             try:
-                camera_total = int(float(census_state.state))
-            except (ValueError, TypeError):
+                house = census.last_result.house
+                camera_total = house.total_persons
+                identified_count = house.identified_count
+                unidentified_count = house.unidentified_count
+            except Exception:
                 pass
-        if person_coordinator:
-            ble_identified = sum(
-                1 for p in person_coordinator.data.values()
-                if p.get("location") not in (None, "unknown", "away")
-            )
         return {
             "camera_total": camera_total,
-            "ble_identified": ble_identified,
+            "identified_count": identified_count,
+            "unidentified_count": unidentified_count,
             "data_scope": "house_level",
             "note": "Per-zone unidentified count deferred until per-zone camera data available",
         }
