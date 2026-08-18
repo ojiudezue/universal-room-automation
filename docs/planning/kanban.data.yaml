@@ -2175,7 +2175,7 @@ cards:
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-  updated: 2026-08-17 23:50
+  updated: 2026-08-18 00:45
   refinement_status: refined
   d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
     identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
@@ -2201,6 +2201,20 @@ cards:
     said 94% GO), AND (b) face identity via cross-correlated Frigate-2+Protect face, used as a CONFIDENCE
     BOOST (not a sole gate, not a third guest-arm). NEXT: re-probe face coverage INCLUDING Protect at
     egress cameras before replanning.'
+  protect_reprobe_2026_08_18: 'PROTECT FACE RE-PROBE (PROBE_protect_face_egress.md) — the "build both"
+    face premise does NOT hold on current sensing. Findings: (1) UniFi Protect exposes face to HA ONLY
+    as event.<cam>_smart_detection {event_type:face} = face DETECTION, never a NAME. Protect contributes
+    ZERO named-identity ENTITIES to HA. (2) The Protect NVR controller DOES know 4 residents and face
+    events carry recognized_person_name — but that lives on the NVR REST API, NOT as an HA entity; URA
+    cannot read it without a NEW integration. (3) Protect face DETECTION is 27x skewed interior: Family
+    Room 276 vs Madrone G6 entry 10 over 7.7d; at the entry cam ~10/wk with 0 carrying a resident name.
+    NAMED recognition is a Family-Room-INTERIOR phenomenon (people named AFTER inside, not at the door).
+    (4) Combined Frigate+Protect egress face-identity coverage = ~7% (Protect adds ~0). D1 (identity on
+    egress) = NO-GO (<30% gate). The operator belief "Protect concentrated on G6 entry + family room"
+    is HALF-TRUE: detection is there, but recognition-WITH-NAME is interior-only and the entry cam sees
+    no names. RECOMMEND: build the FACE-INDEPENDENT arm (approach-track->egress, 94% GO from the first
+    probe) as cycle 3; PARK the face arm with unblock = a new Protect-name HA integration + re-probe (revisit
+    trigger: named recognition at door/exterior >=30%).'
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
