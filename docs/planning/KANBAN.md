@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T23:03:20-05:00_ - _Data commit: `48aa49ae899b`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T23:15:44-05:00_ - _Data commit: `ef6a1875273c`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,11 +16,11 @@ _Generated: 2026-08-17T23:03:20-05:00_ - _Data commit: `48aa49ae899b`_ - _last_r
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 39 |
+| 🚀 Shipped (organic open) | 35 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 6 |
-| ✅ Done | 19 |
+| ✅ Done | 23 |
 
 ## 📥 Inbox (3)
 _raw capture_
@@ -186,7 +186,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (39)
+## 🚀 Shipped (organic open) (35)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -391,15 +391,6 @@ thread: **notifications** - status: **shipped_organic** - approval: **operator_p
   - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
 
-### `IMSG-IMAGE-FAIL-1` - iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
-thread: **notifications** - status: **shipped_organic** - approval: **unreviewed**
-_updated 2026-08-17 23:30_
-- **Origin:** 2026-08-14 - Operator screenshots: WhatsApp carries photos (incl. re-pages — v5.73.1 L3 CONFIRMED organically on WA); iMessage shows text-only bubbles reading "Perimeter Alert — Person Detected [audit]" — no image AND the [audit] ledger ...
-- **Why:** Two distinct defects: (1) BB v0.6 attachment keys (v5.73.0 NM-BB-IMAGE-1) not delivering images — key contract vs BB server config vs is_allowed_path (probe BB server logs + a manual bluebubbles.send_message with attachment to isolate); ...
-- **Next:** Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are entering the send path. Fix both i...
-- **Forensic keys (1):**
-  - `active_organic_fail_2026_08_17`: PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention, not closure.
-
 ### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
 thread: **optimizer** - status: **shipped_organic** - approval: **unreviewed**
 - **Origin:** 2026-08-15 - Operator forwarded the meta alert 20min after the v5.76.0 restart; diagnosis: boot transient, not real blindness (3,725 findings/24h in DB, newest minutes old).
@@ -512,15 +503,6 @@ thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
 - **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
 - **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
 
-### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
-thread: **notifications** - status: **shipped_organic** - approval: **approved**
-_updated 2026-08-17 23:30_
-- **Origin:** 2026-08-11 - operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).
-- **Why:** Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-s...
-- **Next:** Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.
-- **Forensic keys (1):**
-  - `active_organic_fail_2026_08_17`: PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention, not closure.
-
 ### `SUITE-HYGIENE-1` - Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
 thread: **quality** - status: **shipped_organic** - approval: **approved**
 - **Origin:** 2026-08-11 - Three consecutive cycles (ARREST-COMFORT, FAN-LAYER-1, FAN-LAYER-2 D1) each spent builder+reviewer effort re-classifying the same order-flakes; FAN-LAYER-2 D1 even had its own NEW test polluted on day one.
@@ -546,14 +528,6 @@ thread: **fans** - status: **shipped_organic** - approval: **unreviewed**
 - **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
 - **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
 - **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
-
-### `PLAN-TIER-1` - Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds
-thread: **process** - status: **shipped_organic** - approval: **explicit**
-- **Origin:** 2026-08-11 - coined during the FAN-MANUAL-1 post-mortem — the plan missed 2 emission sites a one-line grep would have found, costing build + 3 reviews + CRIT fix-up
-- **Why:** A plan review is ~20 min; a build round is hours. Protocol now in CLAUDE.md: Tier 1 = none; Tier 2/2-DB = one adversarial plan review (independent re-enumeration, greps not trust); Tier 3 = two framing-disjoint (completeness incl. parked...
-- **Next:** apply to the two in-flight plans on arrival; organic proof = a plan-review finding that demonstrably prevents a build round
-- **Forensic keys (1):**
-  - `first_subjects`: FAN-LAYER-1 plan (Tier 3 -> 2 plan reviews) and ARREST-COMFORT-1 plan (likely Tier 3 -> 2) — both in flight as this lands; they get the treatment on delivery.
 
 ### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0
 thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
@@ -683,15 +657,6 @@ thread: **dashboarding** - status: **shipped_organic** - approval: **explicit**
   - `overnight_notes_2026_08_10`: STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board file. Caught at merge; views regenerated ...
   - `ADDED_2026_08_09_staleness_forcing_function`: The generator MUST compare meta.last_reconciled against the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR...
 
-### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
-thread: **camera** - status: **shipped_organic** - approval: **implied**
-- **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
-- **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
-- **Next:** set _attr area / registry area from room area on D3 sensor creation
-- **Tags:** numbers-get-knobs
-- **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
-- **Refs:** binary_sensor.py CameraPersonDetectedSensor
-
 ## ⏸️ Waiting on operator (3)
 _needs a human call_
 
@@ -806,7 +771,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (19)
+## ✅ Done (23)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -869,6 +834,15 @@ thread: **security** - status: **done** - approval: **approved**
   - `reaudit_2026_08_13`: Operator-requested post-disable re-audit: PASS — 443 URA entity refs, 0 F1-owned; snapshot engine self-heals to F2-only; MQTT dual-prefix clean; census/resolver skip disabled entities. Findings ALL FIXED live same hour: MED automation.g6...
   - `gate2_met_2026_08_14`: GATE-2 MET + BOX PHYSICALLY POWERED OFF (operator, ahead of formal completion — with all software layers already dark, physical-off IS the authentic Gate-2 test and it passed). Since F1 disable: 10 dispatches, all healthy — incl. a SAME-...
   - `decommissioned_2026_08_15`: Operator go ("Frigate 1 hardware full decomm"; homelab agent repurposing the box). URA side EXECUTED: config entry 01JV6G4E57HT3WH86WSQ4RJT11 deleted in-band (ha_remove_helpers_integrations) — all 965 F1 entities + 25 *_f1retired renames...
+
+### `IMSG-IMAGE-FAIL-1` - iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
+thread: **notifications** - status: **done** - approval: **unreviewed**
+_updated 2026-08-17 23:55_
+- **Origin:** 2026-08-14 - Operator screenshots: WhatsApp carries photos (incl. re-pages — v5.73.1 L3 CONFIRMED organically on WA); iMessage shows text-only bubbles reading "Perimeter Alert — Person Detected [audit]" — no image AND the [audit] ledger ...
+- **Why:** Two distinct defects: (1) BB v0.6 attachment keys (v5.73.0 NM-BB-IMAGE-1) not delivering images — key contract vs BB server config vs is_allowed_path (probe BB server logs + a manual bluebubbles.send_message with attachment to isolate); ...
+- **Next:** Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are entering the send path. Fix both i...
+- **Forensic keys (1):**
+  - `resolution_2026_08_17`: Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit "active fail" read was wrong — feature works. Closed.
 
 ### `PWA-CONTROL-LIST-1` - Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly problem)
 thread: **dashboarding** - status: **done** - approval: **operator-approved**
@@ -963,6 +937,15 @@ thread: **security** - status: **done** - approval: **approved**
   - `apply_procedure`: At next deploy restart: flush-watcher pattern edit of the parent URA entry options.egress_cameras += [camera.garage_a, camera.garage_b] (F2-owned base ids, verified live), applied in the stop->boot gap; post-boot verify list + perimeter_...
   - `closed_2026_08_14`: Applied at v5.76.0 restart via flush-watcher (stop->boot gap); post-boot verified: egress_cameras contains garage_a+garage_b (README v5.76.0 L5 PASS).
 
+### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
+thread: **notifications** - status: **done** - approval: **approved**
+_updated 2026-08-17 23:55_
+- **Origin:** 2026-08-11 - operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).
+- **Why:** Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-s...
+- **Next:** Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.
+- **Forensic keys (1):**
+  - `resolution_2026_08_17`: Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit "active fail" read was wrong — feature works. Closed.
+
 ### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
 thread: **hvac** - status: **done** - approval: **explicit**
 _updated 2026-08-17 23:30_
@@ -979,6 +962,16 @@ _updated 2026-08-17 23:30_
   - `PLAN_READY_2026_08_11`: Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW- but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract; INV-FLA-T temporal + per-room lock via oracle.actuate() context m...
   - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
   - `organic_evidence`: shipwatch 2026-08-11: v5.70.0 L2 no-fan-flap CONFIRMED (13.3h post-boot, all managed fans steady; Jaya 12.5h continuous). L3 holds + L4 safety still organic-open.
+
+### `PLAN-TIER-1` - Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds
+thread: **process** - status: **done** - approval: **explicit**
+_updated 2026-08-17 23:55_
+- **Origin:** 2026-08-11 - coined during the FAN-MANUAL-1 post-mortem — the plan missed 2 emission sites a one-line grep would have found, costing build + 3 reviews + CRIT fix-up
+- **Why:** A plan review is ~20 min; a build round is hours. Protocol now in CLAUDE.md: Tier 1 = none; Tier 2/2-DB = one adversarial plan review (independent re-enumeration, greps not trust); Tier 3 = two framing-disjoint (completeness incl. parked...
+- **Next:** apply to the two in-flight plans on arrival; organic proof = a plan-review finding that demonstrably prevents a build round
+- **Forensic keys (2):**
+  - `first_subjects`: FAN-LAYER-1 plan (Tier 3 -> 2 plan reviews) and ARREST-COMFORT-1 plan (likely Tier 3 -> 2) — both in flight as this lands; they get the treatment on delivery.
+  - `resolution_2026_08_17`: Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as done." Proof was a process/latent-event judgment not observable in live state; operator closed.
 
 ### `TEST-2` - "Send Test Perimeter Alert" button
 thread: **perimeter** - status: **done** - approval: **implied**
@@ -1019,6 +1012,18 @@ _updated 2026-08-17 23:30_
 - **Refs:** https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
 - **Forensic keys (1):**
   - `resolved`: Madrone G6 Entry -> front_porch (operator: front porch/entry; sits with front_door_aerial door overhead). DONE.
+
+### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
+thread: **camera** - status: **done** - approval: **implied**
+_updated 2026-08-17 23:55_
+- **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
+- **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
+- **Next:** set _attr area / registry area from room area on D3 sensor creation
+- **Tags:** numbers-get-knobs
+- **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
+- **Refs:** binary_sensor.py CameraPersonDetectedSensor
+- **Forensic keys (1):**
+  - `resolution_2026_08_17`: Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as done." Proof was a process/latent-event judgment not observable in live state; operator closed.
 
 ### `F1-SUNSET` - Frigate-1 go/no-go
 thread: **camera** - status: **done** - approval: **blocked**

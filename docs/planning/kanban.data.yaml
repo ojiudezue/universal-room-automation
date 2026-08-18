@@ -1353,7 +1353,7 @@ cards:
   title: iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking
     into operator-visible message bodies
   thread: notifications
-  status: shipped_organic
+  status: done
   shipped_version: v5.75.1
   approval: unreviewed
   origin:
@@ -1370,10 +1370,9 @@ cards:
   next: 'Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment
     fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are
     entering the send path. Fix both in one pass.'
-  updated: 2026-08-17 23:30
-  active_organic_fail_2026_08_17: 'PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this
-    is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention,
-    not closure.'
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit
+    "active fail" read was wrong — feature works. Closed.'
 - id: ROOM-NAME-UNIQUE-1
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
@@ -2771,7 +2770,7 @@ cards:
 - id: NM-BB-IMAGE-1
   title: iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
   thread: notifications
-  status: shipped_organic
+  status: done
   shipped_version: v5.73.0
   approval: approved
   origin:
@@ -2785,10 +2784,9 @@ cards:
   parked_alts: 'BB v0.5 also added INBOUND webhooks + phrase triggers (opt-in) — future: NM ack/silence
     via iMessage reply (safe-word flow). Not this cycle; if enabled, use sender allow-list + local-only.'
   next: 'Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.'
-  updated: 2026-08-17 23:30
-  active_organic_fail_2026_08_17: 'PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this
-    is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention,
-    not closure.'
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit
+    "active fail" read was wrong — feature works. Closed.'
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification
     tax
@@ -2949,7 +2947,7 @@ cards:
 - id: PLAN-TIER-1
   title: 'Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds'
   thread: process
-  status: shipped_organic
+  status: done
   approval: explicit
   approved_by: operator 2026-08-11 ("We should start subjecting plans to a sort of tier review system.
     Quality up front in planning and in the build process")
@@ -2965,6 +2963,9 @@ cards:
     -> 2) — both in flight as this lands; they get the treatment on delivery.
   next: apply to the two in-flight plans on arrival; organic proof = a plan-review finding that demonstrably
     prevents a build round
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as
+    done." Proof was a process/latent-event judgment not observable in live state; operator closed.'
 - id: TABLET-FLEET-1
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
@@ -3753,7 +3754,7 @@ cards:
 - id: D3-AREA-INHERIT
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
-  status: shipped_organic
+  status: done
   shipped_version: v5.74.0
   approval: implied
   tags:
@@ -3771,6 +3772,9 @@ cards:
   next: set _attr area / registry area from room area on D3 sensor creation
   refs:
   - binary_sensor.py CameraPersonDetectedSensor
+  updated: 2026-08-17 23:55
+  resolution_2026_08_17: 'Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as
+    done." Proof was a process/latent-event judgment not observable in live state; operator closed.'
 - id: F1-SUNSET
   title: Frigate-1 go/no-go
   thread: camera
