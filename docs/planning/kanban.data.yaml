@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-17'
+  last_reconciled: '2026-08-18'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -1840,7 +1840,8 @@ cards:
   title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
     resolution (exterior dashboard wiring is a minor bonus)'
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.80.0
   approval: implied
   approved_by: 'operator 2026-08-16 ("Census and guest are diff states... Census decay is also not the
     same as Guest decay. Separate concerns.") | MERGE APPROVED operator 2026-08-16: absorbed CENSUS-DEDUP-REPAIR-1

@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "056",
+  "author": "ojiudezue",
+  "session_id": "claude_20260818_052618_ship_v5_80_0",
+  "timestamp": "2026-08-18T05:26:18Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.80.0 shipped: Interior census accuracy: decay separation + _2-suffix fresh-face fix",
+  "summary": "D1 decay separation \u2014 deleted the peak self-refresh (fresh==peak) and the house-zone linear slope, adopted instant-drop; publishes peak_held/peak_age_seconds/count_as_of/peak_refresh_suppressed_count. Targets the measured 74.5% of over-count time that was a decay tail with no live camera evidence. D2 _2-suffix fresh-face fix \u2014 registry-resolves the 4 string-built Frigate face/last_camera sites (fail-closed), reviving face-based dedup that had fired 0x/7d. Tier 2-DB: 3 framing-disjoint reviews + fix-up (B-HIGH-1 map-rebuild orchestrator-drilled). Non-goals: no guest logic, no dedup repair (config not code), no exterior swap (KEEP BOTH). Empty house is the discriminating decay test.",
+  "refs": {
+    "cards": [
+      "CENSUS-ACCURACY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.80.0.md"
+    ]
+  }
+}
