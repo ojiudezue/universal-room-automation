@@ -21,6 +21,8 @@ Go/No-Go per deliverable below.
 
 ### rev-2 (2026-08-17) — plan-review fixes + D3 scope change
 
+> **D3 FOLD CONFIRMED (operator 2026-08-17 "Fold it in and go"):** D3 (exterior deduped-headline + naive-fallback + divergence) ships IN cycle 2 across HA URA v6 + URA v8 + PWA. Split option declined. D3 wires AFTER D1/D2 land (it consumes D1's new peak_held/peak_age/count_as_of/divergence attributes) and touches NO census-producer code, so it rides the same cycle without expanding the Tier 2-DB producer review.
+
 - **F1 (HIGH) resolved.** D2 approach rewritten. The prior snippet
   (`ent_reg.async_get_entity_id("sensor", "frigate", f"{camera_info.device_unique_id}_last_recognized_face")`)
   was fabrication — the live Frigate unique_id format is
