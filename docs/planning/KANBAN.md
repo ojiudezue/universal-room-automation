@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T22:46:31-05:00_ - _Data commit: `4b1625aaa179`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T22:59:09-05:00_ - _Data commit: `e4559a976765`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,11 +16,11 @@ _Generated: 2026-08-17T22:46:31-05:00_ - _Data commit: `4b1625aaa179`_ - _last_r
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 44 |
+| 🚀 Shipped (organic open) | 39 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 6 |
-| ✅ Done | 13 |
+| ✅ Done | 18 |
 
 ## 📥 Inbox (4)
 _raw capture_
@@ -191,19 +191,8 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (44)
+## 🚀 Shipped (organic open) (39)
 _live, awaiting proof_
-
-### `GUEST-ROOM-CONFIG-1` - Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)
-thread: **presence** - status: **shipped_organic** - approval: **explicit**
-_created 2026-08-17 21:20 · updated 2026-08-17 22:40 · initial_
-- **Problem / Solution:**
-  - Problem: a downstairs guest BATHROOM was marked as a "guest room". Because the check that excludes known residents was broken, ANY 30-minute stay in that bathroom would have flipped the whole house into guest mode — and a bathroom gets u...
-  - Solution: unmark the bathroom. The only rooms that can trigger guest mode are now the two actual guest bedrooms. (Details and the flow-API gotcha are in the card notes and refs.)
-- **Origin:** 2026-08-17 - Operator flagged the Down Guest Bathroom designation as a misconfiguration while reviewing which rooms should carry the guest role.
-- **Why:** Config correctness, and a prerequisite for D2 being safe: D2 makes the guest-room gate the SOLE arm for GUEST, so the designated set becomes load-bearing.
-- **Next:** None — done. Verified live: designated set = Guest Bedroom 1, Upstairs Guestroom.
-- **Refs:** custom_components/universal_room_automation/config_flow.py:9193; custom_components/universal_room_automation/const.py:386
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
 thread: **presence** - status: **shipped_organic** - approval: **explicit**
@@ -409,9 +398,12 @@ thread: **notifications** - status: **shipped_organic** - approval: **operator_p
 
 ### `IMSG-IMAGE-FAIL-1` - iMessage security images NOT arriving (organic FAIL of NM-BB-IMAGE-1 L5) + [audit] sentinel leaking into operator-visible message bodies
 thread: **notifications** - status: **shipped_organic** - approval: **unreviewed**
+_updated 2026-08-17 23:30_
 - **Origin:** 2026-08-14 - Operator screenshots: WhatsApp carries photos (incl. re-pages — v5.73.1 L3 CONFIRMED organically on WA); iMessage shows text-only bubbles reading "Perimeter Alert — Person Detected [audit]" — no image AND the [audit] ledger ...
 - **Why:** Two distinct defects: (1) BB v0.6 attachment keys (v5.73.0 NM-BB-IMAGE-1) not delivering images — key contract vs BB server config vs is_allowed_path (probe BB server logs + a manual bluebubbles.send_message with attachment to isolate); ...
 - **Next:** Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are entering the send path. Fix both i...
+- **Forensic keys (1):**
+  - `active_organic_fail_2026_08_17`: PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention, not closure.
 
 ### `OPT-META-BOOT-TRANSIENT-1` - Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied by restart while open-count reads durable state
 thread: **optimizer** - status: **shipped_organic** - approval: **unreviewed**
@@ -438,24 +430,6 @@ thread: **presence** - status: **shipped_organic** - approval: **implied**
   - `fuller_pass_outcome_2026_08_17`: FULLER ADVERSARIAL PASS (operator ruling "Fuller pass") — THREE MORE framing-disjoint reviews, ALL THREE DO-NOT-SHIP. This pass is the only reason the cycle did not ship broken. D (adversarial completeness, 13ba10861) + E (lifecycle, dcf...
   - `guest_room_designation_correction_2026_08_17`: ORCHESTRATOR ERROR, CORRECTED BY OPERATOR. I reported "zero rooms designated is_guest_room=True" and concluded D2 would silently DISABLE guest mode. WRONG — I queried a plausible key name instead of the one the code reads. The real key i...
   - `empty_house_validation_window_2026_08_17`: OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening; operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0 as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident ...
-
-### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
-thread: **memory** - status: **shipped_organic** - approval: **explicit**
-_created 2026-08-11 00:00 · updated 2026-08-17 23:10 · refined_
-- **Problem / Solution:**
-  - Problem: the house records thousands of raw memory events but never boils them down, so a reader (or the rooms themselves) can't consult a compact history — the volume just grows. Solution: a nightly job that reads the raw events and wri...
-- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
-- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
-- **Next:** ORGANIC CONFIRMED 2026-08-17: compactor runs nightly (wired __init__.py:2031, after incremental_vacuum), wrote 14 memory_facts at 02:30 CT today; memory_facts totals 53 rows across 08-15/16/17. Trigger long met (exterior_track 1327, actu...
-- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
-- **Forensic keys (7):**
-  - `parent`: MEMORY-PROGRAM-EPIC
-  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
-  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
-  - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
-  - `go_2026_08_14`: operator: "Do the compaction... Review that plan and see how quickly we can get started on the rest and finish. Do hand checked proofs if need be." -> plan (ura-planner from ARCHITECTURE compactor section) -> Tier 2-DB plan review -> bui...
-  - `plan_review_2026_08_14`: Plan review FIX-PLAN-FIRST (2 CRIT: same-transaction invariant unimplementable on per-acquisition write queue -> combined distill_memory_fact DAO; topic vocab gate bypass -> D0 MEMORY_FACT_TOPICS registration + boot assert. 2 HIGH: retro...
-  - `live_validation_2026_08_14`: L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified, episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed ura_coordinator_manager_*.
 
 ### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
 thread: **memory** - status: **shipped_organic** - approval: **unreviewed**
@@ -545,9 +519,12 @@ thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
 
 ### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
 thread: **notifications** - status: **shipped_organic** - approval: **approved**
+_updated 2026-08-17 23:30_
 - **Origin:** 2026-08-11 - operator upgraded BlueBubbles to v0.6.0; release notes show send_message now takes attachment/media_url. Verified in installed source (__init__.py:100-165: attachment=local path w/ is_allowed_path gate, media_url=URL).
 - **Why:** Closes SNAP-1-followup-bluebubbles-attachment: NM _send_imessage passes speculative keys (attachment_path / attachment-as-URL) the old integration dropped; new integration reads attachment/media_url. ~10 LoC key rename + delete the one-s...
 - **Next:** Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.
+- **Forensic keys (1):**
+  - `active_organic_fail_2026_08_17`: PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention, not closure.
 
 ### `SUITE-HYGIENE-1` - Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification tax
 thread: **quality** - status: **shipped_organic** - approval: **approved**
@@ -574,22 +551,6 @@ thread: **fans** - status: **shipped_organic** - approval: **unreviewed**
 - **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
 - **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
 - **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
-
-### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
-thread: **hvac** - status: **shipped_organic** - approval: **explicit**
-- **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
-- **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
-- **Next:** BUILD DISPATCHED (Tier 3). Hard dep satisfied: FAN-MANUAL-1 merged at 1f5839c3a.
-- **Tags:** tier-3, institutional-context, context-wide-scoping
-- **Forensic keys (8):**
-  - `priority`: high
-  - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
-  - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
-  - `PLAN_2026_08_11`: PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3 fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle...
-  - `PLAN_REVIEW_1_2026_08_11`: NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would ...
-  - `PLAN_READY_2026_08_11`: Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW- but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract; INV-FLA-T temporal + per-room lock via oracle.actuate() context m...
-  - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
-  - `organic_evidence`: shipwatch 2026-08-11: v5.70.0 L2 no-fan-flap CONFIRMED (13.3h post-boot, all managed fans steady; Jaya 12.5h continuous). L3 holds + L4 safety still organic-open.
 
 ### `PLAN-TIER-1` - Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds
 thread: **process** - status: **shipped_organic** - approval: **explicit**
@@ -727,13 +688,6 @@ thread: **dashboarding** - status: **shipped_organic** - approval: **explicit**
   - `overnight_notes_2026_08_10`: STALE-BASE CLASS, SECOND INSTANCE, new variant: builder verified base against origin/develop but LOCAL develop was ahead (unpushed evening work), so its generated views rendered from an old board file. Caught at merge; views regenerated ...
   - `ADDED_2026_08_09_staleness_forcing_function`: The generator MUST compare meta.last_reconciled against the newest git tag AND the newest docs/readmes/README_v*.md, and (a) render a loud STALE banner on the board, (b) warn on the build. WHY: 2026-08-09 the board said "build" for XCORR...
 
-### `CAM-AREA-PENDING` - Camera area corrections — RESOLVED
-thread: **camera** - status: **shipped_organic** - approval: **explicit**
-- **Origin:** 2026-08-07 - found during the exterior+interior camera area-id correction sweep
-- **Refs:** https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
-- **Forensic keys (1):**
-  - `resolved`: Madrone G6 Entry -> front_porch (operator: front porch/entry; sits with front_door_aerial door overhead). DONE.
-
 ### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
 thread: **camera** - status: **shipped_organic** - approval: **implied**
 - **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
@@ -742,14 +696,6 @@ thread: **camera** - status: **shipped_organic** - approval: **implied**
 - **Tags:** numbers-get-knobs
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
-
-### `v5.59.0` - resolver-legs
-thread: **perimeter** - status: **shipped_organic**
-- **Origin:** 2026-08-07 - shipped + live-validated
-- **Refs:** README_v5.59.0.md
-- **Forensic keys (2):**
-  - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
-  - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
 ## ⏸️ Waiting on operator (3)
 _needs a human call_
@@ -865,8 +811,19 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (13)
+## ✅ Done (18)
 _closed, evidence in refs_
+
+### `GUEST-ROOM-CONFIG-1` - Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)
+thread: **presence** - status: **done** - approval: **explicit**
+_created 2026-08-17 21:20 · updated 2026-08-17 23:30 · initial_
+- **Problem / Solution:**
+  - Problem: a downstairs guest BATHROOM was marked as a "guest room". Because the check that excludes known residents was broken, ANY 30-minute stay in that bathroom would have flipped the whole house into guest mode — and a bathroom gets u...
+  - Solution: unmark the bathroom. The only rooms that can trigger guest mode are now the two actual guest bedrooms. (Details and the flow-API gotcha are in the card notes and refs.)
+- **Origin:** 2026-08-17 - Operator flagged the Down Guest Bathroom designation as a misconfiguration while reviewing which rooms should carry the guest role.
+- **Why:** Config correctness, and a prerequisite for D2 being safe: D2 makes the guest-room gate the SOLE arm for GUEST, so the designated set becomes load-bearing.
+- **Next:** None — done. Verified live: designated set = Guest Bedroom 1, Upstairs Guestroom.
+- **Refs:** custom_components/universal_room_automation/config_flow.py:9193; custom_components/universal_room_automation/const.py:386
 
 ### `BOARD-CURRENCY-1` - Forcing-function ladder so the board (and vibememo) cannot lag shipped work
 thread: **process** - status: **done** - approval: **explicit**
@@ -952,6 +909,24 @@ thread: **devices** - status: **done** - approval: **implied**
   - `final_resolution_2026_08_16`: REAL root cause (operator kept pushing past my two wrong layers): the CUSTOM amcrest component performs a LIVE mDNS lookup at every setup whenever entry.data.mdns exists — it IGNORES host entirely (async_setup_entry: mdns key -> zeroconf...
   - `operator_context_2026_08_16`: Pool-overhead camera is watched by FOUR integrations — Protect, Frigate 2, Dahua, Amcrest — a random artifact of broad integration coverage, NOT intentional per-integration roles. Do not be confused by multiple entity families for this o...
 
+### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
+thread: **memory** - status: **done** - approval: **explicit**
+_created 2026-08-11 00:00 · updated 2026-08-17 23:30 · refined_
+- **Problem / Solution:**
+  - Problem: the house records thousands of raw memory events but never boils them down, so a reader (or the rooms themselves) can't consult a compact history — the volume just grows. Solution: a nightly job that reads the raw events and wri...
+- **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
+- **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
+- **Next:** ORGANIC CONFIRMED 2026-08-17: compactor runs nightly (wired __init__.py:2031, after incremental_vacuum), wrote 14 memory_facts at 02:30 CT today; memory_facts totals 53 rows across 08-15/16/17. Trigger long met (exterior_track 1327, actu...
+- **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
+- **Forensic keys (7):**
+  - `parent`: MEMORY-PROGRAM-EPIC
+  - `revisit_trigger`: ANY memory_episodes episode_type exceeds 50 rows (per MVP_hierarchical_memory.md Stage 1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.
+  - `organic_open`: Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its creation episode within one cycle (live DB check) — verify + write back to this card.
+  - `trigger_FIRED_2026_08_14`: Live memory_episodes count (mode=ro): 1799 rows; exterior_track=1044, actuation_conflict=639, occupancy_phantom=56 ALL exceed the 50-row build trigger (fan_transition_suppressed=41, comfort_fan_vetoed=19 below). READY, not parked — the d...
+  - `go_2026_08_14`: operator: "Do the compaction... Review that plan and see how quickly we can get started on the rest and finish. Do hand checked proofs if need be." -> plan (ura-planner from ARCHITECTURE compactor section) -> Tier 2-DB plan review -> bui...
+  - `plan_review_2026_08_14`: Plan review FIX-PLAN-FIRST (2 CRIT: same-transaction invariant unimplementable on per-acquisition write queue -> combined distill_memory_fact DAO; topic vocab gate bypass -> D0 MEMORY_FACT_TOPICS registration + boot assert. 2 HIGH: retro...
+  - `live_validation_2026_08_14`: L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified, episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed ura_coordinator_manager_*.
+
 ### `MEMORY-FIRST-DIAGNOSTICS-1` - Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace, encoded in memory + skills
 thread: **memory** - status: **done** - approval: **explicit**
 - **Origin:** 2026-08-14 - Compactor go turn: operator noticed investigations (AWAY-BLOCK-1 etc.) hand-mined recorder/DB while 1799 adjudicated memory_episodes sat unconsulted.
@@ -979,6 +954,23 @@ thread: **security** - status: **done** - approval: **approved**
 - **Forensic keys (2):**
   - `apply_procedure`: At next deploy restart: flush-watcher pattern edit of the parent URA entry options.egress_cameras += [camera.garage_a, camera.garage_b] (F2-owned base ids, verified live), applied in the stop->boot gap; post-boot verify list + perimeter_...
   - `closed_2026_08_14`: Applied at v5.76.0 restart via flush-watcher (stop->boot gap); post-boot verified: egress_cameras contains garage_a+garage_b (README v5.76.0 L5 PASS).
+
+### `FAN-LAYER-1` - DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers
+thread: **hvac** - status: **done** - approval: **explicit**
+_updated 2026-08-17 23:30_
+- **Origin:** 2026-08-11 - operator, on the fan cycle's 1-CRIT/6-HIGH review round: "Do we have a fan abstraction in our roadmap or kanban? This is why. I know we have a fusion camera abstraction and I think a presence sensor abstraction with intent a...
+- **Why:** PLANNING_fan_actuation_shared_layer.md (DOC-2, 2026-08-01) parked the extraction behind a foundation gate + 4 evidence triggers. FAN-MANUAL-1 fired: (1) new-mechanic double-port — the manual-ON hold was ported room-tier + HVAC-tier and d...
+- **Next:** BUILD DISPATCHED (Tier 3). Hard dep satisfied: FAN-MANUAL-1 merged at 1f5839c3a.
+- **Tags:** tier-3, institutional-context, context-wide-scoping
+- **Forensic keys (8):**
+  - `priority`: high
+  - `seed_already_built`: mark_fan_on_issued() (FAN-MANUAL-1 fix-up) is the first shared primitive — an authored-by channel across all URA ON sites. The extraction grows from it.
+  - `gate_check_pending`: DOC-2 foundation gate also requires H8 organic validation of the v5.31.0 manual-off cooldown (a real manual OFF observed not re-arming on the live house). Verify from ledger before build — if unproven, that is the one remaining gate.
+  - `PLAN_2026_08_11`: PLANNING_fan_actuation_shared_layer_v2.md (756 lines). Writer set is TEN sites across 5 files, not five — W8 zone-vacancy sweep + W9 pre-arrival bypass ALL machinery (trigger #3 fired at TWO sites). RECOMMENDED SHAPE (b): FanPolicyOracle...
+  - `PLAN_REVIEW_1_2026_08_11`: NEEDS-REVISION — TWO MORE MISSED WRITERS: C1 _stop_all_fans_safety (hvac.py:2330-2362, smoke/CO all-zones fan stop — legitimate but must consult w/ safety=True) and C2 hvac_predict._activate_zone_fans (:1038-1102, pre-arrival ON — would ...
+  - `PLAN_READY_2026_08_11`: Rev-2 committed: 12 writers (W11 safety-stop w/ safety=True always-ALLOW- but-logged; W12 pre-arrival ON defers under cooldown); FanDecisionSnapshot required-arg contract; INV-FLA-T temporal + per-room lock via oracle.actuate() context m...
+  - `DEDUPE_2026_08_11`: Sweep: DOC-2 planning doc is the PARENT (parked, triggers now fired -> READY per the skill rule). FAN-MANUAL-1 is the trigger-firing cycle, linked. ARREST-COMFORT-1 sibling class. THIRD instance of a parked plan's fired trigger surfacing...
+  - `organic_evidence`: shipwatch 2026-08-11: v5.70.0 L2 no-fan-flap CONFIRMED (13.3h post-boot, all managed fans steady; Jaya 12.5h continuous). L3 holds + L4 safety still organic-open.
 
 ### `TEST-2` - "Send Test Perimeter Alert" button
 thread: **perimeter** - status: **done** - approval: **implied**
@@ -1012,6 +1004,14 @@ thread: **security** - status: **done** - approval: **blocked**
   - `operator_answers_2026_08_14`: P1 privacy: LOCAL SOURCES ONLY (Frigate-2 + UniFi Protect face; llmvision EXCLUDED from identity — no household reference photos leave LAN). D3: FOLD IN NOW (stranger-alert / unknown-face leg builds in the same cycle as member-annotation...
   - `disposition_applied_2026_08_14`: OPERATOR DECLINED via board button 2026-08-13T03:20 (queue apply was MISSED for ~1 day — session-start disposition check skipped across overnight passes; corrected now). Reconciled NOT relitigated: declined AS A STANDALONE card; its scop...
 
+### `CAM-AREA-PENDING` - Camera area corrections — RESOLVED
+thread: **camera** - status: **done** - approval: **explicit**
+_updated 2026-08-17 23:30_
+- **Origin:** 2026-08-07 - found during the exterior+interior camera area-id correction sweep
+- **Refs:** https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
+- **Forensic keys (1):**
+  - `resolved`: Madrone G6 Entry -> front_porch (operator: front porch/entry; sits with front_door_aerial door overhead). DONE.
+
 ### `F1-SUNSET` - Frigate-1 go/no-go
 thread: **camera** - status: **done** - approval: **blocked**
 - **Origin:** 2026-08-07 - Remind me when we can go on f1 sunset tmr
@@ -1021,6 +1021,15 @@ thread: **camera** - status: **done** - approval: **blocked**
 - **Refs:** AUDIT_frigate1_sunset.md
 - **Forensic keys (1):**
   - `closed_2026_08_16`: STALE (was blocked). Frigate-1 fully decommissioned 2026-08-15: entry deleted, 965 entities + 25 f1retired removed, F2 sole NVR, hardware repurposed by homelab agent. Go/no-go resolved months of soak ago.
+
+### `v5.59.0` - resolver-legs
+thread: **perimeter** - status: **done**
+_updated 2026-08-17 23:30_
+- **Origin:** 2026-08-07 - shipped + live-validated
+- **Refs:** README_v5.59.0.md
+- **Forensic keys (2):**
+  - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
+  - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
 ## 🅿️ Parked ideas (top-level list)
 

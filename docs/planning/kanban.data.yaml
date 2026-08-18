@@ -63,7 +63,7 @@ cards:
 - id: GUEST-ROOM-CONFIG-1
   title: 'Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)'
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.79.0
   approval: explicit
   approved_by: operator 2026-08-17 ("Findlay down guest bathroom. Misconfiguration" / "Unflag")
@@ -96,7 +96,7 @@ cards:
   - custom_components/universal_room_automation/config_flow.py:9193
   - custom_components/universal_room_automation/const.py:386
   created: 2026-08-17 21:20
-  updated: 2026-08-17 22:40
+  updated: 2026-08-17 23:30
   refinement_status: initial
 - id: GUEST-ROOM-LOCATION-MATCH-1
   title: 'Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)'
@@ -1368,6 +1368,10 @@ cards:
   next: 'Tier-1 investigation: trace _send_imessage payload for a security alert (body composition + attachment
     fields); one manual BB send with a known-good local path; check whether audit-tagged duplicates are
     entering the send path. Fix both in one pass.'
+  updated: 2026-08-17 23:30
+  active_organic_fail_2026_08_17: 'PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this
+    is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention,
+    not closure.'
 - id: ROOM-NAME-UNIQUE-1
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
@@ -2250,7 +2254,7 @@ cards:
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume
     (trigger: any episode type >50 rows)'
   thread: memory
-  status: shipped_organic
+  status: done
   shipped_version: v5.76.0
   approval: explicit
   approved_by: operator 2026-08-02 (concept + MVP build approval); compactor deferred BY the MVP as a
@@ -2292,7 +2296,7 @@ cards:
   live_validation_2026_08_14: 'L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified,
     episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed
     ura_coordinator_manager_*.'
-  updated: 2026-08-17 23:10
+  updated: 2026-08-17 23:30
   created: 2026-08-11 00:00
   refinement_status: refined
   problem_solution:
@@ -2747,6 +2751,10 @@ cards:
   parked_alts: 'BB v0.5 also added INBOUND webhooks + phrase triggers (opt-in) — future: NM ack/silence
     via iMessage reply (safe-word flow). Not this cycle; if enabled, use sender allow-list + local-only.'
   next: 'Tier-1 build dispatched: rename keys, drop WARN, mutation-anchored tests; ride next deploy.'
+  updated: 2026-08-17 23:30
+  active_organic_fail_2026_08_17: 'PRUNE AUDIT FLAG (AUDIT_shipped_organic_prune_2026_08_17.md): this
+    is an ACTIVE ORGANIC FAILURE, not a pending watch — security/NM images are NOT arriving. Needs attention,
+    not closure.'
 - id: SUITE-HYGIENE-1
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification
     tax
@@ -2845,7 +2853,7 @@ cards:
 - id: FAN-LAYER-1
   title: 'DOC-2 fan-actuation shared layer: REVIVED — FAN-MANUAL-1 fired 3 of its 4 park triggers'
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.70.0
   approval: explicit
   approved_by: operator 2026-08-11 (\"Fanlayer 1 is high priority\")
@@ -2903,6 +2911,7 @@ cards:
     now DOC-2) — skill gains a cycle-close trigger check. NEW card, revival not duplicate.'
   organic_evidence: 'shipwatch 2026-08-11: v5.70.0 L2 no-fan-flap CONFIRMED (13.3h post-boot, all managed
     fans steady; Jaya 12.5h continuous). L3 holds + L4 safety still organic-open.'
+  updated: 2026-08-17 23:30
 - id: PLAN-TIER-1
   title: 'Tiered PLAN reviews: quality up front — plans reviewed before builds, like builds'
   thread: process
@@ -3692,7 +3701,7 @@ cards:
 - id: CAM-AREA-PENDING
   title: Camera area corrections — RESOLVED
   thread: camera
-  status: shipped_organic
+  status: done
   approval: explicit
   origin:
     date: 2026-08-07
@@ -3706,6 +3715,7 @@ cards:
     out of camera scope.'
   refs:
   - https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
+  updated: 2026-08-17 23:30
 - id: D3-AREA-INHERIT
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
@@ -3756,7 +3766,7 @@ cards:
 - id: v5.59.0
   title: resolver-legs
   thread: perimeter
-  status: shipped_organic
+  status: done
   origin:
     date: 2026-08-07
     gist: shipped + live-validated
@@ -3766,6 +3776,7 @@ cards:
     track, pass_by tracks alert_count=0. Acceptance met. = F1-sunset readiness signal.'
   refs:
   - README_v5.59.0.md
+  updated: 2026-08-17 23:30
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
