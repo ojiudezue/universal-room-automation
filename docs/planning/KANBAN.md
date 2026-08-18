@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T15:09:26-05:00_ - _Data commit: `81ddfccb70d2`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T16:24:08-05:00_ - _Data commit: `47d151131653`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -221,13 +221,14 @@ _created 2026-08-18 00:55 · updated 2026-08-18 02:25 · initial_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
 thread: **presence** - status: **shipped_organic** - approval: **explicit**
+_updated 2026-08-18 16:10_
 - **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
 - **Why:** URA's duty-cycle detector DOES catch stuck sensors and logs: 'Sensor <x> duty-cycle stuck (on-ratio exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy'. It then KEEPS USING the stuck sensor for occupancy. Detection ...
 - **Next:** BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated, else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability map from AUDIT_mmwave_only_rooms_2026-07-31....
 - **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
 - **Depends on:** SENSOR-CAPABILITY-1
 - **Parsimony:** [BUILD] a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
-- **Forensic keys (19):**
+- **Forensic keys (21):**
   - `my_miss`: I READ these exact warnings hours earlier and dismissed them as 'routine, not a crash' — I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its own defect and I skimmed it. Rule: a warning that...
   - `gaps`: 1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.
   - `fix`: 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in sleep/home_night; it does NOT hold wh...
@@ -247,10 +248,12 @@ thread: **presence** - status: **shipped_organic** - approval: **explicit**
   - `harness_landed_2026_08_13`: Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator si...
   - `approved_2026_08_13`: OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
 thread: **presence** - status: **shipped_organic** - approval: **explicit**
-_refined ×3_
+_updated 2026-08-18 16:10 · refined ×3_
 - **Origin:** 2026-08-09 - operator ruling on whether bed presence moves bucket or code changes: "My instinct is code change so we don't have fixed config buckets. Sensor reality should not pin use and analysis reality in software. It should just tell...
 - **Why:** VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and they ARE the three config buckets, so the h...
 - **Next:** PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines). Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO — Tier 3 shared primitive, not implied-approval elig...
@@ -259,7 +262,7 @@ _refined ×3_
 - **Sibling of:** SIGNAL-TRUST-LEDGER (build-gated)
 - **Parsimony:** [BUILD] hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
 - **Refs:** docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause); docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4); docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer); custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81; custom_components/universal_room_automation/const.py:335,342
-- **Forensic keys (16):**
+- **Forensic keys (18):**
   - `root_cause_of`: Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.
   - `unlocks_without_new_hardware`: Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically unspoofable — the moment role stops being pinned to the motion bucket.
   - `design`: KEEP the three CONF lists as the WIRING layer — no config migration, additive only.
@@ -276,6 +279,8 @@ _refined ×3_
   - `invariant`: I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck's return set and every exposed entity attribute are BYTE-IDENTICAL to t...
   - `riskiest`: _detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND occupancy_sensors (the P15 defensive case, occupancy_s...
   - `DEDUPE_2026_08_09`: Four-surface adjacency sweep run before creating this card. Board: adjacent to STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 ...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -1182,13 +1187,15 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-18 15:55 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-18 16:10 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (4):**
+- **Forensic keys (6):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
   - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**

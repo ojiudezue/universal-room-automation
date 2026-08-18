@@ -678,6 +678,16 @@ cards:
   build_dispatched_2026_08_13: 'Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person
     test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor
     pin). Build in flight (worktree). Criterion-4 CLOSED same day (signed supplements merged).'
+  program_unification_2026_08_18: 'PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave
+    are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude
+    from occupancy fusion" primitive with multiple DETECTORS on top. Detectors differ by gate: CHATTER
+    = physics-based, quarantine-always, NO corroboration -> NOT blocked on SENSOR-CAPABILITY-1; STUCK/flapping-mmWave
+    = corroboration-gated -> blocked on SENSOR-CAPABILITY-1. Shared primitive = D1; chatter detector can
+    land independently; stuck detector sequences after capability work. Do NOT build parallel exclusions.
+    Members: SENSOR-HEALTH-SURFACING-1 (chatter), STUCK-SENSOR-1 (stuck/flapping mmWave), SENSOR-CAPABILITY-1
+    (capability/role -> corroborator selection).'
+  updated: 2026-08-18 16:10
+  program: sensor-trust-exclusion
 - id: SENSOR-CAPABILITY-1
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config
     bucket
@@ -842,6 +852,16 @@ cards:
     unrelated (ops). Parked planning-doc deliverables: mmwave-Tier3 D4 (unrelated, still parked), D6 (absorbed
     into chatter work, not here). Catalogs: CATALOG P15 substrate kind-precedence is the primitive being
     changed — extend, do not roll new. NEW, not duplicate.'
+  program_unification_2026_08_18: 'PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave
+    are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude
+    from occupancy fusion" primitive with multiple DETECTORS on top. Detectors differ by gate: CHATTER
+    = physics-based, quarantine-always, NO corroboration -> NOT blocked on SENSOR-CAPABILITY-1; STUCK/flapping-mmWave
+    = corroboration-gated -> blocked on SENSOR-CAPABILITY-1. Shared primitive = D1; chatter detector can
+    land independently; stuck detector sequences after capability work. Do NOT build parallel exclusions.
+    Members: SENSOR-HEALTH-SURFACING-1 (chatter), STUCK-SENSOR-1 (stuck/flapping mmWave), SENSOR-CAPABILITY-1
+    (capability/role -> corroborator selection).'
+  updated: 2026-08-18 16:10
+  program: sensor-trust-exclusion
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
   thread: process
@@ -4312,7 +4332,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-18 15:55
+  updated: 2026-08-18 16:10
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4337,6 +4357,15 @@ cards:
     — do NOT invent a parallel exclusion. GATING FEASIBILITY QUESTION for the re-plan: does a room-tier
     "exclude a sensor vote from occupancy fusion" mechanism EXIST today, or is it the thing STUCK-SENSOR-1
     is blocked on building? Reverses the old non-goal. Now Tier 2-DB (occupancy/trust-hierarchy).'
+  program_unification_2026_08_18: 'PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave
+    are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude
+    from occupancy fusion" primitive with multiple DETECTORS on top. Detectors differ by gate: CHATTER
+    = physics-based, quarantine-always, NO corroboration -> NOT blocked on SENSOR-CAPABILITY-1; STUCK/flapping-mmWave
+    = corroboration-gated -> blocked on SENSOR-CAPABILITY-1. Shared primitive = D1; chatter detector can
+    land independently; stuck detector sequences after capability work. Do NOT build parallel exclusions.
+    Members: SENSOR-HEALTH-SURFACING-1 (chatter), STUCK-SENSOR-1 (stuck/flapping mmWave), SENSOR-CAPABILITY-1
+    (capability/role -> corroborator selection).'
+  program: sensor-trust-exclusion
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox
