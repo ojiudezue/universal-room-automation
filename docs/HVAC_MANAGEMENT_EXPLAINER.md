@@ -31,13 +31,14 @@ The HVAC coordinator owns preset assignment. Setpoint ranges come from `SEASONAL
 
 ### House-state preset map
 
-`HOUSE_STATE_PRESET_MAP` (in `hvac_const.py:303`):
+`HOUSE_STATE_PRESET_MAP` (in `hvac_const.py:780`), resolved via
+`HVACPresetManager.get_preset_for_house_state` (`hvac_preset.py:111`):
 
 | House state | Preset applied |
 |---|---|
 | `home_day` / `home_evening` / `home_night` | `home` |
 | `arriving` / `waking` | `home` |
-| `guest` | `home` (Phase 1 actuation cycle planned — v4.7.x) |
+| `guest` | `home` (`hvac_const.py:789`) |
 | `sleep` | `sleep` |
 | `away` | `away` |
 | `vacation` | `vacation` |
