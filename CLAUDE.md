@@ -372,7 +372,12 @@ safe-to-delete tombstoned constant, three real should-be-consuming gaps, AND a c
 (~7% egress `person_id`) that reframed the whole downstream value case. Three sections:
 
 1. **Supersession → three-bucket triage (NOT "delete dead code").** What does the new capability
-   make redundant or vestigial? Grep for it. **"Dead" (no readers) is NEVER sufficient to delete**
+   make redundant or vestigial? **Scope the sweep to the PRE-EXISTING code the new capability could
+   obsolete — repo-wide across the capability's DOMAIN, NOT the cycle's own diff.** The redundant
+   code lives *upstream/adjacent, in what came before* (old derivations, ad-hoc reads, worked-around
+   dead paths, superseded heuristics), almost never inside the new files. A sweep limited to the
+   cycle group answers the wrong question and reports a false "clean." Grep the domain broadly.
+   **"Dead" (no readers) is NEVER sufficient to delete**
    — operator-coined 2026-08-18: *"dead doesn't mean delete; there are useful things that are not
    used."* Classify every unreferenced item into exactly one bucket:
    - **DELETE** — dead AND no use case AND ideally a footgun to keep (e.g. a superseded *buggy*
