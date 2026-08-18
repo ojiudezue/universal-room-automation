@@ -328,10 +328,18 @@ failure — the board is where "is it actually done?" gets answered.
 3. **Before writing a planning doc:** harvest the relevant cards — Origin/Why/Constraints/
    Parked-alts/Knobs flow straight into the plan's Institutional-context + Acceptance sections.
    This is the anti-entropy handoff.
-4. **Turn end:** reconcile — move cards between columns, mark done, **re-run
+4. **Before dispatching a build — MANDATORY board maintenance (operator-coined 2026-08-18).**
+   BEFORE any builder (`ura-builder`) starts, do board maintenance: move the target card to
+   `🔨 In progress` **now**, not at turn-end. Freshness rule — a card must never sit in
+   `📝 Planned` / `🧭 Pre-planning` while its build is actually running; the board should reflect
+   what is happening the moment it starts. While you're there, quick-reconcile the sibling cards
+   the build touches (dependencies, parked-alts, cards it will close) so the board is current
+   before the build's churn lands. This moves work into In-progress sooner and keeps the live
+   Artifact honest during long builds instead of lurching only at turn boundaries.
+5. **Turn end:** reconcile — move cards between columns, mark done, **re-run
    `python3 scripts/kanban_render.py`** so the committed views match the data, and redeploy
    the Artifact if anything material changed.
-5. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
+6. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
    live state (config entry / sensor / DB) — do not carry a stale TODO forward.
 
 ## Inbox hygiene — bounded lull investigation (operator-coined 2026-08-15)

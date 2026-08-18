@@ -71,4 +71,15 @@ parent reload.
 
 ## Live Validation
 
-_Pending post-restart (L1/L2/L4 provable immediately; L3 organic on Wed occupancy)._
+### Validated 2026-08-18 (~09:35 CT, post-restart) — house EMPTY
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | system_log ERROR count for universal_room_automation: 0 |
+| L1 | Both switches present + ON; enhanced_census switch-less | **PASS** | `switch.ura_presence_face_matching` = on, `switch.ura_name_people_at_doors` = on (both default-flipped); `switch.ura_smart_people_counting` → 404 ENTITY_NOT_FOUND (correctly not exposed) |
+| L2 | Toggle → NO integration reload | **PASS** | Toggled `presence_face_matching` off (09:34:57) then on (09:35:11); the UNtoggled sibling `name_people_at_doors` kept `last_changed=09:33:53` (boot) across BOTH toggles — not recreated, so no reload. Zero ERROR during. |
+| L4 | Kill path works instantly | **PASS** | turn_off → state `off` verified immediately; turn_on → `on` restored. One tap, no outage. |
+| L3 | Default-on live: real crossings named, no phantom guest on exit | **ORGANIC-PENDING** | Needs occupancy (Wed). Watch: face-attributed transit + `person_id` on egress; specifically an EXIT creates no phantom guest. Shared with v5.81.0 L2/L3. |
+
+**Cycle stays open until L3 lands on occupancy (Wed).** L1/L2/L4 proven now — the headline
+no-reload / instant-kill-path property is confirmed live.

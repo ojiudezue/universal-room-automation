@@ -2433,12 +2433,22 @@ cards:
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
-  updated: 2026-08-17 23:40
+  updated: 2026-08-18 10:05
   d0_impact_2026_08_17: 'D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces —
     face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement
     is not viable on current sensing. IF cycle 3 rescopes to the face-independent approach-track signal,
     revisit whether a FACE-INDEPENDENT interior-count reinforcement (an unknown approach-track that enters
     raises the interior unknown count) is worth it. Otherwise stays parked until face coverage improves.'
+  coverage_ceiling_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed
     value'
@@ -4299,10 +4309,10 @@ cards:
     guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: SENSOR-HEALTH-SURFACING-1
   title: Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
-  column: inbox
+  column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-18 02:30
+  updated: 2026-08-18 14:20
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4311,6 +4321,7 @@ cards:
   next: 'Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this
     sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).'
   refs: AUDIT_roadmap_undone_worthwhile.md; INCIDENT_chatter_class_missed_by_watchdog_2026-08-09
+  phase_2026_08_18: 'IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox
@@ -4381,10 +4392,10 @@ cards:
   refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
 - id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
   title: Promote 3 Camera-Census feature toggles to device switches
-  column: planned
+  column: shipped_organic
   thread: presence
   created: 2026-08-18 03:10
-  updated: 2026-08-18 03:40
+  updated: 2026-08-18 09:40
   refinement_status: refined
   problem: Three feature toggles are buried in the Camera Census options dialog (options-flow rung 2).
     Operator wants them as one-tap DEVICE SWITCHES on the URA device (rung 3) for live control + dashboard
@@ -4416,12 +4427,17 @@ cards:
     deploy since options unset; egress L2/L3 still Wed-pending (validate in prod w/ kill switch). Ledger:
     +2 switches / +1 signal / +0 sensors. ELEVATED to Tier 2-DB. Next: planner revises -> re-review revised
     plan -> build.'
+  shipped_2026_08_18: 'SHIPPED v5.82.0 + LIVE. L1/L2/L4 PASS: both switches present+ON (defaults flipped),
+    smart_people_counting correctly NOT a switch (404); L2 no-reload PROVEN live (untoggled sibling last_changed
+    stable at boot across two toggles) + zero ERROR; L4 kill path instant. L3 (real crossings named, no
+    phantom guest on exit) organic-pending Wed. Orchestrator independently mutation-drilled the signal-refresh
+    test (neuter dispatcher -> test fails -> restore -> 35/35).'
 - id: CENSUS-IDENTITY-GROUP-README-1
   title: 'Cycle-group README: census/guest/presence-identity program'
-  column: in_progress
+  column: done
   thread: planning
   created: 2026-08-18 03:20
-  updated: 2026-08-18 03:20
+  updated: 2026-08-18 14:15
   refinement_status: initial
   problem: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy
     + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in
@@ -4432,6 +4448,226 @@ cards:
   next: general-purpose writing docs/readmes/README_GROUP_census_guest_presence_identity.md with verified
     entity inventory.
   refs: README_v5.79.0/5.80.0/5.81.0; CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
+  done_note: Delivered + reconciled to v5.82.0 (switches shipped). Sent to operator.
+- id: CENSUS-IDENTITY-SUPERSESSION-DELETE-1
+  title: Delete superseded census/identity code (gated on L3 validation)
+  column: done
+  thread: planning
+  created: 2026-08-18 09:45
+  updated: 2026-08-18 10:35
+  refinement_status: initial
+  problem: 'The census/identity arc superseded some code. Each delete-candidate has its OWN concrete,
+    checkable gate (NOT a blanket "when validated fully"):
+
+    - S1 CENSUS_DECAY_STEP_SECONDS (const.py:2777): superseded by v5.80.0 decay separation, which is LIVE
+    + validated. GATE = one grep confirming zero readers remain. ACHIEVABLE NOW — not coupled to the v5.81/v5.82
+    identity L3. Deletable in a Tier-1 cleanup once the grep confirms.
+
+    - S7 legacy string-built Frigate face/last_camera paths: superseded by the v5.80.0 _2-suffix resolver
+    (LIVE). GATE = a focused grep sweep confirming each site has no live reader / is fully replaced. ACHIEVABLE
+    NOW via grep.
+
+    - S2 old oracle: already removed in v5.79.0 (no vestige) — nothing to delete.
+
+    - S3/S6 KEEP (load-bearing: face_recognized_count != identified_count, gates away-veto). S4/S5 KEEP
+    (display-only).'
+  origin: 2026-08-18 "Check for what this supersedes so we can mark for deletion when we validate fully"
+  parked_reason: NOT gated on identity L3 (that was a spurious coupling). Each item gates on its OWN grep-check
+    against ALREADY-shipped-and-validated cycles (v5.79.0/v5.80.0). Do the two greps (S1 zero-readers,
+    S7 sweep) to DECIDE and delete — no Wed dependency.
+  next: 'Tier-1 cleanup: grep-verify S1 zero readers -> delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7
+    legacy Frigate paths -> delete confirmed-dead sites. Both decidable now.'
+  refs: AUDIT_census_identity_supersession_and_consumers.md §1
+  closed_noop_2026_08_18: 'CLOSED as NO-OP (correct outcome). Three-bucket triage: DELETE bucket EMPTY
+    — no true dead-and-useless code in this cycle group. CENSUS_DECAY_STEP_SECONDS = bucket 3 (already
+    documented retired-available in its tombstone comment, no edit needed). presence.py:4557 = bucket
+    2 (useful face-confirmed-arrival helper lacking _2-suffix tolerance) -> spawned CENSUS-FACE-RESOLVER-MIGRATE-1.
+    S7 all live/retained. Zero-delta cleanup branch discarded. The supersession HYGIENE proved its value
+    by finding there was nothing to delete — and by catching that "dead" was being conflated with "deletable".'
+- id: PERIMETER-ALERT-NAME-PERSON-1
+  title: Perimeter alerts should NAME the person (consume egress/face identity)
+  column: inbox
+  thread: security
+  created: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
+  refinement_status: initial
+  problem: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known
+    — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps.
+    Consume identity gracefully (name when known, anonymous otherwise). Identity comes from Frigate face
+    (all cams) + Protect named face at doorbell/family-room via the live webhook.
+  origin: 2026-08-18 should-be-consuming audit G1
+  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
+    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
+  refs: AUDIT_census_identity_supersession_and_consumers.md §3 G1; perimeter_alert.py:1316
+  coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
+- id: GUEST-GATE-DOOR-IDENTITY-1
+  title: Guest gate should consume door-identity (not just BLE room-location)
+  column: inbox
+  thread: presence
+  created: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
+  refinement_status: initial
+  problem: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR
+    does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent
+    card EGRESS-INTERIOR-COUNT-REINFORCE-1 is count-focused, this is GATE-focused.
+  origin: 2026-08-18 should-be-consuming audit G2
+  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
+    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
+  refs: AUDIT_census_identity_supersession_and_consumers.md §3 G2; EGRESS-INTERIOR-COUNT-REINFORCE-1
+  coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
+- id: ARRIVAL-DEPARTURE-NOTIFY-1
+  title: '"Oji arrived/left" notifications from egress person_id'
+  column: inbox
+  thread: notifications
+  created: 2026-08-18 09:45
+  updated: 2026-08-18 10:05
+  refinement_status: initial
+  problem: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk
+    build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
+  origin: 2026-08-18 should-be-consuming audit G3
+  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
+    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
+  refs: AUDIT_census_identity_supersession_and_consumers.md §3 G3
+  coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
+    and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
+    (front door madrone_g6_entry). Most family entries are via the GARAGE, and Protect names people in
+    the FAMILY ROOM — i.e. ON the real entry path. Frigate is on ALL cameras (front overhead + doorbell
+    + foyer; garage doorbell + inside-garage cam); Protect has face recognition on the front doorbell
+    + family room, reachable via the LIVE Alarm Manager webhook (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D2).
+    The identity path is VIABLE. Coverage must be RE-MEASURED against GARAGE entries + family-room arrival,
+    not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
+    (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
+    do NOT re-recommend it off the 7%.'
+- id: PWA-CENSUS-P12-RELEASE-1
+  title: PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped
+  column: waiting_operator
+  thread: dashboarding
+  created: 2026-08-18 10:20
+  updated: 2026-08-18 10:20
+  refinement_status: initial
+  problem: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard,
+    which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the
+    branch also carries unrelated PWA work (design-skill rounds, PWA-CONTROL-LIST-1, M2 plan, v6.1.1).
+    Shipping D3 = releasing the whole branch = a PWA-workstream release decision, not a census cleanup.
+  origin: 2026-08-18 supersession/consumer cleanup surfaced the D3 "confirm PWA deploy" loose end as a
+    full branch-behind-main gap
+  constraints: Do NOT unilaterally merge 12 commits of PWA work to main + deploy — that is a PWA release
+    with its own review/cadence.
+  next: 'OPERATOR: decide the PWA release — is census-p12 THE working branch to promote to main + deploy
+    (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard
+    D3 cards (v6/v8) ARE live; only the PWA leg is pending.'
+  refs: ~/Code/ura-dashboard-pwa branch census-p12-exterior-dashboard; CENSUS-ACCURACY-1 D3
+- id: CENSUS-FACE-RESOLVER-MIGRATE-1
+  title: Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)
+  column: in_progress
+  thread: presence
+  created: 2026-08-18 10:35
+  updated: 2026-08-18 14:20
+  refinement_status: initial
+  problem: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival)
+    builds f"sensor.{base}_last_recognized_face" WITHOUT _2-suffix tolerance, so it silently misses cameras
+    whose Frigate face sensor exists only as the disambiguated _2 variant (per "frigate 1 retired 2 suffix").
+    The feature is USEFUL — not dead — it just lacks the resolver the rest of the code got in v5.80.0.
+    Bucket-2 (keep + wire), NOT a delete.
+  origin: 2026-08-18 supersession three-bucket triage (bucket 2) surfaced this useful-but-underwired path
+  constraints: Behavior change (starts hitting _2 faces on _2-only cams) — own reviewed hotfix, NOT a
+    cleanup commit.
+  next: 'Small Tier-1 hotfix: refactor presence.py:4557 to call camera_census._resolve_face_entity_id(base_name).
+    Test the _2-only-cam case.'
+  refs: presence.py:4557,4525; camera_census._resolve_face_entity_id:2470; reference_frigate1_retired_2suffix_permanent.md
+  phase_2026_08_18: 'IN PROGRESS (operator approved all 3 to execute 2026-08-18): build (Tier-1, worktree
+    face-resolver-migrate)'
+- id: GUEST-COUNT-DEDUP-MIGRATE-1
+  title: ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
+  column: in_progress
+  thread: presence
+  created: 2026-08-18 11:00
+  updated: 2026-08-18 14:40
+  refinement_status: initial
+  problem: aggregation.py:5983 ZoneGuestCountSensor._get_guest_count derives guest count the NAIVE SUBTRACTIVE
+    way (max(0, camera_total - ble_total)) — the SAME additive/subtractive formula behind the historical
+    GUEST double-count. It is superseded by the census deduped unidentified_count (the _cross_correlate_persons
+    union). Its attribute-only sibling binary_sensor.py:1584 (audit S4) uses the identical formula. Found
+    by the DOMAIN-WIDE supersession sweep — the cycle-scoped pass missed it because it is PRE-EXISTING
+    code, not in the new cycle files.
+  origin: '2026-08-18 domain-wide supersession sweep (operator: "it is the code that came before")'
+  constraints: Tier 2-DB — census<->guest<->presence ripple, exactly the trust-hierarchy class of the
+    original double-count. VERIFY whether ZoneGuestCountSensor is a LIVE registered entity first (the
+    group README claimed no such sensor exists in sensor.py — it lives in aggregation.py; reconcile that
+    discrepancy).
+  next: Verify ZoneGuestCountSensor live-status; then migrate _get_guest_count (+ binary_sensor.py:1584
+    sibling) to consume the deduped unidentified_count instead of the naive subtraction. Producer/consumer
+    check both.
+  refs: aggregation.py:5983; binary_sensor.py:1584; camera_census._cross_correlate_persons; AUDIT_census_identity_supersession_and_consumers.md
+    ADDENDUM
+  phase_2026_08_18: 'IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2-DB,
+    investigate-first: verify ZoneGuestCountSensor live-status)'
+  plan_verdict_2026_08_18: 'PLAN DONE (PLANNING_guest_count_dedup_migrate.md, Tier 2-DB). ZoneGuestCountSensor
+    IS live-registered (disabled-by-default per zone, aggregation.py:388/464) — NOT moot; corrects the
+    group README "no such sensor" claim. Sibling guest_count attr on URAUnexpectedPersonSensor (binary_sensor.py:1510-1585)
+    is ENABLED-by-default. Both migrate max(0,camera-ble) -> census unidentified_count. ZERO code consumers
+    (display only) -> Tier 2-DB not Tier 3. Invariant I-GC + discriminating divergence test. No new knobs/consts/signals/DB.
+    Adjacent is_on alert-path -> UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1. Next: plan review -> build.'
+- id: SECURITY-CENSUS-UNKNOWN-WIRE-1
+  title: Security unknown-person auto-lock is designed but UNWIRED to the census
+  column: inbox
+  thread: security
+  created: 2026-08-18 11:20
+  updated: 2026-08-18 11:20
+  refinement_status: initial
+  problem: 'security.py SanctionChecker has an unknown-person path (has_unknown_persons / _handle_census_intent
+    -> locks ALL doors) that is a DESIGNED-BUT-INERT consumer: unknown_present has ZERO producers repo-wide,
+    no source="census_update" intent is emitted anywhere, and security is NOT a SIGNAL_CENSUS_UPDATED
+    subscriber. A real security capability built to consume the census was never wired. Now that the census
+    unidentified_count is reliable (post-arc), it COULD be wired — but must not be done naively. Found
+    by the tier/coordinator semantic sweep (missed by all census-anchored passes).'
+  origin: '2026-08-18 tier+coordinator supersession sweep T1 (operator: "did you look at room/zone/house
+    code and coordinators?")'
+  constraints: 'FOOTGUN — this AUTO-LOCKS ALL DOORS. A bare unidentified_count>0 -> lock-all trigger would
+    auto-lock on a guest false-positive, given the arc''s own double-count history. INVESTIGATE-FIRST:
+    must gate on guest-composition confidence + a kill switch + a measured false-positive rate BEFORE
+    wiring. Do NOT wire a raw count->lock edge. Tier 2-DB (security x census x guest ripple).'
+  next: 'Investigate-first: confirm the SanctionChecker intent contract + what a safe producer looks like
+    (confidence-gated, kill-switched). Do NOT build a raw count->lock. Then Tier 2-DB plan.'
+  refs: security.py SanctionChecker / has_unknown_persons / _handle_census_intent; AUDIT_census_identity_supersession_and_consumers.md
+    ADDENDUM 2 (T1)
+- id: UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
+  title: URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
+  column: inbox
+  thread: security
+  created: 2026-08-18 14:40
+  updated: 2026-08-18 14:40
+  refinement_status: initial
+  problem: binary_sensor.py:1540-1560 URAUnexpectedPersonSensor.is_on computes "unexpected person" via
+    the naive substrate comparison camera_total > ble_total — the SAME additive/subtractive bug class
+    as the guest double-count, but on a TRUST/ALERT path (enabled-by-default, drives NM alerts), not display-only.
+    A guest-FP mechanism here fires a false "unexpected person" alert. HIGHER STAKES than the display-only
+    guest_count migration (GUEST-COUNT-DEDUP-MIGRATE-1). Found by the guest-count planner as an adjacent
+    finding.
+  origin: 2026-08-18 guest-count-dedup planning surfaced the is_on alert-path naive-substrate use
+  constraints: Own producer/consumer analysis — it drives the sensor core state + has an NM/alert consumer
+    surface. Consider consolidating with GUEST-COUNT-DEDUP-MIGRATE-1 or sequencing right after. Tier 2-DB.
+  next: Producer/consumer check on is_on + its NM alert consumers; then migrate the naive comparison to
+    the deduped census signal. Likely higher priority than the display count.
+  refs: binary_sensor.py:1540-1560; PLANNING_guest_count_dedup_migrate.md (adjacent finding)
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -1,7 +1,7 @@
 # Cycle-Group README — Census / Guest / Presence-Identity
 
 **Card:** `CENSUS-IDENTITY-GROUP-README-1`
-**Program cards:** `CENSUS-GHOST-DEDUP-1` → `CENSUS-ACCURACY-1` → `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` → `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` (planned) → D2 Protect corroboration (gated)
+**Program cards:** `CENSUS-GHOST-DEDUP-1` → `CENSUS-ACCURACY-1` → `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` → `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` (shipped v5.82.0) → D2 Protect corroboration (gated)
 **Per-version READMEs:** [v5.79.0](README_v5.79.0.md) · [v5.80.0](README_v5.80.0.md) · [v5.81.0](README_v5.81.0.md)
 **Entity inventory verified live** against the running HA instance on 2026-08-18 (house empty, residents away until Wed PM). Every `entity_id` below was confirmed to exist unless explicitly flagged.
 
@@ -20,7 +20,7 @@ The house's people-count was untrustworthy in three compounding ways, and this a
 | **v5.79.0** | Guest correctness | Repaired the dead `_is_known_person_in_room` oracle (canonical `person_coordinator` + real `data[name]["location"]` shape) + `GUEST_KNOWN_STICKY_S` sticky latch; inverted guest composition so **guest rooms lead** (census no longer arms GUEST); decoupled guest exit from the count; registry-based guest-room resolution; D1 pre-cancel clamp on the additive census path. | `CENSUS-GHOST-DEDUP-1` | [v5.79.0](README_v5.79.0.md) |
 | **v5.80.0** | Interior census accuracy + exterior dashboards | Deleted the peak self-refresh + house-zone linear decay (instant-drop like exterior); `_2`-suffix fresh-face fix (revives the `−1` face-dedup credit, fail-closed); D3 exterior dashboards (KEEP-BOTH: deduped headline + naive floor + divergence). | `CENSUS-ACCURACY-1` | [v5.80.0](README_v5.80.0.md) |
 | **v5.81.0** | Egress face-identity (D1) | Stamps `person_id` on entry/exit crossings from the freshest Frigate face; fuses that identity into the census union at **both** writers (URA-slug canonical); entry-gated register (no phantom guest on exit); behind kill switch `CONF_EGRESS_IDENTITY_ENABLED` (default OFF) + observability attrs. | `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` | [v5.81.0](README_v5.81.0.md) |
-| **PLANNED** | Census toggles → device switches | Promote 3 buried Camera-Census options-flow flags to one-tap device switches (`switch.ura_presence_face_matching`, `switch.ura_smart_people_counting`, `switch.ura_name_people_at_doors`). Control-surface relocation only, no behavior change. | `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` | `docs/planning/PLANNING_census_toggles_to_device_switches.md` |
+| **v5.82.0** | Census toggles → device switches | Promoted TWO buried options to one-tap device switches (`switch.ura_presence_face_matching`, `switch.ura_name_people_at_doors`) with no-reload toggle + defaults flipped ON; `enhanced_census` stays in options. | `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` | `docs/planning/PLANNING_census_toggles_to_device_switches.md` |
 | **GATED** | D2 — Protect corroboration | Second NVR face source (UniFi Protect) adding corroboration to Frigate egress identity. Hard-gated on a real captured `ura_kp_face_probe_received` webhook payload; kill switch `PROTECT_CORROBORATION_ENABLED`, default OFF. | (part of `EXTERIOR-GUEST-FACE-FASTFOLLOW-1`) | — |
 
 ---
@@ -70,15 +70,16 @@ All `entity_id`s below were grep-confirmed in `sensor.py` **and** confirmed pres
 
 > **Note on "the guest-count sensor":** there is **no** `ZoneGuestCountSensor` class or dedicated per-zone guest-count entity in `sensor.py`. Guest *mode* is a value of `presence_house_state` (`guest`), not a count. The authoritative guest **sensor** is `SecurityAuthorizedGuestsSensor` → `sensor.ura_security_coordinator_security_authorized_guests` (verified live). A secondary `guest_count` figure (`max(0, camera_total − ble_total)`) exists only as an **attribute** inside `binary_sensor.py:1584`, and `wifi_guest_floor` is an attribute on `persons_in_house` — neither is a standalone entity.
 
-### Planned control switches — **NOT YET SHIPPED**
+### Control switches — **SHIPPED v5.82.0** (verified live 2026-08-18)
 
-Confirmed **absent** on the live instance 2026-08-18 (a `switch` domain search for all three returned zero matches). Do not treat as live. Names LOCKED (operator-approved) per `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1`; each relocates an existing Camera-Census options-flow flag to a device switch (source of truth stays the config-entry option; switch writes it back + reloads):
+**TWO** device switches shipped (not three — `enhanced_census` intentionally stayed in the options dialog). Toggling writes the config-entry option WITHOUT reloading the integration (both keys on `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`; `SIGNAL_URA_FACE_RECOGNITION_CHANGED` live-refreshes the boot-cached consumers; egress is fresh-read). Defaults flipped **ON**. No-reload proven live (untoggled sibling `last_changed` stable across two toggles).
 
-| entity_id (PLANNED) | Friendly name | Kind | Backing flag | Scope |
-|---|---|---|---|---|
-| `switch.ura_presence_face_matching` | Presence Face Matching | switch (PLANNED) | `CONF_FACE_RECOGNITION_ENABLED` | Scoped: transit_validator + presence zone confirm ONLY (NOT a global face kill switch) |
-| `switch.ura_smart_people_counting` | Smart People Counting | switch (PLANNED) | `CONF_ENHANCED_CENSUS` | Swaps the census engine — the "heavy" one; requires integration reload to apply |
-| `switch.ura_name_people_at_doors` | Name People at Doors | switch (PLANNED) | `CONF_EGRESS_IDENTITY_ENABLED` | Live-readable (kill switch designed live in v5.81.0); no reload needed |
+| entity_id | Friendly name | Kind | Backing flag | Default | Scope |
+|---|---|---|---|---|---|
+| `switch.ura_presence_face_matching` | Presence Face Matching | switch (LIVE) | `CONF_FACE_RECOGNITION_ENABLED` | **ON** | Scoped: transit_validator + presence zone confirm ONLY (NOT a global face kill switch) |
+| `switch.ura_name_people_at_doors` | Name People at Doors | switch (LIVE) | `CONF_EGRESS_IDENTITY_ENABLED` | **ON** | Live fresh-read (no reload); v5.81.0 egress identity |
+
+**`Smart People Counting` (`enhanced_census`) is NOT a switch** — it's read at setup for a structural branch (`__init__.py:2253`), so it stays in the Camera-Census options dialog where a reload-on-save is expected. Parked with trigger "if `__init__.py:2253` becomes re-runnable in-place." `switch.ura_smart_people_counting` does not exist (404).
 
 ---
 
@@ -86,14 +87,14 @@ Confirmed **absent** on the live instance 2026-08-18 (a `switch` domain search f
 
 | Knob | Kind / rung | Default | Purpose |
 |---|---|---|---|
-| `CONF_EGRESS_IDENTITY_ENABLED` | options-flow bool (rung 2), kill switch | **False** | Master switch for egress face-identity (v5.81.0). When OFF the resolver returns None, register is a no-op, normalization is skipped → both census fuse sites byte-identical to pre-cycle. To be promoted to `switch.ura_name_people_at_doors`. |
+| `CONF_EGRESS_IDENTITY_ENABLED` | options + `switch.ura_name_people_at_doors` (rung 3, v5.82.0) | **True** (flipped v5.82.0) | Master switch for egress face-identity (v5.81.0). When OFF the resolver returns None, register is a no-op, normalization is skipped → both census fuse sites byte-identical to pre-cycle. Now a device switch. |
 | `FACE_MATCH_WINDOW_S` | module constant (rung 1) | 60 | Freshness window for the face recognized on a crossing camera's stem; older → `person_id=None` (v5.81.0). |
 | `EGRESS_FACE_UNION_TTL_S` | module constant (rung 1) | 300 | TTL of the `egress_face_ids` set unioned into the census identity set (v5.81.0). |
 | `GUEST_KNOWN_STICKY_S` | module constant (rung 1) | 120 | Sticky latch absorbing BLE room-location flap in the repaired identity re-check; `0` disables the latch (base check still runs) (v5.79.0). |
 | `GUEST_BOOT_SEED_MIN_RESIDUAL_S` | module constant (rung 1) | 300 | Minimum dwell that must remain after a boot-seed so an erroneous seed can't fire instantly; `≥ threshold` disables the seed, `0` disables only the clamp (v5.79.0). |
 | `CONF_CENSUS_HOLD_INTERIOR` | options-flow (rung 2) | 3 min | Governs *when* interior decay starts. v5.80.0 D1 changed the decay *shape* (instant-drop), not this hold; may be tuned 3→1 via options, no code. |
-| `CONF_FACE_RECOGNITION_ENABLED` | options-flow bool (rung 2) | — | Scoped face-matching flag (transit_validator + presence confirm). To be promoted to `switch.ura_presence_face_matching`. |
-| `CONF_ENHANCED_CENSUS` | options-flow bool (rung 2) | — | Selects the additive (enhanced) census engine. To be promoted to `switch.ura_smart_people_counting`. |
+| `CONF_FACE_RECOGNITION_ENABLED` | options + `switch.ura_presence_face_matching` (rung 3, v5.82.0) | **True** (flipped v5.82.0) | Scoped face-matching flag (transit_validator + presence confirm). Now a device switch; no-reload toggle via signal-refresh. |
+| `CONF_ENHANCED_CENSUS` | options-flow bool (rung 2) | True | Selects the additive (enhanced) census engine. Stays in options (structural at setup) — NOT a switch. |
 | `PROTECT_CORROBORATION_ENABLED` | kill switch (GATED, planned) | **False** | Master switch for the gated D2 Protect second-source corroboration. |
 
 Retired: `CENSUS_DECAY_STEP_SECONDS` (tombstoned in v5.80.0 — its only reader was the deleted decay slope). `CENSUS_PEAK_SUSTAIN_SECONDS` / `DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES` remain as the latch/hold constants referenced by the v5.79.0 analysis.

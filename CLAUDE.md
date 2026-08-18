@@ -362,6 +362,52 @@ asked who READ the count; nobody asked how it was MADE.
 under the fix and under a plausible different failure. If identical, choose another
 observation.
 
+## Post-Ship Supersession & Consumer-Gap Audit — MANDATORY after a capability ships
+
+**Operator-coined 2026-08-18 (census/identity cycle group).** After a cycle ships a new
+capability (a value, signal, sensor, or feature — not a pure bugfix), run a short read-only
+audit BEFORE closing the program. This extends the Producer/Consumer rule from *planning* into
+*post-ship*. It earned its place first time out: caught a README-vs-reality drift, a
+safe-to-delete tombstoned constant, three real should-be-consuming gaps, AND a coverage ceiling
+(~7% egress `person_id`) that reframed the whole downstream value case. Three sections:
+
+1. **Supersession → three-bucket triage (NOT "delete dead code").** What does the new capability
+   make redundant or vestigial? **Scope the sweep to the PRE-EXISTING code the new capability could
+   obsolete — repo-wide across the capability's DOMAIN, NOT the cycle's own diff.** The redundant
+   code lives *upstream/adjacent, in what came before* (old derivations, ad-hoc reads, worked-around
+   dead paths, superseded heuristics), almost never inside the new files. A sweep limited to the
+   cycle group answers the wrong question and reports a false "clean." Grep the domain broadly.
+   **"Dead" (no readers) is NEVER sufficient to delete**
+   — operator-coined 2026-08-18: *"dead doesn't mean delete; there are useful things that are not
+   used."* Classify every unreferenced item into exactly one bucket:
+   - **DELETE** — dead AND no use case AND ideally a footgun to keep (e.g. a superseded *buggy*
+     path a better mechanism replaced). Only this bucket is removed, and only after the new path
+     is live-validated. Deletion is the one irreversible choice — when uncertain, do NOT delete.
+   - **KEEP + WIRE** — dead but a USEFUL capability a downstream *should* consume or that needs a
+     small refactor to reach parity (e.g. a live helper doing string-built lookups that should
+     route through the new resolver). This is a **should-be-consuming gap**, not debt — it goes on
+     the gap backlog, never the delete list.
+   - **KEEP + DOCUMENT** — dead today, no current use, but a plausible future tunable / design axis
+     (e.g. a decay-step constant for a decay *shape* a cycle chose against but might revisit). Add
+     a one-line "retired — available if revisited" comment; do NOT delete.
+   Produce the table (item, file:line, bucket, superseded-by, reason). A cycle whose supersession
+   check yields **zero DELETE items is a clean, expected outcome** — it means the arc left no
+   dead-and-useless code, not that the check failed. Also distinguish KEEP-for-distinct-semantics
+   (e.g. `face_recognized_count` ≠ `identified_count`) — that's live code, not a triage subject.
+2. **Producer / Consumer map** of each new value (the standing rule, applied to what shipped):
+   producer arithmetic + dependency health; every consumer with file:line, trust-vs-display.
+3. **Should-be-consuming-but-isn't (the highest-value section).** Enumerate downstreams that
+   OUGHT to use the new capability and don't yet — each a gap with value, tier, and whether a
+   card exists or is needed. (Census/identity example: perimeter alerts still said "person
+   detected" when identity was known; the guest gate ignored door-identity; no
+   arrival/departure notification consumed `person_id`.) **Always measure the real production
+   rate of the new value first** (measure-before-build) — a sparse producer caps every
+   consumer's value and may argue for a different producer, not more consumers.
+
+Trigger: any shipped new capability with downstream reach. Skip for pure hotfixes with no new
+value. The audit doc goes in `docs/planning/AUDIT_*_supersession_and_consumers.md`; findings
+become cards; the delete-candidate list waits for validation.
+
 ## Numbers Get Knobs — placement ladder (operator-coined 2026-07-16)
 
 Any behavioral number (threshold, duration, window, gate value) gets a

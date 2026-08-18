@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "059",
+  "author": "ojiudezue",
+  "session_id": "claude_20260818_200331_ship_v5_82_1",
+  "timestamp": "2026-08-18T20:03:31Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.82.1 shipped: Face-confirmed arrival resolves _2-only cameras (route presence _get_face_for_camera through the _2 resolver)",
+  "summary": "Tier-1 hotfix (CENSUS-FACE-RESOLVER-MIGRATE-1): presence.py _get_face_for_camera now resolves the face sensor via the reused camera_census._resolve_face_entity_id (canonical-preferred, Frigate-1-retired-safe) instead of a bare string build lacking _2-suffix tolerance, so face-confirmed arrival fires on _2-only cameras it previously missed. Review SHIP-with-fix: hollow-anchor test replaced with real-PersonCensus smoke test (mutation-drilled), except narrowed. No new entities/knobs.",
+  "refs": {
+    "cards": [
+      "CENSUS-FACE-RESOLVER-MIGRATE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.82.1.md"
+    ]
+  }
+}

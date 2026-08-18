@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.82.0
+# Universal Room Automation vv5.82.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.82.0"
+VERSION: Final = "v5.82.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2769,12 +2769,13 @@ DEFAULT_CENSUS_BLE_CANCEL_ENABLED: Final = True
 # amplifying spurious peaks for 15+ minutes.
 DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES: Final = 3
 DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES: Final = 5
-# CENSUS-ACCURACY-1 D1 (2026-08-17): TOMBSTONE. The sole runtime reader
-# was `PersonCensus._apply_hold_decay` (camera_census.py) house post-hold
-# linear decay slope, which was deleted in favour of the property-zone's
-# instant-drop semantics (INV-DECAY-HONEST). Constant retained for
-# grep/history clarity; do not add new readers without revisiting D1.
-CENSUS_DECAY_STEP_SECONDS: Final = 300  # DEAD post-D1; see comment above.
+# RETIRED v5.80.0 (CENSUS-ACCURACY-1 D1): decay separation chose property-zone
+# instant-drop (INV-DECAY-HONEST) over the house post-hold linear-decay slope
+# that was this constant's sole reader. KEPT as an available tunable if a
+# bounded-decay shape is ever revisited (decay shape is a policy choice, not a
+# law) — retired-available, NOT dead-and-deletable. No current readers; do not
+# add one without revisiting D1.
+CENSUS_DECAY_STEP_SECONDS: Final = 300  # retired v5.80.0, available if bounded decay returns
 
 # v5.9.0 D-B: sustain-before-latch window. A fresh_count HIGHER than the
 # stored peak only latches after this many seconds of sustained observation,
