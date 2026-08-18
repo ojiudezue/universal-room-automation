@@ -200,6 +200,31 @@ plausible different failure. The v5.78.0 cycle was masked precisely because its 
 
 ## Live Validation
 
-_To be completed post-restart. Per the mandatory write-back rule, this section is replaced
-with a `Validated <date>` results table carrying observed evidence per criterion before the
-cycle is closed._
+### Validated 2026-08-17 (~22:05 CT, post-restart) — house EMPTY (residents away until Wed PM)
+
+**Context:** the operator confirmed the house is empty from 21:53 CT until Wed afternoon, and
+that absence over this window is expected. The discriminating dead-oracle tests (L3, L8) require
+a resident physically in a designated guest room, so they are **organic-pending** — the headline
+correctness proof cannot be produced against an empty house and must NOT be claimed from it.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | `system_log` ERROR count for `universal_room_automation`: 0. No `RecursionError` in error_log (v5.8.0 setup-crash class absent). |
+| — | No setup crash / watchdog restart | **PASS** | All **42** URA config entries `state: loaded` (0 setup_error / setup_retry / not_loaded). The v5.8.0 incident crashed all rooms; here all loaded. |
+| L2 | House does not false-enter guest | **PASS (weak — empty house)** | House reads `away`, `all_tracked_persons_away: true`, census 0. NOTE: with nobody home this is NOT the discriminating test (the dead oracle would not fire on an empty house either) — recorded as weak, not proof. |
+| L3 | Resident staging in guest room does not flip guest at boot | **ORGANIC-PENDING** | Requires an occupied designated guest room; house empty. Re-check on return. |
+| L4 | `face_recognized_count` + `path_alpha_gate_source` on house-state sensor | **PASS** | Attributes present: `face_recognized_count: 0`, `path_alpha_gate_source: "face_recognized_count"`. |
+| L5 | Census vs ground-truth headcount | **N/A tonight (empty)** | census 0 for 0 residents present — correct but trivial. The over-count baseline needs occupancy; carried to cycle 2. |
+| L6 | Guest exits on room clearing (D2b) | **ORGANIC-PENDING** | Needs a real guest visit ending. |
+| L7 | Genuine guest arms GUEST after 30 min (not over-corrected) | **ORGANIC-PENDING** | Needs a real guest in a designated room ≥ 30 min. |
+| L8 | **Repaired identity check excludes a known resident in a guest room** | **ORGANIC-PENDING (the headline)** | The discriminating proof the dead oracle is alive. Needs a resident in Guest Bedroom 1 or Upstairs Guestroom; boot INFO log will carry the known-person verdict. Re-check on return (Wed PM at latest). |
+
+**Config correction verified live:** the designated guest-room set is now exactly **Guest Bedroom 1**
+and **Upstairs Guestroom** (both `state: loaded`); **Guest Bedroom 1 Bathroom** loaded and unflagged.
+
+**Deploy-machinery note:** BOARD-CURRENCY-1's post-push write path executed for real for the
+first time on this release — `kanban_ship` marked the cards shipped and `vibememo_ship` wrote
+entry 055 automatically. The forcing function is proven working.
+
+**Cycle stays open until L3/L8 land** on resident return — a cycle is not closed until its
+README carries the discriminating post-restart evidence, and here that evidence is occupancy-gated.
