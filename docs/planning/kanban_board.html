@@ -135,8 +135,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-18T01:59:44-05:00</b></span>
-<span>data <b>7523b7436ed9</b></span>
+<span>generated <b>2026-08-18T02:00:01-05:00</b></span>
+<span>data <b>8fc2caca514a</b></span>
 <span>reconciled <b>2026-08-18</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -152,7 +152,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Waiting on me (Claude) <b>1</b></span>
 <span>Parked <b>8</b></span>
 <span>Done <b>25</b></span>
-<span>Other <b>9</b></span>
+<span>Other <b>10</b></span>
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
@@ -292,7 +292,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="other">
-<h2>Other <span class="count">9</span><span class="hint">unknown status bucket</span></h2>
+<h2>Other <span class="count">10</span><span class="hint">unknown status bucket</span></h2>
 <div class="cards">
 <details class="card" data-id="MEMORY-ROADMAP-1" draggable="true"><summary><span class="id">MEMORY-ROADMAP-1</span><span class="title">Memory epic — forward roadmap + critique + what-survives</span><div class="tagline">memory</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined</div><dt>Next</dt><dd>Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: planned</li><li><code>problem</code>: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="ROADMAP-UNDONE-REVIEW-1" draggable="true"><summary><span class="id">ROADMAP-UNDONE-REVIEW-1</span><span class="title">Review ROADMAP/VISION — surface undone-but-worthwhile</span><div class="tagline">planning</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined</div><dt>Next</dt><dd>Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: planned</li><li><code>problem</code>: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
@@ -303,6 +303,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <details class="card" data-id="UNLOAD-SYMMETRY-TASK-HYGIENE-1" draggable="true"><summary><span class="id">UNLOAD-SYMMETRY-TASK-HYGIENE-1</span><span class="title">Setup/unload symmetry + tracked background tasks (tech-debt hardening)</span><div class="tagline">platform</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:30 · initial</div><dt>Next</dt><dd>Plan a Tier 2 hardening cycle: audit setup/unload symmetry across platforms + wrap background tasks in tracked/cancellable handles. Cross-ref parent-reload-watchdog hazard.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: async_on_unload used in only 2 sites; untracked background tasks — both match known URA bug classes (reload-safety, task leak). One hardening cycle.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="CONFIG-SUBENTRIES-MIGRATION-1" draggable="true"><summary><span class="id">CONFIG-SUBENTRIES-MIGRATION-1</span><span class="title">Config subentries migration (flat 34-entry -&gt; subentries)</span><div class="tagline">platform</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:30 · initial</div><dt>Next</dt><dd>No action now (parked-with-trigger).</dd><dt>Forensic (3)</dt><dd><ul class="forensic"><li><code>column</code>: parked</li><li><code>problem</code>: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology but the migration carries real risk for MEDIUM value.</li><li><code>parked_reason</code>: MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is needed anyway, or HA deprecates the flat pattern.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="ENTITYDESC-RUNTIMEDATA-HYGIENE-1" draggable="true"><summary><span class="id">ENTITYDESC-RUNTIMEDATA-HYGIENE-1</span><span class="title">EntityDescription + runtime_data hygiene (opportunistic)</span><div class="tagline">platform</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:30 · initial</div><dt>Next</dt><dd>Fold into the next platform/coordinator cycle that already edits the target files.</dd><dt>Forensic (3)</dt><dd><ul class="forensic"><li><code>column</code>: parked</li><li><code>problem</code>: EntityDescription + runtime_data patterns not adopted; low-value on its own.</li><li><code>parked_reason</code>: Opportunistic — attach to the next coordinator touch rather than a dedicated cycle.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
+<details class="card" data-id="SUITE-ORDER-POLLUTION-1" draggable="true"><summary><span class="id">SUITE-ORDER-POLLUTION-1</span><span class="title">Presence tests fail order-dependently in large batches (suite hygiene)</span><div class="tagline">platform</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 03:00 · initial</div><dt>Next</dt><dd>Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
 </main>
@@ -324,7 +325,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>7523b7436ed9</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>8fc2caca514a</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

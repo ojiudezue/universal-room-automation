@@ -4351,6 +4351,22 @@ cards:
   parked_reason: Opportunistic — attach to the next coordinator touch rather than a dedicated cycle.
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
+- id: SUITE-ORDER-POLLUTION-1
+  title: Presence tests fail order-dependently in large batches (suite hygiene)
+  column: inbox
+  thread: platform
+  created: 2026-08-18 03:00
+  updated: 2026-08-18 03:00
+  refinement_status: initial
+  problem: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests)
+    PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from
+    some other test file leaking module state. Pre-existing on develop (confirmed pre-merge). Makes the
+    suite baseline count noisy (contributes to the ~25 flaky failures) and can mask real regressions.
+  origin: 2026-08-18 v5.81.0 pre-deploy gate — 6 batch failures traced to pre-existing order pollution,
+    not the cycle
+  next: Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds
+    under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
+  refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
