@@ -478,7 +478,7 @@ cards:
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
   thread: process
-  status: shipped_organic
+  status: done
   approval: explicit
   approved_by: operator 2026-08-09
   tags:
@@ -533,9 +533,9 @@ cards:
     note: simplest version (banner) was REJECTED by operator as not a forcing function; the marginal cost
       of rung 1 over the banner is one gate in a script that already has one (deploy.sh:32-36)
   knobs: none new (uses existing meta.last_reconciled)
-  next: 'MERGED to develop 2026-08-09 (0b4a22592). Rungs 1+2 live in scripts/deploy.sh. ORGANIC PROOF
-    OPEN: the post-push write path has never executed for real — the next release is its first true run.
-    Failure there is contained (warn + exit 0, release unaffected). Rung 3 rides KHOST-1.'
+  next: 'DONE. Organic proof LANDED 2026-08-17: the post-push write path executed for real for the first
+    time on the v5.79.0 deploy — kanban_ship marked 2 cards shipped + vibememo_ship wrote entry 055 automatically.
+    The forcing function is proven end-to-end.'
   review_record_2026_08_09: 'Reviewed DO-NOT-SHIP -> fixed -> re-verified. H1 YAML reflow: safe_dump round-trip
     rewrote the real board 1296->1455 lines, re-wrapping every card''s prose at 80 cols. Replaced with
     a textual line-anchored writer (parse to VALIDATE, edit as TEXT) — NOT ruamel, which is not installed
@@ -563,6 +563,9 @@ cards:
     "diagnostic" only, unrelated. BACKLOG.md: no match. Planning docs: v4.7.10 deploy_sh retrofit is the
     precedent for HOW deploy.sh gets changed, cited. Catalogs: n/a (process, not a presence primitive).
     NEW, not duplicate.'
+  updated: 2026-08-17 23:12
+  created: 2026-08-09 00:00
+  refinement_status: refined
 - id: WATCHDOG-INERT-1
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
@@ -2212,8 +2215,10 @@ cards:
   - 'Doctrine: memory-first diagnostics -> MEMORY-FIRST-DIAGNOSTICS-1 (skills amended 2026-08-14)'
   - 'Future (architecture, unscheduled): batch adjacency-graph refresh; redaction enable (20k-row trigger);
     NM consumer deepening'
-  next: Land Stage 2 (compactor build -> 2 reviews -> deploy); then adjudicate MEMORY-WRITERS-1 top-2
-    writers.
+  next: 'NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see
+    MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the
+    top 1-2 episode writers (fan-release retro-phantom + away_transition_blocked, the latter firing but
+    rare: 4 rows). Its gate ("after compactor ships") is satisfied, so it is actionable now.'
   refs:
   - docs/planning/VISION_hierarchical_memory.md
   - docs/planning/ARCHITECTURE_hierarchical_memory.md
@@ -2221,6 +2226,14 @@ cards:
   - docs/planning/AUDIT_memory_handbuild_study_a.md
   - docs/reviews/code-review/memory_mvp_tier2db.md
   - docs/planning/AUDIT_memory_retro_value.md
+  updated: 2026-08-17 23:10
+  created: 2026-08-05 00:00
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: we wanted every part of the house (each room, zone, the whole house) to keep a usable memory
+    of what happened to it, instead of events scattered and never summarised. Solution: build it in stages
+    — the raw event writers, then the nightly summariser (both shipped and live), then fill the gaps where
+    events aren''t being recorded. Not blocked; the next piece is the gap-filling writers.'
 - id: MEMORY-COMPACTOR-1
   parent: MEMORY-PROGRAM-EPIC
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume
@@ -2242,8 +2255,10 @@ cards:
     1 trim #1) OR facts() seeded set proves inadequate. Check episode row counts before dismissing.'
   organic_open: 'Stage-1 acceptance still open: the next organic D2 demotion must retro-adjudicate its
     creation episode within one cycle (live DB check) — verify + write back to this card.'
-  next: Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner
-    from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
+  next: 'ORGANIC CONFIRMED 2026-08-17: compactor runs nightly (wired __init__.py:2031, after incremental_vacuum),
+    wrote 14 memory_facts at 02:30 CT today; memory_facts totals 53 rows across 08-15/16/17. Trigger long
+    met (exterior_track 1327, actuation_conflict 999, occupancy_phantom 73, fan_transition_suppressed
+    54 — all >50). Nothing pending here; move toward done.'
   refs:
   - docs/planning/MVP_hierarchical_memory.md
   - docs/planning/ARCHITECTURE_hierarchical_memory.md
@@ -2266,6 +2281,14 @@ cards:
   live_validation_2026_08_14: 'L1/L2/L3/L5 PASS at boot (20 facts, 3 topics, coverage stamp verified,
     episodes preserved). Organic open: L4 first nightly 02:30 tick. Entity-id correction: device-prefixed
     ura_coordinator_manager_*.'
+  updated: 2026-08-17 23:10
+  created: 2026-08-11 00:00
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: the house records thousands of raw memory events but never boils them down, so a reader
+    (or the rooms themselves) can''t consult a compact history — the volume just grows. Solution: a nightly
+    job that reads the raw events and writes a small set of summarised facts. SHIPPED and running — it
+    compressed today''s events into 14 summary facts at 2:30am.'
 - id: MEMORY-FIRST-DIAGNOSTICS-1
   parent: MEMORY-PROGRAM-EPIC
   title: Memory-first diagnostics doctrine — memory_query is the FIRST surface checked in any investigation/trace,
@@ -2339,8 +2362,9 @@ cards:
   constraints:
   - each writer is a NEW producer on the write queue — batch discipline (write-flood ghost)
   - writers must not couple to detector gates the way occupancy_phantom did
-  next: 'After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked)
-    for one small Tier-2 cycle; rest parked on the card.'
+  next: 'ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle
+    for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows
+    — fires but rarely). Rest parked on the card. Needs operator go to start.'
   refs:
   - docs/planning/AUDIT_memory_retro_value.md
   folded_2026_08_16: 'FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked,
@@ -2353,6 +2377,14 @@ cards:
     on v5.77.0 the same morning — the bug was live right up to this deploy. L3 not verifiable with an
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
+  updated: 2026-08-17 23:10
+  created: 2026-08-11 00:00
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the house only remembers an event if the detector that watches for it fires — so wherever
+    a detector is missing or blind, that history is simply never recorded (a gap you can''t see). Solution:
+    add a few targeted event-writers for the highest-value gaps, starting with the two most useful, so
+    those histories get captured even when the usual detector misses them.'
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt
@@ -3708,7 +3740,8 @@ cards:
   approval: implied
   why: reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58
     organic criteria
-  next: check + report each
+  next: Recurring morning-sweep placeholder; re-fires each session start. No standing action.
+  updated: 2026-08-17 23:12
 - id: v5.59.0
   title: resolver-legs
   thread: perimeter

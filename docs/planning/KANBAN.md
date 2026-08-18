@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T22:22:57-05:00_ - _Data commit: `431b4c69c9e4`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T22:38:02-05:00_ - _Data commit: `e990d6a7e3b8`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,11 +16,11 @@ _Generated: 2026-08-17T22:22:57-05:00_ - _Data commit: `431b4c69c9e4`_ - _last_r
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 45 |
+| 🚀 Shipped (organic open) | 44 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 6 |
-| ✅ Done | 12 |
+| ✅ Done | 13 |
 
 ## 📥 Inbox (4)
 _raw capture_
@@ -175,9 +175,12 @@ _being built_
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**
+_created 2026-08-05 00:00 · updated 2026-08-17 23:10 · refined_
+- **Problem / Solution:**
+  - Problem: we wanted every part of the house (each room, zone, the whole house) to keep a usable memory of what happened to it, instead of events scattered and never summarised. Solution: build it in stages — the raw event writers, then th...
 - **Origin:** 2026-08-02 - Operator concept -> VISION + ARCHITECTURE + MVP doc set (all finalized 2026-08-02, self-critiqued DRAFT v2).
 - **Why:** Program-level card so the memory work has a home; children carry the stages. URA composition (devices->rooms->zones->house) applied to TIME.
-- **Next:** Land Stage 2 (compactor build -> 2 reviews -> deploy); then adjudicate MEMORY-WRITERS-1 top-2 writers.
+- **Next:** NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the top 1-2 episode writers (fan-release retro-...
 - **Refs:** docs/planning/VISION_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/planning/MVP_hierarchical_memory.md; docs/planning/AUDIT_memory_handbuild_study_a.md; docs/reviews/code-review/memory_mvp_tier2db.md; docs/planning/AUDIT_memory_retro_value.md
 - **Forensic keys (1):**
   - `stages`: Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")
@@ -187,7 +190,7 @@ _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (45)
+## 🚀 Shipped (organic open) (44)
 _live, awaiting proof_
 
 ### `GUEST-ROOM-CONFIG-1` - Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)
@@ -258,24 +261,6 @@ _refined ×3_
   - `invariant`: I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck's return set and every exposed entity attribute are BYTE-IDENTICAL to t...
   - `riskiest`: _detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND occupancy_sensors (the P15 defensive case, occupancy_s...
   - `DEDUPE_2026_08_09`: Four-surface adjacency sweep run before creating this card. Board: adjacent to STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 ...
-
-### `BOARD-CURRENCY-1` - Forcing-function ladder so the board (and vibememo) cannot lag shipped work
-thread: **process** - status: **shipped_organic** - approval: **explicit**
-- **Origin:** 2026-08-09 - operator on the stale board: "A banner is not a forcing function. Is there a harder one? A kanban that does not keep current is fairly useless" -> then "yes deploy gate with softer backups as well (the other 2 or 3). We shou...
-- **Why:** Board reconciliation is the ONLY step in the deploy ritual with no forcing function. deploy.sh refuses without tests and without a README; NOTHING refuses without a board update, so it is the only step running on willpower — and it rotte...
-- **Next:** MERGED to develop 2026-08-09 (0b4a22592). Rungs 1+2 live in scripts/deploy.sh. ORGANIC PROOF OPEN: the post-push write path has never executed for real — the next release is its first true run. Failure there is contained (warn + exit 0, ...
-- **Tags:** numbers-get-knobs, institutional-context
-- **Sibling of:** KHOST-1
-- **Parsimony:** [BUILD] the board silently lags shipped work, so picking "next" off it can rebuild already-shipped features
-- **Refs:** docs/planning/PLANNING_v4.7.10_deploy_sh_gitea_retrofit.md (precedent for modifying deploy.sh); scripts/deploy.sh:32-36 (existing hard-gate pattern to mirror); .claude/skills/ura-kanban/SKILL.md (Forcing functions section)
-- **Forensic keys (7):**
-  - `ladder`: RUNG 1 (HARD — the forcing function): deploy.sh gains --cards ID[,ID...]. REFUSES to deploy when absent, printing current in_progress/review cards as candidates. --no-cards escape for pure-docs releases. On success it WRITES status: ship...
-  - `RUNG5_DURABILITY_GAP`: The 01:23 job is SESSION-ONLY — in-memory, dies when the Claude session exits, and auto-expires after 7 days. So it does NOT yet fully solve the KHOST-1 miss: if the session ends before 01:23, the overnight pass silently does not happen ...
-  - `scope_note`: Rung 1 hardens only the SHIPPED transition. pre_planning->planned->in_progress stays soft (turn-end hook). Deliberate: every card found stale on 2026-08-09 was shipped work the board still called "build" — the rot is concentrated exactly...
-  - `review_record_2026_08_09`: Reviewed DO-NOT-SHIP -> fixed -> re-verified. H1 YAML reflow: safe_dump round-trip rewrote the real board 1296->1455 lines, re-wrapping every card's prose at 80 cols. Replaced with a textual line-anchored writer (parse to VALIDATE, edit ...
-  - `residual_fragility`: A card whose status: line is quoted (status: "planned") would not match the writer regex — the card is skipped with a WARN rather than silently mis-written. No such card exists today; worth a lint if quoting ever starts.
-  - `meta_note`: The first card this gate marks shipped will most likely be itself.
-  - `DEDUPE_2026_08_09`: Four-surface sweep run. Board: KHOST-1 adjacent (owns rung 3, the generator) — linked, not merged, because rung 1 lives in release machinery not the generator. TRANSIT-DIAG-1 matched on "diagnostic" only, unrelated. BACKLOG.md: no match....
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -455,9 +440,12 @@ thread: **presence** - status: **shipped_organic** - approval: **implied**
 
 ### `MEMORY-COMPACTOR-1` - Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume (trigger: any episode type >50 rows)
 thread: **memory** - status: **shipped_organic** - approval: **explicit**
+_created 2026-08-11 00:00 · updated 2026-08-17 23:10 · refined_
+- **Problem / Solution:**
+  - Problem: the house records thousands of raw memory events but never boils them down, so a reader (or the rooms themselves) can't consult a compact history — the volume just grows. Solution: a nightly job that reads the raw events and wri...
 - **Origin:** 2026-08-02 - operator: "What if each room had memory?" Hierarchical Entity Memory MVP Stage 1 SHIPPED v5.47.0; the daily compactor was deferred until episode volume exists.
 - **Why:** Stage 1 facade + memory_episodes + memory_query service are LIVE (v5.47.0, Tier 2-DB). The distill/correct/redact compaction batch needs rows to compact; the architecture keeps it in full, the MVP deferred only its construction. Untracke...
-- **Next:** Read memory_episodes row counts (ssh ha, mode=ro); if any type >50 -> promote to build (ura-planner from ARCHITECTURE_hierarchical_memory.md compactor section). Else hold.
+- **Next:** ORGANIC CONFIRMED 2026-08-17: compactor runs nightly (wired __init__.py:2031, after incremental_vacuum), wrote 14 memory_facts at 02:30 CT today; memory_facts totals 53 rows across 08-15/16/17. Trigger long met (exterior_track 1327, actu...
 - **Refs:** docs/planning/MVP_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/reviews/code-review/memory_mvp_tier2db.md
 - **Forensic keys (7):**
   - `parent`: MEMORY-PROGRAM-EPIC
@@ -470,9 +458,12 @@ thread: **memory** - status: **shipped_organic** - approval: **explicit**
 
 ### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
 thread: **memory** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-11 00:00 · updated 2026-08-17 23:10 · initial_
+- **Problem / Solution:**
+  - Problem: the house only remembers an event if the detector that watches for it fires — so wherever a detector is missing or blind, that history is simply never recorded (a gap you can't see). Solution: add a few targeted event-writers fo...
 - **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
 - **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
-- **Next:** After compactor ships: pick top 1-2 writers (fan-release retro-phantom + away_transition_blocked) for one small Tier-2 cycle; rest parked on the card.
+- **Next:** ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows — fires but rarely). Rest parked on the ...
 - **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
 - **Refs:** docs/planning/AUDIT_memory_retro_value.md
 - **Forensic keys (3):**
@@ -801,8 +792,9 @@ _I owe something_
 
 ### `SWEEP` - Morning sweep
 thread: **ops** - status: **waiting_me** - approval: **implied**
+_updated 2026-08-17 23:12_
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
-- **Next:** check + report each
+- **Next:** Recurring morning-sweep placeholder; re-fires each session start. No standing action.
 
 ## 🅿️ Parked (6)
 _revisit-trigger set_
@@ -872,8 +864,27 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (12)
+## ✅ Done (13)
 _closed, evidence in refs_
+
+### `BOARD-CURRENCY-1` - Forcing-function ladder so the board (and vibememo) cannot lag shipped work
+thread: **process** - status: **done** - approval: **explicit**
+_created 2026-08-09 00:00 · updated 2026-08-17 23:12 · refined_
+- **Origin:** 2026-08-09 - operator on the stale board: "A banner is not a forcing function. Is there a harder one? A kanban that does not keep current is fairly useless" -> then "yes deploy gate with softer backups as well (the other 2 or 3). We shou...
+- **Why:** Board reconciliation is the ONLY step in the deploy ritual with no forcing function. deploy.sh refuses without tests and without a README; NOTHING refuses without a board update, so it is the only step running on willpower — and it rotte...
+- **Next:** DONE. Organic proof LANDED 2026-08-17: the post-push write path executed for real for the first time on the v5.79.0 deploy — kanban_ship marked 2 cards shipped + vibememo_ship wrote entry 055 automatically. The forcing function is proven...
+- **Tags:** numbers-get-knobs, institutional-context
+- **Sibling of:** KHOST-1
+- **Parsimony:** [BUILD] the board silently lags shipped work, so picking "next" off it can rebuild already-shipped features
+- **Refs:** docs/planning/PLANNING_v4.7.10_deploy_sh_gitea_retrofit.md (precedent for modifying deploy.sh); scripts/deploy.sh:32-36 (existing hard-gate pattern to mirror); .claude/skills/ura-kanban/SKILL.md (Forcing functions section)
+- **Forensic keys (7):**
+  - `ladder`: RUNG 1 (HARD — the forcing function): deploy.sh gains --cards ID[,ID...]. REFUSES to deploy when absent, printing current in_progress/review cards as candidates. --no-cards escape for pure-docs releases. On success it WRITES status: ship...
+  - `RUNG5_DURABILITY_GAP`: The 01:23 job is SESSION-ONLY — in-memory, dies when the Claude session exits, and auto-expires after 7 days. So it does NOT yet fully solve the KHOST-1 miss: if the session ends before 01:23, the overnight pass silently does not happen ...
+  - `scope_note`: Rung 1 hardens only the SHIPPED transition. pre_planning->planned->in_progress stays soft (turn-end hook). Deliberate: every card found stale on 2026-08-09 was shipped work the board still called "build" — the rot is concentrated exactly...
+  - `review_record_2026_08_09`: Reviewed DO-NOT-SHIP -> fixed -> re-verified. H1 YAML reflow: safe_dump round-trip rewrote the real board 1296->1455 lines, re-wrapping every card's prose at 80 cols. Replaced with a textual line-anchored writer (parse to VALIDATE, edit ...
+  - `residual_fragility`: A card whose status: line is quoted (status: "planned") would not match the writer regex — the card is skipped with a WARN rather than silently mis-written. No such card exists today; worth a lint if quoting ever starts.
+  - `meta_note`: The first card this gate marks shipped will most likely be itself.
+  - `DEDUPE_2026_08_09`: Four-surface sweep run. Board: KHOST-1 adjacent (owns rung 3, the generator) — linked, not merged, because rung 1 lives in release machinery not the generator. TRANSIT-DIAG-1 matched on "diagnostic" only, unrelated. BACKLOG.md: no match....
 
 ### `FRIGATE-RETIRE-1` - Retire Frigate-1 — promote Frigate-2 (yolov9t/OpenVINO, zero night ghosts) to primary incl. snapshot engine
 thread: **security** - status: **done** - approval: **approved**
