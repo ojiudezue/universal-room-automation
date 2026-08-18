@@ -2172,6 +2172,17 @@ cards:
     headline + naive fallback + divergence). The original "swap the exterior headcount" is DEAD — KEEP
     BOTH per AUDIT_exterior_census_supersession.md. Dedup repair also DROPPED (probe: buys ~0; it is camera-area
     coverage = an operator config task, not a build).'
+  updated: 2026-08-18 03:15
+  d3_dashboards_done_2026_08_18: 'D3 (P12) exterior dashboards DONE (display-only, no producer change):
+    composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge)
+    added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (Security/Exterior), and the PWA (Presence/House-aggregates,
+    branch census-p12-exterior-dashboard, built+dual-pushed). ENTITY-NAME CORRECTION: the AUDIT_exterior_census_supersession
+    names sensor.exterior_person_tracks_active / exterior_unidentified_persons which DO NOT EXIST; the
+    live entities are sensor.ura_security_coordinator_outside_people_being_tracked (deduped), sensor.universal_room_automation_persons_on_property_exterior
+    (naive floor), sensor.ura_security_coordinator_outside_unidentified_people (unidentified). Use the
+    live IDs, not the audit names. HA writes post_write_verified; PWA build+tests green. KEEP-BOTH preserved.
+    NOTE: PWA change is on a branch/pushed — confirm PWA deploy to go live; HA storage-dashboard cards
+    are live now.'
 - id: EXTERIOR-DWELL-LOITER-1
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by
