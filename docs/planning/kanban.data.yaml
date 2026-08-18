@@ -29,7 +29,7 @@ cards:
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
-  status: inbox
+  status: done
   approval: unreviewed
   origin:
     date: '2026-08-17'
@@ -54,12 +54,14 @@ cards:
   constraints:
   - Docs-only, no code. Verify every rewritten claim against file:line (the drift was caused by docs NOT
     tracking code — do not reintroduce drift).
-  next: Rewrite the 4 drifted sections + 2 absence gaps against current source; cite file:line throughout.
-    Low-risk, high-leverage; can be an overnight-agentic docs pass.
+  next: DONE (673e91b07). PRESENCE_COORDINATOR.md away-veto + LOST-matrix + house-zone OR rewritten; HVAC
+    explainer preset-map ref + HVAC manual §3.1 vacancy override + HVAC-zone-occupancy-source gaps fixed.
+    Orchestrator spot-check confirmed path α "ignores room sensors" vs base "hard gate" — asymmetry correct.
   refs:
   - docs/planning/AUDIT_zone_away_house_vs_hvac.md (7f54068fb)
   - docs/Coordinator/PRESENCE_COORDINATOR.md
   - docs/Coordinator/HVAC_COORDINATOR_MANUAL.md
+  updated: 2026-08-17 23:40
 - id: GUEST-ROOM-CONFIG-1
   title: 'Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)'
   thread: presence
@@ -1959,16 +1961,29 @@ cards:
     the scope.
   - Do NOT start before cycle 1's guest-room gate is live and organically proven — this cycle corroborates
     that gate, so an unproven gate makes it unverifiable.
-  next: 'D0 probe FIRST (gate): 14d of recorder/DB — ura_person_egress_event daily fire counts, confidence
-    histogram, %% with an in-window face sighting, and approach-classified track terminations at egress-adjacent
-    cameras. Go-thresholds in the plan: D1 needs >=30%% face coverage; D2 needs that AND >=3 entry-events/week.
-    Then build D1 ONLY (Tier 2) per the marginal-benefit ruling.'
+  next: 'RESCOPE PENDING OPERATOR: D0 probe rejects the identity path (D1/D2 NO-GO — face coverage <30%
+    even post-suffix-fix). Face-independent D3 (approach-track->egress corroboration, 94%) is GO. Recommend:
+    park D1/D2, build D3 as a census_confidence contribution. Awaiting operator call on the rescope.'
   refs:
   - custom_components/universal_room_automation/transit_validator.py:829-1140
   - custom_components/universal_room_automation/exterior_track_linker.py:766-777
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
+  updated: 2026-08-17 23:40
+  refinement_status: refined
+  d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
+    identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
+    6651 rows over 166d in person_entry_exit_events; ambiguous filtered out pre-persist so 100% high-confidence;
+    person_id 100% NULL = D1 not built). D1 (populate person_id) = NO-GO: face coverage at egress cameras
+    is 0% today AND only ~7% even AFTER the cycle-2 _2-suffix fix (recognized faces cluster on INTERIOR
+    cameras; only 18/218 face-changes in 7d at door/exterior cams) — below the 30% gate; would identify
+    <1 in 10 entries. D2 (guest corroboration) = NO-GO (depends on D1 coverage). D3 (approach-track corroboration)
+    = GO, strong: 220 approach+person exterior tracks, 207 (94%) terminate at an egress-adjacent/door
+    camera, ~18/day, FACE-INDEPENDENT. RESCOPE: park D1/D2 (revisit trigger: door/exterior face coverage
+    >=30% on a re-run); adopt D3 as the cycle deliverable — wire the approach-track->egress signal as
+    a census_confidence CONTRIBUTION to the existing unidentified gate (INV-4 path b), NEVER a third arm.
+    Needs operator go on the rescope.'
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
@@ -2005,6 +2020,12 @@ cards:
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
+  updated: 2026-08-17 23:40
+  d0_impact_2026_08_17: 'D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces —
+    face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement
+    is not viable on current sensing. IF cycle 3 rescopes to the face-independent approach-track signal,
+    revisit whether a FACE-INDEPENDENT interior-count reinforcement (an unknown approach-track that enters
+    raises the interior unknown count) is worth it. Otherwise stays parked until face coverage improves.'
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed
     value'

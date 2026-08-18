@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T22:59:09-05:00_ - _Data commit: `e4559a976765`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T23:00:03-05:00_ - _Data commit: `70b0b42862f8`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-17T22:59:09-05:00_ - _Data commit: `e4559a976765`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 4 |
+| 📥 Inbox | 3 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -20,22 +20,10 @@ _Generated: 2026-08-17T22:59:09-05:00_ - _Data commit: `e4559a976765`_ - _last_r
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 6 |
-| ✅ Done | 18 |
+| ✅ Done | 19 |
 
-## 📥 Inbox (4)
+## 📥 Inbox (3)
 _raw capture_
-
-### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
-thread: **docs** - status: **inbox** - approval: **unreviewed**
-- **Problem / Solution:**
-  - P1 PRESENCE_COORDINATOR.md away-veto section (:1233) documents ONLY the v4.7.14 predicate — missing D8 (face_recognized_count/census_count clauses), the ENTIRE Path β LOST-admitted veto, and the LOST six-state matrix; infer() pseudocode ...
-  - P2 HVAC_MANAGEMENT_EXPLAINER.md:34 preset-map ref stale (:303 -> :780) + stale "guest planned v4.7.x" note. S2 fix refs.
-  - P3 HVAC_COORDINATOR_MANUAL.md §3.1 omits the per-zone vacancy override (hvac.py:1544-1554) forcing away preset while house home. S3 add it.
-  - P4 ABSENCE: no manual documents (a) the ZonePresenceTracker three-tier OR (BLE->sensor->camera) as the house-zone away mechanism, nor (b) that HVAC-zone occupancy = OR of room-level occupied bools (hvac_zones.py:146/546), NOT the zone tr...
-- **Origin:** 2026-08-17 - Operator asked to check manuals against code for house-zone vs HVAC-zone away; AUDIT_zone_away_house_vs_hvac.md (7f54068fb) found 4 drifts.
-- **Why:** These manuals are the institutional-context surface reviewers and planners consult. Stale away-veto docs directly caused wasted cycles this session (assumptions about away logic had to be re-derived from code). Keeping them current is ch...
-- **Next:** Rewrite the 4 drifted sections + 2 absence gaps against current source; cite file:line throughout. Low-risk, high-leverage; can be an overnight-agentic docs pass.
-- **Refs:** docs/planning/AUDIT_zone_away_house_vs_hvac.md (7f54068fb); docs/Coordinator/PRESENCE_COORDINATOR.md; docs/Coordinator/HVAC_COORDINATOR_MANUAL.md
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -151,6 +139,7 @@ _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
 thread: **presence** - status: **planned** - approval: **explicit**
+_updated 2026-08-17 23:40 · refined_
 - **Problem / Solution:**
   - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
   - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
@@ -158,18 +147,23 @@ thread: **presence** - status: **planned** - approval: **explicit**
   - P4 guest must not be thresholded off exterior presence. S4 exterior arrival is a CORROBORATOR only — it may raise confidence in, or shorten the dwell for, a guest-room-gated entry; it may NEVER solo-arm guest. Operator: "Never 'someone i...
 - **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
 - **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
-- **Next:** D0 probe FIRST (gate): 14d of recorder/DB — ura_person_egress_event daily fire counts, confidence histogram, %% with an in-window face sighting, and approach-classified track terminations at egress-adjacent cameras. Go-thresholds in the ...
+- **Next:** RESCOPE PENDING OPERATOR: D0 probe rejects the identity path (D1/D2 NO-GO — face coverage <30% even post-suffix-fix). Face-independent D3 (approach-track->egress corroboration, 94%) is GO. Recommend: park D1/D2, build D3 as a census_conf...
 - **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
 - **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
+- **Forensic keys (1):**
+  - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
+_updated 2026-08-17 23:40_
 - **Problem / Solution:**
   - P1 the interior census derives from cameras+BLE+face and does not currently consume the fact that a specific person was OBSERVED crossing an egress from outside to inside. That crossing is strong, causal evidence a body entered the inter...
 - **Origin:** 2026-08-17 - Split from the egress design discussion: identity-on-egress (scope 1) is a prerequisite; using the resulting exterior->interior transitions to reinforce the interior headcount is scope 2.
 - **Why:** The gate is deliberate: reinforcing interior count with egress data is only sound if the egress identity signal is itself accurate. Building it on an inaccurate scope-1 would inject a new error source into the interior count — the exact ...
 - **Next:** BLOCKED on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof. Then: measure how often egress crossings are NOT already reflected in the interior count (the gap this would fill) before designing.
 - **Refs:** docs/planning/PLANNING_exterior_guest_egress.md; depends-on: EXTERIOR-GUEST-EGRESS-1
+- **Forensic keys (1):**
+  - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
 
 ## 🔨 In progress (1)
 _being built_
@@ -811,8 +805,21 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (18)
+## ✅ Done (19)
 _closed, evidence in refs_
+
+### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
+thread: **docs** - status: **done** - approval: **unreviewed**
+_updated 2026-08-17 23:40_
+- **Problem / Solution:**
+  - P1 PRESENCE_COORDINATOR.md away-veto section (:1233) documents ONLY the v4.7.14 predicate — missing D8 (face_recognized_count/census_count clauses), the ENTIRE Path β LOST-admitted veto, and the LOST six-state matrix; infer() pseudocode ...
+  - P2 HVAC_MANAGEMENT_EXPLAINER.md:34 preset-map ref stale (:303 -> :780) + stale "guest planned v4.7.x" note. S2 fix refs.
+  - P3 HVAC_COORDINATOR_MANUAL.md §3.1 omits the per-zone vacancy override (hvac.py:1544-1554) forcing away preset while house home. S3 add it.
+  - P4 ABSENCE: no manual documents (a) the ZonePresenceTracker three-tier OR (BLE->sensor->camera) as the house-zone away mechanism, nor (b) that HVAC-zone occupancy = OR of room-level occupied bools (hvac_zones.py:146/546), NOT the zone tr...
+- **Origin:** 2026-08-17 - Operator asked to check manuals against code for house-zone vs HVAC-zone away; AUDIT_zone_away_house_vs_hvac.md (7f54068fb) found 4 drifts.
+- **Why:** These manuals are the institutional-context surface reviewers and planners consult. Stale away-veto docs directly caused wasted cycles this session (assumptions about away logic had to be re-derived from code). Keeping them current is ch...
+- **Next:** DONE (673e91b07). PRESENCE_COORDINATOR.md away-veto + LOST-matrix + house-zone OR rewritten; HVAC explainer preset-map ref + HVAC manual §3.1 vacancy override + HVAC-zone-occupancy-source gaps fixed. Orchestrator spot-check confirmed pat...
+- **Refs:** docs/planning/AUDIT_zone_away_house_vs_hvac.md (7f54068fb); docs/Coordinator/PRESENCE_COORDINATOR.md; docs/Coordinator/HVAC_COORDINATOR_MANUAL.md
 
 ### `GUEST-ROOM-CONFIG-1` - Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)
 thread: **presence** - status: **done** - approval: **explicit**
