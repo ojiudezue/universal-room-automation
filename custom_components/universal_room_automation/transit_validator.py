@@ -1087,6 +1087,14 @@ class EgressDirectionTracker:
         census = self.hass.data.get(DOMAIN, {}).get("census")
         if census is None:
             return None
+        # Kill-switch (2026-08-18): dormant by default. When False the
+        # resolver returns None immediately so no identity is stamped and
+        # no census register call fires downstream.
+        try:
+            if not census._is_egress_identity_enabled():
+                return None
+        except Exception:  # noqa: BLE001 — defensive; unknown census shape
+            return None
         try:
             face_sensor_id = census._resolve_face_entity_id(stem)
         except Exception:  # noqa: BLE001 — defensive; helper is fail-CLOSED
@@ -1114,22 +1122,32 @@ class EgressDirectionTracker:
         try:
             if last_changed.tzinfo is None:
                 last_changed = last_changed.replace(tzinfo=dt_util.UTC)
-            age = abs((timestamp - last_changed).total_seconds())
+            # A-LOW-1 / C-LOW-3 (2026-08-18): sign-symmetric with the
+            # census's `_get_egress_face_ids_fresh` — `age < 0` (face
+            # recognized AFTER the crossing time; clock skew / future
+            # timestamp) is treated as stale, not "fresh in the future".
+            age = (timestamp - last_changed).total_seconds()
         except (TypeError, AttributeError):
             return None
-        if age > FACE_MATCH_WINDOW_S:
+        if age < 0 or age > FACE_MATCH_WINDOW_S:
             _LOGGER.debug(
-                "egress-face %s dropped: age=%.1fs > window=%ds",
+                "egress-face %s dropped: age=%.1fs outside [0, %ds]",
                 val, age, FACE_MATCH_WINDOW_S,
             )
             return None
-        # Fail-open person-tracker veto (mirrors camera_census.py:3346-3366).
-        # Frigate face names are first-name (e.g. "Oji"); the person entity
-        # is `person.<first_name_lower>` on the URA person namespace. Fail
-        # open when the person entity is missing/unknown so we don't
-        # silently drop identity in ill-configured setups.
-        slug = val.strip().lower().split("_", 1)[0]
-        person_entity_id = f"person.{slug}"
+        # A-HIGH-1 fix: canonicalize to the URA person-slug namespace via
+        # the census (uses tracked_persons config). Same namespace as
+        # `_get_face_recognized_person_names`, `ble_persons`,
+        # `census.identified_persons`, the DB `person_id` column, and
+        # `person.<slug>` — so veto, DB write, census union, and any
+        # downstream joins all agree.
+        canonical = census._canonical_person_slug(val)
+        if not canonical:
+            return None
+        # Fail-open person-tracker veto (mirrors camera_census.py:3456).
+        # Uses the CANONICAL URA slug so it queries the real HA entity
+        # (`person.oji_udezue`), not a first-name slug that never exists.
+        person_entity_id = f"person.{canonical}"
         try:
             person_state = self.hass.states.get(person_entity_id)
         except Exception:  # noqa: BLE001
@@ -1138,10 +1156,10 @@ class EgressDirectionTracker:
             _LOGGER.debug(
                 "egress-face %s dropped: %s=not_home "
                 "(stale-face veto, mirrors census)",
-                val, person_entity_id,
+                canonical, person_entity_id,
             )
             return None
-        return val
+        return canonical
 
     async def _resolve_direction(
         self, egress_camera_id: str, egress_timestamp: datetime
@@ -1216,17 +1234,34 @@ class EgressDirectionTracker:
         # Feed the census union so the next census tick fuses this
         # identity with face_ids/ble_ids (I1: cardinality of the union,
         # not sum). Bounded by EGRESS_FACE_UNION_TTL_S on the census
-        # side; normalization to Frigate first-name slug happens there.
-        if person_id:
+        # side; canonicalization to URA person-slug happens there.
+        #
+        # B-CRIT-1 / B-HIGH-1 (2026-08-18) direction gating:
+        #   - direction == "entry"    -> register (person came IN)
+        #   - direction == "exit"     -> EVICT any prior registration for
+        #                                this identity (walked-in-then-out
+        #                                within the TTL) — do NOT register.
+        #   - direction == "ambiguous"-> neither register nor evict (match
+        #                                the DB-write gate at :1233; low-
+        #                                confidence crossings must not
+        #                                mutate the household census).
+        # Registering on exit would inject a phantom identified person
+        # into the census union for EGRESS_FACE_UNION_TTL_S after every
+        # legitimate departure — surfacing as a phantom guest via
+        # `identified_count`/`total_persons` → `_get_guest_count`.
+        if person_id and direction in ("entry", "exit"):
             census = self.hass.data.get(DOMAIN, {}).get("census")
             if census is not None:
                 try:
-                    census.register_egress_face(person_id, egress_timestamp)
+                    if direction == "entry":
+                        census.register_egress_face(person_id, egress_timestamp)
+                    else:  # direction == "exit"
+                        census.evict_egress_face(person_id)
                 except Exception:  # noqa: BLE001 — census register is
                     # best-effort; do not fail the egress emit path.
                     _LOGGER.debug(
-                        "egress-face census register failed for %s",
-                        person_id, exc_info=True,
+                        "egress-face census %s failed for %s",
+                        direction, person_id, exc_info=True,
                     )
 
         # Log to database if not ambiguous

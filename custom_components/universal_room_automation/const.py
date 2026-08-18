@@ -2162,6 +2162,16 @@ EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
 FACE_MATCH_WINDOW_S: Final = 60
 EGRESS_FACE_UNION_TTL_S: Final = 300
 
+# EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
+# identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
+# operator (mirrors D2 PROTECT_CORROBORATION_ENABLED). Kill-switch semantics:
+# when False, `_resolve_egress_face_identity` returns None immediately AND
+# `register_egress_face` is a no-op AND `_get_egress_face_ids_fresh` returns
+# an empty set. Net effect: `person_id` on `ura_person_egress_event` stays
+# None; both census fuse sites are byte-identical to pre-cycle behaviour.
+CONF_EGRESS_IDENTITY_ENABLED: Final = "egress_identity_enabled"
+DEFAULT_EGRESS_IDENTITY_ENABLED: Final = False
+
 # v3.5.2 Census Mismatch
 CENSUS_MISMATCH_THRESHOLD: Final = 2
 CENSUS_MISMATCH_DURATION_MINUTES: Final = 10

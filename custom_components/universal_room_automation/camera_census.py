@@ -61,6 +61,8 @@ from .const import (
     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
     # v3.10.1 Census v2
     CONF_ENHANCED_CENSUS,
+    CONF_EGRESS_IDENTITY_ENABLED,
+    DEFAULT_EGRESS_IDENTITY_ENABLED,
     CONF_CENSUS_HOLD_INTERIOR,
     CONF_CENSUS_HOLD_EXTERIOR,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
@@ -2730,21 +2732,10 @@ class PersonCensus:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _normalize_person_name(name: Any) -> str:
-        """Normalize a person identifier to the Frigate first-name-slug
-        namespace (I5, plan-review C-MED-2).
-
-        The census union at :1855 receives `face_ids` as raw Frigate
-        face-library names (e.g. ``"Oji"``) and `ble_ids` as URA person
-        slugs (e.g. ``"oji_udezue"``); the enhanced house recompute
-        receives `face_recognized` as URA slugs and `ble_persons` also as
-        URA slugs. Without normalization, the same resident can appear as
-        multiple set members and inflate identified_count. The canonical
-        form used everywhere the egress-face set participates is:
-        ``lower().strip().split('_', 1)[0]`` — the leading token,
-        lowercase — which matches the Frigate face-library key used by
-        `_resolve_last_camera_entity_id` (`:2601`).
-        """
+    def _first_token_lower(name: Any) -> str:
+        """Low-level helper: strip / lowercase / take pre-underscore token.
+        Used for FIRST-TOKEN matching against tracked-persons slugs — NOT
+        the canonical namespace itself (see `_canonical_person_slug`)."""
         if not name:
             return ""
         s = str(name).strip().lower()
@@ -2752,17 +2743,92 @@ class PersonCensus:
             return ""
         return s.split("_", 1)[0]
 
+    def _get_tracked_person_slugs(self) -> list[str]:
+        """Return the URA-slug list from the integration config (with
+        the ``person.`` prefix stripped). Mirrors the derivation in
+        `_get_face_recognized_person_names` (:3402-3411)."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                raw = merged.get("tracked_persons", []) or []
+                out: list[str] = []
+                for p in raw:
+                    slug = str(p).replace("person.", "").strip().lower()
+                    if slug:
+                        out.append(slug)
+                return out
+        return []
+
+    def _canonical_person_slug(self, name: Any) -> str:
+        """Canonicalize a person identifier to the URA person-slug namespace
+        (Review A-HIGH-1 / A-MED-1 / B-MED-1 / B-MED-2 fix).
+
+        The URA slug (e.g. ``"oji_udezue"``) is the namespace used by
+        `_get_face_recognized_person_names` (returns URA slugs) and by
+        `ble_persons` — both consumed at the enhanced-house recompute
+        (:3510). Publishing `identified_persons`, the DB `person_id`,
+        and the veto's `person.<slug>` lookup on any OTHER namespace
+        (e.g. first-name only) produces silent divergence — the veto
+        never fires against `person.oji_udezue`, DB rows carry `"Oji"`
+        while census carries `"oji"`, and residents whose first names
+        collide are counted once.
+
+        Mapping rules:
+          - Empty / None -> "".
+          - If ``name`` (lowercased, stripped) matches a tracked_persons
+            slug directly -> return that slug (already URA-canonical).
+          - Else: match by FIRST TOKEN against each tracked slug's first
+            token (Frigate face-library first names like ``"Oji"`` map
+            to ``"oji_udezue"``).
+          - Else: pass-through the lowercased/stripped input. Preserves
+            unmapped identifiers rather than collapsing them silently.
+        """
+        if not name:
+            return ""
+        s = str(name).strip().lower()
+        if not s:
+            return ""
+        tracked = self._get_tracked_person_slugs()
+        # Direct-match (already URA-canonical, incl. any casing).
+        if s in tracked:
+            return s
+        # First-token match.
+        head = s.split("_", 1)[0]
+        for slug in tracked:
+            if slug.split("_", 1)[0] == head:
+                return slug
+        # Fallback: preserve the (lowercased) identifier verbatim.
+        return s
+
+    # Back-compat alias — external callers historically used the old name.
+    def _normalize_person_name(self, name: Any) -> str:
+        return self._canonical_person_slug(name)
+
     def _normalize_name_set(self, names) -> set[str]:
-        """Return the input iterable normalized via _normalize_person_name,
-        dropping empties. Safe on None."""
+        """Canonicalize each name to the URA person-slug namespace and
+        return as a set. Empties dropped. Safe on None."""
         out: set[str] = set()
         if not names:
             return out
         for n in names:
-            norm = self._normalize_person_name(n)
+            norm = self._canonical_person_slug(n)
             if norm:
                 out.add(norm)
         return out
+
+    def _is_egress_identity_enabled(self) -> bool:
+        """Read the EGRESS_IDENTITY_ENABLED kill switch from options
+        (2026-08-18). Default False (dormant) — see const.py rationale."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(
+                    merged.get(
+                        CONF_EGRESS_IDENTITY_ENABLED,
+                        DEFAULT_EGRESS_IDENTITY_ENABLED,
+                    )
+                )
+        return DEFAULT_EGRESS_IDENTITY_ENABLED
 
     def register_egress_face(
         self, name: str, ts: datetime | None = None,
@@ -2771,15 +2837,37 @@ class PersonCensus:
         fuses this identity for up to ``EGRESS_FACE_UNION_TTL_S``.
 
         Called by ``transit_validator.EgressDirectionTracker`` at emit
-        time after ``_resolve_egress_face_identity`` returns a name.
-        Names are normalized to the Frigate first-name slug namespace
-        (I5) so union with `face_ids`/`ble_ids` deduplicates by identity.
+        time after ``_resolve_egress_face_identity`` returns a slug.
+        The name is canonicalized to the URA person-slug namespace (I5)
+        so union with `face_ids`/`ble_ids` deduplicates by identity.
         No-op on empty/blank input.
+
+        Thread-safety (C-LOW-2): MUST be called from the event loop;
+        `self._egress_face_ids` dict access is not thread-safe.
+
+        Kill-switch: no-op when EGRESS_IDENTITY_ENABLED is False.
         """
-        norm = self._normalize_person_name(name)
+        if not self._is_egress_identity_enabled():
+            return
+        norm = self._canonical_person_slug(name)
         if not norm:
             return
-        self._egress_face_ids[norm] = ts or dt_util.now()
+        # A-LOW-2 (2026-08-18): normalize tz-naive timestamps to UTC so a
+        # later `(now - ts)` in `_get_egress_face_ids_fresh` cannot raise
+        # TypeError and silently drop the entry.
+        if ts is None:
+            ts = dt_util.now()
+        elif getattr(ts, "tzinfo", None) is None:
+            _LOGGER.info(
+                "register_egress_face: coercing tz-naive ts to UTC for %s",
+                norm,
+            )
+            ts = ts.replace(tzinfo=dt_util.UTC)
+        self._egress_face_ids[norm] = ts
+        # C-LOW-1: register-time TTL prune backstop so the dict stays
+        # bounded even if readers stop firing.
+        if len(self._egress_face_ids) > 32:
+            self._get_egress_face_ids_fresh(dt_util.utcnow())
         _LOGGER.info(
             "Egress-face identity registered for census union: %s "
             "(TTL=%ds)",
@@ -2787,11 +2875,34 @@ class PersonCensus:
             EGRESS_FACE_UNION_TTL_S,
         )
 
+    def evict_egress_face(self, name: str) -> None:
+        """Remove any prior egress-face registration for ``name`` (B-CRIT-1
+        eviction on exit — a resident who walked in then walked out
+        within the TTL must not remain in the census union).
+
+        No-op on empty/blank input or when the identity is not present.
+        """
+        norm = self._canonical_person_slug(name)
+        if not norm:
+            return
+        if self._egress_face_ids.pop(norm, None) is not None:
+            _LOGGER.info(
+                "Egress-face identity evicted from census union: %s "
+                "(exit crossing)",
+                norm,
+            )
+
     def _get_egress_face_ids_fresh(self, now: datetime) -> set[str]:
         """Return the currently fresh egress-face names, pruning entries
         older than ``EGRESS_FACE_UNION_TTL_S``. Read at BOTH census union
         writers (raw `:1855` and enhanced house recompute) per
-        plan-review C-CRIT-1 — fusing only one is a house-level no-op."""
+        plan-review C-CRIT-1 — fusing only one is a house-level no-op.
+
+        Kill-switch: returns an empty set when EGRESS_IDENTITY_ENABLED is
+        False, so both fuse sites are byte-identical to pre-cycle behaviour.
+        """
+        if not self._is_egress_identity_enabled():
+            return set()
         if not self._egress_face_ids:
             return set()
         ttl = EGRESS_FACE_UNION_TTL_S
@@ -3539,6 +3650,15 @@ class PersonCensus:
         camera_total_pre_cancel = int(
             getattr(self, "_last_camera_total_pre_cancel", 0)
         )
+        # B-LOW-1 (2026-08-18): post-egress-face-fuse, `identified_count`
+        # may exceed `camera_total_pre_cancel` by up to
+        # |egress_face_ids| — that IS the purpose of the fuse (bridging
+        # the transit gap when a resident has crossed but is not yet on
+        # interior cameras). `max()` here therefore RAISES the ceiling
+        # rather than clipping identity, i.e. `raw_total_ceiling` is the
+        # union of physical evidence and identity evidence, both trusted.
+        # The clamp below (`min(additive, ceiling)`) still prevents guest
+        # inflation on top of that identified base.
         raw_total_ceiling = max(camera_total_pre_cancel, identified_count)
         additive_total = identified_count + held_unidentified
         clamped_total = min(additive_total, raw_total_ceiling)

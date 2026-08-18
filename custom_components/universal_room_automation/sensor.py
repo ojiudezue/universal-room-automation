@@ -4163,6 +4163,12 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         self._entries: list[dict] = []
         self._last_reset = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
         self._restoring: bool = False
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 observability (2026-08-18).
+        # Cumulative count of entry crossings that stamped a real
+        # (non-None) person_id since HA start. Session-lifetime, not
+        # daily — resets only on restart. Reused sensor per parsimony
+        # (no new entity).
+        self._egress_identities_stamped: int = 0
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to egress events and restore today's count from DB."""
@@ -4195,8 +4201,19 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         if event.data.get("direction") != "entry":
             return
         self._count += 1
+        person_id = event.data.get("person_id")
+        # D1 observability: increment stamped-identity counter each time
+        # an entry crossing carries a real person_id (not None). Used to
+        # verify the fuse is producing identities post-restart.
+        if person_id:
+            self._egress_identities_stamped += 1
+            _LOGGER.debug(
+                "Egress identity stamped on entry: person_id=%s "
+                "(cumulative=%d)",
+                person_id, self._egress_identities_stamped,
+            )
         self._entries.append({
-            "person_id": event.data.get("person_id") or "unidentified",
+            "person_id": person_id or "unidentified",
             "time": event.data.get("timestamp"),
             "egress_camera": event.data.get("egress_camera"),
         })
@@ -4217,10 +4234,31 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return entry details."""
+        """Return entry details.
+
+        Includes EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 observability
+        (2026-08-18): `egress_face_ids_active` (current size of the
+        census `_egress_face_ids` set) and `egress_identities_stamped`
+        (cumulative count of entry crossings with a real `person_id`
+        since HA start). Attributes hung here per parsimony — no new
+        sensor entity.
+        """
+        # Read the live census set-size defensively — census may not be
+        # constructed yet at very early boot.
+        egress_face_ids_active = 0
+        try:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            if census is not None:
+                egress_face_ids_active = len(
+                    getattr(census, "_egress_face_ids", {}) or {}
+                )
+        except Exception:  # noqa: BLE001 — attribute must never raise
+            egress_face_ids_active = 0
         return {
             "entries": self._entries[-20:],
             "last_reset": self._last_reset.isoformat() if self._last_reset else None,
+            "egress_face_ids_active": egress_face_ids_active,
+            "egress_identities_stamped": self._egress_identities_stamped,
         }
 
 

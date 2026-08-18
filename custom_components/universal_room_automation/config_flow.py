@@ -359,6 +359,9 @@ from .const import (
     CONF_MANUAL_DEVICES,
     # v3.10.1: Census v2
     CONF_ENHANCED_CENSUS,
+    # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 kill switch (default OFF).
+    CONF_EGRESS_IDENTITY_ENABLED,
+    DEFAULT_EGRESS_IDENTITY_ENABLED,
     CONF_CENSUS_HOLD_INTERIOR,
     CONF_CENSUS_HOLD_EXTERIOR,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
@@ -2959,6 +2962,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_ENHANCED_CENSUS,
                 default=self._get_current(CONF_ENHANCED_CENSUS, True),
+            ): selector.BooleanSelector(),
+            # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18): kill switch
+            # for the egress-face identity fuse. Default OFF — feature ships
+            # dormant; operator flips ON after live validation. When False:
+            # `person_id` on `ura_person_egress_event` stays None, the
+            # census `_egress_face_ids` set stays empty, and both fuse
+            # sites are byte-identical to pre-cycle behaviour.
+            vol.Optional(
+                CONF_EGRESS_IDENTITY_ENABLED,
+                default=self._get_current(
+                    CONF_EGRESS_IDENTITY_ENABLED,
+                    DEFAULT_EGRESS_IDENTITY_ENABLED,
+                ),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_GUEST_VLAN_SSID,
