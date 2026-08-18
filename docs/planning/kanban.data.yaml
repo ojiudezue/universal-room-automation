@@ -1785,7 +1785,7 @@ cards:
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by
   thread: security
-  status: inbox
+  status: parked
   approval: explicit
   approved_by: operator 2026-08-16 ("Card the security finding. May need more investigation before planning.
     Connect it to our work on Linker and this.") — carded for INVESTIGATION FIRST, not straight to planning.
@@ -1823,21 +1823,29 @@ cards:
   - 'False-positive cost is real and asymmetric: a dwell predicate that fires on a parked delivery driver,
     a gardener, or a stationary camera artifact converts a quiet DIGEST into a CRITICAL page. Measure
     before choosing.'
-  next: 'MEASURE FIRST, per measure-before-you-build — the data already exists. Probe the ~1150 `exterior_track`
-    rows in memory_episodes (one row per CLOSED track; attrs carry duration_s, camera_count, revisit_count,
-    path, classification, identified). Read-only questions: (a) what is the duration_s distribution for
-    tracks currently classified `pass_by`, and is there a genuine long tail? (b) how many single-camera
-    long-duration tracks exist per night, and which cameras produce them? (c) how many are plausibly artifacts
-    (same camera, no motion across hops) versus real dwell? That distribution decides whether a dwell
-    predicate is worth building and where any threshold sits. Note TRACK_CLOSE_IDLE_S=300 caps how long
-    an open track survives without a hop, which may itself truncate the very dwell we want to measure
-    — characterise that interaction in the probe.'
+  next: PARKED pending prerequisites (camera-role gating + revived face-ID + track stitching). Face-ID
+    revival is shared with CENSUS-ACCURACY-1 _2-suffix fix — revisit this card once that ships and face-ID
+    is live.
   refs:
   - custom_components/universal_room_automation/exterior_track_linker.py:705-750
   - custom_components/universal_room_automation/const.py:1842-1875
   - docs/planning/AUDIT_memory_handbuild_compactor_exterior_track.md
   - docs/planning/PLANNING_circling_severity.md
   - docs/planning/PLANNING_circling_label_transition_dispatch.md
+  - docs/planning/PROBE_exterior_dwell_loiter.md (491195ed9)
+  probe_outcome_2026_08_17: 'PROBE DONE (PROBE_exterior_dwell_loiter.md, 491195ed9). RECOMMENDATION: DON''T
+    build a raw duration predicate now. 623 person tracks / 11 days. Hypothesis PARTLY confirmed: dwell
+    DOES leak into pass_by (41 tracks >5min, 4 >20min, max 70min) BUT circling already holds 71 of 133
+    tracks >300s (median 407s), so loitering is only partly invisible. KILLER FINDING: of the 56 newly-catchable
+    tracks (camera_count==1, >300s), 19 (34%) are INTERIOR cameras (master_hallway, upstairs_hall, staircase,
+    playroom, family_room = residents INSIDE), and most perimeter ones are own back_yard/pool. Face-ID
+    is DEAD (2/623 identified) so there is NO resident-vs-stranger signal. A raw predicate would convert
+    quiet DIGESTs into CRITICAL pages on the household itself. Also 300s sits exactly on the TRACK_CLOSE_IDLE_S=300
+    fragmentation seam (107 same-camera pairs <=600s gap) so duration_s is a LOWER BOUND. PREREQUISITES
+    before any dwell predicate: (1) camera-role gating (interior/own-yard/perimeter-approach); (2) resident/stranger
+    signal — REVIVE FACE-ID (this is the SAME _2-suffix fix in CENSUS-ACCURACY-1, so there is a real dependency)
+    OR an allowlist; (3) track stitching across the idle-close seam. THEN threshold >=600s on perimeter-approach
+    cameras only. Merit CONFIRMED but gated on prerequisites — parked, not dropped.'
 - id: EXTERIOR-GUEST-EGRESS-1
   title: 'Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person
     crossing inside can corroborate guest'
