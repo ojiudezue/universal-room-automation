@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T08:29:40-05:00_ - _Data commit: `111a4ad1232a`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T08:33:04-05:00_ - _Data commit: `20564ee4da92`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1231,11 +1231,12 @@ _created 2026-08-18 03:00 · initial_
 
 ### `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` - Promote 3 Camera-Census feature toggles to device switches
 thread: **presence**
-_created 2026-08-18 03:10 · initial_
+_created 2026-08-18 03:10 · updated 2026-08-18 03:40 · refined_
 - **Next:** ura-planner: Tier 2 plan (3 SwitchEntity + persistence + options reconciliation + consumed by presence/transit/census). Then ONE plan review, then build.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `column`: planned
   - `problem`: Three feature toggles are buried in the Camera Census options dialog (options-flow rung 2). Operator wants them as one-tap DEVICE SWITCHES on the URA device (rung 3) for live control + dashboard access. Names must be simple, benefit-firs...
+  - `revised_2026_08_18`: PLAN-REVIEW (PLAN-NEEDS-FIXES, 1 CRIT) reshaped this. REVISED SCOPE: TWO switches only — Presence Face Matching + Name People at Doors. Smart People Counting (enhanced_census) STAYS in options (heaviest/structural at __init__.py:2253, no...
 
 ### `CENSUS-IDENTITY-GROUP-README-1` - Cycle-group README: census/guest/presence-identity program
 thread: **planning**
