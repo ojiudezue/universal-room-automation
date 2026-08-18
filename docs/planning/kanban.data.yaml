@@ -26,6 +26,30 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: MEMORY-ZONE-PHANTOM-WRITER-1
+  thread: memory
+  status: parked
+  approval: unreviewed
+  created: 2026-08-18 02:20
+  updated: 2026-08-18 02:20
+  refinement_status: initial
+  title: 'Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)'
+  problem_solution:
+  - 'Problem: nothing records when an HVAC zone reads occupied while the house is away (the F2 zone-vs-house
+    divergence) — that tier has no memory witnesses at all. Solution: ONE additive writer zone_phantom,
+    copy-adapt of AwayBlockEpisodeTracker (open/close coalescer + boot reconcile), memory-ineligible by
+    construction, rate-bounded. Tier 2, 2 reviews. Knobs: ZONE_PHANTOM_WRITER_ENABLED, ZONE_PHANTOM_MIN_HOLD_S=300
+    (rung 1).'
+  why: Fills the only actionable memory-coverage gap. But there is NO active problem needing it today,
+    so its marginal benefit is low until an F2-shape divergence recurs.
+  constraints:
+  - 'PARKED per marginal-benefit: build only when organic evidence of an F2 zone-vs-house divergence recurs.
+    Do not build speculatively overnight.'
+  next: 'REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build
+    the writer (plan is PLANNING_memory_writers.md).'
+  refs:
+  - docs/planning/PLANNING_memory_writers.md
+  - custom_components/universal_room_automation/memory_writers.py:186
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
   status: planned
@@ -2572,10 +2596,9 @@ cards:
   - 'Doctrine: memory-first diagnostics -> MEMORY-FIRST-DIAGNOSTICS-1 (skills amended 2026-08-14)'
   - 'Future (architecture, unscheduled): batch adjacency-graph refresh; redaction enable (20k-row trigger);
     NM consumer deepening'
-  next: 'NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see
-    MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the
-    top 1-2 episode writers (fan-release retro-phantom + away_transition_blocked, the latter firing but
-    rare: 4 rows). Its gate ("after compactor ships") is satisfied, so it is actionable now.'
+  next: Epic foundation DELIVERED (writers + compactor live). Remaining is optional/parked (zone_phantom).
+    Consider closing the epic to done and opening a new epic for the room-to-room agentic layer when that
+    becomes a priority.
   refs:
   - docs/planning/VISION_hierarchical_memory.md
   - docs/planning/ARCHITECTURE_hierarchical_memory.md
@@ -2583,7 +2606,7 @@ cards:
   - docs/planning/AUDIT_memory_handbuild_study_a.md
   - docs/reviews/code-review/memory_mvp_tier2db.md
   - docs/planning/AUDIT_memory_retro_value.md
-  updated: 2026-08-17 23:10
+  updated: 2026-08-18 02:20
   created: 2026-08-05 00:00
   refinement_status: refined
   problem_solution:
@@ -2591,6 +2614,11 @@ cards:
     of what happened to it, instead of events scattered and never summarised. Solution: build it in stages
     — the raw event writers, then the nightly summariser (both shipped and live), then fill the gaps where
     events aren''t being recorded. Not blocked; the next piece is the gap-filling writers.'
+  completion_2026_08_18: 'EPIC ESSENTIALLY COMPLETE: Stage-1 writers (D4-D7) shipped v5.78.0; Stage-2
+    compactor shipped + running nightly (14 memory_facts 02:30 CT 08-17); MEMORY-WRITERS-1 substantially
+    shipped (top-2 already live). Only optional remainder: zone_phantom writer (parked, MEMORY-ZONE-PHANTOM-WRITER-1,
+    organic-gated). The epic delivered its foundation — consultable compressed history per node. Room-to-room
+    agentic workflow (the operator vision) is a future epic on top of this, not part of MEMORY-WRITERS-1.'
 - id: MEMORY-COMPACTOR-1
   parent: MEMORY-PROGRAM-EPIC
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume
@@ -2700,7 +2728,7 @@ cards:
   title: 'Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors
     fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)'
   thread: memory
-  status: shipped_organic
+  status: done
   shipped_version: v5.78.0
   approval: unreviewed
   origin:
@@ -2719,9 +2747,7 @@ cards:
   constraints:
   - each writer is a NEW producer on the write queue — batch discipline (write-flood ghost)
   - writers must not couple to detector gates the way occupancy_phantom did
-  next: 'ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle
-    for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows
-    — fires but rarely). Rest parked on the card. Needs operator go to start.'
+  next: DONE — top-2 writers shipped v5.78.0. Optional zone_phantom parked (MEMORY-ZONE-PHANTOM-WRITER-1).
   refs:
   - docs/planning/AUDIT_memory_retro_value.md
   folded_2026_08_16: 'FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked,
@@ -2734,7 +2760,7 @@ cards:
     on v5.77.0 the same morning — the bug was live right up to this deploy. L3 not verifiable with an
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
-  updated: 2026-08-17 23:10
+  updated: 2026-08-18 02:20
   created: 2026-08-11 00:00
   refinement_status: initial
   problem_solution:
@@ -2742,6 +2768,14 @@ cards:
     a detector is missing or blind, that history is simply never recorded (a gap you can''t see). Solution:
     add a few targeted event-writers for the highest-value gaps, starting with the two most useful, so
     those histories get captured even when the usual detector misses them.'
+  scope_reset_2026_08_18: 'PLAN (PLANNING_memory_writers.md) found the card premise STALE: the named "top
+    1-2 writers" phantom_retro + away_transition_blocked are BOTH ALREADY SHIPPED in v5.78.0 (D4 memory_writers.py:101,
+    D5 AwayBlockEpisodeTracker :186). The "4 rows" of away_transition_blocked is the SHAPE of its 300s
+    min-hold open/close coalescing (one row per sustained block), NOT a coverage bug. D7 house_state_transition
+    already carries census/unidentified/excluded/veto so guest-FP questions are natively answerable. So
+    MEMORY-WRITERS-1 is SUBSTANTIALLY SHIPPED — closing as done. The ONE remaining actionable gap (zone_phantom,
+    the F2 zone-vs-house divergence with zero witnesses) is LOW marginal benefit today (no active problem)
+    — PARKED with organic trigger, see MEMORY-ZONE-PHANTOM-WRITER-1.'
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt

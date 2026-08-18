@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:11:02-05:00_ - _Data commit: `ddc1fe14334c`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:14:56-05:00_ - _Data commit: `0f36240735c4`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,11 +16,11 @@ _Generated: 2026-08-18T01:11:02-05:00_ - _Data commit: `ddc1fe14334c`_ - _last_r
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| 🚀 Shipped (organic open) | 36 |
+| 🚀 Shipped (organic open) | 35 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 7 |
-| ✅ Done | 23 |
+| 🅿️ Parked | 8 |
+| ✅ Done | 24 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -194,22 +194,23 @@ _being built_
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**
-_created 2026-08-05 00:00 · updated 2026-08-17 23:10 · refined_
+_created 2026-08-05 00:00 · updated 2026-08-18 02:20 · refined_
 - **Problem / Solution:**
   - Problem: we wanted every part of the house (each room, zone, the whole house) to keep a usable memory of what happened to it, instead of events scattered and never summarised. Solution: build it in stages — the raw event writers, then th...
 - **Origin:** 2026-08-02 - Operator concept -> VISION + ARCHITECTURE + MVP doc set (all finalized 2026-08-02, self-critiqued DRAFT v2).
 - **Why:** Program-level card so the memory work has a home; children carry the stages. URA composition (devices->rooms->zones->house) applied to TIME.
-- **Next:** NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the top 1-2 episode writers (fan-release retro-...
+- **Next:** Epic foundation DELIVERED (writers + compactor live). Remaining is optional/parked (zone_phantom). Consider closing the epic to done and opening a new epic for the room-to-room agentic layer when that becomes a priority.
 - **Refs:** docs/planning/VISION_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/planning/MVP_hierarchical_memory.md; docs/planning/AUDIT_memory_handbuild_study_a.md; docs/reviews/code-review/memory_mvp_tier2db.md; docs/planning/AUDIT_memory_retro_value.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `stages`: Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")
+  - `completion_2026_08_18`: EPIC ESSENTIALLY COMPLETE: Stage-1 writers (D4-D7) shipped v5.78.0; Stage-2 compactor shipped + running nightly (14 memory_facts 02:30 CT 08-17); MEMORY-WRITERS-1 substantially shipped (top-2 already live). Only optional remainder: zone_...
 
 ## 🔍 Review (0)
 _under review_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (36)
+## 🚀 Shipped (organic open) (35)
 _live, awaiting proof_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
@@ -463,21 +464,6 @@ thread: **presence** - status: **shipped_organic** - approval: **implied**
   - `fuller_pass_outcome_2026_08_17`: FULLER ADVERSARIAL PASS (operator ruling "Fuller pass") — THREE MORE framing-disjoint reviews, ALL THREE DO-NOT-SHIP. This pass is the only reason the cycle did not ship broken. D (adversarial completeness, 13ba10861) + E (lifecycle, dcf...
   - `guest_room_designation_correction_2026_08_17`: ORCHESTRATOR ERROR, CORRECTED BY OPERATOR. I reported "zero rooms designated is_guest_room=True" and concluded D2 would silently DISABLE guest mode. WRONG — I queried a plausible key name instead of the one the code reads. The real key i...
   - `empty_house_validation_window_2026_08_17`: OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening; operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0 as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident ...
-
-### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
-thread: **memory** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-08-11 00:00 · updated 2026-08-17 23:10 · initial_
-- **Problem / Solution:**
-  - Problem: the house only remembers an event if the detector that watches for it fires — so wherever a detector is missing or blind, that history is simply never recorded (a gap you can't see). Solution: add a few targeted event-writers fo...
-- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
-- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
-- **Next:** ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows — fires but rarely). Rest parked on the ...
-- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
-- **Refs:** docs/planning/AUDIT_memory_retro_value.md
-- **Forensic keys (3):**
-  - `parent`: MEMORY-PROGRAM-EPIC
-  - `folded_2026_08_16`: FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.
-  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -750,8 +736,17 @@ _updated 2026-08-17 23:12_
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** Recurring morning-sweep placeholder; re-fires each session start. No standing action.
 
-## 🅿️ Parked (7)
+## 🅿️ Parked (8)
 _revisit-trigger set_
+
+### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)
+thread: **memory** - status: **parked** - approval: **unreviewed**
+_created 2026-08-18 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: nothing records when an HVAC zone reads occupied while the house is away (the F2 zone-vs-house divergence) — that tier has no memory witnesses at all. Solution: ONE additive writer zone_phantom, copy-adapt of AwayBlockEpisodeTra...
+- **Why:** Fills the only actionable memory-coverage gap. But there is NO active problem needing it today, so its marginal benefit is low until an F2-shape divergence recurs.
+- **Next:** REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build the writer (plan is PLANNING_memory_writers.md).
+- **Refs:** docs/planning/PLANNING_memory_writers.md; custom_components/universal_room_automation/memory_writers.py:186
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
 thread: **perimeter** - status: **parked** - approval: **explicit**
@@ -839,7 +834,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (23)
+## ✅ Done (24)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -995,6 +990,22 @@ thread: **memory** - status: **done** - approval: **explicit**
 - **Refs:** docs/planning/AUDIT_away_transition_2026_08_13.md
 - **Forensic keys (1):**
   - `result_2026_08_14`: AUDIT_memory_retro_value.md (commit 6a99575fa). Verdicts: AWAY-BLOCK-1 PARTIAL (all 56 occupancy_phantom rows share mmwave_sole_fan_on_no_corroboration -> profile()/unusual() primes the fan-sustain hypothesis in minutes vs 4h recorder tr...
+
+### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
+thread: **memory** - status: **done** - approval: **unreviewed**
+_created 2026-08-11 00:00 · updated 2026-08-18 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: the house only remembers an event if the detector that watches for it fires — so wherever a detector is missing or blind, that history is simply never recorded (a gap you can't see). Solution: add a few targeted event-writers fo...
+- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
+- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
+- **Next:** DONE — top-2 writers shipped v5.78.0. Optional zone_phantom parked (MEMORY-ZONE-PHANTOM-WRITER-1).
+- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
+- **Refs:** docs/planning/AUDIT_memory_retro_value.md
+- **Forensic keys (4):**
+  - `parent`: MEMORY-PROGRAM-EPIC
+  - `folded_2026_08_16`: FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
+  - `scope_reset_2026_08_18`: PLAN (PLANNING_memory_writers.md) found the card premise STALE: the named "top 1-2 writers" phantom_retro + away_transition_blocked are BOTH ALREADY SHIPPED in v5.78.0 (D4 memory_writers.py:101, D5 AwayBlockEpisodeTracker :186). The "4 r...
 
 ### `GARAGE-EGRESS-APPLY-1` - APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)
 thread: **security** - status: **done** - approval: **approved**
