@@ -4381,10 +4381,10 @@ cards:
   refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
 - id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
   title: Promote 3 Camera-Census feature toggles to device switches
-  column: planned
+  column: shipped_organic
   thread: presence
   created: 2026-08-18 03:10
-  updated: 2026-08-18 03:40
+  updated: 2026-08-18 09:40
   refinement_status: refined
   problem: Three feature toggles are buried in the Camera Census options dialog (options-flow rung 2).
     Operator wants them as one-tap DEVICE SWITCHES on the URA device (rung 3) for live control + dashboard
@@ -4416,6 +4416,11 @@ cards:
     deploy since options unset; egress L2/L3 still Wed-pending (validate in prod w/ kill switch). Ledger:
     +2 switches / +1 signal / +0 sensors. ELEVATED to Tier 2-DB. Next: planner revises -> re-review revised
     plan -> build.'
+  shipped_2026_08_18: 'SHIPPED v5.82.0 + LIVE. L1/L2/L4 PASS: both switches present+ON (defaults flipped),
+    smart_people_counting correctly NOT a switch (404); L2 no-reload PROVEN live (untoggled sibling last_changed
+    stable at boot across two toggles) + zero ERROR; L4 kill path instant. L3 (real crossings named, no
+    phantom guest on exit) organic-pending Wed. Orchestrator independently mutation-drilled the signal-refresh
+    test (neuter dispatcher -> test fails -> restore -> 35/35).'
 - id: CENSUS-IDENTITY-GROUP-README-1
   title: 'Cycle-group README: census/guest/presence-identity program'
   column: in_progress
