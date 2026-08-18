@@ -26,6 +26,35 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ROADMAP-STALE-AGENTIC-LAYER-1
+  thread: planning
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-18 02:45
+  updated: 2026-08-18 02:45
+  refinement_status: initial
+  title: Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
+  problem_solution:
+  - 'Problem: ROADMAP_v11.md (written at v3.22.0) says "Next: Bayesian Predictive Intelligence v4.0.0"
+    but we are at v5.80.0 — ~2 major versions and dozens of cycles (energy arbitrage, guest/census, presence
+    fusion) shipped WITHOUT updating the roadmap. And the operator-envisioned ROOM-TO-ROOM AGENTIC layer
+    (rooms communicate + form agentic workflows on top of the now-shipped hierarchical-memory foundation)
+    has NO vision/plan doc — only a movement-detection "TransitionCoordinator" concept exists in VISION_v7.
+    Solution: (1) refresh the roadmap to reflect the real v4-v5 trajectory + current state; (2) if the
+    room-to-room agentic layer is a priority, write its vision/epic doc (memory epic is its foundation).'
+  why: A stale roadmap means new work is scoped without a current north star, and the operator vision
+    (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
+  constraints:
+  - Docs/planning only. The agentic-layer vision needs OPERATOR input on scope/priority before a plan
+    — do not spec it unilaterally.
+  next: 'Operator: is the room-to-room agentic layer a near-term priority? If yes, scope a VISION/epic
+    doc on top of the hierarchical-memory foundation. Separately: refresh ROADMAP_v11 -> v12 to reflect
+    v4-v5 reality.'
+  refs:
+  - docs/ROADMAP_v11.md
+  - docs/VISION_v7.md
+  - docs/planning/ARCHITECTURE_hierarchical_memory.md
+  - MEMORY-PROGRAM-EPIC
 - id: MEMORY-ZONE-PHANTOM-WRITER-1
   thread: memory
   status: parked

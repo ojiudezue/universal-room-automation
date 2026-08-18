@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:19:24-05:00_ - _Data commit: `660aa0ff6234`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:20:59-05:00_ - _Data commit: `06d4af3c0f08`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-18T01:19:24-05:00_ - _Data commit: `660aa0ff6234`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 5 |
+| 📥 Inbox | 6 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -22,8 +22,17 @@ _Generated: 2026-08-18T01:19:24-05:00_ - _Data commit: `660aa0ff6234`_ - _last_r
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
 
-## 📥 Inbox (5)
+## 📥 Inbox (6)
 _raw capture_
+
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
+thread: **planning** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-18 02:45 · initial_
+- **Problem / Solution:**
+  - Problem: ROADMAP_v11.md (written at v3.22.0) says "Next: Bayesian Predictive Intelligence v4.0.0" but we are at v5.80.0 — ~2 major versions and dozens of cycles (energy arbitrage, guest/census, presence fusion) shipped WITHOUT updating t...
+- **Why:** A stale roadmap means new work is scoped without a current north star, and the operator vision (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
+- **Next:** Operator: is the room-to-room agentic layer a near-term priority? If yes, scope a VISION/epic doc on top of the hierarchical-memory foundation. Separately: refresh ROADMAP_v11 -> v12 to reflect v4-v5 reality.
+- **Refs:** docs/ROADMAP_v11.md; docs/VISION_v7.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; MEMORY-PROGRAM-EPIC
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
 thread: **presence** - status: **inbox** - approval: **unreviewed**
