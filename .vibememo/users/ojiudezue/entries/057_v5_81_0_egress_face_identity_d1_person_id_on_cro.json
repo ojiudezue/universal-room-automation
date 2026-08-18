@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "057",
+  "author": "ojiudezue",
+  "session_id": "claude_20260818_071744_ship_v5_81_0",
+  "timestamp": "2026-08-18T07:17:44Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.81.0 shipped: Egress face-identity D1: person_id on crossings + census identity fuse, behind kill switch (default OFF)",
+  "summary": "Stamps person_id on entry/exit crossings from Frigate face (reused census readers), fuses into the census identity union at BOTH writers with URA-slug canonical dedup; entry-gated register (no phantom guest on exit); options-flow kill switch CONF_EGRESS_IDENTITY_ENABLED default OFF + observability attrs on PersonsEnteredTodaySensor. Tier 2-DB: plan review + 3 framing-disjoint reviews + focused 4th re-review, all fixed. D2 Protect corroboration gated on real webhook payload.",
+  "refs": {
+    "cards": [
+      "EXTERIOR-GUEST-FACE-FASTFOLLOW-1",
+      "EGRESS-IDENTITY-CONTROL-OBS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.81.0.md"
+    ]
+  }
+}

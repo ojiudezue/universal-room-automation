@@ -87,7 +87,8 @@ cards:
   - custom_components/universal_room_automation/memory_writers.py:186
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.81.0
   approval: explicit
   created: 2026-08-18 00:55
   updated: 2026-08-18 02:10
