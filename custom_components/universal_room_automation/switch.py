@@ -516,6 +516,13 @@ class _IntegrationOptionsSwitch(SwitchEntity):
         self._conf_key = conf_key
         self._default = default
         self._fire_signal = fire_signal
+        # MED-3 (Review C, 2026-08-18): translation_key is the canonical
+        # source of the visible name via strings.json / translations/en.json;
+        # _attr_name is set as an EXPLICIT fallback so a translation-load
+        # failure (missing locale file, JSON parse error) still yields a
+        # human-readable label instead of an entity_id-shaped one. The two
+        # must be kept semantically equivalent; drift here is a UI-truth
+        # defect (same class as HIGH-1 / HIGH-2 in this cycle's review).
         self._attr_translation_key = translation_key
         self._attr_name = fallback_name
         self._attr_icon = icon

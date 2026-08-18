@@ -2964,12 +2964,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_ENHANCED_CENSUS,
                 default=self._get_current(CONF_ENHANCED_CENSUS, True),
             ): selector.BooleanSelector(),
-            # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18): kill switch
-            # for the egress-face identity fuse. Default OFF — feature ships
-            # dormant; operator flips ON after live validation. When False:
-            # `person_id` on `ura_person_egress_event` stays None, the
-            # census `_egress_face_ids` set stays empty, and both fuse
-            # sites are byte-identical to pre-cycle behaviour.
+            # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): kill switch
+            # for the egress-face identity fuse. Default ON — the feature
+            # is live at first boot and the operator's device switch
+            # `switch.ura_name_people_at_doors` is the runtime kill-switch
+            # (options-flow write here goes through the reload-suppress
+            # branch in `__init__._async_update_listener`, so a toggle
+            # from either surface avoids the parent-entry reload).
+            # When False: `person_id` on `ura_person_egress_event` stays
+            # None, the census `_egress_face_ids` set stays empty, and
+            # both fuse sites are byte-identical to pre-cycle behaviour.
             vol.Optional(
                 CONF_EGRESS_IDENTITY_ENABLED,
                 default=self._get_current(
