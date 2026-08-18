@@ -371,12 +371,24 @@ audit BEFORE closing the program. This extends the Producer/Consumer rule from *
 safe-to-delete tombstoned constant, three real should-be-consuming gaps, AND a coverage ceiling
 (~7% egress `person_id`) that reframed the whole downstream value case. Three sections:
 
-1. **Supersession → mark-for-deletion.** What does the new capability make redundant or
-   vestigial? Grep for it. Produce a DELETE-CANDIDATE table (item, file:line, superseded-by,
-   safe-to-delete-when, risk). **Do NOT delete now** — mark it, and gate the deletion cycle on
-   full live validation (the new path must be proven working first). Distinguish "safe-now"
-   (tombstoned, zero readers) from "reconcile-later" (still has readers) from "KEEP" (distinct
-   semantics — e.g. `face_recognized_count` ≠ `identified_count`).
+1. **Supersession → three-bucket triage (NOT "delete dead code").** What does the new capability
+   make redundant or vestigial? Grep for it. **"Dead" (no readers) is NEVER sufficient to delete**
+   — operator-coined 2026-08-18: *"dead doesn't mean delete; there are useful things that are not
+   used."* Classify every unreferenced item into exactly one bucket:
+   - **DELETE** — dead AND no use case AND ideally a footgun to keep (e.g. a superseded *buggy*
+     path a better mechanism replaced). Only this bucket is removed, and only after the new path
+     is live-validated. Deletion is the one irreversible choice — when uncertain, do NOT delete.
+   - **KEEP + WIRE** — dead but a USEFUL capability a downstream *should* consume or that needs a
+     small refactor to reach parity (e.g. a live helper doing string-built lookups that should
+     route through the new resolver). This is a **should-be-consuming gap**, not debt — it goes on
+     the gap backlog, never the delete list.
+   - **KEEP + DOCUMENT** — dead today, no current use, but a plausible future tunable / design axis
+     (e.g. a decay-step constant for a decay *shape* a cycle chose against but might revisit). Add
+     a one-line "retired — available if revisited" comment; do NOT delete.
+   Produce the table (item, file:line, bucket, superseded-by, reason). A cycle whose supersession
+   check yields **zero DELETE items is a clean, expected outcome** — it means the arc left no
+   dead-and-useless code, not that the check failed. Also distinguish KEEP-for-distinct-semantics
+   (e.g. `face_recognized_count` ≠ `identified_count`) — that's live code, not a triage subject.
 2. **Producer / Consumer map** of each new value (the standing rule, applied to what shipped):
    producer arithmetic + dependency health; every consumer with file:line, trust-vs-display.
 3. **Should-be-consuming-but-isn't (the highest-value section).** Enumerate downstreams that

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T13:06:44-05:00_ - _Data commit: `a8a17981df07`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T13:13:09-05:00_ - _Data commit: `e747caebb478`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T13:06:44-05:00_ - _Data commit: `a8a17981df07`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 17 |
+| ❓ Other | 18 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1143,7 +1143,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (17)
+## ❓ Other (18)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1250,12 +1250,13 @@ _created 2026-08-18 03:20 · initial_
 
 ### `CENSUS-IDENTITY-SUPERSESSION-DELETE-1` - Delete superseded census/identity code (gated on L3 validation)
 thread: **planning**
-_created 2026-08-18 09:45 · updated 2026-08-18 10:05 · initial_
+_created 2026-08-18 09:45 · updated 2026-08-18 10:35 · initial_
 - **Next:** Tier-1 cleanup: grep-verify S1 zero readers -> delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7 legacy Frigate paths -> delete confirmed-dead sites. Both decidable now.
-- **Forensic keys (3):**
-  - `column`: inbox
+- **Forensic keys (4):**
+  - `column`: done
   - `problem`: The census/identity arc superseded some code. Each delete-candidate has its OWN concrete, checkable gate (NOT a blanket "when validated fully"):
   - `parked_reason`: NOT gated on identity L3 (that was a spurious coupling). Each item gates on its OWN grep-check against ALREADY-shipped-and-validated cycles (v5.79.0/v5.80.0). Do the two greps (S1 zero-readers, S7 sweep) to DECIDE and delete — no Wed dep...
+  - `closed_noop_2026_08_18`: CLOSED as NO-OP (correct outcome). Three-bucket triage: DELETE bucket EMPTY — no true dead-and-useless code in this cycle group. CENSUS_DECAY_STEP_SECONDS = bucket 3 (already documented retired-available in its tombstone comment, no edit...
 
 ### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
 thread: **security**
@@ -1291,6 +1292,14 @@ _created 2026-08-18 10:20 · initial_
 - **Forensic keys (2):**
   - `column`: waiting_operator
   - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
+
+### `CENSUS-FACE-RESOLVER-MIGRATE-1` - Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)
+thread: **presence**
+_created 2026-08-18 10:35 · initial_
+- **Next:** Small Tier-1 hotfix: refactor presence.py:4557 to call camera_census._resolve_face_entity_id(base_name). Test the _2-only-cam case.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival) builds f"sensor.{base}_last_recognized_face" WITHOUT _2-suffix tolerance, so it silently misses cameras whose Frigate face sensor exists only a...
 
 ## 🅿️ Parked ideas (top-level list)
 

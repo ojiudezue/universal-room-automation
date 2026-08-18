@@ -4449,10 +4449,10 @@ cards:
   refs: README_v5.79.0/5.80.0/5.81.0; CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
 - id: CENSUS-IDENTITY-SUPERSESSION-DELETE-1
   title: Delete superseded census/identity code (gated on L3 validation)
-  column: inbox
+  column: done
   thread: planning
   created: 2026-08-18 09:45
-  updated: 2026-08-18 10:05
+  updated: 2026-08-18 10:35
   refinement_status: initial
   problem: 'The census/identity arc superseded some code. Each delete-candidate has its OWN concrete,
     checkable gate (NOT a blanket "when validated fully"):
@@ -4476,6 +4476,12 @@ cards:
   next: 'Tier-1 cleanup: grep-verify S1 zero readers -> delete CENSUS_DECAY_STEP_SECONDS; grep-sweep S7
     legacy Frigate paths -> delete confirmed-dead sites. Both decidable now.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §1
+  closed_noop_2026_08_18: 'CLOSED as NO-OP (correct outcome). Three-bucket triage: DELETE bucket EMPTY
+    — no true dead-and-useless code in this cycle group. CENSUS_DECAY_STEP_SECONDS = bucket 3 (already
+    documented retired-available in its tombstone comment, no edit needed). presence.py:4557 = bucket
+    2 (useful face-confirmed-arrival helper lacking _2-suffix tolerance) -> spawned CENSUS-FACE-RESOLVER-MIGRATE-1.
+    S7 all live/retained. Zero-delta cleanup branch discarded. The supersession HYGIENE proved its value
+    by finding there was nothing to delete — and by catching that "dead" was being conflated with "deletable".'
 - id: PERIMETER-ALERT-NAME-PERSON-1
   title: Perimeter alerts should NAME the person (consume egress/face identity)
   column: inbox
@@ -4567,6 +4573,24 @@ cards:
     (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard
     D3 cards (v6/v8) ARE live; only the PWA leg is pending.'
   refs: ~/Code/ura-dashboard-pwa branch census-p12-exterior-dashboard; CENSUS-ACCURACY-1 D3
+- id: CENSUS-FACE-RESOLVER-MIGRATE-1
+  title: Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)
+  column: inbox
+  thread: presence
+  created: 2026-08-18 10:35
+  updated: 2026-08-18 10:35
+  refinement_status: initial
+  problem: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival)
+    builds f"sensor.{base}_last_recognized_face" WITHOUT _2-suffix tolerance, so it silently misses cameras
+    whose Frigate face sensor exists only as the disambiguated _2 variant (per "frigate 1 retired 2 suffix").
+    The feature is USEFUL — not dead — it just lacks the resolver the rest of the code got in v5.80.0.
+    Bucket-2 (keep + wire), NOT a delete.
+  origin: 2026-08-18 supersession three-bucket triage (bucket 2) surfaced this useful-but-underwired path
+  constraints: Behavior change (starts hitting _2 faces on _2-only cams) — own reviewed hotfix, NOT a
+    cleanup commit.
+  next: 'Small Tier-1 hotfix: refactor presence.py:4557 to call camera_census._resolve_face_entity_id(base_name).
+    Test the _2-only-cam case.'
+  refs: presence.py:4557,4525; camera_census._resolve_face_entity_id:2470; reference_frigate1_retired_2suffix_permanent.md
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
