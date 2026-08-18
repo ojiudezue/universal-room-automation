@@ -33,7 +33,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 01:40
+  updated: 2026-08-18 01:55
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -135,6 +135,17 @@ cards:
     (2) SEPARATE operator config action: the front_side_ptz FRIGATE-2 detection is over-sensitive vs Protect
     — worth tuning its zone/threshold (probably includes the public street). The Protect leg is the trustworthy
     one here.'
+  fleet_pattern_2026_08_18: 'FLEET SAMPLE (13 dual-leg cameras, 5d, Frigate-2/Protect on-event ratio):
+    front_side_ptz is an ISOLATED OUTLIER at 11.4x (455 vs 40). Every other dual-leg camera is 0.56x-3.4x,
+    and MOST have Protect firing MORE than Frigate (garage_a 0.56, front_door_aerial 0.59, doorbell 0.62,
+    g5_bullet 0.65, upstairs_hall 0.73, madrone_g6_entry 0.77, playroom 0.82, rear_ptz 0.89). Mildly elevated:
+    back_yard 3.4x, hot_tub 2.1x. CONCLUSION: NOT a systemic Frigate-over-trigger; front_side_ptz specifically
+    is the problem — its Frigate zone almost certainly includes the PUBLIC ROAD (Protect leg on the same
+    camera is tighter). ~91 Frigate events/day on that one camera = the bulk of phantom pages. FIX (separate
+    from the URA severity work): mask the street / tighten the front_side_ptz Frigate detection zone.
+    COVERAGE NOTE for the Tier-3 build: several interior cams are PROTECT-ONLY (family_room, foyer_fisheye,
+    master_hallway, living_room, stairs_top — no Frigate-2 leg), so cross-NVR agreement cannot exist there;
+    single-leg cams must fall back to track-linker confidence. Frigate-2-only: armcrest, reolinkstudybporchptz.'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
