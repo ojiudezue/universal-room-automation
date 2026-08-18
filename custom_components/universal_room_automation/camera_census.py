@@ -1005,6 +1005,22 @@ class PersonCensus:
         self._last_area_contributions: dict[str, dict[str, Any]] = {}
         self._last_raw_pre_dedup_sum: int = 0
 
+        # GUEST-CENSUS D1 (2026-08-16): PRE-BLE-cancel diagnostics + clamp
+        # ceiling scalar. Published at Step 2 of _get_unrecognized_camera_count
+        # so INV-CENSUS-ATTRIBUTION has a ceiling that does NOT drop when
+        # BLE-cancel repairs (reviewer counter-example, plan-review P1). The
+        # four *_pre_cancel/_ble_* attributes let observability discriminate
+        # "BLE-cancel ran and cancelled zero" from "BLE-cancel never ran".
+        self._last_camera_total_pre_cancel: int = 0
+        self._last_area_raw_max_pre_cancel: dict[str, int] = {}
+        self._last_ble_by_area: dict[str, int] = {}
+        self._last_ble_cancel_enabled: bool = False
+        # Enhanced-path per-area contributions POST-cancel (distinct from the
+        # raw producer's ``_last_area_contributions`` above). Published so the
+        # census sensor's ``area_contributions`` attr can show what actually
+        # fed camera_unrecognized on the enhanced path.
+        self._last_enhanced_area_contributions: dict[str, int] = {}
+
         # Cycle census_ble_cancel_unrecognized (2026-07-13): last per-cycle
         # BLE-cancellation total. Written at the END of
         # ``_get_unrecognized_camera_count`` so that any mid-cycle exception
@@ -2778,6 +2794,19 @@ class PersonCensus:
             else:
                 unassigned_raw.append(cnt)
 
+        # GUEST-CENSUS D1 (G2): publish the PRE-BLE-cancel per-area-max
+        # scalar and dict so INV-CENSUS-ATTRIBUTION has a stable ceiling
+        # that does NOT drop when BLE-cancel repairs, and so observability
+        # can discriminate "cancel ran and cancelled zero" from
+        # "cancel never ran". Consumed by _apply_enhanced_house_census
+        # (clamp ceiling) and sensor.py (persons_in_house attrs).
+        self._last_camera_total_pre_cancel = (
+            sum(area_raw_max.values()) + sum(unassigned_raw)
+        )
+        self._last_area_raw_max_pre_cancel = dict(area_raw_max)
+        self._last_ble_by_area = dict(ble_by_area)
+        self._last_ble_cancel_enabled = bool(self._get_ble_cancel_enabled())
+
         # Step 3: per-area BLE subtraction. Invariants:
         #   I1 — an area with no resident BLE-here is untouched; a guest
         #        there still contributes.
@@ -2820,6 +2849,13 @@ class PersonCensus:
         # publishing a partial half-count would be worse than surfacing
         # the last known good.
         self._last_ble_cancelled_count = cancelled_total
+
+        # GUEST-CENSUS D1 (G2): enhanced-path per-area contributions
+        # POST-cancel — what actually feeds camera_unrecognized. Distinct
+        # from the raw producer's _last_area_contributions (:1358) which
+        # sensor.py currently reads and which cannot report the enhanced
+        # path's dedup.
+        self._last_enhanced_area_contributions = dict(area_contributions)
 
         # Step 4: sum. Null-area contributions summed individually (no
         # dedup between null-area cameras — matches ``_dedup_by_area``).
@@ -3106,13 +3142,46 @@ class PersonCensus:
             unidentified_raw, "house", now
         )
 
-        total = identified_count + held_unidentified
+        # GUEST-CENSUS D1 — INV-CENSUS-ATTRIBUTION:
+        # attribution ceiling = the raw derivation's semantic max. MUST use
+        # the PRE-cancel scalar published above; using the POST-cancel
+        # return (``camera_unrecognized``) would subtract identified
+        # residents twice (once via BLE-cancel, once via the ceiling),
+        # suppressing a real guest when cancellation is repaired
+        # (reviewer counter-example, plan-review P1 — DO NOT "simplify"
+        # back to camera_unrecognized). Safe to read
+        # ``_last_camera_total_pre_cancel`` here: we called
+        # ``_get_unrecognized_camera_count()`` on line above, on this tick.
+        # Review A-LOW-1 (2026-08-16): drop trailing ``or 0`` — the getattr
+        # default already handles the attribute-missing case. The ``or 0``
+        # additionally coerced a legitimate 0 (Step-2 pre_cancel = 0) into
+        # the fallback path, which is indistinguishable from "attribute never
+        # written". No behaviour change on the attribute-missing branch
+        # (default remains 0); the semantically-correct 0 is now preserved.
+        camera_total_pre_cancel = int(
+            getattr(self, "_last_camera_total_pre_cancel", 0)
+        )
+        raw_total_ceiling = max(camera_total_pre_cancel, identified_count)
+        additive_total = identified_count + held_unidentified
+        clamped_total = min(additive_total, raw_total_ceiling)
+        clamped_unidentified = max(0, clamped_total - identified_count)
+
+        if clamped_total != additive_total:
+            _LOGGER.info(
+                "GUEST-CENSUS D1 clamp fired: additive=%d (id=%d + held=%d) "
+                "> ceiling=%d (pre_cancel=%d) → total=%d, unidentified=%d",
+                additive_total, identified_count, held_unidentified,
+                raw_total_ceiling, camera_total_pre_cancel,
+                clamped_total, clamped_unidentified,
+            )
+
+        total = clamped_total
 
         return CensusZoneResult(
             zone=raw_result.zone,
             identified_count=identified_count,
             identified_persons=sorted(recognized_set),
-            unidentified_count=held_unidentified,
+            unidentified_count=clamped_unidentified,
             total_persons=total,
             confidence=raw_result.confidence,
             source_agreement=raw_result.source_agreement,

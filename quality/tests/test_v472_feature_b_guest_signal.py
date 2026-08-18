@@ -23,6 +23,15 @@ import json
 import re
 import pytest
 
+# F-MED-1 (2026-08-17): pull in the provenance harness so its
+# sys.modules stubs for `homeassistant.*` are established at collection
+# time. The behavioural test at test_registers_state_change_listener
+# imports homeassistant.helpers.entity_registry at run time; without
+# this early stub install the import raises when this file is run in
+# isolation (in the full suite it works accidentally via cross-file
+# poisoning).
+import _provenance_harness  # noqa: F401
+
 
 # ===========================================================================
 # Source-slicing helper
@@ -264,12 +273,74 @@ class TestD5DiscoverGuestRooms:
         assert "CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN" in body
 
     def test_registers_state_change_listener(self, presence_src):
-        idx = presence_src.find("def _discover_guest_rooms(")
-        # Function body can be up to 4000 chars — use generous window
-        body = presence_src[idx:idx + 4000]
-        assert "async_track_state_change_event" in body, (
-            "_discover_guest_rooms must subscribe to occupancy sensor state changes"
+        """F-MED-1 fix (2026-08-17): BEHAVIOURAL, not source-grep.
+
+        The prior test stayed green when the real
+        ``async_track_state_change_event(...)`` call was replaced by
+        ``unsub = lambda: None`` plus a comment carrying the keyword.
+        This variant boots the bare coordinator through
+        ``_discover_guest_rooms`` with the real production function
+        patched to a spy — if the production code stops calling the
+        subscription API, the spy is never invoked and this test fails.
+        """
+        from unittest.mock import MagicMock, patch as _patch
+        import homeassistant.helpers.entity_registry as _er_mod
+        from _provenance_harness import make_hass
+        from custom_components.universal_room_automation.const import (
+            CONF_ENTRY_TYPE, CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+            CONF_ROOM_IS_GUEST_ROOM, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
         )
+        from custom_components.universal_room_automation.domain_coordinators import (
+            presence as _pres_mod,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.presence import (
+            PresenceCoordinator,
+        )
+
+        pc = PresenceCoordinator.__new__(PresenceCoordinator)
+        pc.hass = make_hass()
+        pc._guest_room_state = {}
+        pc._guest_room_unsubs = {}
+        pc._guest_room_entity_to_name = {}
+        pc._guest_room_known_last_true = {}
+        pc._guest_detection_enabled = True
+        pc._is_known_person_in_room = lambda rn: False  # type: ignore[assignment]
+
+        entry = MagicMock()
+        entry.entry_id = "01KTESTLISTENER00000000001"
+        entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM}
+        entry.options = {
+            CONF_ROOM_NAME: "Spy Guest Bedroom",
+            CONF_ROOM_IS_GUEST_ROOM: True,
+            CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: 30,
+        }
+        pc.hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+        entity_id = "binary_sensor.spy_guest_bedroom_occupied"
+        fake_reg = MagicMock()
+        fake_reg.async_get_entity_id = MagicMock(return_value=entity_id)
+        pc.hass.states.get = lambda eid: None  # not currently ON → skip boot-seed
+
+        spy = MagicMock(return_value=lambda: None)
+        with _patch.object(_er_mod, "async_get", return_value=fake_reg), \
+                _patch.object(_pres_mod, "async_track_state_change_event", spy):
+            pc._discover_guest_rooms()
+
+        assert spy.called, (
+            "_discover_guest_rooms MUST call async_track_state_change_event "
+            "for each guest room — otherwise no occupancy events reach the "
+            "state machine (feature dead)."
+        )
+        # And the (entity_ids, callback) shape must match production contract.
+        call_args = spy.call_args
+        assert call_args.args[0] is pc.hass
+        assert entity_id in call_args.args[1]
+        assert call_args.args[2] == pc._handle_guest_room_occupancy_change
+        # And the returned unsub must be stashed for teardown (Bug Class #38).
+        assert entity_id in [
+            k for k in pc._guest_room_entity_to_name.keys()
+        ]
+        assert "Spy Guest Bedroom" in pc._guest_room_unsubs
 
     def test_stores_unsub_in_dict(self, presence_src):
         idx = presence_src.find("def _discover_guest_rooms(")
@@ -380,7 +451,9 @@ class TestD5GuestRoomGateArmed:
 
     def test_returns_true_on_armed_room(self, presence_src):
         idx = presence_src.find("def _guest_room_gate_armed(")
-        body = presence_src[idx:idx + 1500]
+        # Bumped from 1500 -> 3000 after HIGH fix-up 2026-08-16 added
+        # the live identity re-check block in _guest_room_gate_armed.
+        body = presence_src[idx:idx + 3000]
         assert "return True" in body, (
             "Must return True when at least one guest room has elapsed >= threshold"
         )
@@ -410,10 +483,23 @@ class TestD5RunInferenceOr:
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
         body = _method_body(presence_src, idx)
-        # The combined gate: unid_gate_armed or guest_room_gate_armed
-        assert "or guest_room_gate_armed" in body or "guest_room_gate_armed or" in body, (
-            "_run_inference must use additive OR: guest_armed = unid_gate_armed or "
-            "guest_room_gate_armed (plan §7)"
+        # GUEST-CENSUS D2 (2026-08-16): the additive OR was inverted —
+        # guest rooms LEAD (Path B), census (Path A) is a corroborator
+        # only (raises confidence 0.9 → 0.95). The composition line is now
+        # ``guest_armed = guest_room_gate_armed``. The intent this test
+        # historically asserted (guest_room_gate_armed is factored into
+        # ``guest_armed``) is preserved by that line. See
+        # docs/planning/PLANNING_guest_census_correctness.md §D2.
+        assert "guest_armed = guest_room_gate_armed" in body, (
+            "D2: guest_armed must be set from guest_room_gate_armed "
+            "(Path B leads, Path A corroborates)"
+        )
+        # Review C-LOW-1 (2026-08-16): explicit negative for symmetry with
+        # the sibling TestD5ExitConditionGuard rewrite. The pre-D2 OR
+        # composition (``unid_gate_armed or ...``) MUST NOT resurface.
+        assert "unid_gate_armed or" not in body, (
+            "D2: the pre-cycle ``unid_gate_armed or guest_room_gate_armed`` "
+            "composition must not be reintroduced (Path A is corroborator only)"
         )
 
     def test_confidence_09_for_guest_room_path(self, presence_src):
@@ -456,23 +542,34 @@ class TestD5RunInferenceOr:
 
 
 class TestD5ExitConditionGuard:
-    """D5: GUEST exit requires BOTH unidentified_count==0 AND not guest_gate_armed.
+    """GUEST exit predicate — D2b decoupling (2026-08-16).
 
-    Without this guard, a room where the occupant is unknown (count=0 because they
-    haven't been identified by census) would immediately re-exit GUEST state.
+    Historical (v4.7.2 D5): exit required BOTH ``unidentified_count == 0``
+    AND ``not guest_gate_armed``. Under GUEST-CENSUS D2 the room path IS
+    ``guest_gate_armed`` in the home-like composition (Path B leads); the
+    unidentified conjunct then made GUEST terminal whenever the underlying
+    cancellation gap kept unidentified > 0 (D1's expected +1 residual).
+    D2b drops the ``unidentified_count`` conjunct — the room is the sole
+    authority for both entry and exit. See
+    docs/planning/PLANNING_guest_census_correctness.md §D2b.
     """
 
-    def test_exit_uses_combined_condition(self, presence_src):
-        # The exit branch in StateInferenceEngine.infer() must check both
+    def test_exit_predicate_is_room_only(self, presence_src):
         idx = presence_src.find("def infer(")
-        # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
-        # ~700 chars at the top of _run_inference, pushing the D5 confidence
-        # block past the original 5000-char horizon).
         body = _method_body(presence_src, idx)
-        assert "unidentified_count == 0 and not guest_gate_armed" in body, (
-            "GUEST exit condition must require BOTH unidentified_count==0 AND "
-            "not guest_gate_armed — otherwise the D5 guest_room path can't hold "
-            "GUEST state when census count=0 (plan §9)"
+        assert (
+            "current_state == HouseState.GUEST and not guest_gate_armed" in body
+        ), (
+            "D2b: GUEST-exit predicate must be ``current_state == HouseState.GUEST "
+            "and not guest_gate_armed`` (room-only). Restoring the "
+            "``unidentified_count == 0`` conjunct re-latches GUEST terminally."
+        )
+        # Explicit negative — the old conjunct MUST NOT be reintroduced.
+        assert (
+            "unidentified_count == 0 and not guest_gate_armed" not in body
+        ), (
+            "D2b: unidentified_count conjunct must not be in the GUEST-exit "
+            "predicate (would re-latch on D1 residual > 0)."
         )
 
 

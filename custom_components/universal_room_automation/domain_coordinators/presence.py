@@ -25,7 +25,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from homeassistant.core import HomeAssistant, callback
@@ -1238,7 +1238,15 @@ class StateInferenceEngine:
         # v4.7.2 D5 semantics preserved: check guest_gate_armed (OR of
         # both paths) not just unidentified_count so the guest_room path
         # can hold the state even with unidentified_count==0.
-        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
+        # GUEST-CENSUS D2b (2026-08-16): INV-GUEST-LEAD applies to ENTRY
+        # AND EXIT — guest_gate_armed (which under D2 IS the room path in
+        # the home-like branch) governs both. The prior
+        # ``unidentified_count == 0`` conjunct made GUEST a terminal state
+        # whenever the underlying cancellation gap kept unidentified > 0
+        # (the census count could not drop even after the room cleared).
+        # Dropping the conjunct makes exit STRICTLY easier — correct
+        # direction, cf. the 2026-07-11 latched-overnight incident.
+        if current_state == HouseState.GUEST and not guest_gate_armed:
             self._confidence = 0.75
             return self._time_based_home(hour)
 
@@ -1620,6 +1628,20 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_state: Dict[str, dict] = {}
         # Per-room listener unsubs (separate from _unsub_listeners for targeted cleanup)
         self._guest_room_unsubs: Dict[str, Any] = {}
+        # GUEST-CENSUS D3 (2026-08-16): entity_id → room_name reverse map
+        # populated by _discover_guest_rooms via entity-registry lookup on
+        # the well-known unique_id ``f"{entry_id}_occupied"``. Replaces the
+        # fragile slug-string reverse loop that broke when Upstairs
+        # Guestroom was renamed. Cleared in the reconfigure branch.
+        self._guest_room_entity_to_name: Dict[str, str] = {}
+        # GUEST-CENSUS 2026-08-17: sticky cache for the known-person
+        # exclusion. Maps room_name → last utcnow() at which
+        # `_is_known_person_in_room` observed a tracked resident in that
+        # room. Any read within GUEST_KNOWN_STICKY_S returns True even
+        # when the current substrate momentarily disagrees, absorbing
+        # transient BLE flaps that would otherwise un-exclude a known
+        # resident at the exact instant `_guest_room_gate_armed` runs.
+        self._guest_room_known_last_true: Dict[str, datetime] = {}
 
         # Fan-noise Mode-2 mitigation: room-tier fan-recheck manager. Built
         # lazily in async_setup so we don't import the module at __init__ time
@@ -4680,6 +4702,7 @@ class PresenceCoordinator(BaseCoordinator):
         from ..const import (
             CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
             CONF_ROOM_IS_GUEST_ROOM, CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+            GUEST_BOOT_SEED_MIN_RESIDUAL_S,
         )
 
         # Cancel any existing guest-room listeners (handles reconfigure-without-restart).
@@ -4690,6 +4713,16 @@ class PresenceCoordinator(BaseCoordinator):
                 pass
         self._guest_room_unsubs.clear()
         self._guest_room_state.clear()
+        self._guest_room_entity_to_name.clear()
+        self._guest_room_known_last_true.clear()
+
+        # GUEST-CENSUS D3 (2026-08-16): resolve the room's occupied
+        # binary_sensor via the entity registry using the well-known
+        # unique_id (entity.py:34 + binary_sensor.py:245). Slug-based
+        # string construction ("binary_sensor.<slug>_occupied") is stale
+        # after room renames — the real entity_id may diverge.
+        from homeassistant.helpers import entity_registry as er
+        ent_reg = er.async_get(self.hass)
 
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
@@ -4703,8 +4736,18 @@ class PresenceCoordinator(BaseCoordinator):
                 continue
 
             threshold_min = int(merged.get(CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN, 30))
-            room_slug = room_name.lower().replace(" ", "_")
-            occupancy_entity_id = f"binary_sensor.{room_slug}_occupied"
+            unique_id = f"{entry.entry_id}_occupied"
+            occupancy_entity_id = ent_reg.async_get_entity_id(
+                "binary_sensor", DOMAIN, unique_id
+            )
+            if not occupancy_entity_id:
+                _LOGGER.warning(
+                    "D5 guest room '%s' (entry=%s): no binary_sensor occupied "
+                    "entity registered (unique_id=%s); skipping registration.",
+                    room_name, entry.entry_id, unique_id,
+                )
+                continue
+            self._guest_room_entity_to_name[occupancy_entity_id] = room_name
 
             # Initialise anti-flap state for this room.
             self._guest_room_state[room_name] = {
@@ -4712,6 +4755,94 @@ class PresenceCoordinator(BaseCoordinator):
                 "current_occupancy_known": False,
                 "threshold_min": threshold_min,
             }
+
+            # Review B-MEDIUM-1 (2026-08-16): boot-seed ``first_seen`` from
+            # the occupancy entity's ``last_changed`` if it is currently ON
+            # and no known occupant is detected. Rationale: ``_guest_room_state``
+            # is RAM-only; a mid-visit HA restart would otherwise reset the
+            # 30-min sustained-occupancy clock from scratch (post-D2 the
+            # census-only Path A no longer arms GUEST, so ONLY Path B can
+            # arm — its clock started at 0 pre-fix, costing genuine guests
+            # up to 30 min of GUEST-mode latency after any restart).
+            #
+            # Identity-aware: mirror Transition 2 semantics — if a known
+            # tracked person is currently in the room, DO NOT seed
+            # (equivalent to Transition 2 having fired). Otherwise seed to
+            # last_changed. Residual: at boot, person_coordinator tracking
+            # may not yet be populated, in which case _is_known_person_in_room
+            # falls back to False (safe default) and we may seed a
+            # resident-occupied guest-designated room. The next occupancy
+            # state-change fires Transition 2 (reset first_seen) once
+            # substrate settles. Accepted trade-off: rare (requires resident
+            # continuously in a designated GUEST room across the restart
+            # window with no occupancy toggle), and the runtime gate at
+            # _guest_room_gate_armed re-checks current_occupancy_known.
+            try:
+                occ_state = self.hass.states.get(occupancy_entity_id)
+                if occ_state is not None and occ_state.state == "on":
+                    last_changed = getattr(occ_state, "last_changed", None)
+                    # Review E boot-timing INFO (2026-08-17): at boot-seed
+                    # decision time, log the observed person_coordinator
+                    # substrate state for this guest room so operators can
+                    # measure real ``location``-arrival latency and
+                    # empirically justify GUEST_BOOT_SEED_MIN_RESIDUAL_S
+                    # (currently 300s, evidentially unproven per Review E).
+                    try:
+                        pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+                        pdata = getattr(pc, "data", None) or {} if pc else {}
+                        pc_summary = {
+                            name: (pinfo or {}).get("location", "<none>")
+                            for name, pinfo in pdata.items()
+                            if isinstance(pinfo, dict)
+                        }
+                        known_here = self._is_known_person_in_room(room_name)
+                        _LOGGER.info(
+                            "D5 guest room '%s' boot-seed decision: occupied=on, "
+                            "last_changed=%s, known_person_in_room=%s, "
+                            "person_coordinator_locations=%s",
+                            room_name,
+                            last_changed.isoformat() if last_changed else None,
+                            known_here, pc_summary,
+                        )
+                    except Exception:
+                        pass
+                    if last_changed is not None and not self._is_known_person_in_room(room_name):
+                        # HIGH fix-up (2026-08-16): residual-dwell clamp.
+                        # An unclamped seed from a hours-old last_changed
+                        # combined with a cold person substrate at boot
+                        # (identity False fallback) would let the runtime
+                        # gate fire immediately. Guarantee at least
+                        # GUEST_BOOT_SEED_MIN_RESIDUAL_S remain before
+                        # threshold at boot so the identity substrate has
+                        # time to populate before the gate's live re-check
+                        # (Part 1 in _guest_room_gate_armed) runs.
+                        # Arithmetic: need elapsed = now - first_seen <=
+                        # threshold - residual, i.e. first_seen >=
+                        # now - threshold + residual.
+                        threshold_s = threshold_min * 60
+                        # Use tz-aware now; last_changed from HA state is
+                        # always tz-aware, so compare against a tz-aware
+                        # reference to avoid a naive-vs-aware TypeError.
+                        now_utc = datetime.now(timezone.utc)
+                        earliest_allowed = now_utc - timedelta(
+                            seconds=max(0, threshold_s - GUEST_BOOT_SEED_MIN_RESIDUAL_S),
+                        )
+                        seeded = last_changed if last_changed >= earliest_allowed else earliest_allowed
+                        self._guest_room_state[room_name]["first_seen"] = seeded
+                        _LOGGER.info(
+                            "D5 guest room '%s': boot-seeded first_seen=%s "
+                            "(last_changed=%s, residual_floor=%ds, clamped=%s) — "
+                            "preserves pre-restart arming clock",
+                            room_name, seeded.isoformat(),
+                            last_changed.isoformat(),
+                            GUEST_BOOT_SEED_MIN_RESIDUAL_S,
+                            seeded is not last_changed,
+                        )
+            except Exception:
+                _LOGGER.debug(
+                    "D5 guest room '%s': boot-seed skipped (non-fatal)",
+                    room_name, exc_info=True,
+                )
 
             # Subscribe to the room's URA occupancy sensor.
             # Bug Class #42: listener callback is a bound method; no lambda captures.
@@ -4753,14 +4884,9 @@ class PresenceCoordinator(BaseCoordinator):
         else:
             occupied = new_state.state == "on"
 
-        # Identify which guest room this entity belongs to.
-        room_name = None
-        for rn, state_dict in self._guest_room_state.items():
-            rn_slug = rn.lower().replace(" ", "_")
-            if f"binary_sensor.{rn_slug}_occupied" == entity_id:
-                room_name = rn
-                break
-
+        # GUEST-CENSUS D3: identify which guest room via the registry-
+        # populated reverse map (survives room renames).
+        room_name = self._guest_room_entity_to_name.get(entity_id)
         if room_name is None:
             return
 
@@ -4803,28 +4929,83 @@ class PresenceCoordinator(BaseCoordinator):
     def _is_known_person_in_room(self, room_name: str) -> bool:
         """Return True if any known tracked person is currently in the given room.
 
-        Uses person_coordinator's zone tracker if available.
-        Falls back to False (unknown = safer for guest detection).
+        GUEST-CENSUS 2026-08-17 CRIT FIX: the previous implementation was
+        double-broken:
+          (a) it looked the person coordinator up under
+              ``coordinator_manager.coordinators["person"]`` — a key that
+              is never registered (only presence/safety/security/mf/energy/
+              hvac/optimization are). Sibling sites (7 of them in this
+              file, e.g. lines 2074, 3623, 3832, 4609, 5259) use the
+              canonical ``hass.data[DOMAIN]["person_coordinator"]``;
+          (b) it read ``getattr(person_coord, "_tracked_persons", {})`` —
+              an attribute that is never assigned. The real store is
+              ``person_coord.data[name]["location"]`` (populated in
+              person_coordinator.py: 452, 528, ...).
+        Together those two bugs made this helper unconditionally return
+        False in production, silently killing both Transition 2 of the
+        state machine AND the live re-check in ``_guest_room_gate_armed``.
+        Under the D2 unification this is now the SOLE arm-time exclusion
+        preventing residents from arming GUEST after 30 min in a room
+        flagged ``is_guest_room=True``.
+
+        VERIFICATION (2026-08-17, live mount `/Users/okosisi/ha-config/`):
+        person location strings (`sensor.universal_room_automation_*_
+        previous_location` and person_coord `data[name]["location"]`)
+        are populated from CONF_ROOM_NAME via ``_resolve_person_room``
+        (person_coordinator.py:1036), so they compare directly to
+        room_name — observed values: "Master Bedroom", "Jaya Bedroom",
+        "Ziri Bathroom", "Master Bathroom". No vocabulary mismatch.
+        The ``.lower().replace(" ", "_")`` normalization is preserved
+        symmetrically on both sides as belt-and-suspenders.
+
+        Sticky window (``GUEST_KNOWN_STICKY_S``): Bermuda BLE ``location``
+        for a stationary resident can momentarily resolve elsewhere or
+        to "unknown" (Jaya Bedroom flap history is documented). Without
+        a latch, a transient BLE dropout at the exact instant of the
+        gate re-check would un-exclude a known resident and fire GUEST.
+        The latch caches last-True per room; a live False within the
+        window still returns True. Kill-switch at 0.
+
         Bug Class #14: reads fresh from hass.data each call.
         """
+        from ..const import GUEST_KNOWN_STICKY_S
         try:
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is None:
-                return False
-            person_coord = manager.coordinators.get("person")
+            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
             if person_coord is None:
-                return False
-            # Check if any tracked person's current location resolves to this room.
-            tracked = getattr(person_coord, "_tracked_persons", {})
-            for _pid, person_data in tracked.items():
-                location = person_data.get("location", "")
-                if location and location.lower().replace(" ", "_") == room_name.lower().replace(" ", "_"):
+                return self._is_known_person_sticky(room_name, GUEST_KNOWN_STICKY_S)
+            data = getattr(person_coord, "data", None) or {}
+            target = room_name.lower().replace(" ", "_")
+            for _pid, person_data in data.items():
+                if not isinstance(person_data, dict):
+                    continue
+                location = person_data.get("location") or ""
+                if not location or location in ("unknown", "away", ""):
+                    continue
+                if location.lower().replace(" ", "_") == target:
+                    self._guest_room_known_last_true[room_name] = dt_util.utcnow()
                     return True
         except Exception:
             _LOGGER.debug(
                 "D5: could not check known persons in room '%s' (non-fatal)",
                 room_name, exc_info=True,
             )
+        # No live hit — fall through to sticky window to absorb BLE flaps.
+        return self._is_known_person_sticky(room_name, GUEST_KNOWN_STICKY_S)
+
+    def _is_known_person_sticky(self, room_name: str, sticky_s: int) -> bool:
+        """Sticky-window fallback for _is_known_person_in_room (see caller)."""
+        if sticky_s <= 0:
+            return False
+        last_true = self._guest_room_known_last_true.get(room_name)
+        if last_true is None:
+            return False
+        age_s = (dt_util.utcnow() - last_true).total_seconds()
+        if age_s <= sticky_s:
+            _LOGGER.debug(
+                "D5 guest room '%s': known-person sticky hit (age=%.1fs <= %ds)",
+                room_name, age_s, sticky_s,
+            )
+            return True
         return False
 
     def _guest_room_gate_armed(self, now: datetime) -> bool:
@@ -4847,6 +5028,27 @@ class PresenceCoordinator(BaseCoordinator):
             if first_seen is None:
                 continue
             if state_dict.get("current_occupancy_known", False):
+                continue
+            # HIGH fix-up (2026-08-16): LIVE identity re-check before firing.
+            # `current_occupancy_known` is set only by the state-change
+            # LISTENER (_handle_guest_room_occupancy_change); a resident
+            # sitting still across HA restart never toggles occupancy and
+            # so the flag stays False even though person_coordinator
+            # eventually places them in the room. Re-check now against
+            # fresh substrate. If known: treat as Transition 2 — clear
+            # first_seen, set the flag True, continue (do not fire). This
+            # closes the boot false-GUEST hole and any other staleness of
+            # the cached flag. _is_known_person_in_room is a cheap
+            # in-memory dict lookup that reads fresh from hass.data.
+            if self._is_known_person_in_room(room_name):
+                _LOGGER.info(
+                    "D5 guest room '%s': live re-check found known person "
+                    "at gate time — clearing stale first_seen (was %s), "
+                    "not firing",
+                    room_name, first_seen.isoformat(),
+                )
+                state_dict["first_seen"] = None
+                state_dict["current_occupancy_known"] = True
                 continue
             threshold_min = state_dict.get("threshold_min", 30)
             elapsed_min = (now - first_seen).total_seconds() / 60.0
@@ -5386,10 +5588,16 @@ class PresenceCoordinator(BaseCoordinator):
                 census_confidence=self._census_confidence,
                 now=now,
             )
-            # v4.7.2 D5: Sustained-occupancy guest room path (additive OR).
+            # v4.7.2 D5: Sustained-occupancy guest room path.
             # Bug Class #11: D5 timestamps are UTC-aware (dt_util.utcnow()).
             guest_room_gate_armed = self._guest_room_gate_armed(now=dt_util.utcnow())
-            guest_armed = unid_gate_armed or guest_room_gate_armed
+            # GUEST-CENSUS D2 (2026-08-16): guest rooms LEAD; census (Path A)
+            # is a corroborator only. See M1 trade-offs in
+            # docs/planning/PLANNING_guest_census_correctness.md — accepts
+            # that guests in non-flagged rooms or present <30 min will NOT
+            # arm GUEST. Manual override (HouseStateMachine.set_override)
+            # remains an intentional bypass and is not affected.
+            guest_armed = guest_room_gate_armed
         elif current_state == HouseState.GUEST:
             # Already in GUEST state — skip unid gate (side-effect-bearing) but
             # evaluate guest_room gate (pure predicate) so the hold/exit decision
@@ -5406,12 +5614,30 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.2 D5: Confidence layering math (plan §7).
         # unid path: 0.8 (existing). guest_room path: 0.9 (higher specificity).
         # max() when both fire; individual when only one fires.
+        # GUEST-CENSUS D2 confidence: census corroboration bumps room-only
+        # confidence 0.9 → 0.95. Room-only stays 0.9. The census-only branch
+        # is unreachable under the new predicate (guest_armed depends on
+        # room only) but the shape is preserved for readers that inspect
+        # _d5_guest_confidence directly.
         if guest_room_gate_armed and unid_gate_armed:
-            _d5_guest_confidence: float = max(0.8, 0.9)  # = 0.9
+            _d5_guest_confidence: float = 0.95
         elif guest_room_gate_armed:
             _d5_guest_confidence = 0.9
         else:
-            _d5_guest_confidence = 0.8  # unid path only, or neither (ignored)
+            # Review B-LOW-2 (2026-08-16) canary: structurally unreachable
+            # under D2 (guest_armed depends on guest_room_gate_armed only,
+            # so entering this outer ``if guest_armed:`` block with
+            # guest_room_gate_armed=False cannot happen). Kept for shape /
+            # future readers; log-only canary (matches project convention
+            # of "should never happen" defensive warnings, e.g.
+            # energy.py:3188). Firing here indicates a future edit made
+            # this branch reachable — expected to be caught by review.
+            _d5_guest_confidence = 0.8
+            _LOGGER.warning(
+                "D2 canary: _d5_guest_confidence census-only branch reached "
+                "(should be unreachable — guest_armed depends on room only). "
+                "A recent change may have re-composed the arming predicate."
+            )
 
         # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
         # For each zone, build a weight map keyed by room_name using the
@@ -6984,6 +7210,7 @@ class PresenceCoordinator(BaseCoordinator):
                 pass
         self._guest_room_unsubs.clear()
         self._guest_room_state.clear()
+        self._guest_room_known_last_true.clear()
 
         # Fan-noise Mode-2: cancel per-room async_call_later timers in the
         # FanRecheckManager and persist final state. Leaked timers across
