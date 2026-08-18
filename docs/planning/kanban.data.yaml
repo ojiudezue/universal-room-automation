@@ -31,7 +31,7 @@ cards:
   status: planned
   approval: explicit
   created: 2026-08-18 00:55
-  updated: 2026-08-18 01:45
+  updated: 2026-08-18 02:05
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -75,6 +75,20 @@ cards:
     egress. PRE-BUILD GATE (operator): consult the existing egress-awareness + known-person (KP) code
     and CONFIRM this is COMPLEMENTARY not duplicating, and REPORT to the operator BEFORE building (AUDIT_egress_face_identity_prior_art.md
     running). No build until the operator reviews the verdict + gives go.'
+  prebuild_consultation_2026_08_18: 'CONSULTATION DONE (AUDIT_egress_face_identity_prior_art.md, 1ff87322b)
+    — VERDICT: COMPLEMENTARY, not duplicate. (1) EgressDirectionTracker resolves DIRECTION only; person_id
+    hard-coded None at both emit sites (transit_validator.py:1106,:1121) — identity gap is real + by-design.
+    (2) Downstream consumers ALREADY read person_id (defaults "unidentified", sensor.py:4190) — the slot
+    is wired, just always None. (3) Face identity is read AD-HOC in census only (camera_census.py:2470,3283),
+    no central producer — EXTEND those helpers, do not rewrite. (4) The Protect webhook event ura_kp_face_probe_received
+    has ZERO URA consumers (dormant probe) — wiring it is net-new. (5) Three identity notions must stay
+    DISTINCT: Frigate face, exterior sub_label (security), BLE room-presence. WIRE-IN SEAMS: S1 stamp
+    person_id at :1106/:1121; S2 reuse census Frigate reader; S3 first consumer of ura_kp_face_probe_received;
+    S4 downstream sensors unchanged; S5 fuse at census union camera_census.py:1855 with name dedup. COLLISION
+    RISKS: (a) census additive/subtractive double-count — the 2026-08-17 GUEST-CENSUS CRIT precedent;
+    integrate at the union NEVER a parallel count; (b) Frigate<->Protect same-crossing double-fire needs
+    cross-platform dedup (mirror transit_validator.py:1063-1073); (c) the "remove after probe" automation
+    becomes LOAD-BEARING once S3 wires it.'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
