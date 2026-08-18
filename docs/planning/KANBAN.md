@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:54:30-05:00_ - _Data commit: `6c86c2ea3150`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:57:52-05:00_ - _Data commit: `8f784d51a510`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1157,13 +1157,14 @@ _created 2026-08-18 02:00 · initial_
   - `column`: inbox
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
-### `IOS-APP-PLAN-CARD-1` - Find and card the iOS app plan
+### `IOS-APP-PLAN-CARD-1` - iOS app for HAOS+URA — gated design blueprint (tracked)
 thread: **dashboarding**
-_created 2026-08-18 02:00 · initial_
-- **Next:** Explore: locate the iOS app plan (grep docs/planning, memory bodies, ~/Code/ura-dashboard-pwa for iOS/native/App Store/PWA-to-native) -> summarize scope -> create a proper card.
-- **Forensic keys (2):**
-  - `column`: inbox
-  - `problem`: An iOS app plan exists somewhere (planning doc / memory / PWA repo notes) but is not on the board. Operator wants it found and carded so it is not lost.
+_created 2026-08-18 02:00 · updated 2026-08-18 02:25 · refined_
+- **Next:** No action now (gated). When PWA M2 lands + install-gate met, promote M3 to planning.
+- **Forensic keys (3):**
+  - `column`: parked
+  - `problem`: A real, detailed iOS app design EXISTS but was untracked. It is a BLUEPRINT, not a build: native iOS (SwiftUI + HAKit + TestFlight) is gated behind (a) PWA milestones M1/M2 and (b) the commercialization >=100-active-installs gate. Now ca...
+  - `parked_reason`: GATED. Path: M1 PWA read-only -> M2 PWA writes+NM -> M3 SwiftUI native shell+HAKit+TestFlight -> M4 native writes+push. Native (M3/M4) blocked behind PWA M1/M2 + HACS distribution + >=100 installs. Revisit trigger: PWA M2 complete AND co...
 
 ### `EGRESS-IDENTITY-CONTROL-OBS-1` - Egress person-detection — enable/disable + observability (parsimony)
 thread: **presence**

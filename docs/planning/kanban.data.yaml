@@ -4243,17 +4243,22 @@ cards:
     undone items -> classify worthwhile / superseded / obsolete with one-line rationale. Feeds a roadmap
     refresh (ties to ROADMAP-STALE-AGENTIC-LAYER-1).'
 - id: IOS-APP-PLAN-CARD-1
-  title: Find and card the iOS app plan
-  column: inbox
+  title: iOS app for HAOS+URA — gated design blueprint (tracked)
+  column: parked
   thread: dashboarding
   created: 2026-08-18 02:00
-  updated: 2026-08-18 02:00
-  refinement_status: initial
-  problem: An iOS app plan exists somewhere (planning doc / memory / PWA repo notes) but is not on the
-    board. Operator wants it found and carded so it is not lost.
+  updated: 2026-08-18 02:25
+  refinement_status: refined
+  problem: 'A real, detailed iOS app design EXISTS but was untracked. It is a BLUEPRINT, not a build:
+    native iOS (SwiftUI + HAKit + TestFlight) is gated behind (a) PWA milestones M1/M2 and (b) the commercialization
+    >=100-active-installs gate. Now carded so it is not lost and its gating is explicit.'
   origin: 2026-08-18 "Find and card the iOS app plan"
-  next: 'Explore: locate the iOS app plan (grep docs/planning, memory bodies, ~/Code/ura-dashboard-pwa
-    for iOS/native/App Store/PWA-to-native) -> summarize scope -> create a proper card.'
+  next: No action now (gated). When PWA M2 lands + install-gate met, promote M3 to planning.
+  refs: 'docs/planning/DESIGN_ios_app_ura_haos.md (2026-07-11, 100 lines); parent docs/planning/COMMERCIALIZATION_options.md
+    Play #1; PWA repo ~/Code/ura-dashboard-pwa (M1/M2 vehicle)'
+  parked_reason: 'GATED. Path: M1 PWA read-only -> M2 PWA writes+NM -> M3 SwiftUI native shell+HAKit+TestFlight
+    -> M4 native writes+push. Native (M3/M4) blocked behind PWA M1/M2 + HACS distribution + >=100 installs.
+    Revisit trigger: PWA M2 complete AND commercialization install-gate met.'
 - id: EGRESS-IDENTITY-CONTROL-OBS-1
   title: Egress person-detection — enable/disable + observability (parsimony)
   column: in_progress
