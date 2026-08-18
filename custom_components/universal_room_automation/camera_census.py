@@ -74,6 +74,7 @@ from .const import (
     # explicit consumer is added.
     CENSUS_PEAK_SUSTAIN_SECONDS,
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
+    EGRESS_FACE_UNION_TTL_S,
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
     PHONE_HOSTNAME_PREFIXES,
@@ -1061,6 +1062,17 @@ class PersonCensus:
         # or if the enhanced path takes an early-return during setup).
         self._last_ble_cancelled_count: int = 0
 
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18): egress-face
+        # identity register. Names are stored in the Frigate first-name
+        # slug namespace (see `_normalize_person_name`) so I5 dedup at the
+        # census union sites cannot admit "Oji" and "oji" as two members.
+        # TTL-pruned on read against EGRESS_FACE_UNION_TTL_S. Fed by
+        # `transit_validator.EgressDirectionTracker._resolve_direction`
+        # via `register_egress_face`; consumed at BOTH census union
+        # writers (`:1855` raw and the enhanced house recompute) per
+        # plan-review C-CRIT-1.
+        self._egress_face_ids: dict[str, datetime] = {}
+
         # ------------------------------------------------------------------
         # Stuck-Signal Watchdog D1 (v5.35.0). Per-Frigate-camera state for the
         # census-layer stuck-count check. See
@@ -1852,9 +1864,19 @@ class PersonCensus:
           no camera data, BLE only                        -> low
           no data                                         -> none
         """
-        known_persons = face_ids | ble_ids
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 fuse site 1 of 2 (I1/I5,
+        # plan-review C-CRIT-1). Names normalized to Frigate first-name
+        # slug BEFORE set-union so a resident recognized via face
+        # ("Oji") and BLE ("oji_udezue") counts once, and an egress-face
+        # for the same person does not add a third member.
+        egress_face_ids = self._get_egress_face_ids_fresh(now)
+        known_persons = (
+            self._normalize_name_set(face_ids)
+            | self._normalize_name_set(ble_ids)
+            | egress_face_ids  # already normalized on register
+        )
         identified_count = len(known_persons)
-        identified_persons = sorted(list(known_persons))
+        identified_persons = sorted(known_persons)
 
         if camera_total > 0:
             unidentified_count = max(0, camera_total - identified_count)
@@ -2704,6 +2726,89 @@ class PersonCensus:
         return fresh
 
     # ------------------------------------------------------------------
+    # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 — egress-face identity register.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_person_name(name: Any) -> str:
+        """Normalize a person identifier to the Frigate first-name-slug
+        namespace (I5, plan-review C-MED-2).
+
+        The census union at :1855 receives `face_ids` as raw Frigate
+        face-library names (e.g. ``"Oji"``) and `ble_ids` as URA person
+        slugs (e.g. ``"oji_udezue"``); the enhanced house recompute
+        receives `face_recognized` as URA slugs and `ble_persons` also as
+        URA slugs. Without normalization, the same resident can appear as
+        multiple set members and inflate identified_count. The canonical
+        form used everywhere the egress-face set participates is:
+        ``lower().strip().split('_', 1)[0]`` — the leading token,
+        lowercase — which matches the Frigate face-library key used by
+        `_resolve_last_camera_entity_id` (`:2601`).
+        """
+        if not name:
+            return ""
+        s = str(name).strip().lower()
+        if not s:
+            return ""
+        return s.split("_", 1)[0]
+
+    def _normalize_name_set(self, names) -> set[str]:
+        """Return the input iterable normalized via _normalize_person_name,
+        dropping empties. Safe on None."""
+        out: set[str] = set()
+        if not names:
+            return out
+        for n in names:
+            norm = self._normalize_person_name(n)
+            if norm:
+                out.add(norm)
+        return out
+
+    def register_egress_face(
+        self, name: str, ts: datetime | None = None,
+    ) -> None:
+        """Record a face-identified egress crossing so the census union
+        fuses this identity for up to ``EGRESS_FACE_UNION_TTL_S``.
+
+        Called by ``transit_validator.EgressDirectionTracker`` at emit
+        time after ``_resolve_egress_face_identity`` returns a name.
+        Names are normalized to the Frigate first-name slug namespace
+        (I5) so union with `face_ids`/`ble_ids` deduplicates by identity.
+        No-op on empty/blank input.
+        """
+        norm = self._normalize_person_name(name)
+        if not norm:
+            return
+        self._egress_face_ids[norm] = ts or dt_util.now()
+        _LOGGER.info(
+            "Egress-face identity registered for census union: %s "
+            "(TTL=%ds)",
+            norm,
+            EGRESS_FACE_UNION_TTL_S,
+        )
+
+    def _get_egress_face_ids_fresh(self, now: datetime) -> set[str]:
+        """Return the currently fresh egress-face names, pruning entries
+        older than ``EGRESS_FACE_UNION_TTL_S``. Read at BOTH census union
+        writers (raw `:1855` and enhanced house recompute) per
+        plan-review C-CRIT-1 — fusing only one is a house-level no-op."""
+        if not self._egress_face_ids:
+            return set()
+        ttl = EGRESS_FACE_UNION_TTL_S
+        stale: list[str] = []
+        for n, ts in self._egress_face_ids.items():
+            try:
+                age = (now - ts).total_seconds()
+            except (TypeError, AttributeError):
+                stale.append(n)
+                continue
+            if age > ttl or age < 0:
+                stale.append(n)
+        for n in stale:
+            self._egress_face_ids.pop(n, None)
+        return set(self._egress_face_ids.keys())
+
+    # ------------------------------------------------------------------
     # v3.10.1: Enhanced Census (event-driven sensor fusion)
     # ------------------------------------------------------------------
 
@@ -3387,8 +3492,21 @@ class PersonCensus:
         wifi_guests = self._get_wifi_guest_count(now)
         face_recognized = self._get_face_recognized_person_names(now)
 
-        # Recognized persons = BLE home + face recognized (union)
-        recognized_set = set(ble_persons) | set(face_recognized)
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 fuse site 2 of 2 (I1/I5,
+        # plan-review C-CRIT-1). THIS is the writer whose set survives
+        # to `identified_count`, `unidentified_count` via
+        # `raw_total_ceiling`, and every guest-math consumer — fusing
+        # only the raw path at `:1855` is a house-level no-op because
+        # this recompute would overwrite it. Names normalized to the
+        # Frigate first-name slug namespace at the fuse boundary so BLE
+        # slugs, Frigate slugs, and the egress-face register share one
+        # namespace (I5).
+        egress_face_ids = self._get_egress_face_ids_fresh(now)
+        recognized_set = (
+            self._normalize_name_set(ble_persons)
+            | self._normalize_name_set(face_recognized)
+            | egress_face_ids  # already normalized on register
+        )
         identified_count = len(recognized_set)
 
         # Unidentified = camera-only (WiFi VLAN guest detection disabled —

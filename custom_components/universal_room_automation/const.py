@@ -2151,6 +2151,17 @@ EGRESS_ENTRY_WINDOW_SECONDS: Final = 45
 EGRESS_EXIT_WINDOW_SECONDS: Final = 30
 EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
 
+# EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18)
+# Correctness bounds; module rung per §7 (numbers get knobs).
+# FACE_MATCH_WINDOW_S: max age of a recognized face vs the egress crossing
+#   timestamp before the helper attaches identity. A wrong value silently
+#   attaches stale identities (I3 violation) or drops fresh ones.
+# EGRESS_FACE_UNION_TTL_S: how long a registered egress-face name stays in
+#   the census union set. Bounds the incremental identification window;
+#   too high inflates identified_count past reality.
+FACE_MATCH_WINDOW_S: Final = 60
+EGRESS_FACE_UNION_TTL_S: Final = 300
+
 # v3.5.2 Census Mismatch
 CENSUS_MISMATCH_THRESHOLD: Final = 2
 CENSUS_MISMATCH_DURATION_MINUTES: Final = 10

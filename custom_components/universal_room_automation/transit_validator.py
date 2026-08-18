@@ -39,6 +39,7 @@ from .const import (
     TRANSIT_PROTECT_SOURCED_ENABLED_DEFAULT,
     TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS,
     SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
+    FACE_MATCH_WINDOW_S,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1052,6 +1053,96 @@ class EgressDirectionTracker:
         from .camera_census import CameraIntegrationManager
         return CameraIntegrationManager._extract_camera_stem(entity_id)
 
+    def _resolve_egress_face_identity(
+        self, egress_camera_id: str, timestamp: datetime,
+    ) -> str | None:
+        """EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1: resolve the freshest
+        recognized-face NAME on the egress camera's stem within
+        ``FACE_MATCH_WINDOW_S`` of ``timestamp``. Returns the name (as
+        published by the Frigate ``_last_recognized_face`` sensor — e.g.
+        ``"Oji"``) or ``None``.
+
+        Uses the REUSED census face readers so a single face-resolver
+        implementation stays authoritative:
+          - ``camera_census._resolve_face_entity_id`` for `_2`-suffix
+            tolerant entity_id lookup.
+          - Direct state read on the resolved entity_id filtered by stem
+            (the census's `_get_face_recognized_persons_fresh` scans all
+            cameras; here we want just this one crossing's stem).
+
+        Mirrors the fail-open ``person.<slug> == not_home`` veto that
+        ``camera_census._get_face_recognized_person_names`` applies at
+        `:3346-3366` (plan-review C-LOW-2): if the person tracker says
+        not_home, drop the recognition even if the face sensor is
+        currently reporting the name (stale-face latch guard). Fail-open
+        on missing/unknown/unavailable person state.
+
+        Returns ``None`` on any error — I3: no identity without evidence.
+        """
+        if not egress_camera_id:
+            return None
+        stem = self._extract_camera_stem(egress_camera_id)
+        if not stem:
+            return None
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census is None:
+            return None
+        try:
+            face_sensor_id = census._resolve_face_entity_id(stem)
+        except Exception:  # noqa: BLE001 — defensive; helper is fail-CLOSED
+            _LOGGER.debug(
+                "egress-face: _resolve_face_entity_id raised for stem=%s",
+                stem, exc_info=True,
+            )
+            return None
+        if face_sensor_id is None:
+            return None
+        try:
+            state = self.hass.states.get(face_sensor_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if state is None:
+            return None
+        val = state.state.strip() if isinstance(state.state, str) else ""
+        if val.lower() in ("unavailable", "unknown", "", "none", "no_match"):
+            return None
+        # Freshness: state.last_changed must be within FACE_MATCH_WINDOW_S
+        # of the crossing timestamp (I3).
+        last_changed = getattr(state, "last_changed", None)
+        if last_changed is None:
+            return None
+        try:
+            if last_changed.tzinfo is None:
+                last_changed = last_changed.replace(tzinfo=dt_util.UTC)
+            age = abs((timestamp - last_changed).total_seconds())
+        except (TypeError, AttributeError):
+            return None
+        if age > FACE_MATCH_WINDOW_S:
+            _LOGGER.debug(
+                "egress-face %s dropped: age=%.1fs > window=%ds",
+                val, age, FACE_MATCH_WINDOW_S,
+            )
+            return None
+        # Fail-open person-tracker veto (mirrors camera_census.py:3346-3366).
+        # Frigate face names are first-name (e.g. "Oji"); the person entity
+        # is `person.<first_name_lower>` on the URA person namespace. Fail
+        # open when the person entity is missing/unknown so we don't
+        # silently drop identity in ill-configured setups.
+        slug = val.strip().lower().split("_", 1)[0]
+        person_entity_id = f"person.{slug}"
+        try:
+            person_state = self.hass.states.get(person_entity_id)
+        except Exception:  # noqa: BLE001
+            person_state = None
+        if person_state is not None and person_state.state == "not_home":
+            _LOGGER.debug(
+                "egress-face %s dropped: %s=not_home "
+                "(stale-face veto, mirrors census)",
+                val, person_entity_id,
+            )
+            return None
+        return val
+
     async def _resolve_direction(
         self, egress_camera_id: str, egress_timestamp: datetime
     ) -> None:
@@ -1098,19 +1189,45 @@ class EgressDirectionTracker:
         else:
             confidence = 0.4 if platforms_fired >= 2 else 0.3
 
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1: stamp person_id from the
+        # egress-camera's face sensor at emit time. None when no fresh
+        # face within FACE_MATCH_WINDOW_S (I3: no identity without
+        # evidence). Single resolution call reused for the bus event
+        # AND the DB row so both sites always agree.
+        person_id = self._resolve_egress_face_identity(
+            egress_camera_id, egress_timestamp,
+        )
+
         # Fire event on HA bus
         self.hass.bus.async_fire("ura_person_egress_event", {
             "direction": direction,
             "egress_camera": egress_camera_id,
             "timestamp": egress_timestamp.isoformat(),
-            "person_id": None,
+            "person_id": person_id,
             "confidence": confidence,
         })
 
         _LOGGER.debug(
-            "Egress direction resolved: camera=%s, direction=%s, confidence=%.2f",
-            egress_camera_id, direction, confidence,
+            "Egress direction resolved: camera=%s, direction=%s, "
+            "confidence=%.2f, person_id=%s",
+            egress_camera_id, direction, confidence, person_id,
         )
+
+        # Feed the census union so the next census tick fuses this
+        # identity with face_ids/ble_ids (I1: cardinality of the union,
+        # not sum). Bounded by EGRESS_FACE_UNION_TTL_S on the census
+        # side; normalization to Frigate first-name slug happens there.
+        if person_id:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            if census is not None:
+                try:
+                    census.register_egress_face(person_id, egress_timestamp)
+                except Exception:  # noqa: BLE001 — census register is
+                    # best-effort; do not fail the egress emit path.
+                    _LOGGER.debug(
+                        "egress-face census register failed for %s",
+                        person_id, exc_info=True,
+                    )
 
         # Log to database if not ambiguous
         if direction != "ambiguous":
@@ -1118,7 +1235,7 @@ class EgressDirectionTracker:
             if database:
                 try:
                     await database.log_entry_exit_event(
-                        person_id=None,
+                        person_id=person_id,
                         event_type="egress",
                         direction=direction,
                         egress_camera=egress_camera_id,
