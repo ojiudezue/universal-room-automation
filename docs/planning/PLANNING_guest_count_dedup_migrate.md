@@ -273,6 +273,14 @@ snapshot of `house`, so they cannot disagree (discriminating-observation rule).
 
 Delete the local read of `person_coordinator` in this class entirely.
 
+Note (attribute key-set change, plan-review L2 touch-up 2026-08-18):
+`ZoneGuestCountSensor` is disabled-by-default and has no known operator
+scrapes of its attributes; replacing `ble_total` with `identified_count`
+(and adding `unidentified_count`) is intentional (state/attr consistency
+> scrape-shape preservation) and does not violate the
+`URAUnexpectedPersonSensor` scrape-preservation contract, which is
+separately upheld by D2's `test_unexpected_person_attr_keys_unchanged`.
+
 **Acceptance criteria:**
 - **Verify:** `git grep -n "camera_total - ble_total" custom_components/universal_room_automation/aggregation.py` returns **no live-code hits** (comments/tests permitted only in the migration test file).
 - **Verify:** `git grep -n "person_coordinator" custom_components/universal_room_automation/aggregation.py` shows the reference removed from `ZoneGuestCountSensor` scope.
@@ -341,6 +349,12 @@ sites). Written up in §9 with a parked follow-up card recommendation.
 - **NOT** adding new signals, dispatches, DB rows, or config-entry fields.
 - **NOT** deprecating or renaming the `camera_total` / `ble_total` attribute
   keys on either site (dashboard/scrape compatibility).
+- **NOT** resolving the pre-existing per-zone-entity vs house-level-value
+  granularity mismatch on `ZoneGuestCountSensor` (both the old naive formula
+  and the new deduped formula read `house.*` — every enabled zone entity
+  emits the same house-level integer; a per-zone guest count is a separate
+  deliverable that would require a per-zone census cut). Plan-review M1
+  touch-up (2026-08-18).
 
 ---
 

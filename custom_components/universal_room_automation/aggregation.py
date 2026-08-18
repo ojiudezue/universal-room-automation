@@ -5926,8 +5926,12 @@ class ZoneIdentifiedPersonsSensor(ZoneSensorBase, SensorEntity):
 class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
     """Sensor: Estimated guest (unidentified) count for this zone.
 
-    Uses house-level PersonCensus total minus BLE-identified total.
-    Guests = camera_total - ble_identified_total (clamped to 0).
+    Reads the DEDUPED house-level ``PersonCensus.last_result.house.unidentified_count``
+    (camera_total minus |face_ids ∪ ble_ids|). Prior to the
+    GUEST-COUNT-DEDUP-MIGRATE-1 cycle this was a naive
+    ``max(0, camera_total - ble_active_count)`` subtraction of two
+    independently-fused substrates, which double-counted residents into
+    "guest" whenever face/BLE derivations disagreed.
     Disabled by default.
     """
 
@@ -5955,50 +5959,53 @@ class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return census totals used to derive the guest count."""
+        """Return census totals used to derive the guest count.
+
+        State and attributes now derive from ONE snapshot of ``house`` so they
+        cannot silently disagree (discriminating-observation rule). The prior
+        ``ble_total`` attribute (BLE active-count fused independently of the
+        census) is replaced by ``identified_count`` from the same ``house``
+        record.
+        """
         census = self.hass.data.get(DOMAIN, {}).get("census")
-        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
 
         camera_total = 0
-        ble_total = 0
+        identified_count = 0
+        unidentified_count = 0
         confidence = "none"
 
         if census and census.last_result:
-            camera_total = census.last_result.house.total_persons
-            confidence = census.last_result.house.confidence
-
-        if person_coordinator and person_coordinator.data:
-            ble_total = len([
-                pid for pid, info in person_coordinator.data.items()
-                if info.get("tracking_status") == "active"
-            ])
+            house = census.last_result.house
+            camera_total = house.total_persons
+            identified_count = house.identified_count
+            unidentified_count = house.unidentified_count
+            confidence = house.confidence
 
         return {
             "camera_total": camera_total,
-            "ble_total": ble_total,
+            "identified_count": identified_count,
+            "unidentified_count": unidentified_count,
             "zone": self.zone,
             "confidence": confidence,
         }
 
     def _get_guest_count(self) -> int:
-        """Calculate guest count from census minus BLE."""
+        """Return the DEDUPED house-level unidentified count.
+
+        Reads ``census.last_result.house.unidentified_count`` — the canonical
+        deduped value computed by ``PersonCensus._cross_correlate_persons`` /
+        ``_apply_enhanced_house_census`` as
+        ``camera_total - |face_ids ∪ ble_ids|`` (see
+        ``camera_census.py:1899`` / ``:3733``). Returns 0 as the
+        graceful-degradation sentinel when the census is unavailable.
+        """
         try:
             census = self.hass.data.get(DOMAIN, {}).get("census")
-            person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
 
             if not census or census.last_result is None:
                 return 0
 
-            camera_total = census.last_result.house.total_persons
-
-            ble_total = 0
-            if person_coordinator and person_coordinator.data:
-                ble_total = len([
-                    pid for pid, info in person_coordinator.data.items()
-                    if info.get("tracking_status") == "active"
-                ])
-
-            return max(0, camera_total - ble_total)
+            return census.last_result.house.unidentified_count
         except Exception as exc:
             _LOGGER.error(
                 "ZoneGuestCountSensor '%s': error calculating guest count: %s",
