@@ -33,7 +33,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 01:25
+  updated: 2026-08-18 01:40
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -123,6 +123,18 @@ cards:
     RETIRES the earlier "single-NVR fallback" nuance for these cams — they are dual-NVR with a real agreement
     signal; the track-linker fallback only matters for GENUINELY single-NVR cameras. NOTE for build: a
     2-second single-NVR blip that the co-watching NVR refused to confirm is the textbook demote case.'
+  agreement_rate_measured_2026_08_17: 'QUANTIFIED (front_side_ptz, 5 days): Frigate-2 (_person_occupancy_2)
+    = 479 on-events; Protect (_person_detected) = 51 on-events. Agreement: 35 of 51 Protect events (69%)
+    have a Frigate-2 within 60s. But from Frigate-2''s side, only ~35 of 479 (~7%) overlap Protect ->
+    ~93% of Frigate-2 detections are SINGLE-SOURCE. READING: Protect is the conservative/accurate detector;
+    when it fires, Frigate usually agrees. Frigate-2 emits a ~10x FLOOD of extra single-source detections
+    Protect ignores (likely the public road / a tree / shadow in the Frigate detection zone). BOTH the
+    08-16 alerts AND the 08-17 event were part of that 93% single-source Frigate flood; a genuinely corroborated
+    event exists (the 35 both-fired cases) and those are the real-person events. IMPLICATIONS: (1) the
+    corroboration-into-severity fix would demote the 93% Frigate-only flood, keep/raise the 35 corroborated;
+    (2) SEPARATE operator config action: the front_side_ptz FRIGATE-2 detection is over-sensitive vs Protect
+    — worth tuning its zone/threshold (probably includes the public street). The Protect leg is the trustworthy
+    one here.'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
