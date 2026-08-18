@@ -2151,6 +2151,27 @@ EGRESS_ENTRY_WINDOW_SECONDS: Final = 45
 EGRESS_EXIT_WINDOW_SECONDS: Final = 30
 EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
 
+# EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18)
+# Correctness bounds; module rung per §7 (numbers get knobs).
+# FACE_MATCH_WINDOW_S: max age of a recognized face vs the egress crossing
+#   timestamp before the helper attaches identity. A wrong value silently
+#   attaches stale identities (I3 violation) or drops fresh ones.
+# EGRESS_FACE_UNION_TTL_S: how long a registered egress-face name stays in
+#   the census union set. Bounds the incremental identification window;
+#   too high inflates identified_count past reality.
+FACE_MATCH_WINDOW_S: Final = 60
+EGRESS_FACE_UNION_TTL_S: Final = 300
+
+# EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
+# identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
+# operator (mirrors D2 PROTECT_CORROBORATION_ENABLED). Kill-switch semantics:
+# when False, `_resolve_egress_face_identity` returns None immediately AND
+# `register_egress_face` is a no-op AND `_get_egress_face_ids_fresh` returns
+# an empty set. Net effect: `person_id` on `ura_person_egress_event` stays
+# None; both census fuse sites are byte-identical to pre-cycle behaviour.
+CONF_EGRESS_IDENTITY_ENABLED: Final = "egress_identity_enabled"
+DEFAULT_EGRESS_IDENTITY_ENABLED: Final = False
+
 # v3.5.2 Census Mismatch
 CENSUS_MISMATCH_THRESHOLD: Final = 2
 CENSUS_MISMATCH_DURATION_MINUTES: Final = 10
