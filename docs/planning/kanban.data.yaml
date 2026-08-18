@@ -91,7 +91,7 @@ cards:
   shipped_version: v5.81.0
   approval: explicit
   created: 2026-08-18 00:55
-  updated: 2026-08-18 02:10
+  updated: 2026-08-18 02:25
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -162,6 +162,12 @@ cards:
     (append §D2-payload appendix to PLANNING_egress_face_identity.md -> GO build D2 / PARK if payload
     poor). Do NOT hard-code a guessed payload field (fabrication class). D1 itself is in fix-up (3 reviews
     DO-NOT-SHIP/SHIP-with-fix).'
+  column: shipped_organic
+  l1_validated_2026_08_18: 'SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant
+    byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active
+    + egress_identities_stamped live on persons_entered_today). L2/L3 ORGANIC-PENDING: Wed occupancy +
+    flip CONF_EGRESS_IDENTITY_ENABLED=True, watch real person_id (URA slug) on entry crossing + no phantom
+    guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
@@ -4266,10 +4272,10 @@ cards:
     Revisit trigger: PWA M2 complete AND commercialization install-gate met.'
 - id: EGRESS-IDENTITY-CONTROL-OBS-1
   title: Egress person-detection — enable/disable + observability (parsimony)
-  column: in_progress
+  column: shipped_organic
   thread: presence
   created: 2026-08-18 02:20
-  updated: 2026-08-18 02:20
+  updated: 2026-08-18 02:25
   refinement_status: initial
   problem: The new egress person-identity detection (D1) must be operator-enableable/disableable, and
     its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob
@@ -4286,6 +4292,11 @@ cards:
   next: 'Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability
     attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.'
   refs: PLANNING_egress_face_identity.md; feature/egress-face-identity-d1
+  l1_validated_2026_08_18: 'SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant
+    byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active
+    + egress_identities_stamped live on persons_entered_today). L2/L3 ORGANIC-PENDING: Wed occupancy +
+    flip CONF_EGRESS_IDENTITY_ENABLED=True, watch real person_id (URA slug) on entry crossing + no phantom
+    guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: SENSOR-HEALTH-SURFACING-1
   title: Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
   column: inbox
@@ -4368,6 +4379,59 @@ cards:
   next: Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds
     under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
   refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+- id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
+  title: Promote 3 Camera-Census feature toggles to device switches
+  column: planned
+  thread: presence
+  created: 2026-08-18 03:10
+  updated: 2026-08-18 03:40
+  refinement_status: refined
+  problem: Three feature toggles are buried in the Camera Census options dialog (options-flow rung 2).
+    Operator wants them as one-tap DEVICE SWITCHES on the URA device (rung 3) for live control + dashboard
+    access. Names must be simple, benefit-first, and SCOPED (not imply a global kill switch — URA uses
+    face recognition in many places).
+  origin: 2026-08-18 "propose device toggle switch names ... simplicity and easy to understand"; names
+    iterated w/ operator
+  knobs: 'LOCKED names (operator-approved): switch.ura_presence_face_matching "Presence Face Matching"
+    (<- face_recognition_enabled; scope VERIFIED = transit_validator + presence zone confirm ONLY, not
+    global); switch.ura_smart_people_counting "Smart People Counting" (<- enhanced_census); switch.ura_name_people_at_doors
+    "Name People at Doors" (<- egress_identity_enabled).'
+  constraints: Switch entity = SINGLE source of truth, persisted via URA switch-persistence machinery
+    (single-user, no back-compat migration). Reconcile with the existing options-flow fields (avoid two-sources
+    divergence). Enhanced Census is the HEAVY one — toggling swaps the census engine; may need integration
+    reload rather than instant apply (planner decides). Keep the options-flow i18n label already committed
+    for egress as backing.
+  next: 'ura-planner: Tier 2 plan (3 SwitchEntity + persistence + options reconciliation + consumed by
+    presence/transit/census). Then ONE plan review, then build.'
+  refs: v5.81.0 (egress kill switch); config_flow.py async_step_camera_census; feedback_model_tiering
+    / numbers-get-knobs ladder
+  revised_2026_08_18: 'PLAN-REVIEW (PLAN-NEEDS-FIXES, 1 CRIT) reshaped this. REVISED SCOPE: TWO switches
+    only — Presence Face Matching + Name People at Doors. Smart People Counting (enhanced_census) STAYS
+    in options (heaviest/structural at __init__.py:2253, not live-refreshable) — parked w/ trigger. CRITICAL
+    fix: the naive async_update_entry path RELOADS the parent integration = the ~5min-outage watchdog
+    hazard just mitigated 2026-08-15. Correct design: extend INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS
+    allowlist for the 2 keys + fire SIGNAL_URA_FACE_RECOGNITION_CHANGED to live-refresh the boot-cached
+    presence/transit consumers (suppression-needs-a-discharge). egress already live per-call. DEFAULTS:
+    operator wants all ON (face_recognition F->T, egress F->T, enhanced_census stays T) — flips live at
+    deploy since options unset; egress L2/L3 still Wed-pending (validate in prod w/ kill switch). Ledger:
+    +2 switches / +1 signal / +0 sensors. ELEVATED to Tier 2-DB. Next: planner revises -> re-review revised
+    plan -> build.'
+- id: CENSUS-IDENTITY-GROUP-README-1
+  title: 'Cycle-group README: census/guest/presence-identity program'
+  column: in_progress
+  thread: planning
+  created: 2026-08-18 03:20
+  updated: 2026-08-18 03:20
+  refinement_status: initial
+  problem: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy
+    + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in
+    the operators head + scattered per-version READMEs. Needs ONE cycle-group README that tells the story
+    and NAMES EVERY ENTITY (verified, not from memory), separating SHIPPED / PLANNED / GATED.
+  origin: 2026-08-18 "we need a cycle group readme, so this collection is coherent and should name the
+    entities"
+  next: general-purpose writing docs/readmes/README_GROUP_census_guest_presence_identity.md with verified
+    entity inventory.
+  refs: README_v5.79.0/5.80.0/5.81.0; CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

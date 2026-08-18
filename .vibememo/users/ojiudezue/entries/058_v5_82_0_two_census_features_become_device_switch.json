@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "058",
+  "author": "ojiudezue",
+  "session_id": "claude_20260818_142730_ship_v5_82_0",
+  "timestamp": "2026-08-18T14:27:30Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.82.0 shipped: Two census features become device switches (Presence Face Matching, Name People at Doors), no-reload toggle + defaults ON",
+  "summary": "Promotes face_recognition_enabled + egress_identity_enabled to device switches on the URA integration; toggling writes options WITHOUT reloading the parent entry (added to reload-suppress allowlist + SIGNAL_URA_FACE_RECOGNITION_CHANGED live-refreshes the boot-cached presence/transit consumers); egress is fresh-read. Defaults flipped ON (face_recognition new True, egress False->True) so both activate on deploy; switches are the live kill path. enhanced_census stays in options (structural). Tier 2-DB: 2 plan reviews + 3 framing-disjoint reviews + fix-up; mutation-verified behavioral tests. No new sensors.",
+  "refs": {
+    "cards": [
+      "CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.82.0.md"
+    ]
+  }
+}

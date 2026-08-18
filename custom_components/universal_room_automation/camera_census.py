@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.81.0
+# Universal Room Automation vv5.82.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -2856,8 +2856,14 @@ class PersonCensus:
         return out
 
     def _is_egress_identity_enabled(self) -> bool:
-        """Read the EGRESS_IDENTITY_ENABLED kill switch from options
-        (2026-08-18). Default False (dormant) — see const.py rationale."""
+        """Read the EGRESS_IDENTITY_ENABLED kill switch from options.
+
+        Default True (post-CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 ship,
+        2026-08-18); operator kill-switch is
+        `switch.ura_name_people_at_doors`. Fresh-read at every call —
+        no cache — so a toggle from the device switch or the options
+        flow takes effect on the next crossing without a reload.
+        """
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 merged = {**entry.data, **entry.options}
