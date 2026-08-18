@@ -1219,13 +1219,25 @@ def test_is_known_person_sticky_expires_after_window():
         DOMAIN, GUEST_KNOWN_STICKY_S,
     )
 
+    # F2-MED-1 (Bug Class #64, oracle-echo): the expiry window is a TEST-LOCAL
+    # literal, NOT derived from the production constant — otherwise ageing by
+    # `GUEST_KNOWN_STICKY_S + 5` would pass for ANY value (incl. 0 and 86400).
+    # A separate contract assertion pins the constant to the literal, so a real
+    # change to the knob turns a NAMED test red (drill: set constant -> test fails).
+    EXPECTED_STICKY_S = 120
+    assert GUEST_KNOWN_STICKY_S == EXPECTED_STICKY_S, (
+        "GUEST_KNOWN_STICKY_S changed; update EXPECTED_STICKY_S and re-derive "
+        f"the sticky-latch test expectations. got {GUEST_KNOWN_STICKY_S}, "
+        f"expected {EXPECTED_STICKY_S}."
+    )
+
     pc = _pc_with_real_person_coord({"oji": {"location": "Guest Bedroom 1"}})
     assert pc._is_known_person_in_room("Guest Bedroom 1") is True
 
-    # Age the last_true stamp past the sticky window.
+    # Age the last_true stamp past the sticky window (test-local literal).
     pc._guest_room_known_last_true["Guest Bedroom 1"] = (
         pc._guest_room_known_last_true["Guest Bedroom 1"]
-        - _td(seconds=GUEST_KNOWN_STICKY_S + 5)
+        - _td(seconds=EXPECTED_STICKY_S + 5)
     )
     # Substrate no longer places anyone in the room; latch has expired.
     pc.hass.data[DOMAIN]["person_coordinator"].data = {
