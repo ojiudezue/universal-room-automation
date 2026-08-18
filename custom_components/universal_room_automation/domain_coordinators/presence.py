@@ -4539,6 +4539,13 @@ class PresenceCoordinator(BaseCoordinator):
         v3.19.0: Uses confirmed Frigate naming pattern:
         binary_sensor.{name}_person_occupancy → sensor.{name}_last_recognized_face
 
+        CENSUS-FACE-RESOLVER-MIGRATE-1 (2026-08-18): resolves the face
+        entity via ``camera_census._resolve_face_entity_id`` so `_2`-only
+        cameras (post-Frigate-1 retirement — see memory
+        "frigate 1 retired 2 suffix") are picked up. Previously the bare
+        ``sensor.{base}_last_recognized_face`` string was built inline and
+        silently missed `_2`-only cams.
+
         Returns face name if fresh (<30s), None on any failure.
         All failures are graceful — face rec is an accelerator, not a requirement.
         """
@@ -4554,7 +4561,21 @@ class PresenceCoordinator(BaseCoordinator):
             if not base_name:
                 return None  # Not a recognized camera pattern
 
-            face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+            # Route through the census resolver — it tolerates the `_2`
+            # disambiguation suffix (see camera_census._resolve_face_entity_id).
+            # If the census coordinator isn't wired yet (early boot / test),
+            # fall back to the bare canonical id so behavior is at least as
+            # good as pre-migration.
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            face_sensor_id: Optional[str] = None
+            if census is not None:
+                try:
+                    face_sensor_id = census._resolve_face_entity_id(base_name)
+                except Exception:  # noqa: BLE001 — helper is fail-CLOSED; be defensive anyway
+                    face_sensor_id = None
+            if face_sensor_id is None:
+                face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+
             state = self.hass.states.get(face_sensor_id)
             if not state:
                 return None  # Face sensor doesn't exist
