@@ -4254,6 +4254,28 @@ cards:
   origin: 2026-08-18 "Find and card the iOS app plan"
   next: 'Explore: locate the iOS app plan (grep docs/planning, memory bodies, ~/Code/ura-dashboard-pwa
     for iOS/native/App Store/PWA-to-native) -> summarize scope -> create a proper card.'
+- id: EGRESS-IDENTITY-CONTROL-OBS-1
+  title: Egress person-detection — enable/disable + observability (parsimony)
+  column: in_progress
+  thread: presence
+  created: 2026-08-18 02:20
+  updated: 2026-08-18 02:20
+  refinement_status: initial
+  problem: The new egress person-identity detection (D1) must be operator-enableable/disableable, and
+    its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob
+    sprawl). It just surfaced a phantom-guest CRIT in review, so it should ship behind a kill switch and
+    be validated before it drives anything.
+  origin: 2026-08-18 "make sure this egress person detection can be enabled or disabled. Build in observability
+    and control with parsimony"
+  knobs: EGRESS_IDENTITY_ENABLED (options-flow bool, default OFF until live-validated; kill switch — when
+    off, resolver returns None + register is no-op => byte-identical to pre-cycle). Mirrors D2 PROTECT_CORROBORATION_ENABLED
+    default-OFF pattern.
+  constraints: 'Parsimony: ONE enable bool; observability via ATTRIBUTES on existing census/egress sensors
+    (egress_face_ids size + cumulative egress_identities_stamped), NOT new entities. Kill switch documented
+    on the field.'
+  next: 'Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability
+    attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.'
+  refs: PLANNING_egress_face_identity.md; feature/egress-face-identity-d1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

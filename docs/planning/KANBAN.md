@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:34:43-05:00_ - _Data commit: `67d59bff3bea`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:54:30-05:00_ - _Data commit: `6c86c2ea3150`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T01:34:43-05:00_ - _Data commit: `67d59bff3bea`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 3 |
+| ❓ Other | 4 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1138,7 +1138,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (3)
+## ❓ Other (4)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1164,6 +1164,14 @@ _created 2026-08-18 02:00 · initial_
 - **Forensic keys (2):**
   - `column`: inbox
   - `problem`: An iOS app plan exists somewhere (planning doc / memory / PWA repo notes) but is not on the board. Operator wants it found and carded so it is not lost.
+
+### `EGRESS-IDENTITY-CONTROL-OBS-1` - Egress person-detection — enable/disable + observability (parsimony)
+thread: **presence**
+_created 2026-08-18 02:20 · initial_
+- **Next:** Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.
+- **Forensic keys (2):**
+  - `column`: in_progress
+  - `problem`: The new egress person-identity detection (D1) must be operator-enableable/disableable, and its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob sprawl). It just surfaced a phantom-guest CRIT i...
 
 ## 🅿️ Parked ideas (top-level list)
 

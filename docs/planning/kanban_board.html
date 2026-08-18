@@ -135,8 +135,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-18T01:34:43-05:00</b></span>
-<span>data <b>67d59bff3bea</b></span>
+<span>generated <b>2026-08-18T01:54:30-05:00</b></span>
+<span>data <b>6c86c2ea3150</b></span>
 <span>reconciled <b>2026-08-18</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -152,7 +152,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Waiting on me (Claude) <b>1</b></span>
 <span>Parked <b>8</b></span>
 <span>Done <b>25</b></span>
-<span>Other <b>3</b></span>
+<span>Other <b>4</b></span>
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
@@ -292,11 +292,12 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="other">
-<h2>Other <span class="count">3</span><span class="hint">unknown status bucket</span></h2>
+<h2>Other <span class="count">4</span><span class="hint">unknown status bucket</span></h2>
 <div class="cards">
 <details class="card" data-id="MEMORY-ROADMAP-1" draggable="true"><summary><span class="id">MEMORY-ROADMAP-1</span><span class="title">Memory epic — forward roadmap + critique + what-survives</span><div class="tagline">memory</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · initial</div><dt>Next</dt><dd>ura-planner: read memory epic state (PLANNING_memory_writers.md, shipped writers+compactor, memory-ineligible boundary) -&gt; outline roadmap phases -&gt; critique via marginal-benefit -&gt; table of what survives (recorder retention, compacted n...</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="ROADMAP-UNDONE-REVIEW-1" draggable="true"><summary><span class="id">ROADMAP-UNDONE-REVIEW-1</span><span class="title">Review ROADMAP/VISION — surface undone-but-worthwhile</span><div class="tagline">planning</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · initial</div><dt>Next</dt><dd>Research agent: read docs/ROADMAP_v11.md + VISION_v7.md + backlog + memory project cards -&gt; list undone items -&gt; classify worthwhile / superseded / obsolete with one-line rationale. Feeds a roadmap refresh (ties to ROADMAP-STALE-AGENTIC-...</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="IOS-APP-PLAN-CARD-1" draggable="true"><summary><span class="id">IOS-APP-PLAN-CARD-1</span><span class="title">Find and card the iOS app plan</span><div class="tagline">dashboarding</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · initial</div><dt>Next</dt><dd>Explore: locate the iOS app plan (grep docs/planning, memory bodies, ~/Code/ura-dashboard-pwa for iOS/native/App Store/PWA-to-native) -&gt; summarize scope -&gt; create a proper card.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: An iOS app plan exists somewhere (planning doc / memory / PWA repo notes) but is not on the board. Operator wants it found and carded so it is not lost.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
+<details class="card" data-id="EGRESS-IDENTITY-CONTROL-OBS-1" draggable="true"><summary><span class="id">EGRESS-IDENTITY-CONTROL-OBS-1</span><span class="title">Egress person-detection — enable/disable + observability (parsimony)</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:20 · initial</div><dt>Next</dt><dd>Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: in_progress</li><li><code>problem</code>: The new egress person-identity detection (D1) must be operator-enableable/disableable, and its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob sprawl). It just surfaced a phantom-guest CRIT i...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
 </main>
@@ -318,7 +319,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>67d59bff3bea</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>6c86c2ea3150</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
