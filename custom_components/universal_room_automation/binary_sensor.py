@@ -1561,16 +1561,33 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return camera total, ble total, and derived guest count."""
+        """Return camera total, ble total, and derived guest count.
+
+        ``guest_count`` is the DEDUPED house-level
+        ``census.last_result.house.unidentified_count``
+        (``camera_total - |face_ids ∪ ble_ids|`` from
+        ``camera_census.py:1899`` / ``:3733``). Prior to
+        GUEST-COUNT-DEDUP-MIGRATE-1 this attribute recomputed the value as a
+        naive ``max(0, camera_total - ble_active_count)`` subtraction of two
+        independently-fused substrates — a second derivation of the same
+        quantity that could disagree with the canonical census. The
+        ``camera_total`` and ``ble_total`` diagnostic attribute keys are
+        RETAINED unchanged for dashboard/scrape compatibility; ``is_on``
+        (which still uses the camera_total > ble_total comparison) is
+        intentionally untouched by this cycle and carded separately as
+        ``UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1``.
+        """
         # Trigger a fresh read so attributes are always in sync with is_on
         census = self.hass.data.get(DOMAIN, {}).get("census")
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
 
         camera_total = 0
         ble_total = 0
+        guest_count = 0
 
         if census and census.last_result:
             camera_total = census.last_result.house.total_persons
+            guest_count = census.last_result.house.unidentified_count
 
         if person_coordinator and person_coordinator.data:
             ble_total = len([
@@ -1581,7 +1598,7 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
         return {
             "camera_total": camera_total,
             "ble_total": ble_total,
-            "guest_count": max(0, camera_total - ble_total),
+            "guest_count": guest_count,
         }
 
 
