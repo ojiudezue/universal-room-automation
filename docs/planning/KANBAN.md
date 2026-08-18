@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T09:40:18-05:00_ - _Data commit: `b3cae0dda0a0`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T13:06:44-05:00_ - _Data commit: `a8a17981df07`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T09:40:18-05:00_ - _Data commit: `b3cae0dda0a0`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 16 |
+| ❓ Other | 17 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1143,7 +1143,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (16)
+## ❓ Other (17)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1283,6 +1283,14 @@ _created 2026-08-18 09:45 · updated 2026-08-18 10:05 · initial_
   - `column`: inbox
   - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped
+thread: **dashboarding**
+_created 2026-08-18 10:20 · initial_
+- **Next:** OPERATOR: decide the PWA release — is census-p12 THE working branch to promote to main + deploy (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard D3 cards (v6/v8) ARE live; only the PWA leg...
+- **Forensic keys (2):**
+  - `column`: waiting_operator
+  - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
 
 ## 🅿️ Parked ideas (top-level list)
 

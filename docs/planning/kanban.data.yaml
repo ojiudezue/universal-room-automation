@@ -4548,6 +4548,25 @@ cards:
     not the front door. The face-INDEPENDENT approach-track arm is a DEFERRED, gated-on-value FALLBACK
     (EXTERIOR-GUEST-EGRESS-1, revisit only if identity proves insufficient) — operator ALREADY chose identity-first;
     do NOT re-recommend it off the 7%.'
+- id: PWA-CENSUS-P12-RELEASE-1
+  title: PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped
+  column: waiting_operator
+  thread: dashboarding
+  created: 2026-08-18 10:20
+  updated: 2026-08-18 10:20
+  refinement_status: initial
+  problem: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard,
+    which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the
+    branch also carries unrelated PWA work (design-skill rounds, PWA-CONTROL-LIST-1, M2 plan, v6.1.1).
+    Shipping D3 = releasing the whole branch = a PWA-workstream release decision, not a census cleanup.
+  origin: 2026-08-18 supersession/consumer cleanup surfaced the D3 "confirm PWA deploy" loose end as a
+    full branch-behind-main gap
+  constraints: Do NOT unilaterally merge 12 commits of PWA work to main + deploy — that is a PWA release
+    with its own review/cadence.
+  next: 'OPERATOR: decide the PWA release — is census-p12 THE working branch to promote to main + deploy
+    (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard
+    D3 cards (v6/v8) ARE live; only the PWA leg is pending.'
+  refs: ~/Code/ura-dashboard-pwa branch census-p12-exterior-dashboard; CENSUS-ACCURACY-1 D3
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
