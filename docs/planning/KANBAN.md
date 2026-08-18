@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T14:59:31-05:00_ - _Data commit: `c08f4ca40fc5`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T15:09:26-05:00_ - _Data commit: `81ddfccb70d2`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1180,14 +1180,15 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
   - `problem`: The new egress person-identity detection (D1) must be operator-enableable/disableable, and its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob sprawl). It just surfaced a phantom-guest CRIT i...
   - `l1_validated_2026_08_18`: SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active + egress_identities_stamped live on persons_enter...
 
-### `SENSOR-HEALTH-SURFACING-1` - Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
+### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-18 14:20 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-18 15:55 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
+  - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
@@ -1307,13 +1308,14 @@ _created 2026-08-18 10:35 · updated 2026-08-18 15:07 · initial_
 
 ### `GUEST-COUNT-DEDUP-MIGRATE-1` - ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
 thread: **presence**
-_created 2026-08-18 11:00 · updated 2026-08-18 14:40 · initial_
+_created 2026-08-18 11:00 · updated 2026-08-18 15:55 · initial_
 - **Next:** Verify ZoneGuestCountSensor live-status; then migrate _get_guest_count (+ binary_sensor.py:1584 sibling) to consume the deduped unidentified_count instead of the naive subtraction. Producer/consumer check both.
-- **Forensic keys (4):**
-  - `column`: in_progress
+- **Forensic keys (5):**
+  - `column`: shipped_organic
   - `problem`: aggregation.py:5983 ZoneGuestCountSensor._get_guest_count derives guest count the NAIVE SUBTRACTIVE way (max(0, camera_total - ble_total)) — the SAME additive/subtractive formula behind the historical GUEST double-count. It is superseded...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2-DB, investigate-first: verify ZoneGuestCountSensor live-status)
   - `plan_verdict_2026_08_18`: PLAN DONE (PLANNING_guest_count_dedup_migrate.md, Tier 2-DB). ZoneGuestCountSensor IS live-registered (disabled-by-default per zone, aggregation.py:388/464) — NOT moot; corrects the group README "no such sensor" claim. Sibling guest_coun...
+  - `shipped_2026_08_18`: SHIPPED v5.83.0 + LIVE. L1 PASS (boot clean, zero ERROR). 3 naive max(0,camera-ble) sites -> deduped house.unidentified_count + shape-invariant guard. Tier 2-DB: 3 reviews (B found missed 3rd site) + H1 fix-up + re-review SHIP. ble_ident...
 
 ### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census
 thread: **security**
