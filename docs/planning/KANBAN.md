@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T21:49:29-05:00_ - _Data commit: `30291bce03bd`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T21:54:48-05:00_ - _Data commit: `3fde6c8ff438`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-17T21:49:29-05:00_ - _Data commit: `30291bce03bd`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 4 |
 | 🧭 Pre-planning | 7 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
@@ -22,8 +22,17 @@ _Generated: 2026-08-17T21:49:29-05:00_ - _Data commit: `30291bce03bd`_ - _last_r
 | 🅿️ Parked | 6 |
 | ✅ Done | 12 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (4)
 _raw capture_
+
+### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
+thread: **docs** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-17 - Operator asked to check manuals against code for house-zone vs HVAC-zone away; AUDIT_zone_away_house_vs_hvac.md (7f54068fb) found 4 drifts.
+- **Why:** These manuals are the institutional-context surface reviewers and planners consult. Stale away-veto docs directly caused wasted cycles this session (assumptions about away logic had to be re-derived from code). Keeping them current is ch...
+- **Next:** Rewrite the 4 drifted sections + 2 absence gaps against current source; cite file:line throughout. Low-risk, high-leverage; can be an overnight-agentic docs pass.
+- **Refs:** docs/planning/AUDIT_zone_away_house_vs_hvac.md (7f54068fb); docs/Coordinator/PRESENCE_COORDINATOR.md; docs/Coordinator/HVAC_COORDINATOR_MANUAL.md
+- **Forensic keys (1):**
+  - `problem_solution`: P1 PRESENCE_COORDINATOR.md away-veto section (:1233) documents ONLY the v4.7.14 predicate — missing D8 (face_recognized_count/census_count clauses), the ENTIRE Path β LOST-admitted veto, and the LOST six-state matrix; infer() pseudocode ...
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -81,6 +90,7 @@ thread: **presence** - status: **pre_planning** - approval: **implied**
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
+> **⚡ OPERATOR: approve — pending apply** (at 2026-08-18T03:19:40.142Z)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Origin:** 2026-08-14 - operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz functional-PIRs (still-blind, long range). Registry confirms 3 Hobeian classes. But the Upstairs Guestroom unit of this EXACT mode...
 - **Why:** STUCK-SENSOR-1 (v5.75.0) role layer accepts list-derived motion kind as corroborator — correct for non-fan stuck pathology, fails-agree (=status quo, no regression) under fan latch. The deferred D5 role-migration should add fan-independe...
