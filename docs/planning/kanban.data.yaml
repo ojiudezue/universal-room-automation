@@ -33,23 +33,18 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 00:15
+  updated: 2026-08-18 00:45
   refinement_status: refined
   problem_solution:
-  - 'Problem: a single camera crying "person" pages at FULL severity (CRITICAL when the house is away)
-    even when the photo is empty — because the alert never asks whether the OTHER cameras watching the
-    same spot agreed. The system even records which cameras fired, but throws that agreement away when
-    deciding how loud to be.'
-  - 'Problem: each alert (message + photo) was sent TWICE — a dedup miss in the notify path (separate
-    from the severity issue; needs its own look).'
-  - 'Problem: the front PTZ appears to fire on people out on the PUBLIC ROAD, and the alert text leaks
-    the raw internal sensor name (with the _2 suffix), and the camera''s debug overlay is baked into the
-    security photo.'
-  - 'Solution (candidate): feed cross-NVR AGREEMENT into severity (the data already exists) — a single-source
-    detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pages); multiple
-    NVRs agreeing RAISES confidence/severity. Keep OR-not-AND for the alert DECISION (correct). Separately:
-    fix the double-send, mask the public street on the front PTZ, use friendly camera names, drop the
-    camera OSD from snapshots.'
+  - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
+    is away) even when no other camera watching the area agreed — because the alert records which cameras
+    fired but throws that agreement away when deciding how loud to be. Verified by hand: both 08-16 alerts
+    were single-source with empty snapshots.'
+  - 'Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement
+    MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced,
+    so a lone-camera real threat still pages); corroborated detections keep/raise severity. Where a camera
+    has only one NVR, fall back to the existing track-linker spatial confidence. Plus the dashboard work
+    to surface corroboration / single-vs-multi source. NOTHING ELSE — not a perimeter-detection redesign.'
   why: 'Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert
     fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator
     just mandated for cycle-3 face ID: never trust a single camera.'
@@ -63,10 +58,10 @@ cards:
   evidence: '4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2
     + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class
     as the census fix.'
-  next: 'Scope a small cycle: wire the existing per-leg agreement (_sensor_engine disagreement telemetry)
-    into the severity resolver — single-source demotes to floor, multi-NVR agreement raises. Keep OR alert
-    gate. Separately triage the double-send (notify-path dedup) and the street-mask/friendly-name/OSD
-    UX items. Optional verify: DB check whether any other NVR saw a person at 10:15:56 / 10:21:16 on 08-16.'
+  next: 'Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote
+    floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard
+    surfacing. Separately: BB dummy-Apple-ID fix for the loopback (BB-side, operator); street-mask/OSD/friendly-name
+    as small separate UX items.'
   refs:
   - custom_components/universal_room_automation/perimeter_alert.py
   - EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
@@ -82,6 +77,30 @@ cards:
     is cross-CAMERA spatial (person moving across property), NOT cross-NVR (multi-integration agreement
     on ONE camera); and the demote requires camera_count>=2 (:1167), so a single-camera phantom is NEVER
     demoted.'
+  tags:
+  - tier-3
+  tier: Tier 3 — narrow remit
+  db_verified_2026_08_17: 'BY-HAND DB VERIFY (recorder, 2026-08-16 windows): BOTH alerts were DEFINITIVELY
+    SINGLE-SOURCE. At 15:15:56 UTC ONLY binary_sensor.hot_tub_person_occupancy_2 fired — no other NVR.
+    At 15:21:16 UTC ONLY front_side_ptz_person_occupancy_2 fired — no other NVR (garage_a fired 15:20:13,
+    unrelated area). Positive proof of the single-source diagnosis. CONTRAST: a REAL event on 08-17 15:12-15:13
+    shows front_side_ptz firing repeatedly ALONGSIDE master_hallway/upstairs_hall/staircase/garagehallway
+    = multi-camera corroboration existed for a real person. So the machinery CAN corroborate; the 08-16
+    alerts genuinely had none. NUANCE for the build: cross-NVR corroboration is only POSSIBLE where multiple
+    NVRs overlap on a camera (e.g. the pool overhead 4 integrations). hot_tub and front_side_ptz appear
+    single-NVR (Frigate-2 only) — for those the severity signal must fall back to the track-linker (spatial)
+    confidence, since no NVR-agreement signal exists.'
+  double_send_corrected_2026_08_17: 'CORRECTION (operator): the "double-send" is NOT a URA dedup bug.
+    BlueBubbles texts the operator through his OWN number, so each message shows once as SENT and once
+    as RECEIVED on the same thread = own-number loopback. URA sends ONCE. Fix is BB-side (dedicated/dummy
+    Apple ID on the host Mac), not URA. Removed from URA scope.'
+  remit_2026_08_17: 'OPERATOR SCOPE 2026-08-17: "Tier 3 work with a very narrow remit to make thrown away
+    corroboration matter to notifications. And any dashboard work." So: (1) wire the existing _sensor_engine
+    agreement telemetry (:537-538) into the severity resolver (:1131-1160) — demote single-source (floor
+    LOW), keep/raise corroborated; (2) dashboard surfacing of corroboration state. Tier 3 because it is
+    security-relevant, touches the NM/severity shared primitive, and threads a value into a decision site.
+    Remit is NARROW — do not expand into detection tuning, street-masking, OSD, or friendly-names (those
+    are separate small UX items, NOT this Tier-3 cycle).'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
