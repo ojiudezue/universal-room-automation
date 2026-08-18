@@ -1,5 +1,15 @@
 # PROBE — Protect face contribution at egress (the missing half of D0)
 
+> ⚠️ **SUPERSEDED / CORRECTED 2026-08-18 (operator).** This probe (and the Frigate-only ~7%
+> figure it complements) measured the **front door** (`madrone_g6_entry`) — the WRONG camera. Most
+> family entries are via the **garage**, and Protect names people in the **family room** — i.e. on
+> the *real* entry path. So the "~7% / NO-GO / build face-independent" conclusion here is **NOT
+> valid** as stated. Frigate is on all cameras and Protect named face is reachable via the live
+> Alarm Manager webhook; the identity path is **viable**. Any re-measurement MUST target **garage
+> entries + family-room arrival** and **include Protect named face** — not Frigate-at-the-front-door.
+> See `reference_egress_face_coverage_7pct_not_a_ceiling` (memory) + the corrected
+> `AUDIT_census_identity_supersession_and_consumers.md`. Do not cite the 7% as a ceiling.
+
 **Card:** `EXTERIOR-GUEST-EGRESS-1` · **Thread:** presence
 **Complements:** `docs/planning/PROBE_exterior_guest_egress.md` (Frigate-only D0 probe, ~7% at egress)
 **Author:** oji@outlook.com · **Date:** 2026-08-18
