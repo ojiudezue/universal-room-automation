@@ -1600,16 +1600,20 @@ cards:
     slope; make heldness visible.
   - P7 consumers cannot distinguish a fresh count from a 20-minute-old latched one. S7 publish peak_held
     / peak_age / count_as_of — all already computed internally and discarded.
-  - 'P8 the exterior census is STRANDED *and* naive — and we already own a better counter. `_calculate_property_census`
-    (camera_census.py:1501-1580) sums one binary bit per camera with zero dedup, so one walker past 3
-    perimeter cameras reads 3; `ExteriorTrackLinker.census_counts()` (exterior_track_linker.py:766-777)
-    already threads that same walker to 1 via the ratified adjacency graph, and has ZERO consumers. S8
-    RETIRE the naive per-camera sum and source the exterior headcount from `census_counts()` — a swap
-    to an existing, better-deduped, already-live number, read-only with respect to house state. Operator-approved
-    2026-08-16. NOTE the two sibling facts this resolves and excludes: `source_agreement=single_source`
-    needs NO platform repair (it is hard-coded on every exterior branch, camera_census.py:1544/1548/1551/1555
-    — the path never calls _cross_validate_platforms), and EXTERIOR->GUEST admission is explicitly OUT
-    of scope here, split to EXTERIOR-GUEST-EGRESS-1.'
+  - 'P8 the exterior census is naive (per-camera-bit sum, one walker past 3 cams reads 3) while the track-deduped
+    count already exists live. ADJUDICATED 2026-08-17 (AUDIT_exterior_census_supersession.md, eb2caa3c8):
+    the swap I originally scoped (RETIRE the naive sum, source persons_on_property_exterior from census_counts())
+    is HARMFUL — KEEP BOTH. Reasons: (a) the deduped answer is ALREADY live on sensor.exterior_person_tracks_active
+    / exterior_unidentified_persons with correct unavailable lifecycle — nothing to build to obtain it;
+    (b) the linker collapses two people on adjacent cameras within TRACK_LINK_WINDOW_S=180 into ONE track,
+    an UNDERCOUNT that lands on the operator security priority (display blind spot only — per-camera NM
+    alerts still fire off rising edges, not the count); (c) the naive sum is a conservative security FLOOR
+    worth keeping. The exterior census is FULLY STRANDED (zero trust consumers, grep-verified — only 2
+    display sensors + PWA card + a dead dispatch key), so no actuation is endangered either way. S8 REVISED:
+    do NOT overwrite the naive sensor. If anything, surface the linker id/unid split as its OWN first-class
+    number (largely already done) and leave persons_on_property_exterior as the conservative floor. This
+    makes the exterior part of cycle 2 nearly a NO-OP — the main census work is the decay/self-refresh
+    separation + the _2-suffix fix.'
   - P9 outdoor presence may pollute the interior headcount (outdoor-zone filter designed, unbuilt). S9
     apply the filter using the existing CONF_ZONE_IS_OUTDOOR flag.
   - 'ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P10 the per-area BLE-cancel subtraction
@@ -1647,6 +1651,7 @@ cards:
   - 'CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8)'
   - 'CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security)'
   - docs/planning/AUDIT_census_accuracy_probe.md (probe gate)
+  - docs/planning/AUDIT_exterior_census_supersession.md (eb2caa3c8) — KEEP BOTH ruling
   operator_exterior_direction_2026_08_16: 'Operator ruling on the exterior work, THREE distinctions: (1)
     EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior
     is live, and a dashboard for it already exists at docs/dashboards/ura_v8_exterior_cycle2_cards.md).
