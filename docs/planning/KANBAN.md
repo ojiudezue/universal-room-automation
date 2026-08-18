@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T23:41:18-05:00_ - _Data commit: `0238016fba38`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T23:45:01-05:00_ - _Data commit: `e838429c27d0`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -27,7 +27,7 @@ _raw capture_
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs
 thread: **security** - status: **inbox** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-08-18 01:05 · refined_
+_created 2026-08-17 23:58 · updated 2026-08-18 01:25 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
@@ -35,7 +35,7 @@ _created 2026-08-17 23:58 · updated 2026-08-18 01:05 · refined_
 - **Next:** Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard surfacing. Separately: BB dummy-Apple-...
 - **Tags:** tier-3
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (8):**
+- **Forensic keys (9):**
   - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
   - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
   - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
@@ -44,6 +44,7 @@ _created 2026-08-17 23:58 · updated 2026-08-18 01:05 · refined_
   - `double_send_corrected_2026_08_17`: CORRECTION (operator): the "double-send" is NOT a URA dedup bug. BlueBubbles texts the operator through his OWN number, so each message shows once as SENT and once as RECEIVED on the same thread = own-number loopback. URA sends ONCE. Fix...
   - `remit_2026_08_17`: OPERATOR SCOPE 2026-08-17: "Tier 3 work with a very narrow remit to make thrown away corroboration matter to notifications. And any dashboard work." So: (1) wire the existing _sensor_engine agreement telemetry (:537-538) into the severit...
   - `corroboration_definition_correction_2026_08_17`: CORRECTION (operator caught orchestrator over-claim). The 08-17 "multi-camera corroboration" claim was WRONG: front_side_ptz (exterior) co-fired with master_hallway/upstairs_hall/staircase/garagehallway (INTERIOR) — but those interior ca...
+  - `dual_nvr_disagreement_proof_2026_08_17`: CORRECTION + STRONG PROOF (operator: "Nah Unifi and frigate 2"). hot_tub + front_side_ptz are DUAL-NVR, both legs LIVE: Protect (_person_detected, ~120-150 changes, last 02:50) + Frigate-2 (_person_occupancy_2, last 02:50). (Third leg _p...
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**

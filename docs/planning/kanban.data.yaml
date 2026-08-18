@@ -33,7 +33,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 01:05
+  updated: 2026-08-18 01:25
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -111,6 +111,18 @@ cards:
     (b) adjacent EXTERIOR camera confirmation via EXTERIOR_ADJACENCY_GRAPH. INTERIOR cameras are NEVER
     a corroboration source for a perimeter alert. Do not let a co-firing interior sensor raise a perimeter
     detection confidence.'
+  dual_nvr_disagreement_proof_2026_08_17: 'CORRECTION + STRONG PROOF (operator: "Nah Unifi and frigate
+    2"). hot_tub + front_side_ptz are DUAL-NVR, both legs LIVE: Protect (_person_detected, ~120-150 changes,
+    last 02:50) + Frigate-2 (_person_occupancy_2, last 02:50). (Third leg _person_occupancy = Frigate-1
+    base, DEAD since 08-13 16:37 F1 retirement — stale corpse leg.) URA SUBSCRIBES BOTH (camera_resolver.py:214-216
+    _PERSON_SUFFIXES includes _person_occupancy AND _person_detected). ON 08-16 THE TWO NVRS DISAGREED:
+    hot_tub Frigate-2 on 15:15:56 -> off 15:15:58 (2-SECOND blip), Protect NEVER fired; front Frigate-2
+    on 15:21:16->15:22:05, Protect NEVER fired. So URA had the live disagreement (1 of 2 NVRs) and PAGED
+    CRITICAL anyway — the _sensor_engine agreement telemetry was recorded and DISCARDED by the severity
+    resolver. This is the exact Tier-3 gap with a concrete live proof case. NOT a coverage gap (both subscribed+live).
+    RETIRES the earlier "single-NVR fallback" nuance for these cams — they are dual-NVR with a real agreement
+    signal; the track-linker fallback only matters for GENUINELY single-NVR cameras. NOTE for build: a
+    2-second single-NVR blip that the co-watching NVR refused to confirm is the textbook demote case.'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
