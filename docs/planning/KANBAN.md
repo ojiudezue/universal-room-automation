@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T00:36:25-05:00_ - _Data commit: `fd29ad46c867`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T00:53:43-05:00_ - _Data commit: `3fd7fad966f1`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,7 +13,7 @@ _Generated: 2026-08-18T00:36:25-05:00_ - _Data commit: `fd29ad46c867`_ - _last_r
 |---|---:|
 | 📥 Inbox | 6 |
 | 🧭 Pre-planning | 6 |
-| 📝 Planned | 2 |
+| 📝 Planned | 3 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 36 |
@@ -158,8 +158,17 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Tags:** mutation-drill
 - **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
 
-## 📝 Planned (2)
+## 📝 Planned (3)
 _has plan / acceptance_
+
+### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
+thread: **presence** - status: **planned** - approval: **pre_approved_gated**
+_created 2026-08-18 00:55 · initial_
+- **Problem / Solution:**
+  - Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect DOES recognize residents by name ...
+- **Why:** Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this says WHO (known resident vs unknown), which is the actual guest/security discriminator.
+- **Next:** GATED on cycle-3 face-independent arm shipping first. Then: (1) capture a live Alarm Manager face POST; (2) wire webhook -> ura_face_identified; (3) URA consumes it as interior-arrival identity. Confirm the Alarm Manager rule is set up (...
+- **Refs:** docs/planning/RESEARCH_protect_face_to_ha.md; EXTERIOR-GUEST-EGRESS-1
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
 thread: **presence** - status: **planned** - approval: **explicit**

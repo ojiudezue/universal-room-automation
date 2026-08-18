@@ -26,6 +26,40 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
+  thread: presence
+  status: planned
+  approval: pre_approved_gated
+  created: 2026-08-18 00:55
+  updated: 2026-08-18 00:55
+  refinement_status: initial
+  title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
+    named recognition
+  approved_by: operator 2026-08-18 ("Build face independent... get and evaluate paths to build the face
+    part now or later (fast follow)")
+  problem_solution:
+  - 'Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The
+    front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect
+    DOES recognize residents by name — that identity just is not in HA (core unifiprotect exposes face
+    as detection-only). Solution: wire Protect Alarm Manager Face-ID webhook -> an HA webhook trigger
+    -> a ura_face_identified event (name + camera + time), then let URA consume it as a local face-identity
+    producer for the interior-arrival identity signal. ~20 lines of automation, near-zero maintenance
+    (per the spike).'
+  why: 'Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this
+    says WHO (known resident vs unknown), which is the actual guest/security discriminator.'
+  constraints:
+  - 'LOCAL sources only (no cloud). Probe-first: capture ONE real Alarm Manager face POST (webhook.site/HA
+    trace) to confirm the name field + whether confidence is present, BEFORE wiring URA. Path ranking
+    in RESEARCH_protect_face_to_ha.md: 4b webhook (recommended) > unifi-protect-bridge HACS > uiprotect
+    direct.'
+  - Re-measure coverage against GARAGE entries + family-room arrival, NOT the front door (the first probe
+    measured the wrong cam).
+  next: 'GATED on cycle-3 face-independent arm shipping first. Then: (1) capture a live Alarm Manager
+    face POST; (2) wire webhook -> ura_face_identified; (3) URA consumes it as interior-arrival identity.
+    Confirm the Alarm Manager rule is set up (open watch) before building.'
+  refs:
+  - docs/planning/RESEARCH_protect_face_to_ha.md
+  - EXTERIOR-GUEST-EGRESS-1
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
