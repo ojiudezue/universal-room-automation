@@ -26,6 +26,32 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: CENSUS-FACE-MISS-WATCH-1
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-18 00:34
+  updated: 2026-08-18 00:34
+  refinement_status: initial
+  title: Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
+  problem_solution:
+  - 'Problem: after the v5.80.0 D2 fresh-face fix, the census reports face_lookup_missing_count = 12 per
+    tick even with the house EMPTY (no faces to look up). It fails CLOSED so the count stays correct (no
+    wrong -1 credit), but 12 cameras'' face entities not resolving is more than expected and may mean
+    the _2/registry resolution still misses some cameras (possibly the interior-cam naming inconsistency,
+    or cameras with no face sensor being probed anyway).'
+  - 'Solution: on occupancy (Wed), check WHICH cameras miss and why — is the face path probing cameras
+    that have no face sensor (benign, make it not count them) or failing to resolve a face sensor that
+    exists (a real resolution gap to fix)? Discriminate before acting.'
+  why: The v5.80.0 fresh-face fix is supposed to REVIVE face dedup; a high miss rate could mean it only
+    partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
+  constraints:
+  - 'WATCH only — do not chase now (operator: card investigations, march the cycles). Interpret on occupancy.'
+  next: 'On occupancy: log which cameras contribute to face_lookup_missing_count and why; discriminate
+    benign (no-face-sensor cam probed) from real (resolvable face sensor missed).'
+  refs:
+  - docs/readmes/README_v5.80.0.md
+  - reference_frigate1_retired_2suffix_permanent.md
 - id: FRIGATE-LEG-NAMING-1
   thread: security
   status: inbox
