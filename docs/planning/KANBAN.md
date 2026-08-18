@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T02:22:11-05:00_ - _Data commit: `893fb9db480d`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T08:29:40-05:00_ - _Data commit: `111a4ad1232a`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T02:22:11-05:00_ - _Data commit: `893fb9db480d`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 11 |
+| ❓ Other | 12 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1142,7 +1142,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (11)
+## ❓ Other (12)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1236,6 +1236,14 @@ _created 2026-08-18 03:10 · initial_
 - **Forensic keys (2):**
   - `column`: planned
   - `problem`: Three feature toggles are buried in the Camera Census options dialog (options-flow rung 2). Operator wants them as one-tap DEVICE SWITCHES on the URA device (rung 3) for live control + dashboard access. Names must be simple, benefit-firs...
+
+### `CENSUS-IDENTITY-GROUP-README-1` - Cycle-group README: census/guest/presence-identity program
+thread: **planning**
+_created 2026-08-18 03:20 · initial_
+- **Next:** general-purpose writing docs/readmes/README_GROUP_census_guest_presence_identity.md with verified entity inventory.
+- **Forensic keys (2):**
+  - `column`: in_progress
+  - `problem`: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in the operators head + scattered per-version R...
 
 ## 🅿️ Parked ideas (top-level list)
 

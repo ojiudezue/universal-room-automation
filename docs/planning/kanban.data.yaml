@@ -4405,6 +4405,22 @@ cards:
     presence/transit/census). Then ONE plan review, then build.'
   refs: v5.81.0 (egress kill switch); config_flow.py async_step_camera_census; feedback_model_tiering
     / numbers-get-knobs ladder
+- id: CENSUS-IDENTITY-GROUP-README-1
+  title: 'Cycle-group README: census/guest/presence-identity program'
+  column: in_progress
+  thread: planning
+  created: 2026-08-18 03:20
+  updated: 2026-08-18 03:20
+  refinement_status: initial
+  problem: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy
+    + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in
+    the operators head + scattered per-version READMEs. Needs ONE cycle-group README that tells the story
+    and NAMES EVERY ENTITY (verified, not from memory), separating SHIPPED / PLANNED / GATED.
+  origin: 2026-08-18 "we need a cycle group readme, so this collection is coherent and should name the
+    entities"
+  next: general-purpose writing docs/readmes/README_GROUP_census_guest_presence_identity.md with verified
+    entity inventory.
+  refs: README_v5.79.0/5.80.0/5.81.0; CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
