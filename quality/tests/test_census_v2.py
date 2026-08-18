@@ -1,5 +1,30 @@
 """Tests for v3.10.1 Census v2: Enhanced event-driven sensor fusion.
 
+*** PRE-D1 FOSSIL — DOES NOT GUARD CURRENT BEHAVIOR ***
+
+CENSUS-ACCURACY-1 D1 (2026-08-17) removed the house-zone linear-slope
+decay (`-1 per CENSUS_DECAY_STEP_SECONDS`) AND the peak self-refresh on
+`fresh == peak` from `PersonCensus._apply_hold_decay`. Post-D1 the
+house zone shares the property zone's instant-drop semantics; equality
+no longer refreshes peak_ts.
+
+This file's `StubPersonCensusV2._apply_hold_decay` (below) re-implements
+the ORIGINAL pre-D1 linear-slope + latch-on-equality semantics as a
+pure-Python stub. Because the tests drive that stub — NOT the real
+`PersonCensus` — they pass tautologically against the fossil semantics
+they oracle. They cannot detect a D1 regression, and they do not
+represent live behavior.
+
+Kept (not deleted) because their other coverage (unrecognized-camera
+count formulas, WiFi guest VLAN detection, enhanced-census toggle,
+edge-case shapes) is still a useful historical spec for those helpers.
+The AUTHORITATIVE D1 guards live in:
+  - quality/tests/test_census_accuracy_d1_d2.py  (drives real code)
+  - quality/tests/test_census_overcount_v5_9_0.py::test_apply_hold_decay_*  (drives real code)
+
+DO NOT add new hold/decay behavioral assertions to this file. Add them
+to `test_census_accuracy_d1_d2.py` where they drive production code.
+
 Covers:
   - Hold/decay mechanics (interior gradual decay, exterior instant drop)
   - Peak tracking and reset
