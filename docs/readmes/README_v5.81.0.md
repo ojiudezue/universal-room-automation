@@ -86,5 +86,16 @@ Residents return Wed; the switch is OFF on deploy.
 
 ## Live Validation
 
-_Pending — switch OFF on deploy; flip-on validation (L2/L3) runs on occupancy (Wed). L1
-byte-identical check provable immediately post-restart._
+### Validated 2026-08-18 (~02:21 CT, post-restart) — house EMPTY, switch OFF (default)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | system_log ERROR count for universal_room_automation: 0 |
+| L1 | Switch OFF ⇒ dormant / byte-identical | **PASS** | `sensor.universal_room_automation_persons_entered_today` `egress_identities_stamped: 0`, `egress_face_ids_active: 0` (feature inert); `persons_in_house` identified_count 0 / census 0, `peak_refresh_suppressed_count: 4` (v5.80.0 decay intact) — census behaves as v5.80.0 |
+| L1 | Observability attrs present | **PASS** | both `egress_face_ids_active` + `egress_identities_stamped` live on `persons_entered_today` (no new entity) |
+| L2 | Flip-on: real `person_id` on entry crossing | **ORGANIC-PENDING** | needs occupancy (Wed) + `CONF_EGRESS_IDENTITY_ENABLED=True`; watch DB entry row + last-entry attr carry URA slug, `egress_identities_stamped` increments; stale-face crossing ⇒ None |
+| L3 | No phantom guest on exit | **ORGANIC-PENDING** | resident EXIT with switch on must not raise identified_count / create guest; `egress_face_ids_active` flat on exits |
+| L4 | face_lookup_missing_count no regression | **as-expected** | `face_lookup_missing_count: 12` — unchanged from pre-deploy baseline (pre-existing CENSUS-FACE-MISS-WATCH-1 on empty house) |
+
+**Cycle stays open until L2/L3 land on occupancy (Wed) with the switch flipped on.** L1
+(dormant, byte-identical, observable) proven now.
