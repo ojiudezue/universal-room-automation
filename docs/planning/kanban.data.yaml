@@ -4614,6 +4614,29 @@ cards:
     check both.
   refs: aggregation.py:5983; binary_sensor.py:1584; camera_census._cross_correlate_persons; AUDIT_census_identity_supersession_and_consumers.md
     ADDENDUM
+- id: SECURITY-CENSUS-UNKNOWN-WIRE-1
+  title: Security unknown-person auto-lock is designed but UNWIRED to the census
+  column: inbox
+  thread: security
+  created: 2026-08-18 11:20
+  updated: 2026-08-18 11:20
+  refinement_status: initial
+  problem: 'security.py SanctionChecker has an unknown-person path (has_unknown_persons / _handle_census_intent
+    -> locks ALL doors) that is a DESIGNED-BUT-INERT consumer: unknown_present has ZERO producers repo-wide,
+    no source="census_update" intent is emitted anywhere, and security is NOT a SIGNAL_CENSUS_UPDATED
+    subscriber. A real security capability built to consume the census was never wired. Now that the census
+    unidentified_count is reliable (post-arc), it COULD be wired — but must not be done naively. Found
+    by the tier/coordinator semantic sweep (missed by all census-anchored passes).'
+  origin: '2026-08-18 tier+coordinator supersession sweep T1 (operator: "did you look at room/zone/house
+    code and coordinators?")'
+  constraints: 'FOOTGUN — this AUTO-LOCKS ALL DOORS. A bare unidentified_count>0 -> lock-all trigger would
+    auto-lock on a guest false-positive, given the arc''s own double-count history. INVESTIGATE-FIRST:
+    must gate on guest-composition confidence + a kill switch + a measured false-positive rate BEFORE
+    wiring. Do NOT wire a raw count->lock edge. Tier 2-DB (security x census x guest ripple).'
+  next: 'Investigate-first: confirm the SanctionChecker intent contract + what a safe producer looks like
+    (confidence-gated, kill-switched). Do NOT build a raw count->lock. Then Tier 2-DB plan.'
+  refs: security.py SanctionChecker / has_unknown_persons / _handle_census_intent; AUDIT_census_identity_supersession_and_consumers.md
+    ADDENDUM 2 (T1)
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

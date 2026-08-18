@@ -135,8 +135,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-08-18T13:17:20-05:00</b></span>
-<span>data <b>d90ed9671165</b></span>
+<span>generated <b>2026-08-18T13:43:18-05:00</b></span>
+<span>data <b>464366a9f1b0</b></span>
 <span>reconciled <b>2026-08-18</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -152,7 +152,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Waiting on me (Claude) <b>1</b></span>
 <span>Parked <b>8</b></span>
 <span>Done <b>25</b></span>
-<span>Other <b>19</b></span>
+<span>Other <b>20</b></span>
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
@@ -292,7 +292,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="other">
-<h2>Other <span class="count">19</span><span class="hint">unknown status bucket</span></h2>
+<h2>Other <span class="count">20</span><span class="hint">unknown status bucket</span></h2>
 <div class="cards">
 <details class="card" data-id="MEMORY-ROADMAP-1" draggable="true"><summary><span class="id">MEMORY-ROADMAP-1</span><span class="title">Memory epic — forward roadmap + critique + what-survives</span><div class="tagline">memory</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined</div><dt>Next</dt><dd>Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: planned</li><li><code>problem</code>: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="ROADMAP-UNDONE-REVIEW-1" draggable="true"><summary><span class="id">ROADMAP-UNDONE-REVIEW-1</span><span class="title">Review ROADMAP/VISION — surface undone-but-worthwhile</span><div class="tagline">planning</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined</div><dt>Next</dt><dd>Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: planned</li><li><code>problem</code>: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
@@ -313,6 +313,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <details class="card" data-id="PWA-CENSUS-P12-RELEASE-1" draggable="true"><summary><span class="id">PWA-CENSUS-P12-RELEASE-1</span><span class="title">PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped</span><div class="tagline">dashboarding</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 10:20 · initial</div><dt>Next</dt><dd>OPERATOR: decide the PWA release — is census-p12 THE working branch to promote to main + deploy (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard D3 cards (v6/v8) ARE live; only the PWA leg...</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: waiting_operator</li><li><code>problem</code>: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="CENSUS-FACE-RESOLVER-MIGRATE-1" draggable="true"><summary><span class="id">CENSUS-FACE-RESOLVER-MIGRATE-1</span><span class="title">Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 10:35 · initial</div><dt>Next</dt><dd>Small Tier-1 hotfix: refactor presence.py:4557 to call camera_census._resolve_face_entity_id(base_name). Test the _2-only-cam case.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival) builds f&quot;sensor.{base}_last_recognized_face&quot; WITHOUT _2-suffix tolerance, so it silently misses cameras whose Frigate face sensor exists only a...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="GUEST-COUNT-DEDUP-MIGRATE-1" draggable="true"><summary><span class="id">GUEST-COUNT-DEDUP-MIGRATE-1</span><span class="title">ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 11:00 · initial</div><dt>Next</dt><dd>Verify ZoneGuestCountSensor live-status; then migrate _get_guest_count (+ binary_sensor.py:1584 sibling) to consume the deduped unidentified_count instead of the naive subtraction. Producer/consumer check both.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: aggregation.py:5983 ZoneGuestCountSensor._get_guest_count derives guest count the NAIVE SUBTRACTIVE way (max(0, camera_total - ble_total)) — the SAME additive/subtractive formula behind the historical GUEST double-count. It is superseded...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
+<details class="card" data-id="SECURITY-CENSUS-UNKNOWN-WIRE-1" draggable="true"><summary><span class="id">SECURITY-CENSUS-UNKNOWN-WIRE-1</span><span class="title">Security unknown-person auto-lock is designed but UNWIRED to the census</span><div class="tagline">security</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 11:20 · initial</div><dt>Next</dt><dd>Investigate-first: confirm the SanctionChecker intent contract + what a safe producer looks like (confidence-gated, kill-switched). Do NOT build a raw count-&gt;lock. Then Tier 2-DB plan.</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>column</code>: inbox</li><li><code>problem</code>: security.py SanctionChecker has an unknown-person path (has_unknown_persons / _handle_census_intent -&gt; locks ALL doors) that is a DESIGNED-BUT-INERT consumer: unknown_present has ZERO producers repo-wide, no source=&quot;census_update&quot; intent...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
 </main>
@@ -334,7 +335,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>d90ed9671165</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>464366a9f1b0</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
