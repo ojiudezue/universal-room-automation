@@ -22,7 +22,8 @@ cards:
 - id: GUEST-ROOM-CONFIG-1
   title: 'Guest-room designation was wrong: a BATHROOM was flagged is_guest_room (unflagged 2026-08-17)'
   thread: presence
-  status: done
+  status: shipped_organic
+  shipped_version: v5.79.0
   approval: explicit
   approved_by: operator 2026-08-17 ("Findlay down guest bathroom. Misconfiguration" / "Unflag")
   origin:
@@ -1963,7 +1964,8 @@ cards:
   title: Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists,
     is enabled, cancels nothing
   thread: presence
-  status: review
+  status: shipped_organic
+  shipped_version: v5.79.0
   approval: implied
   origin:
     date: '2026-08-16'
