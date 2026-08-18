@@ -4566,12 +4566,19 @@ class PresenceCoordinator(BaseCoordinator):
             # If the census coordinator isn't wired yet (early boot / test),
             # fall back to the bare canonical id so behavior is at least as
             # good as pre-migration.
+            # NOTE (L2): the census resolver increments its per-tick
+            # `_face_lookup_missing_count` (surfaced at camera_census.py:1288)
+            # on every miss, so presence-driven lookups now contribute to
+            # that counter too — a rate shift, not a correctness bug.
             census = self.hass.data.get(DOMAIN, {}).get("census")
             face_sensor_id: Optional[str] = None
             if census is not None:
+                # Narrow except (L1): AttributeError (resolver renamed /
+                # removed) must PROPAGATE so the rename surfaces loudly
+                # instead of silently falling back to the bare-string path.
                 try:
                     face_sensor_id = census._resolve_face_entity_id(base_name)
-                except Exception:  # noqa: BLE001 — helper is fail-CLOSED; be defensive anyway
+                except (LookupError, ValueError, TypeError):
                     face_sensor_id = None
             if face_sensor_id is None:
                 face_sensor_id = f"sensor.{base_name}_last_recognized_face"

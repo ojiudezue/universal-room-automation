@@ -115,6 +115,54 @@ def test_face_resolver_finds_bare_canonical_camera():
     assert result == "Ezinne"
 
 
+def test_real_person_census_exposes_resolve_face_entity_id():
+    """M1 anti-hollow anchor: import the REAL PersonCensus and assert the
+    resolver attribute the presence helper calls actually exists and is
+    callable. If someone renames or removes
+    `camera_census.PersonCensus._resolve_face_entity_id`, this test MUST
+    fail — otherwise the suffix-only test above (which uses a hand-rolled
+    census stub) would silently pass while production reverted to the
+    bare-string fallback path.
+    """
+    # Reuse the harness path installed by test_presence_coordinator.
+    import importlib.util as _iu
+    import os as _os
+    import sys as _sys
+    import types as _types
+
+    _here = _os.path.dirname(__file__)
+    _ura_path = _os.path.abspath(_os.path.join(
+        _here, "..", "..", "custom_components", "universal_room_automation",
+    ))
+    _full = "custom_components.universal_room_automation.camera_census"
+    cached = _sys.modules.get(_full)
+    if cached is None or not getattr(cached, "__file__", None):
+        # Ensure entity_registry stub exists (camera_census imports it at top).
+        _er_name = "homeassistant.helpers.entity_registry"
+        if _er_name not in _sys.modules:
+            _er = _types.ModuleType(_er_name)
+            _er.async_get = MagicMock()
+            _sys.modules[_er_name] = _er
+        spec = _iu.spec_from_file_location(
+            _full, _os.path.join(_ura_path, "camera_census.py"),
+        )
+        mod = _iu.module_from_spec(spec)
+        _sys.modules[_full] = mod
+        spec.loader.exec_module(mod)
+        cached = mod
+
+    PersonCensus = getattr(cached, "PersonCensus", None)
+    assert PersonCensus is not None, "PersonCensus class missing from camera_census"
+    assert hasattr(PersonCensus, "_resolve_face_entity_id"), (
+        "PersonCensus._resolve_face_entity_id missing — presence."
+        "_get_face_for_camera would silently fall back to the bare-string "
+        "path and lose `_2`-suffix tolerance"
+    )
+    assert callable(getattr(PersonCensus, "_resolve_face_entity_id")), (
+        "PersonCensus._resolve_face_entity_id is not callable"
+    )
+
+
 def test_face_resolver_no_sensor_returns_none():
     """Absent face sensor -> None (accelerator, not requirement)."""
     hass = make_hass()
