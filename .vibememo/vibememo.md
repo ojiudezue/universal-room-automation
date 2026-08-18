@@ -44,3 +44,37 @@ URA is a Home Assistant custom integration managing ~40 rooms across 5 house zon
 **Act three — the wave (v5.16.0) and the surfaces.** Five parallel cycles: the guest-latch fixed by evaluation *order* (deliberately no GUEST→SLEEP transition — real guests should hold the house awake); the empty-house veto rebuilt on a sustained-external-empty discriminator after all three reviewers independently proved the first build's predicate was a tautology; census false-guests killed via per-area BLE cancellation (+ kill switch; census hold 15→3 applied via a restart-window .storage edit after a running-HA edit was clobbered); the zone-delete name-collision guarded (and yesterday's live 5-hour HVAC-zone knockout retro-explained by a dead hass.data slot); pause hygiene incl. the operator-coined class *"stops are diligent, starts are lazy — every pause rule needs an every-cycle start evaluation, not just an undo of its own pause"* (L1 plugs got the level-triggered ensure-on L2 already had). Plus **URA 7**: a new fully-dynamic status-and-control dashboard (auto-entities + template cards; v6 preserved), and the **PWA** re-scoped as a separate, carefully-planned commercial track on its own custom WebSocket client — HAKit formally buried ("slow, like everything we built with hakit"). Queued with finished plans: the telemetry failover map (debounced trip, hysteretic return, auditable auto-built pairing map with diagnostics export + continuous cross-validation), PWA M2 control completion (with a prototype review that found dead decorative controls and missing numeric/hold-to-confirm primitives), and the observability WebSocket surface that finally gives the anomaly/activity logs a transport.
 
 **Epilogue — the probe that rescoped the build (07-13 late).** → [029](users/ojiudezue/entries/029_measure_before_build_failover_rescope.json). Before the failover map's first line was built, the operator forced two moves: pair the local↔cloud entities *by hand* against live values ("before code does it a thousand times"), and *measure the gaps before building*. A 10-minute read-only recorder probe settled everything the plan had deferred to runtime instrumentation: the cloud's power values refresh only every 5–15 min upstream (freshness, not poll rate), which **rejected the two riskiest deliverables outright** (stale cloud power must never feed the drain-gate or arbitrage); the battery-power sign convention resolved itself from history (no live experiment); and the cloud "grid power" entity turned out to match *no transform of reality at all* — a broken upstream derivation a name-based auto-pairer would have admitted. The lesson was codified as a CLAUDE.md gate, **Measure Before You Build**: when a cycle's value depends on empirical properties of external data, the first deliverable is a one-shot probe over history that already exists — its output is scope, not telemetry. The hand-built pairing table is the acceptance fixture the eventual automation gets diffed against. The same evening also shipped the v5.16.3 persistence rider (whose framing-C review proved the restore path untested and forced executed-mutation fix-ups before deploy) and rebuilt URA 7's Rooms tab on the decluttering + room-face + auto-populating-popup architecture, zone-clustered, with URA's own occupancy sensors driving the room glow.
+
+## The night that shipped nothing (2026-08-16→17)
+
+→ [054](users/ojiudezue/entries/054_guest_census_fuller_pass_dead_oracle.json)
+
+**Narrative gap, stated honestly:** this file's prose jumps from 07-13 to 08-16. Entries **030–053** cover
+that span (through v5.78.0) and are the authority; the summary prose was never written and is NOT
+reconstructed here rather than guessed at.
+
+A small guest/census cycle — clamp a census that double-counted residents, make guest *rooms* lead instead
+of the count — passed three framing-disjoint reviews, then its own fix-up introduced a HIGH, then an
+operator-ordered fuller pass (three more framings) found that guest mode's only safety check had **never
+run in production**: `_is_known_person_in_room` carried two independent bugs in twenty lines — a lookup
+against a registry the person coordinator is never registered in, and a read of an attribute that exists
+nowhere — short-circuiting on the first so the second stayed masked, with a fail-open `return False` making
+it look defensive while being inert. The "known person → don't treat this as a guest" transition had not
+fired since v4.7.2. Harmless while guest entry was `census OR rooms`; about to become false-guest-on-residents
+the moment D2 made rooms the sole arm. Nothing shipped, and three regressions were stopped: a
+false-guest-at-boot the fix-up itself created, the dead oracle, and an entire dedup cycle a ten-minute probe
+proved would buy zero (BLE-cancel isn't broken code — 3 of 7 camera areas have no URA room and no interior
+camera watches a bedroom; meanwhile 74.5% of over-count time had no live camera evidence at all, so *decay*
+is the real cost centre).
+
+Four lessons worth more than the diff. **Producer AND consumer** became a CLAUDE.md gate after the census
+double-count showed every reviewer asking who *read* the count and nobody asking how it was *made* — and
+then I violated it on my own fix-up, which is what created the boot HIGH. **Agreement is not verification:**
+a builder and I both concluded "no guest rooms are designated" using the same wrong config key, and the
+concurrence read exactly like confirmation; the real key had three rooms flagged, one of them a bathroom.
+**A third hollow-anchor variant** — oracle-echo, where a test imports the production constant for its own
+expected value, so detaching the constant leaves it green. And **mechanism over rule:** the suite runs four
+minutes alone and forty overlapped, so serialization became a PreToolUse hook rather than another
+instruction — which then blocked a build agent for an hour via a catch-22 (it matched the very `ps`/`kill`
+commands its own error message told you to run) and a zombie with 0.01s of CPU. Both fixed, with the guard's
+own deny path mutation-drilled. The operator's pace complaint was fair; the cause was never the reviews.

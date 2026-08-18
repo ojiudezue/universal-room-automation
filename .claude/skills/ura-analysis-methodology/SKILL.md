@@ -5,6 +5,21 @@ description: The URA discipline for turning a hunch into an accepted result — 
 
 # URA Analysis Methodology
 
+## Producer check before consumer check (operator-coined 2026-08-16)
+
+Before claiming a root cause for a WRONG VALUE, audit its PRODUCER, not only its consumers:
+(1) how many derivations exist and which wins (overwrite-order bugs are invisible downstream);
+(2) what the producer depends on and whether each dependency is *currently healthy* — a
+subtraction that uses a dead signal is not a defense; (3) plumbing vs arithmetic — "the right
+inputs feed it" is not "it computes the right number"; (4) ground truth — compare to something
+externally known, never to another internal number sharing the same assumptions.
+Acceptance criteria must DISCRIMINATE the fix from a plausible different failure; if both
+produce the same observation, pick a different one.
+Worked case: the 2026-08-16 census double-count (additive path overwriting the subtractive one
+with dedup defenses inert) — every investigation asked who read the count, none asked how it
+was made.
+
+
 ## Memory first — MANDATORY entry point (operator-coined 2026-08-14)
 
 Before mining the recorder, HA logs, or raw URA DB tables for ANY investigation or

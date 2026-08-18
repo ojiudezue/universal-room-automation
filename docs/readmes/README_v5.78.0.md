@@ -89,4 +89,16 @@ ruling. `BLE_SILENT_ONLY_AWAY_CONFIDENCE`, `PHANTOM_RETRO_{RELEASE_WINDOW_S,MIN_
   (`away`/`home`), not room-level, so no zone bucket movement is expected.
 
 ## Live Validation
-(to be written back post-restart)
+
+### Validated 2026-08-16 (v5.78.0 boot, ~11:14 CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA errors | **PASS** | journald URA ERROR count post-boot: 0 |
+| L2 | House goes away with everyone gone, no camera evidence | **PASS on state, ORGANIC-OPEN on attribution** | House reads `away`; all four persons `not_home`; `all_tracked_persons_away: true`, `face_recognized_count: 0`, census 0 (`both_agree`). **Honest caveat:** the transition (11:11:57) is entangled with the deploy restart, so it cannot be cleanly attributed to the new classifier. **Retrospective evidence the bug was live until this deploy:** the family departed at **09:29** and the house stayed `home_day` until **11:11** — ~1h42m stuck-while-empty, the AWAY-BLOCK symptom recurring on v5.77.0 the same morning. A clean organic departure→away with no restart is the outstanding proof. |
+| L3 | Per-person `tracking_reason` / `tracker_sources` visible | **NOT VERIFIED (empty house)** | Every person surface reads "No persons in room" with empty person lists — with nobody home there is no populated per-person row to inspect. Re-check on first occupancy. |
+| L4 | `face_recognized_count` + gate marker on house-state sensor | **PASS** | Attributes present and correct: `face_recognized_count: 0`, `path_alpha_gate_source: "face_recognized_count"`, `census_count: 0` still published but visibly not the gate |
+| L5 | Memory writers emit | **ORGANIC (open)** | Baseline captured at deploy: exterior_track 1150 / actuation_conflict 849 / occupancy_phantom 57 / fan_transition_suppressed 42 / comfort_fan_vetoed 21. The four new types appear when their triggers fire (a held block, a fan-release phantom, a trust-exclusion edge, a state transition). No writer flood observed. |
+| L6 | Forgotten-phone day no longer blocks away | **ORGANIC (open)** | Needs a day where a phone stays home and its owner leaves |
+
+**Side-effect worth noting:** census now reports `source_agreement: both_agree` with both platforms active (was `single_source` before the suffix fix + Frigate-2 detect-stream tuning) — cross-validation is genuinely running again.

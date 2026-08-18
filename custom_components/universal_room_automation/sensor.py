@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.78.0
+# Universal Room Automation vv5.79.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3508,8 +3508,35 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
         try:
             census = self.hass.data.get(DOMAIN, {}).get("census")
             if census is not None:
-                attrs["area_contributions"] = dict(
-                    getattr(census, "_last_area_contributions", {}) or {}
+                # GUEST-CENSUS D1 (G2): prefer the ENHANCED-path per-area
+                # contributions when the enhanced path is active — the raw
+                # producer's _last_area_contributions can't report the
+                # enhanced path's dedup. Fall through to raw on the disabled
+                # path.
+                enhanced_area = getattr(
+                    census, "_last_enhanced_area_contributions", None
+                )
+                if enhanced_area is not None and getattr(
+                    result.house, "enhanced_census", False
+                ):
+                    attrs["area_contributions"] = dict(enhanced_area)
+                else:
+                    attrs["area_contributions"] = dict(
+                        getattr(census, "_last_area_contributions", {}) or {}
+                    )
+                # GUEST-CENSUS D1 (G2) diagnostics — always publish so
+                # cancel-ran-vs-never can be told apart (P2 discriminator).
+                attrs["area_raw_max_pre_cancel"] = dict(
+                    getattr(census, "_last_area_raw_max_pre_cancel", {}) or {}
+                )
+                attrs["ble_by_area"] = dict(
+                    getattr(census, "_last_ble_by_area", {}) or {}
+                )
+                attrs["ble_cancel_enabled"] = bool(
+                    getattr(census, "_last_ble_cancel_enabled", False)
+                )
+                attrs["camera_total_pre_cancel"] = int(
+                    getattr(census, "_last_camera_total_pre_cancel", 0) or 0
                 )
                 attrs["raw_pre_dedup_sum"] = int(
                     getattr(census, "_last_raw_pre_dedup_sum", 0) or 0

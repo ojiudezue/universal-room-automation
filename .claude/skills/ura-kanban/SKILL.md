@@ -524,6 +524,36 @@ an at-detection local file → Tier 2-DB, perimeter_alert + NM, folds into CONSO
 - **CLAUDE.md** governs *how* work is done (tiers, gates). The board governs *what* is in
   flight and *whether it was lost*.
 
+## Producer AND consumer: both sides, always (operator-coined 2026-08-16)
+
+**The rule below (consumers) shipped alone for months, and the asymmetry itself caused a
+miss.** In August 2026 the house census read 10 for 5 people and flipped into GUEST mode on
+its own occupants. Every investigation that touched the count asked *who reads this value*
+(the codified question) and none asked *how is this value produced* — so nobody noticed that
+a default-ON **additive** derivation (`total = identified + camera_unrecognized`) silently
+overwrites a **subtractive** one (`total = max(camera, identified)`), and that both of its
+dedup defenses had gone inert because a different subsystem (face recognition) had failed.
+A scope fence in an earlier cycle ("do not touch the sensor's own output") was correct for
+that cycle and made the blind spot structural.
+
+**Both checks are mandatory in any planning doc or investigation touching a VALUE:**
+
+| Check | The question | The grep |
+|---|---|---|
+| **PRODUCER** | How is this value *computed*? Are there MULTIPLE derivations, and which one wins? What does each one *depend on* — and is that dependency currently healthy? | find every write/assign site and every branch that can set it; read the arithmetic, not just the plumbing |
+| **CONSUMER** | Who *reads* it, on which path, and is it a trust decision or display? | see the rule below |
+
+Producer-side questions that generalize (ask all four):
+1. **Is there more than one derivation?** If so, which is authoritative, and does one overwrite the other? Overwrite-order bugs are invisible from the consumer side.
+2. **What does the producer DEPEND on?** List its inputs. Then ask, for each: *is it working right now?* A defense that subtracts using a dead signal is not a defense (this is the whole 2026-08-16 bug).
+3. **Plumbing vs arithmetic.** "The right sensors feed it" is not "it computes the right number." Verify both; a plumbing fix can restore a wrong formula to full strength.
+4. **Ground truth.** Compare the produced value against something externally known (a real headcount, a measured wattage), never against another internal number that shares its assumptions.
+
+**Acceptance criteria must DISCRIMINATE.** State what the observation looks like under the fix
+AND under a plausible *different* failure. If they are identical, the criterion is worthless —
+"census now exceeds the identified count" was declared a PASS for a plumbing fix when it is
+equally the signature of the double-count bug that replaced it.
+
 ## Count the consumers before fixing the defect
 
 **Coined 2026-08-09, from the most expensive miss of that session.** RESACC-1 measured the camera

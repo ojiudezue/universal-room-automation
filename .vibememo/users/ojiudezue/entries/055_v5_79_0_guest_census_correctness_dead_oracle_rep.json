@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "055",
+  "author": "ojiudezue",
+  "session_id": "claude_20260818_024630_ship_v5_79_0",
+  "timestamp": "2026-08-18T02:46:30Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.79.0 shipped: Guest/census correctness + dead-oracle repair",
+  "summary": "Guest rooms lead (D2), exit decoupled from count (D2b), registry guest-room resolution (D3), additive-census clamp (D1). Repaired _is_known_person_in_room \u2014 the sole guest-arming identity check, dead since v4.7.2 (two bugs: wrong coordinator lookup + nonexistent attribute), made live by D2. Added sticky-latch (GUEST_KNOWN_STICKY_S) for BLE flap and boot-seed residual clamp (GUEST_BOOT_SEED_MIN_RESIDUAL_S). Six framing-disjoint reviews. Bathroom unflagged from guest-room set. Does NOT fix the interior count (still over-counts \u2014 next cycle).",
+  "refs": {
+    "cards": [
+      "CENSUS-GHOST-DEDUP-1",
+      "GUEST-ROOM-CONFIG-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.79.0.md"
+    ]
+  }
+}

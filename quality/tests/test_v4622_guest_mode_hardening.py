@@ -508,32 +508,31 @@ def test_guest_gate_disarms_when_confidence_regresses():
 
 
 def test_guest_gate_exit_is_immediate():
-    """The exit path (count=0 → leave GUEST) fires when both gates clear.
+    """GUEST exit — room-only under GUEST-CENSUS D2b (2026-08-16).
 
-    v4.7.2 D5: The exit condition was updated from:
-      unidentified_count == 0
-    to:
-      unidentified_count == 0 AND not guest_gate_armed
-    so that the sustained-occupancy guest-room path (guest_room_gate_armed)
-    can hold GUEST state even when unidentified_count is 0.
-    Exit remains immediate when the composite gate (OR of both paths) clears.
+    History: v4.7.2 D5 required BOTH ``unidentified_count == 0`` AND
+    ``not guest_gate_armed``. Under GUEST-CENSUS D2 the room path IS
+    ``guest_gate_armed`` in the home-like composition; the census
+    conjunct then made GUEST terminal whenever the underlying
+    cancellation gap kept ``unidentified_count > 0`` (D1's expected +1
+    residual). D2b drops the census conjunct — the room is the sole
+    authority for entry AND exit. See
+    docs/planning/PLANNING_guest_census_correctness.md §D2b.
     """
     infer_idx = PRESENCE_SRC.find("def infer(")
     assert infer_idx >= 0, "StateInferenceEngine.infer not found"
 
-    # The exit branch must still check unidentified_count == 0 (base condition preserved).
-    exit_pattern = "current_state == HouseState.GUEST and unidentified_count == 0"
-    assert exit_pattern in PRESENCE_SRC, (
-        "Exit branch (guest→home on unidentified_count==0) must remain in infer(). "
-        "Expected substring: if current_state == HouseState.GUEST and unidentified_count == 0"
+    # D2b: the exit predicate must be room-only.
+    d2b_pattern = "current_state == HouseState.GUEST and not guest_gate_armed"
+    assert d2b_pattern in PRESENCE_SRC, (
+        "D2b: exit predicate must be 'current_state == HouseState.GUEST "
+        "and not guest_gate_armed' (room-only)."
     )
-
-    # v4.7.2 D5: Exit also checks not guest_gate_armed so the guest_room path
-    # can hold GUEST state. Verify the D5 combined exit pattern is present.
-    d5_exit_pattern = "unidentified_count == 0 and not guest_gate_armed"
-    assert d5_exit_pattern in PRESENCE_SRC, (
-        "v4.7.2 D5: exit branch must check 'unidentified_count == 0 and not guest_gate_armed' "
-        "to allow guest_room_gate to hold GUEST state without unid_count > 0."
+    # Negative: the old census conjunct must NOT be reintroduced.
+    old_pattern = "unidentified_count == 0 and not guest_gate_armed"
+    assert old_pattern not in PRESENCE_SRC, (
+        "D2b: unidentified_count conjunct must not appear in the "
+        "GUEST-exit predicate (would re-latch on D1 residual > 0)."
     )
 
 

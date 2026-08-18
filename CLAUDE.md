@@ -340,6 +340,28 @@ Context First. History: the two worst recent bug families (rung-gate seam,
 wall-clock-coupled tests) both lived at state-machine × time seams — the
 exact ingredient the reverted variant would have added for pennies.
 
+## Producer AND Consumer checks — MANDATORY in planning and investigation
+
+**Operator-coined 2026-08-16** ("Producer check / Consumer and site checks should be standard
+in any planning or investigation"). Any plan or investigation touching a VALUE must document
+BOTH:
+
+- **PRODUCER check** — how is it computed? Are there multiple derivations and which wins?
+  What does it depend on, and is each dependency *currently healthy*? Read the arithmetic, not
+  just the plumbing. Compare against external ground truth, never against another internal
+  number sharing the same assumptions.
+- **CONSUMER + call-site check** — who reads it, on which path, trust-decision vs display
+  (the pre-existing "count the consumers" rule), and where is it wired in.
+
+Why this exists: the consumer rule shipped alone and the asymmetry caused a real defect —
+the census double-counted residents into GUEST mode because an additive derivation overwrote
+a subtractive one while its dedup defenses were inert (face recognition dead). Every reviewer
+asked who READ the count; nobody asked how it was MADE.
+
+**Corollary — acceptance criteria must discriminate:** state what the observation looks like
+under the fix and under a plausible different failure. If identical, choose another
+observation.
+
 ## Numbers Get Knobs — placement ladder (operator-coined 2026-07-16)
 
 Any behavioral number (threshold, duration, window, gate value) gets a
