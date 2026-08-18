@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T00:34:45-05:00_ - _Data commit: `ff3795d36c39`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T00:36:25-05:00_ - _Data commit: `fd29ad46c867`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -163,7 +163,7 @@ _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
 thread: **presence** - status: **planned** - approval: **explicit**
-_updated 2026-08-18 00:45 · refined_
+_updated 2026-08-18 00:55 · refined_
 - **Problem / Solution:**
   - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
   - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
@@ -174,10 +174,12 @@ _updated 2026-08-18 00:45 · refined_
 - **Next:** BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2 + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at egress cams (the D0 blind spot — run...
 - **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
 - **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-- **Forensic keys (3):**
+- **Forensic keys (5):**
   - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
   - `operator_ruling_2026_08_17_build_both`: OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity): "Build both face and face-independent solution and use face as a confidence boost." Plus critical context that INVALIDATES the D0 face measurement: (1) the D0 probe measure...
   - `protect_reprobe_2026_08_18`: PROTECT FACE RE-PROBE (PROBE_protect_face_egress.md) — the "build both" face premise does NOT hold on current sensing. Findings: (1) UniFi Protect exposes face to HA ONLY as event.<cam>_smart_detection {event_type:face} = face DETECTION,...
+  - `operator_corrections_2026_08_18`: OPERATOR 2026-08-18 (build face-independent + corrections): (1) SPIKE EXISTS — RESEARCH_protect_face_to_ha.md (2026-08-15) already evaluated getting Protect face NAME into HA. Protect API capability CONFIRMED (name+id+confidence verified...
+  - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**

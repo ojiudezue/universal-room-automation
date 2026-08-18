@@ -2175,7 +2175,7 @@ cards:
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-  updated: 2026-08-18 00:45
+  updated: 2026-08-18 00:55
   refinement_status: refined
   d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
     identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
@@ -2215,6 +2215,22 @@ cards:
     no names. RECOMMEND: build the FACE-INDEPENDENT arm (approach-track->egress, 94% GO from the first
     probe) as cycle 3; PARK the face arm with unblock = a new Protect-name HA integration + re-probe (revisit
     trigger: named recognition at door/exterior >=30%).'
+  operator_corrections_2026_08_18: 'OPERATOR 2026-08-18 (build face-independent + corrections): (1) SPIKE
+    EXISTS — RESEARCH_protect_face_to_ha.md (2026-08-15) already evaluated getting Protect face NAME into
+    HA. Protect API capability CONFIRMED (name+id+confidence verified live; Family Room AI Theta emits
+    named face events). Core HA does not map it; recommended path = Protect Alarm Manager webhook -> HA
+    webhook (4b, ~20 lines, near-zero maint, gets the name today). Alt: unifi-protect-bridge HACS, or
+    URA->uiprotect direct. (2) GEOGRAPHY CORRECTION: the probe measured the FRONT DOOR (madrone_g6_entry)
+    but MOST FAMILY ENTRIES ARE VIA THE GARAGE, not the front door; family room is the central interior
+    area (covers living room + kitchen) and is where Protect names people. So the "interior-only recognition"
+    is actually ON the real entry path (garage -> family room) — the face arm is VIABLE, the probe just
+    looked at the wrong cam. (3) So: face arm = FAST-FOLLOW (not dead): wire the Alarm Manager webhook
+    -> ura_face_identified event -> use family-room/garage named recognition as the interior-arrival identity.'
+  cycle3_scope_final_2026_08_18: 'CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress
+    corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to
+    the unidentified gate (INV-4 path b, never a third arm). FACE arm = fast-follow via the Alarm Manager
+    webhook path (EXTERIOR-GUEST-FACE-FASTFOLLOW-1, to card). Re-measure egress coverage against the GARAGE
+    entries + family-room arrival, not the front door, when scoping the face fast-follow.'
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
