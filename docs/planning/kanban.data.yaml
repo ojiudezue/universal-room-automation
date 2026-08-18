@@ -73,7 +73,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 02:25
+  updated: 2026-08-18 02:40
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -200,6 +200,10 @@ cards:
     the dead F1 legs are REMOVED from the registry, so resolve_detection_legs cannot return them as a
     leg. The corroboration telemetry is NOT polluted by a dead leg. The Tier-3 severity gap (agreement
     recorded but not consumed) still stands; only the dead-leg-inflation sub-claim is void.'
+  ptz_rebooted_2026_08_18: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz
+    Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the
+    fleet norm (~0.5-1x), the over-trigger was a PTZ state/motion artifact cleared by reboot; if it stays
+    11x, it is a persistent Frigate zone/config issue on that camera. Do the re-check tomorrow, not tonight.
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs

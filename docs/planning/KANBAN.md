@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T00:12:13-05:00_ - _Data commit: `2ed997729ffa`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-18T00:18:16-05:00_ - _Data commit: `4d6e3d297b3a`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.80.0.md (2026-08-18) is newer than last_reconciled (2026-08-17)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -39,7 +45,7 @@ _created 2026-08-18 02:05 · updated 2026-08-18 02:25 · initial_
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs
 thread: **security** - status: **inbox** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-08-18 02:25 · refined_
+_created 2026-08-17 23:58 · updated 2026-08-18 02:40 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
@@ -47,7 +53,7 @@ _created 2026-08-17 23:58 · updated 2026-08-18 02:25 · refined_
 - **Next:** Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard surfacing. Separately: BB dummy-Apple-...
 - **Tags:** tier-3
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (13):**
+- **Forensic keys (14):**
   - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
   - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
   - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
@@ -61,6 +67,7 @@ _created 2026-08-17 23:58 · updated 2026-08-18 02:25 · refined_
   - `fleet_pattern_2026_08_18`: FLEET SAMPLE (13 dual-leg cameras, 5d, Frigate-2/Protect on-event ratio): front_side_ptz is an ISOLATED OUTLIER at 11.4x (455 vs 40). Every other dual-leg camera is 0.56x-3.4x, and MOST have Protect firing MORE than Frigate (garage_a 0.5...
   - `fleet_correction_2026_08_18`: OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ cre...
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
+  - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
 ### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
