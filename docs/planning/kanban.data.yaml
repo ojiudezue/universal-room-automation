@@ -84,7 +84,7 @@ cards:
   status: planned
   approval: explicit
   created: 2026-08-18 00:55
-  updated: 2026-08-18 03:00
+  updated: 2026-08-18 02:10
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -147,6 +147,14 @@ cards:
     face readers; D2 (gated on Wed payload) Protect corroboration, kill switch PROTECT_CORROBORATION_ENABLED
     default OFF, do NOT hard-code payload fields. Invariant I1: identified_count = |union of name sets|,
     never a sum. Plan review before build.'
+  d2_gate_2026_08_18: 'D2 (Protect corroboration) gate: NO cron (operator: "don''t cron, just fire it
+    yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload
+    verbatim; the HA RECORDER durably retains that event+payload ~10 days, so no live-catch is needed.
+    DURABLE GATE = THIS CARD: any session-start reconcile on/after Wed 2026-08-19 MUST run the D2-GATE
+    check: query the recorder for a real face payload, and if present run the measure-before-build gate
+    (append §D2-payload appendix to PLANNING_egress_face_identity.md -> GO build D2 / PARK if payload
+    poor). Do NOT hard-code a guessed payload field (fabrication class). D1 itself is in fix-up (3 reviews
+    DO-NOT-SHIP/SHIP-with-fix).'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: inbox
@@ -4205,6 +4213,47 @@ cards:
   refs:
   - README_v5.59.0.md
   updated: 2026-08-17 23:30
+- id: MEMORY-ROADMAP-1
+  title: Memory epic — forward roadmap + critique + what-survives
+  column: inbox
+  thread: memory
+  created: 2026-08-18 02:00
+  updated: 2026-08-18 02:00
+  refinement_status: initial
+  problem: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor).
+    Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which
+    memory layers/artifacts SURVIVE (durability/retention) vs are transient. Needs full context.
+  origin: 2026-08-18 "outline a possible roadmap for memory. Critique it and the layout what survives.
+    Full context"
+  next: 'ura-planner: read memory epic state (PLANNING_memory_writers.md, shipped writers+compactor, memory-ineligible
+    boundary) -> outline roadmap phases -> critique via marginal-benefit -> table of what survives (recorder
+    retention, compacted narrative, episodic rows, memory files) vs transient.'
+- id: ROADMAP-UNDONE-REVIEW-1
+  title: Review ROADMAP/VISION — surface undone-but-worthwhile
+  column: inbox
+  thread: planning
+  created: 2026-08-18 02:00
+  updated: 2026-08-18 02:00
+  refinement_status: initial
+  problem: 'Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0
+    while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that
+    is still worthwhile — separating genuinely valuable undone work from obsolete/superseded items.'
+  origin: 2026-08-18 "Review roadmap and surface what has not been done that is worthwhile"
+  next: 'Research agent: read docs/ROADMAP_v11.md + VISION_v7.md + backlog + memory project cards -> list
+    undone items -> classify worthwhile / superseded / obsolete with one-line rationale. Feeds a roadmap
+    refresh (ties to ROADMAP-STALE-AGENTIC-LAYER-1).'
+- id: IOS-APP-PLAN-CARD-1
+  title: Find and card the iOS app plan
+  column: inbox
+  thread: dashboarding
+  created: 2026-08-18 02:00
+  updated: 2026-08-18 02:00
+  refinement_status: initial
+  problem: An iOS app plan exists somewhere (planning doc / memory / PWA repo notes) but is not on the
+    board. Operator wants it found and carded so it is not lost.
+  origin: 2026-08-18 "Find and card the iOS app plan"
+  next: 'Explore: locate the iOS app plan (grep docs/planning, memory bodies, ~/Code/ura-dashboard-pwa
+    for iOS/native/App Store/PWA-to-native) -> summarize scope -> create a proper card.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

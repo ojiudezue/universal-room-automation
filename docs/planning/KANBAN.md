@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T01:32:53-05:00_ - _Data commit: `bae1de54a9c0`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T01:34:43-05:00_ - _Data commit: `67d59bff3bea`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,6 +21,7 @@ _Generated: 2026-08-18T01:32:53-05:00_ - _Data commit: `bae1de54a9c0`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
+| ❓ Other | 3 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -163,18 +164,19 @@ _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
 thread: **presence** - status: **planned** - approval: **explicit**
-_created 2026-08-18 00:55 · updated 2026-08-18 03:00 · initial_
+_created 2026-08-18 00:55 · updated 2026-08-18 02:10 · initial_
 - **Problem / Solution:**
   - Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect DOES recognize residents by name ...
 - **Why:** Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this says WHO (known resident vs unknown), which is the actual guest/security discriminator.
 - **Next:** HOLD: consultation (duplicate-vs-complementary) running -> report to operator -> operator go -> then build.
 - **Refs:** docs/planning/RESEARCH_protect_face_to_ha.md; EXTERIOR-GUEST-EGRESS-1
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `webhook_live_2026_08_18`: OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook trace / the ura_face_identified event) to confirm the na...
   - `webhook_verified_2026_08_18`: WEBHOOK RECEIVING SIDE VERIFIED: automation.ura_kp_face_webhook_probe (webhook_id ura_kp_face_probe, local-only POST) captures payloads verbatim -> ura_kp_face_probe_received event + system_log. Test POST returned 200 and logged the payl...
   - `promoted_2026_08_18`: PROMOTED to the PRIMARY cycle-3 build (operator: "let's build it first and see"). Reframe: we ALREADY have single-source identity via Frigate-2 face (sensor.<cam>_last_recognized_face_2, resolvable after v5.80.0 D2). Protect face (via th...
   - `prebuild_consultation_2026_08_18`: CONSULTATION DONE (AUDIT_egress_face_identity_prior_art.md, 1ff87322b) — VERDICT: COMPLEMENTARY, not duplicate. (1) EgressDirectionTracker resolves DIRECTION only; person_id hard-coded None at both emit sites (transit_validator.py:1106,:...
   - `plan_2026_08_18`: PLAN PLANNING_egress_face_identity.md — Tier 2-DB. SPLIT: D1 (ship now) Frigate person_id stamp (transit_validator.py:1106/:1121) + census union fuse (camera_census.py:1855) reusing existing face readers; D2 (gated on Wed payload) Protec...
+  - `d2_gate_2026_08_18`: D2 (Protect corroboration) gate: NO cron (operator: "don't cron, just fire it yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload verbatim; the HA RECORDER durably retains that event+payload ...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -1135,6 +1137,33 @@ _updated 2026-08-17 23:30_
 - **Forensic keys (2):**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
+
+## ❓ Other (3)
+_unknown status bucket_
+
+### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
+thread: **memory**
+_created 2026-08-18 02:00 · initial_
+- **Next:** ura-planner: read memory epic state (PLANNING_memory_writers.md, shipped writers+compactor, memory-ineligible boundary) -> outline roadmap phases -> critique via marginal-benefit -> table of what survives (recorder retention, compacted n...
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
+
+### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile
+thread: **planning**
+_created 2026-08-18 02:00 · initial_
+- **Next:** Research agent: read docs/ROADMAP_v11.md + VISION_v7.md + backlog + memory project cards -> list undone items -> classify worthwhile / superseded / obsolete with one-line rationale. Feeds a roadmap refresh (ties to ROADMAP-STALE-AGENTIC-...
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
+
+### `IOS-APP-PLAN-CARD-1` - Find and card the iOS app plan
+thread: **dashboarding**
+_created 2026-08-18 02:00 · initial_
+- **Next:** Explore: locate the iOS app plan (grep docs/planning, memory bodies, ~/Code/ura-dashboard-pwa for iOS/native/App Store/PWA-to-native) -> summarize scope -> create a proper card.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: An iOS app plan exists somewhere (planning doc / memory / PWA repo notes) but is not on the board. Operator wants it found and carded so it is not lost.
 
 ## 🅿️ Parked ideas (top-level list)
 
