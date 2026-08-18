@@ -4379,6 +4379,32 @@ cards:
   next: Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds
     under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
   refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+- id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
+  title: Promote 3 Camera-Census feature toggles to device switches
+  column: planned
+  thread: presence
+  created: 2026-08-18 03:10
+  updated: 2026-08-18 03:10
+  refinement_status: initial
+  problem: Three feature toggles are buried in the Camera Census options dialog (options-flow rung 2).
+    Operator wants them as one-tap DEVICE SWITCHES on the URA device (rung 3) for live control + dashboard
+    access. Names must be simple, benefit-first, and SCOPED (not imply a global kill switch — URA uses
+    face recognition in many places).
+  origin: 2026-08-18 "propose device toggle switch names ... simplicity and easy to understand"; names
+    iterated w/ operator
+  knobs: 'LOCKED names (operator-approved): switch.ura_presence_face_matching "Presence Face Matching"
+    (<- face_recognition_enabled; scope VERIFIED = transit_validator + presence zone confirm ONLY, not
+    global); switch.ura_smart_people_counting "Smart People Counting" (<- enhanced_census); switch.ura_name_people_at_doors
+    "Name People at Doors" (<- egress_identity_enabled).'
+  constraints: Switch entity = SINGLE source of truth, persisted via URA switch-persistence machinery
+    (single-user, no back-compat migration). Reconcile with the existing options-flow fields (avoid two-sources
+    divergence). Enhanced Census is the HEAVY one — toggling swaps the census engine; may need integration
+    reload rather than instant apply (planner decides). Keep the options-flow i18n label already committed
+    for egress as backing.
+  next: 'ura-planner: Tier 2 plan (3 SwitchEntity + persistence + options reconciliation + consumed by
+    presence/transit/census). Then ONE plan review, then build.'
+  refs: v5.81.0 (egress kill switch); config_flow.py async_step_camera_census; feedback_model_tiering
+    / numbers-get-knobs ladder
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
