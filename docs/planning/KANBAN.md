@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T13:13:09-05:00_ - _Data commit: `e747caebb478`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T13:17:20-05:00_ - _Data commit: `d90ed9671165`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T13:13:09-05:00_ - _Data commit: `e747caebb478`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 18 |
+| ❓ Other | 19 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1143,7 +1143,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (18)
+## ❓ Other (19)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1300,6 +1300,14 @@ _created 2026-08-18 10:35 · initial_
 - **Forensic keys (2):**
   - `column`: inbox
   - `problem`: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival) builds f"sensor.{base}_last_recognized_face" WITHOUT _2-suffix tolerance, so it silently misses cameras whose Frigate face sensor exists only a...
+
+### `GUEST-COUNT-DEDUP-MIGRATE-1` - ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
+thread: **presence**
+_created 2026-08-18 11:00 · initial_
+- **Next:** Verify ZoneGuestCountSensor live-status; then migrate _get_guest_count (+ binary_sensor.py:1584 sibling) to consume the deduped unidentified_count instead of the naive subtraction. Producer/consumer check both.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: aggregation.py:5983 ZoneGuestCountSensor._get_guest_count derives guest count the NAIVE SUBTRACTIVE way (max(0, camera_total - ble_total)) — the SAME additive/subtractive formula behind the historical GUEST double-count. It is superseded...
 
 ## 🅿️ Parked ideas (top-level list)
 
