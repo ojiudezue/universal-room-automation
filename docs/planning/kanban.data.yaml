@@ -54,6 +54,33 @@ cards:
   refs:
   - custom_components/universal_room_automation/config_flow.py:9193
   - custom_components/universal_room_automation/const.py:386
+- id: GUEST-ROOM-LOCATION-MATCH-1
+  title: 'Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)'
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  origin:
+    date: '2026-08-17'
+    gist: Review D2 (guest_census_review_D2_completeness.md) INFO-2, surfaced re-reviewing the repaired
+      oracle.
+  problem_solution:
+  - P1 `_is_known_person_in_room` excludes a resident by comparing person_coord.data[name]["location"]
+    against CONF_ROOM_NAME. `_resolve_person_room` no-mapping fallback returns the raw bermuda_area string.
+    If a room is flagged is_guest_room=True but its residents route through that fallback, location !=
+    CONF_ROOM_NAME, the exclusion silently returns False, and GUEST arms on a resident after 30 min —
+    the exact failure this cycle fixes, re-opened by config. S1 before designating ANY guest room, verify
+    a known person standing in it resolves location == that room name (not a bermuda_area). This is an
+    OPERATOR PRECONDITION, not a code fix.
+  why: Under D2 the room set is load-bearing; a designation whose location vocabulary does not match makes
+    the sole safety check inert for that room.
+  constraints:
+  - Inert today (fix verified for the currently-designated rooms whose locations DO match). Becomes live
+    only on a new/mismatched designation.
+  next: 'Orchestrator pre-deploy check: confirm Guest Bedroom 1 and Upstairs Guestroom resolve location==room_name
+    for a present resident before v5.79.0 ship. Then card any future designation with this precondition.'
+  refs:
+  - docs/reviews/code-review/guest_census_review_D2_completeness.md
+  - custom_components/universal_room_automation/domain_coordinators/presence.py
 - id: GUEST-IDENTITY-PHONE-LEFT-BEHIND-1
   title: Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after
     30 min
@@ -1626,6 +1653,14 @@ cards:
     is inert because face recognition produces ~0 identities (face_recognized_persons empty with 4 known
     residents home). S11 gated on the EXTERNAL Frigate detect-stream + enrollment chain (homelab-side)
     — not fixable in URA code. Track the dependency; re-measure after the face pipeline produces.'
+  - 'P12 (folded in per operator 2026-08-17) the two exterior counts serve DIFFERENT consumers and neither
+    is wired to the dashboard correctly. S12 small deliverable: dashboard shows the DEDUPED count (exterior_person_tracks_active)
+    as the headline "people outside" with the NAIVE sum (persons_on_property_exterior) as a degraded-mode
+    FALLBACK (guard G1: never show 0 when the linker is inactive/booting) and a DIVERGENCE indicator (naive
+    >> deduped = lingering/circling; deduped=0 & naive>0 = linker-not-ready health signal). Security/alerting
+    stays on the never-miss floor + per-camera NM events; guest ingress/egress consumes identity, not
+    a count. This is dashboard wiring only — does NOT touch the census producer and does NOT overwrite
+    either sensor (per the KEEP-BOTH ruling).'
   why: 'Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy
     state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which
     is the root architectural error. NOTE: the v4.7.18 plan scoped this separation (CensusHoldDecayService
@@ -1860,6 +1895,42 @@ cards:
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
+- id: EGRESS-INTERIOR-COUNT-REINFORCE-1
+  title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
+  thread: presence
+  status: planned
+  approval: pre_approved_gated
+  approved_by: 'operator 2026-08-17: "Seeing how exterior filters into interior and then using that to
+    strengthen the interior count accuracy seems like a good thing. But let''s keep the scope to 1 and
+    card 2. If 1 is accurate then we can build on it with 2. Card it, pre-approve it based on that gate."
+    PRE-APPROVED, GATED on EXTERIOR-GUEST-EGRESS-1 D1 (identity on egress) shipping AND proving accurate.'
+  origin:
+    date: '2026-08-17'
+    gist: 'Split from the egress design discussion: identity-on-egress (scope 1) is a prerequisite; using
+      the resulting exterior->interior transitions to reinforce the interior headcount is scope 2.'
+  problem_solution:
+  - 'P1 the interior census derives from cameras+BLE+face and does not currently consume the fact that
+    a specific person was OBSERVED crossing an egress from outside to inside. That crossing is strong,
+    causal evidence a body entered the interior population — independent of whether interior cameras/BLE
+    picked them up. S1 (scope 2, gated) once egress events carry identity (scope 1), feed confirmed exterior->interior
+    transitions into the interior count as a corroborating/strengthening signal — a known crossing raises
+    confidence, an UNKNOWN crossing is the guest-corroboration path. Never a blind increment: it must
+    reconcile with what the interior substrate already sees, not double-count a person both surfaces observe.'
+  why: 'The gate is deliberate: reinforcing interior count with egress data is only sound if the egress
+    identity signal is itself accurate. Building it on an inaccurate scope-1 would inject a new error
+    source into the interior count — the exact double-count class we spent this session fixing.'
+  constraints:
+  - 'GATE: do NOT build until EXTERIOR-GUEST-EGRESS-1 D1 has shipped AND organic evidence shows the egress
+    identity verdict is accurate. If scope 1 is inaccurate, this card stays parked.'
+  - 'PRODUCER/CONSUMER: producer is the egress event + track identity; consumer is the INTERIOR census.
+    Must reconcile against interior substrate (no double-count of a person both see) — Bug Class #53/#22
+    territory.'
+  - 'Reuses the census dedup discipline: a crossing is evidence, not a raw +1.'
+  next: 'BLOCKED on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof. Then: measure how often egress crossings
+    are NOT already reflected in the interior count (the gap this would fill) before designing.'
+  refs:
+  - docs/planning/PLANNING_exterior_guest_egress.md
+  - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
 - id: CENSUS-G6-RAW-PERSISTENCE
   title: 'G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed
     value'

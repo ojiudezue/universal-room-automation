@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T01:55:22-05:00_ - _Data commit: `23697383cf7f`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T21:25:28-05:00_ - _Data commit: `ec345f3e621d`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,9 +11,9 @@ _Generated: 2026-08-17T01:55:22-05:00_ - _Data commit: `23697383cf7f`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 4 |
 | 🧭 Pre-planning | 7 |
-| 📝 Planned | 1 |
+| 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 43 |
@@ -22,8 +22,17 @@ _Generated: 2026-08-17T01:55:22-05:00_ - _Data commit: `23697383cf7f`_ - _last_r
 | 🅿️ Parked | 5 |
 | ✅ Done | 13 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (4)
 _raw capture_
+
+### `GUEST-ROOM-LOCATION-MATCH-1` - Precondition for designating a guest room: person location must match CONF_ROOM_NAME (D2-INFO-2)
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+- **Origin:** 2026-08-17 - Review D2 (guest_census_review_D2_completeness.md) INFO-2, surfaced re-reviewing the repaired oracle.
+- **Why:** Under D2 the room set is load-bearing; a designation whose location vocabulary does not match makes the sole safety check inert for that room.
+- **Next:** Orchestrator pre-deploy check: confirm Guest Bedroom 1 and Upstairs Guestroom resolve location==room_name for a present resident before v5.79.0 ship. Then card any future designation with this precondition.
+- **Refs:** docs/reviews/code-review/guest_census_review_D2_completeness.md; custom_components/universal_room_automation/domain_coordinators/presence.py
+- **Forensic keys (1):**
+  - `problem_solution`: P1 `_is_known_person_in_room` excludes a resident by comparing person_coord.data[name]["location"] against CONF_ROOM_NAME. `_resolve_person_room` no-mapping fallback returns the raw bermuda_area string. If a room is flagged is_guest_room...
 
 ### `GUEST-IDENTITY-PHONE-LEFT-BEHIND-1` - Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after 30 min
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -123,7 +132,7 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Tags:** mutation-drill
 - **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
 
-## 📝 Planned (1)
+## 📝 Planned (2)
 _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
@@ -135,6 +144,15 @@ thread: **presence** - status: **planned** - approval: **explicit**
 - **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
 - **Forensic keys (1):**
   - `problem_solution`: P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
+
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
+thread: **presence** - status: **planned** - approval: **pre_approved_gated**
+- **Origin:** 2026-08-17 - Split from the egress design discussion: identity-on-egress (scope 1) is a prerequisite; using the resulting exterior->interior transitions to reinforce the interior headcount is scope 2.
+- **Why:** The gate is deliberate: reinforcing interior count with egress data is only sound if the egress identity signal is itself accurate. Building it on an inaccurate scope-1 would inject a new error source into the interior count — the exact ...
+- **Next:** BLOCKED on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof. Then: measure how often egress crossings are NOT already reflected in the interior count (the gap this would fill) before designing.
+- **Refs:** docs/planning/PLANNING_exterior_guest_egress.md; depends-on: EXTERIOR-GUEST-EGRESS-1
+- **Forensic keys (1):**
+  - `problem_solution`: P1 the interior census derives from cameras+BLE+face and does not currently consume the fact that a specific person was OBSERVED crossing an egress from outside to inside. That crossing is strong, causal evidence a body entered the inter...
 
 ## 🔨 In progress (1)
 _being built_
