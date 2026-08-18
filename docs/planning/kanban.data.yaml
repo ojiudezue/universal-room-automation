@@ -4433,10 +4433,10 @@ cards:
     test (neuter dispatcher -> test fails -> restore -> 35/35).'
 - id: CENSUS-IDENTITY-GROUP-README-1
   title: 'Cycle-group README: census/guest/presence-identity program'
-  column: in_progress
+  column: done
   thread: planning
   created: 2026-08-18 03:20
-  updated: 2026-08-18 03:20
+  updated: 2026-08-18 14:15
   refinement_status: initial
   problem: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy
     + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in
@@ -4447,6 +4447,7 @@ cards:
   next: general-purpose writing docs/readmes/README_GROUP_census_guest_presence_identity.md with verified
     entity inventory.
   refs: README_v5.79.0/5.80.0/5.81.0; CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
+  done_note: Delivered + reconciled to v5.82.0 (switches shipped). Sent to operator.
 - id: CENSUS-IDENTITY-SUPERSESSION-DELETE-1
   title: Delete superseded census/identity code (gated on L3 validation)
   column: done

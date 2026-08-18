@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T13:43:18-05:00_ - _Data commit: `464366a9f1b0`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T13:59:24-05:00_ - _Data commit: `8272f4b4e282`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1242,11 +1242,12 @@ _created 2026-08-18 03:10 · updated 2026-08-18 09:40 · refined_
 
 ### `CENSUS-IDENTITY-GROUP-README-1` - Cycle-group README: census/guest/presence-identity program
 thread: **planning**
-_created 2026-08-18 03:20 · initial_
+_created 2026-08-18 03:20 · updated 2026-08-18 14:15 · initial_
 - **Next:** general-purpose writing docs/readmes/README_GROUP_census_guest_presence_identity.md with verified entity inventory.
-- **Forensic keys (2):**
-  - `column`: in_progress
+- **Forensic keys (3):**
+  - `column`: done
   - `problem`: The census/guest/presence-identity arc (v5.79.0 guest correctness -> v5.80.0 census accuracy + dashboards -> v5.81.0 egress identity -> planned device switches -> gated D2) is coherent only in the operators head + scattered per-version R...
+  - `done_note`: Delivered + reconciled to v5.82.0 (switches shipped). Sent to operator.
 
 ### `CENSUS-IDENTITY-SUPERSESSION-DELETE-1` - Delete superseded census/identity code (gated on L3 validation)
 thread: **planning**
