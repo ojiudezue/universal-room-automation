@@ -1,9 +1,14 @@
 # URA v5.79.0 — Guest/census separation: guest rooms lead, the count corroborates
 
-The cycle that stops GUEST mode from being a function of a decaying measurement.
-Tier 2-DB: plan rev-2 + plan review + **3 framing-disjoint build reviews** (A SHIP /
-B SHIP-with-notes / C FIX-THEN-SHIP) + fix-up + **orchestrator-found HIGH in the fix-up
-itself** + focused re-review.
+The cycle that stops GUEST mode from being a function of a decaying measurement — and,
+in the course of proving it, discovered that guest mode's only identity safety check had
+**never worked in production**.
+
+**Review chain (Tier 2-DB escalated to a Tier-3 fuller pass):** plan rev-2 + plan review
++ 3 framing-disjoint build reviews (A SHIP / B SHIP-with-notes / C FIX-THEN-SHIP) + fix-up
++ **orchestrator-found HIGH in the fix-up itself** + operator-ordered **fuller pass (D/E/F,
+all three DO-NOT-SHIP)** which found the dead oracle + **CRIT fix + re-review (D2/E2/F2, all
+three SHIP)**. Six framing-disjoint reviews total. Nothing about this cycle was routine.
 
 ## The problem this closes
 
@@ -76,12 +81,59 @@ pre-cycle slug did not exist.
 - **A-LOW-1** dropped a masking `or 0`; **B-LOW-2** added a log-only canary on the
   D2-unreachable branch; **C-LOW-1** added the missing explicit negative assertion.
 
+### The dead oracle (fuller pass — the real story of this cycle)
+
+Because D2 makes the guest-room gate the **sole** arm for GUEST, the operator ordered a
+Tier-3 fuller pass. Three more framing-disjoint reviews (D adversarial-completeness,
+E lifecycle, F test-authority) **all returned DO-NOT-SHIP.** D and E independently found the
+same CRITICAL by different routes, and it was **two distinct bugs in one 20-line helper**,
+`_is_known_person_in_room` — the "is a *known resident* the one in this guest room?" check:
+
+1. `manager.coordinators.get("person")` — the person coordinator is **never** registered in
+   that manager; all 7 sibling call-sites in the same file use `hass.data[DOMAIN]["person_coordinator"]`.
+2. `getattr(person_coord, "_tracked_persons", {})` — `_tracked_persons` exists **nowhere**;
+   the real store is `person_coord.data[name]["location"]`.
+
+It short-circuited on the first, masking the second. The consequence: the "known person →
+don't treat as guest" disarm had **never fired since v4.7.2**. Harmless while guest entry was
+`census OR rooms`; about to become **false-guest-on-residents** the instant D2 made rooms the
+sole arm. This was **live, not latent** — the house has designated guest rooms (see below),
+so any 30-minute occupancy of one, by a resident, would have armed GUEST. It very likely
+explains the measured finding that **72% of guest minutes carried `unidentified_count == 0`**:
+Path B firing on residents through the dead check, with no census involvement.
+
+**CRIT fix (`_is_known_person_in_room` repaired):** canonical `hass.data[DOMAIN]["person_coordinator"]`
+lookup + real `data[name]["location"]` shape (vocabulary verified live: person `location`
+values are `CONF_ROOM_NAME` verbatim). Plus a **sticky latch** (`GUEST_KNOWN_STICKY_S`, 120 s)
+because BLE room-location **flaps** (prior art: Jaya Bedroom on Bermuda noise) — without it, a
+flap during the gate re-check would fire GUEST on a resident. All four drills red-then-green,
+including both revert-drills (each original bug independently caught). Re-review D2/E2/F2 all SHIP.
+
+**F2-MED-1 (oracle-echo, Bug Class #64 — the third variant coined this cycle):** the
+sticky-latch test derived its expiry window from the production constant, so it passed for
+any value including the kill-switch. De-echoed to a test-local literal + a contract assertion;
+drilled (constant→0 now fails the named test).
+
+### Config correction (done, not code)
+
+A **bathroom** — "Down Guest Bathroom" (`room_type=bathroom`) — was flagged `is_guest_room=True`,
+a misconfiguration the operator caught. Under the dead oracle that meant any 30-minute bathroom
+occupancy armed GUEST — the worst possible member of the designated set. **Unflagged.** The
+designated set is now exactly **Guest Bedroom 1** and **Upstairs Guestroom** (both bedrooms).
+Pre-deploy check confirmed both resolve `location == CONF_ROOM_NAME` for present residents, so
+the repaired exclusion is live for them (`GUEST-ROOM-LOCATION-MATCH-1`).
+
 ## Knobs
 
-**One new, rung 1 (module constant):** `GUEST_BOOT_SEED_MIN_RESIDUAL_S` — the minimum dwell
-that must remain after a boot-seed, so an erroneous seed can never fire instantly. Rung 1
-because it is a safety margin whose change should require review. **No new config-flow fields,
-no new entities.**
+**Two new, both rung 1 (module constants), no config-flow fields, no new entities:**
+- `GUEST_BOOT_SEED_MIN_RESIDUAL_S` (300 s) — minimum dwell that must remain after a boot-seed,
+  so an erroneous seed can never fire instantly. Kill-switch: `≥ threshold` disables the seed;
+  `0` disables only the clamp.
+- `GUEST_KNOWN_STICKY_S` (120 s) — sticky-latch window absorbing BLE room-location flap in the
+  identity re-check. Kill-switch: `0` disables the latch (base check still runs).
+
+Both rung 1 because they are safety margins on the sole guest-arming safety check; changing
+either should require review.
 
 ## What this cycle does NOT fix — read this before judging the count
 
@@ -98,9 +150,13 @@ held=6):
 | 10 | **10 / 6** |
 
 `total ≥ identified` is arithmetically guaranteed, so the count can never drop below the
-people we can name. But expect the headcount to still read high after this deploy.
-Repairing the camera body total is **cycle 3** (`CENSUS-DEDUP-REPAIR-1`); the latch/decay
-asymmetry is **cycle 2** (`CENSUS-DECAY-SEPARATION-1`).
+people we can name. But **expect the headcount to still read high after this deploy** — this
+cycle fixes GUEST MODE, not the count. Interior count accuracy is the next cycle
+(`CENSUS-ACCURACY-1`): the decay/self-refresh separation (a measured **74.5%** of over-count
+time was the decay tail with no live camera evidence) and the `_2`-suffix fresh-face
+resolution fix (fresh-face `−1` has fired **zero** times in 7 days — a missed Frigate-1→2
+migration residue). A separately-measured probe **rejected** the original dedup-repair scope:
+per-area BLE-cancel is not broken code, it is camera-area coverage (an operator config task).
 
 ## Acceptance criteria
 
@@ -108,8 +164,12 @@ Every criterion below is written to **discriminate** — to distinguish this fix
 plausible different failure. The v5.78.0 cycle was masked precisely because its criterion
 ("census exceeds identified") was satisfied by both the fix and a fresh bug.
 
-- **Test:** `test_guest_census_correctness.py` (D1/D2/D2b/D3 + boot-seed regression suite).
-  Suite baseline to beat: **9182 passed / 26 failed**, name-diff empty.
+- **Test:** `test_guest_census_correctness.py` (D1/D2/D2b/D3 + boot-seed + oracle-repair
+  regression suite). **Authoritative baseline-diff:** develop = 25 failed / 9161 passed;
+  cycle tip `9cae3c9d5` = 25 failed / 9193 passed; regression name-diff **EMPTY** (the 25
+  failures are identical and pre-existing; +32 are the cycle's own new tests). One flaky
+  board-state test (`test_real_board_idempotent_reship`) excluded — it depends on live kanban
+  edits, not the cycle.
 - **Live L1:** boot clean, zero URA ERROR lines.
 - **Live L2 (the point of the cycle):** with residents only and **no guest present**, the
   house does **not** enter `guest`, *even while `unidentified_count > 0`*.
@@ -127,9 +187,16 @@ plausible different failure. The v5.78.0 cycle was masked precisely because its 
   recorded as a number, not a pass/fail, and carried into cycle 2/3 as the baseline.
 - **Live L6 (organic, guest exit):** when a genuine guest leaves, GUEST exits on the room
   clearing, without waiting for the count to drain. Proves D2b.
-- **Live L7 (organic, genuine guest entry):** a real guest in a designated guest room for
-  ≥ 30 min arms GUEST. Proves D2 did not simply disable guest detection — the failure mode
-  of over-correcting.
+- **Live L7 (organic, genuine guest entry):** a real guest in one of the two designated guest
+  rooms (**Guest Bedroom 1**, **Upstairs Guestroom**) for ≥ 30 min arms GUEST. Proves D2 did
+  not simply disable guest detection — the failure mode of over-correcting.
+- **Live L8 (the dead-oracle repair — the headline of this cycle):** a **known resident** in a
+  designated guest room for ≥ 30 min must **not** arm GUEST. Under the pre-fix dead oracle
+  `_is_known_person_in_room` always returned False, so this would have armed. Discriminator vs
+  L3: L3 tests the boot path (person_coord unpopulated); L8 tests steady-state (person_coord
+  populated, resident's `location` resolves to the room). Both must hold. Evidence: with a
+  resident's BLE placing them in the room, `sensor.ura_presence_coordinator_presence_house_state`
+  stays `home_*`, and the boot INFO log shows the known-person verdict = True for that room.
 
 ## Live Validation
 
