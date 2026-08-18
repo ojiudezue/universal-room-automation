@@ -26,6 +26,176 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ROADMAP-STALE-AGENTIC-LAYER-1
+  thread: planning
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-18 02:45
+  updated: 2026-08-18 02:30
+  refinement_status: initial
+  title: Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
+  problem_solution:
+  - 'Problem: ROADMAP_v11.md (written at v3.22.0) says "Next: Bayesian Predictive Intelligence v4.0.0"
+    but we are at v5.80.0 — ~2 major versions and dozens of cycles (energy arbitrage, guest/census, presence
+    fusion) shipped WITHOUT updating the roadmap. And the operator-envisioned ROOM-TO-ROOM AGENTIC layer
+    (rooms communicate + form agentic workflows on top of the now-shipped hierarchical-memory foundation)
+    has NO vision/plan doc — only a movement-detection "TransitionCoordinator" concept exists in VISION_v7.
+    Solution: (1) refresh the roadmap to reflect the real v4-v5 trajectory + current state; (2) if the
+    room-to-room agentic layer is a priority, write its vision/epic doc (memory epic is its foundation).'
+  why: A stale roadmap means new work is scoped without a current north star, and the operator vision
+    (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
+  constraints:
+  - Docs/planning only. The agentic-layer vision needs OPERATOR input on scope/priority before a plan
+    — do not spec it unilaterally.
+  next: 'Operator: is the room-to-room agentic layer a near-term priority? If yes, scope a VISION/epic
+    doc on top of the hierarchical-memory foundation. Separately: refresh ROADMAP_v11 -> v12 to reflect
+    v4-v5 reality.'
+  refs:
+  - docs/ROADMAP_v11.md
+  - docs/VISION_v7.md
+  - docs/planning/ARCHITECTURE_hierarchical_memory.md
+  - MEMORY-PROGRAM-EPIC
+  audit_ledger_2026_08_18: 'AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger
+    for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most
+    v3.22 "future" shipped under other names (arbitrage hardening->v5.5.x, guest actuation->v5.16.0, weather/inclement->v5.5.0,
+    optimizer->its campaign, Bayesian B1/B2->v4.0.2). Undone-worthwhile carded: SENSOR-HEALTH-SURFACING-1,
+    APPLIANCE-COST-DEFERRAL-1, UNLOAD-SYMMETRY-TASK-HYGIENE-1, CONFIG-SUBENTRIES-MIGRATION-1(parked),
+    ENTITYDESC-RUNTIMEDATA-HYGIENE-1(parked).'
+- id: MEMORY-ZONE-PHANTOM-WRITER-1
+  thread: memory
+  status: parked
+  approval: unreviewed
+  created: 2026-08-18 02:20
+  updated: 2026-08-18 02:20
+  refinement_status: initial
+  title: 'Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)'
+  problem_solution:
+  - 'Problem: nothing records when an HVAC zone reads occupied while the house is away (the F2 zone-vs-house
+    divergence) — that tier has no memory witnesses at all. Solution: ONE additive writer zone_phantom,
+    copy-adapt of AwayBlockEpisodeTracker (open/close coalescer + boot reconcile), memory-ineligible by
+    construction, rate-bounded. Tier 2, 2 reviews. Knobs: ZONE_PHANTOM_WRITER_ENABLED, ZONE_PHANTOM_MIN_HOLD_S=300
+    (rung 1).'
+  why: Fills the only actionable memory-coverage gap. But there is NO active problem needing it today,
+    so its marginal benefit is low until an F2-shape divergence recurs.
+  constraints:
+  - 'PARKED per marginal-benefit: build only when organic evidence of an F2 zone-vs-house divergence recurs.
+    Do not build speculatively overnight.'
+  next: 'REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build
+    the writer (plan is PLANNING_memory_writers.md).'
+  refs:
+  - docs/planning/PLANNING_memory_writers.md
+  - custom_components/universal_room_automation/memory_writers.py:186
+- id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
+  thread: presence
+  status: shipped_organic
+  shipped_version: v5.81.0
+  approval: explicit
+  created: 2026-08-18 00:55
+  updated: 2026-08-18 02:10
+  refinement_status: initial
+  title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
+    named recognition
+  approved_by: operator 2026-08-18 ("Build face independent... get and evaluate paths to build the face
+    part now or later (fast follow)")
+  problem_solution:
+  - 'Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The
+    front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect
+    DOES recognize residents by name — that identity just is not in HA (core unifiprotect exposes face
+    as detection-only). Solution: wire Protect Alarm Manager Face-ID webhook -> an HA webhook trigger
+    -> a ura_face_identified event (name + camera + time), then let URA consume it as a local face-identity
+    producer for the interior-arrival identity signal. ~20 lines of automation, near-zero maintenance
+    (per the spike).'
+  why: 'Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this
+    says WHO (known resident vs unknown), which is the actual guest/security discriminator.'
+  constraints:
+  - 'LOCAL sources only (no cloud). Probe-first: capture ONE real Alarm Manager face POST (webhook.site/HA
+    trace) to confirm the name field + whether confidence is present, BEFORE wiring URA. Path ranking
+    in RESEARCH_protect_face_to_ha.md: 4b webhook (recommended) > unifi-protect-bridge HACS > uiprotect
+    direct.'
+  - Re-measure coverage against GARAGE entries + family-room arrival, NOT the front door (the first probe
+    measured the wrong cam).
+  next: 'HOLD: consultation (duplicate-vs-complementary) running -> report to operator -> operator go
+    -> then build.'
+  refs:
+  - docs/planning/RESEARCH_protect_face_to_ha.md
+  - EXTERIOR-GUEST-EGRESS-1
+  webhook_live_2026_08_18: 'OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the
+    recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook
+    trace / the ura_face_identified event) to confirm the name field + confidence, then wire URA to consume
+    it. The open-watch for the organic face-webhook payload is now the concrete capture step.'
+  webhook_verified_2026_08_18: 'WEBHOOK RECEIVING SIDE VERIFIED: automation.ura_kp_face_webhook_probe
+    (webhook_id ura_kp_face_probe, local-only POST) captures payloads verbatim -> ura_kp_face_probe_received
+    event + system_log. Test POST returned 200 and logged the payload. PENDING (Wed, real face): real
+    Alarm Manager payload shape + name/confidence fields + confirm Protect-side rule POSTs on a match.
+    Probe is ready to capture the first real face event.'
+  promoted_2026_08_18: 'PROMOTED to the PRIMARY cycle-3 build (operator: "let''s build it first and see").
+    Reframe: we ALREADY have single-source identity via Frigate-2 face (sensor.<cam>_last_recognized_face_2,
+    resolvable after v5.80.0 D2). Protect face (via the verified webhook) ADDS CORROBORATION (second source).
+    So the build = cross-correlate Frigate-2 face + Protect face into a person-identity signal, tied to
+    egress. PRE-BUILD GATE (operator): consult the existing egress-awareness + known-person (KP) code
+    and CONFIRM this is COMPLEMENTARY not duplicating, and REPORT to the operator BEFORE building (AUDIT_egress_face_identity_prior_art.md
+    running). No build until the operator reviews the verdict + gives go.'
+  prebuild_consultation_2026_08_18: 'CONSULTATION DONE (AUDIT_egress_face_identity_prior_art.md, 1ff87322b)
+    — VERDICT: COMPLEMENTARY, not duplicate. (1) EgressDirectionTracker resolves DIRECTION only; person_id
+    hard-coded None at both emit sites (transit_validator.py:1106,:1121) — identity gap is real + by-design.
+    (2) Downstream consumers ALREADY read person_id (defaults "unidentified", sensor.py:4190) — the slot
+    is wired, just always None. (3) Face identity is read AD-HOC in census only (camera_census.py:2470,3283),
+    no central producer — EXTEND those helpers, do not rewrite. (4) The Protect webhook event ura_kp_face_probe_received
+    has ZERO URA consumers (dormant probe) — wiring it is net-new. (5) Three identity notions must stay
+    DISTINCT: Frigate face, exterior sub_label (security), BLE room-presence. WIRE-IN SEAMS: S1 stamp
+    person_id at :1106/:1121; S2 reuse census Frigate reader; S3 first consumer of ura_kp_face_probe_received;
+    S4 downstream sensors unchanged; S5 fuse at census union camera_census.py:1855 with name dedup. COLLISION
+    RISKS: (a) census additive/subtractive double-count — the 2026-08-17 GUEST-CENSUS CRIT precedent;
+    integrate at the union NEVER a parallel count; (b) Frigate<->Protect same-crossing double-fire needs
+    cross-platform dedup (mirror transit_validator.py:1063-1073); (c) the "remove after probe" automation
+    becomes LOAD-BEARING once S3 wires it.'
+  plan_2026_08_18: 'PLAN PLANNING_egress_face_identity.md — Tier 2-DB. SPLIT: D1 (ship now) Frigate person_id
+    stamp (transit_validator.py:1106/:1121) + census union fuse (camera_census.py:1855) reusing existing
+    face readers; D2 (gated on Wed payload) Protect corroboration, kill switch PROTECT_CORROBORATION_ENABLED
+    default OFF, do NOT hard-code payload fields. Invariant I1: identified_count = |union of name sets|,
+    never a sum. Plan review before build.'
+  d2_gate_2026_08_18: 'D2 (Protect corroboration) gate: NO cron (operator: "don''t cron, just fire it
+    yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload
+    verbatim; the HA RECORDER durably retains that event+payload ~10 days, so no live-catch is needed.
+    DURABLE GATE = THIS CARD: any session-start reconcile on/after Wed 2026-08-19 MUST run the D2-GATE
+    check: query the recorder for a real face payload, and if present run the measure-before-build gate
+    (append §D2-payload appendix to PLANNING_egress_face_identity.md -> GO build D2 / PARK if payload
+    poor). Do NOT hard-code a guessed payload field (fabrication class). D1 itself is in fix-up (3 reviews
+    DO-NOT-SHIP/SHIP-with-fix).'
+- id: CENSUS-FACE-MISS-WATCH-1
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-18 00:34
+  updated: 2026-08-18 01:10
+  refinement_status: initial
+  title: Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
+  problem_solution:
+  - 'Problem: after the v5.80.0 D2 fresh-face fix, the census reports face_lookup_missing_count = 12 per
+    tick even with the house EMPTY (no faces to look up). It fails CLOSED so the count stays correct (no
+    wrong -1 credit), but 12 cameras'' face entities not resolving is more than expected and may mean
+    the _2/registry resolution still misses some cameras (possibly the interior-cam naming inconsistency,
+    or cameras with no face sensor being probed anyway).'
+  - 'Solution: on occupancy (Wed), check WHICH cameras miss and why — is the face path probing cameras
+    that have no face sensor (benign, make it not count them) or failing to resolve a face sensor that
+    exists (a real resolution gap to fix)? Discriminate before acting.'
+  why: The v5.80.0 fresh-face fix is supposed to REVIVE face dedup; a high miss rate could mean it only
+    partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
+  constraints:
+  - 'WATCH only — do not chase now (operator: card investigations, march the cycles). Interpret on occupancy.'
+  next: 'On occupancy: confirm the count DROPS when residents are recognized. If it stays high with recognized
+    residents present, investigate resolution. Optional: split the counter (absent vs no-face-now).'
+  refs:
+  - docs/readmes/README_v5.80.0.md
+  - reference_frigate1_retired_2suffix_permanent.md
+  interpretation_2026_08_18: 'EXPLAINED: face_lookup_missing_count increments when a camera''s face sensor
+    reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT
+    only when the entity is absent. On an EMPTY house no camera has a recognized face, so ~every checked
+    camera counts -> 12 is EXPECTED and BENIGN (fail-closed correct: no face => no -1 credit). It does
+    NOT indicate a naming/resolution bug. THE DISCRIMINATING TEST IS OCCUPANCY: if the count STAYS high
+    while residents are home AND being face-recognized, THAT is a real resolution gap. Minor observability
+    nit: the counter conflates "entity absent" with "no face now" — could split into two counters for
+    a clean health signal. Downgraded from concern to expected-on-empty; re-check on occupancy.'
 - id: FRIGATE-LEG-NAMING-1
   thread: security
   status: inbox
@@ -1803,7 +1973,7 @@ cards:
 - id: D3-BEHAVIOURAL-COVERAGE-1
   title: D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
   thread: presence
-  status: inbox
+  status: done
   approval: unreviewed
   tags:
   - test-authority
@@ -1831,11 +2001,13 @@ cards:
     the attack to the new tests before declaring them green.
   - 'Small and self-contained: tests only, no production change expected. If a production change turns
     out to be needed, that is a finding worth surfacing, not absorbing.'
-  next: After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms
-    against a fake registry; drill each new anchor in both plain and variant-7 forms.
+  next: 'DONE (merged 7a2e73aa2, tests-only): 5 behavioural tests driving production _discover_guest_rooms
+    + _handle_guest_room_occupancy_change vs a fake registry; 4 mutation drills (plain+variant-7) red-then-green;
+    zero production change. D3 registry resolution now behaviourally covered (was source-shape only).'
   refs:
   - docs/reviews/code-review/guest_census_review_C.md
   - custom_components/universal_room_automation/domain_coordinators/presence.py
+  updated: 2026-08-18 02:30
 - id: CENSUS-ACCURACY-1
   title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
     resolution (exterior dashboard wiring is a minor bonus)'
@@ -2015,6 +2187,17 @@ cards:
     headline + naive fallback + divergence). The original "swap the exterior headcount" is DEAD — KEEP
     BOTH per AUDIT_exterior_census_supersession.md. Dedup repair also DROPPED (probe: buys ~0; it is camera-area
     coverage = an operator config task, not a build).'
+  updated: 2026-08-18 03:15
+  d3_dashboards_done_2026_08_18: 'D3 (P12) exterior dashboards DONE (display-only, no producer change):
+    composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge)
+    added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (Security/Exterior), and the PWA (Presence/House-aggregates,
+    branch census-p12-exterior-dashboard, built+dual-pushed). ENTITY-NAME CORRECTION: the AUDIT_exterior_census_supersession
+    names sensor.exterior_person_tracks_active / exterior_unidentified_persons which DO NOT EXIST; the
+    live entities are sensor.ura_security_coordinator_outside_people_being_tracked (deduped), sensor.universal_room_automation_persons_on_property_exterior
+    (naive floor), sensor.ura_security_coordinator_outside_unidentified_people (unidentified). Use the
+    live IDs, not the audit names. HA writes post_write_verified; PWA build+tests green. KEEP-BOTH preserved.
+    NOTE: PWA change is on a branch/pushed — confirm PWA deploy to go live; HA storage-dashboard cards
+    are live now.'
 - id: EXTERIOR-DWELL-LOITER-1
   title: Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads
     as pass_by
@@ -2084,7 +2267,7 @@ cards:
   title: 'Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person
     crossing inside can corroborate guest'
   thread: presence
-  status: planned
+  status: parked
   approval: explicit
   approved_by: operator 2026-08-16 ("Agree on recommendations... Card the one you said to park and do
     it next so we have the complete set") — approved as the cycle AFTER the census set (1 guest-census
@@ -2139,17 +2322,15 @@ cards:
     the scope.
   - Do NOT start before cycle 1's guest-room gate is live and organically proven — this cycle corroborates
     that gate, so an unproven gate makes it unverifiable.
-  next: 'BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2
-    + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at
-    egress cams (the D0 blind spot — running now), then (2) replan with both deliverables, then (3) build
-    after cycle-2 merge. Cross-correlate both NVRs is mandatory.'
+  next: 'PARKED (deferred): the face-independent nudge revisits only if the identity path proves insufficient.
+    Trigger: identity-at-egress shipped + shown to miss real guests.'
   refs:
   - custom_components/universal_room_automation/transit_validator.py:829-1140
   - custom_components/universal_room_automation/exterior_track_linker.py:766-777
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-  updated: 2026-08-17 23:50
+  updated: 2026-08-18 01:45
   refinement_status: refined
   d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
     identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
@@ -2175,6 +2356,41 @@ cards:
     said 94% GO), AND (b) face identity via cross-correlated Frigate-2+Protect face, used as a CONFIDENCE
     BOOST (not a sole gate, not a third guest-arm). NEXT: re-probe face coverage INCLUDING Protect at
     egress cameras before replanning.'
+  protect_reprobe_2026_08_18: 'PROTECT FACE RE-PROBE (PROBE_protect_face_egress.md) — the "build both"
+    face premise does NOT hold on current sensing. Findings: (1) UniFi Protect exposes face to HA ONLY
+    as event.<cam>_smart_detection {event_type:face} = face DETECTION, never a NAME. Protect contributes
+    ZERO named-identity ENTITIES to HA. (2) The Protect NVR controller DOES know 4 residents and face
+    events carry recognized_person_name — but that lives on the NVR REST API, NOT as an HA entity; URA
+    cannot read it without a NEW integration. (3) Protect face DETECTION is 27x skewed interior: Family
+    Room 276 vs Madrone G6 entry 10 over 7.7d; at the entry cam ~10/wk with 0 carrying a resident name.
+    NAMED recognition is a Family-Room-INTERIOR phenomenon (people named AFTER inside, not at the door).
+    (4) Combined Frigate+Protect egress face-identity coverage = ~7% (Protect adds ~0). D1 (identity on
+    egress) = NO-GO (<30% gate). The operator belief "Protect concentrated on G6 entry + family room"
+    is HALF-TRUE: detection is there, but recognition-WITH-NAME is interior-only and the entry cam sees
+    no names. RECOMMEND: build the FACE-INDEPENDENT arm (approach-track->egress, 94% GO from the first
+    probe) as cycle 3; PARK the face arm with unblock = a new Protect-name HA integration + re-probe (revisit
+    trigger: named recognition at door/exterior >=30%).'
+  operator_corrections_2026_08_18: 'OPERATOR 2026-08-18 (build face-independent + corrections): (1) SPIKE
+    EXISTS — RESEARCH_protect_face_to_ha.md (2026-08-15) already evaluated getting Protect face NAME into
+    HA. Protect API capability CONFIRMED (name+id+confidence verified live; Family Room AI Theta emits
+    named face events). Core HA does not map it; recommended path = Protect Alarm Manager webhook -> HA
+    webhook (4b, ~20 lines, near-zero maint, gets the name today). Alt: unifi-protect-bridge HACS, or
+    URA->uiprotect direct. (2) GEOGRAPHY CORRECTION: the probe measured the FRONT DOOR (madrone_g6_entry)
+    but MOST FAMILY ENTRIES ARE VIA THE GARAGE, not the front door; family room is the central interior
+    area (covers living room + kitchen) and is where Protect names people. So the "interior-only recognition"
+    is actually ON the real entry path (garage -> family room) — the face arm is VIABLE, the probe just
+    looked at the wrong cam. (3) So: face arm = FAST-FOLLOW (not dead): wire the Alarm Manager webhook
+    -> ura_face_identified event -> use family-room/garage named recognition as the interior-arrival identity.'
+  cycle3_scope_final_2026_08_18: 'CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress
+    corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to
+    the unidentified gate (INV-4 path b, never a third arm). FACE arm = fast-follow via the Alarm Manager
+    webhook path (EXTERIOR-GUEST-FACE-FASTFOLLOW-1, to card). Re-measure egress coverage against the GARAGE
+    entries + family-room arrival, not the front door, when scoping the face fast-follow.'
+  direction_2026_08_18: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent
+    Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented
+    on marginal-benefit) is DEFERRED — revisit only if identity proves insufficient. The identity build
+    moves to EXTERIOR-GUEST-FACE-FASTFOLLOW-1 (now primary). Plan rev-2 stays on file for the deferred
+    nudge.
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
@@ -2442,10 +2658,9 @@ cards:
   - 'Doctrine: memory-first diagnostics -> MEMORY-FIRST-DIAGNOSTICS-1 (skills amended 2026-08-14)'
   - 'Future (architecture, unscheduled): batch adjacency-graph refresh; redaction enable (20k-row trigger);
     NM consumer deepening'
-  next: 'NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see
-    MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the
-    top 1-2 episode writers (fan-release retro-phantom + away_transition_blocked, the latter firing but
-    rare: 4 rows). Its gate ("after compactor ships") is satisfied, so it is actionable now.'
+  next: Epic foundation DELIVERED (writers + compactor live). Remaining is optional/parked (zone_phantom).
+    Consider closing the epic to done and opening a new epic for the room-to-room agentic layer when that
+    becomes a priority.
   refs:
   - docs/planning/VISION_hierarchical_memory.md
   - docs/planning/ARCHITECTURE_hierarchical_memory.md
@@ -2453,7 +2668,7 @@ cards:
   - docs/planning/AUDIT_memory_handbuild_study_a.md
   - docs/reviews/code-review/memory_mvp_tier2db.md
   - docs/planning/AUDIT_memory_retro_value.md
-  updated: 2026-08-17 23:10
+  updated: 2026-08-18 02:20
   created: 2026-08-05 00:00
   refinement_status: refined
   problem_solution:
@@ -2461,6 +2676,11 @@ cards:
     of what happened to it, instead of events scattered and never summarised. Solution: build it in stages
     — the raw event writers, then the nightly summariser (both shipped and live), then fill the gaps where
     events aren''t being recorded. Not blocked; the next piece is the gap-filling writers.'
+  completion_2026_08_18: 'EPIC ESSENTIALLY COMPLETE: Stage-1 writers (D4-D7) shipped v5.78.0; Stage-2
+    compactor shipped + running nightly (14 memory_facts 02:30 CT 08-17); MEMORY-WRITERS-1 substantially
+    shipped (top-2 already live). Only optional remainder: zone_phantom writer (parked, MEMORY-ZONE-PHANTOM-WRITER-1,
+    organic-gated). The epic delivered its foundation — consultable compressed history per node. Room-to-room
+    agentic workflow (the operator vision) is a future epic on top of this, not part of MEMORY-WRITERS-1.'
 - id: MEMORY-COMPACTOR-1
   parent: MEMORY-PROGRAM-EPIC
   title: 'Hierarchical memory — build the deferred daily compaction batch when memory_episodes has volume
@@ -2570,7 +2790,7 @@ cards:
   title: 'Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors
     fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)'
   thread: memory
-  status: shipped_organic
+  status: done
   shipped_version: v5.78.0
   approval: unreviewed
   origin:
@@ -2589,9 +2809,7 @@ cards:
   constraints:
   - each writer is a NEW producer on the write queue — batch discipline (write-flood ghost)
   - writers must not couple to detector gates the way occupancy_phantom did
-  next: 'ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle
-    for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows
-    — fires but rarely). Rest parked on the card. Needs operator go to start.'
+  next: DONE — top-2 writers shipped v5.78.0. Optional zone_phantom parked (MEMORY-ZONE-PHANTOM-WRITER-1).
   refs:
   - docs/planning/AUDIT_memory_retro_value.md
   folded_2026_08_16: 'FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked,
@@ -2604,7 +2822,7 @@ cards:
     on v5.77.0 the same morning — the bug was live right up to this deploy. L3 not verifiable with an
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
-  updated: 2026-08-17 23:10
+  updated: 2026-08-18 02:20
   created: 2026-08-11 00:00
   refinement_status: initial
   problem_solution:
@@ -2612,6 +2830,14 @@ cards:
     a detector is missing or blind, that history is simply never recorded (a gap you can''t see). Solution:
     add a few targeted event-writers for the highest-value gaps, starting with the two most useful, so
     those histories get captured even when the usual detector misses them.'
+  scope_reset_2026_08_18: 'PLAN (PLANNING_memory_writers.md) found the card premise STALE: the named "top
+    1-2 writers" phantom_retro + away_transition_blocked are BOTH ALREADY SHIPPED in v5.78.0 (D4 memory_writers.py:101,
+    D5 AwayBlockEpisodeTracker :186). The "4 rows" of away_transition_blocked is the SHAPE of its 300s
+    min-hold open/close coalescing (one row per sustained block), NOT a coverage bug. D7 house_state_transition
+    already carries census/unidentified/excluded/veto so guest-FP questions are natively answerable. So
+    MEMORY-WRITERS-1 is SUBSTANTIALLY SHIPPED — closing as done. The ONE remaining actionable gap (zone_phantom,
+    the F2 zone-vs-house divergence with zero witnesses) is LOW marginal benefit today (no active problem)
+    — PARKED with organic trigger, see MEMORY-ZONE-PHANTOM-WRITER-1.'
 - id: HOUSE-STATE-UTILIZATION-EPIC
   title: ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin);
     rungs 2-4 unbuilt
@@ -3994,6 +4220,154 @@ cards:
   refs:
   - README_v5.59.0.md
   updated: 2026-08-17 23:30
+- id: MEMORY-ROADMAP-1
+  title: Memory epic — forward roadmap + critique + what-survives
+  column: planned
+  thread: memory
+  created: 2026-08-18 02:00
+  updated: 2026-08-18 02:35
+  refinement_status: refined
+  problem: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor).
+    Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which
+    memory layers/artifacts SURVIVE (durability/retention) vs are transient. Needs full context.
+  origin: 2026-08-18 "outline a possible roadmap for memory. Critique it and the layout what survives.
+    Full context"
+  next: Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+  refs: docs/planning/PLANNING_memory_roadmap_and_critique.md
+- id: ROADMAP-UNDONE-REVIEW-1
+  title: Review ROADMAP/VISION — surface undone-but-worthwhile
+  column: planned
+  thread: planning
+  created: 2026-08-18 02:00
+  updated: 2026-08-18 02:35
+  refinement_status: refined
+  problem: 'Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0
+    while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that
+    is still worthwhile — separating genuinely valuable undone work from obsolete/superseded items.'
+  origin: 2026-08-18 "Review roadmap and surface what has not been done that is worthwhile"
+  next: Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+  refs: docs/planning/AUDIT_roadmap_undone_worthwhile.md
+- id: IOS-APP-PLAN-CARD-1
+  title: iOS app for HAOS+URA — gated design blueprint (tracked)
+  column: parked
+  thread: dashboarding
+  created: 2026-08-18 02:00
+  updated: 2026-08-18 02:25
+  refinement_status: refined
+  problem: 'A real, detailed iOS app design EXISTS but was untracked. It is a BLUEPRINT, not a build:
+    native iOS (SwiftUI + HAKit + TestFlight) is gated behind (a) PWA milestones M1/M2 and (b) the commercialization
+    >=100-active-installs gate. Now carded so it is not lost and its gating is explicit.'
+  origin: 2026-08-18 "Find and card the iOS app plan"
+  next: No action now (gated). When PWA M2 lands + install-gate met, promote M3 to planning.
+  refs: 'docs/planning/DESIGN_ios_app_ura_haos.md (2026-07-11, 100 lines); parent docs/planning/COMMERCIALIZATION_options.md
+    Play #1; PWA repo ~/Code/ura-dashboard-pwa (M1/M2 vehicle)'
+  parked_reason: 'GATED. Path: M1 PWA read-only -> M2 PWA writes+NM -> M3 SwiftUI native shell+HAKit+TestFlight
+    -> M4 native writes+push. Native (M3/M4) blocked behind PWA M1/M2 + HACS distribution + >=100 installs.
+    Revisit trigger: PWA M2 complete AND commercialization install-gate met.'
+- id: EGRESS-IDENTITY-CONTROL-OBS-1
+  title: Egress person-detection — enable/disable + observability (parsimony)
+  column: in_progress
+  thread: presence
+  created: 2026-08-18 02:20
+  updated: 2026-08-18 02:20
+  refinement_status: initial
+  problem: The new egress person-identity detection (D1) must be operator-enableable/disableable, and
+    its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob
+    sprawl). It just surfaced a phantom-guest CRIT in review, so it should ship behind a kill switch and
+    be validated before it drives anything.
+  origin: 2026-08-18 "make sure this egress person detection can be enabled or disabled. Build in observability
+    and control with parsimony"
+  knobs: EGRESS_IDENTITY_ENABLED (options-flow bool, default OFF until live-validated; kill switch — when
+    off, resolver returns None + register is no-op => byte-identical to pre-cycle). Mirrors D2 PROTECT_CORROBORATION_ENABLED
+    default-OFF pattern.
+  constraints: 'Parsimony: ONE enable bool; observability via ATTRIBUTES on existing census/egress sensors
+    (egress_face_ids size + cumulative egress_identities_stamped), NOT new entities. Kill switch documented
+    on the field.'
+  next: 'Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability
+    attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.'
+  refs: PLANNING_egress_face_identity.md; feature/egress-face-identity-d1
+- id: SENSOR-HEALTH-SURFACING-1
+  title: Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
+  column: inbox
+  thread: diagnostics
+  created: 2026-08-18 02:30
+  updated: 2026-08-18 02:30
+  refinement_status: initial
+  problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
+    "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
+    already proved the gap. Cheapest high-value undone roadmap item.
+  origin: '2026-08-18 roadmap-undone review (AUDIT_roadmap_undone_worthwhile.md #1)'
+  next: 'Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this
+    sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).'
+  refs: AUDIT_roadmap_undone_worthwhile.md; INCIDENT_chatter_class_missed_by_watchdog_2026-08-09
+- id: APPLIANCE-COST-DEFERRAL-1
+  title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
+  column: inbox
+  thread: energy
+  created: 2026-08-18 02:30
+  updated: 2026-08-18 02:30
+  refinement_status: initial
+  problem: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts
+    and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
+  origin: 2026-08-18 roadmap-undone review (#2)
+  next: MARGINAL-BENEFIT DECOMPOSITION before speccing the full framework — how much does the simplest
+    single-appliance deferral capture vs the whole v3 framework? Then Tier 2-DB if it clears.
+  refs: AUDIT_roadmap_undone_worthwhile.md
+- id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  title: Setup/unload symmetry + tracked background tasks (tech-debt hardening)
+  column: inbox
+  thread: platform
+  created: 2026-08-18 02:30
+  updated: 2026-08-18 02:30
+  refinement_status: initial
+  problem: async_on_unload used in only 2 sites; untracked background tasks — both match known URA bug
+    classes (reload-safety, task leak). One hardening cycle.
+  origin: '2026-08-18 roadmap-undone review (#3, tech-debt #1+#2)'
+  next: 'Plan a Tier 2 hardening cycle: audit setup/unload symmetry across platforms + wrap background
+    tasks in tracked/cancellable handles. Cross-ref parent-reload-watchdog hazard.'
+  refs: AUDIT_roadmap_undone_worthwhile.md
+- id: CONFIG-SUBENTRIES-MIGRATION-1
+  title: Config subentries migration (flat 34-entry -> subentries)
+  column: parked
+  thread: platform
+  created: 2026-08-18 02:30
+  updated: 2026-08-18 02:30
+  refinement_status: initial
+  problem: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology
+    but the migration carries real risk for MEDIUM value.
+  origin: 2026-08-18 roadmap-undone review (#4)
+  parked_reason: 'MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is
+    needed anyway, or HA deprecates the flat pattern.'
+  next: No action now (parked-with-trigger).
+  refs: AUDIT_roadmap_undone_worthwhile.md
+- id: ENTITYDESC-RUNTIMEDATA-HYGIENE-1
+  title: EntityDescription + runtime_data hygiene (opportunistic)
+  column: parked
+  thread: platform
+  created: 2026-08-18 02:30
+  updated: 2026-08-18 02:30
+  refinement_status: initial
+  problem: EntityDescription + runtime_data patterns not adopted; low-value on its own.
+  origin: '2026-08-18 roadmap-undone review (#5, tech-debt #3+#4)'
+  parked_reason: Opportunistic — attach to the next coordinator touch rather than a dedicated cycle.
+  next: Fold into the next platform/coordinator cycle that already edits the target files.
+  refs: AUDIT_roadmap_undone_worthwhile.md
+- id: SUITE-ORDER-POLLUTION-1
+  title: Presence tests fail order-dependently in large batches (suite hygiene)
+  column: inbox
+  thread: platform
+  created: 2026-08-18 03:00
+  updated: 2026-08-18 03:00
+  refinement_status: initial
+  problem: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests)
+    PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from
+    some other test file leaking module state. Pre-existing on develop (confirmed pre-merge). Makes the
+    suite baseline count noisy (contributes to the ~25 flaky failures) and can mask real regressions.
+  origin: 2026-08-18 v5.81.0 pre-deploy gate — 6 batch failures traced to pre-existing order pollution,
+    not the cycle
+  next: Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds
+    under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
+  refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -2,34 +2,52 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T00:24:15-05:00_ - _Data commit: `8a4e6b145357`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-18T02:00:01-05:00_ - _Data commit: `8fc2caca514a`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.80.0.md (2026-08-18) is newer than last_reconciled (2026-08-17)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 5 |
-| 🧭 Pre-planning | 7 |
+| 📥 Inbox | 6 |
+| 🧭 Pre-planning | 6 |
 | 📝 Planned | 2 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | 🚀 Shipped (organic open) | 35 |
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 6 |
-| ✅ Done | 23 |
+| 🅿️ Parked | 8 |
+| ✅ Done | 25 |
+| ❓ Other | 10 |
 
-## 📥 Inbox (5)
+## 📥 Inbox (6)
 _raw capture_
+
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
+thread: **planning** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-18 02:45 · updated 2026-08-18 02:30 · initial_
+- **Problem / Solution:**
+  - Problem: ROADMAP_v11.md (written at v3.22.0) says "Next: Bayesian Predictive Intelligence v4.0.0" but we are at v5.80.0 — ~2 major versions and dozens of cycles (energy arbitrage, guest/census, presence fusion) shipped WITHOUT updating t...
+- **Why:** A stale roadmap means new work is scoped without a current north star, and the operator vision (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
+- **Next:** Operator: is the room-to-room agentic layer a near-term priority? If yes, scope a VISION/epic doc on top of the hierarchical-memory foundation. Separately: refresh ROADMAP_v11 -> v12 to reflect v4-v5 reality.
+- **Refs:** docs/ROADMAP_v11.md; docs/VISION_v7.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; MEMORY-PROGRAM-EPIC
+- **Forensic keys (1):**
+  - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
+
+### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-18 00:34 · updated 2026-08-18 01:10 · initial_
+- **Problem / Solution:**
+  - Problem: after the v5.80.0 D2 fresh-face fix, the census reports face_lookup_missing_count = 12 per tick even with the house EMPTY (no faces to look up). It fails CLOSED so the count stays correct (no wrong -1 credit), but 12 cameras' fa...
+  - Solution: on occupancy (Wed), check WHICH cameras miss and why — is the face path probing cameras that have no face sensor (benign, make it not count them) or failing to resolve a face sensor that exists (a real resolution gap to fix)? D...
+- **Why:** The v5.80.0 fresh-face fix is supposed to REVIVE face dedup; a high miss rate could mean it only partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
+- **Next:** On occupancy: confirm the count DROPS when residents are recognized. If it stays high with recognized residents present, investigate resolution. Optional: split the counter (absent vs no-face-now).
+- **Refs:** docs/readmes/README_v5.80.0.md; reference_frigate1_retired_2suffix_permanent.md
+- **Forensic keys (1):**
+  - `interpretation_2026_08_18`: EXPLAINED: face_lookup_missing_count increments when a camera's face sensor reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT only when the entity is absent. On an EMPTY house no camera ha...
 
 ### `FRIGATE-LEG-NAMING-1` - Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live F2 on interior, dead F1 on perimeter
 thread: **security** - status: **inbox** - approval: **unreviewed**
@@ -88,18 +106,7 @@ thread: **presence** - status: **inbox** - approval: **unreviewed**
 - **Next:** After the guest-census cycle ships and the repaired oracle has organic evidence: quantify first — how often does a resident occupy a designated guest room while BLE places them elsewhere? Measure before designing.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/presence.py; docs/readmes/README_v5.78.0.md
 
-### `D3-BEHAVIOURAL-COVERAGE-1` - D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-- **Problem / Solution:**
-  - P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable: the sibling anchor test_unresolvable_r...
-  - P2 D3 is now load-bearing: under cycle-1 D2, guest entry depends ENTIRELY on guest-room occupancy, so a silent D3 resolution failure means guest mode never arms at all. Source-shape tests cannot catch a registry lookup that returns the w...
-- **Origin:** 2026-08-16 - Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.
-- **Why:** The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing guest entry path.
-- **Next:** After cycle-1 ships and its live validation lands, add behavioural D3 tests driving _discover_guest_rooms against a fake registry; drill each new anchor in both plain and variant-7 forms.
-- **Tags:** test-authority, hollow-anchors
-- **Refs:** docs/reviews/code-review/guest_census_review_C.md; custom_components/universal_room_automation/domain_coordinators/presence.py
-
-## 🧭 Pre-planning (7)
+## 🧭 Pre-planning (6)
 _idea being decomposed_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
@@ -109,30 +116,6 @@ thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
 - **Forensic keys (1):**
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
-
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus)
-thread: **presence** - status: **pre_planning** - approval: **implied**
-- **Problem / Solution:**
-  - P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
-  - P6 decay never fires for systematic errors — the peak self-refreshes when fresh == peak, so a permanently-wrong value renews forever while only transients decay (wrong sign on both axes). S6 remove the self-renewing slope; make heldness ...
-  - P7 consumers cannot distinguish a fresh count from a 20-minute-old latched one. S7 publish peak_held / peak_age / count_as_of — all already computed internally and discarded.
-  - P8 the exterior census is naive (per-camera-bit sum, one walker past 3 cams reads 3) while the track-deduped count already exists live. ADJUDICATED 2026-08-17 (AUDIT_exterior_census_supersession.md, eb2caa3c8): the swap I originally scop...
-  - P9 outdoor presence may pollute the interior headcount (outdoor-zone filter designed, unbuilt). S9 apply the filter using the existing CONF_ZONE_IS_OUTDOOR flag.
-  - ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P10 the per-area BLE-cancel subtraction reports ble_cancelled_count 0 every tick while residents ARE being double-counted — cause UNKNOWN. Ruled out: missing areas on the counting ...
-  - ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P11 the fresh-face -1 per-camera defense is inert because face recognition produces ~0 identities (face_recognized_persons empty with 4 known residents home). S11 gated on the EXTE...
-  - P12 (folded in per operator 2026-08-17) the two exterior counts serve DIFFERENT consumers and neither is wired to the dashboard correctly. S12 small deliverable: dashboard shows the DEDUPED count (exterior_person_tracks_active) as the he...
-- **Origin:** 2026-08-16 - Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md (aa3e39aa8).
-- **Why:** Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOT...
-- **Next:** RESCOPED by operator 2026-08-17 to DECAY + SUFFIX FIX (dedup repair dropped — probe measured it buys ~0). Plan: (1) decay/self-refresh separation, targeting the measured 74.5% of elevated time that had camera_unrecognized==0; (2) registr...
-- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md; CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8); CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security); docs/planning/AUDIT_census_accuracy_probe.md (probe gate); docs/planning/AUDIT_exterior_census_supersession.md (eb2caa3c8) — KEEP BOTH ruling
-- **Forensic keys (7):**
-  - `operator_exterior_direction_2026_08_16`: Operator ruling on the exterior work, THREE distinctions: (1) EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior is live, and a dashboard for it already exists at doc...
-  - `regression_context_2026_08_16`: Operator: "I believe we regressed census with our prior work" — CONFIRMED with recorder data. Daily census max: Aug 9-12 = 6-7 (4 residents, chronic over-count of 2-3); Aug 13-14 = 4 (LOOKED perfect, but only because the _2-suffix break ...
-  - `measured_incident_2026_08_16_guest_7h`: MEASURED end-to-end retrace of a live false-guest episode (operator flagged "5 seen, guest mode, 4 known"). Recorder: house `guest` 13:38:33 -> `home_evening` 20:40:59 = 7h02m of false guest with 4 known residents and zero guests. Entry ...
-  - `exterior_intersection_findings_2026_08_16`: Context-wide read-only investigation answering "how does the circling/exterior-track work intersect the exterior census". ANSWER: IT DOES NOT — zero shared code, two independent readers of the same cameras. (1) Exterior census `_calculat...
-  - `merged_from_2026_08_16`: Absorbed CENSUS-DEDUP-REPAIR-1 wholesale. That card covered P10/P11: repair the BLE-cancel and fresh-face dedup defences at source (both currently return zero, which is WHY the additive derivation double-counts). Kept as one cycle becaus...
-  - `suffix_migration_finding_2026_08_17`: OPERATOR CONFIRMED: the Frigate1->Frigate2 migration WAS done; this aspect was missed. VERIFIED against the live registry (/Users/okosisi/ha-config/.storage/core.entity_registry — note CLAUDE.md documents a STALE path /Users/ojiudezue/.....
-  - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
 
 ### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
 > **⚡ OPERATOR: approve — pending apply** (at 2026-08-18T03:19:40.142Z)
@@ -181,22 +164,21 @@ thread: **resolver** - status: **pre_planning** - approval: **implied**
 ## 📝 Planned (2)
 _has plan / acceptance_
 
-### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
+### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
 thread: **presence** - status: **planned** - approval: **explicit**
-_updated 2026-08-17 23:50 · refined_
+_created 2026-08-18 00:55 · updated 2026-08-18 02:10 · initial_
 - **Problem / Solution:**
-  - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
-  - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
-  - P3 the exterior track and the egress crossing are never joined — the linker has NO reference to `ura_person_egress_event` and the egress tracker never reads tracks; a track that approaches an egress camera and vanishes just closes on `id...
-  - P4 guest must not be thresholded off exterior presence. S4 exterior arrival is a CORROBORATOR only — it may raise confidence in, or shorten the dwell for, a guest-room-gated entry; it may NEVER solo-arm guest. Operator: "Never 'someone i...
-- **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
-- **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
-- **Next:** BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2 + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at egress cams (the D0 blind spot — run...
-- **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
-- **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-- **Forensic keys (2):**
-  - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
-  - `operator_ruling_2026_08_17_build_both`: OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity): "Build both face and face-independent solution and use face as a confidence boost." Plus critical context that INVALIDATES the D0 face measurement: (1) the D0 probe measure...
+  - Problem: to know an UNKNOWN vs KNOWN person entered, we need face IDENTITY on the arrival path. The front-door cam sees no named faces, but people enter via the GARAGE into the FAMILY ROOM, where Protect DOES recognize residents by name ...
+- **Why:** Completes the "build both" intent: the face-independent arm (cycle 3) says SOMEONE arrived; this says WHO (known resident vs unknown), which is the actual guest/security discriminator.
+- **Next:** HOLD: consultation (duplicate-vs-complementary) running -> report to operator -> operator go -> then build.
+- **Refs:** docs/planning/RESEARCH_protect_face_to_ha.md; EXTERIOR-GUEST-EGRESS-1
+- **Forensic keys (6):**
+  - `webhook_live_2026_08_18`: OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook trace / the ura_face_identified event) to confirm the na...
+  - `webhook_verified_2026_08_18`: WEBHOOK RECEIVING SIDE VERIFIED: automation.ura_kp_face_webhook_probe (webhook_id ura_kp_face_probe, local-only POST) captures payloads verbatim -> ura_kp_face_probe_received event + system_log. Test POST returned 200 and logged the payl...
+  - `promoted_2026_08_18`: PROMOTED to the PRIMARY cycle-3 build (operator: "let's build it first and see"). Reframe: we ALREADY have single-source identity via Frigate-2 face (sensor.<cam>_last_recognized_face_2, resolvable after v5.80.0 D2). Protect face (via th...
+  - `prebuild_consultation_2026_08_18`: CONSULTATION DONE (AUDIT_egress_face_identity_prior_art.md, 1ff87322b) — VERDICT: COMPLEMENTARY, not duplicate. (1) EgressDirectionTracker resolves DIRECTION only; person_id hard-coded None at both emit sites (transit_validator.py:1106,:...
+  - `plan_2026_08_18`: PLAN PLANNING_egress_face_identity.md — Tier 2-DB. SPLIT: D1 (ship now) Frigate person_id stamp (transit_validator.py:1106/:1121) + census union fuse (camera_census.py:1855) reusing existing face readers; D2 (gated on Wed payload) Protec...
+  - `d2_gate_2026_08_18`: D2 (Protect corroboration) gate: NO cron (operator: "don't cron, just fire it yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload verbatim; the HA RECORDER durably retains that event+payload ...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -215,15 +197,16 @@ _being built_
 
 ### `MEMORY-PROGRAM-EPIC` - EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable, compressed history behind one queryable interface
 thread: **memory** - status: **in_progress** - approval: **explicit**
-_created 2026-08-05 00:00 · updated 2026-08-17 23:10 · refined_
+_created 2026-08-05 00:00 · updated 2026-08-18 02:20 · refined_
 - **Problem / Solution:**
   - Problem: we wanted every part of the house (each room, zone, the whole house) to keep a usable memory of what happened to it, instead of events scattered and never summarised. Solution: build it in stages — the raw event writers, then th...
 - **Origin:** 2026-08-02 - Operator concept -> VISION + ARCHITECTURE + MVP doc set (all finalized 2026-08-02, self-critiqued DRAFT v2).
 - **Why:** Program-level card so the memory work has a home; children carry the stages. URA composition (devices->rooms->zones->house) applied to TIME.
-- **Next:** NOT GATED (operator asked 2026-08-17). Stage 2 (compactor) is SHIPPED + running nightly — see MEMORY-COMPACTOR-1. Only remaining forward step: MEMORY-WRITERS-1 — a small Tier-2 cycle adding the top 1-2 episode writers (fan-release retro-...
+- **Next:** Epic foundation DELIVERED (writers + compactor live). Remaining is optional/parked (zone_phantom). Consider closing the epic to done and opening a new epic for the room-to-room agentic layer when that becomes a priority.
 - **Refs:** docs/planning/VISION_hierarchical_memory.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; docs/planning/MVP_hierarchical_memory.md; docs/planning/AUDIT_memory_handbuild_study_a.md; docs/reviews/code-review/memory_mvp_tier2db.md; docs/planning/AUDIT_memory_retro_value.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `stages`: Stage 0 hand-build: DONE 2026-08-02 — AUDIT_memory_handbuild_study_a.md (Study A hand-ledger; kill gate PASSED, operator: "every")
+  - `completion_2026_08_18`: EPIC ESSENTIALLY COMPLETE: Stage-1 writers (D4-D7) shipped v5.78.0; Stage-2 compactor shipped + running nightly (14 memory_facts 02:30 CT 08-17); MEMORY-WRITERS-1 substantially shipped (top-2 already live). Only optional remainder: zone_...
 
 ## 🔍 Review (0)
 _under review_
@@ -445,6 +428,32 @@ thread: **optimizer** - status: **shipped_organic** - approval: **unreviewed**
   - `fix_options`: Either (a) corpus falls back to get_recent_optimization_findings DB read when the RAM cache is empty, or (b) meta emission suppressed inside a post-boot grace window (suppression-needs-discharge: re-fires next cycle after grace). Prefer ...
   - `live_validation_2026_08_15`: v5.77.0 LIVE: L3 PASS — first post-boot meta cycle = cycle_ok only; false-blindness HIGH structurally closed. Card can move to done on one more clean restart.
 
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus)
+thread: **presence** - status: **shipped_organic** - approval: **implied**
+_updated 2026-08-18 03:15_
+- **Problem / Solution:**
+  - P5 one timer, two opposite needs — census wants freshness, guest wants hysteresis; shared hold+decay turns a 15s phantom into 480s of evidence and clears the 300s guest gate (the mechanism behind ~50 spurious guest entries since 07-13). ...
+  - P6 decay never fires for systematic errors — the peak self-refreshes when fresh == peak, so a permanently-wrong value renews forever while only transients decay (wrong sign on both axes). S6 remove the self-renewing slope; make heldness ...
+  - P7 consumers cannot distinguish a fresh count from a 20-minute-old latched one. S7 publish peak_held / peak_age / count_as_of — all already computed internally and discarded.
+  - P8 the exterior census is naive (per-camera-bit sum, one walker past 3 cams reads 3) while the track-deduped count already exists live. ADJUDICATED 2026-08-17 (AUDIT_exterior_census_supersession.md, eb2caa3c8): the swap I originally scop...
+  - P9 outdoor presence may pollute the interior headcount (outdoor-zone filter designed, unbuilt). S9 apply the filter using the existing CONF_ZONE_IS_OUTDOOR flag.
+  - ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P10 the per-area BLE-cancel subtraction reports ble_cancelled_count 0 every tick while residents ARE being double-counted — cause UNKNOWN. Ruled out: missing areas on the counting ...
+  - ABSORBED FROM CENSUS-DEDUP-REPAIR-1 (merged 2026-08-16): P11 the fresh-face -1 per-camera defense is inert because face recognition produces ~0 identities (face_recognized_persons empty with 4 known residents home). S11 gated on the EXTE...
+  - P12 (folded in per operator 2026-08-17) the two exterior counts serve DIFFERENT consumers and neither is wired to the dashboard correctly. S12 small deliverable: dashboard shows the DEDUPED count (exterior_person_tracks_active) as the he...
+- **Origin:** 2026-08-16 - Operator ruling after the guest-phantom incident; full context in RESEARCH_census_vs_guest_separation.md (aa3e39aa8).
+- **Why:** Operator separation-of-concerns ruling: census = measurement (accuracy + freshness); guest = policy state (explicit entry/exit + hysteresis). Today guest is a function of a decaying measurement, which is the root architectural error. NOT...
+- **Next:** RESCOPED by operator 2026-08-17 to DECAY + SUFFIX FIX (dedup repair dropped — probe measured it buys ~0). Plan: (1) decay/self-refresh separation, targeting the measured 74.5% of elevated time that had camera_unrecognized==0; (2) registr...
+- **Refs:** docs/planning/RESEARCH_census_vs_guest_separation.md; docs/planning/PLANNING_v4.7.18_census_service_shared_refactor.md; CARD: EXTERIOR-GUEST-EGRESS-1 (exterior->guest, split out of P8); CARD: EXTERIOR-DWELL-LOITER-1 (circling dwell gap, security); docs/planning/AUDIT_census_accuracy_probe.md (probe gate); docs/planning/AUDIT_exterior_census_supersession.md (eb2caa3c8) — KEEP BOTH ruling
+- **Forensic keys (8):**
+  - `operator_exterior_direction_2026_08_16`: Operator ruling on the exterior work, THREE distinctions: (1) EXTERIOR -> HEADCOUNT is easy, do it (straight composition; sensor.universal_room_automation_persons_on_property_exterior is live, and a dashboard for it already exists at doc...
+  - `regression_context_2026_08_16`: Operator: "I believe we regressed census with our prior work" — CONFIRMED with recorder data. Daily census max: Aug 9-12 = 6-7 (4 residents, chronic over-count of 2-3); Aug 13-14 = 4 (LOOKED perfect, but only because the _2-suffix break ...
+  - `measured_incident_2026_08_16_guest_7h`: MEASURED end-to-end retrace of a live false-guest episode (operator flagged "5 seen, guest mode, 4 known"). Recorder: house `guest` 13:38:33 -> `home_evening` 20:40:59 = 7h02m of false guest with 4 known residents and zero guests. Entry ...
+  - `exterior_intersection_findings_2026_08_16`: Context-wide read-only investigation answering "how does the circling/exterior-track work intersect the exterior census". ANSWER: IT DOES NOT — zero shared code, two independent readers of the same cameras. (1) Exterior census `_calculat...
+  - `merged_from_2026_08_16`: Absorbed CENSUS-DEDUP-REPAIR-1 wholesale. That card covered P10/P11: repair the BLE-cancel and fresh-face dedup defences at source (both currently return zero, which is WHY the additive derivation double-counts). Kept as one cycle becaus...
+  - `suffix_migration_finding_2026_08_17`: OPERATOR CONFIRMED: the Frigate1->Frigate2 migration WAS done; this aspect was missed. VERIFIED against the live registry (/Users/okosisi/ha-config/.storage/core.entity_registry — note CLAUDE.md documents a STALE path /Users/ojiudezue/.....
+  - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
+  - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
+
 ### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing
 thread: **presence** - status: **shipped_organic** - approval: **implied**
 - **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
@@ -460,21 +469,6 @@ thread: **presence** - status: **shipped_organic** - approval: **implied**
   - `fuller_pass_outcome_2026_08_17`: FULLER ADVERSARIAL PASS (operator ruling "Fuller pass") — THREE MORE framing-disjoint reviews, ALL THREE DO-NOT-SHIP. This pass is the only reason the cycle did not ship broken. D (adversarial completeness, 13ba10861) + E (lifecycle, dcf...
   - `guest_room_designation_correction_2026_08_17`: ORCHESTRATOR ERROR, CORRECTED BY OPERATOR. I reported "zero rooms designated is_guest_room=True" and concluded D2 would silently DISABLE guest mode. WRONG — I queried a plausible key name instead of the one the code reads. The real key i...
   - `empty_house_validation_window_2026_08_17`: OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening; operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0 as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident ...
-
-### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
-thread: **memory** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-08-11 00:00 · updated 2026-08-17 23:10 · initial_
-- **Problem / Solution:**
-  - Problem: the house only remembers an event if the detector that watches for it fires — so wherever a detector is missing or blind, that history is simply never recorded (a gap you can't see). Solution: add a few targeted event-writers fo...
-- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
-- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
-- **Next:** ACTIONABLE NOW (gate "after compactor ships" satisfied 2026-08-17). Scope one small Tier-2 cycle for the top 1-2 writers: fan-release retro-phantom + away_transition_blocked (currently only 4 rows — fires but rarely). Rest parked on the ...
-- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
-- **Refs:** docs/planning/AUDIT_memory_retro_value.md
-- **Forensic keys (3):**
-  - `parent`: MEMORY-PROGRAM-EPIC
-  - `folded_2026_08_16`: FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.
-  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -747,8 +741,17 @@ _updated 2026-08-17 23:12_
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
 - **Next:** Recurring morning-sweep placeholder; re-fires each session start. No standing action.
 
-## 🅿️ Parked (6)
+## 🅿️ Parked (8)
 _revisit-trigger set_
+
+### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)
+thread: **memory** - status: **parked** - approval: **unreviewed**
+_created 2026-08-18 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: nothing records when an HVAC zone reads occupied while the house is away (the F2 zone-vs-house divergence) — that tier has no memory witnesses at all. Solution: ONE additive writer zone_phantom, copy-adapt of AwayBlockEpisodeTra...
+- **Why:** Fills the only actionable memory-coverage gap. But there is NO active problem needing it today, so its marginal benefit is low until an F2-shape divergence recurs.
+- **Next:** REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build the writer (plan is PLANNING_memory_writers.md).
+- **Refs:** docs/planning/PLANNING_memory_writers.md; custom_components/universal_room_automation/memory_writers.py:186
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
 thread: **perimeter** - status: **parked** - approval: **explicit**
@@ -776,6 +779,27 @@ thread: **security** - status: **parked** - approval: **explicit**
 - **Refs:** custom_components/universal_room_automation/exterior_track_linker.py:705-750; custom_components/universal_room_automation/const.py:1842-1875; docs/planning/AUDIT_memory_handbuild_compactor_exterior_track.md; docs/planning/PLANNING_circling_severity.md; docs/planning/PLANNING_circling_label_transition_dispatch.md; docs/planning/PROBE_exterior_dwell_loiter.md (491195ed9)
 - **Forensic keys (1):**
   - `probe_outcome_2026_08_17`: PROBE DONE (PROBE_exterior_dwell_loiter.md, 491195ed9). RECOMMENDATION: DON'T build a raw duration predicate now. 623 person tracks / 11 days. Hypothesis PARTLY confirmed: dwell DOES leak into pass_by (41 tracks >5min, 4 >20min, max 70mi...
+
+### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
+thread: **presence** - status: **parked** - approval: **explicit**
+_updated 2026-08-18 01:45 · refined_
+- **Problem / Solution:**
+  - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
+  - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
+  - P3 the exterior track and the egress crossing are never joined — the linker has NO reference to `ura_person_egress_event` and the egress tracker never reads tracks; a track that approaches an egress camera and vanishes just closes on `id...
+  - P4 guest must not be thresholded off exterior presence. S4 exterior arrival is a CORROBORATOR only — it may raise confidence in, or shorten the dwell for, a guest-room-gated entry; it may NEVER solo-arm guest. Operator: "Never 'someone i...
+- **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
+- **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
+- **Next:** PARKED (deferred): the face-independent nudge revisits only if the identity path proves insufficient. Trigger: identity-at-egress shipped + shown to miss real guests.
+- **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
+- **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
+- **Forensic keys (6):**
+  - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
+  - `operator_ruling_2026_08_17_build_both`: OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity): "Build both face and face-independent solution and use face as a confidence boost." Plus critical context that INVALIDATES the D0 face measurement: (1) the D0 probe measure...
+  - `protect_reprobe_2026_08_18`: PROTECT FACE RE-PROBE (PROBE_protect_face_egress.md) — the "build both" face premise does NOT hold on current sensing. Findings: (1) UniFi Protect exposes face to HA ONLY as event.<cam>_smart_detection {event_type:face} = face DETECTION,...
+  - `operator_corrections_2026_08_18`: OPERATOR 2026-08-18 (build face-independent + corrections): (1) SPIKE EXISTS — RESEARCH_protect_face_to_ha.md (2026-08-15) already evaluated getting Protect face NAME into HA. Protect API capability CONFIRMED (name+id+confidence verified...
+  - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
+  - `direction_2026_08_18`: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented on marginal-benefit) is DEFERRED — re...
 
 ### `CENSUS-G6-RAW-PERSISTENCE` - G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed value
 thread: **presence** - status: **parked** - approval: **implied**
@@ -815,7 +839,7 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
 
-## ✅ Done (23)
+## ✅ Done (25)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -925,6 +949,18 @@ thread: **presence** - status: **done** - approval: **implied**
   - `l2_watch_redefined_2026_08_15`: Guests departed before a >4 traversal registered (census max stayed 4 post-boot). L2 proof redefined: INTERIM = any unidentified contribution (census reads identified+1 on any visitor/delivery in census-camera view — was structurally imp...
   - `l2_INTERIM_PASS_2026_08_16`: ORGANIC PROOF (operator home, ~evening): census reads 6 = identified 4 + unidentified 2, camera_unrecognized 2, source_agreement close, confidence medium, wifi_guest_floor 6 (independent corroboration). Pre-fix this was STRUCTURALLY IMPO...
 
+### `D3-BEHAVIOURAL-COVERAGE-1` - D3 guest-room registry resolution has ZERO behavioural coverage — all six tests are source-shape
+thread: **presence** - status: **done** - approval: **unreviewed**
+_updated 2026-08-18 02:30_
+- **Problem / Solution:**
+  - P1 all six D3 tests assert on SOURCE SHAPE (the registry call appears in the file), not on BEHAVIOUR (a guest room actually resolves to its occupancy entity). Review C proved this class is evadable: the sibling anchor test_unresolvable_r...
+  - P2 D3 is now load-bearing: under cycle-1 D2, guest entry depends ENTIRELY on guest-room occupancy, so a silent D3 resolution failure means guest mode never arms at all. Source-shape tests cannot catch a registry lookup that returns the w...
+- **Origin:** 2026-08-16 - Review C (guest-census cycle, d9a74e86e) observation while auditing test authority. Logged as follow-up; C was explicitly told NOT to expand the fix-up scope to cover it.
+- **Why:** The cycle-1 fix-up repairs the ONE anchor Review C proved hollow (C-MED-1, via caplog) but deliberately does not build out the rest. Without this card that gap disappears, and it sits under the newly load-bearing guest entry path.
+- **Next:** DONE (merged 7a2e73aa2, tests-only): 5 behavioural tests driving production _discover_guest_rooms + _handle_guest_room_occupancy_change vs a fake registry; 4 mutation drills (plain+variant-7) red-then-green; zero production change. D3 re...
+- **Tags:** test-authority, hollow-anchors
+- **Refs:** docs/reviews/code-review/guest_census_review_C.md; custom_components/universal_room_automation/domain_coordinators/presence.py
+
 ### `MDNS-SERIAL-HOSTS-1` - mDNS-serial hostnames breaking cross-VLAN camera consumers — amcrest FIXED; audit F2 RTSP paths + any other serial-host configs
 thread: **devices** - status: **done** - approval: **implied**
 - **Origin:** 2026-08-15 - Operator: "some kind of mDNS error" on amcrest entry 01KFAEN928S190YEJ2V4SWY6S6 + "multiple integrations point at that camera — did the IP change?"
@@ -971,6 +1007,22 @@ thread: **memory** - status: **done** - approval: **explicit**
 - **Refs:** docs/planning/AUDIT_away_transition_2026_08_13.md
 - **Forensic keys (1):**
   - `result_2026_08_14`: AUDIT_memory_retro_value.md (commit 6a99575fa). Verdicts: AWAY-BLOCK-1 PARTIAL (all 56 occupancy_phantom rows share mmwave_sole_fan_on_no_corroboration -> profile()/unusual() primes the fan-sustain hypothesis in minutes vs 4h recorder tr...
+
+### `MEMORY-WRITERS-1` - Memory episode-writer coverage gaps — writers ride the detectors, so memory is blind where detectors fail (retro: 0 FULL / 2 PARTIAL / 2 NONE)
+thread: **memory** - status: **done** - approval: **unreviewed**
+_created 2026-08-11 00:00 · updated 2026-08-18 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: the house only remembers an event if the detector that watches for it fires — so wherever a detector is missing or blind, that history is simply never recorded (a gap you can't see). Solution: add a few targeted event-writers fo...
+- **Origin:** 2026-08-14 - MEMORY-RETRO-VALUE-1 finding: occupancy_phantom writer inherits D2 fail-closed no-PIR gate; both recent incidents lived in rooms memory never heard about.
+- **Why:** Memory-first diagnostics only pays if memory covers the question. Candidate writers from the retro (ranked by incident coverage): (1) D2-independent retro phantom writer keyed on fan-release correlation — would have captured ALL FIVE lat...
+- **Next:** DONE — top-2 writers shipped v5.78.0. Optional zone_phantom parked (MEMORY-ZONE-PHANTOM-WRITER-1).
+- **Parsimony:** [SIMPLIFY] memory cannot answer diagnostic questions about the rooms/mechanisms where incidents actually occur
+- **Refs:** docs/planning/AUDIT_memory_retro_value.md
+- **Forensic keys (4):**
+  - `parent`: MEMORY-PROGRAM-EPIC
+  - `folded_2026_08_16`: FOLDED into the PATH-ALPHA cycle as D4-D7: phantom_retro, away_transition_blocked, tracker_trust_excluded (operator add), house_state_transition. Two candidates DROPPED with justification, zero parked (operator no-debt rule). Building now.
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
+  - `scope_reset_2026_08_18`: PLAN (PLANNING_memory_writers.md) found the card premise STALE: the named "top 1-2 writers" phantom_retro + away_transition_blocked are BOTH ALREADY SHIPPED in v5.78.0 (D4 memory_writers.py:101, D5 AwayBlockEpisodeTracker :186). The "4 r...
 
 ### `GARAGE-EGRESS-APPLY-1` - APPLY the 2026-08-10 garage-camera ruling — garage_a/garage_b into CONF_EGRESS_CAMERAS at the NEXT deploy restart (operator said do not forget)
 thread: **security** - status: **done** - approval: **approved**
@@ -1087,6 +1139,92 @@ _updated 2026-08-17 23:30_
 - **Forensic keys (2):**
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
+
+## ❓ Other (10)
+_unknown status bucket_
+
+### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
+thread: **memory**
+_created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
+- **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+- **Forensic keys (2):**
+  - `column`: planned
+  - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
+
+### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile
+thread: **planning**
+_created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
+- **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+- **Forensic keys (2):**
+  - `column`: planned
+  - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
+
+### `IOS-APP-PLAN-CARD-1` - iOS app for HAOS+URA — gated design blueprint (tracked)
+thread: **dashboarding**
+_created 2026-08-18 02:00 · updated 2026-08-18 02:25 · refined_
+- **Next:** No action now (gated). When PWA M2 lands + install-gate met, promote M3 to planning.
+- **Forensic keys (3):**
+  - `column`: parked
+  - `problem`: A real, detailed iOS app design EXISTS but was untracked. It is a BLUEPRINT, not a build: native iOS (SwiftUI + HAKit + TestFlight) is gated behind (a) PWA milestones M1/M2 and (b) the commercialization >=100-active-installs gate. Now ca...
+  - `parked_reason`: GATED. Path: M1 PWA read-only -> M2 PWA writes+NM -> M3 SwiftUI native shell+HAKit+TestFlight -> M4 native writes+push. Native (M3/M4) blocked behind PWA M1/M2 + HACS distribution + >=100 installs. Revisit trigger: PWA M2 complete AND co...
+
+### `EGRESS-IDENTITY-CONTROL-OBS-1` - Egress person-detection — enable/disable + observability (parsimony)
+thread: **presence**
+_created 2026-08-18 02:20 · initial_
+- **Next:** Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.
+- **Forensic keys (2):**
+  - `column`: in_progress
+  - `problem`: The new egress person-identity detection (D1) must be operator-enableable/disableable, and its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob sprawl). It just surfaced a phantom-guest CRIT i...
+
+### `SENSOR-HEALTH-SURFACING-1` - Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
+thread: **diagnostics**
+_created 2026-08-18 02:30 · initial_
+- **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
+
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
+thread: **energy**
+_created 2026-08-18 02:30 · initial_
+- **Next:** MARGINAL-BENEFIT DECOMPOSITION before speccing the full framework — how much does the simplest single-appliance deferral capture vs the whole v3 framework? Then Tier 2-DB if it clears.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
+
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening)
+thread: **platform**
+_created 2026-08-18 02:30 · initial_
+- **Next:** Plan a Tier 2 hardening cycle: audit setup/unload symmetry across platforms + wrap background tasks in tracked/cancellable handles. Cross-ref parent-reload-watchdog hazard.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: async_on_unload used in only 2 sites; untracked background tasks — both match known URA bug classes (reload-safety, task leak). One hardening cycle.
+
+### `CONFIG-SUBENTRIES-MIGRATION-1` - Config subentries migration (flat 34-entry -> subentries)
+thread: **platform**
+_created 2026-08-18 02:30 · initial_
+- **Next:** No action now (parked-with-trigger).
+- **Forensic keys (3):**
+  - `column`: parked
+  - `problem`: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology but the migration carries real risk for MEDIUM value.
+  - `parked_reason`: MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is needed anyway, or HA deprecates the flat pattern.
+
+### `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` - EntityDescription + runtime_data hygiene (opportunistic)
+thread: **platform**
+_created 2026-08-18 02:30 · initial_
+- **Next:** Fold into the next platform/coordinator cycle that already edits the target files.
+- **Forensic keys (3):**
+  - `column`: parked
+  - `problem`: EntityDescription + runtime_data patterns not adopted; low-value on its own.
+  - `parked_reason`: Opportunistic — attach to the next coordinator touch rather than a dedicated cycle.
+
+### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene)
+thread: **platform**
+_created 2026-08-18 03:00 · initial_
+- **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
 
 ## 🅿️ Parked ideas (top-level list)
 

@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.80.0
+# Universal Room Automation vv5.81.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -61,6 +61,8 @@ from .const import (
     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
     # v3.10.1 Census v2
     CONF_ENHANCED_CENSUS,
+    CONF_EGRESS_IDENTITY_ENABLED,
+    DEFAULT_EGRESS_IDENTITY_ENABLED,
     CONF_CENSUS_HOLD_INTERIOR,
     CONF_CENSUS_HOLD_EXTERIOR,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
@@ -74,6 +76,7 @@ from .const import (
     # explicit consumer is added.
     CENSUS_PEAK_SUSTAIN_SECONDS,
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
+    EGRESS_FACE_UNION_TTL_S,
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
     PHONE_HOSTNAME_PREFIXES,
@@ -1061,6 +1064,22 @@ class PersonCensus:
         # or if the enhanced path takes an early-return during setup).
         self._last_ble_cancelled_count: int = 0
 
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18): egress-face
+        # identity register. Names are stored in the Frigate first-name
+        # slug namespace (see `_normalize_person_name`) so I5 dedup at the
+        # census union sites cannot admit "Oji" and "oji" as two members.
+        # TTL-pruned on read against EGRESS_FACE_UNION_TTL_S. Fed by
+        # `transit_validator.EgressDirectionTracker._resolve_direction`
+        # via `register_egress_face`; consumed at BOTH census union
+        # writers (`:1855` raw and the enhanced house recompute) per
+        # plan-review C-CRIT-1.
+        self._egress_face_ids: dict[str, datetime] = {}
+        # D-MED-2 (2026-08-18): once-per-ambiguous-head warning tracker
+        # for `_canonical_person_slug`. Set of first-name heads where
+        # tracked_persons has >1 matching slug; we warn on the first
+        # collision, then fail-CLOSED silently for subsequent lookups.
+        self._canonicalizer_ambiguity_warned: set[str] = set()
+
         # ------------------------------------------------------------------
         # Stuck-Signal Watchdog D1 (v5.35.0). Per-Frigate-camera state for the
         # census-layer stuck-count check. See
@@ -1852,9 +1871,29 @@ class PersonCensus:
           no camera data, BLE only                        -> low
           no data                                         -> none
         """
-        known_persons = face_ids | ble_ids
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 fuse site 1 of 2 (I1/I5,
+        # plan-review C-CRIT-1). Names normalized to Frigate first-name
+        # slug BEFORE set-union so a resident recognized via face
+        # ("Oji") and BLE ("oji_udezue") counts once, and an egress-face
+        # for the same person does not add a third member.
+        # D-MED-1 (2026-08-18): true byte-identical kill switch. When
+        # EGRESS_IDENTITY_ENABLED is False, use the EXACT pre-cycle
+        # expression `face_ids | ble_ids` — no canonicalization, no
+        # egress term. Canonicalization can itself merge names the
+        # pre-cycle code counted separately (e.g. face="Oji", ble=
+        # "oji_udezue" -> pre-cycle 2, canonicalized 1), so gating only
+        # the egress term is NOT byte-identical.
+        if self._is_egress_identity_enabled():
+            egress_face_ids = self._get_egress_face_ids_fresh(now)
+            known_persons = (
+                self._normalize_name_set(face_ids)
+                | self._normalize_name_set(ble_ids)
+                | egress_face_ids  # already canonicalized on register
+            )
+        else:
+            known_persons = set(face_ids) | set(ble_ids)
         identified_count = len(known_persons)
-        identified_persons = sorted(list(known_persons))
+        identified_persons = sorted(known_persons)
 
         if camera_total > 0:
             unidentified_count = max(0, camera_total - identified_count)
@@ -2704,6 +2743,222 @@ class PersonCensus:
         return fresh
 
     # ------------------------------------------------------------------
+    # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 — egress-face identity register.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _first_token_lower(name: Any) -> str:
+        """Low-level helper: strip / lowercase / take pre-underscore token.
+        Used for FIRST-TOKEN matching against tracked-persons slugs — NOT
+        the canonical namespace itself (see `_canonical_person_slug`)."""
+        if not name:
+            return ""
+        s = str(name).strip().lower()
+        if not s:
+            return ""
+        return s.split("_", 1)[0]
+
+    def _get_tracked_person_slugs(self) -> list[str]:
+        """Return the URA-slug list from the integration config (with
+        the ``person.`` prefix stripped). Mirrors the derivation in
+        `_get_face_recognized_person_names` (:3402-3411)."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                raw = merged.get("tracked_persons", []) or []
+                out: list[str] = []
+                for p in raw:
+                    slug = str(p).replace("person.", "").strip().lower()
+                    if slug:
+                        out.append(slug)
+                return out
+        return []
+
+    def _canonical_person_slug(self, name: Any) -> str:
+        """Canonicalize a person identifier to the URA person-slug namespace
+        (Review A-HIGH-1 / A-MED-1 / B-MED-1 / B-MED-2 fix).
+
+        The URA slug (e.g. ``"oji_udezue"``) is the namespace used by
+        `_get_face_recognized_person_names` (returns URA slugs) and by
+        `ble_persons` — both consumed at the enhanced-house recompute
+        (:3510). Publishing `identified_persons`, the DB `person_id`,
+        and the veto's `person.<slug>` lookup on any OTHER namespace
+        (e.g. first-name only) produces silent divergence — the veto
+        never fires against `person.oji_udezue`, DB rows carry `"Oji"`
+        while census carries `"oji"`, and residents whose first names
+        collide are counted once.
+
+        Mapping rules:
+          - Empty / None -> "".
+          - If ``name`` (lowercased, stripped) matches a tracked_persons
+            slug directly -> return that slug (already URA-canonical).
+          - Else: match by FIRST TOKEN against each tracked slug's first
+            token (Frigate face-library first names like ``"Oji"`` map
+            to ``"oji_udezue"``). D-MED-2 (2026-08-18): if MORE THAN
+            ONE tracked slug shares that first token, return "" (fail
+            CLOSED — no identity attached) and log a warning ONCE per
+            ambiguous head. Attaching to whichever tracked slug happens
+            to be first in config would silently merge two residents
+            into one and understate identified_count.
+          - Else: pass-through the lowercased/stripped input. Preserves
+            unmapped identifiers rather than collapsing them silently.
+
+        Supported-configuration constraint: ``tracked_persons`` first
+        names (pre-underscore tokens) SHOULD be unique for identity
+        attribution to route via first-name match. If they are not,
+        identities colliding on the first name will fail-CLOSED (no
+        credit) and log a warning once at the first collision.
+        """
+        if not name:
+            return ""
+        s = str(name).strip().lower()
+        if not s:
+            return ""
+        tracked = self._get_tracked_person_slugs()
+        # Direct-match (already URA-canonical, incl. any casing).
+        if s in tracked:
+            return s
+        # First-token match.
+        head = s.split("_", 1)[0]
+        matches = [slug for slug in tracked if slug.split("_", 1)[0] == head]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            # D-MED-2 fail-CLOSED on ambiguity. Warn once per head so a
+            # misconfigured deployment gets one loud signal, not spam.
+            if head not in self._canonicalizer_ambiguity_warned:
+                self._canonicalizer_ambiguity_warned.add(head)
+                _LOGGER.warning(
+                    "canonicalizer: ambiguous first-name '%s' matches "
+                    "multiple tracked_persons slugs %s — no identity "
+                    "attached (fail-CLOSED). Rename or drop one entry "
+                    "so first names are unique for identity attribution.",
+                    head, matches,
+                )
+            return ""
+        # Fallback: preserve the (lowercased) identifier verbatim.
+        return s
+
+    # Back-compat alias — external callers historically used the old name.
+    def _normalize_person_name(self, name: Any) -> str:
+        return self._canonical_person_slug(name)
+
+    def _normalize_name_set(self, names) -> set[str]:
+        """Canonicalize each name to the URA person-slug namespace and
+        return as a set. Empties dropped. Safe on None."""
+        out: set[str] = set()
+        if not names:
+            return out
+        for n in names:
+            norm = self._canonical_person_slug(n)
+            if norm:
+                out.add(norm)
+        return out
+
+    def _is_egress_identity_enabled(self) -> bool:
+        """Read the EGRESS_IDENTITY_ENABLED kill switch from options
+        (2026-08-18). Default False (dormant) — see const.py rationale."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(
+                    merged.get(
+                        CONF_EGRESS_IDENTITY_ENABLED,
+                        DEFAULT_EGRESS_IDENTITY_ENABLED,
+                    )
+                )
+        return DEFAULT_EGRESS_IDENTITY_ENABLED
+
+    def register_egress_face(
+        self, name: str, ts: datetime | None = None,
+    ) -> None:
+        """Record a face-identified egress crossing so the census union
+        fuses this identity for up to ``EGRESS_FACE_UNION_TTL_S``.
+
+        Called by ``transit_validator.EgressDirectionTracker`` at emit
+        time after ``_resolve_egress_face_identity`` returns a slug.
+        The name is canonicalized to the URA person-slug namespace (I5)
+        so union with `face_ids`/`ble_ids` deduplicates by identity.
+        No-op on empty/blank input.
+
+        Thread-safety (C-LOW-2): MUST be called from the event loop;
+        `self._egress_face_ids` dict access is not thread-safe.
+
+        Kill-switch: no-op when EGRESS_IDENTITY_ENABLED is False.
+        """
+        if not self._is_egress_identity_enabled():
+            return
+        norm = self._canonical_person_slug(name)
+        if not norm:
+            return
+        # A-LOW-2 (2026-08-18): normalize tz-naive timestamps to UTC so a
+        # later `(now - ts)` in `_get_egress_face_ids_fresh` cannot raise
+        # TypeError and silently drop the entry.
+        if ts is None:
+            ts = dt_util.now()
+        elif getattr(ts, "tzinfo", None) is None:
+            _LOGGER.info(
+                "register_egress_face: coercing tz-naive ts to UTC for %s",
+                norm,
+            )
+            ts = ts.replace(tzinfo=dt_util.UTC)
+        self._egress_face_ids[norm] = ts
+        # C-LOW-1: register-time TTL prune backstop so the dict stays
+        # bounded even if readers stop firing.
+        if len(self._egress_face_ids) > 32:
+            self._get_egress_face_ids_fresh(dt_util.utcnow())
+        _LOGGER.info(
+            "Egress-face identity registered for census union: %s "
+            "(TTL=%ds)",
+            norm,
+            EGRESS_FACE_UNION_TTL_S,
+        )
+
+    def evict_egress_face(self, name: str) -> None:
+        """Remove any prior egress-face registration for ``name`` (B-CRIT-1
+        eviction on exit — a resident who walked in then walked out
+        within the TTL must not remain in the census union).
+
+        No-op on empty/blank input or when the identity is not present.
+        """
+        norm = self._canonical_person_slug(name)
+        if not norm:
+            return
+        if self._egress_face_ids.pop(norm, None) is not None:
+            _LOGGER.info(
+                "Egress-face identity evicted from census union: %s "
+                "(exit crossing)",
+                norm,
+            )
+
+    def _get_egress_face_ids_fresh(self, now: datetime) -> set[str]:
+        """Return the currently fresh egress-face names, pruning entries
+        older than ``EGRESS_FACE_UNION_TTL_S``. Read at BOTH census union
+        writers (raw `:1855` and enhanced house recompute) per
+        plan-review C-CRIT-1 — fusing only one is a house-level no-op.
+
+        Kill-switch: returns an empty set when EGRESS_IDENTITY_ENABLED is
+        False, so both fuse sites are byte-identical to pre-cycle behaviour.
+        """
+        if not self._is_egress_identity_enabled():
+            return set()
+        if not self._egress_face_ids:
+            return set()
+        ttl = EGRESS_FACE_UNION_TTL_S
+        stale: list[str] = []
+        for n, ts in self._egress_face_ids.items():
+            try:
+                age = (now - ts).total_seconds()
+            except (TypeError, AttributeError):
+                stale.append(n)
+                continue
+            if age > ttl or age < 0:
+                stale.append(n)
+        for n in stale:
+            self._egress_face_ids.pop(n, None)
+        return set(self._egress_face_ids.keys())
+
+    # ------------------------------------------------------------------
     # v3.10.1: Enhanced Census (event-driven sensor fusion)
     # ------------------------------------------------------------------
 
@@ -3387,8 +3642,27 @@ class PersonCensus:
         wifi_guests = self._get_wifi_guest_count(now)
         face_recognized = self._get_face_recognized_person_names(now)
 
-        # Recognized persons = BLE home + face recognized (union)
-        recognized_set = set(ble_persons) | set(face_recognized)
+        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 fuse site 2 of 2 (I1/I5,
+        # plan-review C-CRIT-1). THIS is the writer whose set survives
+        # to `identified_count`, `unidentified_count` via
+        # `raw_total_ceiling`, and every guest-math consumer — fusing
+        # only the raw path at `:1855` is a house-level no-op because
+        # this recompute would overwrite it. Names normalized to the
+        # Frigate first-name slug namespace at the fuse boundary so BLE
+        # slugs, Frigate slugs, and the egress-face register share one
+        # namespace (I5).
+        # D-MED-1 (2026-08-18): true byte-identical kill switch (see raw
+        # fuse-site comment). When disabled, use the exact pre-cycle
+        # expression with no canonicalization and no egress term.
+        if self._is_egress_identity_enabled():
+            egress_face_ids = self._get_egress_face_ids_fresh(now)
+            recognized_set = (
+                self._normalize_name_set(ble_persons)
+                | self._normalize_name_set(face_recognized)
+                | egress_face_ids  # already canonicalized on register
+            )
+        else:
+            recognized_set = set(ble_persons) | set(face_recognized)
         identified_count = len(recognized_set)
 
         # Unidentified = camera-only (WiFi VLAN guest detection disabled —
@@ -3421,6 +3695,15 @@ class PersonCensus:
         camera_total_pre_cancel = int(
             getattr(self, "_last_camera_total_pre_cancel", 0)
         )
+        # B-LOW-1 (2026-08-18): post-egress-face-fuse, `identified_count`
+        # may exceed `camera_total_pre_cancel` by up to
+        # |egress_face_ids| — that IS the purpose of the fuse (bridging
+        # the transit gap when a resident has crossed but is not yet on
+        # interior cameras). `max()` here therefore RAISES the ceiling
+        # rather than clipping identity, i.e. `raw_total_ceiling` is the
+        # union of physical evidence and identity evidence, both trusted.
+        # The clamp below (`min(additive, ceiling)`) still prevents guest
+        # inflation on top of that identified base.
         raw_total_ceiling = max(camera_total_pre_cancel, identified_count)
         additive_total = identified_count + held_unidentified
         clamped_total = min(additive_total, raw_total_ceiling)

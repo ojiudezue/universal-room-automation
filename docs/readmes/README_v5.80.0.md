@@ -70,5 +70,16 @@ should reach census 0 and **stay 0**, with no self-refresh.
 
 ## Live Validation
 
-_To be completed post-restart. Per the write-back rule, replaced with a `Validated <date>` table
-carrying observed evidence per criterion before the cycle is closed._
+### Validated 2026-08-18 (~00:33 CT, post-restart) — house EMPTY (residents away until Wed)
+
+The empty house is the discriminating decay test, so L1/L2 are provable now; L3/L4 need occupancy.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | system_log ERROR count for universal_room_automation: 0 |
+| L2 | Decay honest (discriminating) | **PASS** | `sensor.universal_room_automation_persons_in_house` = 0, `peak_held: false`, `peak_age_seconds: 0`, **`peak_refresh_suppressed_count: 22`** — positive proof the self-refresh suppression path executed (not merely that the count is 0). count_as_of is a single ISO stamp (dual-clock fix confirmed). |
+| L3 | Fresh-face revival | **ORGANIC-PENDING** | Needs occupancy to see face_recognized_count > 0. WATCH: `face_lookup_missing_count: 12`/tick on an empty house is higher than expected — fail-closed (safe, no wrong credit) but the face path isn't resolving on ~12 cameras; interpret on return, carded as CENSUS-FACE-MISS-WATCH-1. |
+| L4 | Accuracy vs ground-truth headcount | **ORGANIC-PENDING** | Compare on return (Wed) — expected closer to true than v5.79.0 (decay tail removed). |
+
+**Cycle stays open until L3/L4 land on occupancy.**
+
