@@ -33,7 +33,7 @@ cards:
   status: inbox
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-08-18 00:45
+  updated: 2026-08-18 01:05
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -101,6 +101,16 @@ cards:
     security-relevant, touches the NM/severity shared primitive, and threads a value into a decision site.
     Remit is NARROW — do not expand into detection tuning, street-masking, OSD, or friendly-names (those
     are separate small UX items, NOT this Tier-3 cycle).'
+  corroboration_definition_correction_2026_08_17: 'CORRECTION (operator caught orchestrator over-claim).
+    The 08-17 "multi-camera corroboration" claim was WRONG: front_side_ptz (exterior) co-fired with master_hallway/upstairs_hall/staircase/garagehallway
+    (INTERIOR) — but those interior cameras are NOT in EXTERIOR_ADJACENCY_GRAPH (const.py:1773, 12 exterior
+    cams only), so the linker CANNOT group them. They were INDEPENDENT co-occurring detections (interior
+    movement + an exterior trigger), not a corroborated track. NOT a bad path grouping (the graph excludes
+    interior cams) — but the orchestrator wrongly read co-occurrence as corroboration. PRECISE DEFINITION
+    for the build: corroboration for a PERIMETER alert = (a) multi-NVR agreement on the SAME camera, OR
+    (b) adjacent EXTERIOR camera confirmation via EXTERIOR_ADJACENCY_GRAPH. INTERIOR cameras are NEVER
+    a corroboration source for a perimeter alert. Do not let a co-firing interior sensor raise a perimeter
+    detection confidence.'
 - id: DOC-DRIFT-ZONE-AWAY-1
   title: Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
   thread: docs
