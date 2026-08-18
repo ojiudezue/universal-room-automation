@@ -1074,6 +1074,11 @@ class PersonCensus:
         # writers (`:1855` raw and the enhanced house recompute) per
         # plan-review C-CRIT-1.
         self._egress_face_ids: dict[str, datetime] = {}
+        # D-MED-2 (2026-08-18): once-per-ambiguous-head warning tracker
+        # for `_canonical_person_slug`. Set of first-name heads where
+        # tracked_persons has >1 matching slug; we warn on the first
+        # collision, then fail-CLOSED silently for subsequent lookups.
+        self._canonicalizer_ambiguity_warned: set[str] = set()
 
         # ------------------------------------------------------------------
         # Stuck-Signal Watchdog D1 (v5.35.0). Per-Frigate-camera state for the
@@ -1871,12 +1876,22 @@ class PersonCensus:
         # slug BEFORE set-union so a resident recognized via face
         # ("Oji") and BLE ("oji_udezue") counts once, and an egress-face
         # for the same person does not add a third member.
-        egress_face_ids = self._get_egress_face_ids_fresh(now)
-        known_persons = (
-            self._normalize_name_set(face_ids)
-            | self._normalize_name_set(ble_ids)
-            | egress_face_ids  # already normalized on register
-        )
+        # D-MED-1 (2026-08-18): true byte-identical kill switch. When
+        # EGRESS_IDENTITY_ENABLED is False, use the EXACT pre-cycle
+        # expression `face_ids | ble_ids` — no canonicalization, no
+        # egress term. Canonicalization can itself merge names the
+        # pre-cycle code counted separately (e.g. face="Oji", ble=
+        # "oji_udezue" -> pre-cycle 2, canonicalized 1), so gating only
+        # the egress term is NOT byte-identical.
+        if self._is_egress_identity_enabled():
+            egress_face_ids = self._get_egress_face_ids_fresh(now)
+            known_persons = (
+                self._normalize_name_set(face_ids)
+                | self._normalize_name_set(ble_ids)
+                | egress_face_ids  # already canonicalized on register
+            )
+        else:
+            known_persons = set(face_ids) | set(ble_ids)
         identified_count = len(known_persons)
         identified_persons = sorted(known_persons)
 
@@ -2779,9 +2794,20 @@ class PersonCensus:
             slug directly -> return that slug (already URA-canonical).
           - Else: match by FIRST TOKEN against each tracked slug's first
             token (Frigate face-library first names like ``"Oji"`` map
-            to ``"oji_udezue"``).
+            to ``"oji_udezue"``). D-MED-2 (2026-08-18): if MORE THAN
+            ONE tracked slug shares that first token, return "" (fail
+            CLOSED — no identity attached) and log a warning ONCE per
+            ambiguous head. Attaching to whichever tracked slug happens
+            to be first in config would silently merge two residents
+            into one and understate identified_count.
           - Else: pass-through the lowercased/stripped input. Preserves
             unmapped identifiers rather than collapsing them silently.
+
+        Supported-configuration constraint: ``tracked_persons`` first
+        names (pre-underscore tokens) SHOULD be unique for identity
+        attribution to route via first-name match. If they are not,
+        identities colliding on the first name will fail-CLOSED (no
+        credit) and log a warning once at the first collision.
         """
         if not name:
             return ""
@@ -2794,9 +2820,22 @@ class PersonCensus:
             return s
         # First-token match.
         head = s.split("_", 1)[0]
-        for slug in tracked:
-            if slug.split("_", 1)[0] == head:
-                return slug
+        matches = [slug for slug in tracked if slug.split("_", 1)[0] == head]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            # D-MED-2 fail-CLOSED on ambiguity. Warn once per head so a
+            # misconfigured deployment gets one loud signal, not spam.
+            if head not in self._canonicalizer_ambiguity_warned:
+                self._canonicalizer_ambiguity_warned.add(head)
+                _LOGGER.warning(
+                    "canonicalizer: ambiguous first-name '%s' matches "
+                    "multiple tracked_persons slugs %s — no identity "
+                    "attached (fail-CLOSED). Rename or drop one entry "
+                    "so first names are unique for identity attribution.",
+                    head, matches,
+                )
+            return ""
         # Fallback: preserve the (lowercased) identifier verbatim.
         return s
 
@@ -3612,12 +3651,18 @@ class PersonCensus:
         # Frigate first-name slug namespace at the fuse boundary so BLE
         # slugs, Frigate slugs, and the egress-face register share one
         # namespace (I5).
-        egress_face_ids = self._get_egress_face_ids_fresh(now)
-        recognized_set = (
-            self._normalize_name_set(ble_persons)
-            | self._normalize_name_set(face_recognized)
-            | egress_face_ids  # already normalized on register
-        )
+        # D-MED-1 (2026-08-18): true byte-identical kill switch (see raw
+        # fuse-site comment). When disabled, use the exact pre-cycle
+        # expression with no canonicalization and no egress term.
+        if self._is_egress_identity_enabled():
+            egress_face_ids = self._get_egress_face_ids_fresh(now)
+            recognized_set = (
+                self._normalize_name_set(ble_persons)
+                | self._normalize_name_set(face_recognized)
+                | egress_face_ids  # already canonicalized on register
+            )
+        else:
+            recognized_set = set(ble_persons) | set(face_recognized)
         identified_count = len(recognized_set)
 
         # Unidentified = camera-only (WiFi VLAN guest detection disabled —

@@ -665,17 +665,74 @@ async def test_kill_switch_disabled_yields_none_and_no_register():
     assert census._egress_face_ids == {}
 
 
-def test_kill_switch_disabled_house_fuse_byte_identical():
-    """With the kill switch OFF, `_get_egress_face_ids_fresh` returns
-    empty even if the dict were populated — proves the fuse sites see
-    no contribution."""
+def test_kill_switch_disabled_house_fuse_byte_identical_output():
+    """D-MED-1: with the kill switch OFF the ENHANCED-HOUSE FUSE OUTPUT
+    (`identified_count`) equals the pre-cycle un-canonicalized union.
+
+    Discriminator: face_recognized_slugs contains a raw-cased Frigate
+    name AND ble_persons contains its URA slug — canonicalization WOULD
+    merge them to one, but the pre-cycle expression `set(ble) | set(
+    face)` counts them as two distinct members. If the disabled path
+    still normalizes, this test fails with `identified_count == 1`.
+    """
     census = _make_census(egress_identity_enabled=False)
-    # Force-populate to prove the getter, not the register, is the gate.
+    # Force-populate the register too, to prove BOTH the getter AND the
+    # normalization are gated (getter alone is insufficient — that was
+    # the hollow assertion the previous test made).
+    census._egress_face_ids["oji_udezue"] = datetime(
+        2026, 8, 18, 12, 0, 0, tzinfo=UTC,
+    )
+    result = _house_apply(
+        census,
+        ble_persons=["oji_udezue"],       # URA slug
+        face_recognized_slugs=["Oji"],    # raw first-name (would-be merge)
+    )
+    # Pre-cycle behaviour: 2 distinct set members {"oji_udezue", "Oji"}.
+    assert result.identified_count == 2, (
+        "kill switch OFF must reproduce pre-cycle un-canonicalized "
+        "union (no merge of 'Oji' with 'oji_udezue')"
+    )
+
+
+def test_kill_switch_disabled_raw_fuse_byte_identical_output():
+    """D-MED-1 (raw site 1 of 2): same invariant at
+    `_calculate_census_for_zone`. Kill switch OFF -> `face_ids | ble_ids`
+    with no canonicalization and no egress term.
+    """
+    census = _make_census(egress_identity_enabled=False)
     census._egress_face_ids["oji_udezue"] = datetime(
         2026, 8, 18, 12, 0, 0, tzinfo=UTC,
     )
     now = datetime(2026, 8, 18, 12, 0, 5, tzinfo=UTC)
-    assert census._get_egress_face_ids_fresh(now) == set()
+    result = census._cross_correlate_persons(
+        face_ids={"Oji"},
+        ble_ids={"oji_udezue"},
+        camera_total=2,
+        zone="house",
+        frigate_count=1,
+        unifi_count=0,
+        agreement="single_source",
+        now=now,
+    )
+    assert result.identified_count == 2, (
+        "raw fuse site kill switch OFF must reproduce pre-cycle "
+        "`face_ids | ble_ids` (2 distinct members)"
+    )
+
+
+def test_kill_switch_ENABLED_house_fuse_canonicalizes():
+    """Discriminator counterpart: with the kill switch ON, the same
+    inputs are canonicalized to the URA slug and count as ONE. This
+    proves the disabled test above is not vacuous — the fuse is
+    genuinely doing different work per switch state.
+    """
+    census = _make_census(egress_identity_enabled=True)
+    result = _house_apply(
+        census,
+        ble_persons=["oji_udezue"],
+        face_recognized_slugs=["Oji"],
+    )
+    assert result.identified_count == 1
 
 
 def test_kill_switch_disabled_register_is_noop():
@@ -684,3 +741,70 @@ def test_kill_switch_disabled_register_is_noop():
         "Oji", datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC),
     )
     assert census._egress_face_ids == {}
+
+
+# ---------------------------------------------------------------------------
+# D-MED-2 — canonicalizer fails CLOSED on ambiguous first-name collisions.
+# ---------------------------------------------------------------------------
+
+
+def _make_census_with_tracked(tracked, *, enabled: bool = True) -> PersonCensus:
+    hass = make_hass()
+    hass.states.get = lambda eid: None
+    _configure_integration_entry(
+        hass, tracked_persons=tracked, egress_identity_enabled=enabled,
+    )
+    mgr = _StubCameraManager({})
+    return PersonCensus(hass, mgr)  # type: ignore[arg-type]
+
+
+def test_canonicalizer_fails_closed_on_first_name_collision(caplog):
+    """Two tracked persons share first-name 'oji' -> face 'Oji' cannot
+    be attributed unambiguously -> returns "" and warns ONCE.
+    """
+    census = _make_census_with_tracked(
+        ["person.oji_udezue", "person.oji_smith"],
+    )
+    import logging as _lg
+    with caplog.at_level(_lg.WARNING):
+        got = census._canonical_person_slug("Oji")
+    assert got == "", "ambiguous first-name must fail CLOSED (empty)"
+    assert any(
+        "ambiguous first-name 'oji'" in rec.message for rec in caplog.records
+    ), "warning must name the ambiguous head"
+
+    # Second call: still fail-CLOSED, NO additional warning (once-per-head).
+    caplog.clear()
+    with caplog.at_level(_lg.WARNING):
+        got2 = census._canonical_person_slug("Oji")
+    assert got2 == ""
+    assert not any(
+        "ambiguous first-name 'oji'" in rec.message for rec in caplog.records
+    ), "warning must be once-per-head, not per-call"
+
+
+def test_canonicalizer_unambiguous_still_resolves():
+    """Baseline: 'ziri' unambiguously does NOT collide -> unchanged
+    pass-through fallback; 'oji' with only oji_udezue tracked resolves."""
+    census = _make_census_with_tracked(
+        ["person.oji_udezue", "person.ezinne_udezue"],
+    )
+    # Unambiguous first-token match.
+    assert census._canonical_person_slug("Oji") == "oji_udezue"
+    # No tracked match -> pass-through fallback (lowercased).
+    assert census._canonical_person_slug("ziri") == "ziri"
+
+
+def test_canonicalizer_ambiguous_input_stamps_no_identity_at_register():
+    """B-CRIT-1 × D-MED-2 chain: an ambiguous face name reaching
+    register_egress_face fails CLOSED (nothing enters the census union).
+    """
+    census = _make_census_with_tracked(
+        ["person.oji_udezue", "person.oji_smith"],
+    )
+    census.register_egress_face(
+        "Oji", datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC),
+    )
+    assert census._egress_face_ids == {}, (
+        "ambiguous first-name must not enter the census union"
+    )
