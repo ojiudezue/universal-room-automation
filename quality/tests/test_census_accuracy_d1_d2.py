@@ -22,6 +22,8 @@ from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import MagicMock
 
+import pytest
+
 import _provenance_harness  # noqa: F401 — bootstraps HA module stubs
 from _provenance_harness import make_hass
 
@@ -30,6 +32,45 @@ from custom_components.universal_room_automation.camera_census import (
     CameraInfo,
     PersonCensus,
 )
+
+
+# ============================================================================
+# Isolation guard — MANDATORY.
+# ----------------------------------------------------------------------------
+# `_install_registry` below monkey-patches
+# `homeassistant.helpers.entity_registry.async_get` and
+# `async_entries_for_platform` on the SHARED module object that many other
+# test files (e.g. `test_envoy_auto_derive.py`) also import via
+# `sys.modules`. Without restoration, those patches persist across the
+# whole suite and cause sibling tests to see our stubbed registry, which
+# manifests as flakes like envoy's `entity_registry_known` flipping to
+# False. This autouse fixture snapshots the two symbols before every test
+# and restores them after — so this file cannot pollute the suite
+# regardless of collection order.
+# ============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _restore_entity_registry_module():
+    """Save + restore any attributes we mutate on the shared
+    homeassistant.helpers.entity_registry stub module.
+    """
+    import homeassistant.helpers.entity_registry as er_mod
+    sentinel = object()
+    saved = {
+        name: getattr(er_mod, name, sentinel)
+        for name in ("async_get", "async_entries_for_platform")
+    }
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is sentinel:
+                # Attribute did not exist before this test; remove it.
+                if hasattr(er_mod, name):
+                    delattr(er_mod, name)
+            else:
+                setattr(er_mod, name, value)
 
 
 # ============================================================================
