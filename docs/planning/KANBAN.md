@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T13:59:24-05:00_ - _Data commit: `8272f4b4e282`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T14:24:36-05:00_ - _Data commit: `422153070037`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1182,11 +1182,12 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
 thread: **diagnostics**
-_created 2026-08-18 02:30 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-18 14:20 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (2):**
-  - `column`: inbox
+- **Forensic keys (3):**
+  - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
+  - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
@@ -1296,19 +1297,21 @@ _created 2026-08-18 10:20 · initial_
 
 ### `CENSUS-FACE-RESOLVER-MIGRATE-1` - Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)
 thread: **presence**
-_created 2026-08-18 10:35 · initial_
+_created 2026-08-18 10:35 · updated 2026-08-18 14:20 · initial_
 - **Next:** Small Tier-1 hotfix: refactor presence.py:4557 to call camera_census._resolve_face_entity_id(base_name). Test the _2-only-cam case.
-- **Forensic keys (2):**
-  - `column`: inbox
+- **Forensic keys (3):**
+  - `column`: in_progress
   - `problem`: presence.py:4557 (_get_face_for_camera, live caller at :4525, v3.19.0 face-confirmed arrival) builds f"sensor.{base}_last_recognized_face" WITHOUT _2-suffix tolerance, so it silently misses cameras whose Frigate face sensor exists only a...
+  - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): build (Tier-1, worktree face-resolver-migrate)
 
 ### `GUEST-COUNT-DEDUP-MIGRATE-1` - ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
 thread: **presence**
-_created 2026-08-18 11:00 · initial_
+_created 2026-08-18 11:00 · updated 2026-08-18 14:20 · initial_
 - **Next:** Verify ZoneGuestCountSensor live-status; then migrate _get_guest_count (+ binary_sensor.py:1584 sibling) to consume the deduped unidentified_count instead of the naive subtraction. Producer/consumer check both.
-- **Forensic keys (2):**
-  - `column`: inbox
+- **Forensic keys (3):**
+  - `column`: in_progress
   - `problem`: aggregation.py:5983 ZoneGuestCountSensor._get_guest_count derives guest count the NAIVE SUBTRACTIVE way (max(0, camera_total - ble_total)) — the SAME additive/subtractive formula behind the historical GUEST double-count. It is superseded...
+  - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2-DB, investigate-first: verify ZoneGuestCountSensor live-status)
 
 ### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census
 thread: **security**
