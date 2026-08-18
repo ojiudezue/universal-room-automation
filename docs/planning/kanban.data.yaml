@@ -2071,6 +2071,16 @@ cards:
     the probe finding that 72% of guest minutes had unidentified_count==0 — that is Path B firing on residents
     through the dead identity check, with no census involvement. Two independent false-guest sources were
     running at once and we only had evidence of one. RESOLVED tonight: bathroom unflagged (see GUEST-ROOM-CONFIG-1).'
+  empty_house_validation_window_2026_08_17: 'OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening;
+    operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0
+    as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident staging in guest room must not flip
+    guest at boot) and L8 (repaired identity check returns True for a resident in a designated guest room)
+    are BOTH BLOCKED — they require a resident physically in a designated guest room, and nobody is home.
+    These are the DISCRIMINATING tests for the dead-oracle repair, so the headline acceptance is ORGANIC-PENDING
+    until people return (Wed PM at the latest). Tonight only proves: boot clean, zero URA ERROR, sensors
+    present/correct, no watchdog restart, and house correctly reads away/empty. The empty-house "no false
+    guest" observation is WEAK (the dead oracle would not have fired on an empty house either), so it
+    must NOT be claimed as proof the fix works — that proof needs an occupied guest room.'
 - id: CENSUS-GUEST-FLOOR-1
   title: Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded
     FLOOR, gated to contain the FP problem that unplugged it
