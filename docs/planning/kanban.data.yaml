@@ -1961,16 +1961,17 @@ cards:
     the scope.
   - Do NOT start before cycle 1's guest-room gate is live and organically proven — this cycle corroborates
     that gate, so an unproven gate makes it unverifiable.
-  next: 'RESCOPE PENDING OPERATOR: D0 probe rejects the identity path (D1/D2 NO-GO — face coverage <30%
-    even post-suffix-fix). Face-independent D3 (approach-track->egress corroboration, 94%) is GO. Recommend:
-    park D1/D2, build D3 as a census_confidence contribution. Awaiting operator call on the rescope.'
+  next: 'BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2
+    + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at
+    egress cams (the D0 blind spot — running now), then (2) replan with both deliverables, then (3) build
+    after cycle-2 merge. Cross-correlate both NVRs is mandatory.'
   refs:
   - custom_components/universal_room_automation/transit_validator.py:829-1140
   - custom_components/universal_room_automation/exterior_track_linker.py:766-777
   - docs/planning/RESEARCH_census_vs_guest_separation.md
   - docs/PLANNING_v3.5.2_CYCLE_6.md:428-551
   - docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-  updated: 2026-08-17 23:40
+  updated: 2026-08-17 23:50
   refinement_status: refined
   d0_probe_outcome_2026_08_17: 'D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the
     identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk,
@@ -1984,6 +1985,18 @@ cards:
     >=30% on a re-run); adopt D3 as the cycle deliverable — wire the approach-track->egress signal as
     a census_confidence CONTRIBUTION to the existing unidentified gate (INV-4 path b), NEVER a third arm.
     Needs operator go on the rescope.'
+  operator_ruling_2026_08_17_build_both: 'OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity):
+    "Build both face and face-independent solution and use face as a confidence boost." Plus critical
+    context that INVALIDATES the D0 face measurement: (1) the D0 probe measured FRIGATE face ONLY — it
+    MISSED the UniFi PROTECT face source entirely (probe blind spot). (2) Protect face is sparse but CONCENTRATED
+    on the G6 ENTRY cam + (likely) family room — i.e. exactly the egress-relevant location the identity
+    path needs. So real egress face coverage is HIGHER than the Frigate-only 7%. (3) Frigate-2 NVR tuning
+    is still NEW, so Frigate coverage will improve too. (4) Cycle 2 is barely exercised because the house
+    is empty. MANDATE: cross-correlate BOTH NVRs Face ID (Frigate-2 + UniFi Protect) — never one source
+    alone. RESCOPE cycle 3 to build BOTH: (a) face-independent approach-track->egress corroboration (D0
+    said 94% GO), AND (b) face identity via cross-correlated Frigate-2+Protect face, used as a CONFIDENCE
+    BOOST (not a sole gate, not a third guest-arm). NEXT: re-probe face coverage INCLUDING Protect at
+    egress cameras before replanning.'
 - id: EGRESS-INTERIOR-COUNT-REINFORCE-1
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-17T23:00:03-05:00_ - _Data commit: `70b0b42862f8`_ - _last_reconciled: 2026-08-17_
+_Generated: 2026-08-17T23:03:20-05:00_ - _Data commit: `48aa49ae899b`_ - _last_reconciled: 2026-08-17_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -139,7 +139,7 @@ _has plan / acceptance_
 
 ### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest
 thread: **presence** - status: **planned** - approval: **explicit**
-_updated 2026-08-17 23:40 · refined_
+_updated 2026-08-17 23:50 · refined_
 - **Problem / Solution:**
   - P1 the egress detector cannot say WHO. `EgressDirectionTracker` (transit_validator.py:829-1140) ALREADY resolves direction correctly — egress cam then interior cam within EGRESS_ENTRY_WINDOW_SECONDS => `entry`; reverse => `exit`; else `a...
   - P2 interior adjacency is unmodelled — `_get_interior_cameras_near()` (transit_validator.py:1130-1140) returns ALL interior cameras with an explicit "without explicit adjacency mapping from the user" comment, so an `entry` can be confirme...
@@ -147,11 +147,12 @@ _updated 2026-08-17 23:40 · refined_
   - P4 guest must not be thresholded off exterior presence. S4 exterior arrival is a CORROBORATOR only — it may raise confidence in, or shorten the dwell for, a guest-room-gated entry; it may NEVER solo-arm guest. Operator: "Never 'someone i...
 - **Origin:** 2026-08-16 - Split out of CENSUS-DECAY-SEPARATION-1 P8 after the exterior investigation showed exterior->headcount and exterior->guest are different-risk problems. Operator's own framing: "We would need to know the transition from outsid...
 - **Why:** Completes the operator's (b) concern — the transition INTO guest — with a causal mechanism rather than a count threshold. Deliberately split from the cycle-2 headcount swap because the risk profiles differ sharply: the headcount swap is ...
-- **Next:** RESCOPE PENDING OPERATOR: D0 probe rejects the identity path (D1/D2 NO-GO — face coverage <30% even post-suffix-fix). Face-independent D3 (approach-track->egress corroboration, 94%) is GO. Recommend: park D1/D2, build D3 as a census_conf...
+- **Next:** BUILD BOTH (operator 2026-08-17). Face-independent approach-track corroboration + cross-NVR (Frigate-2 + Protect) face identity as a confidence boost. BLOCKED on: (1) re-probe Protect face coverage at egress cams (the D0 blind spot — run...
 - **Tags:** tier-3, context-wide-scoping, producer-and-consumer, marginal-benefit-pushback
 - **Refs:** custom_components/universal_room_automation/transit_validator.py:829-1140; custom_components/universal_room_automation/exterior_track_linker.py:766-777; docs/planning/RESEARCH_census_vs_guest_separation.md; docs/PLANNING_v3.5.2_CYCLE_6.md:428-551; docs/planning/PLANNING_exterior_guest_egress.md (486627875)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `d0_probe_outcome_2026_08_17`: D0 PROBE DONE (PROBE_exterior_guest_egress.md, 1970f6360) — REJECTS the identity path, FINDS a face-independent alternative. Numbers: egress events fire ~50/day (186 entry/wk, 6651 rows over 166d in person_entry_exit_events; ambiguous fi...
+  - `operator_ruling_2026_08_17_build_both`: OPERATOR RULING 2026-08-17 (overrides the D0 NO-GO on identity): "Build both face and face-independent solution and use face as a confidence boost." Plus critical context that INVALIDATES the D0 face measurement: (1) the D0 probe measure...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
