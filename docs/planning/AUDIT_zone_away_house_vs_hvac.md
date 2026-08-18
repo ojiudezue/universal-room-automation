@@ -92,10 +92,22 @@ masking of tracker mode, `presence.py:5523-5531`). Three away decision points in
    and `not indoor_blocked` — so **a real INDOOR sensor occupancy blocks the
    phone-driven away**.
 
-**Net precedence at the house-STATE layer**: a real indoor SENSOR occupancy wins
-for *keeping the house home* (hard-gates every away path); PHONE (person-tracker
-away) wins over camera-ghost motion for *forcing* away, but only when census and
-indoor-occupancy are clear. Outdoor camera person-ID cannot block away (WS-A4).
+**Net precedence at the house-STATE layer (corrected 2026-08-17 — the away paths
+are NOT symmetric; do not summarise them as one rule):**
+- Indoor sensor occupancy hard-gates the **base** path (`:1059`) and **path β**
+  (`:1168`, `not indoor_blocked`), but **NOT path α** (`:1091`) — path α does not
+  reference `any_zone_occupied` at all.
+- So when **all phones are confidently away (path α)**, PHONE overrides BOTH room
+  sensors AND camera-ghost motion and forces AWAY at 0.95; the only thing that keeps
+  the house home on that path is a camera-confirmed **person** (`unidentified_count`
+  or `face_recognized_count`), not room-sensor occupancy. A stuck mmWave does **not**
+  hold the house home here. (The common case where a resident is home *with* their
+  phone keeps the house home because the phone is home → not `all_tracked_persons_away`
+  → path α never fires; the edge case is a resident home *without* their phone, where
+  path α will force away despite the room sensor — the known phone-vs-sensor tradeoff.)
+- When **a phone is uncertain/LOST (path β)**, room-sensor occupancy DOES keep the
+  house home (conservative).
+- Outdoor camera person-ID cannot block away (WS-A4).
 
 ---
 
@@ -237,10 +249,22 @@ derivation.
   `any_indoor_zone_occupied`).
 - **HOUSE-STATE away** consumes `any_zone_occupied` (+ `census_count`). Base away
   is hard-gated by sensors/zones (`presence.py:1059`); the **phone** side adds two
-  vetoes — path α (person-tracker ACTIVE, `:1090`) and path β (LOST-admitted,
-  `:1136`) — that force AWAY over camera-ghost motion, but only when census AND
-  indoor occupancy are clear. **Precedence: real indoor SENSOR occupancy wins to
-  keep the house home; PHONE wins over camera ghosts to force away.**
+  vetoes with DIFFERENT sensor treatment (corrected 2026-08-17 — the two paths are
+  NOT the same and an earlier draft over-generalised path β's indoor condition onto
+  both):
+  - **Path α (all phones ACTIVE-away, `:1091`):** conditions are `all_tracked_persons_away
+    AND unidentified_count == 0 AND face_recognized_count == 0`. It does **NOT** reference
+    `any_zone_occupied` — so it **ignores room sensors** (a stuck mmWave does not block it)
+    and forces AWAY at 0.95. The only things that keep the house home on this path are a
+    camera that **identifies a person** (an unidentified body, or a face-recognized
+    resident); camera **motion alone** (Tier-2 ghost) does not block it.
+  - **Path β (a phone is LOST/uncertain, `:1168`):** conditions include `not indoor_blocked
+    AND census_count == 0` — so it **DOES respect room sensors** (a stuck mmWave blocks
+    away here) and is the conservative path.
+  - **Precedence, precisely:** when phones are confidently away, PHONE overrides both room
+    sensors and camera motion-ghosts (path α) — only a camera-confirmed *person* keeps the
+    house home. When a phone is uncertain, room-sensor occupancy keeps the house home
+    (path β). The base `:1059` path also respects room sensors.
 - **HVAC-zone away** = house-state preset (`HOUSE_STATE_PRESET_MAP`,
   `hvac_const.py:780`) overlaid with a **per-zone vacancy override**
   (`hvac.py:1544-1554`) and a **stale-sensor failsafe** (`hvac.py:1565-1620`).
