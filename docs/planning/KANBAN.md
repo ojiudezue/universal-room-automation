@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T12:58:37-05:00_ - _Data commit: `f90c52730168`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-19T13:01:08-05:00_ - _Data commit: `592aebf6fdad`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-19T12:58:37-05:00_ - _Data commit: `f90c52730168`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 8 |
+| 📥 Inbox | 9 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
@@ -23,8 +23,17 @@ _Generated: 2026-08-19T12:58:37-05:00_ - _Data commit: `f90c52730168`_ - _last_r
 | ✅ Done | 25 |
 | ❓ Other | 33 |
 
-## 📥 Inbox (8)
+## 📥 Inbox (9)
 _raw capture_
+
+### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-19 13:15_
+- **Problem / Solution:**
+  - AUDIT (2026-08-19, code+plan vs live): the Bayesian routine-drift detector (RegimeDetector, JS-divergence, 56d baseline / 14d recent) implements the plan (PLANNING_v4.6.1_anomaly_reconciliation..._routine_awareness.md) FAITHFULLY — every...
+- **Why:** Directly ties to two operator rules: "suppression needs a discharge" (this event-driven accumulator has no discharge but a button) and README write-back (no README_v4.6.2 exists -> shipped without a validation ledger, so the false-positi...
+- **Next:** MARGINAL-BENEFIT DECOMPOSITION before any build. Candidate fixes ranked: (1) dedup/upsert the anomaly row (stop nightly re-INSERT) — kills the 331 accumulation, small; (2) re-baseline/adopt discharge so a sustained new-normal clears the ...
+- **Refs:** docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/database.py; ZIRI-COLLEGE-PERSISTENT-AWAY-1
 
 ### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
 thread: **presence** - status: **inbox** - approval: **unreviewed**

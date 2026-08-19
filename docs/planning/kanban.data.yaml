@@ -26,6 +26,44 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ROUTINE-DETECTOR-NO-DISCHARGE-1
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-19 13:15
+  updated: 2026-08-19 13:15
+  title: RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
+  problem_solution:
+  - 'AUDIT (2026-08-19, code+plan vs live): the Bayesian routine-drift detector (RegimeDetector, JS-divergence,
+    56d baseline / 14d recent) implements the plan (PLANNING_v4.6.1_anomaly_reconciliation..._routine_awareness.md)
+    FAITHFULLY — every core param matches (regime_detector.py:25-83,229-247,459-479). The live shifts are
+    DEFENSIBLE real signal (summer+kids-home, Oji travel, Ziri pre-departure) — not a bug. But it FAILS the
+    plan''s own success criterion (line 345: "zero CRITICAL on a stable household after 4-6 weeks; validate
+    not false-positive"). Root cause is DOWNSTREAM of detection: (1) NO dedup/upsert — a still-shifted cell
+    INSERTs a NEW unacked row EVERY nightly run (database.py:6671+), so 331 unacked accumulate monotonically;
+    (2) the ONLY discharge is a manual button (button.py:1281) nobody presses in an autonomous-operator house
+    — NM only notifies, never acks (notification_manager.py:5036); (3) NO re-baseline/regime-adoption path —
+    a legitimately-changed world stays flagged until the 56d baseline slowly swallows it; (4) INFO tier
+    (JS>=0.3 over 10 obs) is near-noise -> almost any sustained real change reads shifted. Net: a display-only
+    signal (grep: NO trust/decision consumer — sensor.py + NM + button only) degraded into an always-red
+    indicator conveying nothing actionable.'
+  why: 'Directly ties to two operator rules: "suppression needs a discharge" (this event-driven accumulator
+    has no discharge but a button) and README write-back (no README_v4.6.2 exists -> shipped without a
+    validation ledger, so the false-positive warm-up the plan mandated was never recorded). The signal could
+    be genuinely useful (resident-routine-change -> census/guest/departure) IF it were drained + consumed.'
+  constraints:
+  - Plan non-goal is "sensor-only output" — do NOT wire it to a trust/actuation path without an explicit new
+    decision. First fix the discharge + calibration so the signal is trustworthy; THEN consider a consumer.
+  next: 'MARGINAL-BENEFIT DECOMPOSITION before any build. Candidate fixes ranked: (1) dedup/upsert the anomaly
+    row (stop nightly re-INSERT) — kills the 331 accumulation, small; (2) re-baseline/adopt discharge so a
+    sustained new-normal clears the backlog (the real "discharge") ; (3) auto-ack/decay for an autonomous house;
+    (4) recalibrate INFO threshold. Also: latent 3->5 level AnomalySeverity map trap (sensor.py:14010, dead
+    2->/3-> slots) + write the missing README_v4.6.2 validation ledger. Decide with operator which, if any.'
+  refs:
+  - docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md
+  - custom_components/universal_room_automation/domain_coordinators/regime_detector.py
+  - custom_components/universal_room_automation/database.py
+  - ZIRI-COLLEGE-PERSISTENT-AWAY-1
 - id: ZIRI-COLLEGE-PERSISTENT-AWAY-1
   thread: presence
   status: inbox
