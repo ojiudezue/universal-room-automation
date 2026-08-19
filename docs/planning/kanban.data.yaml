@@ -4329,10 +4329,10 @@ cards:
     guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: SENSOR-HEALTH-SURFACING-1
   title: 'Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model'
-  column: planned
+  column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 06:00
+  updated: 2026-08-19 06:25
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4383,6 +4383,9 @@ cards:
     grounded+hand-checked. Awaiting Tier-3 BUILD (4 framing-disjoint reviews incl. adversarial-completeness
     + OPERATOR CHECKPOINT before deploy). Held pending the fan-recheck fix resolving (avoid running a
     4-review Tier-3 build in parallel with the 3 fan reviews + pending fixture-seam ship decision).'
+  build_2026_08_19: 'TIER-3 BUILD dispatched (operator go: build STEP, ship 9am). D1 shared SensorExclusionSet
+    + D2 chatter detector + D3 auto-release + D5 surface. 4 framing-disjoint reviews + operator checkpoint
+    before deploy.'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox

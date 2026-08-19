@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T00:54:46-05:00_ - _Data commit: `126a43896f20`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T01:03:39-05:00_ - _Data commit: `ef75cd34ab0b`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1193,10 +1193,10 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-19 06:00 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 06:25 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (9):**
-  - `column`: planned
+- **Forensic keys (10):**
+  - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
   - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
@@ -1205,6 +1205,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 06:00 · initial_
   - `definition_confirmed_2026_08_18`: CHATTER DEFINITION GROUNDED + HAND-CHECKED + operator-confirmed. Chatter = >=K sub-T_floor impossibility events (interval below the device-family hardware blind-time) in-window, on BLIND-TIME-GATED sensors ONLY (PIR/mmWave/opener). PROVE...
   - `phase_2026_08_19`: IN PROGRESS: resuming STEP: applying plan-review 3 MEDs + Tier-3 elevation to make build-ready
   - `plan_ready_2026_08_19`: PLAN-READY (Tier 3). Both Tier-3 plan reviews passed after fixes: review-1 (3 MED fixed), review-2/build-prediction (M2-MED-1 Reading-A byte-identity + 2 LOW fixed). Definition grounded+hand-checked. Awaiting Tier-3 BUILD (4 framing-disj...
+  - `build_2026_08_19`: TIER-3 BUILD dispatched (operator go: build STEP, ship 9am). D1 shared SensorExclusionSet + D2 chatter detector + D3 auto-release + D5 surface. 4 framing-disjoint reviews + operator checkpoint before deploy.
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
