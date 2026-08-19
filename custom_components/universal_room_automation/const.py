@@ -3779,6 +3779,128 @@ STUCK_SIGNAL_NM_HAZARD_TYPE: Final = "stuck_signal"
 STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
 
 
+# =========================================================================
+# STEP (Sensor Trust / Exclusion Program) — chatter client (v5.85.x).
+# See docs/planning/PLANNING_sensor_health_surfacing.md
+# and docs/planning/PROBE_sensor_chatter_definition_handcheck.md.
+#
+# Chatter DEFINITION (grounded + hand-checked):
+#   A blind-time-gated sensor is *chattering* iff it emits >= K transitions
+#   whose interval since the prior transition is BELOW that sensor's
+#   physical minimum floor T_floor ("impossibility events") within the
+#   rolling observation window. K is set in the wide healthy-vs-pathological
+#   gap surfaced by D0 (healthy physical sensors: <=4-5 sub-floor events / 7d;
+#   pathological: 150-820 / 7d). "Blind-time-gated" is enforced by
+#   CHATTER_PROVENANCE_ALLOWLIST — cameras / AI / groups / bed multistate
+#   are silent-default DENY (their physics is different; a separate detector
+#   class owns them).
+# =========================================================================
+
+# --- Rung 1 kill switch (module const). False -> zero chatter promotions
+#     into SensorExclusionSet + zero NM emits. INV-CHATTER-4 holds.
+CHATTER_QUARANTINE_ENABLED: Final = True
+
+# --- Rung 2 options-flow mirror (AND-composed with rung 1).
+CONF_CHATTER_QUARANTINE_ENABLED: Final = "chatter_quarantine_enabled"
+DEFAULT_CHATTER_QUARANTINE_ENABLED: Final = True
+
+# --- Rung 1 burst threshold. In the D0-surfaced gap (>4-5 healthy,
+#     <150 pathological). K=20 sits comfortably in-gap. Kill-switch
+#     semantics: K = 10**9 effectively disables (no plausible burst
+#     reaches it).
+CHATTER_BURST_K: Final = 20
+
+# --- Rung 1 rolling observation window (seconds).
+#     10 min balances recall (fast enough to catch a live storm) and
+#     precision (long enough that healthy transport artifacts don't
+#     cluster into K).
+CHATTER_OBSERVATION_WINDOW_S: Final = 600.0
+
+# --- Rung 1 quiet-window for auto-release (seconds).
+#     Symmetric with STUCK-SENSOR-1 CORROBORATOR_DISAGREE_S = 900.
+CHATTER_RELEASE_QUIET_S: Final = 900.0
+
+# --- Rung 1 per-device-family T_floor blind-time defaults (seconds).
+#     NEVER learned from the suspect's own history (circular). Ladder:
+#     family default -> per-entity sensor_capability override -> learned
+#     p1-p5 ONLY from a KNOWN-HEALTHY DIFFERENT reference unit.
+#     Per-sensor kill switch: T_floor = 0 disables scoring for that sensor
+#     (impossibility-event count trivially zero -> no promotion possible).
+CHATTER_T_FLOOR_DEFAULTS: Final = {
+    "pir": 2.0,
+    "mmwave": 1.5,
+    "opener": 3.0,
+    "reed": 1.0,
+}
+
+# --- Rung 1 provenance allow-list (the un-fakeable-by-construction gate).
+#     Silent-default DENY: a sensor whose (kind, provider) is not in the
+#     allow-list is NEVER scored, so it CANNOT be false-quarantined by
+#     this detector. New device families ship with an explicit allow OR
+#     deny row (added in a reviewed code change).
+#
+#     Kinds come from occupancy_substrate._KIND_TO_CONF (motion, mmwave,
+#     occupancy) + the opener kind for door/garage sensors.
+#     Providers come from URA's capability / provider tagging on the
+#     entity (same mechanism SENSOR-CAPABILITY-1 uses). Where no explicit
+#     provider tag is available, fall back to entity_id / integration-
+#     domain regex classifier below.
+CHATTER_PROVENANCE_ALLOWLIST: Final = {
+    ("motion", "pir"),
+    ("motion", "mmwave"),
+    ("motion", "zigbee_pir"),
+    ("motion", "zigbee_mmwave"),
+    ("motion", "zwave_pir"),
+    ("mmwave", "mmwave"),
+    ("mmwave", "zigbee_mmwave"),
+    ("presence", "mmwave"),
+    ("presence", "zigbee_mmwave"),
+    ("occupancy", "pir"),
+    ("occupancy", "mmwave"),
+    ("opener", "ratgdo"),
+    ("opener", "garage_door"),
+    ("opener", "reed"),
+    ("opener", "zigbee_reed"),
+    # URA's _CONF_TO_KIND has no "opener" bucket — a garage PIR / reed
+    # switch is legitimately wired under motion_sensors. Blind-time
+    # gating is a property of the HARDWARE, not the CONF bucket, so
+    # ratgdo / garage_door / reed providers are also allowed at
+    # kind=motion.
+    ("motion", "ratgdo"),
+    ("motion", "garage_door"),
+    ("motion", "reed"),
+    ("motion", "zigbee_reed"),
+}
+
+# Explicit DENY (kind, provider) pairs — defense in depth over silent-
+# default DENY, so a review-time grep surfaces the deliberate exclusions.
+CHATTER_PROVENANCE_DENYLIST: Final = {
+    ("motion", "camera"),
+    ("motion", "camera_ai"),
+    ("motion", "frigate"),
+    ("motion", "unifi_protect"),
+    ("motion", "group"),
+    ("bed_state", "any"),
+}
+
+# Camera-family regex / integration-domain sub-allow-list. Fires BEFORE
+# the (kind, provider) allow-list so a mislabeled bare device_class=motion
+# entity carrying a camera-family provenance is denied regardless.
+# Kept small and explicit; extend in reviewed code change if a new family
+# ships.
+CHATTER_CAMERA_FAMILY_INTEGRATIONS: Final = frozenset({
+    "frigate",
+    "unifi_protect",
+    "unifiprotect",
+    "camera",
+})
+CHATTER_CAMERA_FAMILY_ENTITY_SUBSTRINGS: Final = (
+    "camera_motion",
+    "binarygroup_camera_",
+    "camera_ai",
+)
+
+
 
 
 # ==========================================================================

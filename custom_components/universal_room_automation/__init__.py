@@ -4812,6 +4812,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             reconciler = getattr(coordinator, "_actuator_reconciler", None)
             if reconciler is not None and hasattr(reconciler, "async_teardown"):
                 await reconciler.async_teardown()
+            # STEP D2 — chatter detector teardown (Bug Class #38). Owns its
+            # own async_track_state_change_event unsub (self._chatter_unsub).
+            chatter = getattr(coordinator, "_chatter_detector", None)
+            if chatter is not None and hasattr(chatter, "async_teardown"):
+                await chatter.async_teardown()
             debounce_unsub = getattr(coordinator, "_debounce_refresh_unsub", None)
             if debounce_unsub is not None:
                 debounce_unsub()
@@ -5571,6 +5576,7 @@ from .const import (
     # update listener) — no live-attr push, no CM reload needed.
     CONF_STUCK_SIGNAL_NM_ENABLED as _CONF_STUCK_SIGNAL_NM_ENABLED,
     CONF_STUCK_SENSOR_EXCLUSION_ENABLED as _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+    CONF_CHATTER_QUARANTINE_ENABLED as _CONF_CHATTER_QUARANTINE_ENABLED,
     # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket
     # entity-owned CM options keys must reload-suppress + no-live-attr
     # (Number/Switch entities call setters directly; NM re-reads options
@@ -5623,6 +5629,9 @@ _NM_A2_KEYS: frozenset[str] = frozenset({
     # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): stuck-signal knobs.
     _CONF_STUCK_SIGNAL_NM_ENABLED,
     _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+    # STEP D2 (v5.85) — chatter client kill switch. Consumed via
+    # nm_cycle_a_knob in RoomCoordinator._chatter_quarantine_enabled().
+    _CONF_CHATTER_QUARANTINE_ENABLED,
 })
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:

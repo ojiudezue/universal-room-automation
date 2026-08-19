@@ -6596,6 +6596,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_STUCK_SIGNAL_NM_ENABLED,
             CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
             DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
+            CONF_CHATTER_QUARANTINE_ENABLED,
+            DEFAULT_CHATTER_QUARANTINE_ENABLED,
         )
 
         # NM Cycle A-2 fix-up (A2, 2026-07-20): the humidity ladder must
@@ -6628,6 +6630,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # STUCK-SENSOR-1 D1 kill switch — dutycycle sensor exclusion.
             CONF_STUCK_SENSOR_EXCLUSION_ENABLED:
                 DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
+            # STEP D2 chatter client kill switch (rung 2 mirror).
+            CONF_CHATTER_QUARANTINE_ENABLED:
+                DEFAULT_CHATTER_QUARANTINE_ENABLED,
         }
 
         def _equals_default(key, submitted):
@@ -6885,6 +6890,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
                     DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # STEP D2 chatter client kill switch (rung 2 mirror).
+            # AND-composed with rung-1 CHATTER_QUARANTINE_ENABLED via
+            # RoomCoordinator._chatter_quarantine_enabled().
+            vol.Optional(
+                CONF_CHATTER_QUARANTINE_ENABLED,
+                default=self._get_current(
+                    CONF_CHATTER_QUARANTINE_ENABLED,
+                    DEFAULT_CHATTER_QUARANTINE_ENABLED,
                 ),
             ): selector.BooleanSelector(),
         })
