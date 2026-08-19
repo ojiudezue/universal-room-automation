@@ -45,4 +45,13 @@ module-level names (`SHADOW-IMPORT-AUDIT`).
 
 ## Live Validation
 
-_Pending post-restart._
+### Validated 2026-08-19 (~10:31 CT, clean v5.84.1 restart) — residents home
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | system_log ERROR count for universal_room_automation: 0 (the UnboundLocalError / "Failed to start coordinator presence" is GONE) |
+| L1 | Presence coordinator STARTED + inferring | **PASS** | `sensor.ura_presence_coordinator_presence_house_state` = `arriving`, FRESH `last_changed 10:31:34` (dwell 33s = genuine fresh boot), `boot_settle_done: true`, `boot_settle_release_reason: real_input`, census 2, tracked 4 |
+
+**Note:** the first v5.84.1 restart did not reboot the process (fix on disk but not loaded); a second clean restart loaded it — hence the two restarts in the log. The v5.84.0 fan-recheck L2 (eval_count climb + a real vacate) remains organic-pending on a fan-ghost episode.
+
+**Incident closed:** presence startup crash fixed; presence inferring cleanly on v5.84.1.
