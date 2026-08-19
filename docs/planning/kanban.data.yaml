@@ -4864,11 +4864,11 @@ cards:
     -> must measure per-sensor post-shake decay and size the window accordingly, else the fix false-negatives
     on slow mmwave. (Study A Zigbee decayed differently — dropped with fan still on — so decay behavior
     is per-sensor.)'
-  window_decay_gap_2026_08_19: 'FIX-DESIGN REQUIREMENT: recheck observation window (~90s) < Screek still-target
-    post-shake decay (~6min, measured LR). A working recheck would false-negative on the Screek. The fix
-    must MEASURE per-sensor post-shake decay (recorder probe: fan-off -> mmwave-clear lag per room) and
-    size SPINDOWN_S/WINDOW_S accordingly, OR use a different release criterion. Do NOT ship the veto-scope
-    fix assuming the default window clears the Screek.'
+  window_decay_gap_2026_08_19: 'OPEN QUESTION (not a proven requirement — operator: causality unclear):
+    Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target
+    hold, a real still person, HVAC airflow, or coincidence. Do NOT assume the recheck 90s window is "too
+    short" as established fact. IF the 6min is genuinely the sensor post-shake decay, the window matters;
+    but that causality is UNPROVEN. Measure per-sensor fan-off->clear lag before concluding.'
 - id: STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1
   title: Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when
     it fires
@@ -4895,7 +4895,7 @@ cards:
   column: planned
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:30
+  updated: 2026-08-19 04:55
   refinement_status: refined
   problem: 'The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every
     documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto
@@ -4928,6 +4928,11 @@ cards:
     -> must measure per-sensor post-shake decay and size the window accordingly, else the fix false-negatives
     on slow mmwave. (Study A Zigbee decayed differently — dropped with fan still on — so decay behavior
     is per-sensor.)'
+  operator_direction_2026_08_19: 'OPERATOR DIRECTION: do not just instrument around it — WORK THROUGH
+    THE CODE and find the bug. Bet: it has a bug and "feels like it has never worked." Strong candidate:
+    the per-tick recheck call is wrapped in a swallowed except -> DEBUG (presence.py:6904); if it throws
+    every tick the recheck NEVER arms for ANY room = "never worked." A deep line-by-line lifecycle trace
+    is running (arm/pause/observe/vacate). Observability is still useful but the code trace comes first.'
 - id: FAN-SUSTAINED-SHAKE-DEMOTE-1
   title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
   column: inbox
