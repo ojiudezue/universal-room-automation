@@ -17,6 +17,15 @@ There is **no config knob** to change this (the veto is a hardcoded literal).
 Fixing it needs a code change to scope the SLEEP veto to bedroom / keep-fan-on
 rooms instead of the whole house.
 
+**Update (operator follow-up):** SLEEP is the cause it isn't clearing *now*, but
+it is NOT the sole reason across the evening — see "Pre-sleep (guest window)
+analysis" below. Ordered causes: (a) ~45 min guest window — NOT a house-state
+block (there is no guest veto; guest is permitted), a substantive gate whose
+identity is undetermined live; (b) ~120 s home_night — structurally too short for
+the ~150 s recheck sequence; (c) sleep veto. The corrected fix scope did NOT grow
+into "widen eligible states" (there is no whitelist to widen); the SLEEP-veto
+scoping remains primary and also cures (b).
+
 ## The two distinct mechanisms (don't conflate them)
 
 1. **Fan-interference GATE/HOLD** — `presence.py:_apply_fan_interference_gate`
@@ -156,6 +165,96 @@ Tier note: this touches the presence fan-recheck state machine and interacts
 with the v4.7.13 sleep-fan trust contract (cross-coordinator: presence ↔
 hvac_fans) — regression-prone, so Tier 2-DB (3 framing-disjoint reviews) per
 standing policy.
+
+## Pre-sleep (guest window) analysis — added on operator follow-up
+
+The operator asked: was the recheck failing to fire BEFORE sleep too? History says
+yes (Study A `fan_recheck_last_attempt_iso: null` — it has NEVER armed; Living
+Room's last arm was 2026-08-13, 5 days ago). So the SLEEP veto is **not the sole
+cause**. Verified against code:
+
+**Timeline (live history, Study A):** guest 18:59:47 → home_night 22:02:28 →
+sleep 22:04:28. Fan + mmwave both latched ON continuously at 21:17:43. So
+21:17:43→22:02:28 (~45 min) the room was fan-on + mmwave-sole while house =
+**guest**, then a ~120 s home_night, then sleep.
+
+### 1. Is there a GUEST veto or a state whitelist? NO.
+
+Grep of `presence_fan_recheck.py` for every `house_state` / `HouseState`
+reference returns exactly two sites, both the SLEEP check (`:373-375` in
+`_is_eligible`, `:854-855` in `_still_armed_eligible`). **There is no state
+whitelist and no GUEST veto.** `_is_eligible` permits every house state except
+SLEEP. The per-tick driver `on_room_tick` (called from `presence.py:6893-6903`)
+is **ungated by house state** — it fans out to every room each inference tick.
+(Note: the `house_state in (SLEEP, WAKING, HOME_NIGHT)` veto at `presence.py:4042`
+belongs to a DIFFERENT mechanism — `_compute_mmwave_fan_demoted_rooms`, the mmwave
+demotion path — NOT the recheck. Do not conflate them.)
+
+→ The operator's "guest veto" hypothesis is **refuted by the code**. During the
+21:17–22:02 guest window, house-state did NOT block arming.
+
+### 2. home_night window too short — CONFIRMED.
+
+Minimum time from idle to a completed VACATE (constants in const.py):
+`ARM_DELAY_S 60` (:648) + `SPINDOWN_S 30` (:652) + `WINDOW_S 60` (:657) =
+**150 s** (room-type factor 1.0 for study / living_room — neither is
+bedroom/media, so no `ROOM_TYPE_RECHECK_FACTOR` inflation). Plus the VACATE only
+lands if mmwave actually drops in the window. home_night lasted 22:02:28→22:04:28
+= **120 s < 150 s**. Even if it armed at the instant home_night began it could
+not complete before sleep; and when sleep begins, `_still_armed_eligible` (:854)
+returns False and aborts the in-flight cycle. A home_night this short can NEVER
+complete a recheck.
+
+### 3. Complete, ordered cause enumeration
+
+- **(a) 21:17–22:02 GUEST (~45 min): NOT a house-state block.** The recheck
+  permits guest. It did not arm for a *substantive-gate* reason, not a state
+  reason. Which gate is **undetermined from current live state**: the RAM veto
+  counters reset on the (apparently recent) reboot, so they do not cover this
+  window. Present-day live reads: Living Room diagnostic
+  `sensor.living_room_living_room_fan_recheck_state` shows
+  `fan_recheck_eval_count = 1`, `fan_recheck_veto_counts = {'not_occupied': 1}`
+  since boot; Study A's diagnostic sensor is absent. These since-boot counters
+  are NOT evidence about the guest window. **Leading hypothesis (unverified):**
+  during a guest gathering, people were in or adjacent to these common rooms, so
+  the BLE drop-authorization ladder (`_is_eligible` L1 room-present veto :435-440,
+  or L2 adjacent-present veto) correctly vetoed — which would be *correct*
+  behavior, not a defect. Other candidates: mmwave-sole `N`-consecutive-tick
+  history (:381-394) if `occupancy_source` toggled, or `boot_settle` (:407) if the
+  reboot was inside the window. NOT confirmed live.
+- **(b) 22:02–22:04 HOME_NIGHT (~120 s): structurally too short** for the ~150 s
+  arm+pause+observe sequence (see §2). CONFIRMED from code.
+- **(c) 22:04+ SLEEP: the house-wide SLEEP veto** (:373-375, :854-855).
+  CONFIRMED.
+
+Is the set complete? For (b) and (c) yes, from code. For (a) the *category* is
+established (substantive gate, not house-state) but the *specific* gate is not
+live-confirmed — flagged as the open item below. No evidence of a minimum
+sustained-presence duration gate beyond the 3-tick mmwave-sole history.
+
+### 4. Corrected fix scope — did it grow?
+
+**No net growth of the house-state fix, and importantly NOT toward "widen the
+eligible states."** There is no state whitelist to widen; guest is already
+eligible. Concretely:
+
+- The primary fix remains **scoping the SLEEP veto** so it suppresses the recheck
+  only for keep-fan-on-through-sleep (bedroom-type) rooms, letting empty
+  non-bedroom rooms be rechecked during sleep. This single change ALSO cures
+  cause (b): a room that transitions through a sub-150 s home_night into sleep
+  would then get its recheck window *during the ensuing sleep* instead of being
+  perpetually blocked. So (b) needs no separate fix.
+- Cause (a) does **not** call for a house-state widening (guest is already
+  permitted). If the guest-window block was the BLE ladder with people genuinely
+  nearby, that is correct and needs no change. Only if a live guest-window
+  capture shows a *wrong* veto (e.g. mmwave-tick-history flapping, or an
+  over-broad L2 adjacency) would an additional fix be scoped — deferred pending
+  evidence.
+
+Net: fix scope is essentially unchanged (still "scope the SLEEP veto to
+bedroom/keep-on rooms"), with the added understanding that this same change also
+resolves the home_night-too-short case. The guest-window cause is parked as an
+evidence-gated open item, not an assumed second fix.
 
 ## Open item to verify before building
 
