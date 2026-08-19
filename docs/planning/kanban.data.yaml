@@ -46,11 +46,28 @@ cards:
   constraints:
   - Read-only investigation first; no code change without a confirmed defect. Do NOT remove Ziri as a tracked
     person — he is a resident who returns (breaks, summers).
-  next: 'Investigate: (a) does a stale/absent Ziri tracker trip any anomaly/NM path; (b) does census/guest
-    exclude a known-away resident correctly; (c) Bayesian/schedule change-detection — does any code notice
-    his routine changed (Explore dispatched 2026-08-19). Report to operator, then decide if any card follows.'
+  - 'Pattern (operator 2026-08-19): mostly OUT, with occasional returns (may come back a bit before the
+    semester kicks off; breaks). So the signal is INTERMITTENT presence on a mostly-away baseline, NOT a
+    clean one-shot departure.'
+  bayesian_finding_2026_08_19: 'VERIFIED (Explore + live): URA HAS a real per-person routine-drift detector
+    (RegimeDetector, JS-divergence, nightly, regime_detector.py). Ziri routine_status is currently `shifted`
+    (146 unacked events) — it caught the PRE-DEPARTURE room-mix change (recent: more in own Bedroom/Bathroom,
+    less in Media/Breakfast Nook/Patio). GAP: a CLEAN persistent absence is SUPPRESSED by design —
+    _is_vacation_cell() treats zero recent visits as a vacation proxy -> cell forced `stable`, no event
+    (regime_detector.py:459-479); 10-obs floor also nulls divergence. So as Ziri goes fully away the `shifted`
+    status will REVERT to quiet and he is treated as away_typical. NO positive "resident departed / persistent
+    absence" alert exists. INTERMITTENT-RETURN RISK (the operators pattern): each return week repopulates the
+    recent window -> can RE-FIRE divergence -> noisy shifted<->stable flip-flops; and after a full semester the
+    56d baseline decays toward away, so a break return could itself flag as a shift (inverse).'
+  next: 'Investigate/verify the three live seams, then report: (a) does a weeks-stale Ziri tracker trip any
+    anomaly/NM path; (b) HIGHEST-VALUE — does a resident returning after weeks away briefly ARM GUEST before
+    BLE/face re-recognizes him (guest false-positive on a returning resident); (c) whether to add a
+    "resident long-term-absence" state (distinct from vacation-suppress) so census/guest/notifications treat
+    a known-away resident correctly without flip-flop. Marginal-benefit gate before speccing (c).'
   refs:
   - docs/planning/KANBAN.md
+  - custom_components/universal_room_automation/domain_coordinators/regime_detector.py
+  - custom_components/universal_room_automation/bayesian_predictor.py
 - id: STEP-SHADOW-EVIDENCE-WATCH-1
   thread: diagnostics
   status: inbox
