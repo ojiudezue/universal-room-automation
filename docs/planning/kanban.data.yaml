@@ -4895,7 +4895,7 @@ cards:
   column: planned
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:55
+  updated: 2026-08-19 05:05
   refinement_status: refined
   problem: 'The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every
     documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto
@@ -4933,6 +4933,18 @@ cards:
     the per-tick recheck call is wrapped in a swallowed except -> DEBUG (presence.py:6904); if it throws
     every tick the recheck NEVER arms for ANY room = "never worked." A deep line-by-line lifecycle trace
     is running (arm/pause/observe/vacate). Observability is still useful but the code trace comes first.'
+  bug_found_2026_08_19: 'CODE TRACE FOUND IT (AUDIT_fan_recheck_bug_hunt.md). CONFIRMED: (1) the recheck
+    has NEVER vacated a room — apply_fan_recheck_release guards on outcome==VACATED and never ran; 08-13
+    occupied_confirmed was the non-vacate path. (2) WHY IT SHIPPED BROKEN: hollow tests — the suite drives
+    a hand-fed _FakeRoomCoord with occupancy_source="mmwave" hardcoded (test_fan_recheck_mode2_cycle.py:224),
+    never exercising real occupancy-source production. SUSPECTED BUG (high): D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED
+    default on, coordinator.py:3451) sets occupied=False for exactly these rooms BEFORE the recheck (which
+    needs occupied=True to leave idle, presence_fan_recheck.py:378) can arm; D2 defers-to-recheck only
+    when recheck already non-idle -> chicken-and-egg deadlock -> never arms = "never worked". CONFIRM
+    VIA: the disambiguator sensor.<study_a>_fan_recheck_state (sensor.py:15953) is ALREADY BUILT but registry-DISABLED
+    — enable + read fan_recheck_veto_counts; not_occupied=deadlock, mmwave_history_short=ring issue C.
+    Observability already EXISTS — do not build, just enable. Also Finding D: per-room driver shares one
+    except->DEBUG (presence.py:6904) so one room raising skips all rooms after it.'
 - id: FAN-SUSTAINED-SHAKE-DEMOTE-1
   title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
   column: inbox
