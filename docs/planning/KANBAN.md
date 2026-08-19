@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T23:22:36-05:00_ - _Data commit: `da31db72055c`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T23:23:50-05:00_ - _Data commit: `e2aa250bcb8a`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1412,14 +1412,15 @@ _created 2026-08-19 04:10 · updated 2026-08-19 04:30 · refined_
 
 ### `FAN-SUSTAINED-SHAKE-DEMOTE-1` - Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
 thread: **presence**
-_created 2026-08-19 04:10 · updated 2026-08-19 04:30 · initial_
+_created 2026-08-19 04:10 · updated 2026-08-19 04:45 · initial_
 - **Next:** After observability: design a fan-running sustained-shake demotion (mmwave-sole + fan-on + no corroboration for a sustained window -> demote the mmwave vote). Reuse STEP SensorExclusionSet.
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `column`: inbox
   - `program`: sensor-trust-exclusion
-  - `problem`: The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only, backward-looking, transition-EDGE) structurally cannot catch fan-shake: both live episodes are SUSTAIN-direction phantoms — room occupied first, f...
+  - `problem`: The shipped v5.46.0 fan-transition gate (validated, firing, correct) covers the fan-transition-EDGE coincident-with-mmwave-onset phenomenon. It does NOT and cannot cover the SUSTAIN case: room goes occupied first, URA turns the fan on be...
   - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
   - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
+  - `correction_2026_08_19`: CORRECTION (operator pushback + verify): the shipped v5.46.0 fan-transition gate is NOT broken/wrong-shape and is NOT gated off. Verified: FAN_TRANSITION_SUSPECT_WINDOW_S=5.0 (not 0), no override, genuinely ACTUATING (sets any_sensor_act...
 
 ## 🅿️ Parked ideas (top-level list)
 

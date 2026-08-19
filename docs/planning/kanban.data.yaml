@@ -4933,16 +4933,15 @@ cards:
   column: inbox
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:30
+  updated: 2026-08-19 04:45
   refinement_status: initial
   program: sensor-trust-exclusion
-  problem: 'The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only,
-    backward-looking, transition-EDGE) structurally cannot catch fan-shake: both live episodes are SUSTAIN-direction
-    phantoms — room occupied first, fan turns on because of it, shake SUSTAINS the hold (Study A mmwave
-    0.83s BEFORE fan; Living Room still_target 121s AFTER fan = 24x outside the 5s window). fan_transition_suppressed_count=0
-    — never fired. Need a fan-RUNNING sustained-shake demotion/veto acting on the sustain path, not the
-    transition edge. This is a fan-shake variant of the STEP sensor-trust/exclusion program (untrust a
-    fan-shaken mmWave), distinct signature from sub-T_floor chatter.'
+  problem: 'The shipped v5.46.0 fan-transition gate (validated, firing, correct) covers the fan-transition-EDGE
+    coincident-with-mmwave-onset phenomenon. It does NOT and cannot cover the SUSTAIN case: room goes
+    occupied first, URA turns the fan on because occupied, and the fan-running shake SUSTAINS the hold
+    indefinitely (until the sensor self-times-out ~1.7h later). Need an ADDITIVE fan-RUNNING sustained-shake
+    demotion on the sustain path — untrust a fan-shaken mmwave vote while the fan runs and no corroboration.
+    STEP sensor-trust sibling; distinct from the creation gate and from sub-T_floor chatter.'
   origin: '2026-08-19 operator: "why arent we filtering fan start impulse for mmwave as we built" — trace:
     gate is wrong shape'
   constraints: Gated on FAN-RECHECK-OBSERVABILITY-1 (see why the D2 demotion backstop no-ops first). Sibling
@@ -4969,6 +4968,16 @@ cards:
     -> must measure per-sensor post-shake decay and size the window accordingly, else the fix false-negatives
     on slow mmwave. (Study A Zigbee decayed differently — dropped with fan still on — so decay behavior
     is per-sensor.)'
+  correction_2026_08_19: 'CORRECTION (operator pushback + verify): the shipped v5.46.0 fan-transition
+    gate is NOT broken/wrong-shape and is NOT gated off. Verified: FAN_TRANSITION_SUSPECT_WINDOW_S=5.0
+    (not 0), no override, genuinely ACTUATING (sets any_sensor_active=False -> skips occupancy creation
+    at coordinator.py:3059, not shadow), and it FIRED TWICE today (jaya_bedroom + exercise_room counters=1
+    since 16:18 boot). Hand audit AUDIT_fan_signature_separability_probe.md (2026-08-01) validated the
+    5s window for fan-transition-EDGE coincident with mmwave onset. It correctly covers that phenomenon.
+    This card is for a DIFFERENT, uncovered phenomenon: onset-leads-fan + SUSTAINED running shake (room
+    occupied first -> fan on because occupied -> shake sustains; Study A mmwave 1s BEFORE fan, Living
+    Room latch 121s after). The creation gate legitimately cannot cover sustain. So this is an ADDITIVE
+    new mechanism (fan-running sustained-shake demotion), NOT a fix to the transition gate.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
