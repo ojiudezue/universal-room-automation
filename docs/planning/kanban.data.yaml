@@ -4332,7 +4332,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 06:55
+  updated: 2026-08-19 07:15
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4401,6 +4401,29 @@ cards:
     + 6-10h build); FAN FIX ships 9am.'
   feed_fixed_2026_08_19: Feed amendment PLAN-READY (own async_track_state_change_event, re-review no CRIT/HIGH/MED,
     1 LOW folded to brief). Tier-3 build RESUMED in .claude/worktrees/step-chatter.
+  tier3_reviews_2026_08_19: 'TIER-3 REVIEWS: A SHIP-WITH-FIX, B SHIP, C DO-NOT-SHIP, D DO-NOT-SHIP. The
+    4-review gauntlet did its job. CONSOLIDATED FIX-UP SCOPE:
+
+    SAFETY (D, HIGH): D-HIGH-1 healthy fast mmWave (FP1 ~1s) false-quarantined because T_floor mmwave=1.5s
+    is TIGHTER than healthy cadence + the promised per-entity sensor_capability T_floor override is UNIMPLEMENTED
+    -> the un-fakeable definition is NOT achieved as calibrated (operator hard constraint violated). D-HIGH-2
+    boot-transient primes quarantine (deque append BEFORE boot-settle gate) -> fires every restart with
+    motion.
+
+    TEST-AUTHORITY (C, CRIT): the coordinator tick-site + 6 fusion sites + D2-raise Reading-A are HOLLOW-anchored
+    (source-string .count/.read_text, not behavioral) — neutering P22/stuck/fusion leaves 40/40 green.
+    Same class + same root cause as the fan-recheck bug (real coord un-constructable in-suite, v5.8.0).
+    Corroborates A-M-A2.
+
+    OTHER: D-MED-1 Z2M numeric entity_ids escape the classifier (chatterer not quarantined). D-MED-2 mitigation
+    knobs all Final module-const + ships enabled -> no operator backout but the big toggle. A-M-A1 per-tick
+    async_create_task write-flood (STUCK-1 already fixed this pattern). B: 4 doctrine LOWs (release clobbers
+    stuck label; kill-switch no discharge).
+
+    TWO DECISION-GATED PARTS: (1) T_floor recalibration = MEASURE real mmWave cadence (probe dispatched)
+    then lower floor below healthy OR implement the per-entity override. (2) coordinator-integration tests
+    hit the SAME v5.8.0 fixture seam as the fan fix — live-validate vs build a real-coord harness (operator
+    call). STEP = next-work-block, not shippable soon. Fan fix v5.84.0 UNAFFECTED (staged, 9am).'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox

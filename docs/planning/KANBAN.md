@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T05:58:15-05:00_ - _Data commit: `211828a29aa2`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T06:10:22-05:00_ - _Data commit: `bfd9d5f2e13a`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1193,9 +1193,9 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-19 06:55 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 07:15 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (12):**
+- **Forensic keys (13):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
@@ -1208,6 +1208,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 06:55 · initial_
   - `build_2026_08_19`: TIER-3 BUILD dispatched (operator go: build STEP, ship 9am). D1 shared SensorExclusionSet + D2 chatter detector + D3 auto-release + D5 surface. 4 framing-disjoint reviews + operator checkpoint before deploy.
   - `plan_gap_2026_08_19`: BUILD STOPPED (correctly — anti-fabricate mandate) on a load-bearing PLAN GAP both Tier-3 plan reviews MISSED (producer-check failure): the plan has the chatter detector subscribe to OccupancySubstrate.subscribe() for per-entity edges, b...
   - `feed_fixed_2026_08_19`: Feed amendment PLAN-READY (own async_track_state_change_event, re-review no CRIT/HIGH/MED, 1 LOW folded to brief). Tier-3 build RESUMED in .claude/worktrees/step-chatter.
+  - `tier3_reviews_2026_08_19`: TIER-3 REVIEWS: A SHIP-WITH-FIX, B SHIP, C DO-NOT-SHIP, D DO-NOT-SHIP. The 4-review gauntlet did its job. CONSOLIDATED FIX-UP SCOPE:
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
