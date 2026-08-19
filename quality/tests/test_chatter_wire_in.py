@@ -53,6 +53,59 @@ _ENV = {
     "PYTHONPATH": str(_ROOT / "quality"),
 }
 
+# ---------------------------------------------------------------------------
+# D2-MED-1 (2026-08-19): tree-poisoning safety.
+#
+# The mutation drills below edit production source on disk (that IS the
+# point — a subprocess pytest must load the mutated .py). Even with
+# per-drill try/finally, a hard kill (Ctrl-C, subprocess timeout, OOM,
+# test collection failure INSIDE the with-block) could leave the tree
+# poisoned. Belt+braces: an autouse module-scoped fixture snapshots
+# every file we might touch at collection time and restores each on
+# session end AND per-test (in case a drill leaks). Idempotent.
+# ---------------------------------------------------------------------------
+
+_TOUCHED_FILES: list[pathlib.Path] = [
+    _URA / "coordinator.py",
+    _URA / "domain_coordinators" / "chatter_detector.py",
+    _URA / "domain_coordinators" / "sensor_exclusion.py",
+    _URA / "sensor.py",
+    _URA / "const.py",
+]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _snapshot_and_restore_touched_sources():
+    """Snapshot every production file drills may edit; restore on exit.
+
+    Guarantees `git status --porcelain` reports no drift after this
+    module's tests complete, regardless of drill outcome.
+    """
+    snapshots: dict[pathlib.Path, str] = {
+        p: p.read_text() for p in _TOUCHED_FILES if p.exists()
+    }
+    try:
+        yield
+    finally:
+        for p, orig in snapshots.items():
+            if p.read_text() != orig:
+                p.write_text(orig)
+
+
+@pytest.fixture(autouse=True)
+def _per_test_restore_touched_sources():
+    """Per-test belt on top of the module-scoped braces: any drill that
+    somehow bypasses its own try/finally is caught here too."""
+    snaps: dict[pathlib.Path, str] = {
+        p: p.read_text() for p in _TOUCHED_FILES if p.exists()
+    }
+    try:
+        yield
+    finally:
+        for p, orig in snaps.items():
+            if p.exists() and p.read_text() != orig:
+                p.write_text(orig)
+
 
 def _run_target(target: str) -> int:
     """Run a single pytest node, return exit code.

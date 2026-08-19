@@ -568,6 +568,59 @@ def test_d_med_1_z2m_numeric_id_scored_via_device_class_fallback(chatter_mod):
     assert eid in det.chattering_entities()
 
 
+def test_d2_low_2_operator_t_floor_override_takes_effect_live(chatter_mod):
+    """D2-LOW-2 fix-up (2026-08-19): T_floor operator override reads
+    LIVE in _on_edge at scoring time — no room reload required.
+
+    Fixture: sensor registered with the default 1.0s floor. Fire 8 edges
+    at 0.5s cadence (all sub-1.0s => 7 sub-floor events, below K=10 by
+    default -> would eventually flag if window filled).
+    Then flip the operator T_floor to 5.0s LIVE. Fire more 0.5s edges;
+    they still count as sub-floor under the new threshold and K=10
+    crosses. Assert the entity IS flagged AFTER the flip WITHOUT any
+    re-registration of listeners.
+
+    A T_floor baked into _entity_to_meta at registration would prevent
+    the live effect and this test would time out (never flag).
+    """
+    from test_ura_pkg.domain_coordinators import _nm_cycle_a as nm_a  # type: ignore
+    orig = getattr(nm_a, "nm_cycle_a_knob", None)
+    try:
+        # Start with the default: no override -> knob helper returns default.
+        current = {"t_floor_override": None}
+
+        def _knob(hass, key, default):
+            if key == "chatter_t_floor_s" and current["t_floor_override"] is not None:
+                return current["t_floor_override"]
+            return default
+
+        nm_a.nm_cycle_a_knob = _knob
+        eid = "binary_sensor.foo_pir"
+        coord, det, hass = _make(chatter_mod, motion=[eid])
+        det.async_register_listeners()
+        # Sanity: at default T_floor=1.0s, edges at 0.5s cadence ARE
+        # sub-floor. Fire only 5 edges (4 sub-floor events, below K=10)
+        # so the sensor is NOT yet quarantined.
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        times = [base + timedelta(seconds=0.5 * i) for i in range(5)]
+        _fire_edges(hass, eid, times)
+        assert eid not in det.chattering_entities()
+        # Now flip the operator override to 5.0s LIVE. Fire 7 more
+        # edges at 0.5s: with the new 5.0s floor every one is sub-floor.
+        # Combined with the earlier 4, sub-floor count crosses K=10 without
+        # any re-registration of listeners.
+        current["t_floor_override"] = 5.0
+        more = [times[-1] + timedelta(seconds=0.5 * (i + 1)) for i in range(7)]
+        _fire_edges(hass, eid, more)
+        assert eid in det.chattering_entities(), (
+            "D2-LOW-2 VIOLATED: T_floor override did not take effect live; "
+            "baked into _entity_to_meta at registration time"
+        )
+    finally:
+        if orig is not None:
+            nm_a.nm_cycle_a_knob = orig
+
+
 def test_d_med_2_operator_burst_k_override_takes_effect(chatter_mod):
     """D-MED-2: monkey-patch the nm_cycle_a_knob helper on the imported
     _nm_cycle_a module (used by _effective_burst_k / _effective_t_floor

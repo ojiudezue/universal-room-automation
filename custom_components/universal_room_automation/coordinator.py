@@ -2326,9 +2326,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     "Room %s: chatter discharge NM raise swallowed for %s",
                     _rn, _eid, exc_info=True,
                 )
-        # Once the kill switch is off, mirror-clear detector-side state
-        # so a subsequent kill-switch-on tick starts from a clean slate.
-        self._exclusion_set  # keep attribute alive across restart
+        # D2-LOW-1 (2026-08-19): removed a no-op `self._exclusion_set`
+        # bare-attribute read that had an incorrect comment. The
+        # attribute is initialised in __init__; a bare read is dead code.
 
     def _chatter_quarantine_enabled(self) -> bool:
         """STEP D2 kill switch (AND-composed rung-1 module + rung-2 options).

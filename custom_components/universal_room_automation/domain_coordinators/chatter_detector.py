@@ -457,7 +457,15 @@ class ChatterDetector:
             meta = self._entity_to_meta.get(entity_id)
             if meta is None:
                 return  # not in-scope this setup
-            _kind, _provider, t_floor = meta
+            _kind, _provider, meta_t_floor = meta
+            # D2-LOW-2 fix-up 2026-08-19: read the operator T_floor
+            # override LIVE at scoring time. Symmetric with the burst-K
+            # live-read below; avoids a room-reload requirement for a
+            # T_floor options flip. Falls back to the family default
+            # baked into meta if no override is configured, so a
+            # per-family calibration still applies.
+            live_t_floor = self._effective_t_floor_default()
+            t_floor = live_t_floor if live_t_floor is not None else meta_t_floor
             if t_floor <= 0.0:
                 return  # kill switch for this sensor
 
