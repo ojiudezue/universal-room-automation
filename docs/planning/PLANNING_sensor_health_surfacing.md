@@ -3,11 +3,13 @@
 **Program name (operator-coined 2026-08-18):** **Sensor Trust / Exclusion Program (STEP)** — the unified umbrella for room-tier sensor-vote untrust. STUCK-SENSOR-1 (v5.75.0 SHIPPED), SENSOR-CAPABILITY-1 (SHIPPED), and this cycle are ALL parts of STEP, not separate initiatives. This planning doc scopes the SHARED PRIMITIVE + the first NEW client (physics-based chatter). It re-parents the two shipped cycles under STEP retroactively for coherence.
 
 **This cycle's card:** `SENSOR-HEALTH-SURFACING-1` (retained for kanban continuity; re-scoped).
-**Tier:** **2-DB** (three framing-disjoint reviews + Live). Operator elevation 2026-08-18: shared-primitive change touching the room-tier occupancy fusion.
+**Tier:** **3** (FOUR framing-disjoint reviews incl. dedicated adversarial-completeness pass + operator checkpoint BEFORE deploy + Live). **Operator elevation 2026-08-19 from 2-DB to Tier 3.** Rationale: (a) shared-primitive blast radius — the live v5.75.0 stuck-exclusion promotion path depends on this set; a subtle STEP-EXCLUDE-{1,3} bug regresses room occupancy simultaneously across all rooms. (b) occupancy-trust impact — a wrong exclusion drops a real presence vote from the fusion. (c) history — this area shipped two prior DO-NOT-SHIP build passes plus one PLAN-NEEDS-FIXES review; three converging framings can still miss one path (v5.5.3 Arbitrage-WAIT precedent).
+
+**Falsifiable invariant for Reviewer D (whole-surface completeness pass):** *No correctly-working blind-time-gated sensor is ever quarantined by the chatter client (zero sub-`T_floor` events by construction on such a sensor); every sustained sub-`T_floor`-burst sensor IS quarantined; a quarantined sensor's vote is excluded from the room-tier occupancy fusion, but occupancy derived from other trusted inputs is preserved unchanged.*
 **Created:** 2026-08-18 (full rewrite after two DO-NOT-SHIP reviews of the initial surface+notify design).
 **Origin:** `AUDIT_roadmap_undone_worthwhile.md` #1; `INCIDENT_chatter_class_missed_by_watchdog_2026-08-09.md`.
 
-**Depends on:** RESEARCH_sensor_chatter_definition_prior_art.md (IN FLIGHT — BGP route-flap damping, CAN babbling-idiot / bus-guardian, glitch-filter minimum-dwell, Nagios flap detection, WSN fault taxonomies). **The chatter DEFINITION is TBD-pending that research.** This plan explicitly does NOT author a first-principles definition; §4-D2 slots it in once the research lands.
+**Depends on:** `RESEARCH_sensor_chatter_definition_prior_art.md` + `PROBE_sensor_chatter_definition_handcheck.md` — BOTH LANDED (GO-with-amendments). **The chatter DEFINITION is GROUNDED + HAND-CHECKED and folded into §4-D2** (three empirically-forced amendments: provenance gate, non-circular per-family `T_floor`, burst-of-K on impossibility events). Definition is not re-opened by this plan.
 
 ---
 
@@ -78,11 +80,11 @@ Two families of invariants: shared-primitive invariants (STEP-EXCLUDE-*) and cha
 ### 2.2 Chatter client (STEP D2)
 
 - **INV-CHATTER-1 (safety):** For any sensor `s` the chatter detector flags per §4-D2 (definition TBD, physics-based), `s` MUST appear in the shared exclusion set this tick AND STEP-EXCLUDE-1 MUST hold.
-- **INV-CHATTER-2 (correctness — definition-anchored):** DEFERRED to the research doc. The invariant SHAPE is fixed: "a sensor whose observed behaviour does not violate the definition MUST NOT be flagged." The specific definition (and thus the specific busy-real fixture that discriminates) comes from the research.
+- **INV-CHATTER-2 (correctness — definition-anchored):** a sensor whose observed behaviour does not violate the §4-D2 definition (sub-`T_floor` impossibility events on a blind-time-gated sensor, count ≥ K within window) MUST NOT be flagged. Discriminator fixture is the D0-hand-checked pair in §4-D2 "Live acceptance fixture": ratgdo positives (58,713 tx/7d, sustained sub-floor) vs 30 physical sensors with 1-4 isolated sub-floor artifacts (below K) plus a legitimately-busy hallway/kitchen PIR firing above its floor. Camera-motion group `binarygroup_camera_motion_zone1` MUST be excluded by the provenance gate (M-MED-2 classifier), NOT by the physics criterion.
 - **INV-CHATTER-3 (release):** After `CHATTER_RELEASE_QUIET_S` seconds with ZERO state transitions AND entity currently available, `s` MUST be released from chatter quarantine on the next tick AND `fire_stuck_signal_recovered(kind="chatter", key=(s,))` MUST fire once so the per-day latch clears. STEP-EXCLUDE-3 (client isolation) MUST hold: releasing chatter's promotion of `s` MUST NOT release any concurrent STUCK-SENSOR-1 promotion of `s`.
 - **INV-CHATTER-4 (kill-switch byte-identity):** With `CHATTER_QUARANTINE_ENABLED = False`, chatter client contributes 0 promotions to the shared set. STEP-EXCLUDE-2 hold-condition satisfied at the chatter axis.
 
-**Discriminator (operator-mandated acceptance-criterion shape):** the busy-real vs chatter-fault fixture pair for INV-CHATTER-2 is authored ONCE the research doc lands and specifies the un-fakeable criterion. Requirement: identical raw rate, opposite verdicts. If any proposed acceptance test produces identical outcomes on the pair, it does not discriminate.
+**Discriminator (operator-mandated acceptance-criterion shape):** the busy-real vs chatter-fault fixture pair for INV-CHATTER-2 is authored per §4-D2 "Live acceptance fixture" (post-D0-handcheck). Requirement: SAME or higher raw transition rate on the healthy side, opposite verdicts on the sub-`T_floor` count. "Raw rate" and "sub-floor event count" are decoupled by construction — this is what discriminates.
 
 Reviewer D re-enumerates STEP-EXCLUDE-{1..4} across every consumer + every client (Bug Class #53 shape).
 
@@ -204,7 +206,19 @@ class SensorExclusionSet:
 - **Mutation drill:** at each of the 6 consumer sites, mutate the `is_excluded(sensor)` check to `False`; assert a NAMED occupancy-fusion test reds per site. Deleting one check leaving suite green = hollow anchor.
 - **Live:** `_stuck_sensor_kinds` continues to populate at the same rate as pre-cycle on rooms where P22 or STUCK-SENSOR-1 was already active.
 
-### D2 — Chatter client (physics-based; DEFINITION TBD per D0)
+#### D1.1 — Interaction with STUCK-SENSOR-1 D1's release-scan (M-MED-1 fix)
+
+The v5.75.0 release-scan machinery at `coordinator.py:341-344` (state fields `_dutycycle_excluded_last_tick` / `_dutycycle_excluded_now`) and `:2523-2705` (per-tick reconciliation) is a stateful engine: `_prev_excluded = set(self._dutycycle_excluded_last_tick)` is snapshotted BEFORE the D2 detector runs (`:2533`); the recovered-NM emission scans `_prev_excluded - set(self._dutycycle_excluded_now)` at `:2669`; the `_d2_completed_cleanly` guard (B-MED-1 fix-up, 2026-08-13) at `:2698-2705` exists specifically to prevent a mass-release NM storm on partial detector failure. `SensorExclusionSet` MUST NOT regress any of that. Contract for the builder:
+
+1. **Source of truth (per-writer, single-owner).** STUCK-SENSOR-1 D1's own `_dutycycle_excluded_last_tick` / `_dutycycle_excluded_now` local snapshots REMAIN AUTHORITATIVE for its recovered-NM emission. `SensorExclusionSet` is the FUSION-TIME gate ONLY; it MIRRORS the promotion. The stuck-client is a single-writer over its own book; the shared set does NOT become the source-of-truth for the release scan. Do NOT drive the release scan off `SensorExclusionSet.provenance(e).get("stuck_dutycycle")` — that inverts ownership and the B-MED-1 guard's semantics do not survive the inversion.
+2. **Ordering.** `exclusion_set.reset_tick()` runs at tick start, BEFORE the `_prev_excluded` snapshot at `:2533`, and BEFORE either P22's initial population (`:2498`) or STUCK-SENSOR-1 D1's promotion loop (`:2567-2569`). Each writer then calls `promote(client, e, reason)` for entities engaged THIS tick. STUCK-SENSOR-1's mirror write into `SensorExclusionSet` happens in lock-step with its own `_dutycycle_excluded_now.add(e)` — one call site, both writes, no drift possible between the two books.
+3. **`_d2_completed_cleanly` guard preserved AND extended.** The mid-detector exception guard at `:2698-2705` — which on partial failure PRESERVES the engaged exclusion set to avoid a spurious mass-recovered-NM storm — MUST be extended: on the failure branch, STUCK-SENSOR-1's mirror writes into `SensorExclusionSet` for THIS tick are ALSO preserved (i.e. do NOT call `release("stuck_dutycycle", e)` in the failure branch). The invariant a builder must preserve: on partial D2 detector failure, previous tick's promotions remain, the recovered-NM scan is skipped, AND the fusion gate stays engaged for STUCK-SENSOR-1's entities.
+4. **Byte-identity check.** `ledger_golden_replay` must return byte-identical `stuck_signal` and `recovered_stuck_signal` NM rows across the migration. The rate of recovered-NM emissions per (room, entity) MUST match pre-cycle to the row. Reviewer A owns this diff.
+5. **Chatter client at this seam.** Chatter uses its OWN sticky book (`_chattering_entities` + release-quiet window); it emits recovered-NM via `fire_stuck_signal_recovered(kind="chatter", ...)` on release. It does NOT read or write STUCK-SENSOR-1's `_dutycycle_excluded_*` fields. The two clients' release-scan books are strictly disjoint at the source; STEP-EXCLUDE-3 client-isolation follows.
+
+Reviewer B owns end-to-end trace verification of this ordering; Reviewer C's per-site mutation drill includes deleting the failure-branch preservation and asserting the recovered-NM-storm regression test reds; Reviewer D re-enumerates whether any newly-introduced code path could reset tick-state at the wrong point.
+
+### D2 — Chatter client (physics-based; DEFINITION GROUNDED + HAND-CHECKED per D0)
 
 **Location:** new `ChatterDetector` in `coordinator.py` (or `domain_coordinators/chatter_detector.py` — prefer module for testability). Registered as a subscriber on `OccupancySubstrate.subscribe()` for state-change edges.
 
@@ -227,6 +241,38 @@ was NO-GO on the D0 hand-check: it missed the real incident at small `T_floor` a
    *member* is the real target and is separately in-scope), and bed multi-state (empty→sitting→lying
    not governed by a settle interval). These are real-but-DIFFERENT fault classes → their own
    detectors (carded: `CHATTER-CAMERA-CONFIDENCE-FLAP-1`, `SENSOR-MULTISTATE-FAULT-1`).
+
+   **Classification mechanism (M-MED-2 — allow-list is URA-side `(kind, provider)`, NOT raw `device_class`).**
+   The provenance gate is implemented as a URA-side allow-list of `(kind, provider)` tuples — NEVER a
+   bare `device_class` filter, because `binarygroup_camera_motion_zone1` has `device_class=motion` and a
+   naive `device_class=='motion'` filter would let a camera-motion group through and false-fire on 14,216
+   sub-0.5s events. The allow-list is authored explicitly and shipped as a rung-1 module constant
+   `CHATTER_PROVENANCE_ALLOWLIST` in `const.py`:
+
+   - **Allow (in-scope, blind-time-gated — the physics criterion applies):**
+     - `(kind="motion", provider ∈ {"pir", "mmwave", "zigbee_pir", "zigbee_mmwave", "zwave_pir"})`
+     - `(kind="presence", provider ∈ {"mmwave", "zigbee_mmwave"})`
+     - `(kind="opener", provider ∈ {"ratgdo", "garage_door", "reed"})`
+   - **Deny (out-of-scope, criterion undefined — never scored):**
+     - `(kind="motion", provider ∈ {"camera", "camera_ai", "frigate", "unifi_protect"})` — inference at frame cadence, no motion blind-time.
+     - `(kind=*, provider="group")` — aggregates/groups (transition = union of members; the faulty *member* is the real target, in-scope via its own row).
+     - `(kind="bed_state", provider=*)` — multi-state, not governed by a settle interval.
+
+   **Source of `(kind, provider)`:** the `(kind)` comes from URA's existing `_KIND_TO_CONF` bucket at
+   `occupancy_substrate.py:82-86`. The `(provider)` comes from URA's existing capability / provider
+   tagging on the entity (same mechanism SENSOR-CAPABILITY-1 uses). Where no explicit provider tag is
+   available, fall back to an integration-domain / entity_id regex sub-allow-list committed alongside
+   `CHATTER_PROVENANCE_ALLOWLIST`: camera-family entities matched via integration-domain (`frigate`,
+   `unifi_protect`) or entity_id substring (`camera_motion`, `binarygroup_camera_`) BEFORE the
+   motion-provider allow rule fires. New device families ship with an explicit allow OR deny row —
+   silent default is DENY (physics criterion does not apply → sensor never scored → cannot be
+   quarantined by this detector). This preserves the "un-fakeable by construction" property: a sensor
+   the classifier CANNOT confidently place in the allow-list is not scored, so it cannot be false-quarantined.
+
+   Reviewer C authors a fixture asserting `binarygroup_camera_motion_zone1` is classified camera-family
+   and receives ZERO chatter promotions regardless of raw transition count, AND that a hypothetical
+   mislabeled bare-`device_class=motion` camera entity is still denied by the entity_id /
+   integration-domain fallback.
 2. **`T_floor` from device-family blind-time, NEVER learned from the suspect's own history.** Learning
    the ratgdo's own p1 (1.28s) would declare its own chatter healthy (circular). Per-family floors
    land in the **1–3s** band (D0-calibrated). Ladder: device-class default blind-time (reviewed
@@ -293,6 +339,7 @@ if CHATTER_QUARANTINE_ENABLED and self._chatter_quarantine_enabled_option():
 - **Verify (INV-CHATTER-4, kill switch):** with `CHATTER_QUARANTINE_ENABLED = False`, no `"chatter"` client promotion in `SensorExclusionSet.provenance()` on any entity.
 - **Verify (boot-settle gate):** simulate D0-criterion-violating edges during `_d2_boot_settle_done() == False`; assert no promotion. Release; simulate again; assert promotion.
 - **Verify (no-PIR room):** mmwave-only room with a chattering mmwave. Assert quarantine engages — chatter does NOT require a corroborator.
+- **Verify (provenance-gate — M-MED-2):** feed `binarygroup_camera_motion_zone1` with 14,216 sub-0.5s events; assert ZERO chatter promotions. Repeat with a synthetic `binary_sensor.foo_motion` whose `device_class=motion` but whose integration-domain is `frigate` — assert ZERO promotions (fallback deny). Repeat with a `binary_sensor.foo_motion` whose provider tag is `pir` — assert normal scoring.
 - **Test:** definition-agnostic tests above wire immediately; definition-anchored tests (busy-real / chatter-fault / Garage B replay) land when D0 lands.
 - **Mutation drill:** for each of steps (2), (3), (4-DEFINITION), (5), (6) — mutation MUST red a NAMED test. Run with `PYTHONDONTWRITEBYTECODE=1`.
 - **Live:** post-restart on a room with a known chatterer: `_chattering_entities` non-empty within 10 min; `exclusion_set.is_excluded(e)` True; `_stuck_sensor_kinds[e] == "chatter"`; downstream fusion filter engages.
@@ -355,12 +402,13 @@ New test file `quality/tests/test_chatter_wire_in.py`:
 3. **Surface wire test:** SOURCE-MUTATE `sensor.py:_unavailable_details` chatter branch (not monkey-patch); assert `test_unavailable_entities_sensor_surfaces_chattering_sensor` reds. Restore + status-check per feedback_unrestored_mutation_drill.
 4. **Release wire test:** monkey-patch `check_release` to no-op; assert `test_chatter_auto_release_after_quiet_window` reds.
 5. **Shared-primitive wire tests (STEP D1):** at each of the 6 consumer sites, source-mutate the `is_excluded()` check to `False`; assert a named fusion test reds per site.
+6. **Release-scan failure-branch wire test (D1.1):** source-mutate the `_d2_completed_cleanly=False` branch at `:2698-2705` to call `exclusion_set.release("stuck_dutycycle", e)` (the forbidden inversion); assert a named recovered-NM-storm regression test reds. Restore + status-check.
 
 Run all drills with `PYTHONDONTWRITEBYTECODE=1` + cleared `__pycache__`.
 
 **Acceptance Criteria — D6:**
-- **Test:** `test_chatter_listener_wired`, `test_chatter_tick_site_promotes_via_exclusion_set`, `test_chatter_surface_wired`, `test_chatter_release_wired`, `test_exclusion_set_consumer_sites_wired` (parameterized over 6 sites).
-- **Verify (mutation):** `≥10 failed` on mutation (4 chatter + 6 consumer sites), `0 failed` on restore.
+- **Test:** `test_chatter_listener_wired`, `test_chatter_tick_site_promotes_via_exclusion_set`, `test_chatter_surface_wired`, `test_chatter_release_wired`, `test_exclusion_set_consumer_sites_wired` (parameterized over 6 sites), `test_release_scan_failure_branch_preserves_exclusion_set`.
+- **Verify (mutation):** `≥11 failed` on mutation (4 chatter + 6 consumer sites + 1 release-scan failure branch), `0 failed` on restore.
 
 ---
 
@@ -371,7 +419,11 @@ Run all drills with `PYTHONDONTWRITEBYTECODE=1` + cleared `__pycache__`.
 | `CHATTER_QUARANTINE_ENABLED` | `True` | **Rung 1 — module const** (kill switch) | `const.py` near `STUCK_EXCLUSION_ENABLED` (`const.py:3725`) | Safety-critical kill; setting False → chatter client promotes 0 into `SensorExclusionSet` → INV-CHATTER-4 hold. |
 | `CONF_CHATTER_QUARANTINE_ENABLED` | default True | **Rung 2 — options flow** | `config_flow.py` alongside `CONF_STUCK_SENSOR_EXCLUSION_ENABLED` | Per-deployment enable; AND-composed with rung-1 via helper analogous to `_stuck_exclusion_enabled` at `coordinator.py:2121`. |
 | `CHATTER_RELEASE_QUIET_S` | `900` (15 min) | **Rung 1** | `const.py` | Symmetric with STUCK-SENSOR-1's `CORROBORATOR_DISAGREE_S = 900`. Substantial-enough stability proof; short-enough operator recovery. |
-| Any per-edge / per-window / per-dwell chatter thresholds | **TBD per D0 research** | **Rung 1** by default (physics-derived constants that should require code review); per-entity overrides via `sensor_capability` (rung 2) if research indicates per-hardware variation | `const.py` (defaults) + `sensor_capability` schema (overrides) | Values and structure come from the research doc; do not commit to specific numbers here. Marginal-benefit rule: no dashboard-tunable rung-3 knob. |
+| `CHATTER_BURST_K` | D0-recommended (in the wide gap 5..150; commit exact value at build) | **Rung 1 — module const** | `const.py` | Burst threshold: count of sub-`T_floor` impossibility events within the observation window required to quarantine. D0 shows healthy physical sensors ≤4-5/7d, chatterers 150-820/7d — K sits in the gap. Rung-1 because a wrong K silently drops quarantines or false-fires; change requires review. Kill-switch semantics: `K = 10**9` effectively disables (no plausible burst reaches it). |
+| `CHATTER_T_FLOOR_DEFAULTS` (per device-family map) | PIR: 2.0s; mmWave: 1.5s; opener/ratgdo: 3.0s; reed: 1.0s (D0-calibrated 1-3s band) | **Rung 1 — module const** | `const.py` | Per-family blind-time floor. NEVER learned from suspect's own history (circular). Ladder: family default → datasheet / Zigbee min-report override → learned p1-p5 from a KNOWN-HEALTHY DIFFERENT reference unit. Per-entity override lives in `sensor_capability` (rung-2) if the datasheet differs. **Per-sensor kill switch: `T_floor = 0` for that sensor disables scoring** (impossibility-event count trivially zero → no promotion possible). |
+| `CHATTER_OBSERVATION_WINDOW_S` | D0-recommended (order of hours; commit at build) | **Rung 1 — module const** | `const.py` | Rolling window over which burst-of-K is counted. Rung-1 because tuning changes recall/precision trade-off and should require review. |
+| `CHATTER_PROVENANCE_ALLOWLIST` | explicit `(kind, provider)` map per D2 point 1 | **Rung 1 — module const** | `const.py` | The un-fakeable-by-construction gate. Silent-default DENY (unknown families are not scored). Rung-1 because a wrong entry false-quarantines or misses a class. New device families ship with explicit allow OR deny row. |
+| Per-entity `T_floor` override | via existing `sensor_capability` schema | **Rung 2 — options flow** | `sensor_capability` (existing) | Per-hardware datasheet override for unusual devices (long-blind-time PIRs, custom ratgdo firmware). Rung-2 because operator-legitimate per-deployment structure. |
 | `CONF_STUCK_SIGNAL_NM_ENABLED` | reused | Rung 2 | existing | Silences all `stuck_signal` NM incl. new `chatter` kind. |
 
 **Kill-switch semantics** documented on `CHATTER_QUARANTINE_ENABLED`: `False` → detector may still populate `_chattering_entities` (D5 surface stays useful during dogfood), but the tick-site does NOT call `exclusion_set.promote("chatter", ...)` and does NOT emit NM. INV-CHATTER-4 + STEP-EXCLUDE-2 (at the chatter axis) hold byte-identical.
@@ -399,7 +451,7 @@ No rung-3 knob (dashboard `number`/`switch`) introduced.
 
 ### Producer check — `SensorExclusionSet` (all clients)
 - **Computed by:** three clients — P22 (`_p22_stuck_sensor_set`, `coordinator.py:2498`), STUCK-SENSOR-1 D1 (`_promote_dutycycle_to_exclusion`, `:2141-2187`), chatter (`ChatterDetector.check(...)`, NEW).
-- **Depends on:** for chatter — substrate listener + `_last_transition_*` tracker + `_d2_boot_settle_done()` + D0 criterion. For P22 — `_sensor_on_since` + hours threshold. For STUCK-SENSOR-1 — `_detect_duty_cycle_stuck` + role-aware corroborators + `_d2_house_state_allows`.
+- **Depends on:** for chatter — substrate listener + `_last_transition_*` tracker + `_d2_boot_settle_done()` + D0 criterion + `CHATTER_PROVENANCE_ALLOWLIST` classifier. For P22 — `_sensor_on_since` + hours threshold. For STUCK-SENSOR-1 — `_detect_duty_cycle_stuck` + role-aware corroborators + `_d2_house_state_allows`.
 - **Health of dependencies:** substrate `subscribe()` proven; boot-settle proven; role-aware corroborators proven (SENSOR-CAPABILITY-1 shipped); D0 grounds the chatter criterion in prior art before ship.
 - **Multiple derivations?** MULTIPLE — three clients. STEP-EXCLUDE-3 (client isolation) is the safety on multi-derivation.
 - **External ground truth:** ledger_golden fixtures for STUCK-SENSOR-1 D1 rows; D0 research + probe for chatter.
@@ -422,16 +474,16 @@ No rung-3 knob (dashboard `number`/`switch`) introduced.
 
 | File | Change | Lines (est.) |
 |---|---|---|
-| `custom_components/universal_room_automation/const.py` | Add `CHATTER_*` constants (`CHATTER_QUARANTINE_ENABLED`, `CHATTER_RELEASE_QUIET_S`, and TBD-per-D0 physics thresholds); append `"chatter"` to sub-classification comment | +30 |
+| `custom_components/universal_room_automation/const.py` | Add `CHATTER_*` constants: `CHATTER_QUARANTINE_ENABLED`, `CHATTER_RELEASE_QUIET_S`, `CHATTER_BURST_K`, `CHATTER_T_FLOOR_DEFAULTS`, `CHATTER_OBSERVATION_WINDOW_S`, `CHATTER_PROVENANCE_ALLOWLIST` (all rung-1 module consts per §5); append `"chatter"` to sub-classification comment | +50 |
 | `custom_components/universal_room_automation/domain_coordinators/sensor_exclusion.py` (new) | `SensorExclusionSet` shared primitive | +160 |
-| `custom_components/universal_room_automation/coordinator.py` | Migrate 6 consumer sites onto `SensorExclusionSet.is_excluded()`; migrate P22 + STUCK-SENSOR-1 D1 writers onto `promote()`; add `ChatterDetector` init + substrate subscribe + tick-site promotion/release block + kill-switch helper | +180 |
+| `custom_components/universal_room_automation/coordinator.py` | Migrate 6 consumer sites onto `SensorExclusionSet.is_excluded()`; migrate P22 + STUCK-SENSOR-1 D1 writers onto `promote()` (lock-step with `_dutycycle_excluded_now` per §D1.1); add `ChatterDetector` init + substrate subscribe + tick-site promotion/release block + kill-switch helper; extend `_d2_completed_cleanly` failure branch to preserve `SensorExclusionSet` mirror | +200 |
 | `custom_components/universal_room_automation/sensor.py` | Extend `_unavailable_details` with chatter branch | +30 |
 | `custom_components/universal_room_automation/config_flow.py` | Add `CONF_CHATTER_QUARANTINE_ENABLED` | +8 |
-| `quality/tests/test_sensor_exclusion.py` (new) | STEP D1 shared-primitive tests (multi-client, byte-identity, scope, mutation) | +220 |
-| `quality/tests/test_chatter_detector.py` (new) | D2 definition-agnostic tests + D4 no-PIR test; definition-anchored tests added when D0 lands | +200 |
+| `quality/tests/test_sensor_exclusion.py` (new) | STEP D1 shared-primitive tests (multi-client, byte-identity, scope, mutation) + D1.1 release-scan failure-branch preservation test | +240 |
+| `quality/tests/test_chatter_detector.py` (new) | D2 definition-agnostic tests + D4 no-PIR test + M-MED-2 provenance-gate fixture tests; definition-anchored tests added when D0 lands | +230 |
 | `quality/tests/test_chatter_release.py` (new) | D3 tests | +140 |
 | `quality/tests/test_unavailable_entities_chatter.py` (new) | D5 tests | +80 |
-| `quality/tests/test_chatter_wire_in.py` (new) | D6 wire-in + mutation drill (chatter + 6 consumer sites) | +200 |
+| `quality/tests/test_chatter_wire_in.py` (new) | D6 wire-in + mutation drill (chatter + 6 consumer sites + release-scan failure branch) | +220 |
 | `docs/planning/RESEARCH_sensor_chatter_definition_prior_art.md` (in flight, separate task) | D0 research doc | — |
 | `docs/planning/AUDIT_chatter_physics_floor_probe.md` (new, D0) | D0 companion probe | +200 |
 
@@ -439,30 +491,38 @@ No rung-3 knob (dashboard `number`/`switch`) introduced.
 
 ---
 
-## 9. Review protocol — Tier 2-DB (three framing-disjoint reviews + Live)
+## 9. Review protocol — Tier 3 (FOUR framing-disjoint reviews + operator checkpoint + Live)
 
-Elevation rationale: SHARED-PRIMITIVE formalization writes into the same set STUCK-SENSOR-1 already writes into; a subtle STEP-EXCLUDE-{1,3} bug could regress room occupancy silently across all rooms simultaneously. Two DO-NOT-SHIP reviews on the prior scope motivate the tier bump.
+**Operator-elevated 2026-08-19 from Tier 2-DB to Tier 3.** Rationale: (a) shared-primitive blast radius — the live v5.75.0 stuck-exclusion path depends on this set; (b) occupancy-trust impact — a wrong quarantine drops a real presence vote; (c) history — two prior DO-NOT-SHIP build passes + one PLAN-NEEDS-FIXES on this area, and the v5.5.3 Arbitrage-WAIT precedent showed three converging framings can all miss one path.
 
-- **Review A — data integrity + fixture byte-identity + consumer / scope enumeration re-verification.** Owns: independent grep of every `SensorExclusionSet.is_excluded()` consumer to verify all 6 sites migrated (Bug Class #53); STEP-EXCLUDE-4 scope grep (primitive not imported outside RoomCoordinator); `ledger_golden_replay.py` green (STUCK-SENSOR-1 D1 rows byte-identical after migration onto `promote()`; chatter's persisted anomaly row shape compatible with MANIFEST "chatter_adjudication" block); no new DB writer; no unbounded per-entity dict growth on entity removal.
-- **Review B — physics correctness + STEP-EXCLUDE-{1,2,3} + INV-CHATTER-{1,3,4} + async / lifecycle / restart semantics.** Owns: end-to-end trace of a state-change from substrate → chatter listener → detector state → tick-site → `SensorExclusionSet.promote("chatter", ...)` → 6 consumer sites; STEP-EXCLUDE-3 client-isolation MUTATION-verified (delete per-client tracking → per-client-release test reds); boot-settle gate mutation-verified; restart resilience (`_chattering_entities` RAM-cleared on restart; per-day NM latch survives per existing `_stuck_signal_nm`); D3 release symmetry with `check_quarantine_release`; unavailable-state handling on both detection (skip) and release (skip); STEP-EXCLUDE-1 second clause (chatter MUST NOT suppress a non-quarantined sensor's true vote).
-- **Review C — surfaces (D5) + test authority via per-site source mutation + wire-in anchors + D0 anchoring.** Owns: D5 attr round-trip through operator dashboard; D6 wire-in tests fail on deletion; mutation-verified with `PYTHONDONTWRITEBYTECODE=1` + cleared `__pycache__`; D0 research doc AND companion probe both present in repo; the chatter DEFINITION step in D2 is genuinely built on D0's un-fakeable criterion (not a raw rate re-emerging under a new name); busy-real / chatter-fault fixture pair authored per D0 recipe and each fixture actually discriminates.
+**Falsifiable invariant Reviewer D must break** (restated from §2 header for reviewer clarity): *no correctly-working blind-time-gated sensor is ever quarantined by the chatter client (zero sub-`T_floor` events by construction on such a sensor); every sustained sub-`T_floor`-burst sensor IS quarantined; a quarantined sensor's vote is excluded from the room-tier occupancy fusion, but occupancy from other trusted inputs is preserved.*
 
-**Plan review — Tier 2-DB (2 plan reviews, framing-disjoint per CLAUDE.md 2026-08-11 rule):**
+- **Review A — data integrity + fixture byte-identity + consumer / scope enumeration re-verification.** Owns: independent grep of every `SensorExclusionSet.is_excluded()` consumer to verify all 6 sites migrated (Bug Class #53); STEP-EXCLUDE-4 scope grep (primitive not imported outside RoomCoordinator); `ledger_golden_replay.py` green (STUCK-SENSOR-1 D1 rows AND recovered_stuck_signal rows byte-identical after migration onto `promote()`; chatter's persisted anomaly row shape compatible with MANIFEST "chatter_adjudication" block); no new DB writer; no unbounded per-entity dict growth on entity removal.
+- **Review B — physics correctness + STEP-EXCLUDE-{1,2,3} + INV-CHATTER-{1,3,4} + async / lifecycle / restart semantics + §D1.1 release-scan ordering.** Owns: end-to-end trace of a state-change from substrate → chatter listener → detector state → tick-site → `SensorExclusionSet.promote("chatter", ...)` → 6 consumer sites; STEP-EXCLUDE-3 client-isolation MUTATION-verified (delete per-client tracking → per-client-release test reds); boot-settle gate mutation-verified; restart resilience (`_chattering_entities` RAM-cleared on restart; per-day NM latch survives per existing `_stuck_signal_nm`); D3 release symmetry with `check_quarantine_release`; unavailable-state handling on both detection (skip) and release (skip); STEP-EXCLUDE-1 second clause (chatter MUST NOT suppress a non-quarantined sensor's true vote); §D1.1 ordering verified (reset_tick → snapshot → P22 → STUCK-1 → chatter; `_d2_completed_cleanly=False` branch preserves mirror).
+- **Review C — surfaces (D5) + test authority via per-site source mutation + wire-in anchors + D0 anchoring + M-MED-2 classifier fixtures.** Owns: D5 attr round-trip through operator dashboard; D6 wire-in tests fail on deletion; mutation-verified with `PYTHONDONTWRITEBYTECODE=1` + cleared `__pycache__`; D0 research doc AND companion probe both present in repo; the chatter DEFINITION step in D2 is genuinely built on D0's un-fakeable criterion (not a raw rate re-emerging under a new name); busy-real / chatter-fault fixture pair authored per D0 recipe and each fixture actually discriminates; `CHATTER_PROVENANCE_ALLOWLIST` classifier fixtures (camera-motion group false-positive guard, integration-domain fallback for mislabeled entities, silent-default DENY on unknown families).
+- **Review D — adversarial completeness / diff-blind (Tier 3 addition).** Sole job: state the load-bearing invariant (above) in falsifiable form and BREAK it. Re-enumerate the ENTIRE invariant surface — INCLUDING pre-existing code, not just this cycle's diff (v5.75.0 stuck path, P22 continuous-on, chatter, `SensorExclusionSet` API, all 6 consumer sites, provenance-gate classifier, §D1.1 release-scan). For every candidate leak, produce a **concrete, legal-config, reachable repro** (the entity kind + provider + operator-settable knob values + house state that trigger it), not just a code path. Specifically enumerate: (i) any promote/release path that could quarantine a blind-time-gated sensor emitting ZERO sub-`T_floor` events (invariant part 1); (ii) any promote path that misses a sensor with sustained sub-`T_floor` bursts within the observation window (invariant part 2); (iii) any consumer site or substrate path that lets a quarantined vote leak into the fusion, OR drops an untrusted-sensor's fusion contribution beyond the intended room-tier vote (invariant part 3); (iv) the §D1.1 release-scan interaction under partial-detector failure + restart + calendar rollover; (v) the M-MED-2 classifier boundary cases (mislabeled `device_class`, missing provider tag, aggregate whose member is chattering, silent-default DENY of a new device family that should have been in-scope); (vi) `CHATTER_BURST_K` / `T_floor` config combinatorics at extremes (K=1, K=0, T_floor=0, T_floor absurdly large, per-sensor T_floor=0 kill-switch interacting with a genuinely-broken sensor). Run in parallel with A/B/C; D's framing MUST NOT overlap theirs.
+
+**Orchestrator independent verification before ship — MANDATORY, do not trust reviewer summaries.** Personally re-grep every emission site (`promote("chatter"`, `promote("stuck_dutycycle"`, `promote("p22_continuous"`, and all 6 `is_excluded()` consumer sites) AND re-run at least one per-site source mutation on the load-bearing tick-site loop AND the §D1.1 release-scan failure branch. Confirm named-test failure on mutation and clean restore per `feedback_unrestored_mutation_drill`.
+
+**Operator checkpoint BEFORE deploy** (Tier 3 requirement — not just before build). Surface the final review outcomes from A/B/C/D + the invariant-proof summary + the mutation-drill evidence + the ledger_golden byte-identity result. Get explicit go before invoking deploy.sh. If D (or any) finds a CRITICAL/HIGH: fix, re-verify the fixed site with its own mutation-anchored test, AND re-run D's completeness enumeration (a fix can reveal an N+1th site).
+
+**Plan review — Tier 3 (2 plan reviews minimum per CLAUDE.md 2026-08-11 rule; the elevation applies to the BUILD review, and the plan itself was reviewed at Tier 2-DB single-pass and returned PLAN-NEEDS-FIXES 3 MED — fixes applied 2026-08-19; a second plan-review pass framed on completeness-vs-Tier-3-invariant may be run before build dispatch):**
 - **Plan-Review-1 (completeness):** independently re-grep §3.1 REUSED ledger and §7 consumer enumeration; verify D0 is documented as a HARD gate; verify STEP-EXCLUDE-{1..4} + INV-CHATTER-{1,3,4} are falsifiable in the discriminator sense; verify the STEP program re-parents STUCK-SENSOR-1 + SENSOR-CAPABILITY-1 explicitly.
-- **Plan-Review-2 (adversarial build-prediction):** what will the builder get wrong? Ambiguities in `SensorExclusionSet` API (does promote()-then-promote() by the same client repeat-log or dedupe?); the D2/D3 tick-site ordering vs STUCK-SENSOR-1 D1's existing block; the `_chattering_entities` vs `SensorExclusionSet.provenance()` two-surface parity trap.
+- **Plan-Review-2 (adversarial build-prediction):** what will the builder get wrong? Ambiguities in `SensorExclusionSet` API (does promote()-then-promote() by the same client repeat-log or dedupe?); the D2/D3 tick-site ordering vs STUCK-SENSOR-1 D1's existing block (see §D1.1); the `_chattering_entities` vs `SensorExclusionSet.provenance()` two-surface parity trap; classifier fallback ordering (camera-family regex must fire BEFORE motion-provider allow).
 
 **Fix CRITICAL/HIGH from any review before deploy.** Orchestrator independent verification pre-ship: personally re-grep the 6 consumer sites AND re-run at least one per-site mutation drill.
 
-**Pre-deploy acceptance gate:** ledger_golden_replay green; D0 research + probe docs present; suite baseline diff shows only expected new tests + the 6 consumer-site line replacements.
+**Pre-deploy acceptance gate:** ledger_golden_replay green; D0 research + probe docs present; suite baseline diff shows only expected new tests + the 6 consumer-site line replacements; operator checkpoint completed.
 
-**Live Validation (Review D):** post-restart —
+**Live Validation (Review E):** post-restart —
 1. Chatterer room (Garage B ratgdo if still): `_chattering_entities` non-empty within 10 min; `SensorExclusionSet.is_excluded(e)` True on that room; room's `motion_detected` reads from remaining sensors.
 2. Legit-busy room: after ≥30 min live, entity NOT in `_chattering_entities` (INV-CHATTER-2 per D0 fixture recipe).
 3. `sensor.<room>_unavailable_entities.attributes.details` includes `reason="chattering"` iff quarantined.
 4. `SELECT COUNT(*) FROM anomaly_log WHERE json_extract(payload,'$.kind')='chatter'` ≥ 1 on chatterer rooms, 0 on legit-busy rooms.
-5. STUCK-SENSOR-1 v5.75.0 continues to fire per its shipped behaviour (STEP-EXCLUDE-2 hold on the stuck axis).
+5. STUCK-SENSOR-1 v5.75.0 continues to fire per its shipped behaviour (STEP-EXCLUDE-2 hold on the stuck axis) AND recovered_stuck_signal emission rate unchanged (§D1.1 invariant).
 6. Post-release: `fire_stuck_signal_recovered` fires; entity leaves; within `CHATTER_RELEASE_QUIET_S + 1 tick`.
 7. DB write-rate ±25% pre/post per 2026-06-09 write-flood memory.
+8. Camera-motion group `binarygroup_camera_motion_zone1` NOT in any `_chattering_entities` after ≥1h live (M-MED-2 classifier live check).
 
 Post-restart, write observed table into `docs/readmes/README_v<version>.md`.
 
@@ -482,12 +542,12 @@ Post-restart, write observed table into `docs/readmes/README_v<version>.md`.
 ## 11. Operator decisions needed
 
 **None** — the plan carries recommendations for each open question:
-- Ship-together vs ship-separately: **STEP D1 + D2 ship in one cycle** (§0.4); D0 (research + probe) blocks D2 not D1.
+- Ship-together vs ship-separately: **STEP D1 + D2 ship in one cycle** (§0.4); D0 (research + probe) blocks D2 not D1. Splitting is technically possible but would require Reviewer A to re-verify the client-isolation contract (STEP-EXCLUDE-3) against only pre-existing writers (P22 + STUCK-SENSOR-1), deferring genuine two-independent-writer validation — the whole point of shipping the primitive alongside a NEW client. Recommendation stands: joint ship.
 - Corroboration in chatter → **REMOVED** at both detection and release (§4-D4).
 - Substrate leak → **KNOWN, DEFERRED** (§6.1).
-- Physics thresholds → **TBD per D0** (§5, §4-D2).
+- Physics thresholds → **GROUNDED per D0** (§5, §4-D2) — commit exact `CHATTER_BURST_K` and `CHATTER_OBSERVATION_WINDOW_S` values at build time within the D0-recommended bands.
 - Kill switch defaults → **ON** at both rungs; operator flips off without code change.
 - Rev-1 "no exclusion" non-goal → **REVERSED** (§6.8).
 - Re-parenting of STUCK-SENSOR-1 + SENSOR-CAPABILITY-1 under STEP → **retroactive, doc-only** — no code change to those cycles is implied by re-parenting.
 
-If the operator wants Tier 3 (fourth adversarial-completeness reviewer) given the two prior DO-NOT-SHIP reviews and the shared-primitive scope, they say so; otherwise the plan proceeds under Tier 2-DB.
+**Tier 3 elevation: OPERATOR-DECIDED 2026-08-19** — fourth adversarial-completeness reviewer + operator checkpoint before deploy. See §9 for the protocol and Reviewer D's charter. This supersedes the earlier "if the operator wants Tier 3..." language.
