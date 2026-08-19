@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T06:36:37-05:00_ - _Data commit: `3ee2b797c48b`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T06:43:53-05:00_ - _Data commit: `b17faf8b5e1f`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -27,7 +27,7 @@ _Generated: 2026-08-19T06:36:37-05:00_ - _Data commit: `3ee2b797c48b`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 30 |
+| ❓ Other | 31 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1154,7 +1154,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (30)
+## ❓ Other (31)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1193,9 +1193,9 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-19 07:30 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 07:45 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (14):**
+- **Forensic keys (15):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
@@ -1210,6 +1210,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 07:30 · initial_
   - `feed_fixed_2026_08_19`: Feed amendment PLAN-READY (own async_track_state_change_event, re-review no CRIT/HIGH/MED, 1 LOW folded to brief). Tier-3 build RESUMED in .claude/worktrees/step-chatter.
   - `tier3_reviews_2026_08_19`: TIER-3 REVIEWS: A SHIP-WITH-FIX, B SHIP, C DO-NOT-SHIP, D DO-NOT-SHIP. The 4-review gauntlet did its job. CONSOLIDATED FIX-UP SCOPE:
   - `probe_calibration_2026_08_19`: CADENCE PROBE (PROBE_mmwave_healthy_cadence.md) RESOLVED decision #1 with data. KEY REFINEMENT: the un-fakeable criterion is the BURST (K sub-floor events/window), NOT a single sub-floor event — healthy fast mmWave DOES produce sub-floor...
+  - `fixture_decision_2026_08_19`: OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1. STEP fix-up proceeds: de-hollow the C-CRIT tests (extr...
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
@@ -1247,11 +1248,12 @@ _created 2026-08-18 02:30 · initial_
 
 ### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene)
 thread: **platform**
-_created 2026-08-18 03:00 · initial_
+_created 2026-08-18 03:00 · updated 2026-08-19 07:45 · initial_
 - **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `column`: inbox
   - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
+  - `subsumed_note`: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation). Keep as the concrete pollution instance; the broader re-arch owns the fix.
 
 ### `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` - Promote 3 Camera-Census feature toggles to device switches
 thread: **presence**
@@ -1449,6 +1451,14 @@ _created 2026-08-19 05:15 · updated 2026-08-19 06:20 · refined_
   - `problem`: CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms target the same fan-ghosted mmwave-sole rooms and deadlock: D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED default on, coordinator.py:...
   - `phase_2026_08_19`: IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds in sleep-veto)
   - `staged_ready_2026_08_19`: STAGED + SHIP-READY, DEPLOY HELD for non-hostile timing. Merged to develop; 3 Tier-2-DB reviews ALL SHIP (A correctness, B deadlock-break PROVEN + no inverse deadlock, C SHIP-with-live-validation); F-C-2 hollow D3 test fixed (extracted h...
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries)
+thread: **platform**
+_created 2026-08-19 07:45 · initial_
+- **Next:** Investigation deliverable (read-only audit): (A) RUNTIME profile — what makes the suite 4+min (slow modules, repeated heavy setup, real sleeps). (B) POLLUTION map — every test that mutates sys.modules/entity_registry/shared globals witho...
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
 
 ## 🅿️ Parked ideas (top-level list)
 

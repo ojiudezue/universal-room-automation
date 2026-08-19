@@ -4332,7 +4332,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 07:30
+  updated: 2026-08-19 07:45
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4434,6 +4434,11 @@ cards:
     >=13, clean band [8,12]). Opener separation empirically unverifiable (only in-window opener IS the
     chatterer ratgdo) — residual risk, band-sharing mitigates. Regression sentinel: Meross jaya/mediaroom
     (burst 7@1.0s). So the fix-up const changes are DATA-BACKED, no guess.'
+  fixture_decision_2026_08_19: 'OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration
+    surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1.
+    STEP fix-up proceeds: de-hollow the C-CRIT tests (extract-and-make-real where feasible per the D3
+    precedent; honestly label structural + live-validate the genuine v5.8.0 seam — do NOT leave source-string
+    tests masquerading as behavioral) + the data-backed recalibration + all HIGH/MED fixes.'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox
@@ -4491,7 +4496,7 @@ cards:
   column: inbox
   thread: platform
   created: 2026-08-18 03:00
-  updated: 2026-08-18 03:00
+  updated: 2026-08-19 07:45
   refinement_status: initial
   problem: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests)
     PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from
@@ -4502,6 +4507,8 @@ cards:
   next: Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds
     under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
   refs: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  subsumed_note: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation).
+    Keep as the concrete pollution instance; the broader re-arch owns the fix.
 - id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
   title: Promote 3 Camera-Census feature toggles to device switches
   column: shipped_organic
@@ -5102,6 +5109,40 @@ cards:
     HOLD REASON: deploy = HA restart (~5min whole-house outage) and residents are asleep (house=sleep,
     ~6am). Deploy at a non-hostile hour / on operator go. Behavioral proof is LIVE (real-coord in-suite
     = v5.8.0 territory, seam adjudicated acceptable by Review C).'
+- id: TEST-STRATEGY-REARCH-1
+  title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
+    + hollow at boundaries)
+  column: inbox
+  thread: platform
+  created: 2026-08-19 07:45
+  updated: 2026-08-19 07:45
+  refinement_status: initial
+  problem: 'The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole.
+    Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS
+    — tests overwrite shared sys.modules / entity_registry functions (census pollution, energy-precool
+    source-slice collision, presence order-dependent failures), so they cannot run in parallel and a PreToolUse
+    hook serializes pytest; (3) HOLLOW FAKES AT THE COORDINATOR BOUNDARY — the _FakeRoomCoord pattern
+    (occupancy_source hardcoded) let cross-coordinator INTEGRATION bugs ship (fan-recheck deadlock lived
+    5 days; STEP C-CRIT tick-site/fusion source-string-anchored, not behavioral; census double-count).
+    Could plausibly be SIMPLIFIED now — the growth was accretive, likely redundant/slow/polluting tests
+    + a better shared-fixture model.'
+  origin: '2026-08-19 operator: "card investigating and possibly rearchitecting our automated test strategy
+    ... 4+ minute runs with collisions if we try to go parallel"'
+  constraints: 'INVESTIGATION-FIRST — examine before re-architecting; do not write a re-arch plan off
+    a hypothesis. Possibly IP-grade / foundational (like the load-shedding vision-doc-first treatment).
+    Measure before prescribing: profile the 4min runtime (what is slow), enumerate the pollution sites
+    (what monkeypatches shared module state + does not restore), and map the fake-coordinator usages.'
+  knobs: ''
+  next: 'Investigation deliverable (read-only audit): (A) RUNTIME profile — what makes the suite 4+min
+    (slow modules, repeated heavy setup, real sleeps). (B) POLLUTION map — every test that mutates sys.modules/entity_registry/shared
+    globals without restore (the parallel blocker) + whether autouse snapshot/restore or a shared real
+    fixture fixes it. (C) FAKE-COORDINATOR inventory — where _FakeRoomCoord-style hardcoding hides integration
+    (the hollow-boundary class) + whether a REAL-COORD HARNESS (drives real occupancy/fusion, stubs only
+    DB/dispatcher/registry, with an anti-hollow mutation gate) is feasible and would left-shift the fan-recheck/STEP
+    class. (D) SIMPLIFICATION — redundant/obsolete tests, could parallelize if pollution fixed (4min->?).
+    Then a tiered re-arch proposal. Subsumes SUITE-ORDER-POLLUTION-1 + the real-coord-harness idea.'
+  refs: SUITE-ORDER-POLLUTION-1; scripts/hooks/pytest_serialize.sh; AUDIT_fan_recheck_bug_hunt.md (hollow
+    class); step_chatter_review_C.md (C-CRIT); v5.8.0 incident memory (real-coord construction risk)
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
