@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T22:05:20-05:00_ - _Data commit: `98a6dcdf1663`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T22:50:12-05:00_ - _Data commit: `17f50ffd7bd6`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T22:05:20-05:00_ - _Data commit: `98a6dcdf1663`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 27 |
+| ❓ Other | 29 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1148,7 +1148,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (27)
+## ❓ Other (29)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1380,19 +1380,39 @@ _created 2026-08-19 03:15 · updated 2026-08-19 03:40 · initial_
 
 ### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms)
 thread: **presence**
-_created 2026-08-19 03:40 · refined_
+_created 2026-08-19 03:40 · updated 2026-08-19 04:10 · refined_
 - **Next:** Plan the veto-scoping (Tier 2-DB): narrow SLEEP veto at :373-375 + :854-855 to bedroom/keep-fan-on rooms via the reused predicate. Then plan review -> build. Live-validate: Study A + Living Room decay during sleep once fan paused + mmWav...
-- **Forensic keys (2):**
-  - `column`: planned
+- **Forensic keys (4):**
+  - `column`: parked
   - `problem`: Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375, mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never get their fan paused/rechecke...
+  - `rescope_2026_08_19`: RE-SCOPED + PARKED pending FAN-RECHECK-OBSERVABILITY-1. The trace proved the sleep veto is NOT the only blocker: the recheck also failed to arm for an ELIGIBLE empty room during the guest window (no sleep veto then), for an UNOBSERVABLE ...
+  - `parked_reason`: Gated on FAN-RECHECK-OBSERVABILITY-1 — do not build the veto scope until we can see why the recheck silently does not arm.
 
 ### `STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1` - Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when it fires
 thread: **presence**
-_created 2026-08-19 03:40 · initial_
+_created 2026-08-19 03:40 · updated 2026-08-19 04:10 · initial_
 - **Next:** Config/precedence review: recategorize the Study A Zigbee mmWave out of motion_sensors (into presence_sensors/mmwave) so a still-target read does not present as motion. Verify no other consumer depends on it being motion.
-- **Forensic keys (2):**
-  - `column`: inbox
+- **Forensic keys (3):**
+  - `column`: done
   - `problem`: Study A Zigbee mmWave is mapped under motion_sensors; motion_detected outranks presence (coordinator.py:3065), so whenever that Zigbee reads ON the fused occupancy_source becomes "motion" and the fan-recheck (which arms only on source=="...
+  - `disproven_2026_08_19`: DISPROVEN + CLOSED. Trace (AUDIT_fan_recheck_second_bug_and_transition_gate.md): Study A motion_sensors=[], the Zigbee mmwave is under presence_sensors -> occupancy_source is always "mmwave", never "motion". No precedence gap. Sensor cat...
+
+### `FAN-RECHECK-OBSERVABILITY-1` - Surface fan-recheck veto reasons + eval counts + D2 demotion state (recheck non-arm is invisible)
+thread: **presence**
+_created 2026-08-19 04:10 · refined_
+- **Next:** Expose recheck veto reason + eval_count + last_attempt + D2 demotion state as attributes (computed at presence_fan_recheck.py:302-313, currently exposed nowhere) + raise the swallowed-exception log level. Deploy, then observe WHY the rec...
+- **Forensic keys (2):**
+  - `column`: planned
+  - `problem`: The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto (presence_fan_recheck.py:136-139) only bump...
+
+### `FAN-SUSTAINED-SHAKE-DEMOTE-1` - Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
+thread: **presence**
+_created 2026-08-19 04:10 · initial_
+- **Next:** After observability: design a fan-running sustained-shake demotion (mmwave-sole + fan-on + no corroboration for a sustained window -> demote the mmwave vote). Reuse STEP SensorExclusionSet.
+- **Forensic keys (3):**
+  - `column`: inbox
+  - `program`: sensor-trust-exclusion
+  - `problem`: The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only, backward-looking, transition-EDGE) structurally cannot catch fan-shake: both live episodes are SUSTAIN-direction phantoms — room occupied first, f...
 
 ## 🅿️ Parked ideas (top-level list)
 

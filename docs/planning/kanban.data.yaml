@@ -4814,10 +4814,10 @@ cards:
     gap -> STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1. NOT caused by todays census/identity ships.'
 - id: FAN-RECHECK-SLEEP-VETO-SCOPE-1
   title: Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms)
-  column: planned
+  column: parked
   thread: presence
   created: 2026-08-19 03:40
-  updated: 2026-08-19 03:40
+  updated: 2026-08-19 04:10
   refinement_status: refined
   problem: 'Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375,
     mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never
@@ -4839,13 +4839,21 @@ cards:
     during sleep once fan paused + mmWave drops; bedroom fans STILL held.'
   refs: AUDIT_fan_recheck_not_clearing.md; AUDIT_fan_recheck_managed_fan_d0.md; presence_fan_recheck.py:373/854;
     hvac_fans.py:1205
+  rescope_2026_08_19: 'RE-SCOPED + PARKED pending FAN-RECHECK-OBSERVABILITY-1. The trace proved the sleep
+    veto is NOT the only blocker: the recheck also failed to arm for an ELIGIBLE empty room during the
+    guest window (no sleep veto then), for an UNOBSERVABLE reason. So the sleep-veto scope fix alone may
+    NOT clear these rooms. Build observability FIRST, root-cause the silent non-arm, THEN scope the fix
+    correctly (may be more than the sleep veto). The sleep-veto over-scope is still a real bug to fix
+    — but not in isolation.'
+  parked_reason: Gated on FAN-RECHECK-OBSERVABILITY-1 — do not build the veto scope until we can see why
+    the recheck silently does not arm.
 - id: STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1
   title: Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when
     it fires
-  column: inbox
+  column: done
   thread: presence
   created: 2026-08-19 03:40
-  updated: 2026-08-19 03:40
+  updated: 2026-08-19 04:10
   refinement_status: initial
   problem: Study A Zigbee mmWave is mapped under motion_sensors; motion_detected outranks presence (coordinator.py:3065),
     so whenever that Zigbee reads ON the fused occupancy_source becomes "motion" and the fan-recheck (which
@@ -4856,6 +4864,55 @@ cards:
     presence_sensors/mmwave) so a still-target read does not present as motion. Verify no other consumer
     depends on it being motion.'
   refs: coordinator.py:3065; AUDIT_fan_recheck_managed_fan_d0.md
+  disproven_2026_08_19: 'DISPROVEN + CLOSED. Trace (AUDIT_fan_recheck_second_bug_and_transition_gate.md):
+    Study A motion_sensors=[], the Zigbee mmwave is under presence_sensors -> occupancy_source is always
+    "mmwave", never "motion". No precedence gap. Sensor categorization is CORRECT — do not change. The
+    recheck non-arm has a DIFFERENT, unobservable cause.'
+- id: FAN-RECHECK-OBSERVABILITY-1
+  title: Surface fan-recheck veto reasons + eval counts + D2 demotion state (recheck non-arm is invisible)
+  column: planned
+  thread: presence
+  created: 2026-08-19 04:10
+  updated: 2026-08-19 04:10
+  refinement_status: refined
+  problem: 'The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every
+    documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto
+    (presence_fan_recheck.py:136-139) only bumps an in-memory counter exposed on no entity/log; the per-tick
+    fan-out swallows exceptions to DEBUG (presence.py:6904). Two sustain backstops (D2 mmwave-fan demotion
+    mmwave_fan_demoted=false, fan-recheck idle) both SILENTLY no-opped. We cannot root-cause the silent
+    non-arm without observability. MEASURE-BEFORE-BUILD: this is the prerequisite for the sleep-veto-scope
+    fix + the sustained-shake work.'
+  origin: 2026-08-19 fan-recheck trace — eligible room did not arm, cause invisible
+  constraints: Diagnostic-only (surface existing internal state); parsimony — attributes on an existing
+    recheck/diagnostic sensor, not new entities. No behavior change.
+  next: Expose recheck veto reason + eval_count + last_attempt + D2 demotion state as attributes (computed
+    at presence_fan_recheck.py:302-313, currently exposed nowhere) + raise the swallowed-exception log
+    level. Deploy, then observe WHY the recheck does not arm on a live held-empty room.
+  refs: AUDIT_fan_recheck_second_bug_and_transition_gate.md; presence_fan_recheck.py:136,302; presence.py:6904
+- id: FAN-SUSTAINED-SHAKE-DEMOTE-1
+  title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
+  column: inbox
+  thread: presence
+  created: 2026-08-19 04:10
+  updated: 2026-08-19 04:10
+  refinement_status: initial
+  program: sensor-trust-exclusion
+  problem: 'The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only,
+    backward-looking, transition-EDGE) structurally cannot catch fan-shake: both live episodes are SUSTAIN-direction
+    phantoms — room occupied first, fan turns on because of it, shake SUSTAINS the hold (Study A mmwave
+    0.83s BEFORE fan; Living Room still_target 121s AFTER fan = 24x outside the 5s window). fan_transition_suppressed_count=0
+    — never fired. Need a fan-RUNNING sustained-shake demotion/veto acting on the sustain path, not the
+    transition edge. This is a fan-shake variant of the STEP sensor-trust/exclusion program (untrust a
+    fan-shaken mmWave), distinct signature from sub-T_floor chatter.'
+  origin: '2026-08-19 operator: "why arent we filtering fan start impulse for mmwave as we built" — trace:
+    gate is wrong shape'
+  constraints: Gated on FAN-RECHECK-OBSERVABILITY-1 (see why the D2 demotion backstop no-ops first). Sibling
+    of the STEP chatter detector — reuse the shared exclusion primitive. Do NOT just widen the 5s window
+    (still creation-only edge); needs a sustain-path demotion.
+  next: 'After observability: design a fan-running sustained-shake demotion (mmwave-sole + fan-on + no
+    corroboration for a sustained window -> demote the mmwave vote). Reuse STEP SensorExclusionSet.'
+  refs: AUDIT_fan_recheck_second_bug_and_transition_gate.md; const.py:828 FAN_TRANSITION_SUSPECT_WINDOW_S;
+    coordinator.py:2890
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
