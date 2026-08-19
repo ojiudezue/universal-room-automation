@@ -5174,10 +5174,10 @@ cards:
     root cause in miniature.'
 - id: CHATTER-OBSERVE-CONTROL-D7-1
   title: 'STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)'
-  column: review
+  column: in_progress
   thread: diagnostics
   created: 2026-08-19 09:00
-  updated: 2026-08-19 10:35
+  updated: 2026-08-19 10:55
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its
@@ -5209,6 +5209,15 @@ cards:
   refs: PLANNING_sensor_health_surfacing.md; switch.py:154 (census switches); number.py (CM Numbers);
     sensor.py:1677 (UnavailableEntitiesSensor); PROBE_mmwave_healthy_cadence.md (the distribution to surface)
   build_2026_08_19: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
+  reviews_2026_08_19: 'D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED
+    on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off
+    mode-flip leaves stale chatter exclusions (occupancy suppressed up to 900s/indefinitely) — no test
+    flipped modes. B-MED: orphaned CONF_CHATTER_QUARANTINE_ENABLED (no UI to clear pre-D7 False) + phantom
+    switch.ura_chatter_enabled comment. Shadow seam CONFIRMED mutation-anchored. FIX-UP dispatched: mode-transition
+    release + retire old enable bool + migrate + comment fix + LOWs + 3 mode-flip tests. PROCESS LESSON:
+    dispatched 2 reviewers on the SAME worktree, one running mutation drills -> A+D saw B+C mutations
+    mid-flight. Mutation-testing reviewers need ISOLATED worktrees (or run sequentially). B+C restored
+    clean; no harm, but a rule to codify.'
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
   column: inbox
