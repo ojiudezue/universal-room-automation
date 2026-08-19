@@ -90,6 +90,49 @@ from homeassistant.helpers.dispatcher import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _run_fan_recheck_tick_for_rooms(
+    rooms: list[Any],
+    tick_fn: Any,
+    logger: logging.Logger | None = None,
+) -> None:
+    """Fan-out ``tick_fn(room)`` across ``rooms`` with per-room isolation.
+
+    FAN-RECHECK-D2-DEADLOCK-1 D3 (2026-08-19, fix-up F-C-2 2026-08-19):
+    extracted from the inline body at ``_periodic_inference`` so a real
+    behavioral test can drive isolation with an injected raising
+    ``tick_fn`` and prove sibling rooms still run. The pre-fix inline
+    version wrapped the entire loop in ONE try/except → DEBUG, so a
+    raise from ``on_room_tick(room_N)`` silently skipped rooms
+    ``N+1..M`` every tick.
+
+    Contract:
+      - Every room in ``rooms`` gets its ``tick_fn`` invoked exactly
+        once (per-room isolation — one raise does not skip siblings).
+      - A raise is logged at WARNING with the room name and traceback.
+      - No exception propagates out of this helper.
+    """
+    log = logger or _LOGGER
+    for room_coord in rooms:
+        try:
+            tick_fn(room_coord)
+        except Exception:  # noqa: BLE001 — per-room isolation
+            log.warning(
+                "FanRecheck: on_room_tick failed for room=%s "
+                "(isolated — sibling rooms unaffected)",
+                getattr(
+                    room_coord,
+                    "room_name",
+                    getattr(
+                        getattr(room_coord, "entry", None),
+                        "entry_id",
+                        "<unknown>",
+                    ),
+                ),
+                exc_info=True,
+            )
+
+
 # Camera detection timeout: after person/motion goes off, zone stays occupied
 # for this duration before reverting to away. Prevents flapping.
 _CAMERA_OCCUPANCY_TIMEOUT_SECONDS = 300  # 5 minutes
@@ -6890,22 +6933,37 @@ class PresenceCoordinator(BaseCoordinator):
         # Fan-noise Mode-2 mitigation: room-tier fan-recheck per-room tick.
         # Runs after the zone-tier gate so any visible state from this tick
         # is settled. The state machine is opt-in (master OFF by default).
+        # FAN-RECHECK-D2-DEADLOCK-1 D3 (2026-08-19): per-room exception
+        # isolation extracted into ``_run_fan_recheck_tick_for_rooms`` for
+        # direct behavioral testability (fix-up F-C-2, Review C: the
+        # previous inline structure was only reachable via a hollow
+        # pattern-restatement test).
         if self._fan_recheck_manager is not None:
             try:
-                for entry in self.hass.config_entries.async_entries(DOMAIN):
-                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-                        continue
-                    room_coord = self.hass.data.get(DOMAIN, {}).get(
-                        entry.entry_id,
-                    )
-                    if room_coord is None or not hasattr(room_coord, "entry"):
-                        continue
-                    self._fan_recheck_manager.on_room_tick(room_coord)
-            except Exception:  # noqa: BLE001 — defensive
-                _LOGGER.debug(
-                    "FanRecheck: per-tick fan-out failed (non-fatal)",
+                entries = list(
+                    self.hass.config_entries.async_entries(DOMAIN),
+                )
+            except Exception:  # noqa: BLE001 — outer read guard
+                _LOGGER.warning(
+                    "FanRecheck: config-entry enumerate failed (fan-out "
+                    "skipped this tick)",
                     exc_info=True,
                 )
+                entries = []
+            rooms_for_fanout: list[Any] = []
+            for entry in entries:
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                room_coord = self.hass.data.get(DOMAIN, {}).get(
+                    entry.entry_id,
+                )
+                if room_coord is None or not hasattr(room_coord, "entry"):
+                    continue
+                rooms_for_fanout.append(room_coord)
+            _run_fan_recheck_tick_for_rooms(
+                rooms_for_fanout,
+                self._fan_recheck_manager.on_room_tick,
+            )
 
         # Back-compat alias for renamed local — the old name still
         # appears in some downstream string formatters but the value is

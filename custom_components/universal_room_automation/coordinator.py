@@ -3380,6 +3380,36 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                     recheck_in_flight = True
                         except Exception:  # noqa: BLE001 — defensive
                             recheck_in_flight = False
+                        # FAN-RECHECK-D2-DEADLOCK-1 (2026-08-19): recheck-
+                        # ELIGIBLE guard. The prior ``recheck_in_flight``
+                        # gate only trips once ctx.state != idle, but the
+                        # recheck cannot leave idle without
+                        # ``data[STATE_OCCUPIED] == True`` — which this
+                        # D2 block sets to False on the very tick before
+                        # the recheck's own 60s driver can arm. Break the
+                        # deadlock by asking the manager "would a periodic
+                        # tick RIGHT NOW arm this room?". If yes, D2
+                        # yields for this tick so the recheck can arm on
+                        # its next drive; then the pre-existing
+                        # ``recheck_in_flight`` gate keeps D2 deferred
+                        # through arm/pause/window. Read-only probe —
+                        # ``is_recheck_eligible`` MUST NOT mutate
+                        # veto counters or ctx state (see
+                        # presence_fan_recheck._INERT_SINK contract).
+                        recheck_eligible = False
+                        try:
+                            if fr_mgr is not None and hasattr(
+                                fr_mgr, "is_recheck_eligible",
+                            ):
+                                recheck_eligible = bool(
+                                    fr_mgr.is_recheck_eligible(room_name),
+                                )
+                        except Exception:  # noqa: BLE001 — defensive:
+                            # Symmetric with recheck_in_flight above —
+                            # broken/boot-not-ready manager defaults to
+                            # False so D2 fires as backstop (never
+                            # silently disables D2 house-wide).
+                            recheck_eligible = False
                         # D-PRIME-CRIT-1 (supersedes the B-2/D-HIGH-2
                         # defer-to-hold adjudication): the D1 fan-
                         # interference hold is RE-STAMPED every presence
@@ -3399,7 +3429,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         # is unaffected in the sustained case either
                         # way (mmwave provenance keeps it up), so the
                         # pinned room-tier-only blast radius holds.
-                        if not recheck_in_flight:
+                        # OR-composed defer: BOTH gates remain (Advisory-5).
+                        # ``recheck_in_flight`` covers the in-cycle case
+                        # (ctx.state ARMED/PAUSED/RESTORING/COOLDOWN);
+                        # ``recheck_eligible`` covers the pre-arm case
+                        # this cycle exists to fix. Skip demotion this
+                        # tick if EITHER holds.
+                        if recheck_in_flight or recheck_eligible:
+                            # Deferral: preserve the pre-existing outer-
+                            # else semantic (D2 did not fire this tick).
+                            self._mmwave_fan_demoted_last_tick = False
+                            if _LOGGER.isEnabledFor(logging.DEBUG):
+                                _LOGGER.debug(
+                                    "Room %s: D2 defer -> %s",
+                                    room_name,
+                                    (
+                                        "fan-recheck-defer:in-flight"
+                                        if recheck_in_flight
+                                        else "fan-recheck-defer:eligible"
+                                    ),
+                                )
+                        else:
                             # Atomically clear this room's D1 hold so
                             # the tracker's extend-only view cannot
                             # resurrect a just-demoted room-tier state.
@@ -3565,8 +3615,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                     "memory episode write failed "
                                     "(non-fatal)", exc_info=True,
                                 )
-                        else:
-                            self._mmwave_fan_demoted_last_tick = False
                     else:
                         self._mmwave_fan_demoted_last_tick = False
                 else:
