@@ -4329,10 +4329,10 @@ cards:
     guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: SENSOR-HEALTH-SURFACING-1
   title: 'Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model'
-  column: in_progress
+  column: review
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 07:45
+  updated: 2026-08-19 08:40
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4439,6 +4439,14 @@ cards:
     STEP fix-up proceeds: de-hollow the C-CRIT tests (extract-and-make-real where feasible per the D3
     precedent; honestly label structural + live-validate the genuine v5.8.0 seam — do NOT leave source-string
     tests masquerading as behavioral) + the data-backed recalibration + all HIGH/MED fixes.'
+  checkpoint_ready_2026_08_19: 'CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C
+    DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS
+    (all 2 HIGH + 2 MED closed, no new leak from refactor) -> ship-conditions fixed (tree-poisoning test
+    hardened, T_floor live, 2 cleanups). Orchestrator verify DONE: grep-confirmed K=10/T_floor=1.0/promote
+    sites/fusion routing/boot-gate; tree clean; C-re independently mutation-confirmed the fusion filter.
+    96/96 tests, 36/36 stuck byte-identical. AWAITING OPERATOR CHECKPOINT before deploy v5.85.0. Live-validation
+    is the integration authority (accepted). Residual accepted: opener family separation empirically unverifiable
+    (per-sensor T_floor=0 backout); structural-only markers live-validated.'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox

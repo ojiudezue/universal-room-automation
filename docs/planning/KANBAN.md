@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T08:16:02-05:00_ - _Data commit: `35dad87965fe`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T08:44:08-05:00_ - _Data commit: `bdb1a454b7d2`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1193,10 +1193,10 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-19 07:45 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 08:40 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (15):**
-  - `column`: in_progress
+- **Forensic keys (16):**
+  - `column`: review
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
   - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
@@ -1211,6 +1211,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 07:45 · initial_
   - `tier3_reviews_2026_08_19`: TIER-3 REVIEWS: A SHIP-WITH-FIX, B SHIP, C DO-NOT-SHIP, D DO-NOT-SHIP. The 4-review gauntlet did its job. CONSOLIDATED FIX-UP SCOPE:
   - `probe_calibration_2026_08_19`: CADENCE PROBE (PROBE_mmwave_healthy_cadence.md) RESOLVED decision #1 with data. KEY REFINEMENT: the un-fakeable criterion is the BURST (K sub-floor events/window), NOT a single sub-floor event — healthy fast mmWave DOES produce sub-floor...
   - `fixture_decision_2026_08_19`: OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1. STEP fix-up proceeds: de-hollow the C-CRIT tests (extr...
+  - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
