@@ -134,8 +134,8 @@ def _extract_and_compile_helpers():
         "_fusion_filter_active",
         "_apply_chatter_tick",
         "_discharge_chatter_latches",
-        "_chatter_quarantine_enabled",
-        # D7 (2026-08-19): mode gate for shadow-vs-act.
+        # D7 (2026-08-19): mode gate for shadow-vs-act (retired
+        # _chatter_quarantine_enabled per F3 fix-up).
         "_chatter_mode",
         # D7 fix-up HIGH (2026-08-19): mode-transition release.
         "_release_all_chatter_exclusions",

@@ -90,7 +90,7 @@ def _extract():
     wanted = {
         "_apply_chatter_tick",
         "_discharge_chatter_latches",
-        "_chatter_quarantine_enabled",
+        # D7 F3 fix-up (2026-08-19): _chatter_quarantine_enabled retired.
         "_chatter_mode",
         "_fusion_filter_active",
         # D7 fix-up HIGH (2026-08-19): mode-transition release.
@@ -234,7 +234,17 @@ def _make(helper, sensor_exclusion_mod, mode, chattering=("binary_sensor.bad",))
             # Kill-switch-last matches mode's enabled semantics so B-LOW-4
             # doesn't fire spurious discharge NMs on the first tick.
             self._chatter_kill_switch_last = mode != "off"
-            self._chatter_act_last = (mode == "act")
+            # F1 fix-up (2026-08-19) — de-hollow the `_chatter_act_last`
+            # transition-tracking anchor. DO NOT pre-set _chatter_act_last
+            # to `mode == "act"` — that pre-seat masks the production
+            # assignment `self._chatter_act_last = is_act_now` inside
+            # `_apply_chatter_tick` (mutating that line would leave every
+            # test green). Instead, initialise to False so a real
+            # act-tick MUST run to set it True; the transition tests
+            # include a warm-up act tick before the flip so the release-
+            # on-transition path is driven by the production line, not
+            # by test-side scaffolding.
+            self._chatter_act_last = False
             self._mode = mode
         def _chatter_mode(self):
             return self._mode

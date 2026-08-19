@@ -508,6 +508,22 @@ def test_drill_23_d7_HIGH_mode_transition_release_wire():
     )
 
 
+def test_drill_25_d7_F1_dehollow_act_last_assignment_wire():
+    """F1 fix-up (2026-08-19): the `self._chatter_act_last = is_act_now`
+    assignment in _apply_chatter_tick was previously masked by test-side
+    scaffolding (stand-ins pre-set the field). After F1 de-hollow, this
+    mutation MUST red the act->shadow flip test — proving the production
+    assignment is behavior-tested end-to-end.
+    """
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="        self._chatter_act_last = is_act_now",
+        new="        pass  # NEUTERED act-last assignment (F1 anti-hollow drill)",
+        target=str(_TESTS / "test_chatter_d7_shadow_act.py::test_d7_HIGH_act_to_shadow_flip_releases_chatter_exclusions"),
+        label="d7_F1_act_last_assignment",
+    )
+
+
 def test_drill_24_d7_HIGH_release_helper_body_wire():
     """D7 HIGH fix-up: neutering the exclusion_set.release call inside
     _release_all_chatter_exclusions must red the STEP-EXCLUDE-3-preserving

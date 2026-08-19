@@ -2182,9 +2182,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         Contract (all invariants from PLANNING_sensor_health_surfacing.md
         §D2, §D3, §D6, plus fix-up round M-A1 / B-LOW-2 / B-LOW-4):
 
-        * Kill-switch composed rung-1 + rung-2 via
-          ``_chatter_quarantine_enabled()``. False -> zero promotions
-          (INV-CHATTER-4). B-LOW-4: on a True->False flip, immediately
+        * Mode-resolved via ``_chatter_mode()`` (off / shadow / act).
+          "off" -> zero promotions (INV-CHATTER-4). D7 fix-up F3
+          retired the legacy ``_chatter_quarantine_enabled()`` helper —
+          the Select's "off" option is now the single operator kill
+          switch (see the retirement note on ``_chatter_mode``).
+          B-LOW-4: on a True->False flip, immediately
           fire recovered-NM for each previously-latched (kind='chatter',
           entity) pair to discharge the per-day latch — otherwise the
           latch would stay armed and a legitimate future chatter would
@@ -2208,22 +2211,36 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         mode = self._chatter_mode()
         enabled = mode != "off"
 
-        # B-LOW-4: kill-switch True->False discharge (mode->off transition).
-        if self._chatter_kill_switch_last and not enabled:
-            self._discharge_chatter_latches(room_name)
-        self._chatter_kill_switch_last = enabled
+        # F2 fix-up (2026-08-19): release-on-act-flip runs FIRST so
+        # its per-entity `_chatter_nm_fired.discard` clears the latch
+        # keys BEFORE `_discharge_chatter_latches` sweeps the residual
+        # set. Result: exactly one recovered-NM per (chatter, room,
+        # entity) per transition. Previously the two paths overlapped
+        # on act->off — same entity got 2 tasks + 2 log lines even
+        # though the NM latch dedup made the actual NM a no-op.
 
         # D7 HIGH fix-up (2026-08-19): act->non-act (shadow OR off)
         # transition MUST release stale chatter exclusions this tick.
         # Otherwise a still-chattering sensor's exclusion never quiet-
         # releases (quiet requires ZERO edges, which a chatterer cannot
         # produce) and room occupancy stays suppressed indefinitely.
-        # Mirrors the D3 release path per client (STEP-EXCLUDE-3 preserved:
-        # any concurrent stuck_dutycycle promotion still holds).
+        # STEP-EXCLUDE-3 preserved: any concurrent stuck_dutycycle
+        # promotion still holds.
         is_act_now = mode == "act"
         if self._chatter_act_last and not is_act_now:
             self._release_all_chatter_exclusions(room_name)
         self._chatter_act_last = is_act_now
+
+        # B-LOW-4: kill-switch True->False discharge (mode->off transition).
+        # By running AFTER the release helper, entities the helper just
+        # discharged from `_chatter_nm_fired` are no longer in the set,
+        # so this sweep only drains the residual latches (e.g. shadow-
+        # mode WOULD-quarantine latches on shadow->off transition, or
+        # stale keys the release couldn't reach because the entity had
+        # dropped out of the exclusion set earlier this tick).
+        if self._chatter_kill_switch_last and not enabled:
+            self._discharge_chatter_latches(room_name)
+        self._chatter_kill_switch_last = enabled
 
         if not enabled:
             # Kill switch off: still surface diagnostically (D5 stays
@@ -2466,33 +2483,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             return DEFAULT_CHATTER_MODE
 
-    def _chatter_quarantine_enabled(self) -> bool:
-        """STEP D2 kill switch (AND-composed rung-1 module + rung-2 options).
-
-        Either False -> chatter client contributes zero promotions into
-        SensorExclusionSet and emits zero NM (INV-CHATTER-4).
-        """
-        try:
-            from .const import (  # noqa: PLC0415
-                CHATTER_QUARANTINE_ENABLED,
-                CONF_CHATTER_QUARANTINE_ENABLED,
-                DEFAULT_CHATTER_QUARANTINE_ENABLED,
-            )
-        except Exception:  # noqa: BLE001
-            return False
-        if not CHATTER_QUARANTINE_ENABLED:
-            return False
-        try:
-            from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
-                nm_cycle_a_knob,
-            )
-            return bool(nm_cycle_a_knob(
-                self.hass,
-                CONF_CHATTER_QUARANTINE_ENABLED,
-                DEFAULT_CHATTER_QUARANTINE_ENABLED,
-            ))
-        except Exception:  # noqa: BLE001
-            return DEFAULT_CHATTER_QUARANTINE_ENABLED
+    # D7 fix-up F3 (2026-08-19): `_chatter_quarantine_enabled()` DELETED.
+    # It was retired by B-MED-1/2 (single-kill-switch UI via
+    # `select.ura_chatter_mode` "off" option); after that, the only
+    # remaining references were in the test-extract wanted-set — dead
+    # production code. `_chatter_mode()` is the sole resolver now.
 
     def _stuck_exclusion_enabled(self) -> bool:
         """STUCK-SENSOR-1 D1 predicate (1): AND-composed kill switches.
