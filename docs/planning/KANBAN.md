@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T23:37:27-05:00_ - _Data commit: `233ac4f4837b`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T23:48:33-05:00_ - _Data commit: `c443caa9e7c2`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T23:37:27-05:00_ - _Data commit: `233ac4f4837b`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 29 |
+| ❓ Other | 30 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1148,7 +1148,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (29)
+## ❓ Other (30)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1380,9 +1380,9 @@ _created 2026-08-19 03:15 · updated 2026-08-19 03:40 · initial_
 
 ### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms)
 thread: **presence**
-_created 2026-08-19 03:40 · updated 2026-08-19 04:30 · refined_
+_created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
 - **Next:** Plan the veto-scoping (Tier 2-DB): narrow SLEEP veto at :373-375 + :854-855 to bedroom/keep-fan-on rooms via the reused predicate. Then plan review -> build. Live-validate: Study A + Living Room decay during sleep once fan paused + mmWav...
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `column`: parked
   - `problem`: Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375, mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never get their fan paused/rechecke...
   - `rescope_2026_08_19`: RE-SCOPED + PARKED pending FAN-RECHECK-OBSERVABILITY-1. The trace proved the sleep veto is NOT the only blocker: the recheck also failed to arm for an ELIGIBLE empty room during the guest window (no sleep veto then), for an UNOBSERVABLE ...
@@ -1390,6 +1390,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 04:30 · refined_
   - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
   - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
+  - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
 ### `STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1` - Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when it fires
 thread: **presence**
@@ -1402,15 +1403,16 @@ _created 2026-08-19 03:40 · updated 2026-08-19 04:10 · initial_
 
 ### `FAN-RECHECK-OBSERVABILITY-1` - Surface fan-recheck veto reasons + eval counts + D2 demotion state (recheck non-arm is invisible)
 thread: **presence**
-_created 2026-08-19 04:10 · updated 2026-08-19 05:05 · refined_
+_created 2026-08-19 04:10 · updated 2026-08-19 05:15 · refined_
 - **Next:** Expose recheck veto reason + eval_count + last_attempt + D2 demotion state as attributes (computed at presence_fan_recheck.py:302-313, currently exposed nowhere) + raise the swallowed-exception log level. Deploy, then observe WHY the rec...
-- **Forensic keys (6):**
-  - `column`: planned
+- **Forensic keys (7):**
+  - `column`: done
   - `problem`: The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto (presence_fan_recheck.py:136-139) only bump...
   - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
   - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
   - `operator_direction_2026_08_19`: OPERATOR DIRECTION: do not just instrument around it — WORK THROUGH THE CODE and find the bug. Bet: it has a bug and "feels like it has never worked." Strong candidate: the per-tick recheck call is wrapped in a swallowed except -> DEBUG ...
   - `bug_found_2026_08_19`: CODE TRACE FOUND IT (AUDIT_fan_recheck_bug_hunt.md). CONFIRMED: (1) the recheck has NEVER vacated a room — apply_fan_recheck_release guards on outcome==VACATED and never ran; 08-13 occupied_confirmed was the non-vacate path. (2) WHY IT S...
+  - `CONFIRMED_LIVE_2026_08_19`: CONFIRMED LIVE (no build needed — the disambiguator sensor already existed). sensor.living_room_living_room_fan_recheck_state: veto_counts={not_occupied:1}, eval_count=1, last_attempt 2026-08-13. The recheck evaluated ONCE at boot, hit n...
 
 ### `FAN-SUSTAINED-SHAKE-DEMOTE-1` - Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
 thread: **presence**
@@ -1423,6 +1425,15 @@ _created 2026-08-19 04:10 · updated 2026-08-19 04:45 · initial_
   - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
   - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
   - `correction_2026_08_19`: CORRECTION (operator pushback + verify): the shipped v5.46.0 fan-transition gate is NOT broken/wrong-shape and is NOT gated off. Verified: FAN_TRANSITION_SUSPECT_WINDOW_S=5.0 (not 0), no override, genuinely ACTUATING (sets any_sensor_act...
+
+### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
+thread: **presence**
+_created 2026-08-19 05:15 · refined_
+- **Next:** Plan the D2<->recheck precedence reconciliation (Tier 2-DB). Supersedes FAN-RECHECK-SLEEP-VETO-SCOPE-1 as the primary (the sleep veto is a real but secondary over-scope; the deadlock is why it never armed at all).
+- **Forensic keys (3):**
+  - `column`: planned
+  - `program`: sensor-trust-exclusion
+  - `problem`: CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms target the same fan-ghosted mmwave-sole rooms and deadlock: D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED default on, coordinator.py:...
 
 ## 🅿️ Parked ideas (top-level list)
 
