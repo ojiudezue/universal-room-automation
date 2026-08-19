@@ -4817,7 +4817,7 @@ cards:
   column: parked
   thread: presence
   created: 2026-08-19 03:40
-  updated: 2026-08-19 04:25
+  updated: 2026-08-19 04:30
   refinement_status: refined
   problem: 'Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375,
     mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never
@@ -4854,6 +4854,21 @@ cards:
     Quantified harm: false hold lasted ~1h43m (21:17->23:00) during SLEEP with the comfort fan needlessly
     running; a working recheck would clear in ~150s. Refines the model: fan-shake sustains a LONG time
     (~1.7h) but not literally forever. Value case for the fix: 1h43m -> 2.5min.'
+  livingroom_release_evidence_2026_08_19: 'LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural
+    experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then
+    Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-shake causation (remove shake
+    -> clears). Recheck NEVER fired here either. NEW DESIGN GAP: the Screek took ~6min to decay after
+    shake stopped, but the recheck observation window is only ~90s (SPINDOWN 30s + WINDOW 60s). So even
+    a WORKING recheck would pause the LR fan, check at 90s, find the Screek STILL ON, and FALSE-NEGATIVE
+    (conclude real person). The recheck window is calibrated SHORTER than the Screek still-target decay
+    -> must measure per-sensor post-shake decay and size the window accordingly, else the fix false-negatives
+    on slow mmwave. (Study A Zigbee decayed differently — dropped with fan still on — so decay behavior
+    is per-sensor.)'
+  window_decay_gap_2026_08_19: 'FIX-DESIGN REQUIREMENT: recheck observation window (~90s) < Screek still-target
+    post-shake decay (~6min, measured LR). A working recheck would false-negative on the Screek. The fix
+    must MEASURE per-sensor post-shake decay (recorder probe: fan-off -> mmwave-clear lag per room) and
+    size SPINDOWN_S/WINDOW_S accordingly, OR use a different release criterion. Do NOT ship the veto-scope
+    fix assuming the default window clears the Screek.'
 - id: STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1
   title: Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when
     it fires
@@ -4880,7 +4895,7 @@ cards:
   column: planned
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:25
+  updated: 2026-08-19 04:30
   refinement_status: refined
   problem: 'The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every
     documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto
@@ -4903,12 +4918,22 @@ cards:
     Quantified harm: false hold lasted ~1h43m (21:17->23:00) during SLEEP with the comfort fan needlessly
     running; a working recheck would clear in ~150s. Refines the model: fan-shake sustains a LONG time
     (~1.7h) but not literally forever. Value case for the fix: 1h43m -> 2.5min.'
+  livingroom_release_evidence_2026_08_19: 'LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural
+    experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then
+    Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-shake causation (remove shake
+    -> clears). Recheck NEVER fired here either. NEW DESIGN GAP: the Screek took ~6min to decay after
+    shake stopped, but the recheck observation window is only ~90s (SPINDOWN 30s + WINDOW 60s). So even
+    a WORKING recheck would pause the LR fan, check at 90s, find the Screek STILL ON, and FALSE-NEGATIVE
+    (conclude real person). The recheck window is calibrated SHORTER than the Screek still-target decay
+    -> must measure per-sensor post-shake decay and size the window accordingly, else the fix false-negatives
+    on slow mmwave. (Study A Zigbee decayed differently — dropped with fan still on — so decay behavior
+    is per-sensor.)'
 - id: FAN-SUSTAINED-SHAKE-DEMOTE-1
   title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
   column: inbox
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:25
+  updated: 2026-08-19 04:30
   refinement_status: initial
   program: sensor-trust-exclusion
   problem: 'The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only,
@@ -4934,6 +4959,16 @@ cards:
     Quantified harm: false hold lasted ~1h43m (21:17->23:00) during SLEEP with the comfort fan needlessly
     running; a working recheck would clear in ~150s. Refines the model: fan-shake sustains a LONG time
     (~1.7h) but not literally forever. Value case for the fix: 1h43m -> 2.5min.'
+  livingroom_release_evidence_2026_08_19: 'LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural
+    experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then
+    Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-shake causation (remove shake
+    -> clears). Recheck NEVER fired here either. NEW DESIGN GAP: the Screek took ~6min to decay after
+    shake stopped, but the recheck observation window is only ~90s (SPINDOWN 30s + WINDOW 60s). So even
+    a WORKING recheck would pause the LR fan, check at 90s, find the Screek STILL ON, and FALSE-NEGATIVE
+    (conclude real person). The recheck window is calibrated SHORTER than the Screek still-target decay
+    -> must measure per-sensor post-shake decay and size the window accordingly, else the fix false-negatives
+    on slow mmwave. (Study A Zigbee decayed differently — dropped with fan still on — so decay behavior
+    is per-sensor.)'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
