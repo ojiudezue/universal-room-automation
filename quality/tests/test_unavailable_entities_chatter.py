@@ -64,16 +64,19 @@ def test_unavailable_entities_sensor_no_chatter_when_set_empty():
     assert "is_chattering = eid in chattering_ids" in src
 
 
-def test_chatter_diag_provenance_parity():
-    """Provenance parity: _chattering_entities <=> exclusion_set["chatter"]
-    <=> _stuck_sensor_kinds[e] == "chatter".
+def test_structural_chatter_diag_provenance_parity():
+    """STRUCTURAL-ONLY (C-CRIT-3 de-hollow relabel 2026-08-19).
 
-    Structural: coordinator.py's tick site sets all three in lock-step
-    inside the same for-loop. Assert each of the three writes is
-    present in the same neighbourhood.
+    The three lock-step writes (_chattering_entities, exclusion_set
+    promote, _stuck_sensor_kinds) all live inside _apply_chatter_tick.
+    The REAL behavioural test is
+    test_apply_chatter_tick_maintains_provenance_parity in
+    test_chatter_tick_helper.py (drives the extracted helper directly).
+    This test remains only as a build-time regression guard against a
+    reviewer deleting the three-way parity block from the helper.
+    Live-validation covers coordinator-integration parity.
     """
     src = (_URA / "coordinator.py").read_text()
-    # The three lock-step writes appear in the chatter-promote block.
-    assert 'self._chattering_entities = set(_chatter_current)' in src
-    assert 'self._exclusion_set.promote(\n                        "chatter"' in src
+    assert 'self._chattering_entities = set(chatter_current)' in src
+    assert 'self._exclusion_set.promote(\n                "chatter"' in src
     assert 'self._stuck_sensor_kinds[_ceid] = "chatter"' in src

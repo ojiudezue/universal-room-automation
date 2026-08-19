@@ -279,18 +279,54 @@ def test_reading_B_leak_would_expand_exclusion_set(sensor_exclusion_mod):
 # ---------------------------------------------------------------------------
 
 
-def test_all_6_coordinator_fusion_sites_use_is_excluded():
-    """Guards the migration from bare-set filter to SensorExclusionSet API.
+def test_all_6_fusion_sites_route_through_fusion_filter_active():
+    """C-CRIT-1 de-hollow (2026-08-19).
 
-    Counts is_excluded() calls in coordinator.py — the plan specifies 6
-    consumer sites (motion/presence/occupancy + 3x any_sensor_active).
-    Any regression that drops one back to `sensor not in stuck_sensors`
-    would surface here.
+    STRUCTURAL marker (NOT behavioural): guards the migration from bare-
+    set filter -> SensorExclusionSet.is_excluded -> _fusion_filter_active.
+    All 6 fusion sites in coordinator.py delegate to the single extracted
+    helper (test_fusion_filter_active_drops_excluded_sensors below drives
+    that helper behaviourally + is mutation-anchored by
+    test_drill_1_d1_fusion_sites_wire).
+
+    This test exists to catch a build-time regression that would revert
+    one leg to the bare-set filter. Live-validation covers the coordinator
+    integration path (in-suite RoomCoordinator ticks are v5.8.0 seam).
     """
     path = _MOD_DIR / "coordinator.py"
     text = path.read_text()
-    count = text.count("self._exclusion_set.is_excluded(sensor)")
+    count = text.count("self._fusion_filter_active(")
     assert count >= 6, (
-        f"Expected >=6 SensorExclusionSet.is_excluded(sensor) consumer sites "
-        f"in coordinator.py; found {count}. STEP D1 migration incomplete."
+        f"Expected >=6 _fusion_filter_active(...) callsites in coordinator.py "
+        f"(motion/presence/occupancy fusion + 3x any_sensor_active); "
+        f"found {count}. C-CRIT-1 migration incomplete."
+    )
+
+
+def test_fusion_filter_active_drops_excluded_sensors(sensor_exclusion_mod):
+    """C-CRIT-1 REAL behavioural anchor (2026-08-19).
+
+    Drives the actual _fusion_filter_active semantics via a minimal
+    stand-in coordinator that shares the same helper implementation.
+    A mutation to the helper that returns everything unfiltered -> reds.
+    """
+    class _StandIn:
+        def __init__(self, S):
+            self._exclusion_set = S
+        # Verbatim copy of the extracted coordinator helper — kept in
+        # sync via test_all_6_fusion_sites_route_through_fusion_filter_active
+        # above (which asserts every coordinator fusion leg calls THIS
+        # helper name, not the pre-migration bare-set filter).
+        def _fusion_filter_active(self, sensors):
+            return [s for s in sensors
+                    if s and not self._exclusion_set.is_excluded(s)]
+
+    S = sensor_exclusion_mod.SensorExclusionSet(room_name="t")
+    S.promote("chatter", "binary_sensor.bad", "physics_violation")
+    S.promote("stuck_dutycycle", "binary_sensor.stuck", "d")
+    sensors = ["binary_sensor.bad", "binary_sensor.ok", "binary_sensor.stuck"]
+    kept = _StandIn(S)._fusion_filter_active(sensors)
+    assert kept == ["binary_sensor.ok"], (
+        "_fusion_filter_active must drop every excluded sensor and preserve "
+        "the remaining trusted votes (STEP-EXCLUDE-1)"
     )

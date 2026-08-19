@@ -3784,16 +3784,25 @@ STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
 # See docs/planning/PLANNING_sensor_health_surfacing.md
 # and docs/planning/PROBE_sensor_chatter_definition_handcheck.md.
 #
-# Chatter DEFINITION (grounded + hand-checked):
-#   A blind-time-gated sensor is *chattering* iff it emits >= K transitions
-#   whose interval since the prior transition is BELOW that sensor's
-#   physical minimum floor T_floor ("impossibility events") within the
-#   rolling observation window. K is set in the wide healthy-vs-pathological
-#   gap surfaced by D0 (healthy physical sensors: <=4-5 sub-floor events / 7d;
-#   pathological: 150-820 / 7d). "Blind-time-gated" is enforced by
-#   CHATTER_PROVENANCE_ALLOWLIST — cameras / AI / groups / bed multistate
-#   are silent-default DENY (their physics is different; a separate detector
-#   class owns them).
+# Chatter DEFINITION (grounded + hand-checked + probe-recalibrated 2026-08-19).
+#
+# The un-fakeable property is the SUSTAINED BURST, not a lone sub-floor
+# event. A healthy fast mmWave DOES produce sub-floor intervals during
+# active motion (hold-ON, re-detect on the OFF edge <1s) — see
+# PROBE_mmwave_healthy_cadence.md Finding 1. A single-event rule would
+# false-quarantine every healthy Meross mmWave on the first minute of
+# real motion.
+#
+# The empirical separation (7-day recorder scan, 5-min rolling windows):
+#   worst healthy burst @T_floor=1.0s = 7 (Meross mmWave)
+#   weakest chatterer burst @T_floor=1.0s = 13 (invisoutlet)
+# -> clean [8,12] gap, K=10 = symmetric-margin choice.
+#
+# A blind-time-gated sensor is *chattering* iff it emits >= K sub-T_floor
+# impossibility events within a rolling window on a blind-time-gated
+# sensor (per CHATTER_PROVENANCE_ALLOWLIST). Cameras / AI / groups /
+# bed multistate are silent-default DENY (their physics is different;
+# a separate detector class owns them).
 # =========================================================================
 
 # --- Rung 1 kill switch (module const). False -> zero chatter promotions
@@ -3804,34 +3813,51 @@ CHATTER_QUARANTINE_ENABLED: Final = True
 CONF_CHATTER_QUARANTINE_ENABLED: Final = "chatter_quarantine_enabled"
 DEFAULT_CHATTER_QUARANTINE_ENABLED: Final = True
 
-# --- Rung 1 burst threshold. In the D0-surfaced gap (>4-5 healthy,
-#     <150 pathological). K=20 sits comfortably in-gap. Kill-switch
-#     semantics: K = 10**9 effectively disables (no plausible burst
-#     reaches it).
-CHATTER_BURST_K: Final = 20
+# --- Burst threshold DEFAULT (recalibrated 2026-08-19 per
+#     PROBE_mmwave_healthy_cadence.md Finding 2). In the empirical
+#     healthy-vs-chatterer gap [8, 12]; K=10 is the symmetric-margin
+#     choice. K=20 (v1) MISSED invisoutlet which chatters at only 13.
+#     Kill-switch semantics: K = 10**9 effectively disables.
+#     Rung 2 options-flow override lives at CONF_CHATTER_BURST_K.
+DEFAULT_CHATTER_BURST_K: Final = 10
+CHATTER_BURST_K: Final = DEFAULT_CHATTER_BURST_K
 
-# --- Rung 1 rolling observation window (seconds).
-#     10 min balances recall (fast enough to catch a live storm) and
-#     precision (long enough that healthy transport artifacts don't
-#     cluster into K).
-CHATTER_OBSERVATION_WINDOW_S: Final = 600.0
+# --- Rolling observation window DEFAULT (probe-recalibrated 300s / 5-min).
+#     The probe's separation table was computed against 5-min windows,
+#     matching K=10 to the observed healthy worst-case burst of 7.
+CHATTER_OBSERVATION_WINDOW_S: Final = 300.0
 
 # --- Rung 1 quiet-window for auto-release (seconds).
 #     Symmetric with STUCK-SENSOR-1 CORROBORATOR_DISAGREE_S = 900.
 CHATTER_RELEASE_QUIET_S: Final = 900.0
 
-# --- Rung 1 per-device-family T_floor blind-time defaults (seconds).
-#     NEVER learned from the suspect's own history (circular). Ladder:
-#     family default -> per-entity sensor_capability override -> learned
-#     p1-p5 ONLY from a KNOWN-HEALTHY DIFFERENT reference unit.
+# --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
+#     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time
+#     families). Table 2 in PROBE_mmwave_healthy_cadence.md:
+#       * mmWave: 1.5s was fragile (worst healthy=10 vs chatterer=13);
+#         1.0s = clean (7 vs 13).
+#       * PIR / opener: no per-family separation needed on the observed
+#         data; 1.0s catches ratgdo opener PIR at burst 22.
+#       * reed: keep 1.0s (reed min = 0.56s).
+#     Per-entity override via sensor_capability (rung 2, when a datasheet
+#     blind-time is known to exceed 1.0s — none observed today).
 #     Per-sensor kill switch: T_floor = 0 disables scoring for that sensor
 #     (impossibility-event count trivially zero -> no promotion possible).
+#     Rung 2 options-flow override lives at CONF_CHATTER_T_FLOOR_S.
+DEFAULT_CHATTER_T_FLOOR_S: Final = 1.0
 CHATTER_T_FLOOR_DEFAULTS: Final = {
-    "pir": 2.0,
-    "mmwave": 1.5,
-    "opener": 3.0,
-    "reed": 1.0,
+    "pir": DEFAULT_CHATTER_T_FLOOR_S,
+    "mmwave": DEFAULT_CHATTER_T_FLOOR_S,
+    "opener": DEFAULT_CHATTER_T_FLOOR_S,
+    "reed": DEFAULT_CHATTER_T_FLOOR_S,
 }
+
+# --- Rung 2 operator-settable overrides (D-MED-2 fix-up 2026-08-19).
+#     A future miscalibration needs a backout without redeploy. Both
+#     read via nm_cycle_a_knob so an options-flow flip takes effect on
+#     the next call without CM reload (registered in _NM_A2_KEYS).
+CONF_CHATTER_BURST_K: Final = "chatter_burst_k"
+CONF_CHATTER_T_FLOOR_S: Final = "chatter_t_floor_s"
 
 # --- Rung 1 provenance allow-list (the un-fakeable-by-construction gate).
 #     Silent-default DENY: a sensor whose (kind, provider) is not in the

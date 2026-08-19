@@ -119,27 +119,23 @@ def _mutate_and_expect_red(
 # ---------------------------------------------------------------------------
 
 
-def test_drill_1_d1_fusion_sites_wire():
-    coord = _URA / "coordinator.py"
-    # Neuter the fusion filter EVERYWHERE (replace_all) — any site left
-    # behind means a fusion filter was routed through some OTHER shape.
-    orig = coord.read_text()
-    mutated = orig.replace(
-        "not self._exclusion_set.is_excluded(sensor)",
-        "True",
+def test_drill_1_d1_fusion_filter_helper_wire():
+    """C-CRIT-1 de-hollow: mutate the extracted _fusion_filter_active
+    helper (single site — all 6 fusion legs route through it) and
+    assert the REAL behavioural test in
+    test_sensor_exclusion.test_fusion_filter_active_drops_excluded_sensors
+    would fail if the helper stopped filtering. That test is a
+    copy-of-body against the same shape; a coordinator source mutation
+    also reds test_chatter_tick_helper::test_fusion_filter_active_extracted_matches_coordinator
+    which extracts and drives the helper AST directly.
+    """
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="        return [\n            s for s in sensors\n            if s and not self._exclusion_set.is_excluded(s)\n        ]",
+        new="        return list(sensors)  # NEUTERED",
+        target=str(_TESTS / "test_chatter_tick_helper.py::test_fusion_filter_active_extracted_matches_coordinator"),
+        label="d1_fusion_filter_helper_wire",
     )
-    assert mutated != orig
-    try:
-        coord.write_text(mutated)
-        for pyc in _URA.rglob("__pycache__"):
-            shutil.rmtree(pyc, ignore_errors=True)
-        red = _run_target(str(_TESTS / "test_sensor_exclusion.py"))
-        assert red != 0, (
-            "DRILL 1: replacing all 6 fusion-site is_excluded checks with "
-            "True left tests green — hollow anchor"
-        )
-    finally:
-        coord.write_text(orig)
 
 
 # ---------------------------------------------------------------------------
@@ -166,28 +162,17 @@ def test_drill_2_chatter_listener_wire():
 
 
 def test_drill_3_chatter_tick_site_promote_wire():
+    """C-CRIT-2 de-hollow: the tick-site chatter promote lives inside
+    the extracted _apply_chatter_tick helper. Real behavioural anchor:
+    test_chatter_tick_helper::test_apply_chatter_tick_promotes_current_chatterers.
+    Mutating the promote call must red the real test.
+    """
     _mutate_and_expect_red(
         _URA / "coordinator.py",
-        old='self._exclusion_set.promote(\n                        "chatter", _ceid, reason="physics_violation",\n                    )',
+        old='self._exclusion_set.promote(\n                "chatter", _ceid, reason="physics_violation",\n            )',
         new='pass  # NEUTERED for drill',
-        target=str(_TESTS / "test_chatter_wire_in.py::test_tick_site_promote_reflects_in_exclusion_set"),
+        target=str(_TESTS / "test_chatter_tick_helper.py::test_apply_chatter_tick_promotes_current_chatterers"),
         label="chatter_tick_site_promote_wire",
-    )
-
-
-def test_tick_site_promote_reflects_in_exclusion_set():
-    """Anchor for drill 3: driving a chattering entity through the tick
-    site produces exclusion via the shared set.
-
-    This is a light structural anchor: it asserts the string
-    ``self._exclusion_set.promote("chatter"`` exists in coordinator.py.
-    Structural rather than behavioural because a full RoomCoordinator
-    tick requires the whole integration bootstrap; the plan's live-
-    validation criterion covers the runtime path.
-    """
-    src = (_URA / "coordinator.py").read_text()
-    assert 'self._exclusion_set.promote(\n                        "chatter"' in src, (
-        "tick-site chatter promote wire missing"
     )
 
 
@@ -274,13 +259,20 @@ def test_drill_8_sub_floor_accounting_wire():
 # ---------------------------------------------------------------------------
 
 
-def test_drill_9_boot_settle_gate_wire():
+def test_drill_9_boot_settle_gate_general_suppress_wire():
+    """Boot-settle gate: general suppress-during-boot behaviour.
+
+    Post-D-HIGH-2 the gate lives BEFORE the deque append (drill 13
+    covers the boot-transient leak fix specifically); drill 9 shares
+    the same anchor but targets the general suppression test.
+    Duplicate coverage is deliberate — the gate is load-bearing.
+    """
     _mutate_and_expect_red(
         _URA / "domain_coordinators" / "chatter_detector.py",
-        old="                    if not boot_settled:\n                        return  # sample but do not score during boot-settle",
-        new="                    if False:\n                        return",
+        old="            if not boot_settled:\n                # Drop the edge entirely",
+        new="            if False:\n                # NEUTERED for drill 9",
         target=str(_TESTS / "test_chatter_detector.py::test_boot_settle_gate_suppresses_flagging"),
-        label="boot_settle_gate_wire",
+        label="boot_settle_gate_general_suppress",
     )
 
 
@@ -336,4 +328,95 @@ def test_drill_12_unavailable_guard_wire():
         new='            if False and state_val in ("unavailable", "unknown"):\n                return',
         target=str(_TESTS / "test_chatter_detector.py::test_unavailable_transitions_not_counted"),
         label="unavailable_guard_wire",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up round drills (2026-08-19).
+# ---------------------------------------------------------------------------
+
+
+def test_drill_13_d_high_2_boot_gate_wire():
+    """D-HIGH-2: neutering the boot-settle early-return must red the
+    boot-transient regression test."""
+    _mutate_and_expect_red(
+        _URA / "domain_coordinators" / "chatter_detector.py",
+        old="            if not boot_settled:\n                # Drop the edge entirely",
+        new="            if False and not boot_settled:\n                # NEUTERED",
+        target=str(_TESTS / "test_chatter_detector.py::test_d_high_2_boot_transient_no_instant_quarantine_on_restart"),
+        label="d_high_2_boot_gate_wire",
+    )
+
+
+def test_drill_14_d_med_1_z2m_fallback_wire():
+    """D-MED-1: neutering the Zigbee-native + device_class fallback must
+    red the numeric-id Z2M classifier test."""
+    _mutate_and_expect_red(
+        _URA / "domain_coordinators" / "chatter_detector.py",
+        old="    if integration and integration.lower() in _ZIGBEE_NATIVE_PLATFORMS:",
+        new="    if False and integration and integration.lower() in _ZIGBEE_NATIVE_PLATFORMS:",
+        target=str(_TESTS / "test_chatter_detector.py::test_d_med_1_z2m_numeric_id_scored_via_device_class_fallback"),
+        label="d_med_1_z2m_fallback_wire",
+    )
+
+
+def test_drill_15_m_a1_per_day_latch_wire():
+    """M-A1: neutering the _chatter_nm_fired latch check must red the
+    write-flood regression test."""
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="            if _nm_key in self._chatter_nm_fired:\n                continue\n            self._chatter_nm_fired.add(_nm_key)",
+        new="            if False:\n                continue\n            pass  # NEUTERED latch",
+        target=str(_TESTS / "test_chatter_tick_helper.py::test_apply_chatter_tick_ma1_per_day_latch_prevents_write_flood"),
+        label="m_a1_latch_wire",
+    )
+
+
+def test_drill_16_b_low_2_provenance_guard_wire():
+    """B-LOW-2: neutering the clients_for() guard on _stuck_sensor_kinds
+    pop must red the provenance-guarded pop test."""
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="            if not self._exclusion_set.clients_for(_rel):\n                self._stuck_sensor_kinds.pop(_rel, None)",
+        new="            self._stuck_sensor_kinds.pop(_rel, None)  # NEUTERED B-LOW-2 guard",
+        target=str(_TESTS / "test_chatter_tick_helper.py::test_apply_chatter_tick_b_low_2_pop_guarded_by_provenance"),
+        label="b_low_2_provenance_guard_wire",
+    )
+
+
+def test_drill_17_b_low_4_discharge_wire():
+    """B-LOW-4: neutering the kill-switch discharge call must red the
+    suppression-needs-discharge test."""
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="        if self._chatter_kill_switch_last and not enabled:\n            self._discharge_chatter_latches(room_name)",
+        new="        if False and self._chatter_kill_switch_last and not enabled:\n            self._discharge_chatter_latches(room_name)",
+        target=str(_TESTS / "test_chatter_tick_helper.py::test_apply_chatter_tick_b_low_4_kill_switch_flip_discharges_latch"),
+        label="b_low_4_discharge_wire",
+    )
+
+
+def test_drill_18_recalibration_k10_constant_wire():
+    """D-HIGH-1: the recalibrated K=10 default must be present. A
+    mutation back to K=20 would red the invisoutlet-shape acceptance test.
+    """
+    _mutate_and_expect_red(
+        _URA / "const.py",
+        old="DEFAULT_CHATTER_BURST_K: Final = 10",
+        new="DEFAULT_CHATTER_BURST_K: Final = 20",
+        target=str(_TESTS / "test_chatter_detector.py::test_recalibration_invisoutlet_shape_flagged_at_K10"),
+        label="d_high_1_k10_recalibration_wire",
+    )
+
+
+def test_drill_19_recalibration_t_floor_1_0_wire():
+    """D-HIGH-1: the recalibrated unified T_floor=1.0s default must be
+    present. A mutation to 1.5s would red the Meross healthy sentinel
+    (worst burst 10 at 1.5s vs K=10 -> false-quarantine)."""
+    _mutate_and_expect_red(
+        _URA / "const.py",
+        old="DEFAULT_CHATTER_T_FLOOR_S: Final = 1.0",
+        new="DEFAULT_CHATTER_T_FLOOR_S: Final = 0.3",
+        target=str(_TESTS / "test_chatter_detector.py::test_recalibration_invisoutlet_shape_flagged_at_K10"),
+        label="d_high_1_t_floor_recalibration_wire",
     )

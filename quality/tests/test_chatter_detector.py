@@ -239,7 +239,9 @@ def test_ratgdo_shaped_sensor_flagged_chatter_after_burst(chatter_mod, const_mod
         "inference"
     )
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    times = [base + timedelta(seconds=2.5 * i) for i in range(30)]
+    # Recalibrated: T_floor=1.0s unified. Cadence 0.7s < 1.0s -> every
+    # interval is a sub-floor impossibility event. 15 edges >= K=10.
+    times = [base + timedelta(seconds=0.7 * i) for i in range(15)]
     _fire_edges(hass, eid, times)
     flagged = det.chattering_entities()
     assert eid in flagged, (
@@ -352,7 +354,9 @@ def test_boot_settle_gate_suppresses_flagging(chatter_mod):
     coord, det, hass = _make(chatter_mod, motion=[eid], boot_settled=False)
     det.async_register_listeners()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    times = [base + timedelta(seconds=2.5 * i) for i in range(30)]
+    # Recalibrated: T_floor=1.0s unified. Cadence 0.7s < 1.0s -> every
+    # interval is a sub-floor impossibility event. 15 edges >= K=10.
+    times = [base + timedelta(seconds=0.7 * i) for i in range(15)]
     _fire_edges(hass, eid, times)
     assert eid not in det.chattering_entities(), (
         "Boot-settle gate must suppress flagging while _d2_boot_settle_done "
@@ -360,7 +364,7 @@ def test_boot_settle_gate_suppresses_flagging(chatter_mod):
     )
     # Release boot-settle; more edges should flag it.
     coord._boot = True
-    more = [times[-1] + timedelta(seconds=2.5 * (i + 1)) for i in range(25)]
+    more = [times[-1] + timedelta(seconds=0.7 * (i + 1)) for i in range(15)]
     _fire_edges(hass, eid, more)
     assert eid in det.chattering_entities()
 
@@ -401,7 +405,9 @@ def test_chatter_auto_release_after_quiet_window(chatter_mod, const_mod):
     coord, det, hass = _make(chatter_mod, motion=[eid])
     det.async_register_listeners()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    times = [base + timedelta(seconds=2.5 * i) for i in range(30)]
+    # Recalibrated: T_floor=1.0s unified. Cadence 0.7s < 1.0s -> every
+    # interval is a sub-floor impossibility event. 15 edges >= K=10.
+    times = [base + timedelta(seconds=0.7 * i) for i in range(15)]
     _fire_edges(hass, eid, times)
     assert eid in det.chattering_entities()
     # Mark entity available; advance beyond quiet window.
@@ -417,7 +423,9 @@ def test_chatter_release_skipped_when_unavailable(chatter_mod, const_mod):
     coord, det, hass = _make(chatter_mod, motion=[eid])
     det.async_register_listeners()
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    times = [base + timedelta(seconds=2.5 * i) for i in range(30)]
+    # Recalibrated: T_floor=1.0s unified. Cadence 0.7s < 1.0s -> every
+    # interval is a sub-floor impossibility event. 15 edges >= K=10.
+    times = [base + timedelta(seconds=0.7 * i) for i in range(15)]
     _fire_edges(hass, eid, times)
     assert eid in det.chattering_entities()
     hass.states._m[eid] = _FakeState("unavailable")
@@ -448,6 +456,158 @@ def test_chatter_detector_unsubscribe_called_on_teardown(chatter_mod):
     assert hass._cb is None, (
         "L-LOW-B VIOLATED: state-change subscription survived teardown"
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up round 2026-08-19 acceptance fixtures.
+# ---------------------------------------------------------------------------
+
+
+def test_recalibration_invisoutlet_shape_flagged_at_K10(chatter_mod, const_mod):
+    """D-HIGH-1: K=20 MISSED invisoutlet (13 bursts). K=10 catches it.
+
+    Fixture: 13 sub-1.0s edges over ~10s. With K=10 they cross.
+    """
+    assert const_mod.CHATTER_BURST_K == 10, (
+        "D-HIGH-1 recalibration: K must be 10, not 20"
+    )
+    assert const_mod.DEFAULT_CHATTER_T_FLOOR_S == 1.0
+    assert const_mod.CHATTER_OBSERVATION_WINDOW_S == 300.0
+    eid = "binary_sensor.invisoutlet_b7d0_motion"
+    coord, det, hass = _make(chatter_mod, motion=[eid])
+    det.async_register_listeners()
+    assert eid in det._entity_to_meta
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # 13 sub-floor intervals: 14 edges at 0.7s cadence.
+    times = [base + timedelta(seconds=0.7 * i) for i in range(14)]
+    _fire_edges(hass, eid, times)
+    assert eid in det.chattering_entities(), (
+        f"K=10 should flag invisoutlet-shape; sub_floor_events="
+        f"{len(det._sub_floor_events.get(eid, ()))}"
+    )
+
+
+def test_recalibration_meross_healthy_night_not_flagged(chatter_mod):
+    """D-HIGH-1 negative regression sentinel: Meross healthy = worst
+    burst 7 in 5min @T_floor=1.0s. Must NOT quarantine (7 < K=10).
+    """
+    eid = "binary_sensor.meross_jaya_presence"
+    coord, det, hass = _make(chatter_mod, mmwave=[eid])
+    det.async_register_listeners()
+    assert eid in det._entity_to_meta, (
+        "Meross-shape mmwave must classify in-scope"
+    )
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # 7 sub-floor bursts (worst observed healthy) interleaved with
+    # longer healthy intervals. 8 edges at 0.5s = 7 sub-floor events.
+    times = [base + timedelta(seconds=0.5 * i) for i in range(8)]
+    _fire_edges(hass, eid, times)
+    assert eid not in det.chattering_entities(), (
+        f"Meross healthy burst=7 must stay below K=10; got "
+        f"{len(det._sub_floor_events.get(eid, ()))} sub-floor events"
+    )
+
+
+def test_d_high_2_boot_transient_no_instant_quarantine_on_restart(
+    chatter_mod, const_mod,
+):
+    """D-HIGH-2: boot-window sub-floor edges MUST NOT persist across
+    boot-settle release. Pre-fix, _sub_floor_events deque appended
+    BEFORE the boot-settle gate; first post-settle edge saw len>=K ->
+    instant quarantine.
+    """
+    eid = "binary_sensor.ratgdo_x_motion"
+    coord, det, hass = _make(chatter_mod, motion=[eid], boot_settled=False)
+    det.async_register_listeners()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # BOOT-WINDOW flurry: 30 sub-1.0s edges. Under the pre-fix bug these
+    # populate _sub_floor_events; under the fix they drop entirely.
+    boot_times = [base + timedelta(seconds=0.3 * i) for i in range(30)]
+    _fire_edges(hass, eid, boot_times)
+    assert len(det._sub_floor_events.get(eid, ())) == 0, (
+        "D-HIGH-2 VIOLATED: boot-window edges leaked into "
+        "_sub_floor_events (would cause instant post-settle quarantine)"
+    )
+    # Release boot-settle. One motion edge post-settle -> should NOT
+    # instant-quarantine (prev_ts also gated -> no fake short interval).
+    coord._boot = True
+    _fire_edges(
+        hass, eid, [boot_times[-1] + timedelta(seconds=10)],
+    )
+    assert eid not in det.chattering_entities(), (
+        "D-HIGH-2 VIOLATED: single post-settle edge quarantined; boot "
+        "transient survived the gate"
+    )
+
+
+def test_d_med_1_z2m_numeric_id_scored_via_device_class_fallback(chatter_mod):
+    """D-MED-1: numeric-id Z2M entities (e.g.
+    binary_sensor.0x00158d..._occupancy) don't substring-match the
+    provider heuristics. Fallback resolves via integration platform
+    (mqtt / zha) + device_class -> in-scope.
+    """
+    eid = "binary_sensor.0x00158d0001abcdef_occupancy"
+    coord, det, hass = _make(
+        chatter_mod, mmwave=[eid],
+        integration_map={eid: "mqtt"},
+    )
+    # Set device_class via the fake state (chatter_detector's fallback
+    # reads state.attributes.get('device_class') when registry misses).
+    st = _FakeState("off")
+    st.attributes = {"device_class": "occupancy"}
+    hass.states._m[eid] = st
+    det.async_register_listeners()
+    assert eid in det._entity_to_meta, (
+        "D-MED-1 VIOLATED: numeric-id Z2M occupancy classifier escape — "
+        "device_class=occupancy on mqtt platform must resolve in-scope"
+    )
+    # And it can actually be quarantined.
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    times = [base + timedelta(seconds=0.5 * i) for i in range(14)]
+    _fire_edges(hass, eid, times)
+    assert eid in det.chattering_entities()
+
+
+def test_d_med_2_operator_burst_k_override_takes_effect(chatter_mod):
+    """D-MED-2: monkey-patch the nm_cycle_a_knob helper on the imported
+    _nm_cycle_a module (used by _effective_burst_k / _effective_t_floor
+    at read time) and confirm the operator override overrides the default.
+    """
+    from test_ura_pkg.domain_coordinators import _nm_cycle_a as nm_a  # type: ignore
+    orig = getattr(nm_a, "nm_cycle_a_knob", None)
+    try:
+        nm_a.nm_cycle_a_knob = lambda hass, key, default: (
+            5 if key == "chatter_burst_k" else default
+        )
+        eid = "binary_sensor.foo_pir"
+        coord, det, hass = _make(chatter_mod, motion=[eid])
+        det.async_register_listeners()
+        assert det._effective_burst_k() == 5, (
+            f"Operator override not read: got {det._effective_burst_k()}"
+        )
+        # And with K=5, an 8-edge sub-1.0s burst (7 sub-floor events) flags.
+        # Actually 8 edges = 7 intervals -> 7 sub-floor >= 5.
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        times = [base + timedelta(seconds=0.5 * i) for i in range(8)]
+        _fire_edges(hass, eid, times)
+        assert eid in det.chattering_entities()
+    finally:
+        if orig is not None:
+            nm_a.nm_cycle_a_knob = orig
+
+
+def _install_nm_cycle_a_stub():
+    """Ensure the _nm_cycle_a stub module exists so the operator-override
+    test can monkey-patch it. Called at module import time."""
+    name = "test_ura_pkg.domain_coordinators._nm_cycle_a"
+    if name in sys.modules:
+        return
+    m = types.ModuleType(name)
+    m.nm_cycle_a_knob = lambda hass, key, default: default
+    sys.modules[name] = m
+
+
+_install_nm_cycle_a_stub()
 
 
 def test_entity_to_kind_rebuilt_on_reregister(chatter_mod):

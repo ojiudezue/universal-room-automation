@@ -6598,6 +6598,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
             CONF_CHATTER_QUARANTINE_ENABLED,
             DEFAULT_CHATTER_QUARANTINE_ENABLED,
+            # STEP D2 fix-up 2026-08-19 (D-MED-2): operator-settable
+            # backout knobs for the two safety-critical thresholds.
+            CONF_CHATTER_BURST_K,
+            DEFAULT_CHATTER_BURST_K,
+            CONF_CHATTER_T_FLOOR_S,
+            DEFAULT_CHATTER_T_FLOOR_S,
         )
 
         # NM Cycle A-2 fix-up (A2, 2026-07-20): the humidity ladder must
@@ -6633,6 +6639,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # STEP D2 chatter client kill switch (rung 2 mirror).
             CONF_CHATTER_QUARANTINE_ENABLED:
                 DEFAULT_CHATTER_QUARANTINE_ENABLED,
+            # STEP D2 fix-up (D-MED-2): safety-knob overrides.
+            CONF_CHATTER_BURST_K: DEFAULT_CHATTER_BURST_K,
+            CONF_CHATTER_T_FLOOR_S: DEFAULT_CHATTER_T_FLOOR_S,
         }
 
         def _equals_default(key, submitted):
@@ -6902,6 +6911,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_CHATTER_QUARANTINE_ENABLED,
                 ),
             ): selector.BooleanSelector(),
+            # STEP D2 fix-up (D-MED-2): burst-K override. In-cycle backout
+            # for a future miscalibration. Bounds: 1..10000.
+            vol.Optional(
+                CONF_CHATTER_BURST_K,
+                default=self._get_current(
+                    CONF_CHATTER_BURST_K, DEFAULT_CHATTER_BURST_K,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=10000, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                ),
+            ),
+            # STEP D2 fix-up (D-MED-2): T_floor override (seconds). Bounds
+            # 0..10. 0 = per-sensor kill switch semantics (no scoring).
+            vol.Optional(
+                CONF_CHATTER_T_FLOOR_S,
+                default=self._get_current(
+                    CONF_CHATTER_T_FLOOR_S, DEFAULT_CHATTER_T_FLOOR_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.0, max=10.0, step=0.1,
+                    mode=selector.NumberSelectorMode.BOX,
+                ),
+            ),
         })
 
         return self.async_show_form(

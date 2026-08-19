@@ -5577,6 +5577,10 @@ from .const import (
     CONF_STUCK_SIGNAL_NM_ENABLED as _CONF_STUCK_SIGNAL_NM_ENABLED,
     CONF_STUCK_SENSOR_EXCLUSION_ENABLED as _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
     CONF_CHATTER_QUARANTINE_ENABLED as _CONF_CHATTER_QUARANTINE_ENABLED,
+    # STEP D2 fix-up (2026-08-19, D-MED-2): operator-settable overrides
+    # for the two safety knobs whose miscalibration would need a backout.
+    CONF_CHATTER_BURST_K as _CONF_CHATTER_BURST_K,
+    CONF_CHATTER_T_FLOOR_S as _CONF_CHATTER_T_FLOOR_S,
     # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket
     # entity-owned CM options keys must reload-suppress + no-live-attr
     # (Number/Switch entities call setters directly; NM re-reads options
@@ -5632,6 +5636,9 @@ _NM_A2_KEYS: frozenset[str] = frozenset({
     # STEP D2 (v5.85) — chatter client kill switch. Consumed via
     # nm_cycle_a_knob in RoomCoordinator._chatter_quarantine_enabled().
     _CONF_CHATTER_QUARANTINE_ENABLED,
+    # STEP D2 fix-up (D-MED-2): operator overrides for burst K + T_floor.
+    _CONF_CHATTER_BURST_K,
+    _CONF_CHATTER_T_FLOOR_S,
 })
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:
