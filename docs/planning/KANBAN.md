@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T16:24:08-05:00_ - _Data commit: `47d151131653`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T16:28:45-05:00_ - _Data commit: `38e7592a8989`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T16:24:08-05:00_ - _Data commit: `47d151131653`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 21 |
+| ❓ Other | 24 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1148,7 +1148,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (21)
+## ❓ Other (24)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1187,15 +1187,16 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-18 16:10 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-18 16:45 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
   - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
   - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
   - `program`: sensor-trust-exclusion
+  - `definition_confirmed_2026_08_18`: CHATTER DEFINITION GROUNDED + HAND-CHECKED + operator-confirmed. Chatter = >=K sub-T_floor impossibility events (interval below the device-family hardware blind-time) in-window, on BLIND-TIME-GATED sensors ONLY (PIR/mmWave/opener). PROVE...
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
@@ -1339,6 +1340,34 @@ _created 2026-08-18 14:40 · initial_
 - **Forensic keys (2):**
   - `column`: inbox
   - `problem`: binary_sensor.py:1540-1560 URAUnexpectedPersonSensor.is_on computes "unexpected person" via the naive substrate comparison camera_total > ble_total — the SAME additive/subtractive bug class as the guest double-count, but on a TRUST/ALERT...
+
+### `ROOM-NAME-DESYNC-RECOVER-1` - Recover stalled room-rename write-through build (worktree vanished, salvage branch exists)
+thread: **config**
+_created 2026-08-18 16:40 · initial_
+- **Next:** Recover: checkout main-local/build/room-rename-writethrough into a fresh worktree, VERIFY state (run the 13 tests + falsifier drills + suite baseline-diff — the agent claimed green but it is unverified post-vanish), reconcile the 3 repor...
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: The ROOM-NAME-DESYNC-1 builder (running ~5 days) reported complete D1+D2+D3 work but its worktree was REMOVED mid-run before it could commit — that fresh copy is LOST. A prior orchestrator WIP-salvage exists on branch main-local/build/ro...
+
+### `CHATTER-CAMERA-CONFIDENCE-FLAP-1` - Camera/AI detection confidence-flap detector (STEP sibling)
+thread: **diagnostics**
+_created 2026-08-18 16:45 · initial_
+- **Next:** After STEP D1/D2 ship: design a confidence-flap criterion for camera/AI detections; reuse the shared exclusion primitive.
+- **Forensic keys (4):**
+  - `column`: parked
+  - `program`: sensor-trust-exclusion
+  - `problem`: Camera/AI person/motion detections are EXCLUDED from the physics chatter detector by the provenance gate (they flip at frame cadence on a confidence threshold — no hardware blind-time, so sub-T_floor is undefined; D0 shows binarygroup_ca...
+  - `parked_reason`: Distinct fault class + criterion from physics chatter. Card after the STEP shared primitive + chatter client ship. Consumes the same SensorExclusionSet.
+
+### `SENSOR-MULTISTATE-FAULT-1` - Bed/multi-state sensor fault detector (STEP sibling)
+thread: **diagnostics**
+_created 2026-08-18 16:45 · initial_
+- **Next:** After STEP D1/D2 ship: assess multi-state fault criteria; reuse the shared exclusion primitive.
+- **Forensic keys (4):**
+  - `column`: parked
+  - `program`: sensor-trust-exclusion
+  - `problem`: Bed / multi-state sensors (empty->sitting->lying) are EXCLUDED from the physics chatter detector — their transitions are not gated by a single motion blind-time, so the sub-T_floor criterion is ill-defined. They can still fault; needs a ...
+  - `parked_reason`: Distinct sensor model + criterion. Low priority (few such sensors). Card after STEP primitive ships; reuse SensorExclusionSet.
 
 ## 🅿️ Parked ideas (top-level list)
 

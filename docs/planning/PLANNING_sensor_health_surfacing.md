@@ -208,10 +208,55 @@ class SensorExclusionSet:
 
 **Location:** new `ChatterDetector` in `coordinator.py` (or `domain_coordinators/chatter_detector.py` — prefer module for testability). Registered as a subscriber on `OccupancySubstrate.subscribe()` for state-change edges.
 
-**DEFINITION: TBD — see `RESEARCH_sensor_chatter_definition_prior_art.md` (in flight); must be built only from un-fakeable criteria (sub-hardware-dwell / rate-ceiling / duty-cycle-impossibility), NEVER a raw rate.** The plan explicitly does not author a first-principles definition. When the research lands, insert:
-- The precise criterion (per-edge and/or per-window).
-- The threshold source (per-device-class default / entity attribute / capability field / measured — decided by research).
-- The busy-real vs chatter-fault fixture pair.
+**DEFINITION (GROUNDED + HAND-CHECKED + operator-confirmed 2026-08-18).** Sources:
+`RESEARCH_sensor_chatter_definition_prior_art.md` (un-fakeable vs heuristic criteria) +
+`PROBE_sensor_chatter_definition_handcheck.md` (D0 recorder hand-check, GO-with-amendments).
+
+A sensor is **chattering** iff it emits **≥ K transitions whose interval since the prior transition
+is below that sensor's physical minimum floor `T_floor`** ("impossibility events") within the
+observation window — subject to three empirically-forced amendments (the literal single-event form
+was NO-GO on the D0 hand-check: it missed the real incident at small `T_floor` and false-fired on
+153/286 sensors):
+
+1. **Provenance gate (the un-fakeable-property gate).** The criterion applies ONLY to sensors whose
+   binary transition is gated by a SINGLE physical hardware blind-time — PIR / mmWave / opener
+   (ratgdo) device classes. **Excluded entirely** (the criterion is undefined, not lenient, for
+   these — see §D2.1): camera / AI detections (inference at frame cadence — no motion blind-time;
+   D0 shows `binarygroup_camera_motion_zone1` = 14,216 sub-0.5s events working AS DESIGNED),
+   aggregates / groups (transition = union of members' rates, tied to no single floor; the faulty
+   *member* is the real target and is separately in-scope), and bed multi-state (empty→sitting→lying
+   not governed by a settle interval). These are real-but-DIFFERENT fault classes → their own
+   detectors (carded: `CHATTER-CAMERA-CONFIDENCE-FLAP-1`, `SENSOR-MULTISTATE-FAULT-1`).
+2. **`T_floor` from device-family blind-time, NEVER learned from the suspect's own history.** Learning
+   the ratgdo's own p1 (1.28s) would declare its own chatter healthy (circular). Per-family floors
+   land in the **1–3s** band (D0-calibrated). Ladder: device-class default blind-time (reviewed
+   module constant) → datasheet / Zigbee min-report override → learned p1–p5 ONLY from a KNOWN-HEALTHY
+   span of a DIFFERENT reference unit. `T_floor = 0` per sensor = kill switch for that sensor.
+3. **Burst of K, not a single event.** D0: healthy physical sensors sit at ≤4–5 sub-floor events / 7d
+   (isolated transport artifacts) vs 150–820 for the storm class — a wide gap. K is a count of
+   **impossibility events**, NOT of transitions (this preserves "never a raw rate": a busy-but-healthy
+   sensor emits thousands of transitions and ~zero sub-floor events; the chatterer emits hundreds of
+   sub-floor events). Set K in the gap (D0-recommended; exact value = build-time knob, rung-1).
+
+**Why still un-fakeable / operator's hard constraint met by construction:** penalty is earned ONLY by
+sub-`T_floor` impossibility events on a blind-time-gated sensor. A correctly-working sensor of that
+class physically cannot produce them, so it earns zero penalty and is never quarantined — regardless
+of how busy the room is. The discriminating observable is the **sub-floor event count** (>0 real,
+==0 healthy), not the transition rate.
+
+**Live acceptance fixture (from D0, real recorder data):**
+- **Positives (must quarantine):** `binary_sensor.ratgdov25i_dbfe2a_motion` (58,713 transitions/7d,
+  sustained 2–3s re-fire — note the pathology is *sustained sub-floor cadence*, not sub-second burst,
+  so `T_floor` must be the device's true multi-second blind-time), `invisoutlet_b7d0_motion`
+  (62,245/7d).
+- **Negatives (must stay healthy):** the 30 physical sensors with 1–4 isolated sub-floor artifacts
+  (below K), and a legitimately-busy hallway/kitchen PIR firing above its floor.
+- **Must-exclude (provenance gate):** `binarygroup_camera_motion_zone1` + all camera/AI + aggregates +
+  bed multi-state.
+
+**RETENTION CAVEAT (from D0):** recorder holds ~7 days; the founding 2026-08-09 Garage-B incident
+window is PURGED — the ratgdo's *ongoing live* signature is the incident proxy. The build's replay
+test uses the live-captured fixture, not the original incident timestamps.
 
 **Algorithm skeleton (definition-agnostic, definition slots in at the marked step):**
 1. On every substrate state-change edge for entity `e` in room `R`:
@@ -232,7 +277,7 @@ if CHATTER_QUARANTINE_ENABLED and self._chatter_quarantine_enabled_option():
             self.hass,
             kind="chatter",
             key=(e,),
-            diagnosis=<per D0 criterion>,
+            diagnosis=f"{e}: {n} sub-floor (<{t_floor}s) impossibility events in window — physically impossible for this device class; hardware fault",
             remedy=f"Replace sensor {e} — chatter pattern indicates hardware fault",
             title_override=f"Chattering sensor: {room_name} — {e}",
         ))
