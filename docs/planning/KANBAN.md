@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T06:43:53-05:00_ - _Data commit: `b17faf8b5e1f`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T08:16:02-05:00_ - _Data commit: `35dad87965fe`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1454,11 +1454,12 @@ _created 2026-08-19 05:15 · updated 2026-08-19 06:20 · refined_
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries)
 thread: **platform**
-_created 2026-08-19 07:45 · initial_
+_created 2026-08-19 07:45 · updated 2026-08-19 08:15 · initial_
 - **Next:** Investigation deliverable (read-only audit): (A) RUNTIME profile — what makes the suite 4+min (slow modules, repeated heavy setup, real sleeps). (B) POLLUTION map — every test that mutates sys.modules/entity_registry/shared globals witho...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `column`: inbox
   - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
+  - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
 
 ## 🅿️ Parked ideas (top-level list)
 

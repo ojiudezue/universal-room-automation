@@ -5115,7 +5115,7 @@ cards:
   column: inbox
   thread: platform
   created: 2026-08-19 07:45
-  updated: 2026-08-19 07:45
+  updated: 2026-08-19 08:15
   refinement_status: initial
   problem: 'The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole.
     Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS
@@ -5143,6 +5143,14 @@ cards:
     Then a tiered re-arch proposal. Subsumes SUITE-ORDER-POLLUTION-1 + the real-coord-harness idea.'
   refs: SUITE-ORDER-POLLUTION-1; scripts/hooks/pytest_serialize.sh; AUDIT_fan_recheck_bug_hunt.md (hollow
     class); step_chatter_review_C.md (C-CRIT); v5.8.0 incident memory (real-coord construction risk)
+  pytest_restore_hook_2026_08_19: 'CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates
+    coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted
+    mutation (a test that edits production source is a tree-poisoning + false-evidence hazard). Two fixes
+    belong in the re-arch: (1) any source-mutating test MUST restore via a finally/autouse-fixture (or
+    better, not mutate source at all — use monkeypatch/injection); (2) a pytest_sessionfinish hook that
+    unconditionally git-checkouts the component dir after a run, as a backstop. Also the C-re LOW test-order
+    stub-completeness (homeassistant.util missing) is another pollution instance. These are the parallel-collision
+    root cause in miniature.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
