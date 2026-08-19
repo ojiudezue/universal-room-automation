@@ -4332,7 +4332,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 07:15
+  updated: 2026-08-19 07:30
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4424,6 +4424,16 @@ cards:
     then lower floor below healthy OR implement the per-entity override. (2) coordinator-integration tests
     hit the SAME v5.8.0 fixture seam as the fan fix — live-validate vs build a real-coord harness (operator
     call). STEP = next-work-block, not shippable soon. Fan fix v5.84.0 UNAFFECTED (staged, 9am).'
+  probe_calibration_2026_08_19: 'CADENCE PROBE (PROBE_mmwave_healthy_cadence.md) RESOLVED decision #1
+    with data. KEY REFINEMENT: the un-fakeable criterion is the BURST (K sub-floor events/window), NOT
+    a single sub-floor event — healthy fast mmWave DOES produce sub-floor intervals (holds ON, re-detects
+    on OFF edge in <1s; healthy Meross = 323-386 sub-1.5s/7d). CORRECTED CALIBRATION (data-backed, GO):
+    T_floor=1.0s UNIFIED all families (was 1.5s mmwave/2.0 PIR/3.0 opener), CHATTER_BURST_K=10 (was 20
+    — CRITICAL: build K=20 MISSES invisoutlet which chatters at only 13; and ratgdo=22), window=300s rolling.
+    At 1.0s/K=10: zero healthy false-positives + both chatterers caught (healthy worst burst=7, chatterers
+    >=13, clean band [8,12]). Opener separation empirically unverifiable (only in-window opener IS the
+    chatterer ratgdo) — residual risk, band-sharing mitigates. Regression sentinel: Meross jaya/mediaroom
+    (burst 7@1.0s). So the fix-up const changes are DATA-BACKED, no guess.'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox
