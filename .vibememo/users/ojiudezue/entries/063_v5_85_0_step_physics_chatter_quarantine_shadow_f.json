@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "063",
+  "author": "ojiudezue",
+  "session_id": "claude_20260819_162030_ship_v5_85_0",
+  "timestamp": "2026-08-19T16:20:30Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.85.0 shipped: STEP physics chatter-quarantine (shadow-first)",
+  "summary": "Sensor Trust/Exclusion Program: physics-grounded chatter detector (K=10 sub-T_floor=1.0s bursts in 300s window) on blind-time-gated sensors, quarantines the flapping sensor's vote out of occupancy fusion. Ships in SHADOW mode (detect+surface+telemetry+NM, no action) via select.ura_chatter_mode default shadow. House-level control (mode select + K/T_floor Numbers), room-level observability (burst telemetry on unavailable_entities). Tier-3: 4 framing-disjoint reviews + orchestrator mutation-verify. Boot-safe migrate of retired CONF_CHATTER_QUARANTINE_ENABLED.",
+  "refs": {
+    "cards": [
+      "SENSOR-HEALTH-SURFACING-1",
+      "CHATTER-OBSERVE-CONTROL-D7-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.85.0.md"
+    ]
+  }
+}

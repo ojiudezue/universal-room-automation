@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.84.1
+# Universal Room Automation vv5.85.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -40,6 +40,8 @@ from .const import (
     STUCK_D2_FRESH_MOTION_SECONDS,
     STUCK_D2_MIN_MOTION_TRANSITIONS,
     STUCK_EXCLUSION_ENABLED,
+    CHATTER_OBSERVATION_WINDOW_S,
+    CHATTER_RELEASE_QUIET_S,
     CORROBORATOR_DISAGREE_S,
     CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
     DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED,
@@ -148,6 +150,8 @@ from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .domain_coordinators._units import energy_state_to_kwh, power_state_to_w
 from .automation import RoomAutomation
 from .actuator_reconciler import ActuatorReconciler
+from .domain_coordinators.chatter_detector import ChatterDetector
+from .domain_coordinators.sensor_exclusion import SensorExclusionSet
 from ._humidity_gate import humidity_venting_enabled
 
 _LOGGER = logging.getLogger(__name__)
@@ -357,6 +361,22 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # ("dutycycle_excluded", room, entity_id). Distinct from
         # `_stuck_sensor_fired` which owns the STUCK NM latch.
         self._stuck_excluded_fired: set[tuple[str, str, str]] = set()
+        # M-A1 fix-up (2026-08-19): per-day latch for chatter NM.
+        # Mirrors _stuck_sensor_fired to prevent per-tick async_create_task
+        # write-flood (the pattern STUCK-1 removed 2026-08-13). Keyed by
+        # ("chatter", room, entity_id). Discarded on release so the next
+        # engagement re-fires cleanly (suppression-needs-discharge).
+        self._chatter_nm_fired: set[tuple[str, str, str]] = set()
+        # M-A1: track whether the chatter kill-switch was ON last tick, so
+        # B-LOW-4 can fire discharge NMs on a True->False flip.
+        self._chatter_kill_switch_last: bool = True
+        # D7 HIGH fix-up (2026-08-19): track act-mode last tick so a
+        # runtime act->shadow / act->off flip immediately releases
+        # currently-promoted chatter exclusions (suppression-needs-
+        # discharge). Without this, a still-chattering sensor stays
+        # excluded until quiet-release which is NEVER while it's
+        # chattering — occupancy stays suppressed indefinitely.
+        self._chatter_act_last: bool = False
         # B-MED-1 fix-up (2026-08-13): tick-scoped "detector completed
         # without exception" flag. Set True at the end of the D2 try
         # block; the release-edge scan runs ONLY when True so a mid-
@@ -563,7 +583,25 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # so coordinator.hass did not exist yet — AttributeError on HA 2026.2,
         # RecursionError on HA 2026.7. Reproduced in repro_v580/.)
         self._actuator_reconciler = ActuatorReconciler(self)
-    
+
+        # STEP (Sensor Trust / Exclusion Program) — shared room-tier
+        # vote-exclusion primitive, formalising the ad-hoc stuck_sensors
+        # local. Multi-writer: P22 continuous-on, STUCK-SENSOR-1 D1
+        # dutycycle, chatter. See
+        # domain_coordinators/sensor_exclusion.py for the API + invariants.
+        self._exclusion_set: SensorExclusionSet = SensorExclusionSet(
+            room_name=self.entry.data.get("room_name", "unknown"),
+        )
+        # STEP D2/D3 — physics-based chatter detector (first NEW client
+        # of the shared primitive). Constructor is side-effect free;
+        # listener is armed in _update_signal_subscriptions (idempotent,
+        # mirrors ActuatorReconciler pattern). Torn down in
+        # __init__.py async_unload_entry.
+        self._chatter_detector: ChatterDetector = ChatterDetector(self)
+        # v5.85 — sibling scoping for the diagnostic surface. Populated
+        # per-tick by mirroring self._chatter_detector.chattering_entities().
+        self._chattering_entities: set[str] = set()
+
     # =========================================================================
     # v3.0.0 CONFIG HELPER METHODS
     # =========================================================================
@@ -1433,6 +1471,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if getattr(self, "_actuator_reconciler", None) is not None:
             self._actuator_reconciler.async_register_listeners()
 
+        # STEP D2 — (re-)arm the chatter detector's OWN state-change listener
+        # over the room's blind-time-gated tier-1 sensors. Idempotent
+        # (drains any prior listener); rebuilds _entity_to_meta from scratch
+        # so config changes are picked up on the very next rebuild.
+        if getattr(self, "_chatter_detector", None) is not None:
+            self._chatter_detector.async_register_listeners()
+
         # Clear existing signal subscriptions
         for unsub in self._unsub_signal_listeners:
             unsub()
@@ -2118,6 +2163,332 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         self._schedule_stuck_state_save()
 
+    def _fusion_filter_active(self, sensors) -> list[str]:
+        """Return the sensors from ``sensors`` NOT currently excluded.
+
+        Extracted (C-CRIT-1 de-hollow 2026-08-19) so a real behavioural
+        test can drive it directly and a source-mutation drill can
+        confirm every fusion leg routes through this helper. The 6
+        fusion sites in _async_update_data all delegate to this filter.
+        """
+        return [
+            s for s in sensors
+            if s and not self._exclusion_set.is_excluded(s)
+        ]
+
+    def _apply_chatter_tick(self, stuck_sensors: set[str], room_name: str) -> None:
+        """STEP D2/D3 chatter tick-site block (extracted for testability).
+
+        Contract (all invariants from PLANNING_sensor_health_surfacing.md
+        §D2, §D3, §D6, plus fix-up round M-A1 / B-LOW-2 / B-LOW-4):
+
+        * Mode-resolved via ``_chatter_mode()`` (off / shadow / act).
+          "off" -> zero promotions (INV-CHATTER-4). D7 fix-up F3
+          retired the legacy ``_chatter_quarantine_enabled()`` helper —
+          the Select's "off" option is now the single operator kill
+          switch (see the retirement note on ``_chatter_mode``).
+          B-LOW-4: on a True->False flip, immediately
+          fire recovered-NM for each previously-latched (kind='chatter',
+          entity) pair to discharge the per-day latch — otherwise the
+          latch would stay armed and a legitimate future chatter would
+          be silently suppressed until midnight.
+        * Release-before-promote (D3 first, D2 second). A released
+          entity gets its exclusion released, the D5 surface set
+          discards it, and — B-LOW-2 — ``_stuck_sensor_kinds`` is
+          popped ONLY when no OTHER client still promotes it (chatter
+          release must not blank the label for a still-stuck-dutycycle
+          sensor).
+        * M-A1 per-day latch: ``fire_stuck_signal(kind='chatter', ...)``
+          is scheduled at most ONCE per (chatter, room, entity) per
+          day via ``_chatter_nm_fired`` — the per-tick task-spam pattern
+          STUCK-1 removed 2026-08-13. Discharged on release AND on
+          kill-switch True->False flip.
+        """
+        # D7 (2026-08-19): mode replaces the bare enabled/disabled
+        # branch. Precedence: off short-circuits (byte-identical to
+        # kill-switch-off pre-D7); shadow runs detection+surface but
+        # skips the fusion promote; act promotes as before.
+        mode = self._chatter_mode()
+        enabled = mode != "off"
+
+        # F2 fix-up (2026-08-19): release-on-act-flip runs FIRST so
+        # its per-entity `_chatter_nm_fired.discard` clears the latch
+        # keys BEFORE `_discharge_chatter_latches` sweeps the residual
+        # set. Result: exactly one recovered-NM per (chatter, room,
+        # entity) per transition. Previously the two paths overlapped
+        # on act->off — same entity got 2 tasks + 2 log lines even
+        # though the NM latch dedup made the actual NM a no-op.
+
+        # D7 HIGH fix-up (2026-08-19): act->non-act (shadow OR off)
+        # transition MUST release stale chatter exclusions this tick.
+        # Otherwise a still-chattering sensor's exclusion never quiet-
+        # releases (quiet requires ZERO edges, which a chatterer cannot
+        # produce) and room occupancy stays suppressed indefinitely.
+        # STEP-EXCLUDE-3 preserved: any concurrent stuck_dutycycle
+        # promotion still holds.
+        is_act_now = mode == "act"
+        if self._chatter_act_last and not is_act_now:
+            self._release_all_chatter_exclusions(room_name)
+        self._chatter_act_last = is_act_now
+
+        # B-LOW-4: kill-switch True->False discharge (mode->off transition).
+        # By running AFTER the release helper, entities the helper just
+        # discharged from `_chatter_nm_fired` are no longer in the set,
+        # so this sweep only drains the residual latches (e.g. shadow-
+        # mode WOULD-quarantine latches on shadow->off transition, or
+        # stale keys the release couldn't reach because the entity had
+        # dropped out of the exclusion set earlier this tick).
+        if self._chatter_kill_switch_last and not enabled:
+            self._discharge_chatter_latches(room_name)
+        self._chatter_kill_switch_last = enabled
+
+        if not enabled:
+            # Kill switch off: still surface diagnostically (D5 stays
+            # useful during dogfood) but do NOT promote into the shared
+            # set and do NOT emit NM. INV-CHATTER-4 holds byte-identical.
+            try:
+                self._chattering_entities = set(
+                    self._chatter_detector.chattering_entities(),
+                )
+            except Exception:  # noqa: BLE001
+                self._chattering_entities = set()
+            return
+
+        # Auto-release first — a released entity may not need re-promotion
+        # this tick if the storm stopped.
+        released = self._chatter_detector.check_release()
+        for _rel in released:
+            self._exclusion_set.release("chatter", _rel)
+            self._chattering_entities.discard(_rel)
+            # B-LOW-2 fix-up: only pop the diagnostic-surface kind if
+            # NO OTHER client still promotes this entity. A concurrent
+            # stuck_dutycycle promotion would legitimately keep the
+            # sensor labeled — blanking it is a diagnostic regression.
+            if not self._exclusion_set.clients_for(_rel):
+                self._stuck_sensor_kinds.pop(_rel, None)
+            # Discharge the per-day chatter NM latch on release so a
+            # legitimate re-flap after replacement fires cleanly.
+            self._chatter_nm_fired.discard(("chatter", room_name, _rel))
+            try:
+                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                    fire_stuck_signal_recovered,
+                )
+                self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                    self.hass,
+                    kind="chatter",
+                    key=(_rel,),
+                    message=(
+                        f"room {room_name}: sensor {_rel} chatter "
+                        f"released (quiet {int(CHATTER_RELEASE_QUIET_S)}s)"
+                    ),
+                ))
+            except Exception:  # noqa: BLE001 — fail-open
+                _LOGGER.debug(
+                    "Room %s: chatter recovered-NM raise swallowed for %s",
+                    room_name, _rel, exc_info=True,
+                )
+
+        # Promote currently-chattering entities into the shared set
+        # (act mode) OR surface-only (shadow mode). Load-bearing D7
+        # shadow-vs-act seam.
+        chatter_current = self._chatter_detector.chattering_entities()
+        self._chattering_entities = set(chatter_current)
+        is_act = mode == "act"
+        for _ceid in chatter_current:
+            if is_act:
+                # ACT: full quarantine — fusion excludes the vote.
+                self._exclusion_set.promote(
+                    "chatter", _ceid, reason="physics_violation",
+                )
+                stuck_sensors.add(_ceid)
+            # SHADOW: DO NOT promote; DO NOT add to stuck_sensors —
+            # occupancy fusion is byte-identical to no-chatter.
+            # Chatter kind label wins over dutycycle/continuous
+            # (chatter = hardware fault, more actionable).
+            self._stuck_sensor_kinds[_ceid] = "chatter"
+            # M-A1: per-day NM latch — schedule the async_create_task
+            # ONLY on the first day-tick after promotion. Prevents the
+            # per-tick write-flood STUCK-1 removed 2026-08-13.
+            _nm_key = ("chatter", room_name, _ceid)
+            if _nm_key in self._chatter_nm_fired:
+                continue
+            self._chatter_nm_fired.add(_nm_key)
+            _detail = self._chatter_detector.chatter_detail(_ceid)
+            _n = _detail.get("sub_floor_events") if _detail else 0
+            try:
+                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                    fire_stuck_signal,
+                )
+                self.hass.async_create_task(fire_stuck_signal(  # noqa: untracked-ok
+                    self.hass,
+                    kind="chatter",
+                    key=(_ceid,),
+                    diagnosis=(
+                        f"{_ceid}: {_n} sub-floor impossibility events "
+                        f"in {int(CHATTER_OBSERVATION_WINDOW_S)}s window "
+                        "— physically impossible for this device class; "
+                        "hardware fault"
+                    ),
+                    remedy=(
+                        f"Replace sensor {_ceid} — chatter pattern "
+                        "indicates hardware fault"
+                    ),
+                    title_override=(
+                        f"Chattering sensor: {room_name} — {_ceid}"
+                        if is_act else
+                        f"WOULD quarantine sensor (shadow): {room_name} "
+                        f"— {_ceid}"
+                    ),
+                ))
+            except Exception:  # noqa: BLE001 — fail-open
+                _LOGGER.debug(
+                    "Room %s: chatter stuck_signal NM raise swallowed "
+                    "for %s",
+                    room_name, _ceid, exc_info=True,
+                )
+
+    def _discharge_chatter_latches(self, room_name: str) -> None:
+        """B-LOW-4 (2026-08-19): kill-switch True->False discharge.
+
+        Suppression-needs-discharge: if the operator flips the chatter
+        kill switch off while a chatter latch is armed, fire the paired
+        recovered-NM so the per-day dedup in _stuck_signal_nm._LATCHES
+        clears — otherwise a future re-enable + legitimate chatter is
+        silently suppressed until calendar midnight.
+        """
+        drain = [k for k in list(self._chatter_nm_fired) if k[1] == room_name]
+        for _kind, _rn, _eid in drain:
+            self._chatter_nm_fired.discard((_kind, _rn, _eid))
+            try:
+                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                    fire_stuck_signal_recovered,
+                )
+                self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                    self.hass,
+                    kind="chatter",
+                    key=(_eid,),
+                    message=(
+                        f"room {_rn}: sensor {_eid} chatter latch "
+                        "discharged (kill switch disabled)"
+                    ),
+                ))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Room %s: chatter discharge NM raise swallowed for %s",
+                    _rn, _eid, exc_info=True,
+                )
+        # D2-LOW-1 (2026-08-19): removed a no-op `self._exclusion_set`
+        # bare-attribute read that had an incorrect comment. The
+        # attribute is initialised in __init__; a bare read is dead code.
+
+    def _release_all_chatter_exclusions(self, room_name: str) -> None:
+        """D7 HIGH fix-up (2026-08-19): release every chatter-client
+        promotion this tick.
+
+        Called on any act -> non-act (shadow OR off) mode transition so
+        room occupancy immediately un-suppresses. Iterates the shared
+        SensorExclusionSet.entities_for_client("chatter") and releases
+        each. STEP-EXCLUDE-3 preserves any concurrent stuck_dutycycle
+        or p22_continuous promotion.
+
+        For each released entity: pops the diagnostic label only when
+        no other client still promotes it (B-LOW-2 provenance guard),
+        discharges _chatter_nm_fired, and fires the paired
+        fire_stuck_signal_recovered so the per-day chatter latch clears
+        (mirror of D3 auto-release semantics).
+        """
+        try:
+            currently_chatter = self._exclusion_set.entities_for_client(
+                "chatter",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Room %s: entities_for_client('chatter') raised (swallowed)",
+                room_name, exc_info=True,
+            )
+            return
+        for _eid in list(currently_chatter):
+            self._exclusion_set.release("chatter", _eid)
+            self._chattering_entities.discard(_eid)
+            if not self._exclusion_set.clients_for(_eid):
+                self._stuck_sensor_kinds.pop(_eid, None)
+            self._chatter_nm_fired.discard(("chatter", room_name, _eid))
+            try:
+                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                    fire_stuck_signal_recovered,
+                )
+                self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                    self.hass,
+                    kind="chatter",
+                    key=(_eid,),
+                    message=(
+                        f"room {room_name}: sensor {_eid} chatter "
+                        "exclusion released (mode flipped act -> non-act)"
+                    ),
+                ))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Room %s: chatter mode-flip recovered-NM raise swallowed "
+                    "for %s", room_name, _eid, exc_info=True,
+                )
+        if currently_chatter:
+            _LOGGER.info(
+                "Room %s: released %d chatter exclusion(s) on mode flip "
+                "act -> non-act", room_name, len(currently_chatter),
+            )
+
+    def _chatter_mode(self) -> str:
+        """D7 (2026-08-19) — resolved operational MODE.
+
+        Returns one of "off" / "shadow" / "act". The mode is the
+        LOAD-BEARING shadow-vs-act seam: `_apply_chatter_tick` gates
+        the fusion promote on ``self._chatter_mode() == 'act'`` so a
+        SHADOW-mode chatterer is DETECTED + SURFACED + NM'd but its
+        vote is NOT excluded.
+
+        D7 fix-up B-MED-1/2 (2026-08-19): the module-const
+        `CHATTER_QUARANTINE_ENABLED` still short-circuits to "off"
+        (reviewed-code-change kill switch — safety bound). The
+        rung-2 `CONF_CHATTER_QUARANTINE_ENABLED` toggle is RETIRED
+        from this resolver — the CONF_CHATTER_MODE Select is now the
+        single operator-facing kill switch (mode="off" IS the disable
+        UI). This ends the two-mechanism drift where a pre-D7 operator
+        with the old bool False had no UI to recover from. Preserving
+        the operator's disable intent is handled by `async_migrate_entry`
+        (__init__.py), which flips CONF_CHATTER_MODE to "off" on any
+        pre-D7 entry whose CONF_CHATTER_QUARANTINE_ENABLED was False.
+        """
+        try:
+            from .const import (  # noqa: PLC0415
+                CHATTER_QUARANTINE_ENABLED,
+                CHATTER_MODE_OFF,
+                CHATTER_MODES,
+                CONF_CHATTER_MODE,
+                DEFAULT_CHATTER_MODE,
+            )
+        except Exception:  # noqa: BLE001
+            return "off"
+        if not CHATTER_QUARANTINE_ENABLED:
+            return CHATTER_MODE_OFF
+        try:
+            from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
+                nm_cycle_a_knob,
+            )
+            mode = nm_cycle_a_knob(
+                self.hass, CONF_CHATTER_MODE, DEFAULT_CHATTER_MODE,
+            )
+            if isinstance(mode, str) and mode in CHATTER_MODES:
+                return mode
+            return DEFAULT_CHATTER_MODE
+        except Exception:  # noqa: BLE001
+            return DEFAULT_CHATTER_MODE
+
+    # D7 fix-up F3 (2026-08-19): `_chatter_quarantine_enabled()` DELETED.
+    # It was retired by B-MED-1/2 (single-kill-switch UI via
+    # `select.ura_chatter_mode` "off" option); after that, the only
+    # remaining references were in the test-extract wanted-set — dead
+    # production code. `_chatter_mode()` is the sole resolver now.
+
     def _stuck_exclusion_enabled(self) -> bool:
         """STUCK-SENSOR-1 D1 predicate (1): AND-composed kill switches.
 
@@ -2495,7 +2866,22 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # 3h59m timestamp cannot instant-exclude at first post-restart
         # tick. On first live-ON observation, the sensor enters
         # `_post_restart_seen_on` and normal semantics resume.
+        # STEP D1 — reset the shared per-tick exclusion set BEFORE any
+        # writer populates it AND BEFORE the STUCK-SENSOR-1 D1 _prev_excluded
+        # snapshot below (per §D1.1 ordering: reset_tick -> snapshot -> P22
+        # -> STUCK-1 -> chatter). Byte-identity guarantee: with all three
+        # clients quiet, the fusion output equals pre-cycle behaviour.
+        self._exclusion_set.reset_tick()
+
         stuck_sensors = self._p22_stuck_sensor_set(now)
+        # STEP D1 mirror: P22 promotions go into the shared set alongside
+        # the local stuck_sensors alias (used unchanged by the STUCK-SENSOR-1
+        # D1 recovered-NM scan below — per §D1.1 point 1 each writer keeps
+        # its own bookkeeping authoritative).
+        for _p22_eid in stuck_sensors:
+            self._exclusion_set.promote(
+                "p22_continuous", _p22_eid, reason="continuous_on",
+            )
         # Reset the per-sensor kind labels each tick — a sensor no longer
         # stuck this tick must drop from the diagnostic surface.
         self._stuck_sensor_kinds = {}
@@ -2568,6 +2954,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 if _exclusion_engaged:
                     stuck_sensors.add(s)
                     self._dutycycle_excluded_now[s] = now
+                    # STEP D1 mirror (per §D1.1 point 2: lock-step with
+                    # _dutycycle_excluded_now — one call site, both writes,
+                    # no drift). STUCK-SENSOR-1's own book remains
+                    # authoritative for the recovered-NM scan below.
+                    self._exclusion_set.promote(
+                        "stuck_dutycycle", s, reason="dutycycle_stuck",
+                    )
                     _LOGGER.info(
                         "Room %s: Sensor %s duty-cycle stuck AND corroborator "
                         "disagreement (≥%ds) — EXCLUDED from occupancy "
@@ -2705,25 +3098,49 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             self._dutycycle_excluded_now = {
                 s: now for s in _prev_excluded
             }
+            # STEP D1.1 Reading A (byte-identity to shipped v5.75.0): on
+            # the D2-raise codepath we DO NOT re-populate the
+            # SensorExclusionSet mirror. reset_tick() already cleared the
+            # set at tick start, and the D1 promotion loop above never
+            # ran. Therefore this failure tick's fusion excludes ONLY the
+            # P22 entities already promoted earlier — byte-identical to
+            # the pre-cycle P22-only exclusion, per plan §D1.1 point 3.
+            # Adding a compensating promote("stuck_dutycycle", ...) here
+            # is the forbidden Reading B and is asserted against by
+            # test_d2_raise_fusion_byte_identity_reading_a.
 
-        # Check motion (excluding stuck sensors)
+        # STEP D2/D3 — chatter client tick site.
+        # Extracted to _apply_chatter_tick for testability (C-CRIT-2/3
+        # de-hollow). See its docstring for the full contract: kill-switch
+        # composition, §D1.1 ordering, M-A1 per-day NM latch, B-LOW-2
+        # provenance-guarded kind pop, B-LOW-4 kill-switch-flip discharge.
+        try:
+            self._apply_chatter_tick(stuck_sensors, room_name)
+        except Exception:  # noqa: BLE001 — fail-safe: chatter never breaks the tick
+            _LOGGER.debug(
+                "Room %s: chatter tick-site raised (swallowed)",
+                room_name, exc_info=True,
+            )
+
+        # Check motion (excluding stuck sensors) — STEP D1: every fusion
+        # leg routes through _fusion_filter_active() so a single
+        # extracted helper is the sole is_excluded() consumer (C-CRIT-1
+        # de-hollow — testable + mutation-anchored).
         motion_detected = any(
-            self._is_sensor_on(sensor) for sensor in motion_sensors
-            if sensor and sensor not in stuck_sensors
+            self._is_sensor_on(s)
+            for s in self._fusion_filter_active(motion_sensors)
         )
         data[STATE_MOTION_DETECTED] = motion_detected
 
-        # Check presence/mmWave (excluding stuck sensors)
         presence_detected = any(
-            self._is_sensor_on(sensor) for sensor in mmwave_sensors
-            if sensor and sensor not in stuck_sensors
+            self._is_sensor_on(s)
+            for s in self._fusion_filter_active(mmwave_sensors)
         )
         data[STATE_PRESENCE_DETECTED] = presence_detected
 
-        # Check occupancy sensors (excluding stuck sensors)
         occupancy_detected = any(
-            self._is_sensor_on(sensor) for sensor in occupancy_sensors
-            if sensor and sensor not in stuck_sensors
+            self._is_sensor_on(s)
+            for s in self._fusion_filter_active(occupancy_sensors)
         )
 
         # Override detection to false during grace hold
@@ -2737,7 +3154,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Track which sensor triggered (after stuck filtering)
         if motion_detected and (not self.data or not self.data.get(STATE_MOTION_DETECTED)):
             for sensor in motion_sensors:
-                if sensor and sensor not in stuck_sensors and self._is_sensor_on(sensor):
+                if sensor and sensor in self._fusion_filter_active([sensor]) and self._is_sensor_on(sensor):
                     self._last_trigger_source = "motion"
                     self._last_trigger_entity = sensor
                     self._last_trigger_time = now
@@ -2745,7 +3162,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         if presence_detected and (not self.data or not self.data.get(STATE_PRESENCE_DETECTED)):
             for sensor in mmwave_sensors:
-                if sensor and sensor not in stuck_sensors and self._is_sensor_on(sensor):
+                if sensor and sensor in self._fusion_filter_active([sensor]) and self._is_sensor_on(sensor):
                     self._last_trigger_source = "presence"
                     self._last_trigger_entity = sensor
                     self._last_trigger_time = now
@@ -2753,7 +3170,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         if occupancy_detected:
             for sensor in occupancy_sensors:
-                if sensor and sensor not in stuck_sensors and self._is_sensor_on(sensor):
+                if sensor and sensor in self._fusion_filter_active([sensor]) and self._is_sensor_on(sensor):
                     if not motion_detected and not presence_detected:
                         self._last_trigger_source = "occupancy"
                         self._last_trigger_entity = sensor

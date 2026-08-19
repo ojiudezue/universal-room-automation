@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.84.1
+# Universal Room Automation vv5.85.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4041,6 +4041,44 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
         _LOGGER.info("Setting up Coordinator Manager entry")
 
+        # STEP D7 fix-up B-MED-1/2 (2026-08-19): one-time reconcile of the
+        # retired CONF_CHATTER_QUARANTINE_ENABLED bool into CONF_CHATTER_MODE.
+        # The retirement removes the two-mechanism drift where a pre-D7
+        # operator with the old bool = False had no UI to recover. Idempotent:
+        # only runs when the old key is still present in options; deletes it
+        # after the reconcile. Preserves disable-intent (bool False -> mode
+        # off); a True or missing pre-D7 bool leaves mode at its current /
+        # default value (shadow).
+        try:
+            from .const import (  # noqa: PLC0415
+                CHATTER_MODE_OFF,
+                CONF_CHATTER_MODE,
+                CONF_CHATTER_QUARANTINE_ENABLED,
+            )
+            if CONF_CHATTER_QUARANTINE_ENABLED in entry.options:
+                old_bool = bool(entry.options.get(CONF_CHATTER_QUARANTINE_ENABLED))
+                _new_opts = dict(entry.options)
+                _new_opts.pop(CONF_CHATTER_QUARANTINE_ENABLED, None)
+                if not old_bool and CONF_CHATTER_MODE not in entry.options:
+                    _new_opts[CONF_CHATTER_MODE] = CHATTER_MODE_OFF
+                    _LOGGER.info(
+                        "STEP D7 migrate: pre-D7 chatter disable-intent "
+                        "preserved; CONF_CHATTER_MODE=off (entry=%s)",
+                        entry.entry_id,
+                    )
+                else:
+                    _LOGGER.info(
+                        "STEP D7 migrate: retired CONF_CHATTER_QUARANTINE_"
+                        "ENABLED dropped (was %s; mode select is now the "
+                        "single UI, entry=%s)",
+                        old_bool, entry.entry_id,
+                    )
+                hass.config_entries.async_update_entry(entry, options=_new_opts)
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "STEP D7 chatter-migrate raised (non-fatal)", exc_info=True,
+            )
+
         # NM Cycle A-2 fix-up (B1, 2026-07-20): flush the process-wide
         # NM knob cache at CM setup. Restart / config-entry reload paths
         # rebuild `entry.options`; a stale cache from the previous
@@ -4812,6 +4850,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             reconciler = getattr(coordinator, "_actuator_reconciler", None)
             if reconciler is not None and hasattr(reconciler, "async_teardown"):
                 await reconciler.async_teardown()
+            # STEP D2 — chatter detector teardown (Bug Class #38). Owns its
+            # own async_track_state_change_event unsub (self._chatter_unsub).
+            chatter = getattr(coordinator, "_chatter_detector", None)
+            if chatter is not None and hasattr(chatter, "async_teardown"):
+                await chatter.async_teardown()
             debounce_unsub = getattr(coordinator, "_debounce_refresh_unsub", None)
             if debounce_unsub is not None:
                 debounce_unsub()
@@ -5571,6 +5614,17 @@ from .const import (
     # update listener) — no live-attr push, no CM reload needed.
     CONF_STUCK_SIGNAL_NM_ENABLED as _CONF_STUCK_SIGNAL_NM_ENABLED,
     CONF_STUCK_SENSOR_EXCLUSION_ENABLED as _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+    # D7 fix-up B-MED-1/2 (2026-08-19): CONF_CHATTER_QUARANTINE_ENABLED
+    # is RETIRED — the CONF_CHATTER_MODE Select is the single kill-switch
+    # UI now. The import is kept only for the migrate reconcile at CM
+    # setup which drops the key + preserves disable-intent.
+    CONF_CHATTER_QUARANTINE_ENABLED as _CONF_CHATTER_QUARANTINE_ENABLED,  # noqa: F401 — migrate-only
+    # STEP D2 fix-up (2026-08-19, D-MED-2): operator-settable overrides
+    # for the two safety knobs whose miscalibration would need a backout.
+    CONF_CHATTER_BURST_K as _CONF_CHATTER_BURST_K,
+    CONF_CHATTER_T_FLOOR_S as _CONF_CHATTER_T_FLOOR_S,
+    # D7 (2026-08-19): chatter operational mode (off/shadow/act).
+    CONF_CHATTER_MODE as _CONF_CHATTER_MODE,
     # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket
     # entity-owned CM options keys must reload-suppress + no-live-attr
     # (Number/Switch entities call setters directly; NM re-reads options
@@ -5623,6 +5677,15 @@ _NM_A2_KEYS: frozenset[str] = frozenset({
     # STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): stuck-signal knobs.
     _CONF_STUCK_SIGNAL_NM_ENABLED,
     _CONF_STUCK_SENSOR_EXCLUSION_ENABLED,
+    # STEP D2 (v5.85) chatter kill-switch bool — RETIRED by D7 fix-up
+    # (2026-08-19, B-MED-1/2). The migrate reconcile at CM setup drops
+    # any pre-D7 options entry. Not included in _NM_A2_KEYS anymore —
+    # RoomCoordinator._chatter_mode() no longer reads it.
+    # STEP D2 fix-up (D-MED-2): operator overrides for burst K + T_floor.
+    _CONF_CHATTER_BURST_K,
+    _CONF_CHATTER_T_FLOOR_S,
+    # D7 (2026-08-19): chatter operational mode.
+    _CONF_CHATTER_MODE,
 })
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:

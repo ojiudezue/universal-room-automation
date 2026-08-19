@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.84.1
+# Universal Room Automation vv5.85.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.84.1"
+VERSION: Final = "v5.85.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -3777,6 +3777,180 @@ DEFAULT_STUCK_SIGNAL_NM_ENABLED: Final = True
 # unreachable given HA restart cadence; see const.py comment above.)
 STUCK_SIGNAL_NM_HAZARD_TYPE: Final = "stuck_signal"
 STUCK_SIGNAL_NM_COORDINATOR_ID: Final = "stuck_signal"
+
+
+# =========================================================================
+# STEP (Sensor Trust / Exclusion Program) — chatter client (v5.85.x).
+# See docs/planning/PLANNING_sensor_health_surfacing.md
+# and docs/planning/PROBE_sensor_chatter_definition_handcheck.md.
+#
+# Chatter DEFINITION (grounded + hand-checked + probe-recalibrated 2026-08-19).
+#
+# The un-fakeable property is the SUSTAINED BURST, not a lone sub-floor
+# event. A healthy fast mmWave DOES produce sub-floor intervals during
+# active motion (hold-ON, re-detect on the OFF edge <1s) — see
+# PROBE_mmwave_healthy_cadence.md Finding 1. A single-event rule would
+# false-quarantine every healthy Meross mmWave on the first minute of
+# real motion.
+#
+# The empirical separation (7-day recorder scan, 5-min rolling windows):
+#   worst healthy burst @T_floor=1.0s = 7 (Meross mmWave)
+#   weakest chatterer burst @T_floor=1.0s = 13 (invisoutlet)
+# -> clean [8,12] gap, K=10 = symmetric-margin choice.
+#
+# A blind-time-gated sensor is *chattering* iff it emits >= K sub-T_floor
+# impossibility events within a rolling window on a blind-time-gated
+# sensor (per CHATTER_PROVENANCE_ALLOWLIST). Cameras / AI / groups /
+# bed multistate are silent-default DENY (their physics is different;
+# a separate detector class owns them).
+# =========================================================================
+
+# --- Rung 1 kill switch (module const). False -> zero chatter promotions
+#     into SensorExclusionSet + zero NM emits. INV-CHATTER-4 holds.
+CHATTER_QUARANTINE_ENABLED: Final = True
+
+# --- Rung 2 options-flow mirror (AND-composed with rung 1).
+CONF_CHATTER_QUARANTINE_ENABLED: Final = "chatter_quarantine_enabled"
+DEFAULT_CHATTER_QUARANTINE_ENABLED: Final = True
+
+# --- Burst threshold DEFAULT (recalibrated 2026-08-19 per
+#     PROBE_mmwave_healthy_cadence.md Finding 2). In the empirical
+#     healthy-vs-chatterer gap [8, 12]; K=10 is the symmetric-margin
+#     choice. K=20 (v1) MISSED invisoutlet which chatters at only 13.
+#     Kill-switch semantics: K = 10**9 effectively disables.
+#     Rung 2 options-flow override lives at CONF_CHATTER_BURST_K.
+DEFAULT_CHATTER_BURST_K: Final = 10
+CHATTER_BURST_K: Final = DEFAULT_CHATTER_BURST_K
+
+# --- Rolling observation window DEFAULT (probe-recalibrated 300s / 5-min).
+#     The probe's separation table was computed against 5-min windows,
+#     matching K=10 to the observed healthy worst-case burst of 7.
+CHATTER_OBSERVATION_WINDOW_S: Final = 300.0
+
+# --- Rung 1 quiet-window for auto-release (seconds).
+#     Symmetric with STUCK-SENSOR-1 CORROBORATOR_DISAGREE_S = 900.
+CHATTER_RELEASE_QUIET_S: Final = 900.0
+
+# --- Per-device-family T_floor blind-time defaults DEFAULT (probe-
+#     recalibrated 2026-08-19 -> UNIFIED 1.0s across all blind-time
+#     families). Table 2 in PROBE_mmwave_healthy_cadence.md:
+#       * mmWave: 1.5s was fragile (worst healthy=10 vs chatterer=13);
+#         1.0s = clean (7 vs 13).
+#       * PIR / opener: no per-family separation needed on the observed
+#         data; 1.0s catches ratgdo opener PIR at burst 22.
+#       * reed: keep 1.0s (reed min = 0.56s).
+#     Per-entity override via sensor_capability (rung 2, when a datasheet
+#     blind-time is known to exceed 1.0s — none observed today).
+#     Per-sensor kill switch: T_floor = 0 disables scoring for that sensor
+#     (impossibility-event count trivially zero -> no promotion possible).
+#     Rung 2 options-flow override lives at CONF_CHATTER_T_FLOOR_S.
+DEFAULT_CHATTER_T_FLOOR_S: Final = 1.0
+CHATTER_T_FLOOR_DEFAULTS: Final = {
+    "pir": DEFAULT_CHATTER_T_FLOOR_S,
+    "mmwave": DEFAULT_CHATTER_T_FLOOR_S,
+    "opener": DEFAULT_CHATTER_T_FLOOR_S,
+    "reed": DEFAULT_CHATTER_T_FLOOR_S,
+}
+
+# --- Rung 2 operator-settable overrides (D-MED-2 fix-up 2026-08-19).
+#     A future miscalibration needs a backout without redeploy. Both
+#     read via nm_cycle_a_knob so an options-flow flip takes effect on
+#     the next call without CM reload (registered in _NM_A2_KEYS).
+CONF_CHATTER_BURST_K: Final = "chatter_burst_k"
+CONF_CHATTER_T_FLOOR_S: Final = "chatter_t_floor_s"
+
+# --- D7 (2026-08-19): three-state operational MODE.
+#     * "off"     — fully inert; no scoring; no listener effect on votes.
+#     * "shadow"  — detection runs, telemetry + "WOULD quarantine" NMs
+#                   surface, but the fusion does NOT exclude the vote
+#                   (SHADOW-FIRST default — first two-day live evaluation
+#                   period).
+#     * "act"     — full quarantine (exclusion set promote + fusion drop).
+#     Backward compatibility: the legacy CHATTER_QUARANTINE_ENABLED
+#     kill switch remains authoritative for "off" (both fields False =>
+#     off regardless of mode). CONF_CHATTER_QUARANTINE_ENABLED is a
+#     rung-2 alias for "not off" (True => shadow-or-act, per mode; False
+#     => off). Precedence: `CHATTER_QUARANTINE_ENABLED` module const &&
+#     `CONF_CHATTER_QUARANTINE_ENABLED` && `CONF_CHATTER_MODE != off`
+#     => detection runs; `CONF_CHATTER_MODE == "act"` gates the fusion
+#     promote (the load-bearing shadow-vs-act seam).
+CONF_CHATTER_MODE: Final = "chatter_mode"
+CHATTER_MODE_OFF: Final = "off"
+CHATTER_MODE_SHADOW: Final = "shadow"
+CHATTER_MODE_ACT: Final = "act"
+CHATTER_MODES: Final = (
+    CHATTER_MODE_OFF,
+    CHATTER_MODE_SHADOW,
+    CHATTER_MODE_ACT,
+)
+DEFAULT_CHATTER_MODE: Final = CHATTER_MODE_SHADOW  # SHADOW-FIRST default
+
+# --- Rung 1 provenance allow-list (the un-fakeable-by-construction gate).
+#     Silent-default DENY: a sensor whose (kind, provider) is not in the
+#     allow-list is NEVER scored, so it CANNOT be false-quarantined by
+#     this detector. New device families ship with an explicit allow OR
+#     deny row (added in a reviewed code change).
+#
+#     Kinds come from occupancy_substrate._KIND_TO_CONF (motion, mmwave,
+#     occupancy) + the opener kind for door/garage sensors.
+#     Providers come from URA's capability / provider tagging on the
+#     entity (same mechanism SENSOR-CAPABILITY-1 uses). Where no explicit
+#     provider tag is available, fall back to entity_id / integration-
+#     domain regex classifier below.
+CHATTER_PROVENANCE_ALLOWLIST: Final = {
+    ("motion", "pir"),
+    ("motion", "mmwave"),
+    ("motion", "zigbee_pir"),
+    ("motion", "zigbee_mmwave"),
+    ("motion", "zwave_pir"),
+    ("mmwave", "mmwave"),
+    ("mmwave", "zigbee_mmwave"),
+    ("presence", "mmwave"),
+    ("presence", "zigbee_mmwave"),
+    ("occupancy", "pir"),
+    ("occupancy", "mmwave"),
+    ("opener", "ratgdo"),
+    ("opener", "garage_door"),
+    ("opener", "reed"),
+    ("opener", "zigbee_reed"),
+    # URA's _CONF_TO_KIND has no "opener" bucket — a garage PIR / reed
+    # switch is legitimately wired under motion_sensors. Blind-time
+    # gating is a property of the HARDWARE, not the CONF bucket, so
+    # ratgdo / garage_door / reed providers are also allowed at
+    # kind=motion.
+    ("motion", "ratgdo"),
+    ("motion", "garage_door"),
+    ("motion", "reed"),
+    ("motion", "zigbee_reed"),
+}
+
+# Explicit DENY (kind, provider) pairs — defense in depth over silent-
+# default DENY, so a review-time grep surfaces the deliberate exclusions.
+CHATTER_PROVENANCE_DENYLIST: Final = {
+    ("motion", "camera"),
+    ("motion", "camera_ai"),
+    ("motion", "frigate"),
+    ("motion", "unifi_protect"),
+    ("motion", "group"),
+    ("bed_state", "any"),
+}
+
+# Camera-family regex / integration-domain sub-allow-list. Fires BEFORE
+# the (kind, provider) allow-list so a mislabeled bare device_class=motion
+# entity carrying a camera-family provenance is denied regardless.
+# Kept small and explicit; extend in reviewed code change if a new family
+# ships.
+CHATTER_CAMERA_FAMILY_INTEGRATIONS: Final = frozenset({
+    "frigate",
+    "unifi_protect",
+    "unifiprotect",
+    "camera",
+})
+CHATTER_CAMERA_FAMILY_ENTITY_SUBSTRINGS: Final = (
+    "camera_motion",
+    "binarygroup_camera_",
+    "camera_ai",
+)
 
 
 

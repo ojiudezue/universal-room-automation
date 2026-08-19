@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.84.1
+# Universal Room Automation vv5.85.0
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -41,6 +41,11 @@ async def async_setup_entry(
     if entry_type == ENTRY_TYPE_INTEGRATION:
         entities = [
             IntegrationHouseStateOverrideSelect(hass, entry),
+            # D7 (2026-08-19): chatter operational MODE (off/shadow/act)
+            # on the integration device, co-located with the v5.82.0
+            # census switches (integration device is the house-wide
+            # control home).
+            ChatterModeSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -847,3 +852,82 @@ class DrainPrecedenceHouseLoadSourceSelect(SelectEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("DP House Load Source set to: %s", option)
+
+
+# ============================================================================
+# D7 (2026-08-19) — Chatter Mode Select (integration device)
+# ============================================================================
+
+
+class ChatterModeSelect(SelectEntity):
+    """STEP chatter operational mode on the integration device.
+
+    Entity: select.ura_chatter_mode
+    Device: Universal Room Automation (integration device)
+
+    Options:
+      off     — fully inert (short-circuits to disabled at RoomCoordinator).
+      shadow  — DEFAULT. Detection + surface + "WOULD quarantine" NM;
+                fusion vote is NOT excluded (byte-identical occupancy).
+      act     — full quarantine (fusion excludes the vote).
+
+    Persists to entry.options under CONF_CHATTER_MODE. Registered in
+    _NM_A2_KEYS so an entity-driven change takes effect without CM
+    reload (nm_cycle_a_knob cache is invalidated by the CM options-
+    update listener; RoomCoordinator._chatter_mode() re-reads live).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-check-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.entity import EntityCategory
+        from .const import (
+            CHATTER_MODES,
+            CONF_CHATTER_MODE,
+            DEFAULT_CHATTER_MODE,
+            VERSION,
+        )
+        self._attr_entity_category = EntityCategory.CONFIG
+        # D7 fix-up A-LOW-1 (2026-08-19): removed the redundant
+        # `self.hass = hass` — HA sets `hass` when the entity is added,
+        # and this class only reads it in `async_select_option` (post-
+        # add). Kept `_entry` (canonical URA-side ref).
+        self._entry = entry
+        self._conf_key = CONF_CHATTER_MODE
+        self._default = DEFAULT_CHATTER_MODE
+        self._attr_options = list(CHATTER_MODES)
+        self._attr_unique_id = f"{DOMAIN}_chatter_mode"
+        self._attr_name = "Chatter Mode"
+        # Pin entity_id so friendly-name auto-slug drift cannot rename it.
+        self.entity_id = "select.ura_chatter_mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "integration")},
+            name="Universal Room Automation",
+            manufacturer="Universal Room Automation",
+            model="Whole House",
+            sw_version=VERSION,
+        )
+
+    @property
+    def current_option(self) -> str:
+        merged = {**self._entry.data, **self._entry.options}
+        val = merged.get(self._conf_key, self._default)
+        if isinstance(val, str) and val in self._attr_options:
+            return val
+        return self._default
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self._attr_options:
+            _LOGGER.warning("Invalid chatter mode: %s", option)
+            return
+        old = self.current_option
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._conf_key: option},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info(
+            "ChatterModeSelect: %s -> %s (entry=%s)",
+            old, option, self._entry.entry_id,
+        )

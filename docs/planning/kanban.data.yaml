@@ -4329,10 +4329,10 @@ cards:
     guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: SENSOR-HEALTH-SURFACING-1
   title: 'Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model'
-  column: in_progress
+  column: review
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 09:00
+  updated: 2026-08-19 10:35
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -5086,10 +5086,10 @@ cards:
     new mechanism (fan-running sustained-shake demotion), NOT a fix to the transition gate.'
 - id: FAN-RECHECK-D2-DEADLOCK-1
   title: Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
-  column: review
+  column: shipped_organic
   thread: presence
   created: 2026-08-19 05:15
-  updated: 2026-08-19 06:20
+  updated: 2026-08-19 10:33
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms
@@ -5123,6 +5123,13 @@ cards:
     HOLD REASON: deploy = HA restart (~5min whole-house outage) and residents are asleep (house=sleep,
     ~6am). Deploy at a non-hostile hour / on operator go. Behavioral proof is LIVE (real-coord in-suite
     = v5.8.0 territory, seam adjudicated acceptable by Review C).'
+  shipped_2026_08_19: 'SHIPPED v5.84.0 -> HOTFIX v5.84.1 (v5.84.0 shipped a presence-startup UnboundLocalError:
+    D3 refactor moved a CONF_ENTRY_TYPE ref past a pre-existing shadowing function-local import; L1 caught
+    it; root-caused + sibling-scanned + one-line un-shadow fix). v5.84.1 L1 PASS: fresh boot, zero URA
+    ERROR, presence started + inferring (boot_settle real_input, census 2, tracked 4). Incident closed.
+    L2 (recheck eval_count climb + real vacate) organic-pending a fan-ghost episode. Follow-up: SHADOW-IMPORT-AUDIT-1.
+    Lesson: exactly the coordinator-integration test gap TEST-STRATEGY-REARCH-1 exists to close (real-coord
+    harness would catch at author time).'
 - id: TEST-STRATEGY-REARCH-1
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
@@ -5170,7 +5177,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-19 09:00
-  updated: 2026-08-19 09:15
+  updated: 2026-08-19 10:55
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its
@@ -5202,6 +5209,15 @@ cards:
   refs: PLANNING_sensor_health_surfacing.md; switch.py:154 (census switches); number.py (CM Numbers);
     sensor.py:1677 (UnavailableEntitiesSensor); PROBE_mmwave_healthy_cadence.md (the distribution to surface)
   build_2026_08_19: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
+  reviews_2026_08_19: 'D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED
+    on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off
+    mode-flip leaves stale chatter exclusions (occupancy suppressed up to 900s/indefinitely) — no test
+    flipped modes. B-MED: orphaned CONF_CHATTER_QUARANTINE_ENABLED (no UI to clear pre-D7 False) + phantom
+    switch.ura_chatter_enabled comment. Shadow seam CONFIRMED mutation-anchored. FIX-UP dispatched: mode-transition
+    release + retire old enable bool + migrate + comment fix + LOWs + 3 mode-flip tests. PROCESS LESSON:
+    dispatched 2 reviewers on the SAME worktree, one running mutation drills -> A+D saw B+C mutations
+    mid-flight. Mutation-testing reviewers need ISOLATED worktrees (or run sequentially). B+C restored
+    clean; no harm, but a rule to codify.'
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
   column: inbox

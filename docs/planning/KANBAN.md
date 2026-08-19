@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T10:11:08-05:00_ - _Data commit: `31366e705048`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-19T10:33:30-05:00_ - _Data commit: `d3a0e480bc31`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1187,10 +1187,10 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-19 09:00 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
 - **Forensic keys (17):**
-  - `column`: in_progress
+  - `column`: review
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
   - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
@@ -1439,14 +1439,15 @@ _created 2026-08-19 04:10 · updated 2026-08-19 04:45 · initial_
 
 ### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
 thread: **presence**
-_created 2026-08-19 05:15 · updated 2026-08-19 06:20 · refined_
+_created 2026-08-19 05:15 · updated 2026-08-19 10:33 · refined_
 - **Next:** Plan the D2<->recheck precedence reconciliation (Tier 2-DB). Supersedes FAN-RECHECK-SLEEP-VETO-SCOPE-1 as the primary (the sleep veto is a real but secondary over-scope; the deadlock is why it never armed at all).
-- **Forensic keys (5):**
-  - `column`: review
+- **Forensic keys (6):**
+  - `column`: shipped_organic
   - `program`: sensor-trust-exclusion
   - `problem`: CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms target the same fan-ghosted mmwave-sole rooms and deadlock: D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED default on, coordinator.py:...
   - `phase_2026_08_19`: IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds in sleep-veto)
   - `staged_ready_2026_08_19`: STAGED + SHIP-READY, DEPLOY HELD for non-hostile timing. Merged to develop; 3 Tier-2-DB reviews ALL SHIP (A correctness, B deadlock-break PROVEN + no inverse deadlock, C SHIP-with-live-validation); F-C-2 hollow D3 test fixed (extracted h...
+  - `shipped_2026_08_19`: SHIPPED v5.84.0 -> HOTFIX v5.84.1 (v5.84.0 shipped a presence-startup UnboundLocalError: D3 refactor moved a CONF_ENTRY_TYPE ref past a pre-existing shadowing function-local import; L1 caught it; root-caused + sibling-scanned + one-line ...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries)
 thread: **platform**
@@ -1459,13 +1460,14 @@ _created 2026-08-19 07:45 · updated 2026-08-19 08:15 · initial_
 
 ### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)
 thread: **diagnostics**
-_created 2026-08-19 09:00 · updated 2026-08-19 09:15 · refined_
+_created 2026-08-19 09:00 · updated 2026-08-19 10:55 · refined_
 - **Next:** SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) -> ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE (operator): the 2-day clock STARTS AT SHADO...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `column`: in_progress
   - `program`: sensor-trust-exclusion
   - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
+  - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
 ### `SHADOW-IMPORT-AUDIT-1` - Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
 thread: **platform**
