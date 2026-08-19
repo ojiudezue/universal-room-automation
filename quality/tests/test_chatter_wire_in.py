@@ -494,6 +494,33 @@ def test_drill_21_d7_default_mode_shadow_wire():
     )
 
 
+def test_drill_23_d7_HIGH_mode_transition_release_wire():
+    """D7 HIGH fix-up (2026-08-19): neutering the act->non-act
+    release-on-transition call must red the load-bearing
+    test_d7_HIGH_act_to_shadow_flip_releases_chatter_exclusions test.
+    """
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="        if self._chatter_act_last and not is_act_now:\n            self._release_all_chatter_exclusions(room_name)",
+        new="        if False and self._chatter_act_last and not is_act_now:\n            self._release_all_chatter_exclusions(room_name)",
+        target=str(_TESTS / "test_chatter_d7_shadow_act.py::test_d7_HIGH_act_to_shadow_flip_releases_chatter_exclusions"),
+        label="d7_HIGH_mode_transition_release",
+    )
+
+
+def test_drill_24_d7_HIGH_release_helper_body_wire():
+    """D7 HIGH fix-up: neutering the exclusion_set.release call inside
+    _release_all_chatter_exclusions must red the STEP-EXCLUDE-3-preserving
+    mode-flip test."""
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old='            self._exclusion_set.release("chatter", _eid)',
+        new='            pass  # NEUTERED release',
+        target=str(_TESTS / "test_chatter_d7_shadow_act.py::test_d7_HIGH_act_to_shadow_flip_releases_chatter_exclusions"),
+        label="d7_HIGH_release_helper_body",
+    )
+
+
 def test_drill_22_d7_room_telemetry_wire():
     """D7 telemetry surface — removing the telemetry() call in
     UnavailableEntitiesSensor reds the telemetry acceptance test."""

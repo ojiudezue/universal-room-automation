@@ -1931,7 +1931,14 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                     1 for r in rows if r.get("would_quarantine")
                 )
         except Exception:  # noqa: BLE001 — diagnostics must degrade
-            pass
+            # D7 fix-up A-LOW-2 (2026-08-19): log the swallowed exception
+            # at debug so a silent failure is diagnosable if the operator
+            # ever sees chatter_telemetry missing on the room sensor.
+            _LOGGER.debug(
+                "UnavailableEntitiesSensor: chatter telemetry raise "
+                "swallowed (attrs=chatter_telemetry omitted)",
+                exc_info=True,
+            )
         # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
         # a room with no lights/fans has no reconciler, so we degrade to zeros.
         reconciler = self._reconciler()

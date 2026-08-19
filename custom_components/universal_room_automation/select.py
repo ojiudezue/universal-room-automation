@@ -889,7 +889,10 @@ class ChatterModeSelect(SelectEntity):
             VERSION,
         )
         self._attr_entity_category = EntityCategory.CONFIG
-        self.hass = hass
+        # D7 fix-up A-LOW-1 (2026-08-19): removed the redundant
+        # `self.hass = hass` — HA sets `hass` when the entity is added,
+        # and this class only reads it in `async_select_option` (post-
+        # add). Kept `_entry` (canonical URA-side ref).
         self._entry = entry
         self._conf_key = CONF_CHATTER_MODE
         self._default = DEFAULT_CHATTER_MODE

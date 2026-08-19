@@ -370,6 +370,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # M-A1: track whether the chatter kill-switch was ON last tick, so
         # B-LOW-4 can fire discharge NMs on a True->False flip.
         self._chatter_kill_switch_last: bool = True
+        # D7 HIGH fix-up (2026-08-19): track act-mode last tick so a
+        # runtime act->shadow / act->off flip immediately releases
+        # currently-promoted chatter exclusions (suppression-needs-
+        # discharge). Without this, a still-chattering sensor stays
+        # excluded until quiet-release which is NEVER while it's
+        # chattering — occupancy stays suppressed indefinitely.
+        self._chatter_act_last: bool = False
         # B-MED-1 fix-up (2026-08-13): tick-scoped "detector completed
         # without exception" flag. Set True at the end of the D2 try
         # block; the release-edge scan runs ONLY when True so a mid-
@@ -2206,6 +2213,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             self._discharge_chatter_latches(room_name)
         self._chatter_kill_switch_last = enabled
 
+        # D7 HIGH fix-up (2026-08-19): act->non-act (shadow OR off)
+        # transition MUST release stale chatter exclusions this tick.
+        # Otherwise a still-chattering sensor's exclusion never quiet-
+        # releases (quiet requires ZERO edges, which a chatterer cannot
+        # produce) and room occupancy stays suppressed indefinitely.
+        # Mirrors the D3 release path per client (STEP-EXCLUDE-3 preserved:
+        # any concurrent stuck_dutycycle promotion still holds).
+        is_act_now = mode == "act"
+        if self._chatter_act_last and not is_act_now:
+            self._release_all_chatter_exclusions(room_name)
+        self._chatter_act_last = is_act_now
+
         if not enabled:
             # Kill switch off: still surface diagnostically (D5 stays
             # useful during dogfood) but do NOT promote into the shared
@@ -2345,30 +2364,90 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # bare-attribute read that had an incorrect comment. The
         # attribute is initialised in __init__; a bare read is dead code.
 
+    def _release_all_chatter_exclusions(self, room_name: str) -> None:
+        """D7 HIGH fix-up (2026-08-19): release every chatter-client
+        promotion this tick.
+
+        Called on any act -> non-act (shadow OR off) mode transition so
+        room occupancy immediately un-suppresses. Iterates the shared
+        SensorExclusionSet.entities_for_client("chatter") and releases
+        each. STEP-EXCLUDE-3 preserves any concurrent stuck_dutycycle
+        or p22_continuous promotion.
+
+        For each released entity: pops the diagnostic label only when
+        no other client still promotes it (B-LOW-2 provenance guard),
+        discharges _chatter_nm_fired, and fires the paired
+        fire_stuck_signal_recovered so the per-day chatter latch clears
+        (mirror of D3 auto-release semantics).
+        """
+        try:
+            currently_chatter = self._exclusion_set.entities_for_client(
+                "chatter",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Room %s: entities_for_client('chatter') raised (swallowed)",
+                room_name, exc_info=True,
+            )
+            return
+        for _eid in list(currently_chatter):
+            self._exclusion_set.release("chatter", _eid)
+            self._chattering_entities.discard(_eid)
+            if not self._exclusion_set.clients_for(_eid):
+                self._stuck_sensor_kinds.pop(_eid, None)
+            self._chatter_nm_fired.discard(("chatter", room_name, _eid))
+            try:
+                from .domain_coordinators._stuck_signal_nm import (  # noqa: PLC0415
+                    fire_stuck_signal_recovered,
+                )
+                self.hass.async_create_task(fire_stuck_signal_recovered(  # noqa: untracked-ok
+                    self.hass,
+                    kind="chatter",
+                    key=(_eid,),
+                    message=(
+                        f"room {room_name}: sensor {_eid} chatter "
+                        "exclusion released (mode flipped act -> non-act)"
+                    ),
+                ))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Room %s: chatter mode-flip recovered-NM raise swallowed "
+                    "for %s", room_name, _eid, exc_info=True,
+                )
+        if currently_chatter:
+            _LOGGER.info(
+                "Room %s: released %d chatter exclusion(s) on mode flip "
+                "act -> non-act", room_name, len(currently_chatter),
+            )
+
     def _chatter_mode(self) -> str:
-        """D7 (2026-08-19): resolved operational MODE.
+        """D7 (2026-08-19) — resolved operational MODE.
 
         Returns one of "off" / "shadow" / "act". The mode is the
         LOAD-BEARING shadow-vs-act seam: `_apply_chatter_tick` gates
         the fusion promote on ``self._chatter_mode() == 'act'`` so a
         SHADOW-mode chatterer is DETECTED + SURFACED + NM'd but its
-        vote is NOT excluded (occupancy fusion unchanged).
+        vote is NOT excluded.
 
-        Precedence: legacy kill switches (`CHATTER_QUARANTINE_ENABLED`
-        module const AND `CONF_CHATTER_QUARANTINE_ENABLED` options
-        toggle) still short-circuit to "off" — either False forces off
-        regardless of mode. Otherwise the rung-2 CONF_CHATTER_MODE
-        wins. Default = shadow.
+        D7 fix-up B-MED-1/2 (2026-08-19): the module-const
+        `CHATTER_QUARANTINE_ENABLED` still short-circuits to "off"
+        (reviewed-code-change kill switch — safety bound). The
+        rung-2 `CONF_CHATTER_QUARANTINE_ENABLED` toggle is RETIRED
+        from this resolver — the CONF_CHATTER_MODE Select is now the
+        single operator-facing kill switch (mode="off" IS the disable
+        UI). This ends the two-mechanism drift where a pre-D7 operator
+        with the old bool False had no UI to recover from. Preserving
+        the operator's disable intent is handled by `async_migrate_entry`
+        (__init__.py), which flips CONF_CHATTER_MODE to "off" on any
+        pre-D7 entry whose CONF_CHATTER_QUARANTINE_ENABLED was False.
         """
         try:
             from .const import (  # noqa: PLC0415
                 CHATTER_QUARANTINE_ENABLED,
-                CONF_CHATTER_MODE,
-                CONF_CHATTER_QUARANTINE_ENABLED,
-                CHATTER_MODES,
-                DEFAULT_CHATTER_MODE,
-                DEFAULT_CHATTER_QUARANTINE_ENABLED,
                 CHATTER_MODE_OFF,
+                CHATTER_MODES,
+                CONF_CHATTER_MODE,
+                DEFAULT_CHATTER_MODE,
             )
         except Exception:  # noqa: BLE001
             return "off"
@@ -2378,13 +2457,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
                 nm_cycle_a_knob,
             )
-            enabled = bool(nm_cycle_a_knob(
-                self.hass,
-                CONF_CHATTER_QUARANTINE_ENABLED,
-                DEFAULT_CHATTER_QUARANTINE_ENABLED,
-            ))
-            if not enabled:
-                return CHATTER_MODE_OFF
             mode = nm_cycle_a_knob(
                 self.hass, CONF_CHATTER_MODE, DEFAULT_CHATTER_MODE,
             )

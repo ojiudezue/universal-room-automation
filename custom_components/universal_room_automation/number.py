@@ -3788,7 +3788,9 @@ class _ChatterCMNumberBase(NumberEntity):
         from homeassistant.helpers.device_registry import DeviceInfo
         from homeassistant.helpers.entity import EntityCategory
         from .const import VERSION
-        self.hass = hass
+        # D7 fix-up A-LOW-1 (2026-08-19): removed redundant
+        # `self.hass = hass` — HA sets hass on add; the async_ methods
+        # that read it (async_set_native_value) run post-add.
         self._entry = entry
         self._conf_key = conf_key
         self._default = default

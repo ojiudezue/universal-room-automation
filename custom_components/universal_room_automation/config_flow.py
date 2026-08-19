@@ -6906,8 +6906,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # D7 (2026-08-19): CONF_CHATTER_* form fields MIGRATED OUT
             # of the notifications-volume step. Chatter controls live on
             # device entities now:
-            #   * switch.ura_chatter_enabled    (integration device)
             #   * select.ura_chatter_mode       (integration device)
+            #     — the single kill-switch UI (off/shadow/act). D7 fix-up
+            #     B-MED-1/2 retired CONF_CHATTER_QUARANTINE_ENABLED — the
+            #     Select's "off" option IS the kill switch now.
             #   * number.ura_chatter_burst_k    (CM device)
             #   * number.ura_chatter_t_floor    (CM device)
             # Values persist through the same CONF_ options keys — the

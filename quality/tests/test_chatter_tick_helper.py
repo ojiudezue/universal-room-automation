@@ -137,6 +137,8 @@ def _extract_and_compile_helpers():
         "_chatter_quarantine_enabled",
         # D7 (2026-08-19): mode gate for shadow-vs-act.
         "_chatter_mode",
+        # D7 fix-up HIGH (2026-08-19): mode-transition release.
+        "_release_all_chatter_exclusions",
     }
     found: dict[str, ast.FunctionDef] = {}
 
@@ -289,6 +291,10 @@ def _make_stand_in(helper_class, sensor_exclusion_mod, mode="act",
             self._chatter_nm_fired = set()
             self._chatter_kill_switch_last = kill_switch_last
             self._chatter_mode_flag = mode
+            # D7 fix-up HIGH (2026-08-19): _chatter_act_last tracks the
+            # previous tick's act-ness so an act -> non-act flip
+            # releases stale chatter exclusions this tick.
+            self._chatter_act_last = (mode == "act")
         def _chatter_mode(self):  # override the extracted one
             return self._chatter_mode_flag
 
@@ -399,28 +405,40 @@ def test_apply_chatter_tick_release_pops_label_when_no_other_client(
 def test_apply_chatter_tick_b_low_4_kill_switch_flip_discharges_latch(
     helper_class, sensor_exclusion_mod,
 ):
-    """B-LOW-4: kill-switch True->False fires recovered-NM to discharge
-    the per-day latch. Otherwise a future re-enable + real chatter is
-    silently suppressed until midnight (suppression-needs-discharge).
+    """B-LOW-4 (2026-08-19, updated post-D7 HIGH fix-up).
+
+    Suppression-needs-discharge: a chatter NM latch armed in SHADOW mode
+    (no fusion promote, so the D7 HIGH act->non-act release path does
+    NOT fire) must still discharge when the mode flips to OFF. Otherwise
+    a future re-enable + legit chatter would be silently suppressed
+    until midnight.
+
+    This test intentionally uses shadow -> off (not act -> off) because
+    the post-D7-HIGH `_release_all_chatter_exclusions` helper covers
+    act -> off discharge as a side-effect; the ONLY path where
+    `_discharge_chatter_latches` remains load-bearing is the shadow ->
+    off transition where no chatter promotion exists to release.
     """
     coord, S = _make_stand_in(
         helper_class, sensor_exclusion_mod,
-        mode="act",
+        mode="shadow",
         chattering={"binary_sensor.bad"},
     )
-    # First tick: enabled -> latch armed.
+    # First tick: shadow -> WOULD-quarantine NM latch armed (no promote).
     coord._apply_chatter_tick(set(), "testroom")
     assert ("chatter", "testroom", "binary_sensor.bad") in coord._chatter_nm_fired
     tasks_before_flip = len(coord.hass.tasks)
-    # Flip kill switch off.
+    # Flip mode off.
     coord._chatter_mode_flag = "off"
     coord._apply_chatter_tick(set(), "testroom")
-    # Latch must be drained AND a recovered-NM must have been scheduled.
+    # Latch must be drained AND a recovered-NM must have been scheduled
+    # by _discharge_chatter_latches (the only remaining discharge path
+    # for shadow-mode latches).
     assert coord._chatter_nm_fired == set(), (
-        "B-LOW-4 VIOLATED: kill-switch flip left chatter latches armed"
+        "B-LOW-4 VIOLATED: shadow->off flip left chatter latches armed"
     )
     assert len(coord.hass.tasks) > tasks_before_flip, (
-        "B-LOW-4 VIOLATED: no recovered-NM scheduled on kill-switch flip"
+        "B-LOW-4 VIOLATED: no recovered-NM scheduled on shadow->off flip"
     )
 
 

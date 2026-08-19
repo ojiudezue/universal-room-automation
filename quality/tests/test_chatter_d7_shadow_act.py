@@ -93,6 +93,8 @@ def _extract():
         "_chatter_quarantine_enabled",
         "_chatter_mode",
         "_fusion_filter_active",
+        # D7 fix-up HIGH (2026-08-19): mode-transition release.
+        "_release_all_chatter_exclusions",
     }
     found = {}
 
@@ -232,6 +234,7 @@ def _make(helper, sensor_exclusion_mod, mode, chattering=("binary_sensor.bad",))
             # Kill-switch-last matches mode's enabled semantics so B-LOW-4
             # doesn't fire spurious discharge NMs on the first tick.
             self._chatter_kill_switch_last = mode != "off"
+            self._chatter_act_last = (mode == "act")
             self._mode = mode
         def _chatter_mode(self):
             return self._mode
@@ -316,6 +319,115 @@ def test_d7_default_mode_is_shadow(helper, sensor_exclusion_mod):
     )
     cm = _u.module_from_spec(spec); spec.loader.exec_module(cm)
     assert cm.DEFAULT_CHATTER_MODE == "shadow"
+
+
+# ===========================================================================
+# D7 fix-up HIGH (2026-08-19) — mode-transition release tests.
+# ===========================================================================
+
+
+def test_d7_HIGH_act_to_shadow_flip_releases_chatter_exclusions(
+    helper, sensor_exclusion_mod,
+):
+    """LOAD-BEARING: act->shadow flip releases stale chatter exclusions.
+
+    Reproduces the review HIGH: a chatterer promoted in act mode stays
+    excluded when mode flips to shadow (occupancy remains suppressed
+    indefinitely because quiet-release requires ZERO edges from a
+    still-chattering sensor). Fix: act->non-act transition MUST release
+    all "chatter" client entries this tick.
+    """
+    coord, S = _make(
+        helper, sensor_exclusion_mod, mode="act",
+        chattering=("binary_sensor.bad",),
+    )
+    coord._apply_chatter_tick(set(), "testroom")
+    assert S.is_excluded("binary_sensor.bad"), (
+        "sanity: act mode should have promoted the chatterer"
+    )
+    assert ("chatter", "testroom", "binary_sensor.bad") in coord._chatter_nm_fired
+
+    # Flip to shadow. The still-chattering sensor keeps chattering
+    # (_FakeDetector.chattering_entities() still returns it).
+    coord._mode = "shadow"
+    stuck = set()
+    coord._apply_chatter_tick(stuck, "testroom")
+
+    # HIGH FIX: exclusion released this tick — occupancy un-suppresses.
+    assert not S.is_excluded("binary_sensor.bad"), (
+        "D7 HIGH VIOLATED: act->shadow flip left chatter exclusion armed; "
+        "occupancy would stay suppressed indefinitely"
+    )
+    # And the sensor is NOT in `stuck` this tick (fusion filter sees no
+    # chatter exclusion on any consumer leg).
+    assert "binary_sensor.bad" not in stuck, (
+        "act->shadow flip must drop the sensor from stuck_sensors alias"
+    )
+
+
+def test_d7_HIGH_act_to_off_flip_releases_chatter_exclusions(
+    helper, sensor_exclusion_mod,
+):
+    """B-LOW-4 sibling: act->off flip releases too (was covered by the
+    discharge path pre-D7-HIGH, kept for completeness)."""
+    coord, S = _make(
+        helper, sensor_exclusion_mod, mode="act",
+        chattering=("binary_sensor.bad",),
+    )
+    coord._apply_chatter_tick(set(), "testroom")
+    assert S.is_excluded("binary_sensor.bad")
+
+    coord._mode = "off"
+    coord._apply_chatter_tick(set(), "testroom")
+    assert not S.is_excluded("binary_sensor.bad")
+
+
+def test_d7_HIGH_shadow_to_act_flip_promotes_fresh(
+    helper, sensor_exclusion_mod,
+):
+    """No regression on the reverse flip: shadow->act must promote fresh
+    on the very next tick (chatterer already flagged by detector)."""
+    coord, S = _make(
+        helper, sensor_exclusion_mod, mode="shadow",
+        chattering=("binary_sensor.bad",),
+    )
+    coord._apply_chatter_tick(set(), "testroom")
+    assert not S.is_excluded("binary_sensor.bad"), (
+        "sanity: shadow mode should NOT have promoted"
+    )
+    coord._mode = "act"
+    stuck = set()
+    coord._apply_chatter_tick(stuck, "testroom")
+    assert S.is_excluded("binary_sensor.bad")
+    assert "binary_sensor.bad" in stuck
+
+
+def test_d7_HIGH_release_preserves_concurrent_stuck_dutycycle(
+    helper, sensor_exclusion_mod,
+):
+    """STEP-EXCLUDE-3 during mode-transition release: dropping the
+    chatter client must NOT release a concurrent stuck_dutycycle
+    promotion on the same entity."""
+    coord, S = _make(
+        helper, sensor_exclusion_mod, mode="act",
+        chattering=("binary_sensor.overlap",),
+    )
+    # Pre-load: stuck_dutycycle claim earlier in the tick.
+    S.promote("stuck_dutycycle", "binary_sensor.overlap", "d")
+    coord._apply_chatter_tick(set(), "testroom")
+    # Both promotions present.
+    assert set(S.provenance("binary_sensor.overlap").keys()) >= {
+        "chatter", "stuck_dutycycle",
+    }
+    # Flip act -> shadow.
+    coord._mode = "shadow"
+    coord._apply_chatter_tick(set(), "testroom")
+    # Chatter client released, stuck_dutycycle still holds -> is_excluded True.
+    assert S.is_excluded("binary_sensor.overlap"), (
+        "STEP-EXCLUDE-3 VIOLATED under mode-flip release: chatter release "
+        "dropped concurrent stuck_dutycycle promotion"
+    )
+    assert "stuck_dutycycle" in S.provenance("binary_sensor.overlap")
 
 
 # ===========================================================================
