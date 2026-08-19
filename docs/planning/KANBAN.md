@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T16:28:45-05:00_ - _Data commit: `38e7592a8989`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T22:05:20-05:00_ - _Data commit: `98a6dcdf1663`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-08-18T16:28:45-05:00_ - _Data commit: `38e7592a8989`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 24 |
+| ❓ Other | 27 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1148,7 +1148,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (24)
+## ❓ Other (27)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1368,6 +1368,31 @@ _created 2026-08-18 16:45 · initial_
   - `program`: sensor-trust-exclusion
   - `problem`: Bed / multi-state sensors (empty->sitting->lying) are EXCLUDED from the physics chatter detector — their transitions are not gated by a single motion blind-time, so the sub-T_floor criterion is ill-defined. They can still fault; needs a ...
   - `parked_reason`: Distinct sensor model + criterion. Low priority (few such sensors). Card after STEP primitive ships; reuse SensorExclusionSet.
+
+### `FAN-RECHECK-NOT-CLEARING-1` - Fan-interference recheck not clearing held rooms — fans should pause to unhold, not happening
+thread: **presence**
+_created 2026-08-19 03:15 · updated 2026-08-19 03:40 · initial_
+- **Next:** Investigation (read presence_fan_recheck.py + live config): (1) is fan-recheck enabled + are these rooms fans mapped for it? (2) what triggers the pause + at which ladder rung (Living Room=L3, Study A=none)? (3) why has no pause fired / ...
+- **Forensic keys (3):**
+  - `column`: done
+  - `problem`: Operator confirmed NO people in Study A or Living Room, but both are held occupied by fan-interference while fans run. The fan-recheck is SUPPOSED to briefly pause the fan to see if mmWave drops (proving fan-shake vs real person) and unh...
+  - `resolved_2026_08_18`: INVESTIGATION DONE. Root cause: over-scoped house-wide SLEEP veto (presence_fan_recheck.py:373) + comfort-fan/mmWave feedback loop. Complete cause list: (a) guest window = substantive BLE/tick gate NOT a state block (no guest veto in cod...
+
+### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms)
+thread: **presence**
+_created 2026-08-19 03:40 · refined_
+- **Next:** Plan the veto-scoping (Tier 2-DB): narrow SLEEP veto at :373-375 + :854-855 to bedroom/keep-fan-on rooms via the reused predicate. Then plan review -> build. Live-validate: Study A + Living Room decay during sleep once fan paused + mmWav...
+- **Forensic keys (2):**
+  - `column`: planned
+  - `problem`: Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375, mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never get their fan paused/rechecke...
+
+### `STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1` - Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when it fires
+thread: **presence**
+_created 2026-08-19 03:40 · initial_
+- **Next:** Config/precedence review: recategorize the Study A Zigbee mmWave out of motion_sensors (into presence_sensors/mmwave) so a still-target read does not present as motion. Verify no other consumer depends on it being motion.
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: Study A Zigbee mmWave is mapped under motion_sensors; motion_detected outranks presence (coordinator.py:3065), so whenever that Zigbee reads ON the fused occupancy_source becomes "motion" and the fan-recheck (which arms only on source=="...
 
 ## 🅿️ Parked ideas (top-level list)
 
