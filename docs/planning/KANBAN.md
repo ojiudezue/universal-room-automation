@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T10:45:18-05:00_ - _Data commit: `ba10d8a43285`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-19T11:44:54-05:00_ - _Data commit: `2812505a4df1`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-19T10:45:18-05:00_ - _Data commit: `ba10d8a43285`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 7 |
+| 📥 Inbox | 8 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
@@ -23,8 +23,17 @@ _Generated: 2026-08-19T10:45:18-05:00_ - _Data commit: `ba10d8a43285`_ - _last_r
 | ✅ Done | 25 |
 | ❓ Other | 33 |
 
-## 📥 Inbox (7)
+## 📥 Inbox (8)
 _raw capture_
+
+### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-19 13:00 · initial_
+- **Problem / Solution:**
+  - Context (operator 2026-08-19): Ziri has left for college and will become SPARSE — his tracker/BLE/face will legitimately be absent for long stretches. Implications to verify, not assume: (1) his stale/absent tracker must NOT generate ano...
+- **Why:** A resident transitioning to persistently-away is exactly the kind of routine change that can quietly poison presence heuristics (phantom guest, stale-tracker anomaly, wrong occupancy prior). Better to verify the seams now than debug a ph...
+- **Next:** Investigate: (a) does a stale/absent Ziri tracker trip any anomaly/NM path; (b) does census/guest exclude a known-away resident correctly; (c) Bayesian/schedule change-detection — does any code notice his routine changed (Explore dispatc...
+- **Refs:** docs/planning/KANBAN.md
 
 ### `STEP-SHADOW-EVIDENCE-WATCH-1` - Check STEP shadow chatter evidence during nightly board maintenance (until 08-21 forcing gate)
 thread: **diagnostics** - status: **inbox** - approval: **unreviewed**

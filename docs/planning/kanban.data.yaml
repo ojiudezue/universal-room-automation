@@ -26,6 +26,31 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ZIRI-COLLEGE-PERSISTENT-AWAY-1
+  thread: presence
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-19 13:00
+  updated: 2026-08-19 13:00
+  refinement_status: initial
+  title: Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
+  problem_solution:
+  - 'Context (operator 2026-08-19): Ziri has left for college and will become SPARSE — his tracker/BLE/face
+    will legitimately be absent for long stretches. Implications to verify, not assume: (1) his stale/absent
+    tracker must NOT generate anomalies or drag house-state; (2) census/guest logic must treat him as a
+    known-away resident, never fold his absence into a guest/unidentified count; (3) does any schedule/
+    Bayesian model treat his changed routine correctly, or silently as "away" (see investigation).'
+  why: A resident transitioning to persistently-away is exactly the kind of routine change that can quietly
+    poison presence heuristics (phantom guest, stale-tracker anomaly, wrong occupancy prior). Better to
+    verify the seams now than debug a phantom later.
+  constraints:
+  - Read-only investigation first; no code change without a confirmed defect. Do NOT remove Ziri as a tracked
+    person — he is a resident who returns (breaks, summers).
+  next: 'Investigate: (a) does a stale/absent Ziri tracker trip any anomaly/NM path; (b) does census/guest
+    exclude a known-away resident correctly; (c) Bayesian/schedule change-detection — does any code notice
+    his routine changed (Explore dispatched 2026-08-19). Report to operator, then decide if any card follows.'
+  refs:
+  - docs/planning/KANBAN.md
 - id: STEP-SHADOW-EVIDENCE-WATCH-1
   thread: diagnostics
   status: inbox
