@@ -1,0 +1,15 @@
+{
+  "format_version": "2.1",
+  "entry_id": "064",
+  "author": "ojiudezue",
+  "session_id": "claude_20260819_ship_v5_85_0",
+  "timestamp": "2026-08-19T16:40:00Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "Why STEP shipped shadow-first, and what the Tier-3 orchestrator-verify actually caught",
+  "summary": "Reasoning trail behind v5.85.0. (1) Shadow-first was the right call NOT because the code was unsure but because the PRODUCER is unproven live: with a bazillion devices, 2 days of shadow telemetry is a cheap, high-power test of whether real chatter even exists at K=10/T_floor=1.0 before we let it touch occupancy fusion. The invariant ('shadow never promotes') is fully proven in-suite + by mutation; what shadow buys is producer-rate evidence, not more safety. (2) The Tier-3 'orchestrator independent verification, do NOT trust reviewer summaries' rule earned its keep TWICE this session: the same import-shadow class that crashed v5.84.0 presence (function-local `from ..const import` shadowing a module name on a path that skips the local import) was exactly what I personally re-checked in the STEP migrate — and it was clean because the builder aliased the sibling import (`as _CONF_CHATTER_MODE`), a deliberate avoidance. I confirmed by reading, not trusting. (3) Personally mutated the `is_act` gate (`if is_act:`->`if True:`) and watched it red the 3 shadow tests: that IS the load-bearing-site proof the rule demands, and it's the single gate the whole shadow-first rollout rests on. (4) The forcing gate is scheduled as a cloud routine rather than left as a calendar note precisely because 'turn it on in 2 days or declare moot' is a decision that dies quietly if nobody re-raises it; the routine + the nightly board-watch card are the two independent re-raisers. Lesson reinforced: the boot-path incident (v5.84.0) is the concrete argument for TEST-STRATEGY-REARCH-1 — a real-coord harness would have caught it at author time; live-validation is the accepted interim, and this session's two clean boots are why it's tolerable.",
+  "refs": {
+    "cards": ["SENSOR-HEALTH-SURFACING-1", "CHATTER-OBSERVE-CONTROL-D7-1", "STEP-SHADOW-EVIDENCE-WATCH-1", "SHADOW-IMPORT-AUDIT-1", "TEST-STRATEGY-REARCH-1"],
+    "docs": ["docs/readmes/README_v5.85.0.md", "docs/readmes/README_v5.84.1.md"]
+  }
+}
