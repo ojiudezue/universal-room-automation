@@ -1830,11 +1830,25 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                 }
             except Exception:  # noqa: BLE001 — diagnostics must degrade
                 flapping_ids = set()
+        # STEP D5 (v5.85): chatter-flagged sensors surfaced with
+        # reason="chattering" byte-symmetric with the flapping branch.
+        # ONLY consumer of _chattering_entities: operator dashboards. NO
+        # trust code reads this — fusion authority is
+        # SensorExclusionSet.is_excluded().
+        chattering_ids: set[str] = set()
+        try:
+            chattering_ids = set(
+                getattr(self.coordinator, "_chattering_entities", set())
+                or set(),
+            )
+        except Exception:  # noqa: BLE001 — diagnostics must degrade
+            chattering_ids = set()
         for eid, role, category in self._iter_configured():
             state = self.coordinator.hass.states.get(eid)
             is_unavail = state is None or state.state in ("unavailable", "unknown")
             is_flapping = eid in flapping_ids
-            if not is_unavail and not is_flapping:
+            is_chattering = eid in chattering_ids
+            if not is_unavail and not is_flapping and not is_chattering:
                 continue
             entry = details.get(eid)
             if entry is None:
@@ -1862,6 +1876,25 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                         entry["reason"] = "flapping"
                         entry["transition_count"] = detail.get("transition_count")
                         entry["since"] = detail.get("since")
+                # STEP D5: chatter branch — byte-symmetric with flapping.
+                # Overrides availability-derived reason (chatter is the
+                # more actionable signal, same doctrine as flapping).
+                if is_chattering:
+                    chatter_detail = None
+                    try:
+                        chatter = getattr(
+                            self.coordinator, "_chatter_detector", None,
+                        )
+                        if chatter is not None:
+                            chatter_detail = chatter.chatter_detail(eid)
+                    except Exception:  # noqa: BLE001
+                        chatter_detail = None
+                    if chatter_detail is not None:
+                        entry["reason"] = "chattering"
+                        entry["transition_count"] = chatter_detail.get(
+                            "transition_count",
+                        )
+                        entry["since"] = chatter_detail.get("since")
                 details[eid] = entry
             if role not in entry["roles"]:
                 entry["roles"].append(role)
@@ -1886,6 +1919,26 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
             "sensor_count": len(sensors),
             "actuator_count": len(actuators),
         }
+        # D7 (2026-08-19): chatter telemetry per blind-time-gated sensor.
+        # Load-bearing for the 2-day SHADOW-mode evaluation window —
+        # operator watches sub-floor burst distribution + margin against K.
+        try:
+            chatter = getattr(self.coordinator, "_chatter_detector", None)
+            if chatter is not None and hasattr(chatter, "telemetry"):
+                rows = chatter.telemetry()
+                attrs["chatter_telemetry"] = rows
+                attrs["chatter_would_quarantine_count"] = sum(
+                    1 for r in rows if r.get("would_quarantine")
+                )
+        except Exception:  # noqa: BLE001 — diagnostics must degrade
+            # D7 fix-up A-LOW-2 (2026-08-19): log the swallowed exception
+            # at debug so a silent failure is diagnosable if the operator
+            # ever sees chatter_telemetry missing on the room sensor.
+            _LOGGER.debug(
+                "UnavailableEntitiesSensor: chatter telemetry raise "
+                "swallowed (attrs=chatter_telemetry omitted)",
+                exc_info=True,
+            )
         # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
         # a room with no lights/fans has no reconciler, so we degrade to zeros.
         reconciler = self._reconciler()
