@@ -5167,10 +5167,10 @@ cards:
     root cause in miniature.'
 - id: CHATTER-OBSERVE-CONTROL-D7-1
   title: 'STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)'
-  column: planned
+  column: in_progress
   thread: diagnostics
   created: 2026-08-19 09:00
-  updated: 2026-08-19 09:05
+  updated: 2026-08-19 09:15
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its
@@ -5201,6 +5201,7 @@ cards:
     the durable record is THIS card + the STEP card.'
   refs: PLANNING_sensor_health_surfacing.md; switch.py:154 (census switches); number.py (CM Numbers);
     sensor.py:1677 (UnavailableEntitiesSensor); PROBE_mmwave_healthy_cadence.md (the distribution to surface)
+  build_2026_08_19: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

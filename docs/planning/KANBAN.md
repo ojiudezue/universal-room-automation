@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T10:06:34-05:00_ - _Data commit: `90c3866fbd9a`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T10:07:35-05:00_ - _Data commit: `f8b98e6cd9a2`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1465,12 +1465,13 @@ _created 2026-08-19 07:45 · updated 2026-08-19 08:15 · initial_
 
 ### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)
 thread: **diagnostics**
-_created 2026-08-19 09:00 · updated 2026-08-19 09:05 · refined_
+_created 2026-08-19 09:00 · updated 2026-08-19 09:15 · refined_
 - **Next:** SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) -> ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE (operator): the 2-day clock STARTS AT SHADO...
-- **Forensic keys (3):**
-  - `column`: planned
+- **Forensic keys (4):**
+  - `column`: in_progress
   - `program`: sensor-trust-exclusion
   - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
+  - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
 
 ## 🅿️ Parked ideas (top-level list)
 
