@@ -136,6 +136,15 @@ def _load_fan_recheck_module():
     sys.modules[f"{pkg_name}.domain_coordinators.house_state"] = hs_mod
     hs_spec.loader.exec_module(hs_mod)
 
+    # Load REAL hvac_const.py for FAN_TRUST_STATES (SLEEP-veto scope).
+    hc_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "hvac_const.py"
+    hc_spec = importlib.util.spec_from_file_location(
+        f"{pkg_name}.domain_coordinators.hvac_const", str(hc_src),
+    )
+    hc_mod = importlib.util.module_from_spec(hc_spec)
+    sys.modules[f"{pkg_name}.domain_coordinators.hvac_const"] = hc_mod
+    hc_spec.loader.exec_module(hc_mod)
+
     # Load REAL presence_fan_recheck.py.
     src_path = ROOT_DIR / ROOT_REL / "domain_coordinators" / "presence_fan_recheck.py"
     spec = importlib.util.spec_from_file_location(
@@ -488,22 +497,35 @@ async def test_master_kill_blocks_trigger():
 
 
 @pytest.mark.asyncio
-async def test_sleep_house_state_blocks_trigger():
-    # Never pause a fan while the house is asleep — would fight the v4.7.13
-    # keep-fans-on-through-sleep logic.
-    mod, hass, mgr, rc, fc, pc, db = _build_world(house_state="sleep")
+async def test_sleep_bedroom_preserved_v4_7_13_contract():
+    # T-SLEEP-BEDROOM-PRESERVED (INV-FR-D): FAN-RECHECK-SLEEP-VETO-SCOPE-1
+    # (2026-08-19). Bedroom + sleep MUST still veto with reason
+    # "sleep_state" — pausing the fan would fight the v4.7.13
+    # keep-fans-on-through-sleep contract (hvac_fans.py:1205-1209).
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="sleep", room_type="bedroom",
+    )
     await mgr.async_setup()
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    # Discriminator: this room must have vetoed with sleep_state, not
+    # not_occupied or some other reason.
+    vetoes = mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
+    assert vetoes.get("sleep_state", 0) >= 1
 
 
 @pytest.mark.asyncio
-async def test_waking_house_state_does_not_block_trigger():
-    # WAKING is NOT covered by the v4.7.13 hvac_fans keep-on contract
-    # (SLEEP-only). The sleep gate was narrowed during review fix-up to
-    # SLEEP-only; WAKING-state rooms remain eligible for recheck.
-    mod, hass, mgr, rc, fc, pc, db = _build_world(house_state="waking")
+async def test_sleep_non_bedroom_arms_post_scope_fix():
+    # T-SLEEP-NON-BEDROOM (INV-FR-D): FAN-RECHECK-SLEEP-VETO-SCOPE-1
+    # (2026-08-19). Non-bedroom rooms (Study A, Living Room) MUST be
+    # able to arm during sleep — pre-fix the unconditional SLEEP veto
+    # suppressed them house-wide for ~10h/night, which was the whole
+    # motivation for the fold-in. FAN_TRUST_STATES gate only applies to
+    # bedrooms.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="sleep", room_type="generic",
+    )
     await mgr.async_setup()
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
@@ -511,16 +533,69 @@ async def test_waking_house_state_does_not_block_trigger():
 
 
 @pytest.mark.asyncio
-async def test_sleep_begins_during_arm_delay_aborts_before_pause():
-    # Eligible at tick → ARMED. House enters sleep before arm expiry → the
-    # post-arm re-check must abort (cooldown), never reaching PAUSED.
-    mod, hass, mgr, rc, fc, pc, db = _build_world()
+async def test_home_night_bedroom_vetoed_by_scoped_predicate():
+    # FAN-RECHECK-SLEEP-VETO-SCOPE-1: bedrooms are now vetoed across
+    # FAN_TRUST_STATES = {home_night, sleep, waking} (not sleep-only)
+    # because the hvac_fans keep-on predicate holds across all three.
+    # This test locks that widening for bedrooms so a future edit
+    # cannot silently drop it.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_night", room_type="bedroom",
+    )
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+    vetoes = mgr.get_room_attrs("exercise")["fan_recheck_veto_counts"]
+    assert vetoes.get("sleep_state", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_waking_house_state_does_not_block_non_bedroom():
+    # Non-bedroom rooms remain eligible during WAKING (no v4.7.13
+    # keep-on obligation applies).
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="waking", room_type="generic",
+    )
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+
+
+@pytest.mark.asyncio
+async def test_sleep_begins_during_arm_delay_aborts_before_pause_bedroom():
+    # v4.7.13 contract: bedroom armed just before the sleep edge MUST
+    # abort at the sleep edge (symmetric _still_armed_eligible fold-in).
+    # Pre-fix a bedroom couldn't reach ARMED under sleep, but during
+    # arm-delay the house can transition; the mid-cycle re-check must
+    # honor the same scoped veto.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_day", room_type="bedroom",
+    )
     await mgr.async_setup()
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
     assert mgr.get_room_state("exercise") == mod.STATE_ARMED
     mgr._presence.house_state = "sleep"
     assert mgr._still_armed_eligible(mgr._rooms["exercise"], rc) is False
+
+
+@pytest.mark.asyncio
+async def test_still_armed_non_bedroom_survives_sleep_edge():
+    # Contrast to the bedroom test above: a non-bedroom room armed
+    # before sleep MUST survive the sleep edge — no v4.7.13 obligation.
+    # Discriminates the fix from a hollow "narrow one gate, not the
+    # other" mistake.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        house_state="home_day", room_type="generic",
+    )
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    mgr._presence.house_state = "sleep"
+    assert mgr._still_armed_eligible(mgr._rooms["exercise"], rc) is True
 
 
 @pytest.mark.asyncio

@@ -6890,22 +6890,41 @@ class PresenceCoordinator(BaseCoordinator):
         # Fan-noise Mode-2 mitigation: room-tier fan-recheck per-room tick.
         # Runs after the zone-tier gate so any visible state from this tick
         # is settled. The state machine is opt-in (master OFF by default).
+        # FAN-RECHECK-D2-DEADLOCK-1 D3 (2026-08-19): per-room exception
+        # isolation. Previously ONE try/except -> DEBUG wrapped the
+        # entire fan-out loop, so a raise from `on_room_tick(room_N)`
+        # silently skipped rooms N+1..M every tick, at DEBUG level.
+        # Isolate each room in its own try/except and raise to WARNING
+        # so operators actually see the failure.
         if self._fan_recheck_manager is not None:
             try:
-                for entry in self.hass.config_entries.async_entries(DOMAIN):
-                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-                        continue
-                    room_coord = self.hass.data.get(DOMAIN, {}).get(
-                        entry.entry_id,
-                    )
-                    if room_coord is None or not hasattr(room_coord, "entry"):
-                        continue
-                    self._fan_recheck_manager.on_room_tick(room_coord)
-            except Exception:  # noqa: BLE001 — defensive
-                _LOGGER.debug(
-                    "FanRecheck: per-tick fan-out failed (non-fatal)",
+                entries = list(
+                    self.hass.config_entries.async_entries(DOMAIN),
+                )
+            except Exception:  # noqa: BLE001 — outer read guard
+                _LOGGER.warning(
+                    "FanRecheck: config-entry enumerate failed (fan-out "
+                    "skipped this tick)",
                     exc_info=True,
                 )
+                entries = []
+            for entry in entries:
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                room_coord = self.hass.data.get(DOMAIN, {}).get(
+                    entry.entry_id,
+                )
+                if room_coord is None or not hasattr(room_coord, "entry"):
+                    continue
+                try:
+                    self._fan_recheck_manager.on_room_tick(room_coord)
+                except Exception:  # noqa: BLE001 — per-room isolation
+                    _LOGGER.warning(
+                        "FanRecheck: on_room_tick failed for room=%s "
+                        "(isolated — sibling rooms unaffected)",
+                        getattr(room_coord, "room_name", entry.entry_id),
+                        exc_info=True,
+                    )
 
         # Back-compat alias for renamed local — the old name still
         # appears in some downstream string formatters but the value is
