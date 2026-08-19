@@ -38,23 +38,57 @@ def _mod(name, **attrs):
 
 
 def _install_ha_stubs():
+    """Install a COMPATIBLE-SUPERSET HA stub.
+
+    C-re LOW-1 fix-up (2026-08-19): must be import-order-safe with
+    test_chatter_detector.py's stubs. That module's tests fire events by
+    calling `hass._cb(ev)` (populated by async_track_state_change_event).
+    If THIS module registers `homeassistant.*` first with a stub that
+    doesn't set _cb, those tests all fail with `NoneType is not callable`.
+    Also register `homeassistant.util` (intermediate package) + a proper
+    `_Entry` class on the entity_registry stub so detector tests that
+    do `from homeassistant.helpers.entity_registry import _Entry` work.
+    """
     if "homeassistant" in sys.modules:
         return
     _mod("homeassistant")
     core = _mod("homeassistant.core")
-    core.Event = type("Event", (), {"__init__": lambda self, data, time_fired=None: (setattr(self, "data", data), setattr(self, "time_fired", time_fired))[0]})
+
+    class Event:
+        def __init__(self, data, time_fired=None):
+            self.data = data
+            self.time_fired = time_fired
+
+    core.Event = Event
     core.HomeAssistant = type("HomeAssistant", (), {})
     helpers = _mod("homeassistant.helpers")
     ev = _mod("homeassistant.helpers.event")
-    ev.async_track_state_change_event = lambda hass, entities, cb: (lambda: None)
+
+    def _track(hass, entities, cb):
+        hass._tracked = list(entities)
+        hass._cb = cb
+        return lambda: setattr(hass, "_cb", None)
+
+    ev.async_track_state_change_event = _track
+
     er = _mod("homeassistant.helpers.entity_registry")
-    er.async_get = lambda hass: types.SimpleNamespace(async_get=lambda eid: None)
-    # C-re LOW-1 fix-up (2026-08-19): stub the intermediate
-    # `homeassistant.util` package too — otherwise if this test module
-    # imports before test_chatter_detector.py (non-alphabetical order),
-    # `from homeassistant.util import dt as dt_util` raises
-    # ModuleNotFoundError because the parent package was never
-    # registered in sys.modules.
+
+    class _Entry:
+        def __init__(self, platform):
+            self.platform = platform
+
+    er._Entry = _Entry
+
+    class _Reg:
+        def __init__(self, mapping):
+            self._m = mapping
+        def async_get(self, eid):
+            return self._m.get(eid)
+
+    er.async_get = lambda hass: _Reg(getattr(hass, "_reg_map", {}))
+
+    # Register the intermediate `homeassistant.util` package too so a
+    # first-in-order load doesn't ModuleNotFoundError the sub-package.
     _mod("homeassistant.util")
     dt = _mod("homeassistant.util.dt")
     dt.utcnow = lambda: datetime.now(timezone.utc)
