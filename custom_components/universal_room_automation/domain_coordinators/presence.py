@@ -5941,7 +5941,11 @@ class PresenceCoordinator(BaseCoordinator):
         _cm_entry = self._cm_entry_cache
         if _cm_entry is None:
             try:
-                from ..const import ENTRY_TYPE_COORDINATOR_MANAGER, CONF_ENTRY_TYPE
+                # CONF_ENTRY_TYPE is imported at MODULE level (:44). Importing it
+                # locally here made it a function-local for all of _run_inference,
+                # breaking the pre-existing module-level ref at :6955 on paths that
+                # skip this branch (v5.84.0 regression, fixed v5.84.1).
+                from ..const import ENTRY_TYPE_COORDINATOR_MANAGER
                 for e in self.hass.config_entries.async_entries(DOMAIN):
                     if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
                         _cm_entry = e
