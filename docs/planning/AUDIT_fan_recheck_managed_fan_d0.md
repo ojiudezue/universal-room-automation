@@ -96,8 +96,7 @@ already-running fan, not a fresh comfort activation.)
 ### The false-presence → fan → mmWave-shake feedback loop
 
 **Study A history:** fan latched on at 21:17:43, exactly **1 s after its mmWave
-went on** (occupancy → comfort fan). Study A's presence substrate includes
-`mmwave_sensors` (per live config). Trace:
+went on** (occupancy → comfort fan). Trace:
 
 1. mmWave asserts presence → room `occupied = True`.
 2. `_evaluate_temp_fan` occupancy gate passes; warm room → comfort fan ON
@@ -113,11 +112,72 @@ fan-shake class the fan-recheck feature exists to break: recheck PAUSES the fan
 mmWave was the lone driver and clears, classifies the room `VACATED`
 (`presence_fan_recheck.py:660-676`).
 
-Living Room's live config exposes `motion_sensors` + `occupancy_sensors` (no
-`mmwave_sensors` key in its room entry), so the *radar-shake* variant of the loop
-is Study-A-specific; Living Room's fan-during-sleep is the same comfort-driver
-(occupied + temp, no non-bedroom sleep suppression) but without the mmWave
-positive-feedback term.
+**Living Room — CORRECTION (operator + live evidence, 2026-08-18).** An earlier
+draft claimed Living Room "has no mmwave_sensors key, so no shake loop there."
+**That was WRONG** — it read the stray/legacy storage key literally named
+`mmwave_sensors` (value `None`) instead of URA's ACTUAL mmwave config key.
+`CONF_MMWAVE_SENSORS = "presence_sensors"` (`const.py:433` — "Note: blueprint
+calls them presence_sensors"). Living Room's live config maps
+`presence_sensors: ['binary_sensor.screek_human_sensor_l13_2412s_presence']`
+(the Screek L13). So Living Room **DOES** have a physical mmWave (the Screek) and
+**URA reads it as its mmwave input**. Live NOW: Screek presence = **on**
+(still_target hold, moving_target off) with the fan running — the **same
+fan-shake feedback loop as Study A**. See Q3 for the deciding
+recheck-observation check.
+
+---
+
+## Q3 — Does the fan-recheck OBSERVE the Screek when it pauses the Living Room fan?
+
+**The deciding check for Living Room.** The recheck's arm gate and VACATE logic
+key on `occupancy_source == "mmwave"` and `presence_detected`
+(`presence_fan_recheck.py:860, 672-674`). For the Screek to matter, it must be in
+the sensor set that produces those two values.
+
+### 1. Where is the Screek mapped in the live Living Room config?
+| URA config key | Value | Maps to |
+|---|---|---|
+| `presence_sensors` | `['binary_sensor.screek_human_sensor_l13_2412s_presence']` | **`CONF_MMWAVE_SENSORS`** (`const.py:433` — the constant's string IS `"presence_sensors"`) |
+| `motion_sensors` | `['binary_sensor.mmwave_temp_lux_hum_zigbee_livingroom_presence']` (a Zigbee mmWave) | `CONF_MOTION_SENSORS` → `motion_detected` |
+| `mmwave_sensors` | `None` | **stray/legacy storage key — URA does NOT read it** (URA's mmwave key is `presence_sensors`, not `mmwave_sensors`) |
+
+### 2. What the recheck actually reads
+`coordinator.py:2423` loads `mmwave_sensors = _get_config(CONF_MMWAVE_SENSORS)` =
+the `presence_sensors` list = **[Screek]**. That list feeds
+`presence_detected = any(is_sensor_on(s) for s in mmwave_sensors)`
+(`coordinator.py:2717-2721`). When occupied, `occupancy_source` is set to
+`"mmwave"` iff `presence_detected` is True AND `motion_detected` is False
+(`coordinator.py:3065-3073` — **motion takes precedence over presence**). The
+recheck reads `room_coord.data["occupancy_source"]` / `["presence_detected"]`
+— i.e. the FUSED room signal, which is driven by the Screek via `presence_sensors`.
+So **YES, the Screek is in the recheck's observed set** as the mmwave source.
+
+### 3. Live evidence (2026-08-18)
+- Screek `presence_sensors`: **on** (last_changed 21:37:08) → `presence_detected = True`
+- Zigbee `motion_sensors`: **off** (last_changed 18:41:06) → `motion_detected = False`
+- ⇒ fused `occupancy_source` = **"mmwave"** right now (presence True, motion False)
+  — exactly the value the recheck arms on.
+
+### VERDICT — Q3
+**The recheck WOULD observe the Screek and CAN clear Living Room.** With the Screek
+as the lone driver (`occupancy_source == "mmwave"`, current live state), after the
+veto-scoping fix the recheck arms → pauses the fan → if the Screek `still_target`
+decays once airflow stops, `presence_detected` → False → `occupancy_source` ≠
+"mmwave" → **VACATED** (`presence_fan_recheck.py:672-676`). **No config
+prerequisite is required** — the Screek is already URA's `CONF_MMWAVE_SENSORS`
+input; mapping it into a `mmwave_sensors` key would be redundant (and `mmwave_sensors`
+is not even the key URA reads).
+
+**Secondary precedence gap (note, NOT a blocker).** The Zigbee mmWave is mapped
+under `motion_sensors`, so `motion_detected` takes precedence over the Screek
+(`coordinator.py:3065`). Whenever that Zigbee is simultaneously ON, the fused
+`occupancy_source` becomes `"motion"`, and the recheck arm gate (`:860`, requires
+`== "mmwave"`) will **not arm** — the recheck would be blind to the room in that
+tick. It happens to be clean right now (Zigbee off), but this is a latent
+data-dependent gap. Consider a follow-up card to recategorize the Zigbee mmWave
+out of `motion_sensors` (a mmWave device labelled as motion inverts the intended
+motion-vs-mmwave precedence). This does NOT block the veto fix for the current
+Screek-driven case.
 
 ---
 
@@ -130,14 +190,22 @@ positive-feedback term.
   runs non-bedroom fans on `occupied AND warm` with **no sleep force-off** (only a
   speed cap for `reduce`-policy rooms); the bedroom night-trust block is
   room_type-gated and does not apply to `generic`/`common_area` rooms.
-- **Feedback loop:** CONFIRMED REAL for Study A (mmWave present + non-bedroom +
-  comfort fan gated on the same occupancy signal the fan shakes). This is the
-  exact class fan-recheck is designed to break, and it argues the recheck path
-  MUST be reachable for Study A — which Q1 confirms it is. Since the recheck
-  itself pauses the fan to break the loop, enabling the recheck (via the
-  veto-scoping fix) both actuates AND breaks the loop for Study A; no separate
-  loop-breaking work is a prerequisite. (Living Room lacks the mmWave shake term,
-  so no loop there — just the comfort driver.)
+- **Feedback loop:** CONFIRMED REAL for Study A AND **Living Room** (both have a
+  physical mmWave — Study A's, and Living Room's Screek L13 read by URA as
+  `CONF_MMWAVE_SENSORS`/`presence_sensors`; both non-bedroom; comfort fan gated on
+  the same occupancy signal the fan shakes). This is the exact class fan-recheck
+  is designed to break. Since the recheck itself pauses the fan, enabling it (via
+  the veto-scoping fix) both actuates AND breaks the loop for both rooms.
+- **Screek observation (Q3): CONFIRMED — no config prerequisite for Living Room.**
+  The recheck reads the fused `occupancy_source`/`presence_detected`, which is
+  driven by the Screek via the `presence_sensors` (= `CONF_MMWAVE_SENSORS`) list.
+  Live now: source = "mmwave" (Screek on, Zigbee motion off), so the recheck can
+  arm → pause → vacate. The earlier "Living Room lacks mmwave" note was WRONG and
+  is corrected above.
+- **Latent precedence gap (follow-up card, not a blocker):** Living Room's Zigbee
+  mmWave is mapped under `motion_sensors`; when it fires, `motion` precedence
+  masks the Screek's "mmwave" source and the recheck won't arm that tick. Consider
+  recategorizing it. Does NOT gate the veto fix for the Screek-driven case.
 
 ### Citations
 - Managed set: `hvac_fans.py:320,340,364,373-397`
