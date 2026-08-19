@@ -78,5 +78,7 @@ def test_structural_chatter_diag_provenance_parity():
     """
     src = (_URA / "coordinator.py").read_text()
     assert 'self._chattering_entities = set(chatter_current)' in src
-    assert 'self._exclusion_set.promote(\n                "chatter"' in src
+    # D7 (2026-08-19): promote is gated on `is_act`; the shadow-vs-act
+    # seam. Verify the ACT-branch promote wire is present (structural).
+    assert 'self._exclusion_set.promote(\n                    "chatter"' in src
     assert 'self._stuck_sensor_kinds[_ceid] = "chatter"' in src

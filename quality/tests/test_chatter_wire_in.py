@@ -71,6 +71,10 @@ _TOUCHED_FILES: list[pathlib.Path] = [
     _URA / "domain_coordinators" / "sensor_exclusion.py",
     _URA / "sensor.py",
     _URA / "const.py",
+    # D7 (2026-08-19): drills 21 mutates const, 22 mutates chatter_detector;
+    # 20 mutates coordinator. All covered above.
+    _URA / "select.py",
+    _URA / "number.py",
 ]
 
 
@@ -222,7 +226,9 @@ def test_drill_3_chatter_tick_site_promote_wire():
     """
     _mutate_and_expect_red(
         _URA / "coordinator.py",
-        old='self._exclusion_set.promote(\n                "chatter", _ceid, reason="physics_violation",\n            )',
+        # D7 (2026-08-19): promote now sits inside the `if is_act:`
+        # branch; anchor updated to match.
+        old='self._exclusion_set.promote(\n                    "chatter", _ceid, reason="physics_violation",\n                )',
         new='pass  # NEUTERED for drill',
         target=str(_TESTS / "test_chatter_tick_helper.py::test_apply_chatter_tick_promotes_current_chatterers"),
         label="chatter_tick_site_promote_wire",
@@ -459,6 +465,44 @@ def test_drill_18_recalibration_k10_constant_wire():
         new="DEFAULT_CHATTER_BURST_K: Final = 20",
         target=str(_TESTS / "test_chatter_detector.py::test_recalibration_invisoutlet_shape_flagged_at_K10"),
         label="d_high_1_k10_recalibration_wire",
+    )
+
+
+def test_drill_20_d7_shadow_vs_act_seam_wire():
+    """D7 (2026-08-19): removing the `if is_act:` guard on the fusion
+    promote would let SHADOW mode quarantine — regressing shadow-first.
+    Must red the load-bearing test_d7_shadow_mode_does_not_promote test.
+    """
+    _mutate_and_expect_red(
+        _URA / "coordinator.py",
+        old="        for _ceid in chatter_current:\n            if is_act:",
+        new="        for _ceid in chatter_current:\n            if True:  # NEUTERED — promotes in every mode",
+        target=str(_TESTS / "test_chatter_d7_shadow_act.py::test_d7_shadow_mode_does_not_promote_into_exclusion_set"),
+        label="d7_shadow_vs_act_seam",
+    )
+
+
+def test_drill_21_d7_default_mode_shadow_wire():
+    """D7 default mode must be shadow. Mutating the default reds the
+    SHADOW-FIRST doctrine test."""
+    _mutate_and_expect_red(
+        _URA / "const.py",
+        old='DEFAULT_CHATTER_MODE: Final = CHATTER_MODE_SHADOW',
+        new='DEFAULT_CHATTER_MODE: Final = CHATTER_MODE_ACT',
+        target=str(_TESTS / "test_chatter_d7_shadow_act.py::test_d7_default_mode_is_shadow"),
+        label="d7_default_mode_shadow",
+    )
+
+
+def test_drill_22_d7_room_telemetry_wire():
+    """D7 telemetry surface — removing the telemetry() call in
+    UnavailableEntitiesSensor reds the telemetry acceptance test."""
+    _mutate_and_expect_red(
+        _URA / "domain_coordinators" / "chatter_detector.py",
+        old='            rows.append({\n                "entity_id": eid,',
+        new='            _ = eid  # NEUTERED telemetry\n            continue\n            rows.append({\n                "entity_id": eid,',
+        target=str(_TESTS / "test_chatter_d7_shadow_act.py::test_d7_room_telemetry_surfaces_burst_count_and_would_quarantine"),
+        label="d7_room_telemetry",
     )
 
 

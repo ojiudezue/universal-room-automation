@@ -2194,9 +2194,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
           STUCK-1 removed 2026-08-13. Discharged on release AND on
           kill-switch True->False flip.
         """
-        enabled = self._chatter_quarantine_enabled()
+        # D7 (2026-08-19): mode replaces the bare enabled/disabled
+        # branch. Precedence: off short-circuits (byte-identical to
+        # kill-switch-off pre-D7); shadow runs detection+surface but
+        # skips the fusion promote; act promotes as before.
+        mode = self._chatter_mode()
+        enabled = mode != "off"
 
-        # B-LOW-4: kill-switch True->False discharge.
+        # B-LOW-4: kill-switch True->False discharge (mode->off transition).
         if self._chatter_kill_switch_last and not enabled:
             self._discharge_chatter_latches(room_name)
         self._chatter_kill_switch_last = enabled
@@ -2247,14 +2252,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     room_name, _rel, exc_info=True,
                 )
 
-        # Promote currently-chattering entities into the shared set.
+        # Promote currently-chattering entities into the shared set
+        # (act mode) OR surface-only (shadow mode). Load-bearing D7
+        # shadow-vs-act seam.
         chatter_current = self._chatter_detector.chattering_entities()
         self._chattering_entities = set(chatter_current)
+        is_act = mode == "act"
         for _ceid in chatter_current:
-            self._exclusion_set.promote(
-                "chatter", _ceid, reason="physics_violation",
-            )
-            stuck_sensors.add(_ceid)
+            if is_act:
+                # ACT: full quarantine — fusion excludes the vote.
+                self._exclusion_set.promote(
+                    "chatter", _ceid, reason="physics_violation",
+                )
+                stuck_sensors.add(_ceid)
+            # SHADOW: DO NOT promote; DO NOT add to stuck_sensors —
+            # occupancy fusion is byte-identical to no-chatter.
             # Chatter kind label wins over dutycycle/continuous
             # (chatter = hardware fault, more actionable).
             self._stuck_sensor_kinds[_ceid] = "chatter"
@@ -2287,6 +2299,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     ),
                     title_override=(
                         f"Chattering sensor: {room_name} — {_ceid}"
+                        if is_act else
+                        f"WOULD quarantine sensor (shadow): {room_name} "
+                        f"— {_ceid}"
                     ),
                 ))
             except Exception:  # noqa: BLE001 — fail-open
@@ -2329,6 +2344,55 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # D2-LOW-1 (2026-08-19): removed a no-op `self._exclusion_set`
         # bare-attribute read that had an incorrect comment. The
         # attribute is initialised in __init__; a bare read is dead code.
+
+    def _chatter_mode(self) -> str:
+        """D7 (2026-08-19): resolved operational MODE.
+
+        Returns one of "off" / "shadow" / "act". The mode is the
+        LOAD-BEARING shadow-vs-act seam: `_apply_chatter_tick` gates
+        the fusion promote on ``self._chatter_mode() == 'act'`` so a
+        SHADOW-mode chatterer is DETECTED + SURFACED + NM'd but its
+        vote is NOT excluded (occupancy fusion unchanged).
+
+        Precedence: legacy kill switches (`CHATTER_QUARANTINE_ENABLED`
+        module const AND `CONF_CHATTER_QUARANTINE_ENABLED` options
+        toggle) still short-circuit to "off" — either False forces off
+        regardless of mode. Otherwise the rung-2 CONF_CHATTER_MODE
+        wins. Default = shadow.
+        """
+        try:
+            from .const import (  # noqa: PLC0415
+                CHATTER_QUARANTINE_ENABLED,
+                CONF_CHATTER_MODE,
+                CONF_CHATTER_QUARANTINE_ENABLED,
+                CHATTER_MODES,
+                DEFAULT_CHATTER_MODE,
+                DEFAULT_CHATTER_QUARANTINE_ENABLED,
+                CHATTER_MODE_OFF,
+            )
+        except Exception:  # noqa: BLE001
+            return "off"
+        if not CHATTER_QUARANTINE_ENABLED:
+            return CHATTER_MODE_OFF
+        try:
+            from .domain_coordinators._nm_cycle_a import (  # noqa: PLC0415
+                nm_cycle_a_knob,
+            )
+            enabled = bool(nm_cycle_a_knob(
+                self.hass,
+                CONF_CHATTER_QUARANTINE_ENABLED,
+                DEFAULT_CHATTER_QUARANTINE_ENABLED,
+            ))
+            if not enabled:
+                return CHATTER_MODE_OFF
+            mode = nm_cycle_a_knob(
+                self.hass, CONF_CHATTER_MODE, DEFAULT_CHATTER_MODE,
+            )
+            if isinstance(mode, str) and mode in CHATTER_MODES:
+                return mode
+            return DEFAULT_CHATTER_MODE
+        except Exception:  # noqa: BLE001
+            return DEFAULT_CHATTER_MODE
 
     def _chatter_quarantine_enabled(self) -> bool:
         """STEP D2 kill switch (AND-composed rung-1 module + rung-2 options).

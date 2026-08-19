@@ -135,6 +135,8 @@ def _extract_and_compile_helpers():
         "_apply_chatter_tick",
         "_discharge_chatter_latches",
         "_chatter_quarantine_enabled",
+        # D7 (2026-08-19): mode gate for shadow-vs-act.
+        "_chatter_mode",
     }
     found: dict[str, ast.FunctionDef] = {}
 
@@ -171,6 +173,13 @@ def _extract_and_compile_helpers():
     ns["CONF_CHATTER_QUARANTINE_ENABLED"] = const_mod.CONF_CHATTER_QUARANTINE_ENABLED
     ns["DEFAULT_CHATTER_QUARANTINE_ENABLED"] = const_mod.DEFAULT_CHATTER_QUARANTINE_ENABLED
     ns["CHATTER_QUARANTINE_ENABLED"] = const_mod.CHATTER_QUARANTINE_ENABLED
+    # D7 (2026-08-19): the mode gate + option keys.
+    ns["CONF_CHATTER_MODE"] = const_mod.CONF_CHATTER_MODE
+    ns["CHATTER_MODES"] = const_mod.CHATTER_MODES
+    ns["CHATTER_MODE_OFF"] = const_mod.CHATTER_MODE_OFF
+    ns["CHATTER_MODE_SHADOW"] = const_mod.CHATTER_MODE_SHADOW
+    ns["CHATTER_MODE_ACT"] = const_mod.CHATTER_MODE_ACT
+    ns["DEFAULT_CHATTER_MODE"] = const_mod.DEFAULT_CHATTER_MODE
     ns["_LOGGER"] = __import__("logging").getLogger("test.chatter_tick")
     # __package__ is required for the extracted methods' relative imports
     # (`from .domain_coordinators._stuck_signal_nm import ...`). Point at
@@ -258,8 +267,16 @@ class _FakeDetector:
         return self._detail.get(eid)
 
 
-def _make_stand_in(helper_class, sensor_exclusion_mod, chatter_enabled=True,
+def _make_stand_in(helper_class, sensor_exclusion_mod, mode="act",
                   chattering=None, released=None, kill_switch_last=True):
+    """Build a stand-in coord.
+
+    D7 (2026-08-19): the STEP core's operational MODE (off/shadow/act)
+    replaces the pre-D7 chatter_enabled boolean. Tests here pass mode
+    explicitly. "act" -> promote runs (byte-identical to pre-D7 enabled);
+    "shadow" -> promote SKIPPED (D7 seam); "off" -> everything short-
+    circuits (byte-identical to pre-D7 disabled).
+    """
     S = sensor_exclusion_mod.SensorExclusionSet(room_name="testroom")
 
     class _StandIn(helper_class):
@@ -271,9 +288,9 @@ def _make_stand_in(helper_class, sensor_exclusion_mod, chatter_enabled=True,
             self._stuck_sensor_kinds = {}
             self._chatter_nm_fired = set()
             self._chatter_kill_switch_last = kill_switch_last
-            self._chatter_enabled_flag = chatter_enabled
-        def _chatter_quarantine_enabled(self):  # override the extracted one
-            return self._chatter_enabled_flag
+            self._chatter_mode_flag = mode
+        def _chatter_mode(self):  # override the extracted one
+            return self._chatter_mode_flag
 
     return _StandIn(), S
 
@@ -388,7 +405,7 @@ def test_apply_chatter_tick_b_low_4_kill_switch_flip_discharges_latch(
     """
     coord, S = _make_stand_in(
         helper_class, sensor_exclusion_mod,
-        chatter_enabled=True,
+        mode="act",
         chattering={"binary_sensor.bad"},
     )
     # First tick: enabled -> latch armed.
@@ -396,7 +413,7 @@ def test_apply_chatter_tick_b_low_4_kill_switch_flip_discharges_latch(
     assert ("chatter", "testroom", "binary_sensor.bad") in coord._chatter_nm_fired
     tasks_before_flip = len(coord.hass.tasks)
     # Flip kill switch off.
-    coord._chatter_enabled_flag = False
+    coord._chatter_mode_flag = "off"
     coord._apply_chatter_tick(set(), "testroom")
     # Latch must be drained AND a recovered-NM must have been scheduled.
     assert coord._chatter_nm_fired == set(), (
@@ -413,7 +430,7 @@ def test_apply_chatter_tick_kill_switch_off_no_promote(
     """INV-CHATTER-4: kill switch off -> zero promotions."""
     coord, S = _make_stand_in(
         helper_class, sensor_exclusion_mod,
-        chatter_enabled=False,
+        mode="off",
         chattering={"binary_sensor.would_be_bad"},
         kill_switch_last=False,  # already off, no discharge to fire
     )

@@ -3859,6 +3859,32 @@ CHATTER_T_FLOOR_DEFAULTS: Final = {
 CONF_CHATTER_BURST_K: Final = "chatter_burst_k"
 CONF_CHATTER_T_FLOOR_S: Final = "chatter_t_floor_s"
 
+# --- D7 (2026-08-19): three-state operational MODE.
+#     * "off"     — fully inert; no scoring; no listener effect on votes.
+#     * "shadow"  — detection runs, telemetry + "WOULD quarantine" NMs
+#                   surface, but the fusion does NOT exclude the vote
+#                   (SHADOW-FIRST default — first two-day live evaluation
+#                   period).
+#     * "act"     — full quarantine (exclusion set promote + fusion drop).
+#     Backward compatibility: the legacy CHATTER_QUARANTINE_ENABLED
+#     kill switch remains authoritative for "off" (both fields False =>
+#     off regardless of mode). CONF_CHATTER_QUARANTINE_ENABLED is a
+#     rung-2 alias for "not off" (True => shadow-or-act, per mode; False
+#     => off). Precedence: `CHATTER_QUARANTINE_ENABLED` module const &&
+#     `CONF_CHATTER_QUARANTINE_ENABLED` && `CONF_CHATTER_MODE != off`
+#     => detection runs; `CONF_CHATTER_MODE == "act"` gates the fusion
+#     promote (the load-bearing shadow-vs-act seam).
+CONF_CHATTER_MODE: Final = "chatter_mode"
+CHATTER_MODE_OFF: Final = "off"
+CHATTER_MODE_SHADOW: Final = "shadow"
+CHATTER_MODE_ACT: Final = "act"
+CHATTER_MODES: Final = (
+    CHATTER_MODE_OFF,
+    CHATTER_MODE_SHADOW,
+    CHATTER_MODE_ACT,
+)
+DEFAULT_CHATTER_MODE: Final = CHATTER_MODE_SHADOW  # SHADOW-FIRST default
+
 # --- Rung 1 provenance allow-list (the un-fakeable-by-construction gate).
 #     Silent-default DENY: a sensor whose (kind, provider) is not in the
 #     allow-list is NEVER scored, so it CANNOT be false-quarantined by

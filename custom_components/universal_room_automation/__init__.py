@@ -5581,6 +5581,8 @@ from .const import (
     # for the two safety knobs whose miscalibration would need a backout.
     CONF_CHATTER_BURST_K as _CONF_CHATTER_BURST_K,
     CONF_CHATTER_T_FLOOR_S as _CONF_CHATTER_T_FLOOR_S,
+    # D7 (2026-08-19): chatter operational mode (off/shadow/act).
+    CONF_CHATTER_MODE as _CONF_CHATTER_MODE,
     # NM Cycle B fix-up (2026-07-20, B-B1): dry-run + token-bucket
     # entity-owned CM options keys must reload-suppress + no-live-attr
     # (Number/Switch entities call setters directly; NM re-reads options
@@ -5639,6 +5641,8 @@ _NM_A2_KEYS: frozenset[str] = frozenset({
     # STEP D2 fix-up (D-MED-2): operator overrides for burst K + T_floor.
     _CONF_CHATTER_BURST_K,
     _CONF_CHATTER_T_FLOOR_S,
+    # D7 (2026-08-19): chatter operational mode.
+    _CONF_CHATTER_MODE,
 })
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:

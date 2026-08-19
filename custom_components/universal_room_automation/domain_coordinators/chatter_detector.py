@@ -562,6 +562,39 @@ class ChatterDetector:
             "since": self._chatter_since.get(entity_id),
         }
 
+    # ------------------------------------------------------------------
+    # D7 (2026-08-19) — room-tier telemetry for shadow-mode evaluation.
+    # ------------------------------------------------------------------
+
+    def telemetry(self) -> list[Dict[str, Any]]:
+        """Return per-monitored-sensor burst telemetry.
+
+        One row per blind-time-gated sensor in scope:
+        ``{entity_id, sub_floor_burst_count, transition_count, t_floor,
+        k, would_quarantine}``.
+
+        Load-bearing property (shadow-mode evaluation): this is the
+        surface the operator watches during the 2-day SHADOW live-
+        validation window to see the distribution + margin + which
+        sensors WOULD have been quarantined.
+        """
+        k = self._effective_burst_k()
+        override = self._effective_t_floor_default()
+        rows: list[Dict[str, Any]] = []
+        for eid, (_kind, _provider, meta_t) in self._entity_to_meta.items():
+            t_floor = override if override is not None else meta_t
+            sub = len(self._sub_floor_events.get(eid, ()))
+            tc = len(self._edge_windows.get(eid, ()))
+            rows.append({
+                "entity_id": eid,
+                "sub_floor_burst_count": sub,
+                "transition_count": tc,
+                "t_floor": t_floor,
+                "k": k,
+                "would_quarantine": bool(t_floor > 0.0 and sub >= k),
+            })
+        return rows
+
     def check_release(self, now: Optional[datetime] = None) -> Set[str]:
         """Release entities quiet for CHATTER_RELEASE_QUIET_S.
 

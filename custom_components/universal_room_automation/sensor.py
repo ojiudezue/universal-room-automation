@@ -1919,6 +1919,19 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
             "sensor_count": len(sensors),
             "actuator_count": len(actuators),
         }
+        # D7 (2026-08-19): chatter telemetry per blind-time-gated sensor.
+        # Load-bearing for the 2-day SHADOW-mode evaluation window —
+        # operator watches sub-floor burst distribution + margin against K.
+        try:
+            chatter = getattr(self.coordinator, "_chatter_detector", None)
+            if chatter is not None and hasattr(chatter, "telemetry"):
+                rows = chatter.telemetry()
+                attrs["chatter_telemetry"] = rows
+                attrs["chatter_would_quarantine_count"] = sum(
+                    1 for r in rows if r.get("would_quarantine")
+                )
+        except Exception:  # noqa: BLE001 — diagnostics must degrade
+            pass
         # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
         # a room with no lights/fans has no reconciler, so we degrade to zeros.
         reconciler = self._reconciler()

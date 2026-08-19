@@ -131,6 +131,15 @@ async def async_setup_entry(
             # HVAC-PRESET-FLAP-1 D4 (2026-08-11): rung-3 duty off-phase
             # offset knob on the HVAC Coordinator device.
             ComfortOffphaseOffsetNumber(hass, entry),
+            # D7 (2026-08-19): chatter safety-knob Numbers on the CM
+            # device. Live-tunable operator surface for K + T_floor
+            # (mirror the OffPeakDrainNumber pattern — entry.options is
+            # the sole source of truth; no RestoreEntity). The values
+            # are already read LIVE by ChatterDetector via
+            # _effective_burst_k() / _effective_t_floor_default() ->
+            # these Numbers just surface the knob.
+            ChatterBurstKNumber(hass, entry),
+            ChatterTFloorNumber(hass, entry),
         ]
         # Session B1 — 5 EVSE drain-precedence knob Numbers on EC device.
         for cls in _build_dp_numbers():
@@ -3752,3 +3761,117 @@ class PerimeterEnrichmentTimeoutNumber(NumberEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Perimeter enrichment timeout set to %.1fs", float(value))
+
+
+# ============================================================================
+# D7 (2026-08-19) — STEP chatter safety-knob Numbers on the CM device.
+# Pattern: mirror OffPeakDrainNumber (entry.options sole source of truth;
+# no RestoreEntity; live-value push not needed because the detector's
+# _effective_burst_k() / _effective_t_floor_default() read via
+# nm_cycle_a_knob LIVE at scoring time — the Number just surfaces the
+# knob and persists the options write).
+# ============================================================================
+
+
+class _ChatterCMNumberBase(NumberEntity):
+    """Base for the two chatter Numbers on the CM device."""
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        *, conf_key: str, default: float, min_val: float, max_val: float,
+        step: float, unit: str | None, unique_suffix: str, name: str,
+        icon: str, entity_id: str,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from homeassistant.helpers.entity import EntityCategory
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = conf_key
+        self._default = default
+        self._attr_unique_id = f"{DOMAIN}_{unique_suffix}"
+        self._attr_name = name
+        self._attr_native_min_value = min_val
+        self._attr_native_max_value = max_val
+        self._attr_native_step = step
+        if unit is not None:
+            self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        self._attr_entity_category = EntityCategory.CONFIG
+        # Pin entity_id so slug drift can't rename.
+        self.entity_id = entity_id
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        merged = {**entry.data, **entry.options}
+        try:
+            self._value = float(merged.get(conf_key, default))
+        except (TypeError, ValueError):
+            self._value = float(default)
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = float(value)
+        # Persist into entry.options — sole source of truth. The
+        # ChatterDetector reads via nm_cycle_a_knob(hass, conf_key,
+        # default) LIVE at scoring time, so no live-attr push is needed.
+        # CONF key is in _NM_A2_KEYS -> options-update listener
+        # invalidates the knob cache without a CM reload.
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, self._conf_key: self._value},
+            )
+        except Exception:  # noqa: BLE001 — best-effort persist
+            _LOGGER.debug(
+                "ChatterCMNumber options-writeback failed (%s)", self._conf_key,
+                exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info(
+            "ChatterCMNumber: %s set to %s", self._conf_key, self._value,
+        )
+
+
+class ChatterBurstKNumber(_ChatterCMNumberBase):
+    """Chatter burst-K threshold on the CM device (entity: number.ura_chatter_burst_k)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import CONF_CHATTER_BURST_K, DEFAULT_CHATTER_BURST_K
+        super().__init__(
+            hass, entry,
+            conf_key=CONF_CHATTER_BURST_K,
+            default=float(DEFAULT_CHATTER_BURST_K),
+            min_val=1.0, max_val=10000.0, step=1.0, unit=None,
+            unique_suffix="chatter_burst_k",
+            name="Chatter Burst K",
+            icon="mdi:counter",
+            entity_id="number.ura_chatter_burst_k",
+        )
+
+
+class ChatterTFloorNumber(_ChatterCMNumberBase):
+    """Chatter T_floor (blind-time floor) on the CM device (entity: number.ura_chatter_t_floor)."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import CONF_CHATTER_T_FLOOR_S, DEFAULT_CHATTER_T_FLOOR_S
+        super().__init__(
+            hass, entry,
+            conf_key=CONF_CHATTER_T_FLOOR_S,
+            default=float(DEFAULT_CHATTER_T_FLOOR_S),
+            min_val=0.0, max_val=10.0, step=0.1, unit="s",
+            unique_suffix="chatter_t_floor",
+            name="Chatter T_floor",
+            icon="mdi:timer-cog-outline",
+            entity_id="number.ura_chatter_t_floor",
+        )
