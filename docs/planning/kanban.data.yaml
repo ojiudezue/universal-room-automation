@@ -4817,7 +4817,7 @@ cards:
   column: parked
   thread: presence
   created: 2026-08-19 03:40
-  updated: 2026-08-19 04:10
+  updated: 2026-08-19 04:25
   refinement_status: refined
   problem: 'Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375,
     mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never
@@ -4847,6 +4847,13 @@ cards:
     — but not in isolation.'
   parked_reason: Gated on FAN-RECHECK-OBSERVABILITY-1 — do not build the veto scope until we can see why
     the recheck silently does not arm.
+  studya_release_evidence_2026_08_19: 'LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave
+    dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min
+    later). The RECHECK NEVER FIRED — the room self-cleared via the Zigbee mmwave sensors own internal
+    timeout, NOT URA. Confirms the recheck silently is not arming (more evidence for observability-first).
+    Quantified harm: false hold lasted ~1h43m (21:17->23:00) during SLEEP with the comfort fan needlessly
+    running; a working recheck would clear in ~150s. Refines the model: fan-shake sustains a LONG time
+    (~1.7h) but not literally forever. Value case for the fix: 1h43m -> 2.5min.'
 - id: STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1
   title: Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when
     it fires
@@ -4873,7 +4880,7 @@ cards:
   column: planned
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:10
+  updated: 2026-08-19 04:25
   refinement_status: refined
   problem: 'The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every
     documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto
@@ -4889,12 +4896,19 @@ cards:
     at presence_fan_recheck.py:302-313, currently exposed nowhere) + raise the swallowed-exception log
     level. Deploy, then observe WHY the recheck does not arm on a live held-empty room.
   refs: AUDIT_fan_recheck_second_bug_and_transition_gate.md; presence_fan_recheck.py:136,302; presence.py:6904
+  studya_release_evidence_2026_08_19: 'LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave
+    dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min
+    later). The RECHECK NEVER FIRED — the room self-cleared via the Zigbee mmwave sensors own internal
+    timeout, NOT URA. Confirms the recheck silently is not arming (more evidence for observability-first).
+    Quantified harm: false hold lasted ~1h43m (21:17->23:00) during SLEEP with the comfort fan needlessly
+    running; a working recheck would clear in ~150s. Refines the model: fan-shake sustains a LONG time
+    (~1.7h) but not literally forever. Value case for the fix: 1h43m -> 2.5min.'
 - id: FAN-SUSTAINED-SHAKE-DEMOTE-1
   title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
   column: inbox
   thread: presence
   created: 2026-08-19 04:10
-  updated: 2026-08-19 04:10
+  updated: 2026-08-19 04:25
   refinement_status: initial
   program: sensor-trust-exclusion
   problem: 'The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only,
@@ -4913,6 +4927,13 @@ cards:
     corroboration for a sustained window -> demote the mmwave vote). Reuse STEP SensorExclusionSet.'
   refs: AUDIT_fan_recheck_second_bug_and_transition_gate.md; const.py:828 FAN_TRANSITION_SUSPECT_WINDOW_S;
     coordinator.py:2890
+  studya_release_evidence_2026_08_19: 'LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave
+    dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min
+    later). The RECHECK NEVER FIRED — the room self-cleared via the Zigbee mmwave sensors own internal
+    timeout, NOT URA. Confirms the recheck silently is not arming (more evidence for observability-first).
+    Quantified harm: false hold lasted ~1h43m (21:17->23:00) during SLEEP with the comfort fan needlessly
+    running; a working recheck would clear in ~150s. Refines the model: fan-shake sustains a LONG time
+    (~1.7h) but not literally forever. Value case for the fix: 1h43m -> 2.5min.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T22:50:12-05:00_ - _Data commit: `17f50ffd7bd6`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T23:18:39-05:00_ - _Data commit: `25440a3397ed`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1380,13 +1380,14 @@ _created 2026-08-19 03:15 · updated 2026-08-19 03:40 · initial_
 
 ### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms)
 thread: **presence**
-_created 2026-08-19 03:40 · updated 2026-08-19 04:10 · refined_
+_created 2026-08-19 03:40 · updated 2026-08-19 04:25 · refined_
 - **Next:** Plan the veto-scoping (Tier 2-DB): narrow SLEEP veto at :373-375 + :854-855 to bedroom/keep-fan-on rooms via the reused predicate. Then plan review -> build. Live-validate: Study A + Living Room decay during sleep once fan paused + mmWav...
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `column`: parked
   - `problem`: Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375, mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never get their fan paused/rechecke...
   - `rescope_2026_08_19`: RE-SCOPED + PARKED pending FAN-RECHECK-OBSERVABILITY-1. The trace proved the sleep veto is NOT the only blocker: the recheck also failed to arm for an ELIGIBLE empty room during the guest window (no sleep veto then), for an UNOBSERVABLE ...
   - `parked_reason`: Gated on FAN-RECHECK-OBSERVABILITY-1 — do not build the veto scope until we can see why the recheck silently does not arm.
+  - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
 
 ### `STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1` - Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when it fires
 thread: **presence**
@@ -1399,20 +1400,22 @@ _created 2026-08-19 03:40 · updated 2026-08-19 04:10 · initial_
 
 ### `FAN-RECHECK-OBSERVABILITY-1` - Surface fan-recheck veto reasons + eval counts + D2 demotion state (recheck non-arm is invisible)
 thread: **presence**
-_created 2026-08-19 04:10 · refined_
+_created 2026-08-19 04:10 · updated 2026-08-19 04:25 · refined_
 - **Next:** Expose recheck veto reason + eval_count + last_attempt + D2 demotion state as attributes (computed at presence_fan_recheck.py:302-313, currently exposed nowhere) + raise the swallowed-exception log level. Deploy, then observe WHY the rec...
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `column`: planned
   - `problem`: The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto (presence_fan_recheck.py:136-139) only bump...
+  - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
 
 ### `FAN-SUSTAINED-SHAKE-DEMOTE-1` - Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
 thread: **presence**
-_created 2026-08-19 04:10 · initial_
+_created 2026-08-19 04:10 · updated 2026-08-19 04:25 · initial_
 - **Next:** After observability: design a fan-running sustained-shake demotion (mmwave-sole + fan-on + no corroboration for a sustained window -> demote the mmwave vote). Reuse STEP SensorExclusionSet.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `column`: inbox
   - `program`: sensor-trust-exclusion
   - `problem`: The shipped v5.46.0 fan-transition gate (FAN_TRANSITION_SUSPECT_WINDOW_S=5, creation-only, backward-looking, transition-EDGE) structurally cannot catch fan-shake: both live episodes are SUSTAIN-direction phantoms — room occupied first, f...
+  - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
 
 ## 🅿️ Parked ideas (top-level list)
 
