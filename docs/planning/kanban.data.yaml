@@ -5014,10 +5014,10 @@ cards:
     new mechanism (fan-running sustained-shake demotion), NOT a fix to the transition gate.'
 - id: FAN-RECHECK-D2-DEADLOCK-1
   title: Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
-  column: in_progress
+  column: review
   thread: presence
   created: 2026-08-19 05:15
-  updated: 2026-08-19 05:25
+  updated: 2026-08-19 06:20
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms
@@ -5044,6 +5044,13 @@ cards:
     live sensor.living_room_living_room_fan_recheck_state
   phase_2026_08_19: 'IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds
     in sleep-veto)'
+  staged_ready_2026_08_19: 'STAGED + SHIP-READY, DEPLOY HELD for non-hostile timing. Merged to develop;
+    3 Tier-2-DB reviews ALL SHIP (A correctness, B deadlock-break PROVEN + no inverse deadlock, C SHIP-with-live-validation);
+    F-C-2 hollow D3 test fixed (extracted helper + real behavioral test + mutation drill); 58 tests. README_v5.84.0
+    written with the 8-observation live-validation spec (O1-O8, incl. O7/O8 over-defer discriminators).
+    HOLD REASON: deploy = HA restart (~5min whole-house outage) and residents are asleep (house=sleep,
+    ~6am). Deploy at a non-hostile hour / on operator go. Behavioral proof is LIVE (real-coord in-suite
+    = v5.8.0 territory, seam adjudicated acceptable by Review C).'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

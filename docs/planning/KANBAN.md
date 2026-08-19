@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T00:30:35-05:00_ - _Data commit: `bde9ee436470`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T00:54:46-05:00_ - _Data commit: `126a43896f20`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.84.0.md (2026-08-19) is newer than last_reconciled (2026-08-18)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -1430,13 +1436,14 @@ _created 2026-08-19 04:10 · updated 2026-08-19 04:45 · initial_
 
 ### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
 thread: **presence**
-_created 2026-08-19 05:15 · updated 2026-08-19 05:25 · refined_
+_created 2026-08-19 05:15 · updated 2026-08-19 06:20 · refined_
 - **Next:** Plan the D2<->recheck precedence reconciliation (Tier 2-DB). Supersedes FAN-RECHECK-SLEEP-VETO-SCOPE-1 as the primary (the sleep veto is a real but secondary over-scope; the deadlock is why it never armed at all).
-- **Forensic keys (4):**
-  - `column`: in_progress
+- **Forensic keys (5):**
+  - `column`: review
   - `program`: sensor-trust-exclusion
   - `problem`: CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms target the same fan-ghosted mmwave-sole rooms and deadlock: D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED default on, coordinator.py:...
   - `phase_2026_08_19`: IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds in sleep-veto)
+  - `staged_ready_2026_08_19`: STAGED + SHIP-READY, DEPLOY HELD for non-hostile timing. Merged to develop; 3 Tier-2-DB reviews ALL SHIP (A correctness, B deadlock-break PROVEN + no inverse deadlock, C SHIP-with-live-validation); F-C-2 hollow D3 test fixed (extracted h...
 
 ## 🅿️ Parked ideas (top-level list)
 
