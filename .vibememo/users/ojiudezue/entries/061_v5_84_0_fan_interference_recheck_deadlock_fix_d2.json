@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "061",
+  "author": "ojiudezue",
+  "session_id": "claude_20260819_151108_ship_v5_84_0",
+  "timestamp": "2026-08-19T15:11:08Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.84.0 shipped: Fan-interference recheck deadlock fix \u2014 D2 defers to recheck so it can finally arm and vacate fan-ghosted rooms",
+  "summary": "The fan-recheck had NEVER worked (5-day+ deadlock, live-confirmed): D2 mmwave-fan demotion set occupied=False before the recheck could arm on occupied=True. Fix: D2 defers demotion for recheck-eligible rooms via a side-effect-free is_recheck_eligible() OR-composed into D2's guard; sleep-veto scoped to bedrooms; per-room loop isolation. Tier 2-DB: 3 reviews all SHIP (deadlock-break proven, no inverse deadlock) + F-C-2 hollow-test fix. Behavioral proof = live-validation (real-coord in-suite = v5.8.0 territory).",
+  "refs": {
+    "cards": [
+      "FAN-RECHECK-D2-DEADLOCK-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.84.0.md"
+    ]
+  }
+}
