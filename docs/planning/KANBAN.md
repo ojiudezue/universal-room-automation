@@ -11,7 +11,7 @@ _Generated: 2026-08-19T10:45:18-05:00_ - _Data commit: `ba10d8a43285`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 6 |
+| 📥 Inbox | 7 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
@@ -23,8 +23,17 @@ _Generated: 2026-08-19T10:45:18-05:00_ - _Data commit: `ba10d8a43285`_ - _last_r
 | ✅ Done | 25 |
 | ❓ Other | 33 |
 
-## 📥 Inbox (6)
+## 📥 Inbox (7)
 _raw capture_
+
+### `STEP-SHADOW-EVIDENCE-WATCH-1` - Check STEP shadow chatter evidence during nightly board maintenance (until 08-21 forcing gate)
+thread: **diagnostics** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-19 12:00 · initial_
+- **Problem / Solution:**
+  - Problem: STEP (v5.85.0) ships SHADOW-only; the 2026-08-21 flip-to-act/declare-moot decision is only as good as the evidence accumulated by then. Nothing re-raises that evidence between now and the gate except the scheduled cloud routine....
+- **Why:** A broken producer (zero telemetry = detector not firing) or a false-positive (would_quarantine on a healthy sensor) must surface BEFORE the gate fires, not at it. This complements — does not replace — the cloud routine trig_01XZno8URQxUm...
+- **Next:** Nightly until 2026-08-21: read select.ura_chatter_mode (must stay shadow); sweep each room's sensor.<room>_unavailable_entities chatter_telemetry for burst_count>0 and would_quarantine:true counts; scan URA logs for chatter DEBUG/NM + er...
+- **Refs:** docs/readmes/README_v5.85.0.md; SENSOR-HEALTH-SURFACING-1; CHATTER-OBSERVE-CONTROL-D7-1
 
 ### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
 thread: **planning** - status: **inbox** - approval: **unreviewed**
