@@ -4332,7 +4332,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-19 06:40
+  updated: 2026-08-19 06:55
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4399,6 +4399,8 @@ cards:
     says AUDIT_chatter_physics_floor_probe.md; real doc is PROBE_sensor_chatter_definition_handcheck.md).
     Then focused re-review of the amended section -> re-dispatch build. STEP will NOT make 9am (real amendment
     + 6-10h build); FAN FIX ships 9am.'
+  feed_fixed_2026_08_19: Feed amendment PLAN-READY (own async_track_state_change_event, re-review no CRIT/HIGH/MED,
+    1 LOW folded to brief). Tier-3 build RESUMED in .claude/worktrees/step-chatter.
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox
