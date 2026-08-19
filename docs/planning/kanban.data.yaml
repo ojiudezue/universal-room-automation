@@ -5170,7 +5170,7 @@ cards:
   column: planned
   thread: diagnostics
   created: 2026-08-19 09:00
-  updated: 2026-08-19 09:00
+  updated: 2026-08-19 09:05
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its
@@ -5191,10 +5191,14 @@ cards:
     do NOT exclude the vote); number.ura_chatter_burst_k + number.ura_chatter_t_floor (house, CM entry,
     rung-3 live); per-room burst-count telemetry attrs on sensor.<room>_unavailable_entities; migrate
     the options-flow fields OUT of the notifications-volume step.
-  next: 'SHADOW-FIRST rollout: ship detect+surface (no vote exclusion) + the observe/control panel. HARD
-    FORCING GATE (operator): MUST flip to ACTING within 2 DAYS (by 2026-08-21) or DECLARE MOOT — with
-    a bazillion devices, stat significance is trivial, so if the burst distribution does not cleanly separate
-    healthy from chatter in 2 days it is moot. Scheduling the gate (below).'
+  next: 'SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) ->
+    ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE
+    (operator): the 2-day clock STARTS AT SHADOW DEPLOY — MUST flip to ACTING within 2 days of that deploy,
+    or DECLARE MOOT (bazillion devices = trivial stat significance; if the burst distribution does not
+    cleanly separate healthy from chatter in 2 days it is moot). SCHEDULE the gate AT shadow-deploy time
+    (relative, not a fixed date now). The gate is a SESSION task (read shadow burst data from HA -> decide
+    -> flip switch.ura_chatter_quarantine), so the schedule fires a reminder to a session with HA access;
+    the durable record is THIS card + the STEP card.'
   refs: PLANNING_sensor_health_surfacing.md; switch.py:154 (census switches); number.py (CM Numbers);
     sensor.py:1677 (UnavailableEntitiesSensor); PROBE_mmwave_healthy_cadence.md (the distribution to surface)
 parked:
