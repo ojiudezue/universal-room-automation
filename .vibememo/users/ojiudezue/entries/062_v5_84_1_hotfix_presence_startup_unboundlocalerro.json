@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "062",
+  "author": "ojiudezue",
+  "session_id": "claude_20260819_151957_ship_v5_84_1",
+  "timestamp": "2026-08-19T15:19:57Z",
+  "type": "milestone",
+  "weight": "significant",
+  "title": "v5.84.1 shipped: HOTFIX: presence startup UnboundLocalError (v5.84.0 regression) \u2014 un-shadow CONF_ENTRY_TYPE in _run_inference",
+  "summary": "v5.84.0's D3 fan-recheck refactor moved a CONF_ENTRY_TYPE reference past a pre-existing function-local import that shadows the module-level name, throwing UnboundLocalError at presence startup. Fix: drop CONF_ENTRY_TYPE from the local import (module-level import at :44 covers it). Verified no sibling shadows; py_compile clean.",
+  "refs": {
+    "cards": [
+      "FAN-RECHECK-D2-DEADLOCK-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.84.1.md"
+    ]
+  }
+}

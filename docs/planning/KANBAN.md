@@ -2,16 +2,10 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T10:09:43-05:00_ - _Data commit: `5a963fad55ea`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T10:11:08-05:00_ - _Data commit: `31366e705048`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.84.0.md (2026-08-19) is newer than last_reconciled (2026-08-18)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -27,7 +21,7 @@ _Generated: 2026-08-19T10:09:43-05:00_ - _Data commit: `5a963fad55ea`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 32 |
+| ❓ Other | 33 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -1154,7 +1148,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (32)
+## ❓ Other (33)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1472,6 +1466,14 @@ _created 2026-08-19 09:00 · updated 2026-08-19 09:15 · refined_
   - `program`: sensor-trust-exclusion
   - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
+
+### `SHADOW-IMPORT-AUDIT-1` - Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
+thread: **platform**
+_created 2026-08-19 10:20 · initial_
+- **Next:** Audit: grep every function-local `from ..const import` where the same name is also module-level-imported AND referenced elsewhere in the same function; either remove the redundant local import or ensure it always runs first. Consider a l...
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: v5.84.0 shipped an UnboundLocalError: a function-local `from ..const import CONF_ENTRY_TYPE` inside _run_inference shadowed the module-level import for the WHOLE function, and a moved reference accessed it unbound on the startup path. Th...
 
 ## 🅿️ Parked ideas (top-level list)
 

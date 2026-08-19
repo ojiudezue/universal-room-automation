@@ -5202,6 +5202,25 @@ cards:
   refs: PLANNING_sensor_health_surfacing.md; switch.py:154 (census switches); number.py (CM Numbers);
     sensor.py:1677 (UnavailableEntitiesSensor); PROBE_mmwave_healthy_cadence.md (the distribution to surface)
   build_2026_08_19: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
+- id: SHADOW-IMPORT-AUDIT-1
+  title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
+  column: inbox
+  thread: platform
+  created: 2026-08-19 10:20
+  updated: 2026-08-19 10:20
+  refinement_status: initial
+  problem: 'v5.84.0 shipped an UnboundLocalError: a function-local `from ..const import CONF_ENTRY_TYPE`
+    inside _run_inference shadowed the module-level import for the WHOLE function, and a moved reference
+    accessed it unbound on the startup path. This bug CLASS (local import shadows module-level name; a
+    sibling reference on a path that skips the local import throws) can exist anywhere with the local-import-in-a-branch
+    pattern (presence.py has ~8 such local const imports). py_compile does not catch it; only runtime
+    does.'
+  origin: 2026-08-19 v5.84.0 presence startup incident (fixed v5.84.1)
+  next: 'Audit: grep every function-local `from ..const import` where the same name is also module-level-imported
+    AND referenced elsewhere in the same function; either remove the redundant local import or ensure
+    it always runs first. Consider a lint rule (F823/pylint) in CI. Ties to TEST-STRATEGY-REARCH-1 (a
+    real-coord harness would catch these at author time).'
+  refs: presence.py:5944/6955; TEST-STRATEGY-REARCH-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
