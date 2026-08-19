@@ -200,43 +200,105 @@ async def test_is_recheck_eligible_returns_false_on_raise():
 # ---------------------------------------------------------------------------
 
 
-def test_d3_per_room_isolation_pattern_directly():
-    """Verifies the shape used in `presence.py:_periodic_inference`
-    fan-out — a per-room try/except so one raising room can't skip
-    siblings. This is a structural test that documents the invariant;
-    the actual fan-out lives inside the presence coord's tick, which
-    requires a full presence coordinator to construct in-suite (see
-    v5.8.0 seam analysis in the build report).
+def _load_fan_recheck_helper():
+    """Import ``_run_fan_recheck_tick_for_rooms`` from presence.py.
 
-    Mutation-anchor: change `presence.py`'s per-room try/except back
-    to a loop-wrapping try/except -> this test's shape assertion still
-    passes but the fan-out loop breaks under real HA — that specific
-    regression is caught by the diff-review of `presence.py:6893-6908`.
+    presence.py has heavy transitive imports (const, signals, house_state,
+    hvac_const, _ble_corroboration, etc.) — we've already stubbed those
+    for `_load_fan_recheck_module`. Reuse that stub environment and then
+    load presence.py just enough to extract the module-level helper.
+    Because the helper is defined near the top of the file (right after
+    ``_LOGGER = logging.getLogger(__name__)``), we don't need the rest
+    of the module to execute; we exec only the helper's source block.
     """
-    calls = []
+    _load_fan_recheck_module()  # sets up ura stub + HA stubs
+    from pathlib import Path
+    import re
 
-    class _Raising:
-        room_name = "raises"
-
-        def on_room_tick_wrap(self):
-            raise RuntimeError("boom")
-
-    class _Working:
-        room_name = "sibling"
-
-        def on_room_tick_wrap(self):
-            calls.append("sibling")
-
-    rooms = [_Raising(), _Working()]
-
-    # Mirror the shape at presence.py:6893-6908 (post-D3 fix):
-    for room in rooms:
-        try:
-            room.on_room_tick_wrap()
-        except Exception:
-            # Sibling MUST still be evaluated on this same tick.
-            pass
-
-    assert calls == ["sibling"], (
-        "D3 pattern regressed — one room's raise skipped its sibling"
+    ROOT = Path(__file__).resolve().parents[2]
+    src_path = (
+        ROOT
+        / "custom_components/universal_room_automation/domain_coordinators/presence.py"
     )
+    text = src_path.read_text()
+    # Extract the helper source (module-level def) — anchored by name.
+    m = re.search(
+        r"^def _run_fan_recheck_tick_for_rooms\(.*?(?=^def |\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert m, "helper _run_fan_recheck_tick_for_rooms not found in presence.py"
+    helper_src = m.group(0)
+    # Provide only the two names the helper closes over: logging + Any.
+    import logging as _logging
+    from typing import Any as _Any
+
+    ns: dict = {
+        "logging": _logging,
+        "Any": _Any,
+        "_LOGGER": _logging.getLogger("ura.presence.helper_test"),
+    }
+    exec(compile(helper_src, str(src_path), "exec"), ns)
+    return ns["_run_fan_recheck_tick_for_rooms"]
+
+
+def test_d3_helper_isolates_raising_room_from_siblings(caplog):
+    """T-D3-ISOLATION (real, not hollow — F-C-2 fix-up 2026-08-19).
+
+    Drive ``_run_fan_recheck_tick_for_rooms`` (the extracted helper
+    inside production ``presence.py``) with 3 rooms; the middle room's
+    tick raises. Assert:
+      (a) rooms 1 AND 3 STILL have their tick_fn invoked (behavioral
+          isolation proof),
+      (b) the raising room is logged at WARNING with its room name,
+      (c) helper does not propagate the exception.
+
+    Mutation-anchor drill (recorded in build report): moving the
+    ``try/except`` OUTSIDE the ``for`` loop (i.e. reverting to the
+    pre-D3 all-rooms-wrapper shape) makes assertion (a) fail because
+    rooms after the raiser are skipped.
+    """
+    import logging as _logging
+
+    helper = _load_fan_recheck_helper()
+
+    calls: list[str] = []
+
+    class _Room:
+        def __init__(self, name: str, should_raise: bool = False) -> None:
+            self.room_name = name
+            self._raise = should_raise
+
+    def tick_fn(room):
+        calls.append(room.room_name)
+        if getattr(room, "_raise", False):
+            raise RuntimeError(f"boom-{room.room_name}")
+
+    rooms = [_Room("first"), _Room("middle", should_raise=True), _Room("third")]
+
+    # Route WARNING through caplog on the same logger name the helper uses.
+    test_logger = _logging.getLogger("d3_isolation_test")
+    with caplog.at_level(_logging.WARNING, logger="d3_isolation_test"):
+        helper(rooms, tick_fn, logger=test_logger)
+
+    # (a) all three rooms attempted — the middle raise did NOT skip "third".
+    assert calls == ["first", "middle", "third"], (
+        f"D3 isolation broken — expected all rooms ticked, got {calls}. "
+        "If 'third' is missing, the raise from 'middle' skipped its sibling."
+    )
+    # (b) WARNING log names the raising room.
+    warnings = [
+        r for r in caplog.records
+        if r.levelno == _logging.WARNING and "on_room_tick failed" in r.getMessage()
+    ]
+    assert warnings, "no WARNING log emitted for the raising room"
+    assert any("middle" in r.getMessage() for r in warnings), (
+        f"WARNING log did not name the raising room: {[r.getMessage() for r in warnings]}"
+    )
+    # (c) implicit — if the helper propagated, we would not have reached here.
+
+
+def test_d3_helper_no_rooms_is_noop():
+    helper = _load_fan_recheck_helper()
+    # Should not raise, should not log.
+    helper([], lambda _r: (_ for _ in ()).throw(RuntimeError("unreachable")))
