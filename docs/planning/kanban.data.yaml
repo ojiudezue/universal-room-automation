@@ -4332,7 +4332,7 @@ cards:
   column: in_progress
   thread: diagnostics
   created: 2026-08-18 02:30
-  updated: 2026-08-18 16:45
+  updated: 2026-08-19 05:25
   refinement_status: initial
   problem: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced
     "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09)
@@ -4376,6 +4376,8 @@ cards:
     -> still never a raw rate). D0 GO-with-amendments: catches ratgdo (58,713 tx/7d, sustained 2-3s) +
     invisoutlet, ZERO healthy false-positives. Live acceptance fixture captured. Ready: fold done -> Tier
     2-DB plan review -> build.'
+  phase_2026_08_19: 'IN PROGRESS: resuming STEP: applying plan-review 3 MEDs + Tier-3 elevation to make
+    build-ready'
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   column: inbox
@@ -5007,10 +5009,10 @@ cards:
     new mechanism (fan-running sustained-shake demotion), NOT a fix to the transition gate.'
 - id: FAN-RECHECK-D2-DEADLOCK-1
   title: Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
-  column: planned
+  column: in_progress
   thread: presence
   created: 2026-08-19 05:15
-  updated: 2026-08-19 05:15
+  updated: 2026-08-19 05:25
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms
@@ -5035,6 +5037,8 @@ cards:
     at all).
   refs: AUDIT_fan_recheck_bug_hunt.md; coordinator.py:3451/3370; presence_fan_recheck.py:378/688; test_fan_recheck_mode2_cycle.py:224;
     live sensor.living_room_living_room_fan_recheck_state
+  phase_2026_08_19: 'IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds
+    in sleep-veto)'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

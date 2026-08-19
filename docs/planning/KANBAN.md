@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T23:48:33-05:00_ - _Data commit: `c443caa9e7c2`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-18T23:50:15-05:00_ - _Data commit: `0ff6fca881fd`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1187,9 +1187,9 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-18 16:45 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 05:25 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
@@ -1197,6 +1197,7 @@ _created 2026-08-18 02:30 · updated 2026-08-18 16:45 · initial_
   - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
   - `program`: sensor-trust-exclusion
   - `definition_confirmed_2026_08_18`: CHATTER DEFINITION GROUNDED + HAND-CHECKED + operator-confirmed. Chatter = >=K sub-T_floor impossibility events (interval below the device-family hardware blind-time) in-window, on BLIND-TIME-GATED sensors ONLY (PIR/mmWave/opener). PROVE...
+  - `phase_2026_08_19`: IN PROGRESS: resuming STEP: applying plan-review 3 MEDs + Tier-3 elevation to make build-ready
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
@@ -1428,12 +1429,13 @@ _created 2026-08-19 04:10 · updated 2026-08-19 04:45 · initial_
 
 ### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
 thread: **presence**
-_created 2026-08-19 05:15 · refined_
+_created 2026-08-19 05:15 · updated 2026-08-19 05:25 · refined_
 - **Next:** Plan the D2<->recheck precedence reconciliation (Tier 2-DB). Supersedes FAN-RECHECK-SLEEP-VETO-SCOPE-1 as the primary (the sleep veto is a real but secondary over-scope; the deadlock is why it never armed at all).
-- **Forensic keys (3):**
-  - `column`: planned
+- **Forensic keys (4):**
+  - `column`: in_progress
   - `program`: sensor-trust-exclusion
   - `problem`: CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms target the same fan-ghosted mmwave-sole rooms and deadlock: D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED default on, coordinator.py:...
+  - `phase_2026_08_19`: IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds in sleep-veto)
 
 ## 🅿️ Parked ideas (top-level list)
 
