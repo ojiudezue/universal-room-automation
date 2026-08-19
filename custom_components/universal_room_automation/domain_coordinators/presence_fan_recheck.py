@@ -67,6 +67,7 @@ from ..const import (
 )
 from ._ble_corroboration import trustworthy_persons_in_room
 from .house_state import HouseState
+from .hvac_const import FAN_TRUST_STATES
 from .signals import (
     SIGNAL_FAN_RECHECK_FINISHED,
     SIGNAL_FAN_RECHECK_STARTED,
@@ -106,6 +107,49 @@ class _RoomCtx:
     last_attempt_at: Optional[datetime] = None
     ble_ladder_layer: str = LAYER_NONE
     timer_unsub: Optional[Any] = None
+
+
+class _EligibilitySink:
+    """Sink protocol for the shared 9-gate evaluator (Advisory-2).
+
+    The live driver path (``on_room_tick`` -> ``_is_eligible``) passes
+    ``_LiveSink`` so veto counters, ``ctx.ble_ladder_layer`` writes, and
+    ``_prune_attempts`` mutations happen as before. The read-only probe
+    path (``is_recheck_eligible``, called from the room coordinator's D2
+    demotion block) passes ``_INERT_SINK`` so the evaluator can be
+    called at high frequency without perturbing observability counters
+    or corrupting the ctx's stored BLE ladder / attempts state.
+    """
+
+    def veto(self, room_name: str, reason: str) -> bool:  # noqa: D401
+        return False
+
+    def set_ladder_layer(self, ctx: "_RoomCtx", layer: str) -> None:
+        return
+
+    def prune_attempts(self, ctx: "_RoomCtx", now: datetime) -> None:
+        return
+
+
+class _LiveSink(_EligibilitySink):
+    """Live sink — routes every mutation to the real manager state."""
+
+    def __init__(self, manager: "FanRecheckManager") -> None:
+        self._mgr = manager
+
+    def veto(self, room_name: str, reason: str) -> bool:
+        return self._mgr._veto(room_name, reason)
+
+    def set_ladder_layer(self, ctx: "_RoomCtx", layer: str) -> None:
+        ctx.ble_ladder_layer = layer
+
+    def prune_attempts(self, ctx: "_RoomCtx", now: datetime) -> None:
+        self._mgr._prune_attempts(ctx, now)
+
+
+# Module-level inert sink singleton — no mutation of any kind. Safe to
+# share across calls / rooms because it holds no state.
+_INERT_SINK = _EligibilitySink()
 
 
 class FanRecheckManager:
@@ -334,10 +378,78 @@ class FanRecheckManager:
             ),
         }
 
+    # ---- public read-only eligibility probe (D2 defer gate) ---------------
+
+    def is_recheck_eligible(self, room_name: str) -> bool:
+        """Return True iff a periodic tick RIGHT NOW would arm this room.
+
+        Side-effect-free variant of ``_is_eligible`` used by the room
+        coordinator's D2 mmwave-fan demotion block (``coordinator.py``
+        ~:3369-3402) to defer demotion when the recheck could plausibly
+        arm this tick. Must NOT mutate ``self._veto_counts``,
+        ``self._eval_counts``, ``ctx.ble_ladder_layer``, or
+        ``ctx.attempts`` — those are reserved for the live ``on_room_tick``
+        driver path so the observability signal reflects the real cadence.
+
+        Room-coord resolution: mirrors the D2 call site
+        (``coordinator.py:3354``). If the room-coord is not yet
+        constructed OR the eligibility call raises, return False (D2
+        fires as backstop). Symmetric with the existing
+        ``recheck_in_flight`` guard's exception default.
+        """
+        if not self._setup_done:
+            return False
+        try:
+            room_coord = self._room_coord_for(room_name)
+            if room_coord is None:
+                return False
+            ctx = self._rooms.get(room_name)
+            if ctx is None:
+                # Ephemeral read-only ctx — never inserted into ``self._rooms``.
+                ctx = _RoomCtx(
+                    room_name=room_name,
+                    entry_id=getattr(room_coord.entry, "entry_id", ""),
+                )
+            return self._evaluate_eligibility(
+                ctx, room_coord, sink=_INERT_SINK,
+            )
+        except Exception:  # noqa: BLE001 — defensive: D2 fires as backstop
+            _LOGGER.debug(
+                "FanRecheck: is_recheck_eligible(%s) raised — defaulting False",
+                room_name,
+                exc_info=True,
+            )
+            return False
+
     # ---- internals: eligibility -------------------------------------------
 
     def _is_eligible(self, ctx: _RoomCtx, room_coord: Any) -> bool:
-        """Evaluate all 9 trigger conditions (D1)."""
+        """Evaluate all 9 trigger conditions (D1). Live driver path — mutates
+        veto counters and ``ctx.ble_ladder_layer`` for observability. See
+        ``is_recheck_eligible`` for the side-effect-free read-only variant.
+        """
+        return self._evaluate_eligibility(
+            ctx, room_coord, sink=_LiveSink(self),
+        )
+
+    def _evaluate_eligibility(
+        self,
+        ctx: _RoomCtx,
+        room_coord: Any,
+        sink: "_EligibilitySink",
+    ) -> bool:
+        """Shared 9-gate evaluator. ALL mutations route through ``sink``.
+
+        Callers:
+        - ``_is_eligible`` (live, mutates ctx + veto counters).
+        - ``is_recheck_eligible`` (inert, read-only for D2 defer gate).
+
+        Advisory-2 contract: every ``sink.veto(...)``,
+        ``sink.set_ladder_layer(...)``, and ``sink.prune_attempts(...)``
+        MUST be routed through the sink. Any bare ``self._veto(...)`` /
+        ``ctx.ble_ladder_layer = ...`` / ``self._prune_attempts(...)`` in
+        this method silently corrupts the inert-path purity and is a bug.
+        """
         room_name = ctx.room_name
         merged = self._merged_config(room_coord)
         # The 7 timing knobs live on the CM entry, not the room entry.
@@ -348,35 +460,36 @@ class FanRecheckManager:
         # Master + per-room kill switches.
         master_enabled = self._master_enabled()
         if not master_enabled:
-            return self._veto(room_name, "master_off")
+            return sink.veto(room_name, "master_off")
         if not merged.get(
             CONF_ROOM_FAN_RECHECK_ENABLED, DEFAULT_ROOM_FAN_RECHECK_ENABLED,
         ):
-            return self._veto(room_name, "room_disabled")
+            return sink.veto(room_name, "room_disabled")
         # D5: operator fan-control disabled = forbidden zone for us.
         if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
-            return self._veto(room_name, "fan_control_off")
+            return sink.veto(room_name, "fan_control_off")
 
-        # Sleep gate: never pause a fan while the house is asleep.
-        # hvac_fans (v4.7.13) deliberately holds bedroom fans ON through sleep
-        # despite occupancy bounce; arming a recheck here would pause that fan
-        # and fight the keep-on logic.
-        #
-        # SLEEP-only is intentional and PRESERVED across the 2026-06-11
-        # fan-trust state extension: this Mode-2 layer PAUSES the fan to
-        # verify presence — exactly the wrong operation during home_night /
-        # waking when people are awake, mobile, and would notice a fan
-        # pause. The v4.7.13-family trust (hvac_fans + hvac) DOES extend
-        # to {home_night, sleep, waking}; this pause-based mechanism
-        # explicitly does NOT. See PLANNING_fan_trust_state_extension.md
-        # §D-MODE2 and project_v4_7_22_fan_recheck_mode2_live.md.
+        # Sleep-scoped veto (FAN-RECHECK-SLEEP-VETO-SCOPE-1, folded in
+        # 2026-08-19): previously an unconditional ``house_state ==
+        # SLEEP`` veto suppressed the recheck house-wide, which also
+        # suppressed the very non-bedroom rooms this feature was built for
+        # (Study A, Living Room). Narrow the veto to the same predicate
+        # ``hvac_fans.py:1205-1209`` uses to hold bedroom fans on across
+        # ``FAN_TRUST_STATES = {home_night, sleep, waking}``: pausing a
+        # fan the HVAC layer is deliberately keeping on would fight the
+        # v4.7.13 keep-on contract. For non-bedroom rooms the recheck is
+        # free to arm through sleep — no v4.7.13 obligation applies.
+        room_type_early = merged.get(CONF_ROOM_TYPE, "")
         house_state = getattr(self._presence, "house_state", "")
-        if house_state == HouseState.SLEEP:
-            return self._veto(room_name, "sleep_state")
+        if (
+            house_state in FAN_TRUST_STATES
+            and room_type_early == ROOM_TYPE_BEDROOM
+        ):
+            return sink.veto(room_name, "sleep_state")
 
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
-            return self._veto(room_name, "not_occupied")
+            return sink.veto(room_name, "not_occupied")
 
         # Condition 2: mmwave-sole AND for N consecutive ticks.
         ticks_required = int(
@@ -389,9 +502,9 @@ class FanRecheckManager:
         if hasattr(room_coord, "recent_occupancy_sources"):
             recent = list(room_coord.recent_occupancy_sources())
         if len(recent) < ticks_required:
-            return self._veto(room_name, "mmwave_history_short")
+            return sink.veto(room_name, "mmwave_history_short")
         if any(s != "mmwave" for s in recent[-ticks_required:]):
-            return self._veto(room_name, "not_mmwave_sole")
+            return sink.veto(room_name, "not_mmwave_sole")
 
         # Condition 3: at least one fan entity AND one is ON.
         fans = merged.get(CONF_FANS) or []
@@ -399,19 +512,19 @@ class FanRecheckManager:
             fans = [fans]
         fans = [f for f in fans if f]
         if not fans:
-            return self._veto(room_name, "no_fan_configured")
+            return sink.veto(room_name, "no_fan_configured")
         if not any(self._is_entity_on(f) for f in fans):
-            return self._veto(room_name, "no_fan_on")
+            return sink.veto(room_name, "no_fan_on")
 
         # Condition 7: boot-settle gate.
         if not getattr(self._presence, "_boot_settle_done", True):
-            return self._veto(room_name, "boot_settle")
+            return sink.veto(room_name, "boot_settle")
 
         # Conditions 8 + 9: EgressManager pause + manual_off_cooldown_until
         # are evaluated by FanController itself; we mirror condition 9 here
         # so we don't even try to schedule a pause for a recently-killed fan.
         if self._fan_in_manual_cooldown(room_name):
-            return self._veto(room_name, "manual_off_cooldown")
+            return sink.veto(room_name, "manual_off_cooldown")
 
         # Condition 5: rate limit.
         max_per_hour = int(
@@ -422,22 +535,22 @@ class FanRecheckManager:
         )
         if max_per_hour > 0:
             now = dt_util.now()
-            self._prune_attempts(ctx, now)
+            sink.prune_attempts(ctx, now)
             if len(ctx.attempts) >= max_per_hour:
-                return self._veto(room_name, "rate_cap")
+                return sink.veto(room_name, "rate_cap")
 
         # Condition 4: BLE-tier drop-authorization gate (D1.5).
         person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         if person_coord is None:
-            return self._veto(room_name, "no_person_coord")
+            return sink.veto(room_name, "no_person_coord")
 
         # L1 veto applies in EVERY tier.
         l1_persons = trustworthy_persons_in_room(
             self.hass, person_coord, room_name,
         )
         if l1_persons:
-            ctx.ble_ladder_layer = LAYER_L1
-            return self._veto(room_name, "ble_l1")
+            sink.set_ladder_layer(ctx, LAYER_L1)
+            return sink.veto(room_name, "ble_l1")
 
         # Tier classification.
         try:
@@ -452,11 +565,6 @@ class FanRecheckManager:
         if ble_tier == 1:
             # Tier-1 path. L3 strongest; L2 weak-authorize requires opt-in
             # AND is REJECTED for high-still-risk room_types (D1.5 dial).
-            # Zone-aware L3: scan trustworthy phones across ALL rooms in the
-            # same zone (not just this room). If _zone_rooms_for returns an
-            # empty list (no zone tracker covers this room), fall back to
-            # the room itself so we don't get a free L3-vacate from an
-            # unconfigured zone (A-M1 + C2 fix).
             try:
                 zone_rooms = self._zone_rooms_for(room_name) or [room_name]
                 zone_persons = self._trustworthy_persons_in_zone(
@@ -465,42 +573,38 @@ class FanRecheckManager:
             except Exception:  # noqa: BLE001
                 zone_persons = []
             if not zone_persons:
-                ctx.ble_ladder_layer = LAYER_L3
+                sink.set_ladder_layer(ctx, LAYER_L3)
                 return True
             if l2_hit_adj and merged.get(
                 CONF_FAN_RECHECK_L2_ALLOWED, DEFAULT_FAN_RECHECK_L2_ALLOWED,
             ):
                 if room_type in HIGH_STILL_RISK_ROOM_TYPES:
-                    ctx.ble_ladder_layer = LAYER_NONE
-                    return self._veto(room_name, "high_still_risk")
-                ctx.ble_ladder_layer = LAYER_L2
+                    sink.set_ladder_layer(ctx, LAYER_NONE)
+                    return sink.veto(room_name, "high_still_risk")
+                sink.set_ladder_layer(ctx, LAYER_L2)
                 return True
-            ctx.ble_ladder_layer = LAYER_NONE
-            return self._veto(room_name, "ble_l2")
+            sink.set_ladder_layer(ctx, LAYER_NONE)
+            return sink.veto(room_name, "ble_l2")
 
         # Tier-2 / Tier-0: positive L2 in adjacent rooms is an UNCONDITIONAL veto.
         if l2_hit_adj:
-            ctx.ble_ladder_layer = LAYER_L2
-            return self._veto(room_name, "ble_l2")
+            sink.set_ladder_layer(ctx, LAYER_L2)
+            return sink.veto(room_name, "ble_l2")
 
         # D1.5 high-still-risk guard also applies on the Tier-0/2 path.
-        # With CONF_FAN_RECHECK_TRUST_SENSORS_OK defaulting True (v4.7.x),
-        # a still napper in a bedroom or media_room would otherwise be
-        # eligible to vacate without any BLE-tier protection — match the
-        # Tier-1 L2 guard's semantics here. (C1 fix.)
         if room_type in HIGH_STILL_RISK_ROOM_TYPES:
-            ctx.ble_ladder_layer = LAYER_NONE
-            return self._veto(room_name, "high_still_risk")
+            sink.set_ladder_layer(ctx, LAYER_NONE)
+            return sink.veto(room_name, "high_still_risk")
 
         # Sensors-only authorize gate.
         if not merged.get(
             CONF_FAN_RECHECK_TRUST_SENSORS_OK,
             DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK,
         ):
-            ctx.ble_ladder_layer = LAYER_NONE
-            return self._veto(room_name, "trust_sensors_off")
+            sink.set_ladder_layer(ctx, LAYER_NONE)
+            return sink.veto(room_name, "trust_sensors_off")
 
-        ctx.ble_ladder_layer = LAYER_NONE
+        sink.set_ladder_layer(ctx, LAYER_NONE)
         return True
 
     # ---- internals: state transitions -------------------------------------
@@ -848,11 +952,20 @@ class FanRecheckManager:
             return False
         if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
             return False
-        # Sleep can begin during the arm delay — abort before pausing so we
-        # never fight the v4.7.13 keep-fans-on-through-sleep logic. SLEEP-only
-        # to match the v4.7.13 contract; WAKING is allowed.
+        # Sleep-scoped abort (FAN-RECHECK-SLEEP-VETO-SCOPE-1 fold-in,
+        # 2026-08-19): mirrors ``_evaluate_eligibility`` — bedroom rooms
+        # abort across FAN_TRUST_STATES to preserve the v4.7.13 keep-on
+        # contract; non-bedroom rooms proceed through sleep since no
+        # v4.7.13 obligation applies. Symmetric application here (not just
+        # in ``_is_eligible``) so a bedroom that armed just before the
+        # sleep edge is correctly aborted instead of pausing its fan
+        # mid-sleep.
         house_state = getattr(self._presence, "house_state", "")
-        if house_state == HouseState.SLEEP:
+        room_type = merged.get(CONF_ROOM_TYPE, "")
+        if (
+            house_state in FAN_TRUST_STATES
+            and room_type == ROOM_TYPE_BEDROOM
+        ):
             return False
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):

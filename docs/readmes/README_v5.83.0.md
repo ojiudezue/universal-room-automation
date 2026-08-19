@@ -65,4 +65,11 @@ mutation-drilled (revert any site → the behavioral + shape-invariant tests fai
 
 ## Live Validation
 
-_Pending post-restart (L1 immediately; occupancy discrimination organic on Wed)._
+### Validated 2026-08-18 (~15:5x CT, post-restart) — house EMPTY
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Boot clean, zero URA ERROR | **PASS** | system_log ERROR count 0; `sensor.ura_presence_coordinator_presence_house_state` = `away` (available) |
+| Live | deduped guest/unidentified counts; dead-phone-face-matched resident not counted as guest | **ORGANIC-PENDING** | needs occupancy (Wed) |
+
+**Boot-clean now; occupancy discrimination organic on Wed.**

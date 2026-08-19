@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-18T14:59:31-05:00_ - _Data commit: `c08f4ca40fc5`_ - _last_reconciled: 2026-08-18_
+_Generated: 2026-08-19T10:09:43-05:00_ - _Data commit: `5a963fad55ea`_ - _last_reconciled: 2026-08-18_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.84.0.md (2026-08-19) is newer than last_reconciled (2026-08-18)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -21,7 +27,7 @@ _Generated: 2026-08-18T14:59:31-05:00_ - _Data commit: `c08f4ca40fc5`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 21 |
+| ❓ Other | 32 |
 
 ## 📥 Inbox (6)
 _raw capture_
@@ -221,13 +227,14 @@ _created 2026-08-18 00:55 · updated 2026-08-18 02:25 · initial_
 
 ### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
 thread: **presence** - status: **shipped_organic** - approval: **explicit**
+_updated 2026-08-18 16:10_
 - **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
 - **Why:** URA's duty-cycle detector DOES catch stuck sensors and logs: 'Sensor <x> duty-cycle stuck (on-ratio exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy'. It then KEEPS USING the stuck sensor for occupancy. Detection ...
 - **Next:** BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated, else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability map from AUDIT_mmwave_only_rooms_2026-07-31....
 - **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
 - **Depends on:** SENSOR-CAPABILITY-1
 - **Parsimony:** [BUILD] a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
-- **Forensic keys (19):**
+- **Forensic keys (21):**
   - `my_miss`: I READ these exact warnings hours earlier and dismissed them as 'routine, not a crash' — I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its own defect and I skimmed it. Rule: a warning that...
   - `gaps`: 1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.
   - `fix`: 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in sleep/home_night; it does NOT hold wh...
@@ -247,10 +254,12 @@ thread: **presence** - status: **shipped_organic** - approval: **explicit**
   - `harness_landed_2026_08_13`: Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator si...
   - `approved_2026_08_13`: OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
 thread: **presence** - status: **shipped_organic** - approval: **explicit**
-_refined ×3_
+_updated 2026-08-18 16:10 · refined ×3_
 - **Origin:** 2026-08-09 - operator ruling on whether bed presence moves bucket or code changes: "My instinct is code change so we don't have fixed config buckets. Sensor reality should not pin use and analysis reality in software. It should just tell...
 - **Why:** VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and they ARE the three config buckets, so the h...
 - **Next:** PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines). Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO — Tier 3 shared primitive, not implied-approval elig...
@@ -259,7 +268,7 @@ _refined ×3_
 - **Sibling of:** SIGNAL-TRUST-LEDGER (build-gated)
 - **Parsimony:** [BUILD] hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
 - **Refs:** docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause); docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4); docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer); custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81; custom_components/universal_room_automation/const.py:335,342
-- **Forensic keys (16):**
+- **Forensic keys (18):**
   - `root_cause_of`: Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.
   - `unlocks_without_new_hardware`: Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically unspoofable — the moment role stops being pinned to the motion bucket.
   - `design`: KEEP the three CONF lists as the WIRING layer — no config migration, additive only.
@@ -276,6 +285,8 @@ _refined ×3_
   - `invariant`: I1 — with no CONF_SENSOR_CAPABILITIES declared anywhere, get_all_room_kinds, every SIGNAL_SUBSTRATE_KIND_CHANGED dispatch, _room_provenance, _detect_duty_cycle_stuck's return set and every exposed entity attribute are BYTE-IDENTICAL to t...
   - `riskiest`: _detect_duty_cycle_stuck migration. Its positional signature (motion, mmwave, occupancy) is itself a legacy reification of _KIND_TO_CONF. An entity present in BOTH mmwave_sensors AND occupancy_sensors (the P15 defensive case, occupancy_s...
   - `DEDUPE_2026_08_09`: Four-surface adjacency sweep run before creating this card. Board: adjacent to STUCK-SENSOR-1 (which it now BLOCKS) — kept separate because the shared surface is OccupancySubstrate/TIER1_KINDS, not the stuck detector, and STUCK-SENSOR-1 ...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -1143,7 +1154,7 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (21)
+## ❓ Other (32)
 _unknown status bucket_
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
@@ -1180,14 +1191,28 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
   - `problem`: The new egress person-identity detection (D1) must be operator-enableable/disableable, and its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob sprawl). It just surfaced a phantom-guest CRIT i...
   - `l1_validated_2026_08_18`: SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active + egress_identities_stamped live on persons_enter...
 
-### `SENSOR-HEALTH-SURFACING-1` - Sensor health surfacing — chatter detector + unhealthy-sensors + NM replace hook
+### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-18 14:20 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 09:00 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
-- **Forensic keys (3):**
+- **Forensic keys (17):**
   - `column`: in_progress
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
+  - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
+  - `definition_confirmed_2026_08_18`: CHATTER DEFINITION GROUNDED + HAND-CHECKED + operator-confirmed. Chatter = >=K sub-T_floor impossibility events (interval below the device-family hardware blind-time) in-window, on BLIND-TIME-GATED sensors ONLY (PIR/mmWave/opener). PROVE...
+  - `phase_2026_08_19`: IN PROGRESS: resuming STEP: applying plan-review 3 MEDs + Tier-3 elevation to make build-ready
+  - `plan_ready_2026_08_19`: PLAN-READY (Tier 3). Both Tier-3 plan reviews passed after fixes: review-1 (3 MED fixed), review-2/build-prediction (M2-MED-1 Reading-A byte-identity + 2 LOW fixed). Definition grounded+hand-checked. Awaiting Tier-3 BUILD (4 framing-disj...
+  - `build_2026_08_19`: TIER-3 BUILD dispatched (operator go: build STEP, ship 9am). D1 shared SensorExclusionSet + D2 chatter detector + D3 auto-release + D5 surface. 4 framing-disjoint reviews + operator checkpoint before deploy.
+  - `plan_gap_2026_08_19`: BUILD STOPPED (correctly — anti-fabricate mandate) on a load-bearing PLAN GAP both Tier-3 plan reviews MISSED (producer-check failure): the plan has the chatter detector subscribe to OccupancySubstrate.subscribe() for per-entity edges, b...
+  - `feed_fixed_2026_08_19`: Feed amendment PLAN-READY (own async_track_state_change_event, re-review no CRIT/HIGH/MED, 1 LOW folded to brief). Tier-3 build RESUMED in .claude/worktrees/step-chatter.
+  - `tier3_reviews_2026_08_19`: TIER-3 REVIEWS: A SHIP-WITH-FIX, B SHIP, C DO-NOT-SHIP, D DO-NOT-SHIP. The 4-review gauntlet did its job. CONSOLIDATED FIX-UP SCOPE:
+  - `probe_calibration_2026_08_19`: CADENCE PROBE (PROBE_mmwave_healthy_cadence.md) RESOLVED decision #1 with data. KEY REFINEMENT: the un-fakeable criterion is the BURST (K sub-floor events/window), NOT a single sub-floor event — healthy fast mmWave DOES produce sub-floor...
+  - `fixture_decision_2026_08_19`: OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1. STEP fix-up proceeds: de-hollow the C-CRIT tests (extr...
+  - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
+  - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
 ### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
 thread: **energy**
@@ -1225,11 +1250,12 @@ _created 2026-08-18 02:30 · initial_
 
 ### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene)
 thread: **platform**
-_created 2026-08-18 03:00 · initial_
+_created 2026-08-18 03:00 · updated 2026-08-19 07:45 · initial_
 - **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `column`: inbox
   - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
+  - `subsumed_note`: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation). Keep as the concrete pollution instance; the broader re-arch owns the fix.
 
 ### `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` - Promote 3 Camera-Census feature toggles to device switches
 thread: **presence**
@@ -1307,13 +1333,14 @@ _created 2026-08-18 10:35 · updated 2026-08-18 15:07 · initial_
 
 ### `GUEST-COUNT-DEDUP-MIGRATE-1` - ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
 thread: **presence**
-_created 2026-08-18 11:00 · updated 2026-08-18 14:40 · initial_
+_created 2026-08-18 11:00 · updated 2026-08-18 15:55 · initial_
 - **Next:** Verify ZoneGuestCountSensor live-status; then migrate _get_guest_count (+ binary_sensor.py:1584 sibling) to consume the deduped unidentified_count instead of the naive subtraction. Producer/consumer check both.
-- **Forensic keys (4):**
-  - `column`: in_progress
+- **Forensic keys (5):**
+  - `column`: shipped_organic
   - `problem`: aggregation.py:5983 ZoneGuestCountSensor._get_guest_count derives guest count the NAIVE SUBTRACTIVE way (max(0, camera_total - ble_total)) — the SAME additive/subtractive formula behind the historical GUEST double-count. It is superseded...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2-DB, investigate-first: verify ZoneGuestCountSensor live-status)
   - `plan_verdict_2026_08_18`: PLAN DONE (PLANNING_guest_count_dedup_migrate.md, Tier 2-DB). ZoneGuestCountSensor IS live-registered (disabled-by-default per zone, aggregation.py:388/464) — NOT moot; corrects the group README "no such sensor" claim. Sibling guest_coun...
+  - `shipped_2026_08_18`: SHIPPED v5.83.0 + LIVE. L1 PASS (boot clean, zero ERROR). 3 naive max(0,camera-ble) sites -> deduped house.unidentified_count + shape-invariant guard. Tier 2-DB: 3 reviews (B found missed 3rd site) + H1 fix-up + re-review SHIP. ble_ident...
 
 ### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census
 thread: **security**
@@ -1330,6 +1357,121 @@ _created 2026-08-18 14:40 · initial_
 - **Forensic keys (2):**
   - `column`: inbox
   - `problem`: binary_sensor.py:1540-1560 URAUnexpectedPersonSensor.is_on computes "unexpected person" via the naive substrate comparison camera_total > ble_total — the SAME additive/subtractive bug class as the guest double-count, but on a TRUST/ALERT...
+
+### `ROOM-NAME-DESYNC-RECOVER-1` - Recover stalled room-rename write-through build (worktree vanished, salvage branch exists)
+thread: **config**
+_created 2026-08-18 16:40 · initial_
+- **Next:** Recover: checkout main-local/build/room-rename-writethrough into a fresh worktree, VERIFY state (run the 13 tests + falsifier drills + suite baseline-diff — the agent claimed green but it is unverified post-vanish), reconcile the 3 repor...
+- **Forensic keys (2):**
+  - `column`: inbox
+  - `problem`: The ROOM-NAME-DESYNC-1 builder (running ~5 days) reported complete D1+D2+D3 work but its worktree was REMOVED mid-run before it could commit — that fresh copy is LOST. A prior orchestrator WIP-salvage exists on branch main-local/build/ro...
+
+### `CHATTER-CAMERA-CONFIDENCE-FLAP-1` - Camera/AI detection confidence-flap detector (STEP sibling)
+thread: **diagnostics**
+_created 2026-08-18 16:45 · initial_
+- **Next:** After STEP D1/D2 ship: design a confidence-flap criterion for camera/AI detections; reuse the shared exclusion primitive.
+- **Forensic keys (4):**
+  - `column`: parked
+  - `program`: sensor-trust-exclusion
+  - `problem`: Camera/AI person/motion detections are EXCLUDED from the physics chatter detector by the provenance gate (they flip at frame cadence on a confidence threshold — no hardware blind-time, so sub-T_floor is undefined; D0 shows binarygroup_ca...
+  - `parked_reason`: Distinct fault class + criterion from physics chatter. Card after the STEP shared primitive + chatter client ship. Consumes the same SensorExclusionSet.
+
+### `SENSOR-MULTISTATE-FAULT-1` - Bed/multi-state sensor fault detector (STEP sibling)
+thread: **diagnostics**
+_created 2026-08-18 16:45 · initial_
+- **Next:** After STEP D1/D2 ship: assess multi-state fault criteria; reuse the shared exclusion primitive.
+- **Forensic keys (4):**
+  - `column`: parked
+  - `program`: sensor-trust-exclusion
+  - `problem`: Bed / multi-state sensors (empty->sitting->lying) are EXCLUDED from the physics chatter detector — their transitions are not gated by a single motion blind-time, so the sub-T_floor criterion is ill-defined. They can still fault; needs a ...
+  - `parked_reason`: Distinct sensor model + criterion. Low priority (few such sensors). Card after STEP primitive ships; reuse SensorExclusionSet.
+
+### `FAN-RECHECK-NOT-CLEARING-1` - Fan-interference recheck not clearing held rooms — fans should pause to unhold, not happening
+thread: **presence**
+_created 2026-08-19 03:15 · updated 2026-08-19 03:40 · initial_
+- **Next:** Investigation (read presence_fan_recheck.py + live config): (1) is fan-recheck enabled + are these rooms fans mapped for it? (2) what triggers the pause + at which ladder rung (Living Room=L3, Study A=none)? (3) why has no pause fired / ...
+- **Forensic keys (3):**
+  - `column`: done
+  - `problem`: Operator confirmed NO people in Study A or Living Room, but both are held occupied by fan-interference while fans run. The fan-recheck is SUPPOSED to briefly pause the fan to see if mmWave drops (proving fan-shake vs real person) and unh...
+  - `resolved_2026_08_18`: INVESTIGATION DONE. Root cause: over-scoped house-wide SLEEP veto (presence_fan_recheck.py:373) + comfort-fan/mmWave feedback loop. Complete cause list: (a) guest window = substantive BLE/tick gate NOT a state block (no guest veto in cod...
+
+### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms)
+thread: **presence**
+_created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
+- **Next:** Plan the veto-scoping (Tier 2-DB): narrow SLEEP veto at :373-375 + :854-855 to bedroom/keep-fan-on rooms via the reused predicate. Then plan review -> build. Live-validate: Study A + Living Room decay during sleep once fan paused + mmWav...
+- **Forensic keys (8):**
+  - `column`: parked
+  - `problem`: Fan-interference recheck is blocked house-wide by a hardcoded SLEEP veto (presence_fan_recheck.py:373-375, mirrored :854-855), so empty NON-bedroom rooms held by fan-shake mmWave (Study A, Living Room) never get their fan paused/rechecke...
+  - `rescope_2026_08_19`: RE-SCOPED + PARKED pending FAN-RECHECK-OBSERVABILITY-1. The trace proved the sleep veto is NOT the only blocker: the recheck also failed to arm for an ELIGIBLE empty room during the guest window (no sleep veto then), for an UNOBSERVABLE ...
+  - `parked_reason`: Gated on FAN-RECHECK-OBSERVABILITY-1 — do not build the veto scope until we can see why the recheck silently does not arm.
+  - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
+  - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
+  - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
+  - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
+
+### `STUDYA-ZIGBEE-MMWAVE-MISCATEGORIZED-1` - Study A Zigbee mmWave mapped as motion_sensors — motion>presence precedence blocks recheck when it fires
+thread: **presence**
+_created 2026-08-19 03:40 · updated 2026-08-19 04:10 · initial_
+- **Next:** Config/precedence review: recategorize the Study A Zigbee mmWave out of motion_sensors (into presence_sensors/mmwave) so a still-target read does not present as motion. Verify no other consumer depends on it being motion.
+- **Forensic keys (3):**
+  - `column`: done
+  - `problem`: Study A Zigbee mmWave is mapped under motion_sensors; motion_detected outranks presence (coordinator.py:3065), so whenever that Zigbee reads ON the fused occupancy_source becomes "motion" and the fan-recheck (which arms only on source=="...
+  - `disproven_2026_08_19`: DISPROVEN + CLOSED. Trace (AUDIT_fan_recheck_second_bug_and_transition_gate.md): Study A motion_sensors=[], the Zigbee mmwave is under presence_sensors -> occupancy_source is always "mmwave", never "motion". No precedence gap. Sensor cat...
+
+### `FAN-RECHECK-OBSERVABILITY-1` - Surface fan-recheck veto reasons + eval counts + D2 demotion state (recheck non-arm is invisible)
+thread: **presence**
+_created 2026-08-19 04:10 · updated 2026-08-19 05:15 · refined_
+- **Next:** Expose recheck veto reason + eval_count + last_attempt + D2 demotion state as attributes (computed at presence_fan_recheck.py:302-313, currently exposed nowhere) + raise the swallowed-exception log level. Deploy, then observe WHY the rec...
+- **Forensic keys (7):**
+  - `column`: done
+  - `problem`: The fan-recheck stayed idle for a TEXTBOOK-ELIGIBLE empty room (Study A, guest window) — every documented veto ruled out against live state, yet it never armed. The cause is UNOBSERVABLE: _veto (presence_fan_recheck.py:136-139) only bump...
+  - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
+  - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
+  - `operator_direction_2026_08_19`: OPERATOR DIRECTION: do not just instrument around it — WORK THROUGH THE CODE and find the bug. Bet: it has a bug and "feels like it has never worked." Strong candidate: the per-tick recheck call is wrapped in a swallowed except -> DEBUG ...
+  - `bug_found_2026_08_19`: CODE TRACE FOUND IT (AUDIT_fan_recheck_bug_hunt.md). CONFIRMED: (1) the recheck has NEVER vacated a room — apply_fan_recheck_release guards on outcome==VACATED and never ran; 08-13 occupied_confirmed was the non-vacate path. (2) WHY IT S...
+  - `CONFIRMED_LIVE_2026_08_19`: CONFIRMED LIVE (no build needed — the disambiguator sensor already existed). sensor.living_room_living_room_fan_recheck_state: veto_counts={not_occupied:1}, eval_count=1, last_attempt 2026-08-13. The recheck evaluated ONCE at boot, hit n...
+
+### `FAN-SUSTAINED-SHAKE-DEMOTE-1` - Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
+thread: **presence**
+_created 2026-08-19 04:10 · updated 2026-08-19 04:45 · initial_
+- **Next:** After observability: design a fan-running sustained-shake demotion (mmwave-sole + fan-on + no corroboration for a sustained window -> demote the mmwave vote). Reuse STEP SensorExclusionSet.
+- **Forensic keys (6):**
+  - `column`: inbox
+  - `program`: sensor-trust-exclusion
+  - `problem`: The shipped v5.46.0 fan-transition gate (validated, firing, correct) covers the fan-transition-EDGE coincident-with-mmwave-onset phenomenon. It does NOT and cannot cover the SUSTAIN case: room goes occupied first, URA turns the fan on be...
+  - `studya_release_evidence_2026_08_19`: LIVE NATURAL EXPERIMENT (Study A release, 2026-08-18/19): mmwave dropped ON ITS OWN at 23:00:17 while the fan was STILL running; comfort fan decayed off 23:14:21 (14min later). The RECHECK NEVER FIRED — the room self-cleared via the Zigb...
+  - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
+  - `correction_2026_08_19`: CORRECTION (operator pushback + verify): the shipped v5.46.0 fan-transition gate is NOT broken/wrong-shape and is NOT gated off. Verified: FAN_TRANSITION_SUSPECT_WINDOW_S=5.0 (not 0), no override, genuinely ACTUATING (sets any_sensor_act...
+
+### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
+thread: **presence**
+_created 2026-08-19 05:15 · updated 2026-08-19 06:20 · refined_
+- **Next:** Plan the D2<->recheck precedence reconciliation (Tier 2-DB). Supersedes FAN-RECHECK-SLEEP-VETO-SCOPE-1 as the primary (the sleep veto is a real but secondary over-scope; the deadlock is why it never armed at all).
+- **Forensic keys (5):**
+  - `column`: review
+  - `program`: sensor-trust-exclusion
+  - `problem`: CONFIRMED BUG (live-verified): the fan-interference recheck has NEVER worked. Two mechanisms target the same fan-ghosted mmwave-sole rooms and deadlock: D2 mmwave-fan demotion (MMWAVE_FAN_CORROBORATION_ENABLED default on, coordinator.py:...
+  - `phase_2026_08_19`: IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds in sleep-veto)
+  - `staged_ready_2026_08_19`: STAGED + SHIP-READY, DEPLOY HELD for non-hostile timing. Merged to develop; 3 Tier-2-DB reviews ALL SHIP (A correctness, B deadlock-break PROVEN + no inverse deadlock, C SHIP-with-live-validation); F-C-2 hollow D3 test fixed (extracted h...
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries)
+thread: **platform**
+_created 2026-08-19 07:45 · updated 2026-08-19 08:15 · initial_
+- **Next:** Investigation deliverable (read-only audit): (A) RUNTIME profile — what makes the suite 4+min (slow modules, repeated heavy setup, real sleeps). (B) POLLUTION map — every test that mutates sys.modules/entity_registry/shared globals witho...
+- **Forensic keys (3):**
+  - `column`: inbox
+  - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
+  - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
+
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)
+thread: **diagnostics**
+_created 2026-08-19 09:00 · updated 2026-08-19 09:15 · refined_
+- **Next:** SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) -> ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE (operator): the 2-day clock STARTS AT SHADO...
+- **Forensic keys (4):**
+  - `column`: in_progress
+  - `program`: sensor-trust-exclusion
+  - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
+  - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
 
 ## 🅿️ Parked ideas (top-level list)
 
