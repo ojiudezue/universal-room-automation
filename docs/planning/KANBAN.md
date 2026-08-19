@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T10:19:52-05:00_ - _Data commit: `8afa8c7e0ffb`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-19T10:32:50-05:00_ - _Data commit: `4fdbed3ba88b`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1187,10 +1187,10 @@ _created 2026-08-18 02:20 · updated 2026-08-18 02:25 · initial_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics**
-_created 2026-08-18 02:30 · updated 2026-08-19 09:00 · initial_
+_created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
 - **Forensic keys (17):**
-  - `column`: in_progress
+  - `column`: review
   - `problem`: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced "which sensor is unhealthy" signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...
   - `phase_2026_08_18`: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)
   - `pivot_2026_08_18`: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...
@@ -1460,10 +1460,10 @@ _created 2026-08-19 07:45 · updated 2026-08-19 08:15 · initial_
 
 ### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)
 thread: **diagnostics**
-_created 2026-08-19 09:00 · updated 2026-08-19 09:15 · refined_
+_created 2026-08-19 09:00 · updated 2026-08-19 10:35 · refined_
 - **Next:** SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) -> ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE (operator): the 2-day clock STARTS AT SHADO...
 - **Forensic keys (4):**
-  - `column`: in_progress
+  - `column`: review
   - `program`: sensor-trust-exclusion
   - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
