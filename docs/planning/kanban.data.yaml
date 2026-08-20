@@ -418,10 +418,22 @@ cards:
   evidence: '4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2
     + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class
     as the census fix.'
-  next: 'Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote
-    floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard
-    surfacing. Separately: BB dummy-Apple-ID fix for the loopback (BB-side, operator); street-mask/OSD/friendly-name
-    as small separate UX items.'
+  operator_reframe_2026_08_19: 'LIVE EVENT confirms the snapshot-delay branch of the 08-17 operator_note.
+    Operator walked IN via the garage, got a g5_bullet_person_detected alert @12:09:57 whose SNAPSHOT
+    (frame-stamped 12:09:52, ~5s before the alert) showed an EMPTY driveway — he was not in it. So
+    "person + empty snapshot" is NOT necessarily a phantom; here it is a REAL person whose SNAPSHOT IS
+    MIS-TIMED (sensor register + HA propagation lag -> snap grabs a frame after/before the person is in
+    view). IMPLICATION: >=2 root causes (phantom vs real-person-late-snapshot). The scoped cross-NVR
+    severity-demote would WRONGLY demote real late-snapshot events like this one. Operator: "hand examine
+    this again." Fix direction may be snapshot PRE-ROLL / capture-at-detection-timestamp, not (only)
+    corroboration.'
+  next: 'HAND-EXAMINE FIRST (operator 2026-08-19) — measure detection->snapshot->alert lag on real events
+    (g5_bullet on-time vs snapshot frame stamp vs alert-fire time; does the snap pull a live-at-fire frame
+    or a buffered/pre-roll frame; does HA propagation delay move the person out of frame). THEN split the
+    fix: (A) snapshot TIMING (pre-roll / at-detection-instant) for the real-person-missed case; (B) cross-NVR
+    severity-demote for the genuine-phantom case. Do NOT ship (B) alone — it would suppress real events like
+    the 12:09 garage walk-in. Prior scope kept: wire _sensor_engine agreement -> severity (single-source
+    demote floor LOW, corroborated keep/raise; single-NVR -> track-linker confidence) + dashboard surfacing.'
   refs:
   - custom_components/universal_room_automation/perimeter_alert.py
   - EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
