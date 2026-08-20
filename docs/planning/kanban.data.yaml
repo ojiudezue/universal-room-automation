@@ -26,6 +26,38 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: BATTERY-RESERVE-WRITE-STUCK-1
+  thread: energy
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-20 00:00
+  title: Envoy reserve stuck at 37% — URA's write to lower it to 10% is not landing (battery held off, not discharged to intent)
+  problem_solution:
+  - 'VERIFIED LIVE (2026-08-19 23:47 CDT): battery SOC=37%, sitting exactly at the Envoy ACTIVE reserve
+    (sensor.envoy_482543015950_reserve_battery_level=37). But URA''s reserve setting
+    (number.enpower_482348004678_reserve_battery_level) = 10. So the EFFECTIVE discharge floor is ~37%
+    (dry-contact relay restore levels are literally 40), NOT the 10% URA intends. The battery stopped
+    discharging at 37 and is not being used below that. Earlier system_health showed battery_pending_reserve=10
+    with battery_pending_age_s=2701 > battery_pending_timeout_s=900 (write PENDING past timeout) and
+    storm_guard_state=disabled (nothing legitimately bumped reserve to 37). Persisted ~12h. Hypothesis
+    (STRONG, not yet root-caused): URA''s reserve-lowering write to the Enphase backend is stuck/failing to
+    apply, leaving the old 37 reserve in force.'
+  why: 'This is the "battery is not being managed" symptom the operator felt — the whole self-consumption /
+    arbitrage value depends on discharging to the intended reserve. A stuck reserve at 37% forfeits the
+    bottom 27% of usable capacity every cycle.'
+  constraints:
+  - 'Verify before asserting mechanism (do NOT repeat the 10-vs-37 as a code bug until the write path is
+    traced). Two derivations of reserve exist (Enpower number vs Envoy sensor) — confirm which URA writes and
+    which the device enforces. Producer+consumer check on reserve_soc.'
+  next: 'DIAGNOSE: (a) confirm the CURRENT pending state (battery_profile_pending / battery_pending_reserve /
+    age vs timeout) via ha system_health battery diagnostics; (b) trace URA''s reserve write path — does it
+    write the Enpower number or an Enphase cloud API, and does it verify the write landed (reserve_verifiable_backout
+    MAX_AGE_S knob is relevant); (c) determine why 37 specifically (last-good? a prior manual/cloud set?).
+    Then decide fix. HIGH-VALUE, likely real defect. Do NOT conflate with the intentional inclement floor=10.'
+  refs:
+  - reference_ec_reserve_verifiable_backout_knob (memory)
+  - project_enphase_coupling_tier (memory)
+  - project_battery_soc_envoy_not_span (memory)
 - id: ROUTINE-CARE-DASHBOARD-1
   thread: presence
   status: pre-planning

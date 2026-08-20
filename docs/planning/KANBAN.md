@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T22:20:26-05:00_ - _Data commit: `dc38412bfffb`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-19T23:21:48-05:00_ - _Data commit: `83e07725d062`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-19T22:20:26-05:00_ - _Data commit: `dc38412bfffb`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 9 |
+| 📥 Inbox | 10 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
@@ -23,8 +23,17 @@ _Generated: 2026-08-19T22:20:26-05:00_ - _Data commit: `dc38412bfffb`_ - _last_r
 | ✅ Done | 25 |
 | ❓ Other | 34 |
 
-## 📥 Inbox (9)
+## 📥 Inbox (10)
 _raw capture_
+
+### `BATTERY-RESERVE-WRITE-STUCK-1` - Envoy reserve stuck at 37% — URA's write to lower it to 10% is not landing (battery held off, not discharged to intent)
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-20 00:00_
+- **Problem / Solution:**
+  - VERIFIED LIVE (2026-08-19 23:47 CDT): battery SOC=37%, sitting exactly at the Envoy ACTIVE reserve (sensor.envoy_482543015950_reserve_battery_level=37). But URA's reserve setting (number.enpower_482348004678_reserve_battery_level) = 10. ...
+- **Why:** This is the "battery is not being managed" symptom the operator felt — the whole self-consumption / arbitrage value depends on discharging to the intended reserve. A stuck reserve at 37% forfeits the bottom 27% of usable capacity every c...
+- **Next:** DIAGNOSE: (a) confirm the CURRENT pending state (battery_profile_pending / battery_pending_reserve / age vs timeout) via ha system_health battery diagnostics; (b) trace URA's reserve write path — does it write the Enpower number or an En...
+- **Refs:** reference_ec_reserve_verifiable_backout_knob (memory); project_enphase_coupling_tier (memory); project_battery_soc_envoy_not_span (memory)
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
