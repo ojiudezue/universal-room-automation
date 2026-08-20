@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T23:21:48-05:00_ - _Data commit: `83e07725d062`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-19T23:51:05-05:00_ - _Data commit: `2ae7b8f05042`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -26,14 +26,16 @@ _Generated: 2026-08-19T23:21:48-05:00_ - _Data commit: `83e07725d062`_ - _last_r
 ## 📥 Inbox (10)
 _raw capture_
 
-### `BATTERY-RESERVE-WRITE-STUCK-1` - Envoy reserve stuck at 37% — URA's write to lower it to 10% is not landing (battery held off, not discharged to intent)
+### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-08-20 00:00_
 - **Problem / Solution:**
-  - VERIFIED LIVE (2026-08-19 23:47 CDT): battery SOC=37%, sitting exactly at the Envoy ACTIVE reserve (sensor.envoy_482543015950_reserve_battery_level=37). But URA's reserve setting (number.enpower_482348004678_reserve_battery_level) = 10. ...
-- **Why:** This is the "battery is not being managed" symptom the operator felt — the whole self-consumption / arbitrage value depends on discharging to the intended reserve. A stuck reserve at 37% forfeits the bottom 27% of usable capacity every c...
-- **Next:** DIAGNOSE: (a) confirm the CURRENT pending state (battery_profile_pending / battery_pending_reserve / age vs timeout) via ha system_health battery diagnostics; (b) trace URA's reserve write path — does it write the Enpower number or an En...
-- **Refs:** reference_ec_reserve_verifiable_backout_knob (memory); project_enphase_coupling_tier (memory); project_battery_soc_envoy_not_span (memory)
+  - CORRECTION (deep end-to-end trace 2026-08-20, supersedes the earlier "stuck write" framing which was WRONG): the Envoy enforcing 37% reserve is WORKING-AS-DESIGNED. The EV is actively charging (~8.9 kW grid import at midnight, solar 0, b...
+  - ROOT of the MISDIAGNOSIS: ENERGY_CLOUD_FIRST_WRITES=True (energy_const.py:458) -> URA writes the CLOUD ORACLE number.iq_battery_hacs_battery_reserve (=37, enforced by Envoy), NOT the local number.enpower_..._reserve_battery_level (=10, w...
+  - REAL RESIDUAL (Tier 1 hotfix candidate): number.iq_battery_hacs_battery_reserve (the cloud oracle) flaps to unavailable/unknown several times a day; the write-verify watchdog opens pending_write_stuck episodes against a target that momen...
+- **Why:** The battery IS being managed correctly (EV precedence). The felt problem was LEGIBILITY: the operator (and the orchestrator) could not SEE why the reserve was 37 without a manual multi-hour trace, and the visible entity + the flap-pollut...
+- **Next:** TWO follow-ups: (1) POLICY DECISION (operator, no tier) — do you WANT the home battery to help power the EV (drain below current SOC while charging)? If yes that is a deliberate change to evse_battery_hold precedence = the PARKED "EV dra...
+- **Refs:** custom_components/universal_room_automation/energy.py (evse_battery_hold :5604-5613, reserve max() :4650/4709-4744, write :7587-7603); custom_components/universal_room_automation/energy_write_verify.py (pending-watchdog to gate); project_ev_drain_precedence_cycle (memory — the parked policy cycle); project_enphase_coupling_tier (memory)
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**

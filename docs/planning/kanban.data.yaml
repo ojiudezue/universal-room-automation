@@ -26,38 +26,48 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
-- id: BATTERY-RESERVE-WRITE-STUCK-1
+- id: BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
   thread: energy
   status: inbox
   approval: unreviewed
   created: 2026-08-20 00:00
-  title: Envoy reserve stuck at 37% — URA's write to lower it to 10% is not landing (battery held off, not discharged to intent)
+  title: 'MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics'
   problem_solution:
-  - 'VERIFIED LIVE (2026-08-19 23:47 CDT): battery SOC=37%, sitting exactly at the Envoy ACTIVE reserve
-    (sensor.envoy_482543015950_reserve_battery_level=37). But URA''s reserve setting
-    (number.enpower_482348004678_reserve_battery_level) = 10. So the EFFECTIVE discharge floor is ~37%
-    (dry-contact relay restore levels are literally 40), NOT the 10% URA intends. The battery stopped
-    discharging at 37 and is not being used below that. Earlier system_health showed battery_pending_reserve=10
-    with battery_pending_age_s=2701 > battery_pending_timeout_s=900 (write PENDING past timeout) and
-    storm_guard_state=disabled (nothing legitimately bumped reserve to 37). Persisted ~12h. Hypothesis
-    (STRONG, not yet root-caused): URA''s reserve-lowering write to the Enphase backend is stuck/failing to
-    apply, leaving the old 37 reserve in force.'
-  why: 'This is the "battery is not being managed" symptom the operator felt — the whole self-consumption /
-    arbitrage value depends on discharging to the intended reserve. A stuck reserve at 37% forfeits the
-    bottom 27% of usable capacity every cycle.'
+  - 'CORRECTION (deep end-to-end trace 2026-08-20, supersedes the earlier "stuck write" framing which was
+    WRONG): the Envoy enforcing 37% reserve is WORKING-AS-DESIGNED. The EV is actively charging (~8.9 kW grid
+    import at midnight, solar 0, battery idle at floor) and URA''s `evse_battery_hold` deliberately pins the
+    reserve to the current SOC (37%) so the home battery does not drain into the car. PROOF (live
+    sensor.ura_energy_coordinator_battery_strategy): optimization_summary="Holding battery at 37% because EV is
+    charging"; current_holds_active=[evse_battery_hold]; command_trail.reserve_soc.hold_owner="evse_battery_hold",
+    live_desire=10, effective_desired=37. When charging stops the hold clears and reserve returns to 10.'
+  - 'ROOT of the MISDIAGNOSIS: ENERGY_CLOUD_FIRST_WRITES=True (energy_const.py:458) -> URA writes the CLOUD
+    ORACLE number.iq_battery_hacs_battery_reserve (=37, enforced by Envoy), NOT the local
+    number.enpower_..._reserve_battery_level (=10, which URA never drives). Recorder 48h: envoy enforced reserve
+    tracks the iq_battery_hacs oracle EXACTLY through every swing; the Enpower entity sat flat at 10. The
+    orchestrator (me) read the un-driven Enpower entity and invented a stuck-write. Owned + corrected.'
+  - 'REAL RESIDUAL (Tier 1 hotfix candidate): number.iq_battery_hacs_battery_reserve (the cloud oracle) flaps
+    to unavailable/unknown several times a day; the write-verify watchdog opens pending_write_stuck episodes
+    against a target that momentarily reads the other value during the blip -> produced the misleading
+    "pending_reserve=10 stuck 2701s>900s" diagnostic that sent the investigation down the wrong path. This is
+    diagnostic NOISE, not a reserve error.'
+  why: 'The battery IS being managed correctly (EV precedence). The felt problem was LEGIBILITY: the operator
+    (and the orchestrator) could not SEE why the reserve was 37 without a manual multi-hour trace, and the
+    visible entity + the flap-polluted "pending stuck" diagnostic actively MISLED. This is an observability
+    defect, not a control defect — same lesson as the arrester counters resetting on reload hiding 15 real reverts.'
   constraints:
-  - 'Verify before asserting mechanism (do NOT repeat the 10-vs-37 as a code bug until the write path is
-    traced). Two derivations of reserve exist (Enpower number vs Envoy sensor) — confirm which URA writes and
-    which the device enforces. Producer+consumer check on reserve_soc.'
-  next: 'DIAGNOSE: (a) confirm the CURRENT pending state (battery_profile_pending / battery_pending_reserve /
-    age vs timeout) via ha system_health battery diagnostics; (b) trace URA''s reserve write path — does it
-    write the Enpower number or an Enphase cloud API, and does it verify the write landed (reserve_verifiable_backout
-    MAX_AGE_S knob is relevant); (c) determine why 37 specifically (last-good? a prior manual/cloud set?).
-    Then decide fix. HIGH-VALUE, likely real defect. Do NOT conflate with the intentional inclement floor=10.'
+  - 'Do NOT touch the reserve-write path — there is no bug there. The only code change in scope is gating the
+    write-verify pending/divergence machinery to skip ticks where the oracle entity is unavailable/unknown
+    (energy_write_verify.py _compare / pending-watchdog; it already recognizes these states at energy_battery.py:777,789).'
+  next: 'TWO follow-ups: (1) POLICY DECISION (operator, no tier) — do you WANT the home battery to help power the
+    EV (drain below current SOC while charging)? If yes that is a deliberate change to evse_battery_hold
+    precedence = the PARKED "EV drain-precedence cycle" (project_ev_drain_precedence_cycle), NOT a bug. Surface
+    the choice, do not code first. (2) TIER-1 HOTFIX — gate write-verify to skip unavailable/unknown oracle
+    ticks so the cloud-oracle flap stops manufacturing false pending_write_stuck diagnostics.'
   refs:
-  - reference_ec_reserve_verifiable_backout_knob (memory)
+  - custom_components/universal_room_automation/energy.py (evse_battery_hold :5604-5613, reserve max() :4650/4709-4744, write :7587-7603)
+  - custom_components/universal_room_automation/energy_write_verify.py (pending-watchdog to gate)
+  - project_ev_drain_precedence_cycle (memory — the parked policy cycle)
   - project_enphase_coupling_tier (memory)
-  - project_battery_soc_envoy_not_span (memory)
 - id: ROUTINE-CARE-DASHBOARD-1
   thread: presence
   status: pre-planning
