@@ -47,9 +47,15 @@ cards:
     contradicts the operator design intent ("drain to the off-peak target which URA sets from next-day
     forecasts; 80 was meant as a charge-above threshold"). The built code has NO two-threshold charge-above /
     drain-to-offpeak logic — 80 IS the sole drain floor. MIS-SOURCED PRODUCER.'
+  plan_readme_verified_2026_08_20: 'PLANNING_evse_drain_precedence.md Knobs table has NO drain-target knob;
+    drain_target is an UNBOUND input symbol in D2/D3 (drain_hours=(soc-drain_target)...; example "drain_target=15").
+    The plan pinned the CONSUMER (DP arithmetic) but NEVER the PRODUCER (drain_target source). READMEs (v5.20/5.21/5.71)
+    also silent. So the build defaulted drain_target to the nearest pre-existing knob — the v4.7.6 drain-PAUSE SOC
+    threshold _ev_battery_drain_soc (default 50, now 80), disconnected from the forecast. This is a PLAN
+    under-specification (Producer-check gap) that plan-review missed, not a code error against a written spec.'
   why: 'This is the real "battery not managed overnight". Leg-1 (hold) works; leg-2 (drain to floor) drains to
     the wrong target and so never fires at realistic overnight SOC. Forecast-adaptivity (the whole point) is
-    absent from the DP path.'
+    absent from the DP path. Textbook Producer-AND-Consumer-check failure (operator rule 2026-08-16).'
   constraints:
   - 'The stopgap (set knob to 10) works TONIGHT but is static, not forecast-adaptive, and conflates any
     intended charge-above role — a patch, not the fix. Real fix touches the DP state machine + cost behavior

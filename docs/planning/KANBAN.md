@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-20T00:10:50-05:00_ - _Data commit: `fb7566688e17`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-20T00:20:20-05:00_ - _Data commit: `2ef422ac663d`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -32,9 +32,11 @@ _created 2026-08-20 00:20_
 - **Problem / Solution:**
   - DEFINITIVE (orchestrator read the code directly 2026-08-20, operator-confirmed leg-2 was built + should drain to the forecast off-peak target). FINDING: the drain-precedence machine sources its drain floor ENTIRELY from the static manual...
   - THE ACTUAL DEFECT (not a knob value): _ev_battery_drain_soc is written ONLY by the operator number entity (number.py:1482) + config seed (__init__.py:5724) — NOTHING sets it from the forecast. Meanwhile the forecast-keyed offpeak_drain_t...
-- **Why:** This is the real "battery not managed overnight". Leg-1 (hold) works; leg-2 (drain to floor) drains to the wrong target and so never fires at realistic overnight SOC. Forecast-adaptivity (the whole point) is absent from the DP path.
+- **Why:** This is the real "battery not managed overnight". Leg-1 (hold) works; leg-2 (drain to floor) drains to the wrong target and so never fires at realistic overnight SOC. Forecast-adaptivity (the whole point) is absent from the DP path. Text...
 - **Next:** OPERATOR CALL: (STOPGAP) authorize setting number.ura_energy_coordinator_ev_battery_drain_soc=10 to restore drain behavior tonight; AND (REAL FIX) scope a cycle to source the DP drain target from current_offpeak_drain_target (forecast-ba...
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_drain_precedence.py (blocking gate :655-657; fits-check :709); custom_components/universal_room_automation/energy.py (dp tick :4326-4540; drain_target :4456; pause+release :4511-4524); custom_components/universal_room_automation/number.py (:1420-1482 setter); project_ev_drain_precedence_cycle (memory)
+- **Forensic keys (1):**
+  - `plan_readme_verified_2026_08_20`: PLANNING_evse_drain_precedence.md Knobs table has NO drain-target knob; drain_target is an UNBOUND input symbol in D2/D3 (drain_hours=(soc-drain_target)...; example "drain_target=15"). The plan pinned the CONSUMER (DP arithmetic) but NEV...
 
 ### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
 thread: **energy** - status: **inbox** - approval: **unreviewed**
