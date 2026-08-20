@@ -26,6 +26,44 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
+  thread: energy
+  status: inbox
+  approval: unreviewed
+  created: 2026-08-20 00:20
+  title: 'ROOT CAUSE — battery not draining overnight: EV Drain-Protection SOC Floor knob = 80 blocks the drain-precedence re-eval (SOC 37 <= 80 -> already-below-target)'
+  problem_solution:
+  - 'DEFINITIVE (deep trace 2026-08-20, operator-confirmed leg-2 was built). The drain-precedence re-eval
+    (release evse_battery_hold -> pause EV charge -> drain home battery to floor) IS built + enabled, and the
+    kill-switch + off-peak gates PASS. It is blocked by ONE gate: energy_drain_precedence.py:655-657
+    `if int(inputs.soc) <= int(inputs.drain_target_soc): return _no_fit(DP_REASON_ALREADY_BELOW_TARGET)`.
+    drain_target_soc = number.ura_energy_coordinator_ev_battery_drain_soc = **80** (energy.py:4456). Live SOC=37.
+    37 <= 80 -> True -> "already below target, nothing to drain" -> machine never enters TRANSITIONED -> the
+    pause-EVSE + release-reserve block (energy.py:4511-4524) never runs -> EV keeps charging, evse_battery_hold
+    stays latched, reserve pinned at 37. NOT broken code — a KNOB set to 80 means "only drain when SOC>80%",
+    which never happens overnight.'
+  - 'SEMANTIC CATCH (why it confused everyone): the DP drain target (ev_battery_drain_soc=80) is a DIFFERENT
+    value from the off-peak drain floor the operator has in mind (current_offpeak_drain_target=10). The DP
+    machine drains toward the 80 knob, not the 10 off-peak target. Sibling knobs also high: fill_priority_soc=80
+    ("Pause EV Until Battery SOC"), resume_ev_at_battery_soc=95. Whole set needs an eyeball for coherent interaction.'
+  why: 'This is the real "battery not managed overnight" the operator felt: leg-1 (hold) works, leg-2 (drain to
+    floor) is knob-gated off. A pure Numbers-Get-Knobs rung-3 turn restores intended behavior — IF 80 was not a
+    deliberate protection floor.'
+  constraints:
+  - 'CONFIRM BEFORE FLIPPING: is 80 a deliberate battery-protection floor (do not drain home battery below 80
+    while EV charges) or a wrong/high default? Lowering it changes live overnight battery behavior (cost/backup
+    posture). Operator decides the value. After the knob passes, the NEXT gate is the fits-check
+    (energy_drain_precedence.py:709): drain+charge+margin must fit before end-of-night or DP_REASON_DOES_NOT_FIT.'
+  next: 'OPERATOR DECISION: set number.ura_energy_coordinator_ev_battery_drain_soc to the intended next-day floor
+    (~10 to match off-peak target) — pure entity turn, zero code — OR confirm 80 is deliberate. Then verify the
+    fits-check passes and the drain actually fires (watch DP state -> TRANSITIONED, EV pause, reserve -> 10, SOC
+    falls). Consider whether the DP target SHOULD auto-track the off-peak drain target instead of a separate knob
+    (design question, not tonight).'
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_drain_precedence.py (blocking gate :655-657; fits-check :709)
+  - custom_components/universal_room_automation/energy.py (dp tick :4326-4540; drain_target :4456; pause+release :4511-4524)
+  - custom_components/universal_room_automation/number.py (:1420-1482 setter)
+  - project_ev_drain_precedence_cycle (memory)
 - id: BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
   thread: energy
   status: inbox
