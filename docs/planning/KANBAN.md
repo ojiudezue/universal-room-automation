@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-20T00:01:21-05:00_ - _Data commit: `3433d96ad6c2`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-20T00:10:50-05:00_ - _Data commit: `fb7566688e17`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -26,14 +26,14 @@ _Generated: 2026-08-20T00:01:21-05:00_ - _Data commit: `3433d96ad6c2`_ - _last_r
 ## 📥 Inbox (11)
 _raw capture_
 
-### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE — battery not draining overnight: EV Drain-Protection SOC Floor knob = 80 blocks the drain-precedence re-eval (SOC 37 <= 80 -> already-below-target)
+### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
 thread: **energy** - status: **inbox** - approval: **unreviewed**
 _created 2026-08-20 00:20_
 - **Problem / Solution:**
-  - DEFINITIVE (deep trace 2026-08-20, operator-confirmed leg-2 was built). The drain-precedence re-eval (release evse_battery_hold -> pause EV charge -> drain home battery to floor) IS built + enabled, and the kill-switch + off-peak gates P...
-  - SEMANTIC CATCH (why it confused everyone): the DP drain target (ev_battery_drain_soc=80) is a DIFFERENT value from the off-peak drain floor the operator has in mind (current_offpeak_drain_target=10). The DP machine drains toward the 80 k...
-- **Why:** This is the real "battery not managed overnight" the operator felt: leg-1 (hold) works, leg-2 (drain to floor) is knob-gated off. A pure Numbers-Get-Knobs rung-3 turn restores intended behavior — IF 80 was not a deliberate protection floor.
-- **Next:** OPERATOR DECISION: set number.ura_energy_coordinator_ev_battery_drain_soc to the intended next-day floor (~10 to match off-peak target) — pure entity turn, zero code — OR confirm 80 is deliberate. Then verify the fits-check passes and th...
+  - DEFINITIVE (orchestrator read the code directly 2026-08-20, operator-confirmed leg-2 was built + should drain to the forecast off-peak target). FINDING: the drain-precedence machine sources its drain floor ENTIRELY from the static manual...
+  - THE ACTUAL DEFECT (not a knob value): _ev_battery_drain_soc is written ONLY by the operator number entity (number.py:1482) + config seed (__init__.py:5724) — NOTHING sets it from the forecast. Meanwhile the forecast-keyed offpeak_drain_t...
+- **Why:** This is the real "battery not managed overnight". Leg-1 (hold) works; leg-2 (drain to floor) drains to the wrong target and so never fires at realistic overnight SOC. Forecast-adaptivity (the whole point) is absent from the DP path.
+- **Next:** OPERATOR CALL: (STOPGAP) authorize setting number.ura_energy_coordinator_ev_battery_drain_soc=10 to restore drain behavior tonight; AND (REAL FIX) scope a cycle to source the DP drain target from current_offpeak_drain_target (forecast-ba...
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_drain_precedence.py (blocking gate :655-657; fits-check :709); custom_components/universal_room_automation/energy.py (dp tick :4326-4540; drain_target :4456; pause+release :4511-4524); custom_components/universal_room_automation/number.py (:1420-1482 setter); project_ev_drain_precedence_cycle (memory)
 
 ### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
