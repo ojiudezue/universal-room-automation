@@ -46,6 +46,17 @@ def _run(coro):
     return loop.run_until_complete(coro)
 
 
+_ORIG_EMIT_TEMP = hvac_override.emit_set_temperature
+_ORIG_EMIT_PRESET = hvac_override.emit_set_preset_mode
+_ORIG_CALL_LATER = hvac_override.async_call_later
+
+
+def teardown_function(_):
+    hvac_override.emit_set_temperature = _ORIG_EMIT_TEMP
+    hvac_override.emit_set_preset_mode = _ORIG_EMIT_PRESET
+    hvac_override.async_call_later = _ORIG_CALL_LATER
+
+
 def _setup(preset_now: str = "home"):
     _ex_mod._test_clear_leases()
     _ex_mod._test_set_kill_switch(True)

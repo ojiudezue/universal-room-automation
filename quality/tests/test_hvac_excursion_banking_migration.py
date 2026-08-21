@@ -75,6 +75,13 @@ def _make_zone():
     return z
 
 
+_ORIG_EMIT_TEMP = hvac_predict.emit_set_temperature
+
+
+def teardown_function(_):
+    hvac_predict.emit_set_temperature = _ORIG_EMIT_TEMP
+
+
 def _make_predictor():
     """Build a HVACPredictor via __new__ with the minimum surface for
     _execute_zone_pre_cool + _release_banked_zones."""

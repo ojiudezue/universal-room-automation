@@ -12,7 +12,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
@@ -1356,9 +1357,108 @@ class HVACPredictor:
                     "HVAC Pre-heat: %s set to %.0fF (was %.0fF)",
                     zone.zone_name, pre_heat_temp, zone.target_temp_low,
                 )
+
+                # HVAC-GOVERNED-EXCURSION-1 D3 (row 12, S13 PREHEAT START):
+                # open the governed excursion and schedule its return at
+                # OFF_PEAK_END_HOUR. Plan §3 row 12: also track the zone
+                # in _pre_conditioning_zones (symmetric with pre-cool) so
+                # downstream consumers see the pre-heat as active.
+                try:
+                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                    _now = dt_util.now()
+                    # Seconds until OFF_PEAK_END_HOUR today (or tomorrow if past).
+                    _target = _now.replace(
+                        hour=OFF_PEAK_END_HOUR, minute=0,
+                        second=0, microsecond=0,
+                    )
+                    if _target <= _now:
+                        from datetime import timedelta
+                        _target = _target + timedelta(days=1)
+                    _dur = int((_target - _now).total_seconds())
+                    _pt = await _ex_mod.begin_excursion(
+                        self.hass,
+                        zone_id=zone.zone_id,
+                        entity_id=zone.climate_entity,
+                        kind=_ex_mod.EXCURSION_KIND.PREHEAT,
+                        excursion_low=pre_heat_temp,
+                        excursion_high=zone.target_temp_high,
+                        duration_s=_dur,
+                        site="S13_pre_heat",
+                        intended_mode="heat_cool",
+                    )
+                    if not hasattr(self, "_preheat_excursion_tokens"):
+                        self._preheat_excursion_tokens = {}
+                    if _pt is not None:
+                        self._preheat_excursion_tokens[zone.zone_id] = _pt
+                        self._pre_conditioning_zones.add(zone.zone_id)
+                        # Schedule the return callback at OFF_PEAK_END_HOUR.
+                        @callback
+                        def _fire(_now_cb, _zid=zone.zone_id):
+                            self.hass.async_create_task(
+                                self._return_preheat(_zid)
+                            )
+                        async_call_later(self.hass, _dur, _fire)
+                except Exception as _phe:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "preheat: begin_excursion failed for %s: %s",
+                        zone.zone_id, _phe,
+                    )
             except Exception as e:
                 _LOGGER.error("HVAC Pre-heat failed on %s: %s",
                               zone.climate_entity, e)
+
+    async def _return_preheat(self, zone_id: str) -> None:
+        """HVAC-GOVERNED-EXCURSION-1 D3 (row 12, S13 PREHEAT RETURN).
+
+        Fires at OFF_PEAK_END_HOUR. Restores the pre-heat zone's low
+        setpoint to the snapshot, updates the DPM throttle map to the
+        restored pair, drops the zone from _pre_conditioning_zones, and
+        releases the excursion lease.
+        """
+        tok = getattr(self, "_preheat_excursion_tokens", {}).pop(
+            zone_id, None,
+        )
+        if tok is None:
+            return
+        zone = self._zone_manager.zones.get(zone_id)
+        if zone is not None and tok.pre_target_low is not None \
+                and tok.pre_target_high is not None:
+            if self._override_arrester:
+                self._override_arrester.suppress(zone.climate_entity, kind="temp")
+            try:
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=tok.pre_target_low,
+                    target_temp_high=tok.pre_target_high,
+                    freeze_active=self._freeze_active(),
+                    blocking=True,  # EXCURSION_RETURN_BLOCKING
+                    site="S13_preheat_return",
+                    zone_id=zone_id,
+                    reason="preheat_boundary",
+                )
+                # Plan §3 row 12: update _last_emitted_range so the DPM
+                # throttle at hvac.py:2252-2255 doesn't re-strand the
+                # +2°F floor.
+                coord = self._hvac_coord
+                if coord is not None and hasattr(coord, "_last_emitted_range"):
+                    coord._last_emitted_range[zone_id] = (
+                        tok.pre_target_low, tok.pre_target_high,
+                    )
+            except Exception as _rex:  # noqa: BLE001
+                _LOGGER.warning(
+                    "preheat return: emit failed for %s: %s",
+                    zone_id, _rex,
+                )
+        self._pre_conditioning_zones.discard(zone_id)
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            await _ex_mod.return_excursion(tok, trigger="preheat_boundary")
+        except Exception as _re:  # noqa: BLE001
+            _LOGGER.debug(
+                "preheat return_excursion failed for %s: %s",
+                zone_id, _re,
+            )
 
     def _store_daily_outcome(self) -> None:
         """Store daily outcome measurement."""

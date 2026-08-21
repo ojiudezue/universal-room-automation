@@ -84,6 +84,20 @@ def _make_zone_with_temps():
     return z
 
 
+_ORIG_EMIT_TEMP = hvac_override.emit_set_temperature
+_ORIG_EMIT_PRESET = hvac_override.emit_set_preset_mode
+_ORIG_CALL_LATER = hvac_override.async_call_later
+
+
+def teardown_function(_):
+    """Restore module-level chokepoints to their pre-test values so
+    sibling test files (e.g. test_override_arrester_ttl_suppression)
+    don't inherit our AsyncMock patches."""
+    hvac_override.emit_set_temperature = _ORIG_EMIT_TEMP
+    hvac_override.emit_set_preset_mode = _ORIG_EMIT_PRESET
+    hvac_override.async_call_later = _ORIG_CALL_LATER
+
+
 def _setup_arrester_for_nudge(preset_now: str = "home"):
     """Return an arrester ready to have _perform_soft_nudge called.
 
