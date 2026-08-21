@@ -7482,7 +7482,37 @@ cards:
     reported ("42,299 rows, 100% off, missing/misconfigured motion source") — the agent inferred a
     missing source; the history shows an active source with a broken consumer. Verified before
     relaying, per the claim-type rule.'
-  SUSPECTED_BUT_NOT_CONFIRMED: 'sensor.kitchen_unavailable_entities = 1, so ONE configured kitchen
+  MECHANISM_CONFIRMED_2026_08_21_STALE_CONFIG: 'OPERATOR: "Loop unity was removed and replace by
+    the esp mmwave." THAT IS THE MECHANISM. The kitchen room config still references the REMOVED
+    looponunity2 device; its live ESP replacement is present but NOT WIRED IN. Verified:
+    - DEAD (config points here): binary_sensor.mmwave_looponunity2_wifi_2_has_human_target /
+      _has_moving_human_target / _has_still_human_target — all unavailable.
+    - LIVE REPLACEMENT (unwired): binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence /
+      _moving_target / _still_target — all reporting.
+    SAME CLASS AS THE FRIGATE-1 DEAD-CAMERA CONFIG (EGRESS-CAMERA-DEAD-CONFIG-1) and the Jaya
+    Bedroom substrate gap: a config entry pointing at retired hardware, silently contributing
+    nothing, with a working replacement sitting unused. HA never repoints config when a device is
+    replaced.
+    FIX: repoint the Kitchen room config mmwave list looponunity2 -> mmwave_lux_wifi_esphome_kitchen
+    via the options flow. Config change, no code. Note SENSCAP-ORPHAN-1 (shipped v5.85.1) fixed the
+    bug that made de-wiring a sensor unsaveable, so this edit should now go through cleanly.'
+  SIBLING_SWEEP_2026_08_21: 'SWEPT for the same defect house-wide rather than fixing the kitchen
+    alone. sensor.<room>_unavailable_entities is non-zero in SIX rooms — EIGHT dead configured
+    inputs total: game_room 2, garage_a 2, kitchen 1, living_room 1, master_bedroom 1,
+    upstairs_guestroom 1. Only 20 rooms expose this sensor at all, so coverage of the sweep is
+    PARTIAL and the true count may be higher.
+    DO NOT ASSUME ALL SIX ARE THE SAME DEFECT. The count means "currently unavailable", which covers
+    BOTH (a) stale config pointing at removed hardware (the kitchen case — needs a repoint) and
+    (b) a device that is merely offline right now (needs power/WiFi attention, per the CLAUDE.md
+    troubleshooting ladder: device offline is NOT integration failure). Each room needs its own
+    determination. There is also an ESP mmWave for STUDY B
+    (binary_sensor.mmwave_lux_wifi_esphome_studyb_*) — check whether Study B was likewise replaced.
+    DIAGNOSTIC GAP WORTH NOTING: kitchen_unavailable_entities has read 1 throughout, and nothing
+    surfaced that the consequence was TOTAL LOSS of occupancy for that room. A count of dead inputs
+    does not convey "this room is now invisible to presence". Candidate follow-up: escalate when a
+    dead input leaves a room with NO working occupancy source.'
+  SUPERSEDED_SUSPECTED_BUT_NOT_CONFIRMED: 'SUPERSEDED — mechanism confirmed above by the operator.
+    Original: sensor.kitchen_unavailable_entities = 1, so ONE configured kitchen
     input is dead. A kitchen mmWave device is offline: binary_sensor.mmwave_looponunity2_wifi_2_
     has_human_target / _has_moving_human_target / _has_still_human_target are ALL unavailable.
     TWO CANDIDATE MECHANISMS, NEITHER VERIFIED — do not act on one until discriminated:
@@ -7512,8 +7542,11 @@ cards:
     verdict: INVESTIGATE
     note: config-first per the Jaya Bedroom precedent; do not scope code until (a) vs (b) is
       discriminated
-  next: 'Read the Kitchen room config entry — which entities are in motion / mmwave / occupancy
-    lists, and is the offline looponunity2 mmWave among them. Then discriminate (a) confidence-gated
+  next: 'REPOINT the Kitchen room config: mmwave list looponunity2 -> mmwave_lux_wifi_esphome_kitchen
+    via the options flow (config only, no code). Then confirm binary_sensor.kitchen_occupied actually
+    fires. THEN work the sibling sweep: determine per room whether each dead input is stale config or
+    a merely-offline device.
+    SUPERSEDED FIRST STEP: read the Kitchen room config entry Then discriminate (a) confidence-gated
     vs (b) motion-not-in-substrate by checking whether occupancy would set on motion alone. If the
     dead mmWave is simply an offline device, the first question is whether it is physically dead or
     off-WiFi (see the CLAUDE.md troubleshooting ladder — device offline is not integration failure).
