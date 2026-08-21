@@ -1,0 +1,21 @@
+{
+  "format_version": "2.1",
+  "entry_id": "066",
+  "author": "ojiudezue",
+  "session_id": "claude_20260821_160621_ship_v5_86_0",
+  "timestamp": "2026-08-21T16:06:21Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.86.0 shipped: observability: nudge-restore paired verdict + stale-camera visibility",
+  "summary": "Both cards are deliberately observability-first: instrument the defect, THEN fix it, so the fix has a real before/after instead of a claim. The load-bearing decision in D1 was rejecting an instantaneous restore_ok \u2014 it would have read 1 during the very failure it exists to detect, destroying the acceptance evidence for the whole Tier-3 excursion cycle; the settled re-read is passive (no service calls, no await in the restore path) so it cannot perturb the race it measures. mode_before/after instrument the axis we deliberately EXCLUDED from the excursion migration, so that exclusion stays evidence-backed rather than assumed. On the egress side, chose detection over silent repair: no _N substitution, because trusting a camera the operator never configured is the worse failure. Two integration-only findings: a fixed-window source-slice test broke only when both branches merged (now bounded by structure, mutation-verified), and the builder rejected my suggested scope= kwarg with evidence that it regressed 33 census tests.",
+  "refs": {
+    "cards": [
+      "HVAC-GOVERNED-EXCURSION-1",
+      "EGRESS-CAMERA-DEAD-CONFIG-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.86.0.md"
+    ],
+    "release_notes": "- HVAC-GOVERNED-EXCURSION-1 D1: ac_ramp_events gains preset_before/after, mode_before/after, restore_ok and restore_ok_immediate via guarded additive ALTER TABLE. Paired sampling \u2014 an immediate read plus a passive settled re-read 12s later \u2014 because an instantaneous read misses the 509ms clobber and would report success in exactly the failure case being counted. immediate=1 + settled=0 is the clobber signature.\n- EGRESS-CAMERA-DEAD-CONFIG-1: warn-once per entity (2,030 warnings/5h -> 1), unresolved_configured_cameras diagnostic on sensor.persons_in_house, and an explicit non-goal (asserted by test) of never auto-substituting a _N suffixed sibling. Sweep found exactly 2 stale references system-wide, both known.\n- No control behaviour changes in either card. Full-suite name-diff vs v5.85.1 empty in both directions (141/9234/17 vs 141/9215/17)."
+  }
+}
