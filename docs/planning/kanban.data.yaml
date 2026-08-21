@@ -7459,6 +7459,82 @@ cards:
   - sensor.py:12239-12276
   - PLANNING_hvac_kwh_avoided_savings.md
 
+- id: KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1
+  title: "Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock
+    (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase"
+  thread: presence
+  status: investigating
+  created: '2026-08-21 18:00'
+  updated: '2026-08-21 18:00'
+  refinement_status: initial
+  approval: operator_directed
+  tags:
+  - live-experiment
+  - measure-before-build
+  - revert-values-recorded
+  THE_CHANGE_AND_HOW_TO_REVERT: 'APPLIED 2026-08-21 ~18:00 CDT to
+    number.mmwave_lux_wifi_esphome_kitchen_g{0..8}_still_threshold.
+    BEFORE (operator-modified, revert to these if needed): 39, 71, 58, 53, 60, 39, 38, 44, 49
+    AFTER  (= Study B stock profile, verified applied): 0, 0, 40, 40, 40, 30, 30, 20, 20
+    DELIBERATELY UNCHANGED so the experiment has ONE variable: move thresholds g0-g8 (already
+    IDENTICAL between the two units), max_move_distance_gate (kitchen 7 vs studyb 8),
+    max_still_distance_gate (kitchen 6 vs studyb 8), timeout (kitchen 27 vs studyb 30),
+    distance_resolution / out_pin_level / baud (already identical).
+    Operator context: "I do think Kitchen was modified and I dont think I knew what I was doing and
+    didnt think it would make much diff. The Study B looks relatively unmolested." So Study B is a
+    genuine untouched control.'
+  THE_HYPOTHESIS_AND_WHY_IT_INVERTS_THE_OBVIOUS_FIX: 'The chatter is DROP-OUTS, not false positives.
+    MEASURED (48h): kitchen _presence ON-durations have ZERO episodes under 25s and a hard mode at
+    25-28s — the 27s hold is governing cleanly and nothing cuts presence short. ALL the churn is on
+    the OFF side: 94 of 359 OFF-episodes under 25s, 24 under 5s. Study B has ZERO OFF-episodes under
+    30s.
+    That is the signature of A PRESENT PERSON BEING REPEATEDLY LOST, not of phantom triggers.
+    Higher still threshold = LESS still-sensitivity (INFERRED from LD2410 semantics, not read from
+    the ESPHome config — flagged as the weak link in the chain). So the raised thresholds plausibly
+    CAUSE the drop-outs: a person stands still, is no longer detected, presence times out after 27s,
+    they shift, presence returns. The likely history is that the thresholds were raised to suppress
+    false positives and instead produced drop-out chatter — i.e. THE FIX POINTS THE OPPOSITE WAY FROM
+    THE INTUITIVE ONE (lower, not raise).'
+  THE_EVIDENCE_THAT_RULED_OUT_HARDWARE: 'DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE.
+    DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY —
+    _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output stays
+    calm (35 transitions vs 724). Same raw churn in, wildly different presence out. Occupancy-
+    normalised (per hour-ON) the kitchen is still 5x chattier: 116/hr vs 22/hr.
+    NOTHING LOOKS LIKE FAILING HARDWARE: only 8 unavailable rows in 48h, no sub-second storms, no
+    missing episodes, ON-durations perfectly obey the configured hold. It behaves like a correctly
+    functioning LD2410 seeing more than we want it to.
+    FAN IS REAL BUT SECONDARY: conditioned on activity (30-min buckets with >=4 _moving_target
+    transitions) the fan multiplies presence chatter 1.57x and raw motion 1.47x — a multiplier on an
+    already-bad baseline, not the cause. The fan-OFF baseline alone is ~5x Study B. So URAs
+    mmwave_fan_demotions_since_boot=7 suspicion is WELL-FOUNDED but a fan gate alone will NOT make
+    this sensor calm. Caveat: only 15 fan-ON active buckets, so the direction is solid and the exact
+    multiplier is not.'
+  ACCEPTANCE_AND_NEXT_STEPS: 'RE-MEASURE IN 48H with the same script (interval histogram, sub-5s
+    count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare
+    against the recorded baseline: 724 transitions, median interval 44.0s, 116 transitions per hour-ON,
+    94 OFF-episodes under 25s.
+    DISCRIMINATING OUTCOMES: (a) chatter collapses toward Study B numbers -> tuning was the cause,
+    close this and leave stock; (b) chatter unchanged -> tuning exonerated, escalate to PLACEMENT
+    (move/re-aim the unit, or narrow max_move/max_still distance gates from 7/6) BEFORE any hardware
+    purchase; (c) chatter worsens -> revert to the BEFORE values above and reconsider.
+    ORDER OF ESCALATION AGREED: still thresholds -> distance gates -> move/re-aim -> replace. HARDWARE
+    LAST, NOT FIRST.
+    NOTE: switch.kitchen_override_vacant was turned back ON by the operator while this runs, so the
+    chatter is NOT reaching zone-3 occupancy in the meantime. The sensor still logs its transitions,
+    so the experiment is unaffected by the override.'
+  parsimony:
+    problem: a mmWave sensor chattering 724x/48h was heading for hardware replacement on a guess
+    verdict: INVESTIGATE
+    note: free reversible config experiment with a real control (Study B), run before spending money
+  next: 'Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the
+    discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.'
+  refs:
+  - number.mmwave_lux_wifi_esphome_kitchen_g0_still_threshold
+  - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
+  - binary_sensor.mmwave_lux_wifi_esphome_studyb_presence
+  - KITCHEN-OCCUPANCY-DEAD-1
+  - CHATTER-RATE-VS-BURST-GAP-1
+
 - id: CHATTER-RATE-VS-BURST-GAP-1
   title: The chatter detector cannot see the house's actual chatter — it detects BURSTS OF
     IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25
