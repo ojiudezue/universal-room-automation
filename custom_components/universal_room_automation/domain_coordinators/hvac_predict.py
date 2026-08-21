@@ -986,6 +986,25 @@ class HVACPredictor:
                     zone.climate_entity, e,
                 )
 
+            # HVAC-GOVERNED-EXCURSION-1 D3 (row 10, S11 banking RETURN):
+            # release the excursion lease unconditionally (even on the
+            # exception path above — a failed wire write does not entitle
+            # us to leave the tick-gating lease live).
+            _bt = getattr(self, "_banking_excursion_tokens", {}).pop(
+                zone_id, None,
+            )
+            if _bt is not None:
+                try:
+                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                    await _ex_mod.return_excursion(
+                        _bt, trigger="banking_release",
+                    )
+                except Exception as _rc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "banking release: return_excursion failed for %s: %s",
+                        zone_id, _rc,
+                    )
+
     def _get_net_power(self) -> float:
         """Read real-time net power. Negative = exporting to grid.
 
@@ -1031,6 +1050,40 @@ class HVACPredictor:
         # Suppress arrester
         if self._override_arrester:
             self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 11, S12 banking START):
+        # open the governed excursion. Snapshot uses _resolve_baseline_range
+        # (not live target_temp_*) so the ratchet at :858-866 doesn't
+        # re-strand us. Banking duration is caller-owned — the release
+        # runs when the master gate flips OFF, no timer. duration_s=None.
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            _baseline_pair = self._resolve_baseline_range(zone.zone_id)
+            _bt = await _ex_mod.begin_excursion(
+                self.hass,
+                zone_id=zone.zone_id,
+                entity_id=zone.climate_entity,
+                kind=_ex_mod.EXCURSION_KIND.BANKING,
+                excursion_low=zone.target_temp_low,
+                excursion_high=effective_high,
+                duration_s=None,
+                site="S12_pre_cool",
+                intended_mode="heat_cool",
+            )
+            # If we got a baseline pair, override the snapshot on the
+            # token so the ratchet-immune values are what would be
+            # restored (matches the S11 release path).
+            if _bt is not None and _baseline_pair is not None:
+                _bt.pre_target_low, _bt.pre_target_high = _baseline_pair
+            if not hasattr(self, "_banking_excursion_tokens"):
+                self._banking_excursion_tokens = {}
+            if _bt is not None:
+                self._banking_excursion_tokens[zone.zone_id] = _bt
+        except Exception as _bk_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "banking: begin_excursion failed for %s: %s",
+                zone.zone_id, _bk_exc,
+            )
 
         try:
             # ARREST-COMFORT-1 D-HIGH-1 fix-up: S12_pre_cool — gate on
