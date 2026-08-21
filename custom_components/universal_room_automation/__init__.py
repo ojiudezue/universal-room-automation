@@ -3526,6 +3526,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         ),
                     )
                     coordinator_manager.register_coordinator(hvac)
+                    # HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1 (2026-08-21):
+                    # Deterministically seed the 14 factory-tunable
+                    # runtime fields from CM options at construction —
+                    # closes the boot race where
+                    # `Number.async_added_to_hass` may fire before the
+                    # sub-controllers are visible via
+                    # `hass.data[DOMAIN]["coordinator_manager"]`, leaving
+                    # the coordinator running the module DEFAULT until
+                    # some later write pushes the operator value across.
+                    # Reuses `_HVAC_TUNABLE_DISPATCH` so a 15th tunable
+                    # added there inherits this seeding for free (no
+                    # hand-written per-knob call). Byte-identical when
+                    # options match defaults.
+                    _seed_hvac_runtime_tunables_from_options(hvac, cm_config)
                     # CRIT-A1 dormant WARN + voice-default WARN. Emit
                     # only when the arrester is ENABLED (dormant
                     # immunity is only a problem if the arrester itself
@@ -5714,6 +5728,41 @@ _HVAC_TUNABLE_DISPATCH: dict[str, tuple[str, str, type]] = {
     _CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT:   ("_override_arrester",  "_hard_reset_daily_limit",    int),
     _CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL:  ("_override_arrester",  "_hard_reset_min_interval_min", int),
 }
+
+
+def _seed_hvac_runtime_tunables_from_options(hvac, cm_config: dict) -> None:
+    """Seed the 14 HVAC factory-tunable runtime fields from CM options.
+
+    HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1 fix (2026-08-21). Called ONCE from
+    async_setup_entry immediately after the HVAC coordinator is
+    constructed and registered — before any decision cycle can read
+    the runtime field. Iterates `_HVAC_TUNABLE_DISPATCH` so the seed
+    path stays in lockstep with the options-update dispatch: any 15th
+    tunable added to the dispatch inherits this seeding for free.
+
+    Silent no-op when the sub-controller attribute is missing (defensive
+    for partial construction / tests). Missing option key falls back to
+    the sub-controller's already-assigned module default — the seed
+    call is byte-identical to the pre-fix behaviour in that case.
+    """
+    for conf_key, (sub_attr, runtime_field, cast_fn) in _HVAC_TUNABLE_DISPATCH.items():
+        sub = getattr(hvac, sub_attr, None)
+        if sub is None:
+            continue
+        if conf_key not in cm_config:
+            continue
+        try:
+            setattr(sub, runtime_field, cast_fn(cm_config[conf_key]))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC tunable seed failed for %s -> %s.%s",
+                conf_key, sub_attr, runtime_field,
+                exc_info=True,
+            )
+    _LOGGER.info(
+        "HVAC runtime tunables seeded from CM options (14 factory keys)"
+    )
+
 
 # Energy Coordinator setter-based dispatch (calls a coordinator method, NOT
 # a direct attr write — the setters carry side-effects like
