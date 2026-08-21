@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T15:48:29-05:00_ - _Data commit: `4e824d6bfa4b`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T16:05:50-05:00_ - _Data commit: `0cb93c627926`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,9 +12,9 @@ _Generated: 2026-08-21T15:48:29-05:00_ - _Data commit: `4e824d6bfa4b`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 0 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 9 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 46 |
@@ -285,10 +285,20 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (0)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `AC-RAMP-ZONE3-NO-BENEFIT-1` - Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence rather than retune
+thread: **hvac** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-21 11:40 · initial_
+- **Next:** Two paths, not mutually exclusive. (1) Accumulate: another 3-4 weeks of ac_ramp_events tightens the CI roughly 2x and may resolve the null. (2) Test the rebound hypothesis directly against the recorder rather than waiting. If rebound is ...
+- **Tags:** measured-not-inferred, cannot-tell-from-this-data
+- **Parsimony:** [INVESTIGATE] ~11 comfort interruptions/day on a zone with no demonstrated energy benefit
+- **Refs:** AC-RAMP-SAVINGS-OVERSTATED-1; number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2
+- **Forensic keys (3):**
+  - `THE_MEASUREMENT`: Zone 3 (3-ton; back rooms + hallways + kitchen) pooled net energy effect per nudge over +90 min is -0.087 +/- 0.128 kWh — the confidence interval SPANS ZERO. Implied value +$0.08/day, CI -$0.16 to +$0.32. No individual pre-nudge power bu...
+  - `WHY_NO_THRESHOLD_WAS_SET`: DELIBERATE NON-ACTION. Zone 1 and zone 2 thresholds were retuned 2026-08-21 (1.3->1.5 and 1.2->2.2). Zone 3 was LEFT AT 1.3 because tuning a knob on an intervention with no measurable effect is optimising a number that does not matter. T...
+  - `HYPOTHESIS_UNTESTED`: Zone 3 covers kitchen + hallways — high internal gain, high infiltration, likely poor thermal mass. A nudged-off compressor may rebound almost immediately, which is what the near-zero and slightly-positive +90 min numbers hint at. PLAUSI...
 
 ## 🧭 Pre-planning (9)
 _idea being decomposed_
@@ -384,7 +394,7 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
@@ -468,6 +478,19 @@ _created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
 - **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
 - **Forensic keys (1):**
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
+
+### `AC-RAMP-SAVINGS-OVERSTATED-1` - AC-ramp kWh-avoided over-claims ~3-10x — documented tech debt whose stated justification ("conservative bias") is REFUTED by measurement, and whose revisit trigger has already fired
+thread: **energy** - status: **planned** - approval: **unreviewed**
+_created 2026-08-21 11:40 · initial_
+- **Next:** Re-open the TECH_DEBT v4.5.11 entry. Correct the "conservative bias" claim with the measured direction. Then cost two options: (a) net the post-restore rebound window into kwh_avoided, (b) full recorder-baselined difference math now that...
+- **Tags:** measured-not-inferred, refutes-an-accepted-rationale
+- **Parsimony:** [BUILD] a shipped savings figure over-claims by 3-10x and its accepted rationale asserts the opposite direction
+- **Refs:** {'docs/TECH_DEBT.md "v4.5.11 — AC ramp-down': 'rough kWh-avoided estimate"'}; hvac_override.py:3442,3492-3495; sensor.py:12239-12276; PLANNING_hvac_kwh_avoided_savings.md
+- **Forensic keys (4):**
+  - `NOT_A_NEW_DEFECT_IT_IS_KNOWN_DEBT`: IMPORTANT FRAMING — do NOT card this as a newly discovered bug. It is ALREADY DOCUMENTED in docs/TECH_DEBT.md ("v4.5.11 — AC ramp-down: rough kWh-avoided estimate"), which states the formula and explicitly acknowledges it is "not baselin...
+  - `WHAT_IS_ACTUALLY_NEW_TWO_THINGS`: THE DEBT ENTRY IS WRONG ABOUT ITS OWN DIRECTION, and its revisit trigger has fired. Both are new. (1) THE JUSTIFICATION IS REFUTED. TECH_DEBT.md justifies the shortcut with: "Conservative bias is correct direction (better to under-claim ...
+  - `CONSUMER_IMPACT`: sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=$1.40 under v5.33.0 H4 — that confirmed the number was PRESENT and forward-only, NOT t...
+  - `METHOD_CAVEAT_BE_HONEST`: The measurement controls for regression-to-the-mean via the -90/-45 window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min comparison window sits later in the day than the control. That confound c...
 
 ### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
 thread: **hvac** - status: **planned** - approval: **operator_decided**

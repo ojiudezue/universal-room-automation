@@ -7379,6 +7379,109 @@ cards:
   - hvac.py:1788-1795
   - aggregation.py:4017-4019, 4152-4154
   - memory feedback_suppression_needs_discharge
+- id: AC-RAMP-SAVINGS-OVERSTATED-1
+  title: AC-ramp kWh-avoided over-claims ~3-10x — documented tech debt whose stated
+    justification ("conservative bias") is REFUTED by measurement, and whose revisit trigger
+    has already fired
+  thread: energy
+  status: planned
+  created: '2026-08-21 11:40'
+  updated: '2026-08-21 11:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - refutes-an-accepted-rationale
+  NOT_A_NEW_DEFECT_IT_IS_KNOWN_DEBT: 'IMPORTANT FRAMING — do NOT card this as a newly discovered
+    bug. It is ALREADY DOCUMENTED in docs/TECH_DEBT.md ("v4.5.11 — AC ramp-down: rough kWh-avoided
+    estimate"), which states the formula and explicitly acknowledges it is "not baseline-matched
+    against a comparable-weather-day counterfactual". The ACTUAL formula, verified in source, is
+    max(0, kwh_before - kwh_after) x min(30, remaining_overshoot_minutes) / 60 — a DELTA times a
+    30-min-capped projection. (A measurement agent characterised it as "before_kW x duration";
+    numerically close because kwh_after averages only 0.07-0.26 kW, but the delta form is correct.)'
+  WHAT_IS_ACTUALLY_NEW_TWO_THINGS: 'THE DEBT ENTRY IS WRONG ABOUT ITS OWN DIRECTION, and its
+    revisit trigger has fired. Both are new.
+    (1) THE JUSTIFICATION IS REFUTED. TECH_DEBT.md justifies the shortcut with: "Conservative bias
+    is correct direction (better to under-claim than over-claim)." MEASURED, it OVER-claims.
+    Recorder-measured net energy per nudge over +90 min is 0.087-0.465 kWh depending on zone,
+    against a claimed ~0.7-1.5 kWh. That is roughly 3-10x overstatement, in the OPPOSITE direction
+    from the one the entry assumes and accepts. The whole "why acceptable" argument rests on a sign
+    that is backwards. Re-litigate the acceptance, do not just re-tune the number.
+    (2) THE REVISIT TRIGGER HAS ALREADY FIRED. The entry says revisit "if Span integration exposes a
+    historical API that lets us pull matched-weather day energy curves". That history EXISTS TODAY in
+    the HA recorder and was used to produce the measurement above — control window E[-90,-45] chosen
+    deliberately over E[-45,0] so that regression-to-the-mean is not baked in (the nudge fires
+    BECAUSE power was high). The prerequisite the entry was waiting for has been sitting there.'
+  CONSUMER_IMPACT: 'sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed
+    dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=$1.40 under v5.33.0
+    H4 — that confirmed the number was PRESENT and forward-only, NOT that it was ACCURATE. Any
+    savings claim built on this sensor is overstated by the same factor. Producer/consumer sweep
+    needed before deciding whether to correct the sensor or caveat it.'
+  METHOD_CAVEAT_BE_HONEST: 'The measurement controls for regression-to-the-mean via the -90/-45
+    window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min
+    comparison window sits later in the day than the control. That confound could push either
+    direction and is UNQUANTIFIED. The 3-10x magnitude should be treated as strong but not final.
+    Rebound IS independently acknowledged in code (hvac_override.py:3442,:3492-3495 describe
+    variable-speed Bryant rebound-to-full-power in minutes 5-10 post-restore), which is consistent
+    with the measured shortfall and is the mechanism the 30-min projection ignores.'
+  parsimony:
+    problem: a shipped savings figure over-claims by 3-10x and its accepted rationale asserts the
+      opposite direction
+    verdict: BUILD
+    note: cheapest correct fix may be netting the rebound window rather than full weather-matched
+      baselining; cost both
+  next: 'Re-open the TECH_DEBT v4.5.11 entry. Correct the "conservative bias" claim with the measured
+    direction. Then cost two options: (a) net the post-restore rebound window into kwh_avoided, (b)
+    full recorder-baselined difference math now that the data is known to exist. Do a consumer sweep
+    of every surface reading the AC-ramp savings family before changing the producer.'
+  refs:
+  - docs/TECH_DEBT.md "v4.5.11 — AC ramp-down: rough kWh-avoided estimate"
+  - hvac_override.py:3442,3492-3495
+  - sensor.py:12239-12276
+  - PLANNING_hvac_kwh_avoided_savings.md
+
+- id: AC-RAMP-ZONE3-NO-BENEFIT-1
+  title: Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for
+    disable-pending-evidence rather than retune
+  thread: hvac
+  status: investigating
+  created: '2026-08-21 11:40'
+  updated: '2026-08-21 11:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - cannot-tell-from-this-data
+  THE_MEASUREMENT: 'Zone 3 (3-ton; back rooms + hallways + kitchen) pooled net energy effect per
+    nudge over +90 min is -0.087 +/- 0.128 kWh — the confidence interval SPANS ZERO. Implied value
+    +$0.08/day, CI -$0.16 to +$0.32. No individual pre-nudge power bucket reaches significance
+    either (1.5: +0.099; 2.0: -0.253; 2.5: +0.017; 3.0: -0.234, all CIs spanning zero). Zone 3 runs
+    ~11 nudges/day, peak 32. Compare zone 1 (-0.435 +/- 0.083, clearly saves) and zone 2 (savings
+    proven only at pre-nudge >= 2.5 kW). n=79 nudges with full recorder overlap over 7.5 days;
+    ac_ramp_events span 31 days.'
+  WHY_NO_THRESHOLD_WAS_SET: 'DELIBERATE NON-ACTION. Zone 1 and zone 2 thresholds were retuned
+    2026-08-21 (1.3->1.5 and 1.2->2.2). Zone 3 was LEFT AT 1.3 because tuning a knob on an
+    intervention with no measurable effect is optimising a number that does not matter. The plateau
+    structure would suggest ~1.6 by analogy with zone 2, and that value would look confident and be
+    unsupported. Explicitly not set.'
+  HYPOTHESIS_UNTESTED: 'Zone 3 covers kitchen + hallways — high internal gain, high infiltration,
+    likely poor thermal mass. A nudged-off compressor may rebound almost immediately, which is what
+    the near-zero and slightly-positive +90 min numbers hint at. PLAUSIBLE, UNTESTED. Do not treat
+    as the mechanism until an observation discriminates it from the alternatives.'
+  parsimony:
+    problem: ~11 comfort interruptions/day on a zone with no demonstrated energy benefit
+    verdict: INVESTIGATE
+    note: disable-pending-evidence is a live option and may be cheaper than any retune
+  next: 'Two paths, not mutually exclusive. (1) Accumulate: another 3-4 weeks of ac_ramp_events
+    tightens the CI roughly 2x and may resolve the null. (2) Test the rebound hypothesis directly
+    against the recorder rather than waiting. If rebound is confirmed, the question becomes
+    ramp_zone_enabled=false for zone 3, NOT a threshold value. INTERIM option if comfort cost is
+    worth reducing while the question is open: 2.0 (7.7 nudges/day, -32%) — defensible only because
+    there is no measurable savings to lose, not because it is optimal.'
+  refs:
+  - AC-RAMP-SAVINGS-OVERSTATED-1
+  - number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2
+
 - id: S14-CEILING-NEEDS-AN-ENDING-1
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending
     (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
