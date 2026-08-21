@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # deploy.sh — One-command deploy pipeline for URA
-# Usage: ./scripts/deploy.sh <version> <commit-summary> <release-notes>
-# Example: ./scripts/deploy.sh "3.3.5.7" "Fix zone entity grouping" "- Fixed zone entities not grouping correctly"
+# Usage: ./scripts/deploy.sh <version> <commit-summary> <release-notes> \
+#            --cards ID[,ID...] --why "<reasoning trail: WHY, not WHAT>"
+# Example: ./scripts/deploy.sh "3.3.5.7" "Fix zone entity grouping" "- Fixed grouping" \
+#            --cards ZONE-GROUP-1 --why "Grouping broke because the area-registry \
+#            lookup keyed on device_id not entity_id; chose the registry join over \
+#            a name-map because renames would silently re-collide. Verified by ..."
 #
+# --cards / --why are FORCING GATES (BOARD-CURRENCY-1 + vibememo): a real release
+#   reconciles the board AND writes a proper reasoning trail, or it does not ship.
+#   --no-cards is the explicit escape for pure-docs releases (writes neither).
 # With --dry-run flag, prints each step without executing.
 
 set -euo pipefail
@@ -15,6 +22,12 @@ NOTES="${3:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
 DRY_RUN=false
 CARDS=""
 NO_CARDS=false
+WHY=""
+# Forcing function (operator-coined 2026-08-19): a real ship MUST carry a proper
+# vibememo reasoning trail (the WHY), not the thin auto-stub that just echoed the
+# release notes. --why is required whenever --cards is (i.e. a real release);
+# --no-cards (pure-docs) is exempt. vibememo_ship.py re-validates substance.
+MIN_WHY_CHARS=200
 
 # Check for --dry-run / --cards / --no-cards anywhere in args.
 # (Positional args 1-3 are version/summary/notes; flags may appear in any order.)
@@ -44,6 +57,19 @@ for arg in "$@"; do
         echo "ERROR: --cards= requires a non-empty ID list." >&2
         exit 1
       fi
+      ;;
+    --why)
+      next_idx=$((i+1))
+      next_val="${!next_idx:-}"
+      if [[ -z "$next_val" || "$next_val" == --* ]]; then
+        echo "ERROR: --why requires a non-empty reasoning string (got: '${next_val}')." >&2
+        echo "       The WHY of the ship: decision, alternatives, what review/verify caught." >&2
+        exit 1
+      fi
+      WHY="$next_val"
+      ;;
+    --why=*)
+      WHY="${arg#--why=}"
       ;;
   esac
 done
@@ -84,6 +110,26 @@ fi
 if [[ -n "$CARDS" && "$NO_CARDS" == "true" ]]; then
   echo "ERROR: --cards and --no-cards are mutually exclusive." >&2
   exit 1
+fi
+# --why forcing gate: required for any real (carded) release, validated BEFORE
+# any push so a thin/absent reasoning fails the deploy early — same posture as
+# the --cards gate. Pure-docs (--no-cards) releases write no vibememo, so they
+# are exempt. The char floor here mirrors vibememo_ship.MIN_REASONING_CHARS;
+# the writer re-checks word count + notes-echo so this is fail-fast, not sole.
+if [[ "$NO_CARDS" == "false" ]]; then
+  why_trimmed="$(printf '%s' "$WHY" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "$why_trimmed" ]]; then
+    echo "ERROR: deploy.sh requires --why \"<reasoning>\" (vibememo forcing gate)." >&2
+    echo "  vibememo = WHY, not WHAT. Capture the decision, the alternatives weighed," >&2
+    echo "  and what the review/verify actually caught. It doesn't take that long." >&2
+    echo "  (Pure-docs releases: use --no-cards, which writes no vibememo.)" >&2
+    exit 1
+  fi
+  if [[ "${#why_trimmed}" -lt "$MIN_WHY_CHARS" ]]; then
+    echo "ERROR: --why is too thin (${#why_trimmed} chars < $MIN_WHY_CHARS)." >&2
+    echo "  A ship reasoning trail is a few real sentences, not a headline." >&2
+    exit 1
+  fi
 fi
 if [[ -n "$CARDS" ]]; then
   # Validate every ID exists BEFORE any push happens.
@@ -222,6 +268,7 @@ if [[ -n "$CARDS" ]]; then
          --version "$VERSION" \
          --summary "$SUMMARY" \
          --notes "$NOTES" \
+         --reasoning "$WHY" \
          --cards "$CARDS" \
          --repo-root "$rehearsal_dir"; then
       echo "  [dry-run] vibememo entry (would-be write):"
@@ -243,6 +290,7 @@ if [[ -n "$CARDS" ]]; then
       --version "$VERSION" \
       --summary "$SUMMARY" \
       --notes "$NOTES" \
+      --reasoning "$WHY" \
       --cards "$CARDS"
     vibememo_rc=$?
     if [ "$kanban_rc" -ne 0 ]; then

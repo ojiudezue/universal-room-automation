@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "065",
+  "author": "ojiudezue",
+  "session_id": "claude_20260821_122605_ship_v5_85_1",
+  "timestamp": "2026-08-21T12:26:05Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.85.1 shipped: fix: a room sensor can be removed again (SENSCAP-ORPHAN-1)",
+  "summary": "Operator hit sensor_capabilities_invalid on every submit in Garage Hallway and could not clear a noisy camera person sensor. Root cause is an ordering trap, not a validation bug: the capability dropdowns are built from the PRE-EDIT CONF lists, so removing a sensor still submits its caps_kind selection; derive_capability then returns None for the now-unwired entity, the no-op branch is missed, and the else-branch writes a declaration the very next validate rejects. Chose to PRUNE de-wired declarations rather than relax the validator, because the validator's rejection is correct and its own error text tells the operator to fix it by editing the CONF lists \u2014 which is exactly what they did. First version of the fix broke four existing tests (test_v4516_failsafe_freshness extracts that region verbatim and execs it standalone, so an outer-scope name raised NameError); caught only by a full-suite NAME diff against a baseline worktree \u2014 a count diff would have misread four broken existing tests as my four new tests failing.",
+  "refs": {
+    "cards": [
+      "SENSCAP-ORPHAN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.85.1.md"
+    ],
+    "release_notes": "- Removing any sensor from any room was impossible whenever the per-entity capability dropdowns rendered: the stale caps_kind dropdown for the just-removed entity was folded into an orphan capability declaration, which the validator then rejected as sensor_capabilities_invalid \u2014 re-rendering the same stale dropdown and wedging the form permanently.\n- Fix prunes declarations for de-wired entities on BOTH paths (JSON blob before first validate, dropdown during fold).\n- 4 new tests drive the real async_step_sensors handler; mutation-drill verified (2 failed neutered / 25 passed restored).\n- Full-suite name-diff vs clean baseline worktree: zero new failures (141/141), +4 passing."
+  }
+}

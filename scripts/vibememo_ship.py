@@ -28,6 +28,37 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Forcing function (operator-coined 2026-08-19: "never write a thin vibememo …
+# The deploy hook should force a proper one. It doesn't take that long").
+# vibememo = WHY, not WHAT. A ship entry MUST carry a real reasoning trail, not
+# an echo of the release notes. These thresholds are the objective floor the
+# writer refuses to go below — thin entries are rejected at the source, so the
+# deploy cannot mint one no matter which caller invokes it.
+MIN_REASONING_CHARS = 200
+MIN_REASONING_WORDS = 40
+
+
+def validate_reasoning(reasoning: str, notes: str, summary: str) -> str | None:
+    """Return an error string if the reasoning is thin, else None.
+
+    Thin = too short, too few words, or substantially just the release notes /
+    summary regurgitated (WHAT, not WHY). The check is intentionally blunt: it
+    cannot judge insight, only refuse the obvious box-tick.
+    """
+    r = (reasoning or "").strip()
+    if not r:
+        return "reasoning is empty — the WHY of the ship is required (decisions, alternatives, what verification caught)."
+    if len(r) < MIN_REASONING_CHARS:
+        return f"reasoning is too thin ({len(r)} chars < {MIN_REASONING_CHARS}). Capture the WHY: the decision, the alternatives weighed, what the review/verify actually caught."
+    if len(r.split()) < MIN_REASONING_WORDS:
+        return f"reasoning is too thin ({len(r.split())} words < {MIN_REASONING_WORDS}). This should read like a reasoning trail, not a headline."
+    norm = re.sub(r"\s+", " ", r.lower()).strip()
+    for other, label in ((notes, "release notes"), (summary, "commit summary")):
+        o = re.sub(r"\s+", " ", (other or "").lower()).strip()
+        if o and norm == o:
+            return f"reasoning is identical to the {label} (WHAT, not WHY). vibememo needs the reasoning behind the ship, not a copy of the notes."
+    return None
+
 
 def _now_utc_iso() -> str:
     """Timezone-aware UTC ISO-8601 stamp. L2: replaces deprecated utcnow()."""
@@ -91,10 +122,16 @@ def build_entry(
     version: str,
     summary: str,
     notes: str,
+    reasoning: str,
     cards: list[str],
     now_iso: str,
 ) -> dict:
-    """Assemble a milestone entry matching the schema of e.g. entry 031."""
+    """Assemble a reasoning entry: WHAT in the title, WHY in the summary.
+
+    ``reasoning`` (validated non-thin by the caller) becomes the entry summary —
+    the decision trail. ``notes`` (the release blurb, WHAT shipped) is preserved
+    under refs so the entry stays self-contained without diluting the WHY.
+    """
     ver = version if version.startswith("v") else f"v{version}"
     session_stamp = _session_stamp_utc()
     return {
@@ -103,13 +140,14 @@ def build_entry(
         "author": author,
         "session_id": f"claude_{session_stamp}_ship_{ver.replace('.', '_')}",
         "timestamp": now_iso,
-        "type": "milestone",
+        "type": "reasoning",
         "weight": "significant",
         "title": f"{ver} shipped: {summary}",
-        "summary": notes,
+        "summary": reasoning.strip(),
         "refs": {
             "cards": cards,
             "docs": [f"docs/readmes/README_{ver}.md"],
+            "release_notes": notes.strip(),
         },
     }
 
@@ -171,6 +209,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--version", required=True)
     p.add_argument("--summary", required=True)
     p.add_argument("--notes", required=True)
+    p.add_argument(
+        "--reasoning",
+        required=True,
+        help="The WHY of the ship — decision, alternatives weighed, what review/verify "
+        "caught. Rejected if thin (see MIN_REASONING_* thresholds).",
+    )
     p.add_argument("--cards", default="")
     p.add_argument("--author", default=None)
     p.add_argument(
@@ -185,6 +229,12 @@ def main(argv: list[str] | None = None) -> int:
     user_dir = vibememo_dir / "users" / author
     entries_dir = user_dir / "entries"
 
+    # Forcing function: refuse a thin entry at the source, before any write.
+    err = validate_reasoning(args.reasoning, args.notes, args.summary)
+    if err is not None:
+        print(f"vibememo_ship: REFUSED — {err}", file=sys.stderr)
+        return 2
+
     entry_id = next_entry_id(entries_dir)
     now_iso = _now_utc_iso()
     cards = [c.strip() for c in args.cards.split(",") if c.strip()]
@@ -195,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         version=args.version,
         summary=args.summary,
         notes=args.notes,
+        reasoning=args.reasoning,
         cards=cards,
         now_iso=now_iso,
     )

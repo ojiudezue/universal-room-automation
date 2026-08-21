@@ -9457,6 +9457,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         _val = user_input.pop(_uk)
                         if _val:  # ignore empty/None
                             _dropdown_selections[_entity] = _val
+                # SENSCAP-ORPHAN-1 (2026-08-20): the entity set as of THIS
+                # submission. A capability declaration — whether authored in
+                # the JSON blob or produced by a per-entity dropdown — is
+                # meaningless once its entity has been removed from all three
+                # CONF lists, and `validate_capabilities_payload` rejects it
+                # ("entity is not in this room's motion / mmwave / occupancy
+                # CONF lists"). Because the dropdowns are rendered from the
+                # PRE-EDIT lists, removing any sensor re-submits a
+                # `caps_kind__<removed entity>` selection, which the fold loop
+                # below turned into an orphan declaration — so the save was
+                # rejected, the form re-rendered with the same stale dropdown,
+                # and the removal could never be completed. Operator report
+                # 2026-08-20: "I cannot clear the camera person sensor. This
+                # error shows no matter what I do."
+                #
+                # Dropping the declaration is the correct semantics, not a
+                # workaround: the operator has just said this entity is no
+                # longer wired into the room, and the validator's own error
+                # text tells them to fix it by editing the CONF lists — which
+                # is exactly what they did.
+                _entities_now: set = (
+                    set(motion or []) | set(mmwave or []) | set(occupancy or [])
+                )
                 caps_payload: dict = {}
                 if raw_caps:
                     try:
@@ -9471,6 +9494,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 "sensor_capabilities_invalid_json"
                             )
                         else:
+                            # SENSCAP-ORPHAN-1: prune declarations whose
+                            # entity is no longer wired in THIS submission,
+                            # before validating. Only de-wired entities are
+                            # dropped — every other key, and every co-stored
+                            # `trust_class` / `failure_mode`, is untouched, so
+                            # a submission that removes nothing is
+                            # byte-identical to the pre-fix behaviour.
+                            _pruned = [
+                                _e for _e in parsed
+                                if _e not in _entities_now
+                            ]
+                            if _pruned:
+                                parsed = {
+                                    _k: _v for _k, _v in parsed.items()
+                                    if _k in _entities_now
+                                }
+                                _LOGGER.info(
+                                    "sensor_capabilities: dropped %d "
+                                    "declaration(s) for entities removed "
+                                    "from this room's CONF lists: %s",
+                                    len(_pruned), sorted(_pruned),
+                                )
                             # Validate against THIS submission's sensor
                             # lists (not the persisted ones) so a
                             # simultaneous CONF-list edit is honoured.
@@ -9499,6 +9544,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # senscap UX v2: fold dropdowns AFTER JSON parse but
                 # BEFORE the final validate. Dropdown wins on `kind`.
                 if not errors and _dropdown_selections:
+                    # SENSCAP-ORPHAN-1: recomputed here rather than reused
+                    # from the enclosing scope on purpose. This region is
+                    # extracted VERBATIM and exec'd standalone by
+                    # test_v4516_failsafe_freshness._extract_merge_block
+                    # (production source is that test's oracle), so it must
+                    # not reference names bound outside the block — the same
+                    # constraint that makes it elide its own relative import
+                    # there. motion / mmwave / occupancy ARE seeded into that
+                    # namespace, so deriving from them keeps the block
+                    # self-contained and the value identical.
+                    _entities_now = (
+                        set(motion or [])
+                        | set(mmwave or [])
+                        | set(occupancy or [])
+                    )
                     from .domain_coordinators.sensor_capability import (  # noqa: PLC0415
                         derive_capability,
                         validate_capabilities_payload as _vcp,
@@ -9512,6 +9572,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         # CONF-list-derived kind (not the current override).
                     }
                     for _entity, _kind in _dropdown_selections.items():
+                        # SENSCAP-ORPHAN-1: the dropdowns were rendered from
+                        # the PRE-EDIT lists, so a sensor the operator just
+                        # removed still submits a selection here. Without this
+                        # guard `derive_capability` returns None for it (rule 3
+                        # — not part of the room's Tier-1 wiring), the
+                        # `_kind == _default_kind` no-op branch is missed, and
+                        # the else-branch below writes an orphan declaration
+                        # that the re-validate then rejects — wedging the form
+                        # so the removal can never be saved. Skip de-wired
+                        # entities and drop any declaration they still carry.
+                        if _entity not in _entities_now:
+                            caps_payload.pop(_entity, None)
+                            continue
                         # Compute the CONF-derived default for this entity.
                         _default_cap = derive_capability(
                             room_cfg_view, _entity,

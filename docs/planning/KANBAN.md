@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-19T10:33:30-05:00_ - _Data commit: `d3a0e480bc31`_ - _last_reconciled: 2026-08-19_
+_Generated: 2026-08-20T00:20:20-05:00_ - _Data commit: `2ef422ac663d`_ - _last_reconciled: 2026-08-19_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-19T10:33:30-05:00_ - _Data commit: `d3a0e480bc31`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 6 |
+| 📥 Inbox | 11 |
 | 🧭 Pre-planning | 6 |
 | 📝 Planned | 1 |
 | 🔨 In progress | 1 |
@@ -21,10 +21,62 @@ _Generated: 2026-08-19T10:33:30-05:00_ - _Data commit: `d3a0e480bc31`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 8 |
 | ✅ Done | 25 |
-| ❓ Other | 33 |
+| ❓ Other | 34 |
 
-## 📥 Inbox (6)
+## 📥 Inbox (11)
 _raw capture_
+
+### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-20 00:20_
+- **Problem / Solution:**
+  - DEFINITIVE (orchestrator read the code directly 2026-08-20, operator-confirmed leg-2 was built + should drain to the forecast off-peak target). FINDING: the drain-precedence machine sources its drain floor ENTIRELY from the static manual...
+  - THE ACTUAL DEFECT (not a knob value): _ev_battery_drain_soc is written ONLY by the operator number entity (number.py:1482) + config seed (__init__.py:5724) — NOTHING sets it from the forecast. Meanwhile the forecast-keyed offpeak_drain_t...
+- **Why:** This is the real "battery not managed overnight". Leg-1 (hold) works; leg-2 (drain to floor) drains to the wrong target and so never fires at realistic overnight SOC. Forecast-adaptivity (the whole point) is absent from the DP path. Text...
+- **Next:** OPERATOR CALL: (STOPGAP) authorize setting number.ura_energy_coordinator_ev_battery_drain_soc=10 to restore drain behavior tonight; AND (REAL FIX) scope a cycle to source the DP drain target from current_offpeak_drain_target (forecast-ba...
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_drain_precedence.py (blocking gate :655-657; fits-check :709); custom_components/universal_room_automation/energy.py (dp tick :4326-4540; drain_target :4456; pause+release :4511-4524); custom_components/universal_room_automation/number.py (:1420-1482 setter); project_ev_drain_precedence_cycle (memory)
+- **Forensic keys (1):**
+  - `plan_readme_verified_2026_08_20`: PLANNING_evse_drain_precedence.md Knobs table has NO drain-target knob; drain_target is an UNBOUND input symbol in D2/D3 (drain_hours=(soc-drain_target)...; example "drain_target=15"). The plan pinned the CONSUMER (DP arithmetic) but NEV...
+
+### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-20 00:00_
+- **Problem / Solution:**
+  - CORRECTION (deep end-to-end trace 2026-08-20, supersedes the earlier "stuck write" framing which was WRONG): the Envoy enforcing 37% reserve is WORKING-AS-DESIGNED. The EV is actively charging (~8.9 kW grid import at midnight, solar 0, b...
+  - ROOT of the MISDIAGNOSIS: ENERGY_CLOUD_FIRST_WRITES=True (energy_const.py:458) -> URA writes the CLOUD ORACLE number.iq_battery_hacs_battery_reserve (=37, enforced by Envoy), NOT the local number.enpower_..._reserve_battery_level (=10, w...
+  - REAL RESIDUAL (Tier 1 hotfix candidate): number.iq_battery_hacs_battery_reserve (the cloud oracle) flaps to unavailable/unknown several times a day; the write-verify watchdog opens pending_write_stuck episodes against a target that momen...
+- **Why:** The battery IS being managed correctly (EV precedence). The felt problem was LEGIBILITY: the operator (and the orchestrator) could not SEE why the reserve was 37 without a manual multi-hour trace, and the visible entity + the flap-pollut...
+- **Next:** TWO follow-ups: (1) POLICY DECISION (operator, no tier) — do you WANT the home battery to help power the EV (drain below current SOC while charging)? If yes that is a deliberate change to evse_battery_hold precedence = the PARKED "EV dra...
+- **Refs:** custom_components/universal_room_automation/energy.py (evse_battery_hold :5604-5613, reserve max() :4650/4709-4744, write :7587-7603); custom_components/universal_room_automation/energy_write_verify.py (pending-watchdog to gate); project_ev_drain_precedence_cycle (memory — the parked policy cycle); project_enphase_coupling_tier (memory)
+
+### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-19 13:15_
+- **Problem / Solution:**
+  - AUDIT (2026-08-19, code+plan vs live): the Bayesian routine-drift detector (RegimeDetector, JS-divergence, 56d baseline / 14d recent) implements the plan (PLANNING_v4.6.1_anomaly_reconciliation..._routine_awareness.md) FAITHFULLY — every...
+- **Why:** Directly ties to two operator rules: "suppression needs a discharge" (this event-driven accumulator has no discharge but a button) and README write-back (no README_v4.6.2 exists -> shipped without a validation ledger, so the false-positi...
+- **Next:** MARGINAL-BENEFIT DECOMPOSITION before any build. Candidate fixes ranked: (1) dedup/upsert the anomaly row (stop nightly re-INSERT) — kills the 331 accumulation, small; (2) re-baseline/adopt discharge so a sustained new-normal clears the ...
+- **Refs:** docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/database.py; ZIRI-COLLEGE-PERSISTENT-AWAY-1
+
+### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-19 13:00 · initial_
+- **Problem / Solution:**
+  - Context (operator 2026-08-19): Ziri has left for college and will become SPARSE — his tracker/BLE/face will legitimately be absent for long stretches. Implications to verify, not assume: (1) his stale/absent tracker must NOT generate ano...
+- **Why:** A resident transitioning to persistently-away is exactly the kind of routine change that can quietly poison presence heuristics (phantom guest, stale-tracker anomaly, wrong occupancy prior). Better to verify the seams now than debug a ph...
+- **Next:** Investigate/verify the three live seams, then report: (a) does a weeks-stale Ziri tracker trip any anomaly/NM path; (b) HIGHEST-VALUE — does a resident returning after weeks away briefly ARM GUEST before BLE/face re-recognizes him (guest...
+- **Refs:** docs/planning/KANBAN.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/bayesian_predictor.py
+- **Forensic keys (1):**
+  - `bayesian_finding_2026_08_19`: VERIFIED (Explore + live): URA HAS a real per-person routine-drift detector (RegimeDetector, JS-divergence, nightly, regime_detector.py). Ziri routine_status is currently `shifted` (146 unacked events) — it caught the PRE-DEPARTURE room-...
+
+### `STEP-SHADOW-EVIDENCE-WATCH-1` - Check STEP shadow chatter evidence during nightly board maintenance (until 08-21 forcing gate)
+thread: **diagnostics** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-19 12:00 · initial_
+- **Problem / Solution:**
+  - Problem: STEP (v5.85.0) ships SHADOW-only; the 2026-08-21 flip-to-act/declare-moot decision is only as good as the evidence accumulated by then. Nothing re-raises that evidence between now and the gate except the scheduled cloud routine....
+- **Why:** A broken producer (zero telemetry = detector not firing) or a false-positive (would_quarantine on a healthy sensor) must surface BEFORE the gate fires, not at it. This complements — does not replace — the cloud routine trig_01XZno8URQxUm...
+- **Next:** Nightly until 2026-08-21: read select.ura_chatter_mode (must stay shadow); sweep each room's sensor.<room>_unavailable_entities chatter_telemetry for burst_count>0 and would_quarantine:true counts; scan URA logs for chatter DEBUG/NM + er...
+- **Refs:** docs/readmes/README_v5.85.0.md; SENSOR-HEALTH-SURFACING-1; CHATTER-OBSERVE-CONTROL-D7-1
 
 ### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
 thread: **planning** - status: **inbox** - approval: **unreviewed**
@@ -68,12 +120,13 @@ _created 2026-08-17 23:58 · updated 2026-08-18 02:40 · refined_
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
 - **Why:** Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator just mandated for cycle-3 face ID: ne...
-- **Next:** Plan the Tier-3 narrow cycle: wire _sensor_engine agreement -> severity (single-source demote floor LOW, corroborated keep/raise; single-NVR cameras fall back to track-linker confidence) + dashboard surfacing. Separately: BB dummy-Apple-...
+- **Next:** HAND-EXAMINE FIRST (operator 2026-08-19) — measure detection->snapshot->alert lag on real events (g5_bullet on-time vs snapshot frame stamp vs alert-fire time; does the snap pull a live-at-fire frame or a buffered/pre-roll frame; does HA...
 - **Tags:** tier-3
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (14):**
+- **Forensic keys (15):**
   - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
   - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
+  - `operator_reframe_2026_08_19`: LIVE EVENT confirms the snapshot-delay branch of the 08-17 operator_note. Operator walked IN via the garage, got a g5_bullet_person_detected alert @12:09:57 whose SNAPSHOT (frame-stamped 12:09:52, ~5s before the alert) showed an EMPTY dr...
   - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
   - `tier`: Tier 3 — narrow remit
   - `db_verified_2026_08_17`: BY-HAND DB VERIFY (recorder, 2026-08-16 windows): BOTH alerts were DEFINITIVELY SINGLE-SOURCE. At 15:15:56 UTC ONLY binary_sensor.hot_tub_person_occupancy_2 fired — no other NVR. At 15:21:16 UTC ONLY front_side_ptz_person_occupancy_2 fir...
@@ -1148,8 +1201,19 @@ _updated 2026-08-17 23:30_
   - `note`: live PASS (zero multi-key WARN / _2 storm / URA ERROR; telemetry attr present)
   - `organic_open`: CLOSED 2026-08-07: leg_firing_by_camera POPULATED from real events (rear_ptz shows frigate+frigate2+protect on one camera; back_yard frigate+frigate2); today's exterior person-detects each = one alert per track, pass_by tracks alert_coun...
 
-## ❓ Other (33)
+## ❓ Other (34)
 _unknown status bucket_
+
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
+thread: **presence** - status: **pre-planning** - approval: **unreviewed**
+_created 2026-08-19 13:40_
+- **Problem / Solution:**
+  - DECISION (operator 2026-08-19, chose use D from the routine-detector menu): surface per-person routine health as a DASHBOARD with a COLOR SIGNATURE. Explicitly SENSOR-ONLY, NO notifications — reaffirms the original PLANNING_v4.6.1 non-go...
+- **Why:** Highest-value use of the routine signal (aging-in-place / wellbeing / "you have been off-routine N days"), and the lowest-risk delivery (display, no trust path, no notify). BUT a care signal that cries wolf is worse than none — so the co...
+- **Next:** Depends on ROUTINE-DETECTOR-NO-DISCHARGE-1 (the color is only meaningful once the signal can return to stable + is calibrated). Build shape (Tier 2-DB): D0 measure-before-build probe of the live JS/severity distribution + per-person-vs-h...
+- **Refs:** ROUTINE-DETECTOR-NO-DISCHARGE-1; docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md
+- **Forensic keys (1):**
+  - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
 thread: **memory**
