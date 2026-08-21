@@ -353,11 +353,23 @@ class CameraIntegrationManager:
 
         camera_entry = ent_reg.async_get(camera_entity_id)
         if camera_entry is None:
-            _LOGGER.warning(
-                "Camera entity %s not found in entity registry — skipping",
-                camera_entity_id,
-            )
+            # RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21): warn-once per entity,
+            # discharged when the entity returns to the registry. Same
+            # `_unresolved_warned` set the `resolve_configured_cameras`
+            # path uses (EGRESS-CAMERA-DEAD-CONFIG-1). Per-tick callers
+            # (perimeter_alert.py:3805, `get_person_sensor`) were emitting
+            # 1015 warnings each per garage_a/garage_b in a 5h window.
+            if camera_entity_id not in self._unresolved_warned:
+                self._unresolved_warned.add(camera_entity_id)
+                _LOGGER.warning(
+                    "Camera entity %s not found in entity registry — "
+                    "skipping (further occurrences suppressed until "
+                    "registry updates)",
+                    camera_entity_id,
+                )
             return []
+        # Entity resolved — re-arm warn-once if it later disappears.
+        self._unresolved_warned.discard(camera_entity_id)
 
         device_id = camera_entry.device_id
         if not device_id:
