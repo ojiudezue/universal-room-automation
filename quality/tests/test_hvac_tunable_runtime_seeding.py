@@ -222,3 +222,224 @@ def test_seed_call_site_wired_into_async_setup_entry():
     assert len(call.args) == 2, "seed call must pass (hvac, cm_config)"
     assert isinstance(call.args[0], ast.Name) and call.args[0].id == "hvac"
     assert isinstance(call.args[1], ast.Name) and call.args[1].id == "cm_config"
+
+
+# ---------------------------------------------------------------------------
+# Zone-arm sweep + wire-in: the ONE per-zone Number that writes to
+# ZoneState (`_hvac_zone_kwh_threshold_factory` -> `zone.kwh_rate_threshold`)
+# persists via RestoreEntity, not entry.options, so it needs a second seed
+# helper called AFTER `coordinator_manager.async_start()` (ordering required:
+# `HVACCoordinator.async_setup` runs `async_discover_zones()` first).
+# ---------------------------------------------------------------------------
+
+NUMBER_SRC_PATH = PKG / "number.py"
+NUMBER_SRC = NUMBER_SRC_PATH.read_text()
+
+
+def test_sweep_only_one_zone_targeted_number_in_number_py():
+    """Sweep for every Number in number.py that writes to a ZoneState
+    field (`zone.<attr> = ...`), so a future per-zone Number added
+    downstream doesn't quietly land on a third uncovered path.
+
+    Current known targets: exactly ONE — `zone.kwh_rate_threshold` at
+    number.py:2550 inside `_HVACZoneKwhThresholdNumber._push_to_zone`.
+    If this test starts failing, either add the new key to the zone
+    seed helper OR justify the exclusion in a comment on the new site.
+    """
+    import re
+    hits = [
+        (i + 1, line.strip())
+        for i, line in enumerate(NUMBER_SRC.splitlines())
+        if re.search(r"\bzone\.[a-zA-Z_][a-zA-Z_0-9]*\s*=", line)
+        and "==" not in line
+    ]
+    assert hits, "sweep regex did not find any zone.<attr> = write; check regex"
+    # Filter to actual writes (skip the docstring / comparison contexts).
+    real_writes = [h for h in hits if "kwh_rate_threshold" in h[1]]
+    assert real_writes, f"expected zone.kwh_rate_threshold write; got {hits}"
+    # The invariant: only ONE known zone-target key today.
+    keys = {h[1].split("zone.")[1].split(" ")[0].split("=")[0].strip() for h in hits}
+    assert keys == {"kwh_rate_threshold"}, (
+        f"NEW zone-targeted Number detected: {keys - {'kwh_rate_threshold'}}. "
+        "Add it to `_seed_hvac_zone_kwh_thresholds_from_restore` in "
+        "__init__.py (or explicitly justify skipping) so a boot race can't "
+        "leave it on the dataclass default."
+    )
+
+
+def test_zone_seed_call_site_wired_after_async_start():
+    """The zone seed helper MUST be awaited inside async_setup_entry
+    AFTER `coordinator_manager.async_start()` — before that call,
+    `zone_manager.zones` is empty (populated by async_discover_zones
+    which runs inside async_start), so the seed would silently no-op."""
+    tree = ast.parse(INIT_SRC)
+    fn = _find_async_setup_entry(tree)
+
+    call_line: int | None = None
+    async_start_line: int | None = None
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            # `coordinator_manager.async_start()`
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "async_start"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "coordinator_manager"
+            ):
+                async_start_line = node.lineno
+            # `_seed_hvac_zone_kwh_thresholds_from_restore(hass, ...)`
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "_seed_hvac_zone_kwh_thresholds_from_restore"
+            ):
+                call_line = node.lineno
+
+    assert call_line is not None, (
+        "Zone-arm wire-in missing: "
+        "_seed_hvac_zone_kwh_thresholds_from_restore is not called inside "
+        "async_setup_entry. Per-zone AC kWh threshold will fall back to "
+        "the ZoneState dataclass default (0.8) on any boot race — the "
+        "UNSAFE direction (more nudges, more manual-preset risk)."
+    )
+    assert async_start_line is not None, "async_start() call not found"
+    assert call_line > async_start_line, (
+        f"Zone seed call at line {call_line} must run AFTER "
+        f"coordinator_manager.async_start() at line {async_start_line} — "
+        "zones are populated by async_discover_zones() which runs inside "
+        "async_start; calling the seed first would find no zones."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Behavioral: extract the zone-seed helper into an isolated namespace and
+# exercise it against a fake ZoneManager + fake RestoreStateData.
+# ---------------------------------------------------------------------------
+
+def _load_zone_seed_helper():
+    tree = ast.parse(INIT_SRC)
+    fn: ast.AsyncFunctionDef | None = None
+    for node in tree.body:
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_seed_hvac_zone_kwh_thresholds_from_restore"
+        ):
+            fn = node
+            break
+    assert fn is not None, "zone seed helper not found"
+    module = ast.Module(body=[fn], type_ignores=[])
+    ns: dict = {
+        "_LOGGER": types.SimpleNamespace(
+            debug=lambda *a, **kw: None,
+            info=lambda *a, **kw: None,
+        ),
+        "DOMAIN": "universal_room_automation",
+    }
+    exec(compile(module, "<zone_seed_extract>", "exec"), ns)
+    return ns
+
+
+class _StubZoneState:
+    def __init__(self, climate_entity, default=0.8):
+        self.climate_entity = climate_entity
+        self.kwh_rate_threshold = default
+
+
+class _StubZM:
+    def __init__(self, zones):
+        self.zones = zones
+
+
+class _StubHVACForZone:
+    def __init__(self, zones):
+        self._zone_manager = _StubZM(zones)
+
+
+def _run(coro):
+    import asyncio
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+def test_zone_seed_writes_restored_value_into_zonestate(monkeypatch):
+    ns = _load_zone_seed_helper()
+    zones = {
+        "zone_1": _StubZoneState("climate.zone_1"),
+        "zone_2": _StubZoneState("climate.zone_2"),
+    }
+    hvac = _StubHVACForZone(zones)
+
+    # Fake HA surfaces the helper reaches through dynamic imports.
+    stored_state = types.SimpleNamespace(
+        state=types.SimpleNamespace(state="1.30"),
+    )
+    fake_restore_data = types.SimpleNamespace(
+        last_states={
+            "number.ura_zone_1": stored_state,
+            "number.ura_zone_2": types.SimpleNamespace(
+                state=types.SimpleNamespace(state="not-a-number"),
+            ),
+        },
+    )
+
+    class _FakeRestoreDataCls:
+        @staticmethod
+        async def async_get_instance(_hass):
+            return fake_restore_data
+
+    class _FakeEntReg:
+        def async_get_entity_id(self, domain, platform, unique_id):
+            # Map unique_id -> entity_id for both zones so we exercise
+            # the numeric + non-numeric branches.
+            if "zone_1" in unique_id:
+                return "number.ura_zone_1"
+            if "zone_2" in unique_id:
+                return "number.ura_zone_2"
+            return None
+
+    fake_er_mod = types.SimpleNamespace(async_get=lambda _hass: _FakeEntReg())
+    fake_restore_mod = types.SimpleNamespace(RestoreStateData=_FakeRestoreDataCls)
+    fake_hvac_zones_mod = types.SimpleNamespace(
+        iter_canonical_hvac_zones=lambda _hass: [
+            {"zone_id": "zone_1", "climate_entity": "climate.zone_1"},
+            {"zone_id": "zone_2", "climate_entity": "climate.zone_2"},
+        ],
+    )
+
+    import sys
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.restore_state", fake_restore_mod,
+    )
+    # helper does `from homeassistant.helpers import entity_registry as er`
+    fake_helpers_pkg = types.ModuleType("homeassistant.helpers")
+    fake_helpers_pkg.entity_registry = fake_er_mod
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers", fake_helpers_pkg)
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.helpers.entity_registry",
+        fake_er_mod,
+    )
+    # helper does `from .domain_coordinators.hvac_zones import ...`
+    monkeypatch.setitem(
+        sys.modules,
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        fake_hvac_zones_mod,
+    )
+
+    # The helper's relative import `from .domain_coordinators.hvac_zones ...`
+    # needs a package context. Re-exec into a package-flavoured namespace.
+    ns["__package__"] = "custom_components.universal_room_automation"
+
+    _run(ns["_seed_hvac_zone_kwh_thresholds_from_restore"](hass=object(), hvac=hvac))
+
+    # zone_1 restored to 1.30 (operator value); zone_2 stays at default
+    # (0.8) because the restored state was non-numeric.
+    assert zones["zone_1"].kwh_rate_threshold == 1.30
+    assert zones["zone_2"].kwh_rate_threshold == 0.8
+
+
+def test_zone_seed_noop_when_zones_empty(monkeypatch):
+    ns = _load_zone_seed_helper()
+    hvac = _StubHVACForZone({})
+    # Even if the imports would succeed, empty zones exits early.
+    _run(ns["_seed_hvac_zone_kwh_thresholds_from_restore"](hass=object(), hvac=hvac))
+    # No exception, no side-effect — this is the pre-async_start / no-AC-zones
+    # posture.
