@@ -5827,8 +5827,18 @@ async def _seed_hvac_zone_kwh_thresholds_from_restore(hass, hvac) -> None:
             "or no AC zones configured); nothing to seed"
         )
         return
+    # RESTORE-STATE ACCESS SHAPE (2026-08-21 fix-up B-RE-1 sibling):
+    # Use the module-level SYNC `async_get` helper (a HA @callback).
+    # `RestoreStateData` has no async classmethod — the awaited-
+    # classmethod form NEVER worked and raised TypeError on every boot,
+    # which the defensive except swallowed => guaranteed silent no-op =>
+    # guaranteed UNSAFE fallback to 0.8 kW. Matches the pre-existing correct
+    # exemplar at `__init__.py:1301-1313` (v5.7.1 D5 migration, guarded
+    # by test_v5_7_1_energy_precool.py::test_restore_state_helper_is_called_sync_not_awaited).
     try:
-        from homeassistant.helpers.restore_state import RestoreStateData
+        from homeassistant.helpers.restore_state import (
+            async_get as async_get_restore_data,
+        )
         from homeassistant.helpers import entity_registry as er
         from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
     except Exception:  # noqa: BLE001
@@ -5841,14 +5851,13 @@ async def _seed_hvac_zone_kwh_thresholds_from_restore(hass, hvac) -> None:
             exc_info=True,
         )
         return
-    try:
-        restore_data = await RestoreStateData.async_get_instance(hass)
-    except Exception:  # noqa: BLE001
+    # SYNC call. Do NOT await — `async_get` is @callback, not a coroutine.
+    restore_data = async_get_restore_data(hass)
+    if restore_data is None:
         _LOGGER.warning(
             "Zone-kWh seed FAILED (RestoreStateData unavailable): all "
             "AC zones will fall back to dataclass default 0.8 kW — "
-            "UNSAFE direction (more nudges, more manual-preset risk)",
-            exc_info=True,
+            "UNSAFE direction (more nudges, more manual-preset risk)"
         )
         return
     last_states = getattr(restore_data, "last_states", {}) or {}

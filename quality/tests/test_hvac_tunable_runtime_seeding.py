@@ -382,11 +382,6 @@ def test_zone_seed_writes_restored_value_into_zonestate(monkeypatch):
         },
     )
 
-    class _FakeRestoreDataCls:
-        @staticmethod
-        async def async_get_instance(_hass):
-            return fake_restore_data
-
     class _FakeEntReg:
         def async_get_entity_id(self, domain, platform, unique_id):
             # Map unique_id -> entity_id for both zones so we exercise
@@ -398,7 +393,14 @@ def test_zone_seed_writes_restored_value_into_zonestate(monkeypatch):
             return None
 
     fake_er_mod = types.SimpleNamespace(async_get=lambda _hass: _FakeEntReg())
-    fake_restore_mod = types.SimpleNamespace(RestoreStateData=_FakeRestoreDataCls)
+    # SYNC module-level helper — mirrors the real HA @callback shape at
+    # `homeassistant.helpers.restore_state.async_get`. `RestoreStateData`
+    # is intentionally absent from this fake module so a regression to
+    # `RestoreStateData.async_get_instance` would raise AttributeError
+    # loudly, not silently no-op.
+    fake_restore_mod = types.SimpleNamespace(
+        async_get=lambda _hass: fake_restore_data,
+    )
     fake_hvac_zones_mod = types.SimpleNamespace(
         iter_canonical_hvac_zones=lambda _hass: [
             {"zone_id": "zone_1", "climate_entity": "climate.zone_1"},
@@ -476,12 +478,6 @@ def test_zone_seed_warns_per_zone_on_unresolvable(monkeypatch):
     zones = {"zone_1": _StubZoneState("climate.zone_1")}
     hvac = _StubHVACForZone(zones)
 
-    class _FakeRestoreDataCls:
-        @staticmethod
-        async def async_get_instance(_hass):
-            # No last_states for our entity — unresolvable path.
-            return types.SimpleNamespace(last_states={})
-
     class _FakeEntReg:
         def async_get_entity_id(self, domain, platform, unique_id):
             return "number.ura_zone_1"  # resolvable, but no restored state
@@ -490,7 +486,9 @@ def test_zone_seed_warns_per_zone_on_unresolvable(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "homeassistant.helpers.restore_state",
-        types.SimpleNamespace(RestoreStateData=_FakeRestoreDataCls),
+        types.SimpleNamespace(
+            async_get=lambda _h: types.SimpleNamespace(last_states={}),
+        ),
     )
     fake_er_mod = types.SimpleNamespace(async_get=lambda _hass: _FakeEntReg())
     monkeypatch.setitem(
@@ -544,16 +542,15 @@ def test_zone_seed_warns_when_restore_state_unavailable(monkeypatch):
 
     hvac = _StubHVACForZone({"zone_1": _StubZoneState("climate.zone_1")})
 
-    class _RaisingRestoreDataCls:
-        @staticmethod
-        async def async_get_instance(_hass):
-            raise RuntimeError("boot: state store not ready")
-
+    # Simulate the "state store not ready" boot posture: the sync helper
+    # returns None. Real HA returns None when the RestoreStateData
+    # singleton has not been constructed yet. The seed helper must
+    # detect this and log the UNSAFE-direction WARNING.
     import sys
     monkeypatch.setitem(
         sys.modules,
         "homeassistant.helpers.restore_state",
-        types.SimpleNamespace(RestoreStateData=_RaisingRestoreDataCls),
+        types.SimpleNamespace(async_get=lambda _h: None),
     )
     fake_er_mod = types.SimpleNamespace(
         async_get=lambda _h: types.SimpleNamespace(
@@ -580,3 +577,148 @@ def test_zone_seed_warns_when_restore_state_unavailable(monkeypatch):
         "RestoreStateData unavailable" in w and "UNSAFE" in w
         for w in warnings
     ), f"warning must name RestoreStateData + UNSAFE; got {warnings}"
+
+
+# ---------------------------------------------------------------------------
+# RESTORE-STATE SHAPE GUARD (2026-08-21 fix-up for prior-turn regression).
+#
+# The v5.7.1 D5 migration was burned by exactly this shape:
+# `await RestoreStateData.async_get_instance(hass)` raises TypeError (no
+# such classmethod; the module-level `async_get` is a @callback, not a
+# coroutine). A defensive except swallows it => guaranteed silent no-op
+# => UNSAFE fallback to the dataclass default 0.8 kW on every boot.
+# That defect made it through the previous mutation drill because the
+# unit tests mocked the wrong shape. Two new tests:
+#   1. Source-level: production must NOT contain the broken shape and
+#      MUST import the sync module-level helper. Same guard shape as
+#      test_v5_7_1_energy_precool.test_restore_state_helper_is_called_sync_not_awaited.
+#   2. Live-shape: run the seed helper against a fake module that
+#      MATCHES the real HA surface (module-level sync `async_get`, no
+#      `RestoreStateData.async_get_instance`). If the helper reverts to
+#      the broken shape it now raises AttributeError inside the seed
+#      (nothing to catch it) and the test fails.
+# ---------------------------------------------------------------------------
+
+
+def test_zone_seed_source_uses_sync_module_level_restore_state_helper():
+    """Guards against re-introducing the TypeError-on-every-boot shape.
+
+    Exemplar in this repo: __init__.py:1301-1313 (v5.7.1 D5 migration,
+    guarded by
+    test_v5_7_1_energy_precool.test_restore_state_helper_is_called_sync_not_awaited).
+    """
+    src = INIT_SRC
+    # Locate the seed helper's body and inspect only that slice.
+    tree = ast.parse(src)
+    seed_fn = None
+    for node in tree.body:
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_seed_hvac_zone_kwh_thresholds_from_restore"
+        ):
+            seed_fn = node
+            break
+    assert seed_fn is not None, "seed helper not found"
+    # Use ast.unparse to strip comments/docstrings from the inspected surface — a warning comment explaining the anti-pattern must not trip the guard.
+    body_src = ast.unparse(seed_fn)
+
+    assert "await RestoreStateData.async_get" not in body_src, (
+        "Zone-kWh seed regressed to `await RestoreStateData.async_get(...)` "
+        "— that classmethod does not exist and the await form raises "
+        "TypeError on every boot, which the defensive except swallows: "
+        "guaranteed UNSAFE fallback to dataclass default 0.8. Match the "
+        "exemplar at __init__.py:1301-1313 instead."
+    )
+    assert "RestoreStateData.async_get_instance" not in body_src, (
+        "Zone-kWh seed regressed to `RestoreStateData.async_get_instance` "
+        "— no such attribute; use the module-level sync helper."
+    )
+    assert "async_get as async_get_restore_data" in body_src, (
+        "Zone-kWh seed must import the sync helper as "
+        "`async_get as async_get_restore_data` (mirror exemplar "
+        "__init__.py:1301-1303)."
+    )
+    assert "async_get_restore_data(hass)" in body_src, (
+        "Zone-kWh seed must call the sync helper as "
+        "`async_get_restore_data(hass)` (NOT awaited)."
+    )
+    assert "await async_get_restore_data" not in body_src, (
+        "Zone-kWh seed must NOT await the sync helper — it is @callback, "
+        "not a coroutine."
+    )
+
+
+def test_zone_seed_runs_without_error_against_real_ha_restore_shape(monkeypatch):
+    """Live-shape test: run the helper against a fake `restore_state`
+    module that MATCHES the real HA surface — module-level sync
+    `async_get`, no `RestoreStateData.async_get_instance` attr. A
+    regression to the broken shape would raise AttributeError inside
+    the helper (nothing to catch it once the outer imports succeed),
+    which is what would have caught the original bug.
+    """
+    ns = _load_zone_seed_helper()
+    zones = {"zone_1": _StubZoneState("climate.zone_1")}
+    hvac = _StubHVACForZone(zones)
+
+    stored_state = types.SimpleNamespace(state=types.SimpleNamespace(state="1.30"))
+    fake_restore_data = types.SimpleNamespace(
+        last_states={"number.ura_zone_1": stored_state},
+    )
+
+    class _FakeRestoreModule(types.SimpleNamespace):
+        """Deliberately does NOT expose RestoreStateData.async_get_instance."""
+
+        def __getattr__(self, name):
+            # Real `homeassistant.helpers.restore_state` DOES have a
+            # RestoreStateData class, but WITHOUT `async_get_instance`
+            # / `async_get`. If the seed helper reverts to touching it,
+            # surface a distinctive error so the test message is
+            # actionable rather than a bare AttributeError.
+            if name == "RestoreStateData":
+                class _RSD:
+                    """Mirror real HA: no classmethod on this class."""
+                    pass
+                return _RSD
+            raise AttributeError(name)
+
+    fake_restore_mod = _FakeRestoreModule(
+        async_get=lambda _h: fake_restore_data,
+    )
+    fake_er_mod = types.SimpleNamespace(
+        async_get=lambda _h: types.SimpleNamespace(
+            async_get_entity_id=lambda *a, **k: "number.ura_zone_1",
+        ),
+    )
+    fake_hvac_zones_mod = types.SimpleNamespace(
+        iter_canonical_hvac_zones=lambda _h: [
+            {"zone_id": "zone_1", "climate_entity": "climate.zone_1"},
+        ],
+    )
+
+    import sys
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.restore_state", fake_restore_mod,
+    )
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.entity_registry", fake_er_mod,
+    )
+    fake_helpers_pkg = types.ModuleType("homeassistant.helpers")
+    fake_helpers_pkg.entity_registry = fake_er_mod
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers", fake_helpers_pkg)
+    monkeypatch.setitem(
+        sys.modules,
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        fake_hvac_zones_mod,
+    )
+    ns["__package__"] = "custom_components.universal_room_automation"
+
+    # POSITIVE OUTCOME assertion (the operator's directive:
+    # "a swallowed exception in a seeding path is indistinguishable from
+    # success unless something asserts the positive outcome").
+    _run(ns["_seed_hvac_zone_kwh_thresholds_from_restore"](object(), hvac))
+    assert zones["zone_1"].kwh_rate_threshold == 1.30, (
+        "seed did NOT actually write the restored value into the "
+        "ZoneState. This is the failure the operator flagged: the "
+        "helper's defensive except is likely swallowing the retrieval "
+        "error and dropping the runtime to the dataclass default."
+    )
