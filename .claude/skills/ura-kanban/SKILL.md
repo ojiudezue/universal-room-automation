@@ -361,6 +361,70 @@ something we now know to be untrue? If yes, edit it now. Folding the work into a
 being mid-flight, or "the fix will make it moot" are NOT reasons to defer — a fix in flight can
 be abandoned, and then only the card remains.
 
+## Card linking — cards are a graph, not a list (operator-coined 2026-08-21)
+
+**Operator: "card linking is a good thing to add to the skill."** A board of 149 unlinked cards
+loses the most valuable information it has: which findings are the *same* finding, which one blocks
+another, and which parent will actually fix a symptom. Linking is what stops the board decaying into
+a pile.
+
+### The prior question: is this a NEW card, or an INSTANCE of an existing one?
+
+**Ask this BEFORE writing any card.** It is the adjacency sweep applied to your own new finding.
+A concrete, newly-measured occurrence of a defect that is already carded is an **instance**, not a
+card. Append it to the existing card as a dated `INSTANCE_<date>_<context>` block and link it. You
+get the evidence AND the accumulated history in one place, and the board does not grow a near-duplicate.
+
+Worked example (2026-08-21): a Tier-3 review measured a specific test-collection-order failure. The
+board already carried `SUITE-ORDER-POLLUTION-1`. The finding was appended there as an instance with
+links to the parent re-architecture card, rather than spawning a second order-pollution card.
+
+Spawn a NEW card only when the finding has its own distinct problem statement, its own fix, and its
+own acceptance criteria. "It was found in a different cycle" is NOT a reason for a new card.
+
+### The `links:` block
+
+```yaml
+links:
+  parent: TEST-STRATEGY-REARCH-1        # the card whose fix subsumes this one
+  blocks: [CARD-A, CARD-B]              # cards that cannot proceed until this lands
+  blocked_by: [CARD-C]                  # what this is waiting on — mirrors the other card's `blocks`
+  related: [CARD-D, CARD-E]             # same family, no dependency
+  superseded_by: CARD-F                 # this card's premise was replaced
+  context: 'ONE SENTENCE PER LINK saying WHY it is linked.'
+```
+
+**`context` is mandatory and is the whole point.** A bare id tells a future reader two cards touch,
+not what the relationship buys them. "TEST-STRATEGY-REARCH-1 is the parent re-architecture — the
+durable fix removes the import-time surgery entirely" is a link worth having. `related: [TEST-1]`
+alone is noise.
+
+In prose bodies, reference other cards as `[[CARD-ID]]` — same convention as memory files. A
+`[[CARD-ID]]` that does not exist yet is fine; it marks work worth carding, not an error.
+
+### Rules
+
+1. **Link at creation, not at cleanup.** A link added during a later tidy-up has already failed to
+   route the reader who needed it.
+2. **`blocks` / `blocked_by` are mirrored.** If A blocks B, both cards say so. A one-sided
+   dependency is invisible from the side that needs it most.
+3. **Gating is a link, not a note.** When a group of cards waits on one input — e.g. eight identity
+   consumers gated behind an egress-coverage re-measure — express it as `blocked_by` on each, so
+   ranking cannot pick up a card whose input is not ready.
+4. **When you refute or supersede, LINK — do not delete.** Set `superseded_by` and leave the
+   original with its reasoning. The refuted card is the record of why the current answer is the
+   current answer, and deleting it invites re-derivation. (Same discipline as `dead != delete`.)
+5. **Contradictions get linked too.** If two cards make incompatible claims, link them and say so in
+   `context`. An unlinked contradiction gets discovered by a builder mid-cycle.
+
+### Why this earns its keep
+
+Three of the highest-value findings on this board were only visible as *relationships*: the census
+consumer cluster all sitting on one partly-dead producer; `HVAC-PRESET-RESTORE-MISS-1` and
+`HVAC-MANUAL-PRESET-CONTRACT-1` being one bug carded twice; `HVAC-PRESET-FLAP-1` and the manual-
+lockout card being two faces of one precedence defect. None of those is visible from a card read in
+isolation — they are only visible from the edges.
+
 ## Status must track reality, not just the body (operator-coined 2026-08-21)
 
 Operator: *"moving them to the right next workflow implied quickly ie inbox to investigate or

@@ -6548,6 +6548,39 @@ cards:
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
 - id: SUITE-ORDER-POLLUTION-1
+  INSTANCE_2026_08_21_EXCURSION_CYCLE: 'CONCRETE MEASURED INSTANCE, found during the
+    HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority).
+    SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion
+    test files produces 7 COLLECTION ERRORS that take EVERY excursion test file down —
+    "ImportError: cannot import name HVACCoordinator" / "module hvac_override has no attribute
+    OverrideArrester". Default ALPHABETICAL order happens to be safe (test_hvac_* sorts before
+    test_override_*), so the suite reports green. That is an ACCIDENT OF NAMING, not a property.
+    WHY IT MATTERS BEYOND THIS CYCLE, and this is the important part: a green run DOES NOT PROVE THE
+    ANCHORS EXECUTED. Review C explicitly conditioned all 20 of its mutation-drill verdicts on that
+    ordering holding. Any -p randomly, xdist distribution, -k subset, or a developer running two
+    files by name can silently vaporise the anchors while the run still reports success. This
+    degrades the evidentiary value of EVERY reviewer pass, not just one cycle.
+    PARTIALLY FIXED 2026-08-21: the excursion cycle removed ITS OWN coupling (module-level
+    sys.modules surgery replaced by a shared idempotent bootstrap at quality/tests/_excursion_harness.py
+    which pops homeassistant.helpers.storage and homeassistant.util.dt on exit).
+    STILL OPEN AND OWNED HERE: test_override_arrester_ttl_suppression.py installs
+    homeassistant.helpers.storage in its own harness and NEVER POPS IT. In reverse order that
+    pollution flips the D1 _HA_REAL gate True, so 6 D1 behavioural tests run against mocks and fail.
+    VERIFIED PRE-EXISTING — the same 6-failure pattern reproduces on commit e6e69e8fe, before the
+    fix-up. Explicitly left out of the excursion cycle scope (it does not own that file) and routed
+    here instead.
+    FIX SHAPE: pop the installed modules at that file tail, or better, move every such harness to
+    the shared bootstrap pattern so no test file does import-time sys.modules surgery at all. The
+    second is the real fix and belongs to [[TEST-STRATEGY-REARCH-1]].'
+  links:
+    related:
+    - TEST-STRATEGY-REARCH-1
+    - HVAC-GOVERNED-EXCURSION-1
+    - TEST-SOURCE-MUTATION-KILL-UNSAFE-1
+    context: 'TEST-STRATEGY-REARCH-1 is the parent re-architecture (the durable fix — no import-time
+      sys.modules surgery anywhere). TEST-SOURCE-MUTATION-KILL-UNSAFE-1 is a sibling suite-hygiene
+      hazard from the same family (a killed source-mutating test corrupts the tree).
+      HVAC-GOVERNED-EXCURSION-1 is where this instance was found and where the partial fix shipped.'
   title: Presence tests fail order-dependently in large batches (suite hygiene)
   status: inbox
   thread: platform
