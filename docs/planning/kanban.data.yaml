@@ -7498,6 +7498,36 @@ cards:
     THE THRESHOLD CHANGE TO 2.2 STILL STANDS but on the EQUIPMENT argument only: 1.3 sat inside zone
     3s Stage 2 modulation band (0.90-1.50 kW), where a nudge yields little regardless of occupancy.
     Same defect that was corrected on zone 2. NOT on the comfort argument.'
+  OCCUPANCY_PROFILE_CORRECTED_AGAIN_2026_08_21: 'SECOND CORRECTION, and it reverses the first.
+    OPERATOR: "Its not completely unoccupied. And its also the One that has sensitive drive bys by
+    people in the house." Zone 3 is the TRANSIT zone — hallways + kitchen, HIGH-FREQUENCY SHORT
+    occupancy by people passing through. Neither previous framing was right:
+    - framing 1 (occupied, so nudges cost comfort) — wrong, assumed DWELL occupancy;
+    - framing 2 (mostly empty, so nudges are free) — ALSO WRONG, an over-correction.
+    THE ACTUAL PROFILE IS TRANSIT, and it inverts the comfort math a second time. In a DWELL zone
+    occupants are present continuously: they experience a nudge as a gradual drift and are present
+    for the recovery. In a TRANSIT zone someone arrives at an UNPREDICTABLE moment; if they walk in
+    mid-nudge they meet the excursion with no warning and no adaptation, and they are gone before the
+    restore. So per-nudge comfort cost in zone 3 may be HIGHER than in a dwell zone, not zero.
+    Consistent with the operators presence-tuning sensitivity being concentrated in exactly these
+    rooms — back hallway dwell was the setting they moved from 3 to 5 minutes.
+    NET: both the "11 interruptions for nothing" framing AND the "nudges are free" correction are
+    retired. The comfort cost is real, is concentrated in unpredictable short entries, and is NOT
+    captured by any nudge-count metric.'
+  DESIGN_IDEA_EARLY_RETURN_ON_OCCUPANCY_DECOMPOSE_FIRST: 'IDEA, NOT A SPEC — decompose before
+    scoping (marginal-benefit duty). The ramp gate block has NO occupancy input (MEASURED,
+    hvac_override.py:2660-2750), so a nudge runs to completion regardless of who arrives. The
+    implication of the transit profile points OPPOSITE to the earlier suggestion: not "skip the nudge
+    when the zone is empty" but "END THE NUDGE EARLY WHEN SOMEONE WALKS IN."
+    NATURAL FIT FOR THE BORROW PRIMITIVE, not new machinery: an occupancy event becomes an
+    EARLY-RETURN TRIGGER on an existing lease. return_excursion() already exists; this is one more
+    discharge condition on it, not a new mechanism. That is a genuinely cheap version IF it is worth
+    doing at all.
+    DO NOT BUILD BEFORE MEASURING. The simple version already helps: a nudge is ~2 minutes, so the
+    overlap window with any given drive-by is small. Whether early-return earns its complexity depends
+    on HOW OFTEN A NUDGE AND AN ENTRY ACTUALLY COINCIDE — measurable from existing data, and it
+    belongs in the same occupancy split described below. If coincidence is rare, the idea is parked
+    with this note as the evidence trigger.'
   THE_REAL_QUESTION_NOW: 'The question is NOT "does zone 3 save?" but "DOES ZONE 3 SAVE WHEN THE
     HOUSE IS ENTERTAINING?" Those are the nudges that carry actual comfort cost and the only ones
     worth tuning for. A null pooled across mostly-empty hours may be WASHING OUT a real signal from
@@ -7505,6 +7535,10 @@ cards:
     pooled mean would be dominated by the empty ones.
     DISCRIMINATING TEST, runnable on data that ALREADY EXISTS (no 3-4 week wait): split zone 3s 79
     nudges by occupancy/preset at fire time and compare net energy effect between the two halves.
+    ADD A THIRD MEASUREMENT given the transit profile: the COINCIDENCE RATE — how often does an
+    occupancy ENTRY event land inside a live nudge window (nudge start -> restore, ~2 min)? That
+    number, not the nudge count, is the real comfort-cost metric for a transit zone, and it is the
+    go/no-go gate on the early-return idea above.
     - If occupied-half looks like zone 2 and empty-half is ~zero -> occupancy IS the mechanism; tune
       for the occupied case and leave the free empty-zone nudges alone.
     - If BOTH halves are null -> occupancy is NOT the mechanism; look elsewhere (thermal rebound
