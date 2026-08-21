@@ -6548,6 +6548,30 @@ cards:
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
 - id: SUITE-ORDER-POLLUTION-1
+  INSTANCE_2026_08_21_GATE_BLOCKER_FIXED: 'SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED
+    THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON
+    DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not just the
+    one in flight. Nobody had noticed because a passing targeted run looks the same as a passing
+    suite from the outside.
+    MECHANISM: quality/tests/test_reboot_pickup_d2.py read `<mod>.__path__[0]` off package modules
+    fetched from sys.modules at IMPORT time (three sites: custom_components,
+    universal_room_automation, domain_coordinators). A sibling file that had already registered a
+    stub with an EMPTY __path__ made that raise IndexError — during COLLECTION, which pytest treats
+    as fatal, aborting all ~9,600 tests.
+    PROVENANCE: found by the orchestrator while attempting the pre-deploy gate for
+    HVAC-GOVERNED-EXCURSION-1. VERIFIED pre-existing on develop and NOT caused by that branch, and
+    NOT caused by the ~100 stale worktrees (reproduces with .claude ignored).
+    FIX (commit 71a769cfb): derive every path from __file__, which no sibling can corrupt; use the
+    sys.modules entries only for REGISTRATION; REPAIR a pre-existing module with a missing/empty
+    __path__ via _ensure_pkg_path() rather than trusting it. Before: 9,610 collected, 1 error,
+    interrupted. After: 9,615 collected, 0 errors. The file own 5 tests still pass.
+    THE GENERAL LESSON, and it is the one worth carrying: DEFENSIVE CODE THAT READS POLLUTED STATE IS
+    NOT DEFENSIVE. This file was carefully written to coexist with siblings (setdefault everywhere,
+    do-not-clobber comments) and still broke, because it TRUSTED what it read back out of
+    sys.modules. Compute from an authority nobody else can write to (__file__), do not read back
+    from shared mutable state.
+    STILL OPEN on this card: the reverse-order failures from test_override_arrester_ttl_suppression
+    (see the other INSTANCE block) — a different file, same family, not fixed.'
   INSTANCE_2026_08_21_EXCURSION_CYCLE: 'CONCRETE MEASURED INSTANCE, found during the
     HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority).
     SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion
