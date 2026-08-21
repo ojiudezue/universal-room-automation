@@ -211,3 +211,56 @@ def test_F2_revert_uses_token_snapshot_not_caller_arg(monkeypatch):
         "F2: S4 must write the token snapshot value, not the caller drift. "
         f"Got: {calls}"
     )
+
+
+
+# ---------------------------------------------------------------------------
+# Item-1 (2026-08-21) - restore_ok semantic distinction
+# ---------------------------------------------------------------------------
+
+def test_ITEM1_immunity_early_return_uses_restore_ok_None(monkeypatch):
+    """Policy DECIDED not to restore (immunity engaged). No wire write
+    was attempted. restore_ok MUST be None, NOT False - analytics
+    counting False as failures should not see this.
+
+    Neuter anchor: change restore_ok=None -> restore_ok=False on the
+    immunity early-return -> this test fails."""
+    a, zone = _setup()
+    _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
+    a._corrective_writes_suppressed = MagicMock(return_value=True)
+    outcomes = []
+    orig_return = _ex_mod.return_excursion
+    async def _capture(tok, **kw):
+        out = await orig_return(tok, **kw)
+        outcomes.append({"trigger": kw.get("trigger"),
+                         "restore_ok": kw.get("restore_ok"),
+                         "trigger_detail": kw.get("trigger_detail")})
+        return out
+    monkeypatch.setattr(_ex_mod, "return_excursion", _capture)
+    _run(a._revert_override(zone, "home"))
+    assert outcomes[-1]["trigger"] == "immunity_skip"
+    assert outcomes[-1]["restore_ok"] is None, (
+        "Item-1: immunity policy-skip must record restore_ok=None "
+        f"(no wire attempt). Got: {outcomes[-1]}"
+    )
+    assert outcomes[-1]["trigger_detail"] == "revert_skipped_immunity"
+
+
+def test_ITEM1_comfort_delay_early_return_uses_restore_ok_None(monkeypatch):
+    """Same distinction for comfort-delay skip."""
+    a, zone = _setup()
+    _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
+    a.comfort_delay_active = MagicMock(return_value=True)
+    outcomes = []
+    orig_return = _ex_mod.return_excursion
+    async def _capture(tok, **kw):
+        out = await orig_return(tok, **kw)
+        outcomes.append(kw)
+        return out
+    monkeypatch.setattr(_ex_mod, "return_excursion", _capture)
+    _run(a._revert_override(zone, "home"))
+    assert outcomes[-1].get("trigger") == "comfort_delay_skip"
+    assert outcomes[-1].get("restore_ok") is None, (
+        f"Item-1: comfort-delay policy-skip must be None. Got: {outcomes[-1]}"
+    )
+    assert outcomes[-1].get("trigger_detail") == "revert_skipped_comfort_delay"

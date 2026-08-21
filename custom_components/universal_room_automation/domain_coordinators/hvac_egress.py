@@ -555,15 +555,16 @@ class EgressManager:
             return
 
         # HVAC-GOVERNED-EXCURSION-1 D3 (row 15, S15 EGRESS_PAUSE START):
-        # open the governed excursion BEFORE the set_hvac_mode:off wire
-        # write. begin_excursion writes the persistence row first (R1
+        # begin_excursion BEFORE the set_hvac_mode:off wire write (R1
         # ordering, fixes A-HIGH-2 persist-after-actuate at :570-592).
-        # UNFILTERED snapshot per §13.5 (pre_preset may be None/'manual').
-        # duration_s=None — egress is caller-owned, no timer; the lease
-        # expires by EXCURSION_LEASE_MAX_S if resume never fires
-        # (front-door-open-through-the-party bound).
+        # UNFILTERED snapshot per section 13.5 (pre_preset may be None
+        # or 'manual'). duration_s=None - egress is caller-owned; the
+        # row is closed by _engage_resume (or by boot audit at MAX_S).
+        # Item-2 retrofit (2026-08-21): wire write MUST run inside
+        # auto_release_on_incomplete so a mode-off exception does not
+        # leak the row.
+        from . import hvac_excursion as _ex_mod  # noqa: PLC0415
         try:
-            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
             _et = await _ex_mod.begin_excursion(
                 self._hass,
                 zone_id=zone_id,
@@ -573,59 +574,38 @@ class EgressManager:
                 site="S15_egress_pause",
                 intended_mode=prior_mode or "heat_cool",
             )
-            if not hasattr(self, "_egress_excursion_tokens"):
-                self._egress_excursion_tokens = {}
-            if _et is not None:
-                self._egress_excursion_tokens[zone_id] = _et
         except Exception as _ege:  # noqa: BLE001
             _LOGGER.debug(
                 "egress pause: begin_excursion failed for %s: %s",
                 zone_id, _ege,
             )
+            _et = None
+        if not hasattr(self, "_egress_excursion_tokens"):
+            self._egress_excursion_tokens = {}
 
-        try:
-            # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): on some
-            # thermostat firmware (notably Ecobee), a set_hvac_mode
-            # transition can cause the device to re-emit its preset
-            # defaults over a manual setpoint on the next tick — the
-            # DPM apply / arrester paths cover the resulting write via
-            # emit_* chokepoints. The egress pause itself is deliberately
-            # UNGATED by comfort-delay grace (safety > comfort during an
-            # open egress window); pending live evidence that this
-            # firmware quirk actually stomps an operator hold, we do not
-            # add a gate here. Revisit if operator observes a manual
-            # setpoint being overridden immediately after an egress
-            # pause on a comfort-qualified zone.
-            await self._hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": thermostat, "hvac_mode": "off"},
-                blocking=True,
-            )
-        except Exception:
-            _LOGGER.warning(
-                "EgressManager: set_hvac_mode failed for %s — keeping counter",
-                thermostat, exc_info=True,
-            )
-            # STRUCTURAL FIX (2026-08-21): release the excursion — the
-            # mode-off wire write failed so the token cannot be
-            # legitimately returned by _engage_resume later. Otherwise
-            # the row is stranded until EXCURSION_LEASE_MAX_S expiry.
-            _leaked_token = getattr(
-                self, "_egress_excursion_tokens", {},
-            ).pop(zone_id, None)
-            if _leaked_token is not None:
-                try:
-                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
-                    await _ex_mod.return_excursion(
-                        _leaked_token,
-                        trigger="wire_write_failed",
-                        restore_ok=False,
-                        trigger_detail="s15_engage_pause_set_hvac_mode_exception",
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-            return
+        async with _ex_mod.auto_release_on_incomplete(
+            _et, trigger="s15_egress_pause_wire_failed",
+        ) as _s15_guard:
+            try:
+                # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): egress
+                # pause is deliberately UNGATED by comfort-delay grace
+                # (safety > comfort during an open egress window).
+                await self._hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": thermostat, "hvac_mode": "off"},
+                    blocking=True,
+                )
+                _s15_guard.mark_committed()
+                if _et is not None:
+                    self._egress_excursion_tokens[zone_id] = _et
+            except Exception:
+                _LOGGER.warning(
+                    "EgressManager: set_hvac_mode failed for %s - keeping counter",
+                    thermostat, exc_info=True,
+                )
+                # CM auto-releases with trigger_detail="wire_exception:...".
+                return
 
         self._paused_by_egress[zone_id] = {
             "mode": prior_mode,

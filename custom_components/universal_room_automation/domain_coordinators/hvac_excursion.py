@@ -157,6 +157,25 @@ class ExcursionToken:
 
 @dataclass
 class ReturnOutcome:
+    """Outcome of a return_excursion call.
+
+    Field semantics (item-1 ruling, 2026-08-21):
+
+    * ``restore_ok = True``  — a restore was ATTEMPTED and the wire landed
+      as intended.
+    * ``restore_ok = False`` — a restore was ATTEMPTED and the wire is
+      wrong (defer, exception, immediate/settled mismatch). A genuine
+      divergence between intent and thermostat state.
+    * ``restore_ok = None``  — no restore was attempted. Either policy
+      decided not to (immunity engaged, comfort-delay grace, feature
+      turned off) OR the measurement is in flight (settled callback
+      pending). ``trigger_detail`` names the reason.
+
+    Analytics that count wire failures MUST filter on
+    ``restore_ok = False`` — treating None as failure conflates
+    deliberate policy skips with real divergences.
+    """
+
     trigger: str
     restore_ok_immediate: Optional[bool] = None
     restore_ok: Optional[bool] = None
@@ -669,22 +688,33 @@ async def async_startup_excursion_audit(hass, coord) -> None:
 
 # --- Structural release-on-incomplete-write helper --------------------------
 #
-# Operator ruling 2026-08-21: prefer ONE structural fix for lease-release
-# leaks on early-exit paths over N scattered patches, "so a future site
-# cannot forget." The context manager below is that fix. Callers wrap
-# their wire-write attempt in:
+# Operator ruling 2026-08-21: ONE structural fix for lease-release leaks
+# on early-exit paths, "so a future site cannot forget." Every
+# ``begin_excursion`` caller MUST go through this context manager. The
+# pattern:
 #
 #     token = await begin_excursion(...)
-#     async with auto_release_on_incomplete(token, trigger="wire_failed"):
-#         await emit_set_temperature(...)
-#         # ... normal path calls return_excursion below
+#     async with auto_release_on_incomplete(
+#         token, trigger="s5_wire_failed",
+#     ) as guard:
+#         wrote = await emit_set_temperature(...)
+#         if wrote:
+#             guard.mark_committed()   # wire landed; future return_excursion
+#                                      # elsewhere will close the row cleanly
+#             self._nudge_excursion_tokens[zone_id] = token
+#         # if not wrote: block exits without mark_committed(); CM auto-
+#         # releases with restore_ok=False + trigger.
 #
-# If the block exits normally AFTER calling ``return_excursion`` the CM
-# is a no-op (checks ``token._returned``). If the block exits by
-# exception, or by a normal fall-through that FORGOT to call
-# ``return_excursion``, the CM fires ``return_excursion`` with the
-# supplied trigger + restore_ok=False. Future sites that use this CM
-# cannot leak a row on an early-exit path.
+# Semantics (see ReturnOutcome docstring):
+#   * mark_committed() called      -> CM is a no-op; caller owns the return.
+#   * Block exits by exception     -> CM releases restore_ok=False +
+#                                     trigger_detail="wire_exception:<type>".
+#   * Block exits without commit   -> CM releases restore_ok=False +
+#                                     trigger_detail (defaulted or supplied).
+#   * token is None (kill switch)  -> CM is a no-op.
+#
+# The CM DELIBERATELY does not swallow the wrapped exception; the caller
+# still sees it. But the excursion row is closed either way.
 
 
 class _AutoReleaseOnIncomplete:
@@ -697,22 +727,28 @@ class _AutoReleaseOnIncomplete:
         trigger: str,
         trigger_detail: Optional[str] = None,
     ):
-        self._token = token
+        self.token = token
         self._trigger = trigger
         self._trigger_detail = trigger_detail
+        self._committed = False
+
+    def mark_committed(self) -> None:
+        """Wire write landed; caller owns the future return_excursion."""
+        self._committed = True
 
     async def __aenter__(self):
-        return self._token
+        return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        tok = self._token
+        tok = self.token
         if tok is None:
+            return False
+        if self._committed:
             return False
         if tok._returned:
             return False
-        # Block exited (exception or fall-through) without a
-        # return_excursion call — release with restore_ok=False so the
-        # outcome row records the divergence honestly.
+        # Block exited without mark_committed() — release with
+        # restore_ok=False so the outcome row records the divergence.
         try:
             await return_excursion(
                 tok,
@@ -721,9 +757,8 @@ class _AutoReleaseOnIncomplete:
                 trigger_detail=(
                     self._trigger_detail
                     or (
-                        f"auto_release_on_incomplete_write"
-                        f"({exc_type.__name__})" if exc_type else
-                        "auto_release_on_scope_exit_no_return_call"
+                        f"wire_exception:{exc_type.__name__}" if exc_type
+                        else "no_commit_on_scope_exit"
                     )
                 ),
             )
@@ -741,7 +776,13 @@ def auto_release_on_incomplete(
     trigger: str = "auto_release_on_incomplete",
     trigger_detail: Optional[str] = None,
 ) -> _AutoReleaseOnIncomplete:
-    """Public factory for the auto-release context manager."""
+    """Public factory for the auto-release context manager. See class docs.
+
+    Callers get a ``guard`` object; on the success path call
+    ``guard.mark_committed()``. On any early exit (defer, exception,
+    fall-through) the CM auto-releases the excursion with
+    restore_ok=False.
+    """
     return _AutoReleaseOnIncomplete(
         token, trigger=trigger, trigger_detail=trigger_detail,
     )
