@@ -12670,7 +12670,9 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
             "last_trigger_time": t.isoformat() if (t := getattr(hvac, '_last_pre_arrival_time', None)) else None,
             "last_trigger_source": getattr(hvac, '_last_pre_arrival_source', ""),
             "last_trigger_person": getattr(hvac, '_last_pre_arrival_person', ""),
-            "triggers_today": getattr(hvac, '_pre_arrival_triggers_today', 0),
+            # RESTART-SAFETY-DOCTRINE-1: _pre_arrival_triggers_today is now
+            # a DailyCounter; int() coerces via __int__.
+            "triggers_today": int(getattr(hvac, '_pre_arrival_triggers_today', 0) or 0),
             "person_zone_map": getattr(hvac, '_person_zone_map', {}),
             "fan_rooms_activated": getattr(predictor, '_last_fan_activation_rooms', []) if predictor else [],
             "fan_rooms_skipped": getattr(predictor, '_last_fan_skipped_rooms', []) if predictor else [],

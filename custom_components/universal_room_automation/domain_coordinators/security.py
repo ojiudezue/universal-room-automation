@@ -67,6 +67,7 @@ from .base import (
     ServiceCallAction,
     Severity,
 )
+from .coordinator_diagnostics import DailyCounter
 from .signals import (
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_OPTIMIZER_INTENT,
@@ -563,8 +564,23 @@ class SecurityCoordinator(BaseCoordinator):
         self._alert_details: dict[str, Any] = {}
         self._last_entry_event: dict[str, Any] = {}
         self._lock_compliance: dict[str, str] = {}  # entity_id -> "locked"/"unlocked"
-        self._alerts_today: int = 0
-        self._lock_checks_today: int = 0
+        # RESTART-SAFETY-DOCTRINE-1 F11: display-only diagnostic counters.
+        # restart: RESET WITH REASON — no rate-cap consumer reads either
+        # value; only sensor attribute payloads at 1759, 2448.
+        self._alerts_today = DailyCounter(
+            name="security.alerts_today",
+            persist=False,
+            reason="display-only alert count; not read on any policy path",
+        )
+        self._lock_checks_today = DailyCounter(
+            name="security.lock_checks_today",
+            persist=False,
+            reason=(
+                "display-only sweep count; the lock sweep runs on its own "
+                "interval regardless of this value"
+            ),
+        )
+        # Retained for backward-compat with any external inspector.
         self._last_reset_date: str = ""
 
         # Open entries tracking: entity_id -> opened_at timestamp
@@ -988,7 +1004,7 @@ class SecurityCoordinator(BaseCoordinator):
             "type": "unknown_person",
             "timestamp": dt_util.utcnow().isoformat(),
         }
-        self._alerts_today += 1
+        self._alerts_today.increment()
 
         # v3.12.0 M2: Dispatch security event signal for automation chaining
         async_dispatcher_send(
@@ -1514,7 +1530,7 @@ class SecurityCoordinator(BaseCoordinator):
             "verdict": verdict.value,
             "timestamp": dt_util.utcnow().isoformat(),
         }
-        self._alerts_today += 1
+        self._alerts_today.increment()
 
         sev_str = "critical" if verdict == EntryVerdict.ALERT_HIGH else "high"
         # v3.12.0 M2: Dispatch security event signal for automation chaining
@@ -1638,7 +1654,7 @@ class SecurityCoordinator(BaseCoordinator):
 
     async def _evaluate_lock_check(self) -> list[CoordinatorAction]:
         """Check all locks and garage doors, lock any that are unlocked."""
-        self._lock_checks_today += 1
+        self._lock_checks_today.increment()
         actions: list[CoordinatorAction] = []
         unlocked: list[str] = []
         unavailable: list[str] = []
@@ -1756,7 +1772,7 @@ class SecurityCoordinator(BaseCoordinator):
             "found_unlocked": unlocked,
             "lock_actions_sent": unlocked.copy(),
             "unavailable": unavailable,
-            "checks_today": self._lock_checks_today,
+            "checks_today": self._lock_checks_today.value,
         }
 
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
@@ -2445,7 +2461,7 @@ class SecurityCoordinator(BaseCoordinator):
             "non_compliant": total - locked,
             "compliance_rate": round(locked / total * 100, 1) if total > 0 else 100.0,
             "last_check": dt_util.utcnow().isoformat(),
-            "checks_today": self._lock_checks_today,
+            "checks_today": self._lock_checks_today.value,
         }
 
     def get_diagnostics_status(self) -> str:
@@ -2471,9 +2487,10 @@ class SecurityCoordinator(BaseCoordinator):
     # =========================================================================
 
     def _maybe_reset_daily_counters(self) -> None:
-        """Reset daily counters if the date has changed."""
-        today = dt_util.now().date().isoformat()
-        if today != self._last_reset_date:
-            self._alerts_today = 0
-            self._lock_checks_today = 0
-            self._last_reset_date = today
+        """Force a rollover check on the DailyCounter primitives.
+
+        Kept for backward compatibility; counters roll over lazily on
+        access so this is a no-op in the steady state.
+        """
+        self._alerts_today.rollover_if_needed()
+        self._lock_checks_today.rollover_if_needed()

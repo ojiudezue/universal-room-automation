@@ -3080,6 +3080,23 @@ class SafetyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug("Could not save rate baselines on teardown", exc_info=True)
 
+        # RESTART-SAFETY-DOCTRINE-1 F1: persist AnomalyDetector baselines.
+        # Matches HVAC (hvac.py:3869), presence (presence.py:7448), music
+        # (music_following.py:687), security (security.py:824). Safety +
+        # setup detector (manager) were the only load-baselines-without-save
+        # sites the audit surfaced. Event-driven baselines (safety hazards
+        # fire rarely) NEVER arm without this — MINIMUM_SAMPLES=10 is
+        # unreachable inside the measured 5.55h median restart interval.
+        if self.anomaly_detector is not None:
+            try:
+                await self.anomaly_detector.save_baselines()
+                _LOGGER.info("Safety: saved anomaly baselines on teardown")
+            except Exception:
+                _LOGGER.warning(
+                    "Safety: failed to save anomaly baselines on teardown",
+                    exc_info=True,
+                )
+
         self._cancel_listeners()
         self._active_hazards.clear()
         self._hazard_occurrences.clear()

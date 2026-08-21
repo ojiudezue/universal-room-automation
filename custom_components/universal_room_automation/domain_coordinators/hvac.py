@@ -421,9 +421,19 @@ class HVACCoordinator(BaseCoordinator):
         # consensus oscillation.
         self._defer_gate_enabled: bool = True
         self._d6_gate_engaged: bool = False  # asymmetric-hysteresis latch
-        # Daily counter (reset by existing midnight-reset hook) — exposed on
-        # the HVAC compliance sensor for operator visibility.
-        self._d6_deferrals_today: int = 0
+        # RESTART-SAFETY-DOCTRINE-1 F14: daily counter exposed on the HVAC
+        # compliance sensor for operator visibility.
+        # restart: RESET WITH REASON — display-only counter; the D6 defer
+        # gate itself is derived from live consensus, not this count.
+        from .coordinator_diagnostics import DailyCounter as _DailyCounter
+        self._d6_deferrals_today = _DailyCounter(
+            name="hvac.d6_deferrals_today",
+            persist=False,
+            reason=(
+                "display-only diagnostic counter; the D6 defer gate is a "
+                "live-consensus derivation and does not consume this value"
+            ),
+        )
 
         # v4.7.1 fix-up D2/D3: Guest Mode Actuation Phase 1
         # Master kill switch — seeded True; runtime-toggled via
@@ -456,7 +466,16 @@ class HVACCoordinator(BaseCoordinator):
         self._pre_arrival_zones: set[str] = set()
         self._pre_arrival_persons: dict[str, str] = {}  # zone_id -> person_entity
         self._pre_arrival_start: dict[str, Any] = {}  # zone_id -> datetime
-        self._vacancy_sweeps_today: int = 0
+        # RESTART-SAFETY-DOCTRINE-1 F14. restart: RESET WITH REASON —
+        # display-only counter surfaced via property vacancy_sweeps_today
+        # and the HVAC diagnostics sensor. Zone-vacancy behaviour is
+        # re-derived per decision cycle from live occupancy, so a reset
+        # count on restart does not affect actuation.
+        self._vacancy_sweeps_today = _DailyCounter(
+            name="hvac.vacancy_sweeps_today",
+            persist=False,
+            reason="display counter; vacancy actuation is live-derived per cycle",
+        )
         self._zone_intelligence_enabled: bool = True
         self._decision_cycle_lock = asyncio.Lock()
         self._pending_tasks: set[asyncio.Task] = set()
@@ -489,7 +508,15 @@ class HVACCoordinator(BaseCoordinator):
         self._last_pre_arrival_time: Any = None
         self._last_pre_arrival_source: str = ""
         self._last_pre_arrival_person: str = ""
-        self._pre_arrival_triggers_today: int = 0
+        # RESTART-SAFETY-DOCTRINE-1 F14. restart: RESET WITH REASON —
+        # display-only counter surfaced on HVAC diagnostics + read via
+        # getattr in sensor.py (line ~12673). Pre-arrival dispatch is
+        # driven by person state on live signals, not by this count.
+        self._pre_arrival_triggers_today = _DailyCounter(
+            name="hvac.pre_arrival_triggers_today",
+            persist=False,
+            reason="display counter; pre-arrival dispatch is signal-driven",
+        )
 
         # v3.19.0: Camera zone map (diagnostic)
         self._camera_zone_map: dict[str, str] = {}
@@ -705,7 +732,7 @@ class HVACCoordinator(BaseCoordinator):
     @property
     def vacancy_sweeps_today(self) -> int:
         """Return count of vacancy sweeps executed today."""
-        return self._vacancy_sweeps_today
+        return self._vacancy_sweeps_today.value
 
     @property
     def energy_offset(self) -> float:
@@ -1224,8 +1251,13 @@ class HVACCoordinator(BaseCoordinator):
             self._predictor.flush_daily_outcome()
             self._zone_manager.reset_daily_counters()
             self._preset_manager.determine_season()
-            self._vacancy_sweeps_today = 0
-            self._pre_arrival_triggers_today = 0
+            # RESTART-SAFETY-DOCTRINE-1 F14: DailyCounter primitives roll
+            # over lazily; call rollover_if_needed (no arg) so the counter
+            # uses its own UTC-based today string (Bug Class #11 guard) and
+            # does not mix the outer local "today" clock with the counter's
+            # internal UTC clock.
+            self._vacancy_sweeps_today.rollover_if_needed()
+            self._pre_arrival_triggers_today.rollover_if_needed()
 
         # Update zone states
         self._zone_manager.update_all_zones()
@@ -1430,7 +1462,7 @@ class HVACCoordinator(BaseCoordinator):
                             "consensus=%.2f < 0.7",
                             consensus,
                         )
-                        self._d6_deferrals_today += 1
+                        self._d6_deferrals_today.increment()
                         return
                 else:
                     if consensus < 0.5 and secs_since_transition < 30:
@@ -1440,7 +1472,7 @@ class HVACCoordinator(BaseCoordinator):
                             consensus, secs_since_transition,
                         )
                         self._d6_gate_engaged = True
-                        self._d6_deferrals_today += 1
+                        self._d6_deferrals_today.increment()
                         return  # Skip this apply cycle — retry next tick.
 
         # --- Continuous heat_cool enforcer (always, even during arriving) ---
@@ -1557,7 +1589,7 @@ class HVACCoordinator(BaseCoordinator):
                     if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
                         await self._execute_vacancy_sweep(zone)
                         zone.vacancy_sweep_done = True
-                        self._vacancy_sweeps_today += 1
+                        self._vacancy_sweeps_today.increment()
 
                 # D6: Stale occupancy failsafe (skip during sleep — RH4)
                 # v3.22.2: Multi-source confidence check before declaring stale.
@@ -1609,7 +1641,7 @@ class HVACCoordinator(BaseCoordinator):
                         if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
                             await self._execute_vacancy_sweep(zone)
                             zone.vacancy_sweep_done = True
-                            self._vacancy_sweeps_today += 1
+                            self._vacancy_sweeps_today.increment()
                         _LOGGER.warning(
                             "HVAC: Zone %s occupied >%dh with only %d/%d source(s) "
                             "(threshold %d) — treating as stale sensor",
@@ -3335,7 +3367,7 @@ class HVACCoordinator(BaseCoordinator):
         self._last_pre_arrival_time = dt_util.utcnow()
         self._last_pre_arrival_source = data.get("source", "unknown")
         self._last_pre_arrival_person = person_entity
-        self._pre_arrival_triggers_today += 1
+        self._pre_arrival_triggers_today.increment()
 
         # Trigger immediate decision cycle
         task = self.hass.async_create_task(self._async_decision_cycle())
@@ -3808,12 +3840,12 @@ class HVACCoordinator(BaseCoordinator):
         attrs["vacancy_override_zones"] = vacancy_overrides
         attrs["person_zone_map"] = self._person_zone_map
         attrs["camera_zone_map"] = self._camera_zone_map
-        attrs["vacancy_sweeps_today"] = self._vacancy_sweeps_today
+        attrs["vacancy_sweeps_today"] = self._vacancy_sweeps_today.value
         # v3.18.6: Pre-arrival diagnostics
         attrs["pre_arrival_enabled"] = self._pre_arrival_enabled
         attrs["pre_arrival_sources"] = self._pre_arrival_sources
         attrs["pre_arrival_active_zones"] = list(self._pre_arrival_zones)
-        attrs["pre_arrival_triggers_today"] = self._pre_arrival_triggers_today
+        attrs["pre_arrival_triggers_today"] = self._pre_arrival_triggers_today.value
         attrs["last_pre_arrival_time"] = self._last_pre_arrival_time.isoformat() if self._last_pre_arrival_time else None
         attrs["last_pre_arrival_source"] = self._last_pre_arrival_source
         attrs["last_pre_arrival_person"] = self._last_pre_arrival_person

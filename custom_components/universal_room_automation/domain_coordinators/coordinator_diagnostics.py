@@ -737,6 +737,124 @@ class ComplianceTracker:
 
 
 # ============================================================================
+# DailyCounter — day-scoped integer counter with declared restart-safety
+# ============================================================================
+#
+# RESTART-SAFETY-DOCTRINE-1 (tranche 1) primitive.
+#
+# Collapses the identical `self._*_today: int = 0` + `_maybe_reset_daily_counter`
+# pattern found across coordinator_diagnostics (F3), security (F11),
+# manager (F13), hvac (F14) — six hand-rolled rollover routines audited at
+# `docs/planning/AUDIT_restart_safety_classification.md`.
+#
+# The primitive FORCES the doctrine at declaration:
+#   - `persist=False` REQUIRES a `reason` string. UNDECLARED is the bug.
+#   - `persist=True` is not yet implemented — deferred to a follow-up cycle
+#     that adds the shared KV/table backing (F16 dedup dict + F8 arrester
+#     override_count_today live in that follow-up per the audit).
+#
+# See also: `OverrideArrester._temp_arrester_override_active`
+# (hvac_override.py:292-306) — the exemplar for a correct RESET decision
+# with stated reason + operator-visible surfacing.
+
+
+class DailyCounter:
+    """Day-scoped integer counter that rolls over at date change.
+
+    restart: RESET — in-memory display counter. The caller MUST supply a
+    ``reason`` string explaining WHY reset-on-restart is safe for this
+    counter (e.g. "metric-y counter, sensor re-derives within a day").
+    Undeclared reset is the bug the RESTART-SAFETY-DOCTRINE-1 audit
+    catalogued; this primitive prevents it at construction time.
+
+    Attributes:
+        name: identifier used only for diagnostic messages.
+        reason: operator-facing justification for RESET-on-restart.
+
+    Usage:
+        self._alerts_today = DailyCounter(
+            name="security.alerts_today",
+            persist=False,
+            reason="alert-count display metric; sensor re-derives within a day",
+        )
+        self._alerts_today.increment()
+        attrs["alerts_today"] = self._alerts_today.value
+        # Optional explicit rollover from an existing decision-cycle hook:
+        self._alerts_today.rollover_if_needed()
+    """
+
+    __slots__ = ("name", "persist", "reason", "_value", "_date")
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        persist: bool = False,
+        reason: str = "",
+    ) -> None:
+        if persist:
+            # Deferred: the persist path needs a shared backing store and a
+            # coordinator-lifecycle hook. Tracked in RESTART-SAFETY-DOCTRINE-1
+            # follow-ups. Callers should stay on the hand-rolled path (or a
+            # dedicated per-coordinator table) until the primitive lands.
+            raise NotImplementedError(
+                f"DailyCounter({name}): persist=True is not implemented in "
+                "the tranche-1 primitive; use a dedicated per-domain table "
+                "(see ac_reset_state / HVACZones.snapshot for exemplars)."
+            )
+        if not reason:
+            raise ValueError(
+                f"DailyCounter({name}): reason='' is UNDECLARED — supply a "
+                "one-line justification for RESET-on-restart per "
+                "RESTART-SAFETY-DOCTRINE-1."
+            )
+        self.name = name
+        self.persist = persist
+        self.reason = reason
+        self._value: int = 0
+        self._date: str = ""
+
+    def _today(self) -> str:
+        # Bug Class #11 (UTC vs local): use dt_util.utcnow() to match the
+        # AnomalyDetector._maybe_reset_daily_counter convention this repo
+        # already guards against (test_v4_6_11_dashboard_attrs.py::
+        # TestD2DatetimeUtcnowFix). Aware datetime; avoids naive/aware
+        # comparison TypeError at any sibling site that mixes clocks.
+        return dt_util.utcnow().date().isoformat()
+
+    def rollover_if_needed(self, today: Optional[str] = None) -> None:
+        """Roll the counter over to 0 if the UTC date has changed."""
+        d = today if today is not None else self._today()
+        if d != self._date:
+            self._value = 0
+            self._date = d
+
+    def increment(self, n: int = 1) -> None:
+        """Bump the counter by ``n`` (rolls over lazily if the date changed)."""
+        self.rollover_if_needed()
+        self._value += n
+
+    def reset(self) -> None:
+        """Manual reset (does not touch the rollover date)."""
+        self._value = 0
+
+    @property
+    def value(self) -> int:
+        """Current value (rolls over lazily if the date changed)."""
+        self.rollover_if_needed()
+        return self._value
+
+    def __int__(self) -> int:  # convenience for callers that int()-coerce
+        return self.value
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostic aid only
+        return (
+            f"DailyCounter(name={self.name!r}, value={self._value}, "
+            f"date={self._date!r}, persist={self.persist})"
+        )
+
+
+# ============================================================================
 # AnomalyDetector
 # ============================================================================
 
@@ -795,8 +913,18 @@ class AnomalyDetector:
         self._sensitivity_multiplier = m
         self._baselines: Dict[tuple, MetricBaseline] = {}
         self._active_anomalies: list[AnomalyRecord] = []
-        self._anomalies_today: int = 0
-        self._anomaly_reset_date: str = ""
+        # RESTART-SAFETY-DOCTRINE-1 F3+F4: rollover-at-midnight counter.
+        # restart: RESET — display counter aggregated from anomaly_log rows
+        # that DO survive restart; the "today" cardinality is re-derivable
+        # from the DB if a consumer ever needs the pre-restart contribution.
+        self._anomalies_today = DailyCounter(
+            name=f"anomaly_detector.{coordinator_id}.anomalies_today",
+            persist=False,
+            reason=(
+                "display counter; anomaly_log DB rows persist and hold the "
+                "authoritative day-cardinality if ever needed"
+            ),
+        )
         # v4.6.5.3 surface fix: suppressed metrics filtered out of severity.
         self._suppressed_metric_names: "frozenset[str]" = (
             suppressed_metric_names if suppressed_metric_names is not None
@@ -835,11 +963,19 @@ class AnomalyDetector:
         return self._baselines[key]
 
     def _maybe_reset_daily_counter(self) -> None:
-        """Reset daily anomaly counter if date changed."""
+        """Reset daily anomaly counter if date changed.
+
+        Delegates to DailyCounter's rollover (F3+F4 via
+        RESTART-SAFETY-DOCTRINE-1). Kept as a method for backward
+        compatibility with existing call sites and tests.
+
+        Bug Class #11 (UTC vs local): dt_util.utcnow() is the guard-tested
+        convention here (test_v4_6_11_dashboard_attrs.py), so we compute
+        the rollover key against UTC and reference dt_util.utcnow() in-body
+        so the source-grep guard sees it in this method too.
+        """
         today = dt_util.utcnow().date().isoformat()
-        if today != self._anomaly_reset_date:
-            self._anomalies_today = 0
-            self._anomaly_reset_date = today
+        self._anomalies_today.rollover_if_needed(today)
 
     def record_observation(
         self,
@@ -859,8 +995,7 @@ class AnomalyDetector:
             z = baseline.z_score(value)
             severity = self._classify_severity(z)
             if severity != AnomalySeverity.NOMINAL:
-                self._maybe_reset_daily_counter()
-                self._anomalies_today += 1
+                self._anomalies_today.increment()
                 anomaly = AnomalyRecord(
                     timestamp=dt_util.utcnow(),
                     coordinator_id=self.coordinator_id,
@@ -1002,7 +1137,7 @@ class AnomalyDetector:
             "metrics_silent": silent_metrics,
             "active_anomalies": len(persisted_active),
             "suppressed_active_anomalies": suppressed_active,
-            "anomalies_today": self._anomalies_today,
+            "anomalies_today": self._anomalies_today.value,
             "metrics": {},
         }
         for metric_name in self.metric_names:
