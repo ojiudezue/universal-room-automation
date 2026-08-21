@@ -5807,58 +5807,112 @@ async def _seed_hvac_zone_kwh_thresholds_from_restore(hass, hvac) -> None:
     (hvac.py:815) which populates `zone_manager.zones`. Called before
     that point, the lookup finds nothing and the seed is a no-op.
 
-    Silent no-op paths (defensive): no ZoneManager, no zones yet, no
-    RestoreState instance, no last-state for the derived entity_id,
-    non-numeric restored value. On failure, the runtime falls back to
-    the ZoneState dataclass default (`kwh_rate_threshold: float = 0.8`
-    at hvac_zones.py:124) — same as today's boot-race outcome.
+    Failure visibility (2026-08-21 fix-up): this knob fails UNSAFE —
+    the ZoneState dataclass default is 0.8 kW (hvac_zones.py:124) but
+    production runs 1.30 kW. A silent seed failure LOWERS the
+    detection threshold, making the nudge MORE sensitive and firing
+    MORE nudges (each nudge = 2 raw setpoint writes = manual-preset
+    risk). Every unresolvable per-zone lookup therefore logs at
+    WARNING (not debug) with the zone_id + reason, so the operator
+    can grep for it in a WARNING-and-above filtered log. The
+    infrastructural failures (import, RestoreStateData instance) also
+    log at WARNING because they take out the whole seed pass.
     """
     zm = getattr(hvac, "_zone_manager", None)
     if zm is None or not zm.zones:
+        # Not a failure — this is the pre-async_start / no-AC-zones
+        # posture. Legit no-op (debug only).
+        _LOGGER.debug(
+            "Zone-kWh seed: no zones registered (pre-async_start "
+            "or no AC zones configured); nothing to seed"
+        )
         return
     try:
         from homeassistant.helpers.restore_state import RestoreStateData
         from homeassistant.helpers import entity_registry as er
         from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
     except Exception:  # noqa: BLE001
-        _LOGGER.debug("Zone-kWh seed imports failed", exc_info=True)
+        _LOGGER.warning(
+            "Zone-kWh seed FAILED (import error): all AC zones will "
+            "fall back to dataclass default 0.8 kW — UNSAFE direction "
+            "(more nudges, more manual-preset risk). Configured "
+            "values will NOT take effect until an operator write "
+            "pushes each per-zone threshold across.",
+            exc_info=True,
+        )
         return
     try:
         restore_data = await RestoreStateData.async_get_instance(hass)
     except Exception:  # noqa: BLE001
-        _LOGGER.debug("RestoreStateData unavailable", exc_info=True)
+        _LOGGER.warning(
+            "Zone-kWh seed FAILED (RestoreStateData unavailable): all "
+            "AC zones will fall back to dataclass default 0.8 kW — "
+            "UNSAFE direction (more nudges, more manual-preset risk)",
+            exc_info=True,
+        )
         return
     last_states = getattr(restore_data, "last_states", {}) or {}
     ent_reg = er.async_get(hass)
     seeded = 0
+    unresolved: list[tuple[str, str]] = []  # (zone_id, reason)
     for spec in iter_canonical_hvac_zones(hass):
-        zone_id = spec.get("zone_id")
+        zone_id = spec.get("zone_id") or "<unknown>"
         climate_entity = spec.get("climate_entity")
-        if not zone_id or not climate_entity:
+        if not spec.get("zone_id") or not climate_entity:
+            unresolved.append((zone_id, "spec missing zone_id or climate_entity"))
             continue
         unique_id = f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"
         entity_id = ent_reg.async_get_entity_id("number", DOMAIN, unique_id)
         if entity_id is None:
+            unresolved.append((
+                zone_id,
+                f"no entity registered for unique_id={unique_id} "
+                "(first boot after per-zone Number added? or unique_id drift)",
+            ))
             continue
         stored = last_states.get(entity_id)
         if stored is None:
+            unresolved.append((
+                zone_id,
+                f"no RestoreState entry for {entity_id} (fresh install / "
+                "state store cleared / entity never wrote a state)",
+            ))
             continue
         try:
             raw = stored.state.state  # StoredState.state is a State-like obj
             val = float(raw)
-        except (AttributeError, ValueError, TypeError):
+        except (AttributeError, ValueError, TypeError) as e:
+            unresolved.append((
+                zone_id,
+                f"restored state for {entity_id} is not numeric: {e!r}",
+            ))
             continue
+        matched = False
         for zone in zm.zones.values():
             if getattr(zone, "climate_entity", None) == climate_entity:
                 try:
                     zone.kwh_rate_threshold = val
                     seeded += 1
-                except Exception:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "Per-zone kWh threshold seed setattr failed for %s",
-                        zone_id, exc_info=True,
-                    )
+                    matched = True
+                except Exception as e:  # noqa: BLE001
+                    unresolved.append((
+                        zone_id,
+                        f"setattr on ZoneState failed: {e!r}",
+                    ))
                 break
+        if not matched and not any(z == zone_id for z, _ in unresolved):
+            unresolved.append((
+                zone_id,
+                f"no ZoneManager zone matched climate_entity={climate_entity}",
+            ))
+    for zone_id, reason in unresolved:
+        _LOGGER.warning(
+            "Zone-kWh seed UNRESOLVED for zone %s: %s. Zone will use "
+            "ZoneState default 0.8 kW — UNSAFE direction (more nudges, "
+            "more manual-preset risk). Configured value will NOT take "
+            "effect until an operator write pushes the threshold across.",
+            zone_id, reason,
+        )
     if seeded:
         _LOGGER.info(
             "HVAC: seeded %d per-zone AC kWh threshold(s) from RestoreState",

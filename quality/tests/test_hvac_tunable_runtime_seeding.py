@@ -93,6 +93,7 @@ def _load_seed_helper():
     module = ast.Module(body=kept, type_ignores=[])
     ns: dict = {"_LOGGER": types.SimpleNamespace(
         debug=lambda *a, **kw: None,
+        warning=lambda *a, **kw: None,
         info=lambda *a, **kw: None,
     )}
     exec(compile(module, "<seed_extract>", "exec"), ns)
@@ -330,6 +331,7 @@ def _load_zone_seed_helper():
     ns: dict = {
         "_LOGGER": types.SimpleNamespace(
             debug=lambda *a, **kw: None,
+        warning=lambda *a, **kw: None,
             info=lambda *a, **kw: None,
         ),
         "DOMAIN": "universal_room_automation",
@@ -443,3 +445,138 @@ def test_zone_seed_noop_when_zones_empty(monkeypatch):
     _run(ns["_seed_hvac_zone_kwh_thresholds_from_restore"](hass=object(), hvac=hvac))
     # No exception, no side-effect — this is the pre-async_start / no-AC-zones
     # posture.
+
+
+# ---------------------------------------------------------------------------
+# WARNING visibility (2026-08-21 fix-up): the zone knob fails UNSAFE, so
+# every unresolvable per-zone lookup must log at WARNING (not debug) with
+# the zone_id + reason. Operator must be able to grep the log.
+# ---------------------------------------------------------------------------
+
+def test_zone_seed_warns_per_zone_on_unresolvable(monkeypatch):
+    """Zone has a live ZoneState but no RestoreState entry -> the seed
+    must emit a per-zone WARNING naming the zone and the reason, and
+    must NOT emit an INFO 'seeded N' line (nothing was seeded)."""
+    ns = _load_zone_seed_helper()
+    warnings: list[str] = []
+    infos: list[str] = []
+
+    def _warning(fmt, *args, **_kw):
+        warnings.append(fmt % args if args else fmt)
+
+    def _info(fmt, *args, **_kw):
+        infos.append(fmt % args if args else fmt)
+
+    ns["_LOGGER"] = types.SimpleNamespace(
+        debug=lambda *a, **kw: None,
+        info=_info,
+        warning=_warning,
+    )
+
+    zones = {"zone_1": _StubZoneState("climate.zone_1")}
+    hvac = _StubHVACForZone(zones)
+
+    class _FakeRestoreDataCls:
+        @staticmethod
+        async def async_get_instance(_hass):
+            # No last_states for our entity — unresolvable path.
+            return types.SimpleNamespace(last_states={})
+
+    class _FakeEntReg:
+        def async_get_entity_id(self, domain, platform, unique_id):
+            return "number.ura_zone_1"  # resolvable, but no restored state
+
+    import sys
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.helpers.restore_state",
+        types.SimpleNamespace(RestoreStateData=_FakeRestoreDataCls),
+    )
+    fake_er_mod = types.SimpleNamespace(async_get=lambda _hass: _FakeEntReg())
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.entity_registry", fake_er_mod,
+    )
+    fake_helpers_pkg = types.ModuleType("homeassistant.helpers")
+    fake_helpers_pkg.entity_registry = fake_er_mod
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers", fake_helpers_pkg)
+    monkeypatch.setitem(
+        sys.modules,
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        types.SimpleNamespace(
+            iter_canonical_hvac_zones=lambda _h: [
+                {"zone_id": "zone_1", "climate_entity": "climate.zone_1"},
+            ],
+        ),
+    )
+    ns["__package__"] = "custom_components.universal_room_automation"
+
+    _run(ns["_seed_hvac_zone_kwh_thresholds_from_restore"](object(), hvac))
+
+    # Exactly one per-zone WARNING, naming zone_1 and calling out UNSAFE.
+    per_zone = [w for w in warnings if "zone_1" in w]
+    assert per_zone, (
+        f"expected per-zone WARNING for zone_1; got warnings={warnings}"
+    )
+    assert any("UNSAFE" in w for w in per_zone), (
+        f"warning must call out UNSAFE direction; got {per_zone}"
+    )
+    assert any("no RestoreState entry" in w for w in per_zone), (
+        f"warning must name the reason; got {per_zone}"
+    )
+    # ZoneState still at dataclass default (no seed happened).
+    assert zones["zone_1"].kwh_rate_threshold == 0.8
+    # No 'seeded N' INFO because nothing was seeded.
+    assert not any("seeded" in i for i in infos), (
+        f"unexpected seeded-count INFO on the unresolvable path: {infos}"
+    )
+
+
+def test_zone_seed_warns_when_restore_state_unavailable(monkeypatch):
+    """Infra failure (RestoreStateData raises) is WARNING with the
+    UNSAFE-direction callout — the whole seed pass is lost."""
+    ns = _load_zone_seed_helper()
+    warnings: list[str] = []
+    ns["_LOGGER"] = types.SimpleNamespace(
+        debug=lambda *a, **kw: None,
+        info=lambda *a, **kw: None,
+        warning=lambda fmt, *a, **kw: warnings.append(fmt % a if a else fmt),
+    )
+
+    hvac = _StubHVACForZone({"zone_1": _StubZoneState("climate.zone_1")})
+
+    class _RaisingRestoreDataCls:
+        @staticmethod
+        async def async_get_instance(_hass):
+            raise RuntimeError("boot: state store not ready")
+
+    import sys
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.helpers.restore_state",
+        types.SimpleNamespace(RestoreStateData=_RaisingRestoreDataCls),
+    )
+    fake_er_mod = types.SimpleNamespace(
+        async_get=lambda _h: types.SimpleNamespace(
+            async_get_entity_id=lambda *a, **k: None,
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.entity_registry", fake_er_mod,
+    )
+    fake_helpers_pkg = types.ModuleType("homeassistant.helpers")
+    fake_helpers_pkg.entity_registry = fake_er_mod
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers", fake_helpers_pkg)
+    monkeypatch.setitem(
+        sys.modules,
+        "custom_components.universal_room_automation.domain_coordinators.hvac_zones",
+        types.SimpleNamespace(iter_canonical_hvac_zones=lambda _h: []),
+    )
+    ns["__package__"] = "custom_components.universal_room_automation"
+
+    _run(ns["_seed_hvac_zone_kwh_thresholds_from_restore"](object(), hvac))
+
+    assert warnings, "expected WARNING on RestoreStateData failure"
+    assert any(
+        "RestoreStateData unavailable" in w and "UNSAFE" in w
+        for w in warnings
+    ), f"warning must name RestoreStateData + UNSAFE; got {warnings}"
