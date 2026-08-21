@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "067",
+  "author": "ojiudezue",
+  "session_id": "claude_20260821_190602_ship_v5_87_0",
+  "timestamp": "2026-08-21T19:06:02Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.87.0 shipped: operator knobs reach the coordinator; accumulators survive restart; log flood stopped",
+  "summary": "All three cards make existing machinery honest rather than adding capability. The seeding work began as a misdiagnosis I made twice \u2014 'the knobs are inert', then 'force ignores config' \u2014 both refuted by the operator insisting on re-verification; the truth was a boot race, and the fix had to make the EXISTING path deterministic rather than add a second one. The zone arm matters more than the sub-controller arm because it fails unsafe: a boot race lowers the detection threshold and fires MORE nudges, each of which is two raw setpoint writes and therefore manual-preset risk. Restart-safety was scoped by a measured denominator rather than intuition, which produced the actionable rule (in-memory AND event-driven is the hazard, not in-memory alone) and justified deferring the arrester trio to avoid a three-way collision in hvac_override.py. The log-flood work corrected a claim I made in v5.86.0: the camera warn-once did not cover the sister resolver called per-tick from perimeter_alert, so the flood I reported as fixed was not. Three regressions surfaced ONLY in the merged serial run \u2014 each branch was green alone \u2014 which is the case for running one central name-diff rather than trusting per-branch results.",
+  "refs": {
+    "cards": [
+      "HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1",
+      "RESTART-SAFETY-DOCTRINE-1",
+      "RECORDER-BLOAT-LOGFLOOD-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.87.0.md"
+    ],
+    "release_notes": "- HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1: deterministic seeding of HVAC tunable runtime fields from options at CM setup (sub-controller arm via _HVAC_TUNABLE_DISPATCH) plus a separate zone arm for the RestoreEntity-backed per-zone kWh threshold. The zone knob fails UNSAFE (default 0.8 vs configured 1.30 = more nudges), so every unresolvable seed now WARNs.\n- RESTART-SAFETY-DOCTRINE-1 tranche 1: safety.py and manager.py now save_baselines as well as load; DailyCounter primitive collapses five rollover sites with PERSIST/RESET/REBUILD declarations. Measured denominator: 20 restarts in 6.9 days, median 5.55h \u2014 event-driven accumulators are structurally unreachable, tick-driven ones are fine.\n- RECORDER-BLOAT-LOGFLOOD-1 (absorbs D2-CANARY-GUEST-PREDICATE-1): duty-cycle-stuck warnings edge-triggered instead of per-tick (3,565/5h -> ~1 per episode), D2 canary re-guarded and demoted, and the camera flood path v5.86.0 MISSED (resolve_camera_entity, called per-tick from perimeter_alert) now covered.\n- Full-suite serial name-diff vs v5.85.1 baseline empty both directions: 141/9371/17 vs 141/9215/17, +156 passing."
+  }
+}
