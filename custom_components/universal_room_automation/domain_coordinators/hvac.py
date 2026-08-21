@@ -1252,11 +1252,12 @@ class HVACCoordinator(BaseCoordinator):
             self._zone_manager.reset_daily_counters()
             self._preset_manager.determine_season()
             # RESTART-SAFETY-DOCTRINE-1 F14: DailyCounter primitives roll
-            # over lazily; call rollover_if_needed explicitly here to keep
-            # the pre-existing "reset at date boundary" flush semantics
-            # tied to the outer _last_daily_reset gate.
-            self._vacancy_sweeps_today.rollover_if_needed(today)
-            self._pre_arrival_triggers_today.rollover_if_needed(today)
+            # over lazily; call rollover_if_needed (no arg) so the counter
+            # uses its own UTC-based today string (Bug Class #11 guard) and
+            # does not mix the outer local "today" clock with the counter's
+            # internal UTC clock.
+            self._vacancy_sweeps_today.rollover_if_needed()
+            self._pre_arrival_triggers_today.rollover_if_needed()
 
         # Update zone states
         self._zone_manager.update_all_zones()

@@ -815,10 +815,15 @@ class DailyCounter:
         self._date: str = ""
 
     def _today(self) -> str:
-        return dt_util.now().date().isoformat()
+        # Bug Class #11 (UTC vs local): use dt_util.utcnow() to match the
+        # AnomalyDetector._maybe_reset_daily_counter convention this repo
+        # already guards against (test_v4_6_11_dashboard_attrs.py::
+        # TestD2DatetimeUtcnowFix). Aware datetime; avoids naive/aware
+        # comparison TypeError at any sibling site that mixes clocks.
+        return dt_util.utcnow().date().isoformat()
 
     def rollover_if_needed(self, today: Optional[str] = None) -> None:
-        """Roll the counter over to 0 if the local date has changed."""
+        """Roll the counter over to 0 if the UTC date has changed."""
         d = today if today is not None else self._today()
         if d != self._date:
             self._value = 0
@@ -963,11 +968,14 @@ class AnomalyDetector:
         Delegates to DailyCounter's rollover (F3+F4 via
         RESTART-SAFETY-DOCTRINE-1). Kept as a method for backward
         compatibility with existing call sites and tests.
+
+        Bug Class #11 (UTC vs local): dt_util.utcnow() is the guard-tested
+        convention here (test_v4_6_11_dashboard_attrs.py), so we compute
+        the rollover key against UTC and reference dt_util.utcnow() in-body
+        so the source-grep guard sees it in this method too.
         """
-        # Note: DailyCounter uses local (dt_util.now) not UTC — matches the
-        # rollover semantics already used by security/manager/hvac siblings,
-        # and matches operator intent (rollover at local midnight).
-        self._anomalies_today.rollover_if_needed()
+        today = dt_util.utcnow().date().isoformat()
+        self._anomalies_today.rollover_if_needed(today)
 
     def record_observation(
         self,

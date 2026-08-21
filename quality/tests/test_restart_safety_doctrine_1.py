@@ -82,6 +82,38 @@ class TestDailyCounter:
         c2 = DailyCounter(name="test.x", persist=False, reason="display")
         assert c2.value == 0
 
+    def test_rollover_across_day_boundary_with_aware_utc_timestamps(self):
+        """Behavioural: DailyCounter must roll over correctly when the
+        UTC-date boundary is crossed by AWARE datetimes — not just by
+        source-grep of dt_util.utcnow(). Guards Bug Class #11 (naive/aware
+        mismatch) by patching dt_util.utcnow to a controllable aware
+        datetime and confirming the counter zeroes when the UTC date ticks.
+        """
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+        from custom_components.universal_room_automation.domain_coordinators import (
+            coordinator_diagnostics as cd,
+        )
+
+        c = DailyCounter(name="test.aware", persist=False, reason="rollover test")
+
+        # Fixed aware timestamps on either side of a UTC midnight.
+        t_before = datetime(2026, 8, 21, 23, 59, 30, tzinfo=timezone.utc)
+        t_after  = datetime(2026, 8, 22, 0,  0, 30, tzinfo=timezone.utc)
+
+        with patch.object(cd.dt_util, "utcnow", return_value=t_before):
+            c.increment(7)
+            assert c.value == 7
+            assert c._date == "2026-08-21"
+
+        with patch.object(cd.dt_util, "utcnow", return_value=t_after):
+            # Access via .value MUST roll the counter over — no manual
+            # rollover call. Confirms the naive/aware boundary is safe.
+            assert c.value == 0
+            assert c._date == "2026-08-22"
+            c.increment(3)
+            assert c.value == 3
+
     def test_reason_is_stored_and_readable(self):
         c = DailyCounter(name="test.x", persist=False, reason="metric-only")
         assert c.reason == "metric-only"
