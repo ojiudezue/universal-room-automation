@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-19'
+  last_reconciled: '2026-08-21'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -28,9 +28,237 @@ meta:
 cards:
 - id: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
   thread: energy
-  status: inbox
-  approval: unreviewed
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-08-20 (chat: ''Card and fix. Approved.'')'
   created: 2026-08-20 00:20
+  updated: '2026-08-20 19:05'
+  HOLD_DEMOTION_REFRAMED_2026_08_20: 'MY EARLIER "max() SWALLOWS DP" FRAMING WAS WRONG — retracted
+    after a second code read at operator''s instruction. DP does NOT have to beat evse_battery_hold
+    in the max() fold, because DP PAUSES THE CHARGER (energy.py:4921-4941, switch.turn_off via
+    _claim_pause_dispatch_owner("dp")), and the hold is keyed on _is_any_evse_charging(): when
+    charging stops, energy.py:5611-5613 sets _evse_battery_hold_active=False and CLEARS
+    _evse_hold_soc=None. So the hold releases as a CONSEQUENCE of the DP pause. The operator''s
+    description of the design is accurate and the mechanism is coherent: hold latches SOC at
+    charge start -> DP re-evals -> if the plan fits, DP pauses the charger -> hold drops -> house
+    drains the battery -> DP releases the pause at computed_start_dt -> charging resumes on cheap
+    off-peak grid and the hold re-latches at the now-LOWER SOC (correct: we no longer want battery
+    -> car). CONSEQUENCE FOR SCOPE: hold demotion is NOT required for the battery to drain, so it
+    should NOT be bundled reflexively. The blocking decision recorded in the 2026-08-20 handoff
+    section 4.1 is VOID. Demotion remains available if a later trace shows the hold blocking a
+    case the pause does not cover, but the assurance the operator asked for came back: the
+    pre-existing mechanism is right, and the defect is the drain-target application.'
+  DRAIN_TARGET_MISSOURCING_RECONFIRMED_2026_08_20: 'RECHECKED at operator''s request and it HOLDS.
+    All four TransitionInputs population sites pass the STATIC knob: energy.py:4271, :4456, :4522,
+    :4540 all read int(self._ev_battery_drain_soc). The forecast off-peak target (live 10) never
+    reaches DP. Reconciling this with the 2026-08-20 REFUTATION: the refutation was NARROWER than
+    it read. It established only that mis-sourcing was not the cause of LAST NIGHT''S observation,
+    because gate 6 (l1_only, energy_drain_precedence.py:652) short-circuits ABOVE gate 7
+    (already_below_target, :656) and the charger was physically pinned at ~6A. It did NOT refute
+    the defect. The defect is real, code-verified, and was simply masked by a gate above it.'
+  GATE_CLAIM_CORRECTED_2026_08_20_EVIDENCE: 'OPERATOR CHALLENGED "both gates clear simultaneously"
+    and asked for real evidence. The claim was WRONG AS STATED — retracted. What the evidence
+    actually shows, from sensor.ura_energy_coordinator_ev_charging_plan (the DP observability
+    sensor, user-facing name "EV Charging Plan"):
+    (a) DP HAS NEVER TRANSITIONED — supported. 10 days of state history, 164 records, contains ONLY
+    hold_only / hold_pre_eval plus unknown+unavailable at restarts. Never `transitioned`, never
+    `must_start_forced`. Live carrier confirms transitioned_at: null. CAVEAT, stated honestly:
+    recorder retention is ~10 days, so this proves "not in 10 days", not "never in production life";
+    and transitioned_at is cleared on reversion, so it alone could not distinguish a past
+    transition that reverted. The 10-day state history is the stronger leg because `transitioned`
+    is a recorded state and never appears.
+    (b) GATE 6 HAD ALREADY CLEARED — my claim that the operator''s Emporia fix would clear it is
+    wrong in timing. The 13:40 eval snapshot shows charger_rate_kw = 5.80, already well above
+    l1_rate_threshold_kw 3.0. l1_only was the binding gate OVERNIGHT, not this afternoon.
+    (c) THE ACTUAL BINDING GATE THIS AFTERNOON WAS blind_hold (gate 1), because soc was null — the
+    13:27 Envoy outage. decision.reason = "blind_hold", is_blind_hold: true.
+    (d) THERE IS A FOURTH SUPPRESSOR I HAD NEVER MENTIONED: the sensor exposes eval_gate:
+    "not_off_peak". DP only evaluates during off-peak. last_eval_at is 13:40 with eval_age_min 304
+    — no eval has run in five hours because of this outer gate.
+    CORRECTED FRAMING: DP is suppressed by a STACK of gates and WHICH ONE BINDS ROTATES —
+    not_off_peak by time of day, blind_hold when the Envoy drops, l1_only when the charger is
+    throttled, no_charging_evse when unplugged. The mis-sourced drain target sits BELOW all of them
+    and has therefore never been reached. That is why it has never produced a symptom, and it is
+    also why no single observation of DP sitting in hold_pre_eval ever discriminated anything.'
+  IMMINENT_ACTIVATION_2026_08_20_LIVE: 'SUPERSEDED IN PART by GATE_CLAIM_CORRECTED above — the
+    "both gates clear simultaneously" premise is withdrawn. What SURVIVES: drain_target_soc reads
+    80 in the live 13:40 eval snapshot, confirming the mis-sourcing in production data rather than
+    only in code. And the risk shape is unchanged even though the timing claim was wrong — IF a
+    night arrives where off-peak + healthy Envoy + charging + rate>3kW + soc>80 all hold, DP
+    transitions and stamps a floor of 80. The conditional is the honest form. ORIGINAL TEXT: URGENT — the masking gate is about to clear and the live
+    numbers now predict a WRONG-DIRECTION actuation on the first qualifying night. Live reads
+    2026-08-20 ~19:00 CDT: battery SOC = 96 (Envoy recovered from the 13:27 outage);
+    switch.garage_a charging_rate = 23 A (~5.5 kW) after the operator removed Emporia excess-solar
+    management. 5.5 kW > l1_rate_threshold_kw (3.0) => GATE 6 NO LONGER FIRES. And 96 <= 80 is
+    FALSE => GATE 7 NO LONGER FIRES EITHER. Both gates that have suppressed DP for its entire
+    production life clear simultaneously. So on the next night the car charges, DP transitions for
+    the FIRST TIME EVER — and _apply_dp_transition (energy.py:4953) will stamp _dp_decision_soc =
+    drain_target = 80, i.e. a reserve FLOOR of 80. Predicted behaviour: the battery drains only
+    96 -> 80 and stops, ~16 points instead of ~86, and the reserve floor is then pinned at 80 for
+    the whole TRANSITIONED window — during which INV-DP3 max() supremacy guarantees nothing can
+    demote it. Second-order: a floor of 80 during off-peak is a floor the strategy will try to
+    ATTAIN, so this can command CHARGING from grid at the very moment the plan intends draining.
+    This is the activation risk the handoff flagged, now with a date on it. DISCRIMINATING
+    ACCEPTANCE CRITERION (satisfies the corollary the last misdiagnosis violated): under the fix,
+    the first DP transition stamps _dp_decision_soc = 10 and battery SOC falls below 80 overnight;
+    under the unfixed build it stamps 80 and SOC floors at 80. The two are distinguishable in one
+    read of the DP snapshot, and 80-vs-10 is not producible by any other candidate mechanism.'
+  next: 'Bind R2 (drain floor) to compose_release_floor(self._battery, period)[0] at the four
+    sites energy.py:4271/4456/4522/4540 — NOT the bare current_offpeak_drain_target(), per the
+    parallel-re-derivation-blind-to-parks bug closed at energy_battery.py:289-292. R1 (pause
+    ceiling) and R3 (ride-proof floor) keep the static knob unchanged and must be byte-identical.
+    Explicit NON-GOAL: do not point soc_threshold= at the composed value at energy.py:5842/:5977
+    — that collapses soc_low and deletes the deep-discharge backstop. Hold demotion is OUT of
+    scope per the reframing above. Tier 3, two plan reviews first. Timing pressure is now real:
+    ship before the next qualifying charge night or accept a known wrong-direction actuation.'
+  refinement_status: refined
+  SCOPING_2026_08_20_ONE_NUMBER_THREE_ROLES: 'THE REAL FINDING — _ev_battery_drain_soc serves
+    THREE INCOMPATIBLE SEMANTIC ROLES, two of which point in OPPOSITE DIRECTIONS. R1 PAUSE CEILING
+    (energy.py:5842 EV, :5977 plugs -> energy_pool.py:3224 `soc_low = battery_soc < soc_threshold`):
+    "if SOC drops below X while EV charges, pause the EV" — HIGHER = more protection. R2 DRAIN FLOOR
+    (energy.py:4271/:4456/:4522/:4540/:4555 -> DP gate :656/:663): "drain DOWN TO X then stop" —
+    LOWER = more drain allowed. R3 RIDE-PROOF FLOOR (energy.py:3752 blind-hold proof,
+    energy_pool.py:954/:1435, compared as `env_lower >= drain_target`): "LKG envelope lower bound
+    must stay above X to permit riding a blind window" — HIGHER = stricter. At 80 both bad effects
+    are maximal TOGETHER: DP never transitions AND the EV drain-pause fires whenever the battery
+    discharges below 80%. CONSEQUENCE: "bind DP to the forecast target" is NECESSARY BUT NOT
+    SUFFICIENT — doing only that leaves R1 at 80 and the EV still gets paused nightly, a plausible
+    DIFFERENT failure the acceptance criteria must discriminate against.'
+  PROVENANCE_OF_80_RESOLVED: 'Read live from .storage/core.config_entries entry
+    01KJEC3FYPYAGBQKZWC94CR8GR: energy_ev_battery_drain_soc data=None options=80.0. So 80 is NOT
+    the ctor default (50) and NOT an initial-setup data value — it came through an options-flow
+    save. Stored as FLOAT 80.0: number.py:1529 writes int(value) while the options-flow
+    NumberSelector yields a float => WRITTEN BY THE OPTIONS FLOW, not the Number slider. The
+    options flow re-submits every field on every save, so an 80 present at any point is
+    re-committed by any unrelated save — consistent with the operator never deliberately turning
+    it in 10 days. SMOKING GUN FOR INTENT: energy_fill_priority_soc is ALSO 80.0, and fill-priority
+    IS the charge-above threshold. The operator''s stated intent ("80 was meant as a charge-above
+    threshold") maps exactly onto fill-priority, which already holds 80. The drain knob at 80 is a
+    CONFLATED/DUPLICATED value, not policy.'
+  RECOMMENDED_DESIGN_D_SPLIT_THE_ROLES: 'Options (a) delete knob and (b) max(forecast, floor) and
+    (c) repurpose as charge-above were all evaluated and REJECTED — (a) silently deletes the R1
+    deep-discharge backstop during expensive-grid windows (energy_pool.py:1790-1793 says it must
+    remain a hard backstop); (b) with live values is max(10,80)=80, A NO-OP, the bug survives
+    verbatim; (c) duplicates fill-priority which already holds 80. RECOMMENDED (d): R2 sources from
+    a new helper returning compose_release_floor(self._battery, period)[0] — NOT the bare
+    current_offpeak_drain_target(), because compose_release_floor already reconciles static reserve
+    + current_park_floor() (arbitrage/attain parks, inclement partial holds) and the EV drain-pause
+    at :5838 already uses exactly this; using the raw accessor would re-introduce the
+    parallel-re-derivation-blind-to-parks bug that energy_battery.py:289-292 closed. THIS IS THE
+    SINGLE MOST IMPORTANT DESIGN CALL IN THE CYCLE. R1 keeps the knob (rename the concept away from
+    "drain SOC" — the NAME caused the conflation) and its live 80 must come down. R3 follows R1
+    (operator-wired hard floor); a forecast 10 would make the blind-window envelope proof trivially
+    permissive = silent safety weakening. NO NEW KNOBS.'
+  BIGGEST_SCOPE_QUESTION_HOLD_DEMOTION: 'CRITICAL, OPERATOR DECISION NEEDED. evse_battery_hold pins
+    the reserve to LIVE SOC while the EV charges. DP transitioning while the hold is active means
+    max(hold_reserve=SOC, dp=10) = SOC — DP''S LOWER TARGET IS SWALLOWED BY THE HOLD. So fixing the
+    target ALONE MAY STILL NOT DRAIN THE BATTERY. The parked memo project_ev_drain_precedence_cycle.md
+    already names "hold demoted to backstop" as the intended design. THE PLAN MUST STATE WHETHER
+    HOLD-DEMOTION IS IN SCOPE; if it is not, the acceptance criteria MUST NOT claim "battery drains
+    overnight" — that would be an undiscriminating criterion of exactly the kind that produced this
+    whole misdiagnosis.'
+  ACTIVATION_RISK_NOT_JUST_A_BUGFIX: 'This fix ACTIVATES A DORMANT STATE MACHINE. At target 10 vs
+    SOC 37, drain_soc_pp = 27 and drain_hours ~1.8h, so DP will actually transition FOR THE FIRST
+    TIME IN PRODUCTION. The transition path (_apply_dp_transition, EVSE switch.turn_off dispatch
+    :4936, _paused_by_dp, _claim_pause_dispatch_owner("dp"), the must-start-by timer) has never run
+    organically at scale. Live validation must watch the ACTUATION path, not just the target number.'
+  HIGHEST_PROBABILITY_BUILD_ERROR: 'MUST BE AN EXPLICIT NON-GOAL IN THE PLAN. energy.py:5842/:5977
+    pass the composed floor as reserve_soc= AND the static knob as soc_threshold= SIDE BY SIDE. A
+    builder "making the drain target consistent" by pointing soc_threshold at the composed value
+    would collapse soc_low = soc < 10 and SILENTLY DELETE THE DEEP-DISCHARGE BACKSTOP during peak
+    windows.'
+  TEST_BLINDNESS_EXPLAINED: 'drain_target_soc=15 is a LITERAL IN THE TEST FIXTURE
+    (test_evse_drain_precedence_session_b2a.py:126-149 _mk_inputs). NO test anywhere asserts what
+    _DPInputs.drain_target_soc is POPULATED FROM. The two tests touching it
+    (test_evse_drain_precedence_session_b2c1_fixup.py:307, test_blind_window_evse_guard.py:166)
+    set it on a FAKE coordinator — they ASSUME the wiring they should prove. Hollow-anchor pattern
+    per feedback_hollow_test_anchors: a fake whose attribute name matches production is not evidence
+    production reads it. T1 (the wiring test) must use values on OPPOSITE SIDES of fixture SOC so a
+    wrong source yields ALREADY_BELOW_TARGET and the right one yields a fit — discriminating.'
+  TIER_3_RECOMMENDED: 'Tier 3: 5 target-source sites + 2 reserve-fold legs (:4733 update-in-place,
+    :4829 append — the :4829 leg exists precisely because an earlier cycle missed it) + log/snapshot
+    path = 10+ emission sites, Bug Class #53 shape; value lands on the COMMANDED Enphase reserve
+    floor (cost AND safety); area already carries B2a/B2b-ii/B2c-1/B2c-2 fix-ups and a Tier-3
+    dead-band cycle with a D-HIGH-1. Framings A=per-site arithmetic, B=state-machine integrity +
+    byte-identical R1/R3, C=REAL per-site source mutation (8 named mutations enumerated), D=adversarial
+    completeness re-enumerating PRE-EXISTING code. Plus TWO plan reviews before build.'
+  UNDETERMINED_BLOCKERS_FOR_PLANNER: '(1) Do the four energy_offpeak_drain_* Number entities
+    LIVE-APPLY into BatteryStrategy._drain_targets, or only write entry.options requiring a reload?
+    _drain_targets is ctor-frozen at energy_battery.py:464; __init__.py:5863-5867 lists them in the
+    reload-suppress block which SUGGESTS a live-apply path exists. If none does, "the forecast target
+    updates live" is FALSE and the fix inherits a reload dependency. MUST be traced before writing
+    acceptance criteria. (2) The numeric value of DEFAULT_OFFPEAK_DRAIN_UNKNOWN (the Solcast-dead
+    fallback) was not read and belongs in the plan.'
+  DOCS_DRIFT_TO_FIX_IN_CYCLE: 'PLANNING_evse_drain_precedence.md (unbound drain_target symbol — the
+    plan-gap defect itself); PLANNING_inclement_weather_reserve.md:66,82 cites energy.py:2671/2672
+    for the drain read sites, STALE BY ~3200 LINES; docs/user-manual/ENERGY_COORDINATOR.md:642 says
+    default 50 and describes it as R1-only (which BECOMES correct after this cycle);
+    docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md:455.'
+  ROOT_CAUSE_REFUTED_2026_08_20: 'THE CAUSAL CLAIM ON THIS CARD IS REFUTED. Operator
+    ("wasn''t sure we were correct about the bug — triple verify") ordered a real
+    framing-disjoint verification; four independent agents ran. The mis-sourced drain
+    target is REAL but is NOT what stopped the overnight drain. WHAT ACTUALLY HAPPENED:
+    the DP evaluated every 5 min all night (105 state changes 21:02->07:00, dp_enabled
+    true, is_blind_hold false) and short-circuited at the L1-classification gate
+    (energy_drain_precedence.py:652, charger_rate_kw <= DP_L1_RATE_THRESHOLD_KW 3.0)
+    -> decision.reason "l1_only" on EVERY overnight snapshot, with drain_hours /
+    charge_hours / computed_start_dt all null (it exited BEFORE any target arithmetic).
+    The drain target was never consulted. Setting the knob to 10 would have changed
+    NOTHING.'
+  WHY_THE_ORIGINAL_TRIPLE_VERIFY_FAILED: 'The 2026-08-20 00:20 "triple-verified" was
+    code + plan + README — THREE DOCUMENTS RESTATING ONE HYPOTHESIS, not three
+    independent framings. It never tested whether the claimed gate could produce the
+    observed symptom. It cannot: `already_below_target` returns INSIDE EVAL_TRANSITION
+    and the machine immediately drops to HOLD_ONLY (energy_drain_precedence.py:858-861),
+    so it can never REST in hold_pre_eval. The DP normally CYCLES HOLD_ONLY -> (1 tick)
+    HOLD_PRE_EVAL -> (~eval_delay) EVAL_TRANSITION -> HOLD_ONLY, spending most wall-clock
+    in hold_pre_eval. "state == hold_pre_eval" therefore discriminates NOTHING — it is
+    equally consistent with does_not_fit, l1_only, missing_inputs, blind_hold and
+    force_charge_active. Lesson: an observation shared by every candidate mechanism is
+    not evidence. (CLAUDE.md acceptance-criteria-must-discriminate corollary.)'
+  L1_WAS_NOT_A_MISCLASSIFICATION: 'Second hypothesis (orchestrator''s own, that
+    charger_rate_kw was fed by a dead/stale producer) ALSO REFUTED. The 1.4 kW was
+    PHYSICALLY REAL: sensor.garage_a_power_minute_average (Emporia CT, URA''s actual
+    producer via energy_pool.py:168-182 -> current_charging_load_w energy_pool.py:2286)
+    read 1387-1416 W continuously with 60s updates and was NEVER unavailable; the
+    INDEPENDENT SPAN breaker CT sensor.span_panel_car_charger_power read 1412-1440 W
+    on a 5s cadence over the same window. Two unrelated physical meters agreeing to
+    ~1.5% cannot both be faked by a stale producer. 1425 W / 240 V = 5.9 A = an L2
+    charger pinned at its ~6 A minimum. Same sensor produces 6450/6390/5048 W hourly
+    means on other days. ORCHESTRATOR MISREAD: I cited the "11 kW import vs 8.4-10.3 kW
+    house load" gap as proof of a ~5 kW charger — the gap is 1-2.6 kW, which
+    CORROBORATES 1.4 kW. Also red herrings: sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}
+    unavailable = deliberate tombstones from EV-SENSOR-CLEANUP-1 (energy.py:9748-9755),
+    NOT a broken feed; binary_sensor...l1_charger_garage_a reads the MOES SMART PLUGS
+    (energy_const.py:258), shares nothing with charger_rate_kw, does not feed the gate.'
+  WHAT_SURVIVES: 'TWO real latent defects, both worth fixing, NEITHER causal for
+    2026-08-19/20: (1) the DP drain target IS mis-sourced — live-confirmed
+    last_eval_snapshot.inputs.drain_target_soc = 80 while
+    sensor.ura_energy_coordinator_battery_strategy.current_offpeak_drain_target = 10,
+    two different numbers in one integration; (2) PLANNING_evse_drain_precedence.md
+    never binds drain_target to ANY runtime source (unbound symbol, example
+    "drain_target = 15") — a genuine Producer-check plan gap. NOTE from producer trace:
+    the forecast target is NOT confined to BatteryStrategy as this card claimed — at
+    energy.py:5842 determine_battery_drain_actions is called with the forecast value as
+    reserve_soc= (release floor) AND the static knob as soc_threshold= (pause threshold)
+    SIDE BY SIDE in one call. That adjacency argues the DP''s use of the static knob is
+    an oversight; it also means the fix is NOT a simple source swap, since the forecast
+    value already holds a distinct role there.'
+  COUNTERFACTUAL_FIX_MAY_BE_A_NOOP: 'Even with drain_target=10, gate 8 (the fit test,
+    energy_drain_precedence.py:709-712) needs house_load >= ~4.5 kW at 00:25 with
+    exactly ONE car plugged; with BOTH plugged the constraint fails at ANY house load.
+    A sleeping house is plausibly 1.5-3 kW. So a target-only fix likely just advances
+    the block from gate 7 to gate 8. Every fit-path test is pinned at 21:30 with
+    house_load 5.91 (quality/tests/test_evse_drain_precedence_session_b2a.py _mk_inputs),
+    so NO test exercises a late-night start — which is why the suite never surfaced this.'
+  next: 'RESCOPE before any build. The overnight cost driver is the ~6 A EVSE throttle
+    (see EV-GARAGE-A-NOCHARGE-1, same charger, same class) — vehicle/Emporia-side, NOT
+    URA. URA-side: (a) fix the mis-sourced producer + bind drain_target in the PLAN
+    first; (b) add a late-night-start fit-path test; (c) DP is LOG-SILENT (zero lines
+    in 10h of evaluation) — post-fix validation must read
+    ev_charging_plan.last_eval_snapshot.decision.reason, never logs. DO NOT set the knob
+    to 10 as a stopgap: refuted, would change nothing, and would manufacture false
+    confidence.'
   title: 'ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed'
   problem_solution:
   - 'DEFINITIVE (orchestrator read the code directly 2026-08-20, operator-confirmed leg-2 was built + should
@@ -234,6 +462,100 @@ cards:
 - id: STEP-SHADOW-EVIDENCE-WATCH-1
   thread: diagnostics
   status: inbox
+  ACTION_TAKEN_2026_08_20_TFLOOR_RAISED: 'OPERATOR: "Raise T_floor, re-observe briefly — Do it."
+    DONE AND VERIFIED LIVE at 19:33 CDT. number.ura_chatter_t_floor 1.0 -> 5.0 via number.set_value;
+    knob confirmed 5.0; per-room chatter_telemetry now reports t_floor: 5 across every room
+    (garage_a, living_room checked). K left at 10, CHATTER_OBSERVATION_WINDOW_S 300.
+    MODE DELIBERATELY LEFT AT `shadow` per operator standing instruction ("Chatter mode is not on
+    unless we find evidence of its success"). This turn produces the evidence; it does not act on it.
+    PRE-WRITE SAFETY CHECK (done because the egress-camera write had just been caught as unsafe):
+    CONF_CHATTER_T_FLOOR_S is in _NM_A2_KEYS (__init__.py:5686) which is spread into
+    OPTIONS_RELOAD_SUPPRESS_KEYS (:5960), AND the CM options listener total-flushes the knob cache
+    unconditionally on every CM options update (:6632-6647). So the write is in-place, no CM reload,
+    no parent-entry cascade. Confirmed by the live attribute changing without a restart.
+    ONE OBSERVATION NOTE: sub_floor_burst_count is still 0 immediately after the change and that is
+    EXPECTED, not a failure — scoring is forward-only and the existing deque entries were recorded
+    under the old 1.0s floor. The 300s observation window means the counters self-clear quickly.
+    The next burst on binary_sensor.garageopener_gdoblaq_wifi_garagea_motion is the first real test:
+    at 2-3s cycling against a 5s floor, a burst like the 17:45-17:50 one (~44 transitions) should
+    produce sub_floor_burst_count well above K=10 and flip would_quarantine to true — WITHOUT acting,
+    because mode is shadow. THAT is the success evidence to check before any `act` decision.
+    NEXT CHECK: read chatter_telemetry on sensor.garage_a_unavailable_entities after the next
+    garage-door activity. If would_quarantine goes true, the mechanism is vindicated and the gate
+    decision becomes real. If it stays 0 through an observed burst, the defect is deeper than units
+    and the card escalates.'
+  ROOT_CAUSE_FOUND_2026_08_20_T_FLOOR_UNITS: 'MY "IT FOUND NOTHING, WRONG FAILURE MODE" VERDICT IS
+    WRONG — WITHDRAWN. The operator pushed back ("Check the garage motion sensor. We did have legit
+    reasons and sensor targets for this design") and the pushback was correct. The detector is
+    neither broken nor aimed at the wrong pathology. It is MIS-SET BY ONE KNOB, and the knob is a
+    UNITS problem.
+    THE TARGET SENSOR IS CHATTERING VIOLENTLY, exactly as the operator remembered.
+    binary_sensor.garageopener_gdoblaq_wifi_garagea_motion, 12h history: 311 transitions in dense
+    bursts. The 17:45:45 -> 17:50:58 burst alone is ~44 transitions — ON ~3s, OFF ~2s, repeating
+    for five minutes straight. Thirteen separate bursts across the day (09:19, 11:32, 11:45, 11:50,
+    12:27, 14:41, 14:59, 15:37, 16:07, 16:11, 17:13, 17:17, 17:45). This is a textbook chatterer
+    and it is precisely what the mechanism was built to catch.
+    WHY IT SCORES ZERO: the scoring test is `if interval < t_floor` where interval is in SECONDS
+    (chatter_detector.py:518-520) and t_floor is in SECONDS (CONF_CHATTER_T_FLOOR_S /
+    DEFAULT_CHATTER_T_FLOOR_S = 1.0, const.py:3847). The live operator override
+    number.ura_chatter_t_floor = 1.0, so a transition only counts as an "impossibility event" if it
+    happened LESS THAN ONE SECOND after the previous one. The garage sensor cycles at 2-3 seconds.
+    2.0 > 1.0, so every single one of those 311 transitions is scored as legitimate.
+    NOTHING IN A REAL HOUSE FLIPS FASTER THAN ONE SECOND. That is why the count is zero
+    house-wide rather than merely low — the floor is set below the physical noise floor of the
+    hardware, so the detector is structurally incapable of firing. And because
+    _effective_t_floor_default() OVERRIDES the per-family defaults when set
+    (chatter_detector.py:378-382), this single rung-2 knob flattens pir / mmwave / opener / reed
+    all to 1.0s at once. Note the family defaults are ALSO all 1.0 (const.py:3848-3853), so this is
+    a bad DEFAULT, not just a bad override — the knob is currently sitting exactly on it.
+    THE FIX IS A KNOB TURN, NOT A CYCLE. Raise number.ura_chatter_t_floor to something above the
+    hardware''s real re-arm time — 5s would make the garage burst score 44 sub-floor events against
+    K=10 in a 300s window (CHATTER_OBSERVATION_WINDOW_S) and trip immediately. Recommend deriving
+    the value from measured inter-transition intervals per family rather than guessing, since the
+    families were collapsed to one number and probably should not be.
+    CONSEQUENCE FOR THE FORCING GATE: the shadow period proved nothing either way — it was run with
+    detection effectively disabled. Turning on `act` today would still act on an empty set;
+    declaring it moot would discard a mechanism that has a real, live, well-matched target. The
+    honest third option is: raise T_floor, re-observe in shadow for a short window, THEN decide.
+    OPERATOR''S REGRET IS WELL-FOUNDED — "I wish we had checked before our last few restarts."
+    Worth noting for the postmortem: the counters are in-memory and the observation window is only
+    300s, so restarts cost little here; the loss was the days of shadow, not the restarts.'
+  HAND_CHECK_2026_08_20: 'SUPERSEDED IN ITS CONCLUSION by ROOT_CAUSE_FOUND above — the measurements
+    below are accurate but my interpretation of them was wrong. ORIGINAL: OPERATOR AUTHORISED a hand check ahead of the 08-21 09:00 forcing gate
+    ("already approved for us to turn it on if it proved its value... Did it find chatterers
+    accurately? We built an elaborate mechanism for it"). RESULT: IT FOUND NOTHING. Not
+    inaccurately — literally zero.
+    EVIDENCE, read live from the per-room chatter_telemetry attribute across every room exposing it
+    (game_room, garage_a, kitchen, living_room, master_bedroom, upstairs_guestroom, study_a):
+    chatter_would_quarantine_count = 0 in EVERY room, and would_quarantine = false for EVERY
+    individual sensor. sub_floor_burst_count is 0 or 1 everywhere against K = 10. Nothing is
+    remotely near threshold. Knobs live: K = 10.0, T_floor = 1.0, mode = shadow.
+    WHY THIS IS DAMNING RATHER THAN REASSURING — it scored ~0 on the sensors we INDEPENDENTLY KNOW
+    are misbehaving, which is the discriminating test:
+      * binary_sensor.mmwave_zigbee_studya_presence — a DIFFERENT detector logged duty-cycle-stuck
+        on it 3,043 times in five hours. Chatter scores it transition_count 2, would_quarantine
+        false.
+      * binary_sensor.jaya_3_presence — same duty-cycle-stuck warning, 522 times. Not flagged.
+      * The four corridor sensors behind HVAC-PRESET-FLAP-1 (45-62 transitions/24h) and the Garage
+        Hallway camera person sensor (89 cycles/24h) — none flagged.
+      * The single highest transition_count found anywhere was 82
+        (binary_sensor.garageopener_gdoblaq_wifi_garagea_motion) and even that has
+        sub_floor_burst_count 0.
+    ROOT CAUSE OF THE MISS (hypothesis, stated as such): the metric counts BURSTS BELOW A ONE-MINUTE
+    FLOOR and needs ten of them. This house''s actual sensor pathologies are (a) stuck-ON, which
+    produces FEWER transitions not more — structurally invisible to a burst counter — and (b) slow
+    chatter spread across hours, which never clusters under a 1-minute floor. The detector is
+    well-built for a failure mode this house does not have.
+    HONEST CAVEAT: there was a restart at 16:57 today. If the counters reset then, these figures may
+    cover only ~2 hours rather than the full shadow period, which would weaken the negative. The
+    82-transition reading argues the window is longer, but I have not proven it. What would settle
+    it: read the same telemetry after a clean 24h with no restart, or check whether the detector
+    persists counters across restart.
+    RECOMMENDATION FOR THE 09-00 GATE: do NOT flip to `act`. Acting on an empty detection set changes
+    nothing and would bank a false "shipped and working". The honest options are RECALIBRATE
+    (lower K / raise T_floor so this house''s slow chatter registers, and add a stuck-ON arm — note
+    the duty-cycle detector ALREADY does stuck-ON well, so the real question may be whether chatter
+    should merge into it rather than sit beside it) or DECLARE MOOT. Operator decision.'
   approval: unreviewed
   created: 2026-08-19 12:00
   updated: 2026-08-19 12:00
@@ -1450,13 +1772,638 @@ cards:
   status_correction_2026_08_16: 'Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy
     tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I''ll review and we
     can refine").'
+- id: EGRESS-CAMERA-DEAD-CONFIG-1
+  title: Two of five egress cameras are configured under dead Frigate-1 names — Garage A and
+    Garage B contribute nothing to egress detection, on the house's primary entry path
+  thread: camera
+  status: intake
+  updated: '2026-08-20 20:30'
+  approval: needs_operator
+  tags:
+  - frigate-leg-naming
+  - cross-investigation-synthesis
+  - measure-before-build
+  origin:
+    date: '2026-08-20'
+    gist: 'Surfaced from a log-flood triage, then escalated on inspection. The HA error log carries
+      "Camera entity camera.garage_a not found in registry — skipping" and the same for garage_b,
+      1,015 times EACH in a five-hour window. Operator asked whether this was the Frigate-1
+      retirement biting, given how messy slug guessing has been. IT IS — but the failure is stored
+      CONFIG, not code-side slug guessing, which matters for the fix.'
+  evidence: 'Read from the live mount .storage/core.config_entries, integration entry:
+    egress_cameras = [camera.madrone_g6_entry, camera.doorbell_lite, camera.front_door_aerial,
+    camera.garage_a, camera.garage_b]. Checked all 26 configured camera ids across the three lists
+    against .storage/core.entity_registry: camera_person_entities 12/12 present, perimeter_cameras
+    9/9 present, egress_cameras 3/5 present. The two missing are camera.garage_a and
+    camera.garage_b, and BOTH have a live suffixed sibling in the registry — camera.garage_a_2 and
+    camera.garage_b_2 (confirmed `recording` in the state machine). So it is precisely the
+    F1-retired / _2-permanent hazard from reference_frigate1_retired_2suffix_permanent.md.
+    OPERATOR CONTEXT: these two cameras "were reclassified recently" — i.e. they were moved INTO the
+    egress list at some point using the pre-retirement bare names. That explains why exactly two
+    entries are stale while the other 24 are clean: this is not decay across the board, it is one
+    write of a list using dead names.
+    CODE PATH: camera_census._get_interior_camera_list / _get_integration_camera_list read the
+    stored list and call CameraIntegrationManager.resolve_configured_cameras
+    (camera_census.py:462-482), which does ent_reg.async_get(entity_id) and, on None, WARNs and
+    `continue`s. No fallback, no _2 retry, no aggregation of the failure.'
+  why_it_matters: 'NOT just log spam — that was my first read and it was wrong. This is silent
+    coverage loss on the entry path that matters most. Two of five egress cameras resolve to
+    nothing, so Garage A and Garage B feed ZERO person-detection binary sensors into egress. The
+    memory reference_egress_face_coverage_7pct_not_a_ceiling.md records that the real entry route
+    for this house is GARAGE + FAMILY ROOM (the earlier ~7% figure was measured on the wrong camera,
+    the front door). So the two dead egress cameras are on the primary entry route, and any egress /
+    identity / arrival coverage number computed since they were reclassified is understated by an
+    unknown amount. CROSS-INVESTIGATION JOIN: this should be checked BEFORE any further egress
+    coverage measurement or any consumer work gated on egress person_id, because it may partly
+    explain a coverage shortfall that was previously attributed to face-recognition reach.
+    RECONCILES WITH PRIOR ART, does not contradict it: AUDIT_frigate_dead_leg_correctness.md
+    (2026-08-18) concluded "URA is NOT reading dead Frigate legs anywhere" and that verdict STANDS —
+    it was about READ paths returning frozen values, and it correctly found that removed entities
+    resolve to nothing rather than to stale data. What that audit did not ask is whether resolving
+    to nothing is itself harmful. Here it is: no corruption, but a silently missing input. Its own
+    latent Finding L1 (camera_resolver._prefer_canonical prefers the bare name, which on a
+    perimeter/exterior camera is the DEAD F1 name) is the sibling of this, in code rather than
+    config.'
+  DECISION_2026_08_20_RIDE_NEXT_DEPLOY: 'OPERATOR: "Egress cameras. Ride the next deploy."
+    ACCEPTED, and it is the right call for a reason I got wrong first time. I had recommended fixing
+    it tonight via the options flow as a no-deploy change. THAT ADVICE WAS UNSAFE AND IS WITHDRAWN:
+    CONF_EGRESS_CAMERAS is DELIBERATELY EXCLUDED from INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS
+    (__init__.py:5986-5990 — PerimeterAlertManager caches these lists at setup with no refresh
+    signal, so they were left on the legacy reload path on purpose). A save therefore falls through
+    to "scheduling reload" on the INTEGRATION (parent) entry, which is the documented 2026-08-07
+    outage mechanism: a Camera Census save cascading a synchronous reload to ~40 child entries,
+    ~5-minute event-loop stall, supervisor watchdog restart. Riding a deploy costs nothing because
+    the reload happens anyway.
+    CARRY-FORWARD FOR THE DEPLOY: repoint egress_cameras camera.garage_a -> camera.garage_a_2 and
+    camera.garage_b -> camera.garage_b_2 in the same window as the restart. VERIFY BOTH WAYS — the
+    warning stopping is necessary but NOT sufficient; also confirm the resolved egress person
+    binary_sensor count rises by those two cameras'' sensors, which is what proves coverage returned
+    rather than the message merely being silenced.'
+  next: 'Tier 1 config fix first, then a Tier 2 code question — deliberately separated so the live
+    gap closes tonight without waiting on a build.
+    (1) IMMEDIATE, no deploy: repoint egress_cameras entries camera.garage_a -> camera.garage_a_2
+    and camera.garage_b -> camera.garage_b_2 via the options flow. Verify by re-reading the log for
+    the warning and confirming it stops, AND by confirming the resolved person binary_sensor count
+    for egress rises by the two cameras'' sensors — the second check is the one that proves coverage
+    came back rather than just silencing the message. Do NOT hand-edit .storage.
+    (2) THEN decide the code question: should resolve_configured_cameras fall back to the _N
+    sibling when the canonical name is absent? Argument for: makes the whole class self-healing and
+    matches the operator''s "slug guessing has been messy" concern. Argument against, and it is
+    strong: silent fallback is how you end up trusting a camera you did not configure, and prior
+    art already warns that _prefer_canonical guessing in the OTHER direction is a latent hazard.
+    RECOMMENDED SHAPE: do not auto-substitute. Instead (a) aggregate the warning to once per
+    resolve-cycle per entity instead of every tick — 1,015 repetitions of a static config fact is
+    the actual log defect — and (b) surface unresolved configured cameras as a DIAGNOSTIC (a count
+    + list on a census/diagnostic sensor) so a dead config entry is visible on a dashboard instead
+    of only in a log nobody reads. Detection, not silent repair.
+    (3) SWEEP, cheap and worth doing once: the same dead-name check across every OTHER stored entity
+    list URA holds (room occupancy_sensors, motion, lux, alert_lights, zone cameras), not just the
+    three camera lists. This class is "stored config naming an entity that no longer exists", and
+    cameras are unlikely to be the only place a rename or retirement left one behind. Report the
+    count even if zero.'
+- id: SENSCAP-ORPHAN-1
+  title: A room sensor can never be removed once capabilities are in play — the stale per-entity
+    dropdown re-injects an orphan declaration and wedges the form permanently
+  thread: config
+  status: shipped_organic
+  shipped_version: v5.85.1
+  updated: '2026-08-20 21:20'
+  approval: explicit
+  approved_by: 'operator 2026-08-20 (chat: "please fix the fact that I cannot clear the camera
+    person sensor. This error shows not matter what I do.")'
+  tags:
+  - wire-in-anchor
+  - fix-ready-rides-next-deploy
+  origin:
+    date: '2026-08-20'
+    gist: 'Operator, working in the Garage Hallway room options flow, could not remove
+      binary_sensor.staircase_person_occupancy (the noisy Frigate camera person sensor identified
+      earlier in this session as the worst input in that room — 89 on/off cycles/24h vs 53 for the
+      PIR sibling). Every submit returned sensor_capabilities_invalid regardless of what they
+      changed. Screenshot supplied.'
+  root_cause: 'CONFIRMED, and it blocks removal of ANY sensor from ANY room that has a capability
+    dropdown rendered — not just this room and not just camera sensors.
+    The per-entity capability dropdowns (`caps_kind__<entity_id>`) are built from the room''s
+    PRE-EDIT CONF lists (config_flow.py:9687-9697). When the operator removes a sensor and submits,
+    that sensor''s dropdown is STILL in the submission because the form was rendered before the
+    edit. The fold loop then calls derive_capability() for it, which returns None — rule 3,
+    "the entity is not part of this room''s Tier-1 wiring" (sensor_capability.py:187-188) — so
+    `_kind == _default_kind` is False, the no-op branch is missed, and the else-branch WRITES a
+    declaration for an entity that is no longer wired. The immediately following re-validate then
+    rejects it via validate_capabilities_payload''s `if entity_id not in known` check
+    (sensor_capability.py:292-297). The save is refused, the step re-renders with the same stale
+    dropdown, and the loop is closed: the removal can never be completed. Exactly the operator''s
+    "no matter what I do".
+    Same wedge is reachable through the JSON blob rather than the dropdown, because the FIRST
+    validate (config_flow.py:9491) runs before the fold — so the prune has to happen on both paths.'
+  fix: 'Implemented, uncommitted, ready to ride the next deploy. Three edits in config_flow.py
+    async_step_sensors: (1) compute `_entities_now` — the union of the three lists AS SUBMITTED;
+    (2) prune JSON-authored declarations for de-wired entities before the first validate, logging
+    what was dropped at INFO; (3) in the fold loop, skip any dropdown whose entity is not in
+    `_entities_now` and drop any declaration it still carries. Dropping is the CORRECT semantics
+    rather than a workaround — the operator has just declared the entity is no longer wired into
+    the room, and the validator''s own error text tells them to fix it by editing the CONF lists,
+    which is precisely what they did.'
+  NEAR_MISS_2026_08_20: 'THE FIRST VERSION OF THIS FIX BROKE FOUR EXISTING TESTS and the targeted
+    suites did not show it. test_v4516_failsafe_freshness H3a-H3d extract the dropdown-merge region
+    from config_flow.py VERBATIM and exec it standalone (production source is that test''s oracle,
+    by design). My `_entities_now` was bound in the enclosing scope, OUTSIDE the extracted region,
+    so the slice raised NameError. Fixed by deriving it inside the merge region from
+    motion/mmwave/occupancy, which that harness seeds — keeping the block self-contained, the same
+    constraint that already makes it elide its own relative import there.
+    IT WAS ONLY VISIBLE IN THE FULL-SUITE NAME-DIFF against a clean baseline worktree. Two process
+    notes, because either would have let it ship:
+    (1) The first background diff run was TRUNCATED TO 12 LINES by the task runner, losing the
+    failure list entirely. Re-run in foreground.
+    (2) A COUNT comparison would have actively misled: baseline 141 failed / 9211 passed vs
+    first-fix 145 failed / 9211 passed. The +4 reads naturally as "my four new tests failed". It
+    was four EXISTING tests breaking while my four never ran at all. Only the NAME diff separates
+    those two stories. This is the concrete case for the standing "baselines are name-diffs, not
+    count-diffs" rule.
+    FINAL STATE: baseline 141 failed / 9211 passed / 17 errors; with fix 141 failed / 9215 passed /
+    17 errors; name diff EMPTY in both directions. Diff is purely additive — 73 insertions, 0
+    deletions. Baseline worktree removed after use.'
+  verification: 'New file quality/tests/test_senscap_orphan_removal.py — 4 tests, built on the
+    existing HA-mock options-flow harness, driving the REAL async_step_sensors handler with the
+    live Garage Hallway wiring as the fixture. Founding case = remove the camera sensor while its
+    stale dropdown is still submitted. Two byte-identity guards assert a no-removal submission
+    still validates clean and that a live declaration is never discarded. Fourth test asserts the
+    orphan is not merely silenced but absent from the persisted capabilities — guarding the other
+    failure direction, where silencing the error while still writing the orphan would block every
+    FUTURE save of that room.
+    MUTATION DRILL RUN (not a source grep — the hollow-anchor rule): both guards neutered with
+    bytecode writing disabled and __pycache__ cleared; result `2 failed, 2 passed`, and the failure
+    carries the operator''s exact error string plus the validator''s own message ("entity ... is not
+    in this room''s motion / mmwave / occupancy CONF lists"). Guards restored, 0 mutation markers
+    remaining, file recompiles, and 76 tests pass across
+    test_senscap_orphan_removal + test_sensor_capability_and_role + test_cycle_b_config_flow +
+    test_baec_config_flow_round_trip.'
+  next: 'Tier 1 — 1 file + 1 new test file, single defect, no new capability, no cross-coordinator
+    reach. Ship with the next deploy alongside the EGRESS-CAMERA-DEAD-CONFIG-1 repoint; they pair
+    naturally because both are config-surface corrections that need one restart between them.
+    AFTER DEPLOY the operator can complete the removal through the UI normally.
+    TWO THINGS TO RAISE WITH THE OPERATOR, neither actioned: (a) the mmWave they asked to ADD,
+    binary_sensor.mmwave_temp_hum_lux_garagehallway_presence, is ALREADY in motion_sensors — that
+    half of the request needs no change; (b) the room''s one capability declaration tags
+    binary_sensor.rgbw_motion_lux_3rdr_zigbee_garagehallway_occupancy_2 as kind
+    "camera_presence", but that entity is a Zigbee RGBW motion/lux device, not a camera. It looks
+    like a mis-tag from an earlier attempt to label the actual camera sensor and picking the wrong
+    row. It validates (camera_presence is not in _NON_CORROBORATOR_KINDS so the D-MEDIUM-1 rule
+    does not fire) but it is very likely wrong, and it changes how that sensor is trusted. Confirm
+    intent before clearing it.'
+- id: HVAC-HOT-ENTRY-LATENCY-1
+  title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry
+    dwell does not care how hot the room is
+  thread: hvac
+  status: intake
+  updated: '2026-08-20 22:45'
+  approval: needs_operator
+  tags:
+  - measure-before-build
+  - operator-corrected-me
+  origin:
+    date: '2026-08-20'
+    gist: 'Operator asked why zone 2 was not being arrested. I gave two wrong answers — that the
+      equipment was idle and that URA had written the manual itself. Operator refuted both
+      ("The equipment is not idle", "I think a human did that. Nothing in Ura would point at 71",
+      "Jaya definitely yanked the thermostat") and was right on both counts.'
+  evidence: 'RECONSTRUCTED FROM climate.up_hallway_zone_2 ATTRIBUTE HISTORY, 19:45-22:20 CDT.
+    19:45 preset `away`, 68/80, cooling then idle. Room climbs to 80F.
+    ~20:18 Jaya enters (zone_2_status continuous_occupied_hours 1.8 as of 22:06 back-computes to
+    ~20:18; occupied_rooms = Guest Bedroom 2 + Jaya Bedroom).
+    20:20:39 away -> MANUAL, target_temp_high 80 -> 78.
+    20:21:08 78 -> 76.  20:42:12 76 -> 71.
+    A stepwise 80/78/76 ladder inside 30 seconds then a further cut 20 min later is a person
+    pressing a down-arrow. Nothing in URA emits that ladder, and 71 is not a value URA would write.
+    RESOLVED ON ITS OWN: 22:12:57 hold_activity -> sleep, 22:13:20 preset `sleep` 70/75 cooling,
+    22:15:14 preset `home` 70/76, hvac_action cooling, conditioning active_cool.
+    MY "EQUIPMENT IDLE" CLAIM WAS FALSE — physical cross-check at 22:35: span_panel_ac1_power
+    2784 W, ac_2 2738 W, ac_3 2988 W, universal_room_automation_hvac_system_demand 100%,
+    hvac_direction cooling. The plant was running hard the whole time. I had read the Bryant
+    `hvac_action`/`conditioning` attributes as plant state; on this system they track the ZONE call,
+    not the equipment. SECOND time today I trusted a Bryant cloud attribute as an oracle without
+    a physical cross-check (the first was last_changed as a liveness signal). The lesson is not
+    "that attribute is bad", it is: for anything about EQUIPMENT, read the wattage.'
+  CORRECTION_NOT_UNAIDED_2026_08_21: 'MY "RESOLVED ON ITS OWN" CLAIM WAS WRONG — operator: "It
+    didn''t recover unaided. I got tired of wasting time and money and intervened via the Bryant
+    app." The DB confirms the operator''s account and refines it. ura_activity_log has exactly ONE
+    zone_2 row in the whole 01:00-04:00 UTC window: 2026-08-21T03:15:13Z = 22:15:13 CDT,
+    action=preset_change, "Upstairs preset sleep -> home (house=guest)". So the sequence was:
+    22:12:57 hold_activity -> sleep and 22:13:20 preset -> sleep 70/75 = THE OPERATOR''S BRYANT APP
+    WRITE, which replaced `manual` with a real preset; then 22:15:13 URA made its own preset_change
+    sleep -> home. URA did NOT break the manual. A human did, and URA resumed control two minutes
+    later. THIS IS A CLEAN CONFIRMATION OF THE LOCKOUT MECHANISM rather than a refutation: URA
+    could not escape `manual` on its own (should_change_preset returns False while preset ==
+    manual), and the moment a non-manual preset appeared it acted immediately. Do not let a future
+    session read the 22:15 recovery as self-healing.'
+  ARRESTER_IS_UNAUDITABLE_2026_08_21: 'THE LEDGER I PROMISED DOES NOT EXIST — answering the open
+    question is blocked, not pending. Pulled the DB directly on the HA host over ssh (the Samba
+    mount cannot open it: WAL). Findings:
+    (a) The HVAC coordinator''s ENTIRE action vocabulary in ura_activity_log is {fan_off, fan_on,
+    pre_arrival, preset_change, preset_change_suppressed}. There is NO override / arrest / shave
+    action at all. The arrester writes NOTHING to the activity log, so overrides_today is
+    in-memory only and there is no after-the-fact record of a detection.
+    (b) No arrester notification in notification_log for the 20:20 CDT window.
+    (c) `preset_change_suppressed` fired exactly ONCE in 24h and for an unrelated reason
+    ("Upstairs preset flip -> away suppressed during waking", 06:00 CDT). So the MANUAL LOCKOUT IS
+    ALSO SILENT — URA declined to write presets to zone 2 for ~2 hours and logged nothing at all.
+    CONSEQUENCE: the (a)-vs-(b) question from HVAC-HOT-ENTRY-LATENCY-1 — suppression-TTL swallow vs
+    ARREST-COMFORT-1 deferral — CANNOT be answered retrospectively. The only routes left are
+    forward-looking: raise the arrester logger to INFO and catch the next occurrence, or add an
+    activity-log row on detect/defer/revert. The second is the real fix and is arguably its own
+    small card: a governance mechanism that reverts operator actions but keeps no auditable record
+    of what it decided is not reviewable after the fact.'
+  root_cause: 'A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away`
+    with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0
+    minutes = exactly one decision tick, so the EARLIEST URA could have flipped away -> home was
+    ~20:23. She reached the thermostat at 20:20:39 — about two minutes after walking in, and about
+    three minutes before URA would have acted.
+    This is precisely the operator requirement stated earlier the same evening: "We want it to
+    react quickly to someone being there if its hot." It is unmet, and this is the first live,
+    dated, fully-reconstructed instance of the cost. It is also the strongest evidence yet for the
+    TEMPERATURE-CONDITIONAL DWELL idea already recorded on HVAC-PRESET-FLAP-1: when a zone is
+    sitting at its away ceiling and someone walks in, a flat five-minute wait is indefensible;
+    when the zone is already comfortable, the wait is free. Same knob, conditioned on the one
+    variable that decides whether waiting costs anything.'
+  open_question: 'DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session
+    assume either way. The 20:20:39 away->manual transition is the arrester''s documented trigger
+    (hvac_override.py:2069-2071), yet the Upstairs zone still reports overrides_today: 0 while
+    Entertainment + Master Suite reports 3 with last_direction warmer. The manual episode has since
+    COMPLETED, so a detected-then-deferred override would have incremented by now. That points at
+    NOT DETECTED, which would be a real regression — operator''s instinct was "This feels like a
+    regression."
+    BUT THE LOG CANNOT SETTLE IT AND I NEARLY MIS-READ IT AS PROOF. The arrester emits
+    "Override detected on %s" at INFO. A search returns nothing — however a follow-up check shows
+    there are ZERO URA INFO lines in the log at all; the log carries WARNING and above only. So the
+    absence is not evidence, it is the same undiscriminating-observation trap as the DP
+    hold_pre_eval misdiagnosis this morning.
+    TWO LIVE CANDIDATES, NOT SEPARATED: (a) `_is_genuine_manual` swallowed it because URA had
+    suppressed that entity within SUPPRESS_TTL_SECONDS just before 20:20:39 — note the cloud echo
+    visible at 20:20:48 where hold_activity bounces manual->away->manual, which is exactly the
+    shape that makes a suppression window overlap a real human edit. That would be a genuine
+    defect. (b) ARREST-COMFORT-1 deferred the arrest BY DESIGN because the manual was
+    comfort-qualified at 80F — which would be correct behaviour and no bug at all.
+    HOW TO SETTLE IT (either is cheap): read the arrester ledger rows in the URA DB for tonight, or
+    raise the arrester logger to INFO and catch the next occurrence. NOTE the DB was NOT reachable
+    this session — no ura-sqlite MCP connected, and sqlite cannot open the live DB read-only over
+    the Samba mount because it is in WAL mode. Copy it locally or reconnect the MCP.'
+  next: 'Two separable pieces of work; do NOT bundle them until the open question is settled.
+    (1) The responsiveness fix (temperature-conditional dwell) belongs with HVAC-PRESET-FLAP-1 and
+    is now evidence-backed rather than speculative.
+    (2) The arrester question is a triage step, not a cycle — answer it first, because if (a) is
+    true it is a suppression-window defect that would also explain other missed overrides, and if
+    (b) is true there is nothing to fix and the card closes.
+    ALSO NOTE FOR THE RECORD: the zone recovered without intervention at 22:15. Whatever else is
+    true, this was not a stuck state.'
+- id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
+  title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight
+    while the house burned 49 kWh; hard reset has not fired since 2026-08-15
+  thread: hvac
+  status: intake
+  updated: '2026-08-21 09:30'
+  approval: needs_operator
+  tags:
+  - measure-before-build
+  - operator-observed
+  origin:
+    date: '2026-08-21'
+    gist: 'Operator: "I woke up to the ACs drawing 10kw this morning after cooling overnight. With
+      charging and this we had burned 49kw overnight before the day started. I manually stopped and
+      restarted the AC and when they cycled back up they reclaimed only half of that because the
+      rooms had reached set point long ago." Asked whether AC reset is working — they believed it
+      was on.'
+  design_intent: 'From PLANNING_v4.5.11 (the objective doc, read to orient). The v4.5.11 cycle
+    deliberately FLIPPED the failure mode: the old AC Reset triggered on "AC running but room never
+    reaches setpoint" (undersized/low-refrigerant), which never fires in this house. The real Texas
+    failure mode is "AC REACHES setpoint, then keeps cooling and burning kWh past the natural
+    cycle-end" — the exact thing the operator saw this morning. The designed ladder is:
+    detect overshoot + sustained kWh -> SOFT NUDGE (+1.5F for a few minutes so the variable-speed
+    Bryant ramps down without cycling) -> if the nudge FAILS (kWh still high after ~10 min observe)
+    -> escalate to HARD RESET (off, 60s, restore). Caps specced as 6 soft nudges + 2 hard resets per
+    zone per day, 30 min between nudges, 2 h between hard resets, per-zone lockout. Goal 3 verbatim:
+    "Hard reset retained as escalation only... because rapid compressor cycling is the worst
+    possible failure mode."'
+  measured: 'All from the live DB on the HA host (ssh; the Samba mount cannot open it — WAL).
+    OVERNIGHT 2026-08-20 18:00 -> 2026-08-21 08:00 CDT: 47 nudge_started events — zone_1 22,
+    zone_2 10, zone_3 15. EVERY ONE of the 47 nudge_evaluated rows is classified effective=1,
+    avg kwh_rate_before 2.51 kW -> avg kwh_rate_after 0.18 kW. Typical row: current_temp 76.0,
+    target_high 76.0 (i.e. AT setpoint), kwh_avoided ~0.7-0.97 per nudge.
+    DAILY TOTALS in ac_reset_state: zone_1 soft_nudge_count 31 on 08-20, 34 on 08-19, already 14 by
+    07:05 today; zone_2 20 on 08-20; zone_3 12 today.
+    HARD RESETS: hard_reset_count = 0 for every zone on 08-18, 08-19, 08-20, 08-21. In
+    ac_ramp_events, hard_reset_started/completed occur 11 times total, spanning 2026-07-22 17:51 ->
+    2026-08-15 04:54, and ZERO in the six days since.'
+  finding: 'TWO SEPARATE DEFECTS, and neither is "the feature is off" — the soft nudge is working
+    hard and is being credited for it.
+    (1) NO RECURRENCE TRIGGER. Escalation to hard reset is gated on ONE condition only — the nudge
+    being classified INEFFECTIVE (hvac_override.py:3510-3520, `if escalate:`). Every nudge succeeds:
+    2.51 kW collapses to 0.18 kW. Then ~30 minutes later the load returns and the cycle repeats,
+    47 times in one night. The design has a concept of "this nudge failed" but NO concept of
+    "this nudge keeps succeeding and the problem keeps coming back." So the second rung of the
+    ladder is structurally unreachable in the steady state that actually dominates this house.
+    The operator''s manual off/on IS the hard reset — performed by hand because the automation
+    would never get there.
+    (2) THE SOFT-NUDGE DAILY CAP WAS SPECCED BUT NEVER BUILT. The plan says 6 soft nudges per zone
+    per day. There is no such constant and no enforcement anywhere —
+    DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT (=2) exists at hvac_const.py:527, but there is no
+    soft-nudge sibling. Observed 31/day against a specced cap of 6. The 30-minute min interval IS
+    being honoured (that is why the count lands near 2/hour), so the interval knob shipped and the
+    cap did not.
+    SAVINGS ACCOUNTING IS THEREFORE SUSPECT: ~0.7-0.97 kWh "avoided" x 47 nudges implies ~35 kWh
+    avoided overnight, on a night the operator measured 49 kWh actually burned. Each nudge is
+    credited for a load that returns half an hour later. Do NOT treat ac_ramp_savings_* as
+    validated until the double-count question is settled — that is a third, quieter finding.'
+  RESOLVED_NO_REGRESSION_2026_08_21: 'THE 08-15 CUT-OFF IS NOT A REGRESSION — settled by the
+    discriminating query, so nobody should hunt for a code change. Since 2026-08-15 there have been
+    308 nudge_evaluated rows: 307 effective, ONE ineffective. That single ineffective row is
+    2026-08-15T04:53:14 on zone_2 (kwh 2.02 -> 1.98, kwh_avoided=0.000) — and it is precisely the
+    one that produced the last hard_reset_started at 04:53:14 / completed 04:54:15. So the
+    escalation path is ARMED AND WORKING; it simply has not met its trigger in six days because
+    the nudge keeps succeeding. Operator''s instinct that AC reset is "on" is correct — it is on,
+    it is functioning, and that is exactly why it never fires. This collapses the card to ONE
+    defect (no recurrence rung) plus the missing soft-nudge cap, and removes the phantom
+    "something broke on 08-15" thread entirely.'
+  open_question_RESOLVED: 'WHY DID HARD RESET STOP ON 2026-08-15? ANSWERED above — it did not stop,
+    its trigger stopped occurring. It
+    fired 11 times between 07-22 and 08-15 and never since. Checked git log 08-13 -> 08-17: every
+    commit in that window is guest-census work, nothing touching HVAC or the ramp path, so there is
+    no obvious code cause. The benign explanation is that it simply never met its trigger again
+    because nudges kept classifying effective — in which case 08-15 is a coincidence, not a
+    regression, and defect (1) fully explains today. The discriminating check is whether any
+    nudge_evaluated row since 08-15 has effective=0; if none does, the trigger was never armed and
+    there is no regression to hunt.'
+  next: 'Cheap discriminating query FIRST (does any post-08-15 nudge_evaluated carry effective=0),
+    because it decides whether this is one defect or two. Then the design question for the operator,
+    which is a policy call not an implementation detail: what SHOULD happen when a zone needs its
+    Nth effective nudge in one night? Candidates — escalate to hard reset on recurrence count
+    (respecting the existing 2/day + 2h compressor-protection caps, which exist for good reason);
+    or widen the nudge (a bigger or longer bump) rather than repeating the same 1.5F; or accept the
+    recurrence and stop crediting savings for it. Implement the missing soft-nudge daily cap
+    regardless — a specced safety cap that silently never shipped is its own problem, and 31/day
+    against a design of 6 means nobody has been looking at this number.'
+- id: HVAC-TICK-LITERAL-1
+  title: HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3
+    structurally inert and grace_constrained=5 the minimum expressible value
+  thread: hvac
+  status: intake
+  updated: '2026-08-20 18:10'
+  approval: needs_operator
+  tags:
+  - numbers-get-knobs
+  - measure-before-build
+  origin:
+    date: '2026-08-20'
+    gist: 'Surfaced while computing the optimal dwell/grace tuning the operator asked for. Every
+      preset transition in 48h of live history lands on a 5-min boundary; the cause is
+      async_track_time_interval(..., timedelta(minutes=5)) at hvac.py:1024-1028 — an inline literal
+      with no named constant and no knob. It is the quantum for BOTH tunable damping knobs, so the
+      knobs cannot be reasoned about without it, and it was invisible in every prior flap analysis.'
+  next: 'Tier 1 / docs-adjacent first step: promote the literal to a named module constant in
+    hvac_const.py (rung 1 on the placement ladder — this should REQUIRE review to change, it is a
+    cloud-API call-rate bound, not an operator-tunable). Do NOT make it a Number entity: lowering it
+    multiplies thermostat cloud writes across 3 zones. Then state the dwell/grace clamp relationship
+    in one comment: dwell and grace below one tick are not expressible, and a value of exactly one
+    tick guarantees single-tick round trips. Blocks nothing, but any HVAC-PRESET-FLAP-1 tuning or
+    rate-limit work should land the constant first so the reviewer can see the quantum.'
 - id: HVAC-PRESET-FLAP-1
   title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B
     removal)
   thread: hvac
-  status: shipped_organic
+  status: review
+  updated: '2026-08-20 18:10'
+  refinement_status: refined
+  TUNING_SIMULATION_2026_08_20: 'MEASURED, not assumed. Simulated both knobs against the real
+    48h zone_3 preset series (77 home/away transitions after excluding manual/sleep regimes;
+    HOME episodes med 15.0 min / p25 5.0; AWAY episodes med 10.0 / p25 5.0). Raising a knob by
+    D minutes shortens each episode by D and eliminates episodes <= D, so the elimination curve
+    is computable exactly. RESULTS: grace +10 kills 56% of away-episodes, +20 kills 83%; dwell
+    +7 (3->10) kills 39% of home-episodes, +12 (3->15, the cap) kills 46%. BEST ACHIEVABLE
+    INSIDE THE KNOB RANGES (grace 30 / dwell 15) = ~28 transitions/48h, down from 77 — a 64%
+    cut but NOT calm, and it costs 30 min of comfort preset after every real vacancy in ALL
+    THREE zones. RECOMMENDED TURN: vacancy_grace 10->20, vacancy_grace_constrained 5->15,
+    zone_entry_dwell 3->10 => ~41/48h (-47%). VERDICT: tuning is a real partial win and should
+    be taken FIRST, but it CANNOT reach calm and cannot express the operator design axis
+    (person-assignment-aware) because all three knobs are coordinator-manager GLOBAL — verified
+    number.py:410-671, __init__.py:3388-3424, hvac.py _vacancy_grace/_zone_entry_dwell are
+    single scalars, no per-zone form field anywhere. So do NOT abandon code — but scope it to
+    the write rate limit + per-zone scaling, not a new subsystem.'
+  DWELL_MECHANISM_ANSWERED_2026_08_20: 'OPERATOR ASKED: does dwell watch every room in the back
+    hallway to see if someone is moving around persistently or staying, and what does it consult?
+    ANSWER: NO — it does close to the opposite. Dwell consults exactly ONE field,
+    zone.current_session_start (hvac.py:1761-1762). That field is a single zone-wide timestamp set
+    at hvac_zones.py:562-563 on the first refresh where zone.any_room_occupied is True, and
+    any_room_occupied is a plain unweighted OR across all 12 rooms (hvac_zones.py:146-148,
+    any(r.occupied for r in room_conditions)). It is RESET TO None the instant that OR goes False
+    (hvac_zones.py:566). So there is NO per-room memory, NO persistence requirement, NO
+    corroboration, and no distinction between one person genuinely settled in Guest Bedroom 1 and
+    twelve rooms blipping in turn. It measures only "how long has the zone been continuously
+    non-empty, as sampled at 5-min tick boundaries". THIS IS THE MECHANISM BEHIND THE OPERATOR''S
+    OWN OBSERVATION that it "reacts too quickly to presence": a single blip in ANY of 12 rooms
+    sets the OR true, starts the session clock, and one tick later dwell is satisfied and the zone
+    goes home. The over-eagerness is an INPUT-QUALITY problem (an unweighted 12-room OR, one leg of
+    which was a noisy camera person sensor), not a damping-strength problem. Operator''s instinct
+    is correct and my damping-first framing was treating the symptom.'
+  OPERATOR_DECLINED_TUNING_MOVE_2026_08_20: 'OPERATOR DECLINED the tuning turn for now, with
+    reasoning I should have derived and did not: grace=10 is deliberate because it evaluates
+    across TWO ticks; 25 would be FIVE ticks and is too expensive; and grace_constrained=5 is meant
+    to be a FRACTION of grace, not an independent value — so my "raise constrained to 15" broke the
+    intended relationship. Operator also confirms entry dwell was 3 and THEY moved it to 5 today,
+    agreeing 3 sat below the tick. STANDING GOAL restated verbatim: "Overall I want it to react
+    accurately to presence. like a glove. Presence reaction != flapping. unless its coming from the
+    manual writes." So the objective is ACCURACY, not damping — and the suspicion is that much of
+    what looks like flapping is actually the manual writes. That makes HVAC-MANUAL-PRESET-CONTRACT-1
+    the measurement precondition, and makes input quality (the Garage Hallway sensor swap, already
+    in flight operator-side) the other half. NO KNOB CHANGES until those two land and we re-measure.'
+  PER_ZONE_CONFIG_CLAIM_CORRECTED_2026_08_20: 'I CLAIMED "there is no per-zone HVAC setting for any
+    of this, or for any hvac setting generally". That is TOO BROAD and is corrected. Per-zone HVAC
+    config DOES exist — the Dynamic Preset Management family is per-zone:
+    CONF_ZONE_DYNAMIC_PRESET_ENABLED (energy_const.py:628), plus per-zone custom range knobs
+    CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH / _LOW, _COOL_SLEEP_HIGH / _LOW and
+    CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS (imported at dynamic_preset.py:56-61). What is
+    correct is the NARROWER claim: the three DAMPING knobs (vacancy_grace, vacancy_grace_constrained,
+    zone_entry_dwell) are coordinator-manager global. CONSEQUENCE FOR "is the juice worth the
+    squeeze" on derived per-zone damping: the squeeze is CHEAPER than I implied, because a per-zone
+    HVAC config pattern already exists to follow rather than invent. Still gated on re-measurement
+    after the manual fix.'
+  LIVABILITY_REFRAME_2026_08_20: 'OPERATOR CORRECTED MY OBJECTIVE FUNCTION. I was minimising
+    TRANSITIONS; the real objective is comfort + energy, with transition count only a proxy — and
+    the proxy is MISLEADING because the two halves of a round trip have opposite costs. Operator
+    verbatim: "We want it to stop cooling when no one is around. And we want it to cool when
+    someone is. We want it to react quickly to someone being there if its hot. And we want to wait
+    and make sure they have actually left before we go away (will trend hotter, away preset is
+    usually up to 80 on the upward bound)." That is an ASYMMETRIC requirement: FAST IN, SLOW OUT.
+    zone_entry_dwell is the fast-in knob and raising it directly violates "react quickly if its
+    hot" — so my earlier 3->10 dwell recommendation is WITHDRAWN. vacancy_grace is the slow-out
+    knob and is the one that matches the requirement. The dangerous half of the flap is the
+    SPURIOUS AWAY while a person is still present, because away relaxes toward 80F and is FELT.
+    Non-obvious corollary: in a high-transit zone a LONGER grace is probably cheaper, not more
+    expensive — the energy saved by avoiding a re-cool from a relaxed setpoint exceeds the cost of
+    holding comfort for the extra minutes. The usual "grace costs energy" intuition inverts here.'
+  TUNING_RECOMMENDATION_FINAL_2026_08_20: 'REVISED, asymmetric. vacancy_grace 10 -> 25 (kills 89%
+    of away-episodes on the measured 48h series). vacancy_grace_constrained 5 -> 15. zone_entry_dwell
+    LEAVE AS IS (see live-value correction below) — do not raise it. Predicted: ~77 -> ~52
+    transitions/48h, and critically the eliminated ones are disproportionately the spurious-away
+    half, which is the half that hurts. LIVE-VALUE CORRECTION: the 2026-08-20 handoff section 7
+    records zone_entry_dwell = 3.0. It is actually 5 (number.ura_hvac_coordinator_47_entry_wait,
+    read live 19:00 CDT). That is EXACTLY one tick, not below one — so the "structurally inert"
+    claim in TICK_QUANTUM_FINDING is too strong for dwell and applies cleanly only to the
+    grace_constrained=5 case. Dwell at 5 defers by exactly one tick, reliably, every time.
+    ENTITY IDS + ORDER OF OPERATIONS (live-apply verified, NO RESTART NEEDED): the setters push to
+    the live coordinator BEFORE the options writeback (number.py:484-485 dwell, :559-561 grace,
+    :665-667 constrained), and these keys sit in the reload-suppress block (__init__.py:5858), so
+    the value takes effect on the very next 5-min tick. ORDER MATTERS: the constrained setter
+    clamps new_value = min(value, normal) at number.py:660 — so set
+    number.ura_hvac_coordinator_48_zone_vacancy_delay_minutes to 25 FIRST, then
+    number.ura_hvac_coordinator_49_zone_vacancy_delay_energy_saving_minutes to 15. Setting the
+    energy-saving one first silently clamps it to 10 and logs the clamp at INFO.'
+  OUTSIDE_THE_BOX_OPTIONS_2026_08_20: 'Operator asked for non-obvious options. Four, ranked.
+    (1) TEMPERATURE-CONDITIONAL DWELL — the cleanest resolution of the fast-in/slow-out conflict.
+    Make dwell zero when the zone is above its comfort band and full-length when the zone is
+    already comfortable. Satisfies "react quickly if its hot" and "damp pointless transits"
+    simultaneously instead of trading them off. Small, local to the hvac.py:1756-1766 gate.
+    (2) SOFT-AWAY FIRST STEP — reduce the COST OF BEING WRONG instead of trying to be right more
+    often. Today away jumps to the full relaxed bound (~80). Make the first grace-period step a
+    partial relaxation and only go full-away after a second confirmation. This bounds the comfort
+    damage of a spurious away without needing better occupancy, and it is the highest-leverage
+    idea if code is on the table. (3) DERIVED per-zone damping WITHOUT new per-zone config —
+    scale grace by signals URA already holds (zone has no zone_persons AND transit rate above a
+    threshold => grace x k). Expresses the operator design axis while respecting the fact that
+    there is no per-zone HVAC config surface, and needs no config-flow work. (4) The WRITE RATE
+    LIMIT should be reframed: as an occupancy damper it duplicates grace/dwell, but as a CLOUD-API
+    CALL BUDGET it is not duplicative — it bounds writes from ALL causes including manual-restore
+    and arrester writes. Ship it as a budget, not as a debounce. See the feedback-loop finding on
+    HVAC-MANUAL-PRESET-CONTRACT-1 for why it must ship WITH the lockout fix.'
+  TICK_QUANTUM_FINDING_2026_08_20: 'ROOT ENABLER, previously unstated: the HVAC decision cycle
+    is a HARDCODED 5-minute literal (hvac.py:1024-1028, timedelta(minutes=5)) — an inline number
+    with no knob, violating Numbers-Get-Knobs. Every dwell/grace value is quantized to it. Two
+    consequences: (1) zone_entry_dwell=3 is BELOW one tick and is therefore structurally near-inert
+    — at the tick that first observes occupancy the session age is ~uniform on [0,5), so dwell=3
+    blocks only ~60% of first ticks and never survives a second tick; the "3-min dwell prevents
+    transit flapping" comment has not been true at this tick rate. (2) vacancy_grace_constrained
+    =5.0 is EXACTLY one tick — the smallest non-zero grace the system can express — which is why
+    coast mode produces the 5-minute round trips: the observed 5-min HOME episodes require grace
+    to have expired within one tick of occupancy ending. Coast/shed is precisely when you want
+    FEWER cloud writes, and the constrained knob does the opposite. See CARD HVAC-TICK-LITERAL-1.'
+  ROOM_SESSION_FLOOR_2026_08_20: 'Corridor room occupancy sessions are NOT brief. garage_hallway_occupied
+    24h: n=26 ON-sessions, min 6.2 min, median 8.1, p90 20.2. The ~6-min floor is the room layer''s
+    own clearance timeout. This kills the intuitive "raise dwell past the transit length" fix: a
+    dwell that clears the median corridor transit needs >8 min, and p90 needs >20 min — above the
+    15-min slider cap. Dwell can damp the flap; it cannot gate transit out.'
+  ORGANIC_EVIDENCE_VIOLATED_2026_08_20: 'VIOLATED. Empirical re-measurement 2026-08-20
+    (live thermostat attribute history, 24h, post-v5.73.0) shows the flap class is NOT
+    eliminated — it MOVED ZONES. zone_3 (Back Hallway): 83 preset changes/24h, 11 in
+    the worst hour, verbatim home 77/70 -> away 80/66 -> home at 10:05/10:10/10:25/10:50/11:10/11:25/11:35.
+    Every flip lands on a 5-min evaluate boundary and swings the cool target 3F while
+    the compressor runs. Measured AT THE THERMOSTAT (climate.* attribute history), not
+    at URA intent sensors — so these are real cloud-API writes, not cosmetic. zone_2
+    (the ORIGINAL 2026-08-09 subject) is now CLEAN: away held 09:35->13:43 with zero
+    flips. zone_1 37 preset / 93 setpoint changes are NOT flap — that is the AC-ramp
+    nudge feature working as designed (ac_nudges_today=43, false-positive rate 1.3%).'
+  OPERATOR_DESIGN_PRINCIPLE_2026_08_20: 'OPERATOR RULING, and this is the fix''s design
+    axis: "Basically if no one is assigned to a zone that maps to an hvac zone, we have
+    to treat it differently. Especially if it sees a lot of transit. This zone is
+    literally called Back Hallway even though it contains the not often used guest
+    bedroom." So the fix is NOT a global debounce turn — it is a PERSON-ASSIGNMENT-AWARE
+    and TRANSIT-AWARE zone policy: a zone with no assigned persons and high transit
+    volume must damp differently from a zone with residents in it. Note the composition
+    trap the operator flags: zone_3 mixes pure-transit rooms (hallways, staircase,
+    breakfast nook, garage hallway) WITH a rarely-used guest bedroom, so a blanket
+    "transit zone = ignore quickly" rule would strand the guest bedroom. The policy has
+    to survive that mix.'
+  CAMERA_QUESTION_ANSWERED_2026_08_20: 'OPERATOR WAS RIGHT TO DOUBT ME. VERDICT: zone_cameras
+    does NOT feed HVAC zone occupancy — every use is diagnostic (hvac.py:3276-3286 reverse map,
+    docstring says "(diagnostic)"; sensor attrs hvac.py:3810 / hvac_zones.py:600-601; face-arrival
+    counter presence.py:4686; and ONE real read presence.py:2138-2145 in check_zone_occupancy_confidence,
+    reachable only from the D6 stale-occupancy failsafe hvac.py:1580-1585 where it can only VETO a
+    >4h stuck-sensor force-away). It never makes a zone occupied. So "we use camera for zone ops"
+    is FALSE as a feature. BUT a camera IS in zone_3''s occupancy path by a DIFFERENT route I had
+    not checked: room Garage Hallway (01KM7E0N5GBR5G5JBJBRD354M5) lists
+    binary_sensor.staircase_person_occupancy (Frigate person) in its ROOM occupancy_sensors, and
+    room occupancy is a plain OR over motion+mmwave+occupancy (coordinator.py:3134-3180) which
+    rolls up via any_room_occupied (hvac_zones.py:146-148). A per-room CONFIG choice, not a
+    zone-camera feature. It is measurably the noisiest input in that room: 89 on/off cycles in 24h
+    vs 53 for the Zigbee PIR sibling. MY ERROR CLASS: I inferred a mechanism from the PRESENCE of a
+    zone_cameras attribute — plumbing-vs-arithmetic, exactly what CLAUDE.md warns about.'
+  ZONE_PERSONS_IS_LOAD_BEARING_2026_08_20: 'The operator''s "no one assigned to the zone" instinct
+    is confirmed and is STRONGER than treat-it-differently. Empty zone_persons does not merely mean
+    unassigned — it makes THREE suppressions INERT for zone_3: (1) night-trust away-suppression
+    hvac.py:1788-1795 iterates `zone.zone_persons or []` so home_persons stays empty, the gate falls
+    through, and the flip to away is ALLOWED during FAN_TRUST_STATES (home_night/sleep/waking,
+    hvac_const.py:645); (2) sleep veto aggregation.py:4017-4019 `if not zone_persons: continue`;
+    (3) non-sleep person-home bias aggregation.py:4152-4154 same early continue. Also no pre-arrival
+    routing hvac.py:3267-3273. So zone_3 is STRUCTURALLY more prone to flipping away, independent of
+    cameras. This is the real design axis for the fix.'
+  ACTUAL_CHATTER_SOURCE_2026_08_20: 'NOT one bad sensor — four high-traffic circulation rooms OR''d
+    together, 24h room-occupancy transition counts: breakfast_nook 62, kitchen_hallway_garage 55,
+    garage_hallway 49, kitchen_hallway 45, garage_a 25, kitchen_pantry 25, guest_bedroom_1 10,
+    laundry_closet 9. climate.back_hallway_zone_3 logged 639 state rows in 24h. The camera amplifies
+    ONE of the four; it is not the sole cause. zone_3 membership CONFIRMED to include Guest Bedroom 1
+    + its bathroom (operator was right), so a blanket transit-zone rule would strand the guest bedroom.'
+  OPERATOR_CORRECTED_ME_DWELL_EXISTS_2026_08_20: 'OPERATOR: "I remember a dwell gate ie you have
+    to be in the zone for a certain amount of time for it to register a person vs a transit. Check
+    hvac_entry_zone_dwell." CORRECT — verified. CONF_HVAC_ZONE_ENTRY_DWELL /
+    DEFAULT_ZONE_ENTRY_DWELL_MINUTES=3 (hvac_const.py:372-373), Number entity
+    number.ura_hvac_coordinator_zone_entry_dwell (number.py:410-488), config_flow.py:4864/5319,
+    live value 3.0, applied hvac.py:1756-1766. Its comment literally reads "v4.2.2: Zone entry
+    dwell — prevent preset flapping on brief transits." I had understated this as merely "guards
+    exist" while emphasising the missing write-rate-limit; the operator''s recall was more precise
+    than my summary.'
+  FLAP_MECHANISM_RESOLVED_2026_08_20: 'READING THE ACTUAL GATES RESOLVES THE CADENCE. The dwell
+    gate carries `and effective_preset != "away"  # Don''t block vacancy overrides` — SO THE DWELL
+    ONLY DAMPS away->home, BY EXPLICIT DESIGN. The opposite direction is damped only by the vacancy
+    grace (hvac.py:1517-1553). Round trip: transit blip -> room occupied -> last_occupied_time
+    resets -> 3-min dwell -> preset home -> grace of quiet -> away. ~13 min, matching the observed
+    5-25 min cadence. AND THE 5-MINUTE FLIPS ARE EXPLAINED: grace_minutes switches to
+    self._vacancy_grace_constrained (LIVE 5.0) whenever _energy_constraint_mode is in ("coast",
+    "shed") — and this card''s ORIGINAL 2026-08-09 finding was "all inside coast mode". Under coast
+    the grace halves and the flap rate roughly doubles. CONCLUSION: primarily a TUNING problem on
+    two existing knobs both at-or-below default and too short for a 12-room transit corridor, PLUS
+    the one genuine gap (no rate limit on the preset WRITE itself, so nothing bounds write frequency
+    independently of the occupancy signal).'
+  OPERATOR_TASK_2026_08_20: 'OPERATOR TAKING THE INPUT-SIDE FIX: "I''ll remove it and [add] an
+    mmwave pir class sensor. My task." — i.e. remove binary_sensor.staircase_person_occupancy
+    (Frigate person, 89 cycles/24h) from Garage Hallway room occupancy_sensors and replace with an
+    mmWave/PIR-class sensor. THIS REMOVES THE NOISIEST SINGLE INPUT but does NOT resolve the flap on
+    its own — the other three chattering corridors (breakfast_nook 62, kitchen_hallway_garage 55,
+    kitchen_hallway 45) are unaffected. Re-measure AFTER the swap before tuning, so the knob turn is
+    sized against the real post-swap chatter rate rather than today''s.'
+  DEBOUNCE_INVENTORY_2026_08_20: 'Guards EXIST and are the right shape — so this is PRIMARILY A
+    TUNING problem, with one real gap. (A) Vacancy grace, occupied->away, hvac.py:1517-1553 +
+    :3504-3505: CONF_HVAC_VACANCY_GRACE_MINUTES default 15 but LIVE VALUE 10.0 (tuned DOWN);
+    constrained variant live 5.0. (B) Zone entry dwell, away->home, hvac.py:1754-1766:
+    CONF_HVAC_ZONE_ENTRY_DWELL live 3.0. WHAT DOES NOT EXIST (searched hvac.py, hvac_zones.py,
+    hvac_preset.py, hvac_const.py for DEBOUNCE|HYSTERESIS|MIN_INTERVAL|COOLDOWN|last_preset_change):
+    NO min-interval/rate-limit on the preset WRITE itself — should_change_preset hvac_preset.py:202-217
+    is a bare 3-line comparison with no timestamp and no cooldown; NO hysteresis or per-room min-on-time
+    on any_room_occupied (bare any(), no smoothing, no N-of-M); NO chatter suppression on the room->zone
+    rollup (chatter_detector.py operates on room-coordinator fusion, not this rollup). CONSEQUENCE: a
+    single ~20s camera blip on staircase_person_occupancy restarts the 10-min grace clock for all 12 rooms.'
+  SUPERSEDED_CLAIM_RETRACTED_2026_08_20: 'I claimed zone_3 is driven by
+    "camera + room-sensor only" occupancy. OPERATOR CHALLENGED: "Not sure we use camera
+    for zone ops. Please confirm." I asserted this from the PRESENCE of a zone_cameras
+    attribute + an empty zone_persons — which is exactly the plumbing-vs-arithmetic
+    error CLAUDE.md warns about. UNVERIFIED AND POSSIBLY WRONG. Verification dispatched
+    2026-08-20: does a camera signal actually contribute to the zone occupancy value
+    HVAC consumes, or is zone_cameras merely an exposed display attribute, or does
+    camera feed ROOM occupancy which then rolls up? DO NOT DESIGN THE FIX UNTIL THIS IS
+    ANSWERED — the damping target depends on which signal actually chatters.'
+  MECHANISM_HYPOTHESIS_2026_08_20: 'zone_3 is the ONLY zone with no zone_persons — it
+    is camera + room-sensor only across 12 mostly-transit rooms (hallways, breakfast
+    nook, staircase, garage hallway). Its any_room_occupied genuinely chatters and NOTHING
+    DAMPS IT. vacancy_sweeps_today=16. So the v5.73.0 fix likely addressed the person-backed
+    path and left the camera-only path undamped. UNVERIFIED: whether the preset-write
+    path has ANY debounce/min-dwell at all — that read (hvac_preset.py / hvac.py preset
+    emission) decides whether this is a TUNING knob or a MISSING GUARD, and it is the
+    single cheapest next action.'
+  DETECTOR_WAS_BLIND: 'sensor.ura_hvac_coordinator_hvac_anomaly reported `nominal` with
+    0 anomalies throughout — because metrics_active_ratio is 2/5 and short_cycle_rate
+    has sample_count 0. The one metric that would have caught this has NEVER received
+    a sample. See HVAC-ANOMALY-BLIND-1 (root cause is the known BACKLOG AnomalyDetector
+    in-memory-baseline defect). This is why the regression went unnoticed between v5.73.0
+    and now.'
   shipped_version: v5.73.0
-  approval: unreviewed
+  approval: explicit
+  approved_by: 'operator 2026-08-20 (chat: ''Fix the occupancy chatter.'')'
   tags:
   - no-fabrication-verify
   - measure-before-build
@@ -3162,7 +4109,8 @@ cards:
     stuck but NOT for fan-demotion
   thread: presence
   status: pre_planning
-  approval: unreviewed
+  approval: explicit
+  approved_by: 'operator 2026-08-18 (board button)'
   origin:
     date: '2026-08-14'
     gist: 'operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz
@@ -3534,7 +4482,14 @@ cards:
 - id: EV-GARAGE-A-NOCHARGE-1
   title: BMW on Garage A refuses charge overnight — vehicle-side or pilot fault; URA exonerated
   thread: energy
-  status: waiting_operator
+  status: done
+  closed: '2026-08-20'
+  closure_note: 'OPERATOR CLOSED 2026-08-20: "Done." Emporia excess-solar management removed;
+    switch.garage_a now reports charging_rate 23 A (~5.5 kW) vs the ~6 A / 1.4 kW overnight
+    throttle that started this whole investigation. URA was exonerated throughout — it behaved to
+    spec against a physically throttled charger. Downstream effect worth remembering: this removal
+    is what lifts the DP l1_only gate, which is why EVSE-DRAIN-PRECEDENCE-KNOB-80-1 now matters.'
+  status_was: waiting_operator
   approval: unreviewed
   origin:
     date: '2026-08-11'
@@ -3546,7 +4501,30 @@ cards:
   sharp_problem: 'Suspects: (1) BMW in-car charge schedule/target-SOC met; (2) pilot/cable fault — six
     10s Connected->Disconnected blips overnight; (3) Garage A network degradation (Emporia unavailable-flap
     every 2-5min + Shelly overhead + Zigbee door also unavailable = AP-cluster symptom).'
-  next: 'OPERATOR: check BMW app (schedule/target/errors) + reseat cable. URA-side follow-ups split out:
+  updated: '2026-08-20 14:20'
+  refinement_status: refined
+  NEW_EVIDENCE_2026_08_20: 'SAME CHARGER, SAME CLASS, NOW QUANTIFIED — and this is the
+    real overnight cost driver, not the DP. Overnight 2026-08-19/20 garage_a DID charge,
+    but at a THROTTLED ~1.42 kW for 10 straight hours (5.9 A on a 240 V L2 circuit,
+    i.e. the EVSE pinned at its ~6 A minimum). Cross-verified by two INDEPENDENT physical
+    meters agreeing to ~1.5%: sensor.garage_a_power_minute_average (Emporia CT) 1387-1416 W
+    at 60s cadence, and sensor.span_panel_car_charger_power (SPAN breaker CT) 1412-1440 W
+    at 5s cadence. The same charger read 5.80 kW at 13:45 the next day, and switch.garage_a
+    reports charging_rate 23 A / max 48 A — so the hardware is capable and the sensor
+    reports L2 power correctly when L2 power flows (6450/6390/5048 W hourly means on
+    other days). CONSEQUENCE: a 1.4 kW charge cannot fit a 9h night, so URA''s
+    drain-precedence machine correctly refused to sequence a battery drain around it
+    (reason l1_only, every eval, all night) and evse_battery_hold pinned the battery
+    reserve to SOC — battery flat at 30-31% for 6h12m while the house imported ~56 kWh
+    of off-peak grid. URA behaved to spec throughout. Root cause is vehicle/EVSE-side:
+    an amp limit or in-car charge-current setting for this location/schedule.'
+  next: 'OPERATOR: this now covers TWO nights of the same charger misbehaving — 08-11
+    (Connected but never Charging, 0 kWh) and 08-19/20 (Charging but throttled to ~6 A
+    for 10h). Check the BMW app AND the Emporia amp limit: in-car charge schedule /
+    target SOC / charge-current setting for this location, plus any Emporia per-circuit
+    amp cap. Reseat cable. Discriminating question worth answering: is the ~6 A a
+    deliberate setting somewhere, or a pilot/negotiation fault degrading to minimum?
+    ORIGINAL 08-11 next follows. URA-side follow-ups split out:
     DP observability (stale last_eval snapshot presented as current, expired must_start_by shown) + garage-A
     network fix (homelab).'
   refs: switch.garage_a + evse status recorder history 2026-08-11; energy.py:4403 night-window gate; energy_drain_precedence.py
@@ -5481,6 +6459,697 @@ cards:
     it always runs first. Consider a lint rule (F823/pylint) in CI. Ties to TEST-STRATEGY-REARCH-1 (a
     real-coord harness would catch these at author time).'
   refs: presence.py:5944/6955; TEST-STRATEGY-REARCH-1
+- id: HVAC-GUEST-AS-ZONE-PERSON-1
+  title: A guest in an occupied guest room should count as that zone's "person" — today
+    a zone with no assigned residents loses three protections entirely
+  thread: hvac
+  status: pre_planning
+  OPERATOR_DESIGN_INPUT_OCCUPANCY_GATE_2026_08_20: 'OPERATOR, on how to stop the synthetic guest
+    from pinning the zone: "We have to gate the person on occupancy for this fix. Guest mode flips
+    on if a room is continuously occupied for 30m. But that might not be enough for the night. We
+    need to know a person is there unlike the rooms. Maybe its enough if a recheck of the room after
+    sleep has started for some continuity and then we can trust even if the sensors fail?"
+    READING OF THE PROPOSAL — it is a two-stage trust ladder, and the second stage is the clever
+    part. Stage 1 (arm): the existing 30-minute continuous-occupancy rule establishes a person is
+    genuinely in the guest room, not passing through. Stage 2 (hold through sensor failure): a
+    RECHECK after sleep onset re-confirms continuity; once that recheck passes, the synthetic person
+    is trusted even when the room sensors subsequently go quiet — which is exactly the night-time
+    degradation the sleep veto exists to paper over. So the guest-person inherits the same
+    "trust the person, not the room" behaviour as a real resident, but only AFTER earning it twice.
+    WHY THIS IS THE RIGHT SHAPE: it answers the operator''s own earlier caveat ("IFF they are
+    actually around and don''t decay") without needing a decay timer at all. Rather than decaying
+    trust, it gates ENTRY to trust behind two independent confirmations at different times. A single
+    blip cannot arm it (30m continuous), and a person who left before sleep cannot hold it (the
+    post-sleep-onset recheck fails).
+    OPEN QUESTIONS TO SETTLE IN PLANNING, not now: (a) how long after sleep onset does the recheck
+    run, and does it need its own continuity window or a single sample; (b) what happens if the
+    recheck runs while the person is briefly out of the room (bathroom) — a single-sample recheck is
+    fragile there, which argues for a short window rather than an instant; (c) what releases the
+    trust in the morning — house-state exit from sleep is the obvious discharge and MUST be named,
+    per the suppression-needs-a-discharge rule, or this becomes another indefinite hold like S14;
+    (d) does the existing fan-recheck machinery (presence_fan_recheck.py) already implement a
+    room-recheck primitive this can reuse rather than inventing a second one. Check (d) FIRST —
+    institutional-context rule.'
+  OPERATOR_CONSTRAINTS_2026_08_20: 'Two constraints from the operator that narrow this
+    substantially and should be treated as spec, not preference.
+    (1) APPLIES ONLY IF THE ZONE HAS NO ASSIGNED PERSON — operator: "IFF that zone does not have a
+    person assigned. moot if it does." So this is NOT a general guest-presence feature; it is a
+    fallback that arms only for person-less zones. Today that is zone_3 alone (zone_1 has oji +
+    ezinne, zone_2 has ziri + jaya). This makes the blast radius one zone and removes any risk of a
+    synthetic guest competing with a real resident''s tracker. It should be written as a guard at
+    the top of the feature, not as a scoring tweak.
+    (2) THE SLEEP LATCH SHOULD ALREADY DEPEND ON ACTUAL OCCUPANCY — operator: "At any rate zone
+    sleep latch is supposed to depend on actual occupancy." This is a CORRECTNESS CLAIM TO VERIFY
+    BEFORE BUILDING ANYTHING, and it may shrink or kill the cycle. If the sleep latch already keys
+    off real occupancy rather than zone_persons membership, then one of the three protections this
+    card was written to restore is not actually missing, and the card''s premise is 1/3 wrong.
+    ACTION: verify the sleep-veto path (aggregation.py:4017-4019) reads occupancy vs person
+    membership BEFORE scoping. Do not build against the three-protections framing until that is
+    checked — the framing came from my reading, not from a test.'
+  created: '2026-08-20 15:10'
+  updated: '2026-08-20 15:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - institutional-context
+  problem_solution:
+  - 'Problem: several safeguards that stop a zone being set to "away" while people are
+    in it only work when named household members are assigned to that zone. One zone has
+    no one assigned, so all of those safeguards are switched off for it — even though it
+    contains a guest bedroom that someone may be sleeping in. Solution: when a room
+    flagged as a guest room is occupied, treat the guest as that zone''s person so the
+    same safeguards apply — provided we can tell the guest is genuinely still there and
+    the signal has not gone stale.'
+  why: 'OPERATOR IDEA (verbatim 2026-08-20): "One way to partially fix the away is if room
+    is occupied and guest is armed from the rooms is_guest flag. Guest bedroom 1 is a guest
+    room. So technically the guest is the home person IFF they are actually around and
+    dont decay." MEASURED BASIS: empty zone_persons makes THREE suppressions inert for
+    zone_3 — night-trust away-suppression (hvac.py:1788-1795 iterates zone.zone_persons or
+    [] so home_persons stays empty and the away flip is ALLOWED during FAN_TRUST_STATES),
+    sleep veto (aggregation.py:4017-4019 `if not zone_persons: continue`), and non-sleep
+    person-home bias (aggregation.py:4152-4154). Plus no pre-arrival routing
+    (hvac.py:3267-3273). zone_3 contains Guest Bedroom 1 + its bathroom (confirmed from
+    core.config_entries).'
+  THE_HARD_PART: 'The operator''s own caveat is the whole design problem: "IFF they are
+    actually around and dont decay." A synthetic person that never decays would pin a zone
+    `home` forever after one transit blip in the guest bedroom — strictly worse than
+    today. This needs an explicit liveness/decay contract, which is the
+    suppression-needs-a-discharge class (memory feedback_suppression_needs_discharge): what
+    re-affirms the guest is present, what expires the claim, what the backstop is, and what
+    happens across a restart. Note it must NOT reuse the guest-MODE arming predicate — see
+    D2-CANARY-GUEST-PREDICATE-1 and the census/guest cluster; this is a per-ROOM is_guest
+    flag, a different thing from house-level GUEST state.'
+  RELATIONSHIP: 'STRATEGIC counterpart to HVAC-PRESET-FLAP-1''s TACTICAL calming. Operator
+    scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a
+    person attached." So the flap tuning goes first; this is the general fix for the
+    person-less-zone class and should be scoped after, informed by whether calming alone
+    was sufficient.'
+  sibling_of: HVAC-PRESET-FLAP-1
+  parsimony:
+    problem: zones with no assigned person silently lose three occupancy protections, and a
+      guest room in such a zone is unprotected while genuinely occupied
+    verdict: SIMPLIFY
+    note: operator explicitly deferred this behind the calming work; build the simple
+      calming first and re-measure before deciding this is still needed
+  next: 'DEFERRED behind HVAC-PRESET-FLAP-1 calming per operator. When picked up: verify the
+    per-room is_guest flag name and its existing consumers (institutional-context grep) BEFORE
+    proposing anything; then design the liveness/decay contract explicitly.'
+  refs:
+  - hvac.py:1788-1795
+  - aggregation.py:4017-4019, 4152-4154
+  - memory feedback_suppression_needs_discharge
+- id: HVAC-MANUAL-PRESET-CONTRACT-1
+  title: Design spec says control the thermostats via PRESETS, never raw manual setpoints
+    — reality is zones sitting in manual for hours; do the sanctioned excursions return?
+  thread: hvac
+  status: planned
+  PRECONDITION_AND_SEVERITY_2026_08_20: 'OPERATOR AGREED this is a PRECONDITION for the calming
+    work, not a sibling. Quantified from the same 48h preset series: zone 1 sat in manual from
+    01:45 to 16:20 on 2026-08-20 — 14h35m unbroken, LONGER than the 10.5h instance the handoff
+    attributed to the AC-nudge race. Zone 2: 00:18->09:40 then 14:41->16:20, ~11h. While a zone is
+    in manual, should_change_preset (hvac_preset.py:202-217) returns False for everything, so
+    vacancy_grace and zone_entry_dwell are downstream of a CLOSED GATE and change nothing for that
+    zone. On today''s numbers zone 1 was tunable for roughly 9 of 24 hours. Any calming result
+    measured before this lands will report a suppression that was really an outage — the exact
+    non-discriminating-observation error that caused the EVSE misdiagnosis.'
+  S14_OPERATOR_VERDICT_2026_08_20: 'OPERATOR ON THE OFF-PHASE CEILING HOLD (S14, the v5.73.0
+    PRESET-FLAP-1 fix): "Probably why i instinctively disabled it. It bothered me subconsciously. We
+    need to fix it. I think of it as a marginal feature we possibly should not have built at all."
+    TWO THINGS THIS SETTLES. (1) It explains a previously unexplained fact — the operator disabling
+    the honesty mechanism was not arbitrary, it was a response to a real defect they could feel but
+    had not localised. (2) It downgrades the feature from "shipped capability to preserve" to
+    "marginal, fix or remove" — which changes the fix-up calculus. The cheapest correct outcome may
+    be REMOVAL rather than repair, and that option must be costed alongside the fix.
+    THE DEFECT, restated for whoever scopes it: S14 writes a raw setpoint to hold the cooling ceiling
+    during a coast/shed off-phase in an occupied zone (hvac.py:2972-2983, emit_set_temperature). The
+    thermostat therefore goes to `manual`. Its documented exit is "holds until the next preset
+    transition" — and that exit is STRUCTURALLY UNREACHABLE, because should_change_preset
+    (hvac_preset.py:202-217) returns False whenever the current preset is `manual`. S14 creates the
+    exact condition that prevents its own exit. It ends only when something OUTSIDE the preset path
+    moves the zone: a house-state change routing around the gate, a human at the thermostat, or a
+    restart. No timer, no decay, no explicit restore anywhere in the module.
+    UNDER THE OPERATOR HYGIENE RULE this is the canonical example: S14 IS a sanctioned energy-saving
+    excursion, so the raw setpoint is legitimate — but the rule also says the REVERT must be a preset
+    write, and S14 has no revert at all. So the fix is not "stop using setpoints here", it is
+    "give it an ending": a preset write on exit plus a bounded duration so the hold cannot outlive
+    the off-phase that justified it.
+    MARGINAL-BENEFIT DECOMPOSITION (the standing pushback duty, applied): the SIMPLEST version of
+    what S14 was built to achieve is "do not flip an occupied zone to away during a duty off-phase"
+    — i.e. suppress the dishonest away, and do nothing else. That captures the whole founding
+    complaint (nine flips in two hours of confirmed occupancy, room parked at ambient). The
+    ADDITIONAL thing S14 does is actively hold a raised ceiling via a setpoint write, and THAT is
+    what introduced the indefinite-manual ingredient. So the marginal benefit of the ceiling hold
+    over plain suppression is a couple of degrees of coast precision; the marginal cost is a
+    permanent-manual writer that locks the zone out of preset control. On that comparison the
+    ceiling hold does not obviously pay for itself, which is consistent with the operator calling it
+    marginal. RECOMMEND the scoping doc cost three options, not one: (a) add an ending (timer +
+    preset revert), (b) reduce to suppression-only and delete the ceiling write, (c) remove S14
+    entirely and accept the original flip. Do not assume (a).'
+  OPERATOR_RULINGS_2026_08_20: 'THREE OPERATOR RULINGS that resize this cycle.
+    (1) "URA reverts deliberate human adjustments" is NOT a risk — it is INTENDED. Operator: "Its
+    supposed to. I''m happy with that. The arrester already has its own grace and mid point math."
+    So my second-order concern (a) is WITHDRAWN, and the _suppress_kind TTL work is no longer a
+    blocking prerequisite on those grounds (it may still matter for attribution/telemetry, but it
+    does not gate the fix).
+    (2) THE GOVERNING DESIGN PRINCIPLE, operator verbatim: "I prefer all thermostat writes to
+    appear as presets vs manuals. Its just better hygiene. Except when we need to save energy and
+    then the reverting should be a preset write." This is stronger and simpler than the framing the
+    card carried. It converts the cycle from "do the sanctioned excursions return?" into a flat
+    rule: EVERY write is a preset write; the ONLY sanctioned raw-setpoint excursions are
+    energy-saving ones; and the revert at the end of an energy excursion is ITSELF a preset write.
+    That gives the builder a single testable invariant instead of a 13-site case analysis.
+    (3) Tier 3 confirmed by operator.'
+  CLOUD_FEEDBACK_LOOP_RETRACTED_2026_08_20: 'RETRACTED — I asserted a third-order feedback loop
+    (more preset writes -> more Carrier 504s -> more phantom overrides -> more manual -> re-lockout)
+    and the operator asked whether I had actually found evidence of calls not landing. I had not,
+    and looking properly, there is NONE. A structured scan of the full HA error log window
+    (2026-08-20 13:28 -> 18:45, 14,102 raw lines, 12,652 parsed entries, 191 unique issues across
+    32 components) returns ZERO entries from any carrier / bryant / infinitude thermostat component
+    — the component list does not contain one at all. What I actually had was the 2026-08-19
+    observation that all three climate entities went unavailable 12:14:15 -> 12:15:17 together.
+    That is a READ-SIDE availability gap, not a failed write. I generalised an outage into a write
+    failure mode and then built a feedback loop on top of it — the same infer-mechanism-from-thin-
+    evidence error class as the zone_cameras mistake. CONSEQUENCE: the write rate limit LOSES its
+    urgency justification. It may still be worth having as a cloud-call budget, but it is NOT a
+    loop-breaker and must NOT be sold as one, and it no longer has to ship in the same cycle.
+    IF someone wants to revive the loop hypothesis, the discriminating evidence would be logged
+    write failures or set_preset_mode calls that do not land, and neither exists today.'
+  DPM_LAST_ON_AND_SIGNATURE_2026_08_20: 'OPERATOR HYPOTHESIS — "I think I turned it off today, it
+    might be the main culprit." SPLIT VERDICT: refuted on timing, STRONGLY SUPPORTED on mechanism.
+    TIMING — REFUTED. It was not turned off today, it was turned off SEVEN DAYS AGO. The switch
+    reads `off` at 2026-08-13 23:17:07 CDT and every record after that is `off` (the later
+    `unavailable` entries are restart artifacts, not state changes). The better oracle agrees and
+    is more precise: sensor...dynamic_preset_overrides_applied held 3 (all three zones overridden)
+    from 2026-08-12 23:34 and dropped to 0 at 2026-08-14 02:31:06, where it has stayed for six
+    days. So DPM cannot explain today''s manual — zone 1 sat in manual 01:45 -> 16:20 TODAY with
+    DPM long since idle. NOTE the recorder shows no switch state-changes between 08-10 and
+    08-13 18:20, so the applied-count is the authoritative signal for when DPM was actually acting.
+    MECHANISM — SUPPORTED, and this is the valuable half. Comparing zone 1 while DPM WAS applying
+    overrides against today shows two DIFFERENT pathologies, which is exactly the discriminating
+    observation this thread has been missing. With DPM active on 08-13, zone 1 oscillated
+    manual <-> away EVERY FIVE MINUTES from 16:10 to 17:25 — manual 16:15, away 16:20, manual 16:25,
+    away 16:30, manual 16:35, away 16:40, manual 16:45, away 16:50, manual 16:55, away 17:00,
+    manual 17:01. That is the exact signature of a raw setpoint write and a preset write fighting
+    on every tick: S10_dpm_apply pushes a setpoint (thermostat -> manual), the preset path pushes
+    `away` back, and the next tick repeats it. With DPM off today, zone 1 instead shows ONE
+    CONTINUOUS 14h35m manual block — a lock, not an oscillation. Different shape, different cause.
+    CONCLUSION: DPM is not the current culprit, but it is a PROVEN manual-inducer with production
+    evidence, not just a code-reading inference. That upgrades "DPM should emit presets, not
+    setpoints" from a tidy-up to an evidenced deliverable, and it is a strong reason to leave
+    Auto-Adjust OFF until this cycle ships.'
+  DPM_KILLSWITCH_RETRACTION_GAP_2026_08_20: 'SMALLER FINDING, needs verification before it is
+    treated as a defect. The switch went `off` at 08-13 23:17:07 but overrides_applied stayed at 3
+    until 08-14 02:31:06 — a three-hour-fourteen-minute gap, and the moment it finally cleared
+    coincides with a restart (`unavailable` at 02:31:02). Two candidate readings, not yet
+    distinguished: either (a) flipping the kill switch does NOT retract overrides already applied,
+    leaving them in force until a restart, or (b) the evaluate loop is skipped when the switch is
+    off so the sensor simply went stale at its last value and nothing was actually still applied.
+    (a) would be a real kill-switch defect of the "suppression needs a discharge" class; (b) is a
+    cosmetic observability bug. The discriminating check is whether the thermostats held DPM ranges
+    during that window. Do NOT card as a defect until that is checked.'
+  DPM_RECON_2026_08_20: 'Operator instructed: reconnoitre Dynamic Preset Auto-Adjust and Custom
+    Preset ranges before doing any of this, noting they can be gated off. DONE. FINDING: DPM IS
+    CURRENTLY OFF and is therefore NOT a contributor to today''s manual.
+    switch.ura_energy_coordinator_dynamic_preset_overrides ("HVAC Coordinator 02 · Dynamic Preset
+    Auto-Adjust") = off; sensor...dynamic_preset_overrides_applied = 0; all three per-zone range
+    sensors (back_hallway, entertainment_master_suite, upstairs) = unknown; all three bucket
+    sensors = mild. Knobs live: Settle Time 60.0 min, Preset Margin 1.0F.
+    BUT IT IS A LANDMINE FOR THIS CYCLE, and this is the reason the operator was right to make me
+    look: DESPITE ITS NAME, DPM DOES NOT WRITE PRESETS. Its apply site S10_dpm_apply
+    (hvac.py:2274-2285) calls emit_set_temperature with target_temp_low/high — a RAW SETPOINT
+    write, which is exactly what puts a Bryant/Carrier zone into manual. It suppresses the ARRESTER
+    (hvac.py:2258) so URA does not book its own write as a human override, but suppressing the
+    arrester does nothing about the thermostat''s own preset state. So the moment Auto-Adjust is
+    switched on, DPM becomes a recurring manual-inducer on every range change, on a 60-min settle
+    cadence, per zone. Under operator ruling (2) above — every write should be a preset write —
+    DPM is squarely IN SCOPE and is arguably the clearest example of the hygiene problem: a feature
+    literally named "preset" that emits setpoints. Custom Preset ranges are the per-zone
+    CONF_ZONE_DYNAMIC_PRESET_COOL_* knobs consumed by the same module.
+    RECOMMENDATION: leave Auto-Adjust OFF until this cycle lands, and make "DPM emits presets, not
+    setpoints" an explicit deliverable rather than discovering it later.'
+  SECOND_AND_THIRD_ORDER_2026_08_20: 'PARTIALLY SUPERSEDED — item (a) withdrawn per operator ruling
+    (1) above, item (d) RETRACTED for lack of evidence per CLOUD_FEEDBACK_LOOP_RETRACTED above.
+    Items (b) solar-banking interruption, (c) S14 coupling and (e) recorder rows STAND. ORIGINAL:
+    Operator asked for consequence analysis and flagged Tier 3.
+    SECOND ORDER: (a) THE ARRESTER''S MEANING INVERTS. Some of today''s manual is URA''s OWN
+    writes. If URA reasserts presets aggressively it will also revert DELIBERATE HUMAN thermostat
+    adjustments — the fix turns a lockout into URA-fights-the-occupant. It therefore REQUIRES the
+    provenance tag to actually work first: _suppress_kind (hvac_override.py:185) is consulted at
+    exactly ONE site (:1635-1638, a counter) and carries a ~5 SECOND TTL while manual persists for
+    HOURS. Extending provenance lifetime is a hard prerequisite, not a nice-to-have.
+    (b) SOLAR BANKING / PRE-COOL / PRE-HEAT BECOME INTERRUPTIBLE — this is the biggest risk.
+    hvac_predict.py owns S11 (:957), S12 (:1047), S13 (:1286) and contains ZERO
+    emit_set_preset_mode calls. The manual state is very likely what PROTECTS an in-flight
+    pre-cool from being overwritten by the next tick''s preset. Reasserting preset control could
+    CANCEL SOLAR BANKING MID-FLIGHT — a direct energy regression, in the opposite direction from
+    the cycle''s intent. The sanctioned-excursion list must be enumerated and exempted BEFORE any
+    restore logic ships. (c) S14 COUPLING (hvac.py:2974) deliberately replaced a preset write with
+    an indefinite raw setpoint hold, dated to HVAC-PRESET-FLAP-1 (2026-08-11). Restoring preset
+    control there re-arms the flap S14 was built to stop.
+    THIRD ORDER: (d) THE FEEDBACK LOOP — this is the headline. Unlocking 9-14h/day of suppressed
+    preset writes across three zones sharply increases Carrier/Bryant CLOUD API calls, into a
+    cloud that ALREADY 504s (see ARRESTER-CLOUDFLAP-FALSEPOS-1: a 504 drops all three zones
+    together and books a phantom override 20s after reconnect). More writes -> more 504s -> more
+    phantom overrides -> MORE MANUAL -> re-lockout. The fix can manufacture the very condition it
+    removes. CONCLUSION: the write rate limit is not a follow-on, it must ship WITH the lockout
+    fix as the loop-breaker. (e) More preset changes also mean more recorder rows, on flash at 51%
+    life (RECORDER-BLOAT-LOGFLOOD-1). Tier 3 confirmed: shared primitive, cost-AND-comfort
+    impacting, and the failure mode is one-missed-site across 13 setpoint-write sites of which 9
+    never restore a preset.'
+  created: '2026-08-20 14:40'
+  updated: '2026-08-20 14:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - institutional-context
+  - tier-2db
+  problem_solution:
+  - 'Problem: the thermostats are supposed to be driven by named presets that each carry
+    a fixed temperature range, so the house always returns to known settings. Instead
+    one zone spent over ten hours sitting on a hand-set temperature pair, straight
+    through the morning changeover. Only two features are supposed to set a raw
+    temperature at all (banking solar energy, and pre-cooling), and it is not confirmed
+    that either of them puts the thermostat back on a preset when it finishes. Solution:
+    establish which features write raw temperatures, confirm every one of them restores
+    a preset afterwards, and close any path that can leave a zone stranded off-preset.'
+  why: 'OPERATOR SPEC (verbatim 2026-08-20): "The design spec was to not use manual but
+    to use our presets as control. That way it always returns to same ranges. In
+    addition we always want to use heat_cool. Have seen that part hold so far. Manual
+    setpoint is messy. I think what''s allowed as manual is solar banking and pre-cool.
+    But wonder if they escape back to preset when they revert." MEASURED AGAINST IT:
+    zone_1 held preset `manual` continuously 01:42 -> 12:15:17 on 2026-08-20, through
+    ~6h of home_day, and shows 13 DISTINCT setpoint pairs under manual on a 5-min grid
+    vs exactly ONE pair under `home`. That is URA writing raw setpoints at volume, which
+    is the opposite of the stated contract.'
+  AUDIT_RESULT_2026_08_20_INVARIANT_VIOLATED: 'OPERATOR''S QUESTION ANSWERED: NO, they do
+    NOT escape back to preset. 13 setpoint-write sites (S1-S14, all funnelling through the
+    hvac_setpoint.py chokepoint emit_set_temperature:121 / emit_set_preset_mode:180). NINE induce
+    manual and NEVER restore a preset. hvac_predict.py — which owns solar banking (S11 :957),
+    pre-cool (S12 :1047) and pre-heat (S13 :1286) — contains ZERO emit_set_preset_mode calls;
+    proof: grep _nudge_pre_preset|pre_preset hits ONLY hvac_override.py. They write setpoints back
+    to baseline and return, leaving manual with correct numbers but no preset governance. The ONLY
+    preset-restore in the codebase is S7 (hvac_override.py:3232, AC soft nudge) and it is racy.
+    Note S13 pre-heat is NOT in the operator''s sanctioned pair (banking + pre-cool) yet writes
+    setpoints anyway.'
+  SELF_LOCKOUT_CONFIRMED: 'hvac_preset.py:202-217 should_change_preset returns False whenever
+    current_preset == "manual" ("Do not fight manual — that is the arrester''s job"). It is a PURE
+    TWO-STRING FUNCTION — no hass, no entity_id, no arrester ref — so it CANNOT consult provenance
+    even in principle. Sole call site hvac.py:1864; only bypass is vacancy (hvac.py:1860, RH3 fix).
+    The provenance tag DOES exist — _suppress_kind (hvac_override.py:185, set :1942) — but is
+    consulted at exactly ONE place (:1635-1638, the mid-window manual-passthrough COUNTER) and has
+    a ~5s SUPPRESS_TTL_SECONDS while manual persists for HOURS. So URA knows an induced manual is
+    not genuine, but only for COUNTING it; the preset manager that decides whether to ACT never
+    sees the tag. Genuine self-lockout with no self-recovery path.'
+  ZONE1_STRANDING_ATTRIBUTED: 'AC SOFT NUDGE (S5/S6/S7), losing a write-ordering race. High
+    confidence. Recorder, climate.thermostat_bryant_wifi_studyb_zone_1: 01:42:05.138 sleep 70/75
+    (S7 preset restore LANDS) -> 01:42:05.647 manual 70/75 (509ms later, clobbered) = last
+    non-manual of the day; an identical 212ms flip at 01:12:05. MECHANISM (two defects compounding):
+    (1) RACE — _restore_after_nudge issues its setpoint restore blocking=False
+    (hvac_override.py:3197-3204) then immediately emits the preset restore (:3221-3237); on a
+    cloud-polled Bryant the setpoint lands AFTER and its manual side effect clobbers the preset.
+    (2) LATCH — _nudge_pre_preset only snapshots a NON-manual preset (:3083-3089), so once the race
+    left the zone in manual every later nudge stored NO snapshot and its restore did nothing. THE
+    FIX-B2 REPAIR MECHANISM DISARMS ITSELF THE FIRST TIME IT FAILS. should_change_preset then
+    refused to re-assert, the S1 home_day transition was silently skipped, and nothing in the
+    codebase can exit that state — 10.5h manual through ~6h of home_day, ended at 12:15:17 by
+    something outside URA. The 25-min 75<->76 cadence = nudge start/restore pairs
+    (CONF_HVAC_AC_NUDGE_SIZE/_DURATION hvac_const.py:505-509), matching ac_nudges_today=43. The
+    operator''s "13 distinct pairs under manual" is the direct fingerprint.'
+  IRONY_FLAP_FIX_CREATED_A_MANUAL_WRITER: 'S14 hvac.py:2974 _apply_duty_off_phase DELIBERATELY
+    replaced a preset write with an indefinite RAW SETPOINT hold — and its own comment dates it to
+    "HVAC-PRESET-FLAP-1 (2026-08-11)". So the flap fix introduced a permanent-manual writer. Its
+    comment also misattributes WHY the S1 preset path no-ops (claims target==current; actually
+    because S14 just induced manual). Direct coupling between this card and HVAC-PRESET-FLAP-1 —
+    they MUST be scoped together, and the flap fix must not be re-tuned without accounting for S14.'
+  HEAT_COOL_INVARIANT_HOLDS: 'OPERATOR CORRECT. grep set_hvac_mode: no path ever writes cool/heat/
+    fan_only/auto. hvac.py:1489 and hvac_override.py:2526 write the "heat_cool" literal. Only
+    non-heat_cool value written is "off", always paired with a restore: AC Reset
+    (hvac_override.py:2769 -> :2836/:2871 restore with 30s verify + 2 retries + ERROR on failure)
+    and egress window-pause (hvac_egress.py:572 -> :644). coordinator.py:1036 refuses raw
+    climate.set_hvac_mode from generic action execution. RESIDUAL HAZARD: hvac_egress.py:644
+    restores the SAVED mode rather than forcing heat_cool, and :625-638 aborts the resume on a
+    missing saved_mode, leaving the zone off until the next tick guard.'
+  SANCTIONED_EXCURSION_KNOBS: 'Both exist and are individually disableable. Solar banking/pre-cool:
+    switch.ura_energy_energy_precool (switch.py:1216-1218) backed by CONF_ENERGY_PRECOOL_ENABLED
+    (migrated from retired CONF_HVAC_SOLAR_BANK_ENABLED, __init__.py:1228-1231); tuning via
+    CONF_HVAC_SOLAR_BANK_FLOOR (number.py:2319), CONF_HVAC_SOLAR_BANK_SOC_MIN, CONF_ENERGY_PRECOOL_OFFSET.
+    Predictive pre-cool/pre-heat: switch "28 HVAC Predictive Conditioning" (switch.py:1823) — ONE
+    switch covers BOTH legs, pre-heat not separately disableable. Unsanctioned writers also have
+    knobs: S14 switch.ura_hvac_coordinator_offphase_honesty_enabled (switch.py:5953); S5
+    CONF_HVAC_AC_NUDGE_SIZE/_DURATION; S10 _guest_mode_actuation_enabled (hvac.py:2162).'
+  DEFECT_CHAIN_SUMMARY: '1) Nine of thirteen setpoint sites induce manual and never restore a
+    preset. 2) The single restore that exists races its own non-blocking setpoint write and can
+    lose. 3) When it loses, the "only snapshot non-manual" guard PERMANENTLY disarms the repair.
+    4) should_change_preset then refuses to re-assert any preset because it sees manual, and
+    structurally cannot tell URA-induced from human-induced. Net: URA locks itself out of preset
+    control indefinitely with no self-recovery path.'
+  SUPERSEDED_SUSPECTED_SELF_LOCKOUT: 'Candidate mechanism worth confirming: a URA set_temperature
+    flips Bryant/Carrier to preset manual as a SIDE EFFECT (hvac_override.py:186-195,
+    :3070-3097). Separately hvac_preset.should_change_preset (~:212-217) deliberately
+    SKIPS acting when it sees `manual` ("do not fight a dial-set hold — that is the
+    arrester''s job") and is NOT aware whether the manual was human-caused or
+    URA-caused. If both hold, URA can induce manual and then refuse to act on it — a
+    self-lockout from its own preset control. UNCONFIRMED; audit dispatched 2026-08-20.'
+  RELATIONSHIP_TO_SIBLINGS: 'This is very likely the ROOT of HVAC-PRESET-RESTORE-MISS-1
+    (zone_1 stranded through the 06:01 home_day boundary) — that card may collapse into
+    this one once the audit lands. It is the mirror image of HVAC-PRESET-FLAP-1: the
+    flap is TOO MANY preset writes on zone_3, this is preset writes NOT HAPPENING on
+    zone_1 because manual blocks them. Read the two together; they are plausibly two
+    faces of one precedence defect.'
+  sibling_of: HVAC-PRESET-FLAP-1
+  parsimony:
+    problem: URA writes raw setpoints at volume and can strand a zone off-preset, against
+      an explicit operator design contract
+    verdict: BUILD
+    note: gate on the audit — if every excursion already restores, this reduces to a
+      guard + a test rather than a redesign
+  next: 'Audit in flight (2026-08-20): enumerate every set_temperature site, whether it
+    is sanctioned (solar banking / pre-cool) and whether it has a restore-to-preset
+    path; confirm or refute the should_change_preset self-lockout; attribute the zone_1
+    stranding; verify the heat_cool invariant the operator believes has held. THEN
+    scope. Do not build before the audit returns.'
+  refs:
+  - hvac_preset.py:212-217
+  - hvac_override.py:186-195, 3070-3097
+  - HVAC-PRESET-RESTORE-MISS-1
+  - HVAC-PRESET-FLAP-1
+- id: HVAC-ANOMALY-BLIND-1
+  title: The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics
+    — including the one that would have caught the zone-3 flap
+  thread: hvac
+  status: planned
+  created: '2026-08-20 14:15'
+  updated: '2026-08-20 14:15'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  problem_solution:
+  - 'Problem: URA watches the heating/cooling system for unusual behaviour and reports
+    "all normal" — but three of the five things it is supposed to watch have never
+    received a single measurement, so "all normal" partly means "not looking". One of
+    the three is the check for the air conditioner switching on and off too rapidly,
+    which is exactly the problem that was found running unnoticed on one zone all day.
+    Solution: feed the three silent checks real data so the alarm can actually fire,
+    and treat a check with no samples as a visible fault rather than as a pass.'
+  why: 'Live 2026-08-20: sensor.ura_hvac_coordinator_hvac_anomaly = nominal, 0 anomalies,
+    but metrics_active_ratio "2/5" — short_cycle_rate, comfort_deviation_hours and
+    egress_pause_frequency all sample_count 0 / active false. Only zone_call_frequency
+    (2662) and override_frequency (2658) are live. short_cycle_rate is precisely the
+    trip-wire for HVAC-PRESET-FLAP-1''s regression, and comfort_deviation_hours is
+    precisely the trip-wire for the zone-2 212-min +8F excursion. BOTH real events
+    happened; the detector reported nominal through both.'
+  ADJACENCY_SWEEP_2026_08_20: 'Swept board + BACKLOG.md + planning docs. NOT NEW as a
+    root cause — docs/BACKLOG.md carries a CRITICAL item "D3 anomaly detection
+    persistence + dispatch" (from the v4.6.10 Tier-2 review) stating AnomalyDetector._baselines
+    is an IN-MEMORY dict that resets to {} on every HA restart, so minimum_samples=10
+    is structurally unreachable and the baseline can never mature. That is very likely
+    the same defect presenting on the HVAC metrics. THIS CARD IS THE LIVE EVIDENCE THAT
+    THE BACKLOG ITEM''S TRIGGER HAS FIRED — it is no longer theoretical. Adjacent to
+    WATCHDOG-INERT-1 (shipped_organic, same "detector exists but is structurally inert"
+    class). Verdict: ADJACENT, card kept as the HVAC-side evidence + consumer, with the
+    BACKLOG item as the producer-side fix.'
+  sibling_of: WATCHDOG-INERT-1
+  blocks: HVAC-PRESET-FLAP-1
+  next: 'Read the HVAC metric record_observation call sites — determine whether the 3
+    silent metrics are (a) never called, (b) called but rejected by minimum_samples
+    against a reset baseline (the BACKLOG defect), or (c) called with None. That
+    discriminates a wiring fix from the DB-backed-baseline cycle. Then make
+    sample_count 0 SURFACE as degraded rather than silently pass.'
+  refs:
+  - docs/BACKLOG.md — CRITICAL "D3 anomaly detection persistence + dispatch"
+  - sensor.ura_hvac_coordinator_hvac_anomaly (live attrs 2026-08-20)
+  - HVAC-PRESET-FLAP-1 DETECTOR_WAS_BLIND
+- id: D2-CANARY-GUEST-PREDICATE-1
+  title: URA's own planted tripwire is firing ~4x/min saying the guest-arming logic
+    was re-composed — 3300+ hits since boot, nobody notified
+  thread: presence
+  status: planned
+  tier: 1
+  created: '2026-08-20 14:15'
+  updated: '2026-08-20 14:15'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-20 (chat: ''Fix the canary if it has outlasted its use.'')'
+  tags:
+  - no-fabrication-verify
+  - institutional-context
+  problem_solution:
+  - 'Problem: a warning we deliberately planted in the code to detect a specific kind
+    of mistake has been going off continuously since the last restart — thousands of
+    times — and it says the logic that decides whether the house treats someone as a
+    guest may have been quietly rewired. Nobody was alerted, because it only writes to
+    the log. Solution: work out whether the logic really was changed (and fix it), or
+    whether the tripwire itself is wrong and should be corrected, then make a firing
+    tripwire something that actually reaches a human.'
+  why: 'Live log scan 2026-08-20: presence.py:5766 WARNING "D2 canary: _d5_guest_confidence
+    census-only branch reached (should be unreachable — guest_armed depends on room only).
+    A recent change may have re-composed the arming predicate." Count 3278-3304 and
+    climbing across two independent scans, sustained since the 00:12 boot — NOT a boot
+    transient. This is a deliberately-planted invariant assertion, i.e. the highest-signal
+    class of warning URA emits, and it is asserting its own invariant is broken.'
+  ADJACENCY_SWEEP_2026_08_20: 'Swept board (all guest/census cards), BACKLOG.md, planning
+    docs. Related but NOT duplicate: CENSUS-GHOST-DEDUP-1 (shipped_organic), CENSUS-ACCURACY-1,
+    GUEST-IDENTITY-PHONE-LEFT-BEHIND-1, GUEST-ROOM-LOCATION-MATCH-1, CENSUS-G6-RAW-PERSISTENCE
+    (parked). Those concern census COUNTS and guest-room designation; this concerns the
+    ARMING PREDICATE composition and is an active runtime assertion failure, not a
+    design gap. Given the memory record of the census double-count-into-GUEST incident
+    (additive derivation overwriting a subtractive one), this canary may be the same
+    family resurfacing — so it must be checked AGAINST those cards, not merged into
+    them. Verdict: NEW (own defect), sibling_of the census cluster.'
+  sibling_of: CENSUS-GHOST-DEDUP-1
+  TRIAGE_VERDICT_2026_08_20: 'OUTCOME (2) — THE CANARY IS STALE, NOT THE CODE. Operator
+    called it: "fix the canary if it has outlasted its use." It has. NO REGRESSION: guest_armed
+    is still exactly guest_room_gate_armed (presence.py:5730, :5738) or False (:5742) in all
+    three branches — no census term; self._census_confidence feeds only unid_gate_armed, which
+    D2 deliberately removed from the arming predicate. THE CANARY ASSERTION IS TRUE. What is
+    FALSE is its GUARD PREMISE: the comment claims the if/elif/else sits inside an outer
+    `if guest_armed:` block — NO SUCH BLOCK EXISTS. The chain at :5752 sits at the same
+    8-space indent as :5715 and runs unconditionally EVERY inference tick, so every normal
+    no-guest cycle falls into the else. That fully explains ~4x/min. GIT DATING IS DECISIVE:
+    predicate inverted in 7f7c15d20 (2026-08-16 19:35), canary planted in 0e0ea97a2
+    (2026-08-16 22:18) — 2h45m LATER, and merge-base confirms ancestry. The author described
+    the new shape correctly but asserted an enclosing guard they assumed rather than read.
+    Nine later commits touched presence.py; git log -S "guest_armed = " shows none altered
+    the composition.'
+  BEHAVIOURAL_REACH_NONE: '_d5_guest_confidence has exactly ONE consumer (presence.py:6302)
+    and it is itself gated on guest_room_gate_armed — the same term whose falsity produces
+    the 0.8. So the census-only value is NEVER READ. Does not arm GUEST, does not alter
+    confidence, does not touch the census. Priority is LOG HYGIENE (~5700 WARNING lines/day
+    into a 31GB recorder, drowning real warnings — see RECORDER-BLOAT-LOGFLOOD-1), not
+    correctness. Tier 1.'
+  NOT_THE_CENSUS_DOUBLECOUNT_FAMILY: 'Explicitly checked and REFUTED. That incident was a
+    PRODUCER defect (additive census derivation overwriting a subtractive one with dedup
+    inert, feeding a real GUEST arm). This is the opposite — D2 removed census from arming
+    precisely to close that family, and this is a leftover assertion about the post-fix
+    shape. Different mechanism, no shared producer, no behavioural reach.'
+  next: 'Tier 1 fix, two options: (a) delete the _LOGGER.warning, keep = 0.8 as the shape
+    default; or (b) if the invariant is still worth watching, demote to debug AND re-guard
+    so it fires only on real violation (`if guest_armed and not guest_room_gate_armed:`) —
+    the check the author intended. EITHER WAY correct the misleading "outer if guest_armed
+    block" comment. Recommend (b): keeps the tripwire, kills the flood. Superseded text:
+    Read presence.py around 5766 + the _d5_guest_confidence composition; determine
+    whether guest_armed still depends on room only (canary correct, code regressed) or
+    whether the predicate legitimately changed (canary stale, must be updated). Producer
+    AND consumer check on the arming predicate per CLAUDE.md. Do NOT silence the canary.'
+  refs:
+  - presence.py:5766
+  - memory feedback_cross_investigation_synthesis (census double-count into GUEST)
+- id: HVAC-STALE-ACTUATOR-FRESHNESS-1
+  title: A thermostat can go stale-but-"available" and URA keeps deciding on 90-minute-old
+    data with nothing flagging it
+  thread: hvac
+  status: done
+  created: '2026-08-20 14:15'
+  updated: '2026-08-20 14:15'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-20 (chat: ''fix Zone 2 telemetry if a problem.'') — CONDITIONAL on the benign-vs-real triage'
+  tags:
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: one of the three thermostats stopped sending updates for an hour and a
+    half while still reporting itself as working and showing plausible numbers, so
+    nothing anywhere flagged it and the system kept making heating/cooling decisions
+    for that whole zone using old readings. Solution: check how fresh an actuator''s
+    data is, not just whether it says it is online, and surface a stale one the same
+    way an offline one would be.'
+  why: 'Live 2026-08-20: climate.up_hallway_zone_2 produced no attribute/last_reported
+    update from 12:15:17 onward (~90 min) while climate zones 1 and 3 updated every
+    1-2 min through 13:42-13:43. State read healthy (heat_cool / away / 80-68 / idle /
+    79F) so it is NOT unavailable and nothing alerts. Bug Class #7 (stale data source)
+    presenting as a healthy entity.'
+  ADJACENCY_SWEEP_2026_08_20: 'Swept board, BACKLOG.md, planning docs, CLAUDE.md. This
+    is the ACTUATOR-side twin of the known documented gap in CLAUDE.md''s troubleshooting
+    section: "sensor.<room>_unavailable_entities only tracks INPUT sensors, not
+    actuators, so a dead light is invisible there (gap tracked in BACKLOG)." That gap
+    is about UNAVAILABLE actuators; this extends it to STALE-BUT-AVAILABLE actuators,
+    which is strictly harder to see. Verdict: ADJACENT to the known actuator-visibility
+    gap — should be scoped WITH it, not separately.'
+  TRIAGED_BENIGN_2026_08_20: 'CLOSED — NOT A PROBLEM. Operator scoped this "fix Zone 2
+    telemetry IF a problem"; triage says it is not. MY ERROR: I read `last_changed` as a
+    freshness signal. It is not — it only moves when the STATE STRING changes. All THREE
+    climate entities share last_changed 12:15:17.095 to the sub-millisecond, because all
+    three went unavailable 12:14:15 and restored 12:15:17 on the Carrier cloud 504, then
+    all stayed `heat_cool`. There was no zone-2-specific event. DISCRIMINATOR APPLIED AND
+    NEGATIVE: current_temperature DID advance (79 -> 80 at 14:05:01) — a genuinely stuck
+    poll would freeze it. zone_2 was idle/away with no attribute deltas to record; zone_3
+    logged 59 rows over the same window only because it was actively cooling, and when
+    zone_3 itself went idle at 13:57:53 its cadence dropped to the same 5-10 min gaps.
+    Symmetric behaviour = suppression, not a fault. Live 16:31: zone_2 last_reported
+    advancing AHEAD of both siblings, now home/cooling.'
+  DURABLE_LESSON: 'last_changed is NOT a liveness oracle for climate entities —
+    last_reported / last_updated is. If an actuator stuck-poll trip-wire is ever built,
+    it must key on last_reported AGE, not on attribute churn. Recording this so the same
+    misread does not recur; the underlying actuator-visibility gap (CLAUDE.md: room
+    unavailable_entities tracks INPUTS not ACTUATORS) remains real and is unaffected.'
+  next: 'CLOSED benign 2026-08-20. Superseded question (still open elsewhere): the
+    unavailable-ACTUATOR visibility gap in CLAUDE.md/BACKLOG is untouched by this. No
+    action. Original text retained: Confirm whether zone_2 staleness persists or self-heals (could be legitimate
+    no-change suppression on an idle/away zone — that is the discriminating question,
+    and it must be answered before building anything). If real, scope an actuator
+    freshness check alongside the known unavailable-actuator gap.'
+  refs:
+  - climate.up_hallway_zone_2 last_reported (live 2026-08-20)
+  - CLAUDE.md troubleshooting — actuator-visibility gap
+- id: HVAC-PRESET-RESTORE-MISS-1
+  title: Zone 1 sat in a held manual setpoint through six hours of home_day — the
+    house-state transition never wrote it back
+  thread: hvac
+  status: inbox
+  created: '2026-08-20 14:15'
+  updated: '2026-08-20 14:15'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: when the house woke up in the morning, one zone never switched from its
+    overnight held temperature to the normal daytime one — it stayed put for six hours.
+    It cost comfort nothing (the held setting was cooler than the daytime target) but
+    it means a scheduled changeover silently did not happen, and the same miss on a
+    hotter day or in the other direction would cost real money. Solution: find out why
+    that changeover did not fire and make it reliable.'
+  why: 'Live 2026-08-20: house waking 06:00:23 -> home_day 06:01:23. zone_1
+    (climate.thermostat_bryant_wifi_studyb_zone_1) held manual 75/70 continuously from
+    01:42 until 12:15:17 — through ~6h of home_day — instead of moving to its observed
+    home pair 76/70. Disproof check run: the reviewer pulled the full attribute history
+    across the window specifically to see whether a restore fired late; it did not fire
+    at all. A second, softer instance: 08-19 22:00:20 sleep transition, zone_2 did not
+    reach sleep 75/70 until 23:53:17 (+1h53m).'
+  ADJACENCY_SWEEP_2026_08_20: 'Swept board + planning docs. Distinct from HVAC-PRESET-FLAP-1
+    (that is TOO MANY writes; this is a MISSING write — plausibly the same precedence
+    machinery seen from the other side, so they should be read together). Distinct from
+    ARREST-SUNSET-1 (that is the arrester override toggle not sunsetting; this is a
+    preset restore not firing). Note the institutional fact that a URA set_temperature
+    flips Bryant to preset manual as a side effect, and hvac_preset.should_change_preset
+    deliberately SKIPS manual ("do not fight a dial-set hold") without knowing whether
+    the manual was URA-caused or human-caused — that is a strong candidate mechanism
+    for exactly this miss. Verdict: NEW, sibling_of HVAC-PRESET-FLAP-1, read together.'
+  sibling_of: HVAC-PRESET-FLAP-1
+  next: 'Read hvac_preset.should_change_preset (skips manual, ~line 212-217) + the
+    _nudge_pre_preset / _restore_after_nudge FIX-B2 snapshot path. Determine whether a
+    URA-induced manual can strand a zone past a house-state boundary when the restore
+    path does not fire. Verify against the 06:01 window before proposing anything.'
+  refs:
+  - hvac_preset.py:212-217 (should_change_preset skips manual)
+  - hvac_override.py:186-195, 3070-3097 (URA set_temperature induces manual; FIX B2 snapshot)
+- id: ARRESTER-CLOUDFLAP-FALSEPOS-1
+  title: A Carrier cloud timeout books a phantom thermostat "override" — the arrester
+    counts a human that was never there
+  thread: hvac
+  status: inbox
+  created: '2026-08-20 14:15'
+  updated: '2026-08-20 14:15'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: when the thermostat cloud service times out, all three thermostats drop
+    offline together for a minute and come back, and the system that watches for
+    someone manually changing a thermostat mistakes that blip for a real human
+    override. It then counts an event that never happened, which pollutes the very
+    numbers we use to judge whether that watcher is working. Solution: ignore override
+    detections for a short grace period after a reconnect, so a cloud hiccup cannot be
+    booked as a person.'
+  why: 'Live 2026-08-20: Carrier cloud returned 504 Gateway Timeout on getInfinityEnergy
+    at 12:14:15; ALL THREE climate entities went unavailable 12:14:15->12:15:17
+    (simultaneous to the second); the arrester logged override #3 at 12:15:37, 20s after
+    reconnect, and it never entered grace. Same 3-zone-simultaneous signature at 08-19
+    15:25:18 (62s) and 08-19 23:30:56 (2s). Discriminator applied: a REAL external
+    override moves ONE zone''s setpoint while siblings hold; these moved together on a
+    cloud fault. So today''s true override count is likely 2, not 3.'
+  CORRECTION_2026_08_20_operator: 'PARTIAL CORRECTION. I attributed override #3''s
+    "counted but never entered grace" to the temp_arrester_override suppression AND
+    implied the suppression itself was suspicious. OPERATOR: "I did use the arrester
+    override this am, just turned it off." So the 3.2h suppression was DELIBERATE and
+    is now resolved — NOT a stuck flag, NOT a defect, nothing to investigate there.
+    What SURVIVES on this card is narrower and still real: the Carrier 504 cloud flap
+    at 12:14:15 caused a phantom override DETECTION (all 3 zones dropping together on a
+    cloud fault, booked as an override 20s after reconnect). The no-grace behaviour is
+    explained by the operator''s override; the phantom detection is not. Card scope
+    narrowed to the false-positive DETECTION only.'
+  ADJACENCY_SWEEP_2026_08_20: 'Swept board + planning docs. Same CLASS as
+    BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA''s
+    own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and
+    a different consumer (arrester override counter vs write-verify). Verdict: ADJACENT,
+    not duplicate. RECOMMEND BATCHING: one cloud-flap-immunity cycle covering both, since
+    the fix shape (post-reconnect grace before trusting a diff) is identical and the
+    two cards would otherwise re-derive it separately.'
+  sibling_of: BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
+  batch: cloud-flap-immunity
+  next: 'Scope a shared post-reconnect grace with BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1.
+    Discriminating acceptance criterion required: the fix must suppress the 3-zone
+    simultaneous case WITHOUT suppressing a genuine single-zone override during the
+    same window — state what each looks like before building.'
+  refs:
+  - Carrier 504 getInfinityEnergy 12:14:15 2026-08-20
+  - sensor.ura_hvac_coordinator_override_arrester (live attrs)
+- id: RECORDER-BLOAT-LOGFLOOD-1
+  title: 31 GB of recorder database for only 7 days of history, on flash at 51% life —
+    fed by three log floods
+  thread: platform
+  status: inbox
+  created: '2026-08-20 14:15'
+  updated: '2026-08-20 14:15'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measure-before-build
+  problem_solution:
+  - 'Problem: the history database has grown to about 31 GB while only holding a week
+    of data, and the drive it lives on reports half its write life used. Three separate
+    things are spamming thousands of repeated error lines a day, and every one of those
+    lines gets written to that database. Solution: fix or silence the three noise
+    sources, then review what is worth recording at all — the write volume and the
+    database size are the same problem.'
+  why: 'Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run
+    2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors
+    (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level and
+    trivially fixable), camera_census 4866 (camera.garage_a / garage_b not in registry
+    — the known Frigate _2-suffix class), Alexa refresh ~2089, plus the D2 canary 3300+
+    (see D2-CANARY-GUEST-PREDICATE-1). Also 45 hunterdouglas KeyError and 52+13
+    pantry_plug_in_adaptive_lighting failures (extra keys not allowed @ data[color_temp]
+    — a broken automation failing every run).'
+  ADJACENCY_SWEEP_2026_08_20: 'Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox)
+    covers the Frigate live/dead leg naming inconsistency and is the likely home for the
+    camera_census garage_a/garage_b flood — fold that flood in there rather than
+    duplicating. The MQTT/Sonoff and pantry-automation items are HA-config, not URA code.
+    Verdict: NEW as a platform-hygiene card, with the camera_census component pointed at
+    FRIGATE-LEG-NAMING-1.'
+  sibling_of: FRIGATE-LEG-NAMING-1
+  next: 'Cheapest first, all config-level and outside URA code: fix the Sonoff number
+    range, fix or disable the pantry adaptive-lighting automation, resolve the
+    camera_census entity ids via FRIGATE-LEG-NAMING-1. THEN re-measure db growth before
+    touching recorder excludes — measure-before-build applies.'
+  refs:
+  - ha_get_system_health 2026-08-20
+  - FRIGATE-LEG-NAMING-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
