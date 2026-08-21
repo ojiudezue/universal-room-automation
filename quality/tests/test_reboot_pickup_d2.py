@@ -111,23 +111,46 @@ sys.modules.setdefault("aiosqlite", MagicMock())
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+# SUITE-ORDER-POLLUTION-1 fix (2026-08-21): derive every path from __file__,
+# NEVER from a module object fetched out of sys.modules.
+#
+# This block runs at IMPORT time, so a sibling test file that registered a stub
+# for any of these package names has already run. Reading `<mod>.__path__[0]`
+# off such a stub raised IndexError when the stub carried an EMPTY __path__ —
+# at COLLECTION time, which pytest treats as fatal, so the whole 9,600-test
+# suite aborted and the pre-deploy name-diff gate became unrunnable on develop.
+#
+# Paths below are computed from this file's own location, which no sibling can
+# corrupt. The sys.modules entries are still honoured for REGISTRATION (so we
+# coexist with siblings rather than clobbering them), but a pre-existing module
+# with a missing/empty __path__ is REPAIRED rather than trusted.
+_REPO_CC = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")
+)
+_ura_path = os.path.join(_REPO_CC, "universal_room_automation")
+
+
+def _ensure_pkg_path(mod, path):
+    """Give `mod` a usable __path__ without clobbering a good one."""
+    if not getattr(mod, "__path__", None):
+        mod.__path__ = [path]
+    return mod
+
+
 # Custom_components package hierarchy (setdefault — coexists with siblings).
 _cc = sys.modules.get("custom_components")
 if _cc is None:
     _cc = types.ModuleType("custom_components")
-    _cc.__path__ = [os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")]
     sys.modules["custom_components"] = _cc
+_ensure_pkg_path(_cc, _REPO_CC)
 
 _ura_name = "custom_components.universal_room_automation"
 _ura = sys.modules.get(_ura_name)
 if _ura is None:
     _ura = types.ModuleType(_ura_name)
-    _ura_path = os.path.join(_cc.__path__[0], "universal_room_automation")
-    _ura.__path__ = [_ura_path]
     _ura.__package__ = _ura_name
     sys.modules[_ura_name] = _ura
-else:
-    _ura_path = _ura.__path__[0]
+_ensure_pkg_path(_ura, _ura_path)
 
 _const_name = f"{_ura_name}.const"
 _existing_const = sys.modules.get(_const_name)
@@ -144,11 +167,12 @@ _dc_name = f"{_ura_name}.domain_coordinators"
 _dc = sys.modules.get(_dc_name)
 if _dc is None:
     _dc = types.ModuleType(_dc_name)
-    _dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]
     _dc.__package__ = _dc_name
     sys.modules[_dc_name] = _dc
     _ura.domain_coordinators = _dc
-_dc_path = _dc.__path__[0]
+# Computed from __file__, not read back off the module — see the note above.
+_dc_path = os.path.join(_ura_path, "domain_coordinators")
+_ensure_pkg_path(_dc, _dc_path)
 
 
 def _load(submod):
