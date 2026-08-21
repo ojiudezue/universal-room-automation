@@ -3419,6 +3419,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "hvac_offphase_honesty_enabled": bool(_cfg.get(
                                 "hvac_offphase_honesty_enabled", True,
                             )),
+                            # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 kill
+                            # switch. Default ON. BEGIN-ONLY.
+                            "excursion_primitive_enabled": bool(_cfg.get(
+                                "excursion_primitive_enabled", True,
+                            )),
                         })(cm_config),
                         zone_entry_dwell=int(cm_config.get(
                             CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES

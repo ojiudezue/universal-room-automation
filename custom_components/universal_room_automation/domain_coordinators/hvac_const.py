@@ -460,6 +460,14 @@ MAX_COMFORT_OFFPHASE_OFFSET_F: Final = 6.0
 CONF_HVAC_OFFPHASE_HONESTY_ENABLED: Final = "hvac_offphase_honesty_enabled"
 DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED: Final = True
 
+# HVAC-GOVERNED-EXCURSION-1 D2 §4.7 — Excursion Primitive kill switch.
+# Default ON. OFF => `begin_excursion` returns None (no state row, no
+# lease, no suppress, no wire write). Already-persisted rows continue to
+# fire `return_excursion` at their timer callback and at the boot audit
+# regardless of the switch — the switch is BEGIN-ONLY.
+CONF_EXCURSION_PRIMITIVE_ENABLED: Final = "excursion_primitive_enabled"
+DEFAULT_EXCURSION_PRIMITIVE_ENABLED: Final = True
+
 # COMFORT_TEMP_MAX_AGE_S — RUNG 1 (module constant).
 # Maximum age (seconds) of the `current_temperature` attribute for the
 # predicate to trust the direction check. Stale reads fail closed.
