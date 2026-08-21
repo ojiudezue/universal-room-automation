@@ -3606,6 +3606,23 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["stuck_cameras"] = list(
                         getattr(census, "_last_stuck_cameras", []) or []
                     )
+                # EGRESS-CAMERA-DEAD-CONFIG-1 (Part B): surface configured
+                # camera entities that failed to resolve against the entity
+                # registry. Aggregate across all three camera lists
+                # (camera_person_entities / egress_cameras / perimeter_cameras)
+                # because the CameraIntegrationManager sees all resolve calls.
+                # DETECTION, NOT SILENT REPAIR — no auto-suffix substitution.
+                cam_mgr = getattr(census, "_camera_manager", None)
+                unresolved: dict = {}
+                if cam_mgr is not None and hasattr(
+                    cam_mgr, "get_unresolved_configured_cameras"
+                ):
+                    try:
+                        unresolved = cam_mgr.get_unresolved_configured_cameras()
+                    except Exception:  # noqa: BLE001
+                        unresolved = {}
+                attrs["unresolved_configured_cameras_count"] = len(unresolved)
+                attrs["unresolved_configured_cameras"] = sorted(unresolved.keys())
                 # CENSUS-ACCURACY-1 D1 + D2 freshness stamps + diagnostics.
                 # Review fix-up 2026-08-18 (B-MEDIUM-1 / A-LOW): read the
                 # DISPATCH-TIME cached stamps so this attr and the

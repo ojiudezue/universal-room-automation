@@ -242,6 +242,19 @@ class CameraIntegrationManager:
         # crashes at WARNING to avoid log flood while surfacing the initial
         # regression signal.
         self._resolver_crash_count: int = 0
+        # EGRESS-CAMERA-DEAD-CONFIG-1 (2026-08-21): aggregate warn-once for
+        # configured-but-missing camera entities. A stored config fact that
+        # is re-checked every resolve tick must NOT re-log every tick (2,030
+        # WARNINGs / 5h observed pre-fix). We log the first miss per entity
+        # at WARNING (so operators can grep), then suppress until the entity
+        # registry changes (`_register_registry_listeners` already flips
+        # `_resolver_dirty` on EVENT_ENTITY_REGISTRY_UPDATED — we piggyback
+        # via `_maybe_reset_unresolved`). We do NOT auto-substitute a `_N`
+        # suffixed sibling — see PART C non-goal and
+        # docs/planning/AUDIT_frigate_dead_leg_correctness.md L1.
+        self._unresolved_warned: set[str] = set()
+        # Public snapshot for the diagnostic sensor (Part B). entity_id -> reason.
+        self._unresolved_configured: dict[str, str] = {}
 
     def _register_registry_listeners(self) -> None:
         """B-HIGH-1: register EVENT_ENTITY/DEVICE_REGISTRY_UPDATED listeners
@@ -263,6 +276,12 @@ class CameraIntegrationManager:
         @callback
         def _invalidate(_evt) -> None:
             self._resolver_dirty = True
+            # EGRESS-CAMERA-DEAD-CONFIG-1: clear warn-once set so an entity
+            # that returns (or a new one that disappears) re-emits exactly
+            # one WARNING on next resolve. Do NOT clear the public
+            # `_unresolved_configured` snapshot — the next `resolve_configured_cameras`
+            # call rebuilds it authoritatively.
+            self._unresolved_warned.clear()
 
         try:
             self._resolver_unsubs.append(
@@ -478,11 +497,21 @@ class CameraIntegrationManager:
         for camera_entity_id in camera_entity_ids:
             camera_entry = ent_reg.async_get(camera_entity_id)
             if camera_entry is None:
-                _LOGGER.warning(
-                    "Camera entity %s not found in registry — skipping",
-                    camera_entity_id,
-                )
+                # Part A: warn-once per entity; suppress until registry changes.
+                self._unresolved_configured[camera_entity_id] = "not_in_registry"
+                if camera_entity_id not in self._unresolved_warned:
+                    self._unresolved_warned.add(camera_entity_id)
+                    _LOGGER.warning(
+                        "Camera entity %s configured but not found in registry "
+                        "— skipping (further occurrences suppressed until "
+                        "registry updates; see Persons In House sensor "
+                        "attribute 'unresolved_configured_cameras')",
+                        camera_entity_id,
+                    )
                 continue
+            # Entity resolved — clear any prior unresolved record for it.
+            self._unresolved_configured.pop(camera_entity_id, None)
+            self._unresolved_warned.discard(camera_entity_id)
 
             device_id = camera_entry.device_id
             if not device_id:
@@ -896,6 +925,14 @@ class CameraIntegrationManager:
     def get_platform_for_camera(self, entity_id: str) -> str | None:
         """Return 'frigate' or 'unifiprotect' for a given camera entity_id."""
         return self._platform_by_entity.get(entity_id)
+
+    def get_unresolved_configured_cameras(self) -> dict[str, str]:
+        """Return {entity_id: reason} for configured cameras that failed to
+        resolve on the most recent resolve pass (Part B of
+        EGRESS-CAMERA-DEAD-CONFIG-1). Empty when all configured cameras
+        resolve. NEVER auto-substitutes suffixed siblings.
+        """
+        return dict(self._unresolved_configured)
 
     def get_all_frigate_cameras(self) -> list[CameraInfo]:
         """Return all discovered Frigate camera entities."""
