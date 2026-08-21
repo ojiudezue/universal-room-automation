@@ -7483,14 +7483,44 @@ cards:
     intervention with no measurable effect is optimising a number that does not matter. The plateau
     structure would suggest ~1.6 by analogy with zone 2, and that value would look confident and be
     unsupported. Explicitly not set.'
-  HYPOTHESIS_UNTESTED: 'Zone 3 covers kitchen + hallways — high internal gain, high infiltration,
+  OPERATOR_OCCUPANCY_REFRAME_2026_08_21: 'OPERATOR: zone 3 differs from zone 2 in ONE way — "its a
+    zone not as often occupied as the others... Mostly only when we have guests are entertain a lot."
+    Same 3-ton HVAC model as zone 2, so EQUIPMENT is not the variable; OCCUPANCY is.
+    MEASURED (verified in source 2026-08-21): the AC-ramp gate block hvac_override.py:2660-2750
+    contains NO occupancy or preset reference whatsoever. Gates are ramp_zone_enabled -> cooling
+    action -> at-setpoint -> kwh_rate > threshold -> 3 consecutive samples -> 10-min sustain. The
+    ramp nudges regardless of whether anyone is in the zone.
+    THIS CORRECTS AN ERROR IN THIS CARD AS ORIGINALLY WRITTEN. The card argued zone 3 was "paying
+    ~11 comfort interruptions/day for nothing". That assumed SOMEONE WAS THERE TO BE INTERRUPTED. In
+    a mostly-empty zone a nudge has ZERO comfort cost, so: (a) the comfort argument for suppressing
+    zone-3 nudges is largely VOID, and (b) the disable-pending-evidence option is WEAKENED — disabling
+    would forfeit small-but-FREE savings. Do not disable on the strength of the null result alone.
+    THE THRESHOLD CHANGE TO 2.2 STILL STANDS but on the EQUIPMENT argument only: 1.3 sat inside zone
+    3s Stage 2 modulation band (0.90-1.50 kW), where a nudge yields little regardless of occupancy.
+    Same defect that was corrected on zone 2. NOT on the comfort argument.'
+  THE_REAL_QUESTION_NOW: 'The question is NOT "does zone 3 save?" but "DOES ZONE 3 SAVE WHEN THE
+    HOUSE IS ENTERTAINING?" Those are the nudges that carry actual comfort cost and the only ones
+    worth tuning for. A null pooled across mostly-empty hours may be WASHING OUT a real signal from
+    the occupied minority — n=79 split by occupancy could be ~10 occupied and ~69 empty, and the
+    pooled mean would be dominated by the empty ones.
+    DISCRIMINATING TEST, runnable on data that ALREADY EXISTS (no 3-4 week wait): split zone 3s 79
+    nudges by occupancy/preset at fire time and compare net energy effect between the two halves.
+    - If occupied-half looks like zone 2 and empty-half is ~zero -> occupancy IS the mechanism; tune
+      for the occupied case and leave the free empty-zone nudges alone.
+    - If BOTH halves are null -> occupancy is NOT the mechanism; look elsewhere (thermal rebound
+      remains a candidate).
+    This supersedes the earlier "accumulate another 3-4 weeks" suggestion as the FIRST step.'
+  SUPERSEDED_HYPOTHESIS_UNTESTED: 'LOWER PRIORITY than the occupancy split above; retained as the
+    alternative if both halves come back null. Original: Zone 3 covers kitchen + hallways — high internal gain, high infiltration,
     likely poor thermal mass. A nudged-off compressor may rebound almost immediately, which is what
     the near-zero and slightly-positive +90 min numbers hint at. PLAUSIBLE, UNTESTED. Do not treat
     as the mechanism until an observation discriminates it from the alternatives.'
   parsimony:
-    problem: ~11 comfort interruptions/day on a zone with no demonstrated energy benefit
+    problem: no demonstrated energy benefit on zone 3 — but the comfort-cost half of the original
+      framing is void, since the zone is mostly empty
     verdict: INVESTIGATE
-    note: disable-pending-evidence is a live option and may be cheaper than any retune
+    note: 'disable-pending-evidence is now WEAKENED, not a live option — an empty-zone nudge is free,
+      so disabling forfeits savings at no comfort gain. Run the occupancy split first.'
   next: 'Two paths, not mutually exclusive. (1) Accumulate: another 3-4 weeks of ac_ramp_events
     tightens the CI roughly 2x and may resolve the null. (2) Test the rebound hypothesis directly
     against the recorder rather than waiting. If rebound is confirmed, the question becomes

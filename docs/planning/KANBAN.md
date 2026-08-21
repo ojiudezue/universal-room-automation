@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T16:21:18-05:00_ - _Data commit: `77c8dc3e7622`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T16:22:39-05:00_ - _Data commit: `2d16fd8bef60`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -293,12 +293,14 @@ thread: **hvac** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-21 11:40 · initial_
 - **Next:** Two paths, not mutually exclusive. (1) Accumulate: another 3-4 weeks of ac_ramp_events tightens the CI roughly 2x and may resolve the null. (2) Test the rebound hypothesis directly against the recorder rather than waiting. If rebound is ...
 - **Tags:** measured-not-inferred, cannot-tell-from-this-data
-- **Parsimony:** [INVESTIGATE] ~11 comfort interruptions/day on a zone with no demonstrated energy benefit
+- **Parsimony:** [INVESTIGATE] no demonstrated energy benefit on zone 3 — but the comfort-cost half of the original framing is void, since the zone is mostly empty
 - **Refs:** AC-RAMP-SAVINGS-OVERSTATED-1; number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2
-- **Forensic keys (3):**
+- **Forensic keys (5):**
   - `THE_MEASUREMENT`: Zone 3 (3-ton; back rooms + hallways + kitchen) pooled net energy effect per nudge over +90 min is -0.087 +/- 0.128 kWh — the confidence interval SPANS ZERO. Implied value +$0.08/day, CI -$0.16 to +$0.32. No individual pre-nudge power bu...
   - `WHY_NO_THRESHOLD_WAS_SET`: DELIBERATE NON-ACTION. Zone 1 and zone 2 thresholds were retuned 2026-08-21 (1.3->1.5 and 1.2->2.2). Zone 3 was LEFT AT 1.3 because tuning a knob on an intervention with no measurable effect is optimising a number that does not matter. T...
-  - `HYPOTHESIS_UNTESTED`: Zone 3 covers kitchen + hallways — high internal gain, high infiltration, likely poor thermal mass. A nudged-off compressor may rebound almost immediately, which is what the near-zero and slightly-positive +90 min numbers hint at. PLAUSI...
+  - `OPERATOR_OCCUPANCY_REFRAME_2026_08_21`: OPERATOR: zone 3 differs from zone 2 in ONE way — "its a zone not as often occupied as the others... Mostly only when we have guests are entertain a lot." Same 3-ton HVAC model as zone 2, so EQUIPMENT is not the variable; OCCUPANCY is. M...
+  - `THE_REAL_QUESTION_NOW`: The question is NOT "does zone 3 save?" but "DOES ZONE 3 SAVE WHEN THE HOUSE IS ENTERTAINING?" Those are the nudges that carry actual comfort cost and the only ones worth tuning for. A null pooled across mostly-empty hours may be WASHING...
+  - `SUPERSEDED_HYPOTHESIS_UNTESTED`: LOWER PRIORITY than the occupancy split above; retained as the alternative if both halves come back null. Original: Zone 3 covers kitchen + hallways — high internal gain, high infiltration, likely poor thermal mass. A nudged-off compress...
 
 ## 🧭 Pre-planning (9)
 _idea being decomposed_
