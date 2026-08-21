@@ -549,6 +549,28 @@ DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
 AC_NUDGE_OVERSHOOT_GAP: Final = 0.0            # °F — current <= target - this. v4.7.16.2 hotfix: variable-speed Bryant modulates AT setpoint and rarely undershoots 0.5°F; previous 0.5°F gap suppressed auto-nudge for the exact waste pattern it was designed to catch. Downstream gates 7 (kwh_rate > threshold), 7b (sustained samples), and 8 (time-sustained) already provide three independent false-positive guards.
 AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate (LEGACY — runtime value lives on OverrideArrester._nudge_eval_delay_s, seeded from CONF_HVAC_AC_NUDGE_EVAL_DELAY. This const remains as the runtime-default + back-compat import target.)
 
+# HVAC-GOVERNED-EXCURSION-1 D1: delay after the restore sequence completes
+# before re-reading thermostat state to record the SETTLED restore verdict
+# into `ac_ramp_events.restore_ok`. The IMMEDIATE verdict
+# (`restore_ok_immediate`) is written synchronously with the log row; the
+# SETTLED verdict is written by a scheduled callback this many seconds
+# later. The pair `(immediate=1, settled=0)` is the load-bearing signature
+# for the late-cloud-poll clobber this cycle exists to measure — reading
+# only at t=0 would systematically record success in the failure case.
+#
+# 12s is chosen because:
+#   - Observed clobber latency was ~509 ms; 12s is >20x margin.
+#   - Bryant/Carrier + Ecobee cloud-polled climate integrations settle
+#     attribute updates within a few seconds of a write; 12s comfortably
+#     exceeds that envelope.
+#   - Well below the nudge evaluation delay (600s default) so the settled
+#     write always lands before evaluation reads the row.
+# Rung: module constant (numbers-get-knobs ladder rung 1). This is a
+# measurement window, not an operator-tunable policy — changing it should
+# require code review.
+AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12    # seconds after restore = re-read settled preset/mode
+
+
 # v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
 # If trailing-window min kW during [restore, restore + eval_delay] is
 # >= this fraction of kwh_rate_before, classify as ineffective and

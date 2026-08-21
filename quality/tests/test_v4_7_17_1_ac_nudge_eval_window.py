@@ -86,7 +86,10 @@ class TestRuntimeField:
         so changes to the Number entity affect the NEXT nudge."""
         idx = hvac_override_src.find("async def _restore_after_nudge")
         assert idx > 0
-        body = hvac_override_src[idx: idx + 5000]
+        # Slice bumped (HVAC-GOVERNED-EXCURSION-1 D1): observability
+        # telemetry in this method grew the body past the old 5000-char
+        # window, moving these assertions out of range.
+        body = hvac_override_src[idx: idx + 12000]
         assert "eval_delay_s = int(self._nudge_eval_delay_s)" in body
         assert "async_call_later(\n            self.hass, eval_delay_s," in body
 
@@ -95,7 +98,7 @@ class TestRuntimeField:
 
     def test_post_restore_ts_populated_on_restore(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge")
-        body = hvac_override_src[idx: idx + 5000]
+        body = hvac_override_src[idx: idx + 12000]  # bumped — see D1 note above
         assert "self._nudge_post_restore_ts[zone_id] = dt_util.now().isoformat()" in body
 
     def test_post_restore_ts_cleared_on_cancel(self, hvac_override_src):
@@ -161,11 +164,13 @@ class TestLogAcRampEventSignature:
 
     def test_insert_writes_effective_column(self, database_src):
         idx = database_src.find("async def log_ac_ramp_event(")
-        body = database_src[idx: idx + 4000]
+        body = database_src[idx: idx + 5000]  # bumped — D1 added 5 columns
         # Column name in INSERT statement
         assert "lockout_triggered, notes, effective" in body
-        # 14 placeholders for 14 columns (was 13 pre-v4.7.17.1)
-        assert "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" in body
+        # 19 placeholders — was 14 pre-D1; D1 (HVAC-GOVERNED-EXCURSION-1)
+        # added preset_before, preset_after, mode_before, mode_after,
+        # restore_ok for nudge-lifecycle observability.
+        assert "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" in body
         # SQLite has no BOOLEAN — must convert
         assert "None if effective is None else (1 if effective else 0)" in body
 
