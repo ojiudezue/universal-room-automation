@@ -554,6 +554,35 @@ class EgressManager:
             await self._db_clear(zone_id)
             return
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 15, S15 EGRESS_PAUSE START):
+        # open the governed excursion BEFORE the set_hvac_mode:off wire
+        # write. begin_excursion writes the persistence row first (R1
+        # ordering, fixes A-HIGH-2 persist-after-actuate at :570-592).
+        # UNFILTERED snapshot per §13.5 (pre_preset may be None/'manual').
+        # duration_s=None — egress is caller-owned, no timer; the lease
+        # expires by EXCURSION_LEASE_MAX_S if resume never fires
+        # (front-door-open-through-the-party bound).
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            _et = await _ex_mod.begin_excursion(
+                self._hass,
+                zone_id=zone_id,
+                entity_id=thermostat,
+                kind=_ex_mod.EXCURSION_KIND.EGRESS_PAUSE,
+                duration_s=None,
+                site="S15_egress_pause",
+                intended_mode=prior_mode or "heat_cool",
+            )
+            if not hasattr(self, "_egress_excursion_tokens"):
+                self._egress_excursion_tokens = {}
+            if _et is not None:
+                self._egress_excursion_tokens[zone_id] = _et
+        except Exception as _ege:  # noqa: BLE001
+            _LOGGER.debug(
+                "egress pause: begin_excursion failed for %s: %s",
+                zone_id, _ege,
+            )
+
         try:
             # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): on some
             # thermostat firmware (notably Ecobee), a set_hvac_mode
@@ -636,8 +665,24 @@ class EgressManager:
             self._paused_by_egress.pop(zone_id, None)
             self._egress_first_closed_at.pop(zone_id, None)
             await self._db_clear(zone_id)
+            # HVAC-GOVERNED-EXCURSION-1 D3: release lease on the abort
+            # path — a stranded egress lease permanently defers ticks.
+            _et = getattr(self, "_egress_excursion_tokens", {}).pop(zone_id, None)
+            if _et is not None:
+                try:
+                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                    await _ex_mod.return_excursion(_et, trigger="egress_abort")
+                except Exception:  # noqa: BLE001
+                    pass
             return
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 14, S14 EGRESS_PAUSE RETURN):
+        # Fix the pre-existing LEAK at :648-651 — a set_hvac_mode
+        # failure USED to `return` early, skipping the preset restore
+        # entirely (plan §3 row 14 + Reviewer A-MED-7). Under the new
+        # contract, mode-fail still attempts preset restore; the return
+        # records restore_ok=False with trigger_detail='mode_restore_failed'.
+        _mode_ok = False
         try:
             await self._hass.services.async_call(
                 "climate",
@@ -645,22 +690,17 @@ class EgressManager:
                 {"entity_id": thermostat, "hvac_mode": saved_mode},
                 blocking=True,
             )
+            _mode_ok = True
         except Exception:
             _LOGGER.warning(
-                "EgressManager: resume set_hvac_mode failed for %s",
+                "EgressManager: resume set_hvac_mode failed for %s "
+                "(continuing to preset restore per §3 row 14 leak fix)",
                 thermostat, exc_info=True,
             )
-            return
 
+        _preset_ok: bool | None = None
         if saved_preset:
             try:
-                # ARREST-COMFORT-1 B-MED-1 fix-up: migrate to the
-                # emit_set_preset_mode chokepoint. Classification: ALLOW
-                # (restoration path — this returns the thermostat to the
-                # preset the operator had before URA paused it; it is not
-                # a revert against a comfort-qualified manual). Passing
-                # gate=None means never DEFER; still routes through the
-                # chokepoint for uniform emit accounting.
                 await emit_set_preset_mode(
                     self._hass,
                     thermostat,
@@ -671,19 +711,44 @@ class EgressManager:
                     zone_id=zone_id,
                     reason="egress_resume",
                 )
+                _preset_ok = True
             except Exception:
                 _LOGGER.debug(
                     "EgressManager: resume set_preset_mode failed for %s",
                     thermostat, exc_info=True,
                 )
+                _preset_ok = False
 
         self._paused_by_egress.pop(zone_id, None)
         self._egress_first_closed_at.pop(zone_id, None)
         await self._db_clear(zone_id)
         _LOGGER.info(
-            "EgressManager: RESUMED zone %s (restored mode=%s preset=%s)",
-            zone_id, saved_mode, saved_preset,
+            "EgressManager: RESUMED zone %s (restored mode=%s preset=%s "
+            "mode_ok=%s preset_ok=%s)",
+            zone_id, saved_mode, saved_preset, _mode_ok, _preset_ok,
         )
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 14 RETURN): release the
+        # excursion lease. restore_ok combines mode+preset outcomes.
+        _et = getattr(self, "_egress_excursion_tokens", {}).pop(zone_id, None)
+        if _et is not None:
+            try:
+                from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                _restore_ok = _mode_ok and (
+                    _preset_ok is None or _preset_ok
+                )
+                await _ex_mod.return_excursion(
+                    _et,
+                    trigger="egress_close",
+                    restore_ok=_restore_ok,
+                    preset_after=saved_preset if _preset_ok else None,
+                    mode_after=saved_mode if _mode_ok else None,
+                )
+            except Exception as _rex:  # noqa: BLE001
+                _LOGGER.debug(
+                    "egress resume: return_excursion failed for %s: %s",
+                    zone_id, _rex,
+                )
         await self._maybe_dispatch_nm(
             zone_id=zone_id,
             event=EGRESS_NM_EVENT_RESUMED,
