@@ -1,4 +1,4 @@
-# PLANNING — Governed Thermostat Excursion Primitive (D2 + D3) — REV 5
+# PLANNING — Governed Thermostat Excursion Primitive (D2 + D3) — REV 6
 
 **Card:** `HVAC-GOVERNED-EXCURSION-1`
 **Tier:** **3** — delicate shared-primitive; invariant-critical; cost + comfort ripple; Bug Class #53 (one missed site defeats the guarantee).
@@ -10,6 +10,44 @@
 - `hard_reset_preset_assert` is NOT a primitive-managed kind. One-line `emit_set_preset_mode(snapshot_preset)` in `_verify_restore`'s success branch (`hvac_override.py:2913-2917`) instead. `EXCURSION_KIND_hard_reset_preset_assert` MUST NOT exist so it cannot be wired by analogy later.
 - **The excursion is UNOPINIONATED about intent.** It snapshots what it finds at `begin()` and restores exactly that at `return()`. It does not decide what SHOULD be there. Rev-3's "stamp what S1 emits" apparatus is DELETED — the excursion never asks the question the stamp existed to answer. Policy about "should this manual survive?" lives in the arrester + preset-manager, which have the grace, provenance, and midpoint logic the restore has none of. See §4.3.
 - **The excursion holds an EXPLICIT LEASE on its zone for its duration.** Decision ticks defer because an active `hvac_excursion_state` row exists, NOT because the thermostat reads `manual`. This is the mechanism by which snapshot-restore stays safe once HVAC-MANUAL-PRESET-CONTRACT-1 removes the accidental manual-based lockout that today silently protects excursions. See §4.4.
+
+> ## ⚠️ REV-6 — THE LEASE GATE IS STRIPPED (operator decision, 2026-08-21)
+>
+> **Four Tier-3 reviews returned DO-NOT-SHIP.** All four independently found that the lease
+> creates **a suppression with no reliable discharge** — leases leak on early-exit paths, leases
+> rehydrated at boot are orphaned by construction (no owner can release them), the expiry sweep
+> only runs on a path most ticks never reach, and the kill switch is begin-only so it cannot
+> discharge a stuck lease. Because the gate dropped preset writes, each leak silently removed ALL
+> preset governance from a zone for up to 2 hours — including load-shed forced-away, which Review B
+> verified DOES route through the gated path despite the plan's claim that safety paths do not.
+>
+> Review D's summary is the one to remember: *a stuck lease with no manual escape is worse than the
+> accidental lockout it replaced.*
+>
+> **DECISION: strip the lease GATE; keep the snapshot/restore machinery.** The reasoning is
+> marginal-benefit, not defect-count. The lease exists to protect excursions ONCE
+> `HVAC-MANUAL-PRESET-CONTRACT-1` removes the accidental `manual`-based lockout that protects them
+> TODAY. That cycle has not landed, so **the lease's value is currently zero while its risk is
+> measured.** Building it now pays the risk before the benefit exists.
+>
+> REMOVED: the gate at `hvac.py:2009-2027`, `lease_active()` as a consumed API, and the
+> gate-derived `stuck_excursion_lease` alert semantics. KEPT: `begin_excursion`/`return_excursion`,
+> the snapshot, persistence, boot audit, kill switch, and all 11 site migrations — that is the
+> cycle's actual value and it stands on its own.
+>
+> **PARKED-PLAN TRIGGER — read this carefully before rebuilding the lease.** Operator: *"when we
+> get to the other thing, take another look after the shape has changed."* That is NOT approval to
+> build the lease as designed here. It means: when `HVAC-MANUAL-PRESET-CONTRACT-1` is scoped,
+> **re-derive the exclusion mechanism from scratch against whatever the shape is THEN.** That cycle
+> is expected to collapse five partial preset-decision owners into one decider (see the card's
+> `ARCHITECTURAL_REFRAME_2026_08_21_DECIDER_VS_WRITER`) — and a single decider may not need a lease
+> at all, or may need a different mechanism entirely. Rev-5's design is EVIDENCE of what went
+> wrong, not a blueprint to resume from. Anyone who reads this section as "the lease is pre-approved
+> for the next cycle" has misread it.
+>
+> Also verified live during review and worth carrying forward: `manual` IS present in `preset_modes`
+> on all three Bryant thermostats, so the unopinionated snapshot-restore writing `manual` back is
+> legal on this hardware. A Review B concern, refuted by measurement.
 
 **Rev-5 changes vs rev-4 (ONE change, and it is a correctness fix):**
 - **THE LEASE CHECK MOVES from the consult to the emit merge point.** Rev-4 placed it "immediately before `should_change_preset`". That placement is WRONG and would have shipped a hole: the vacancy branch at `hvac.py:1892-1894` (`# Bypass should_change_preset() manual guard for vacancy (RH3 fix)`) takes the `if` arm and NEVER REACHES the consult. Both arms then converge on the same emit at `hvac.py:2013`. A vacancy sweep would therefore write `away` straight through an active excursion while `lease_active` reported clean — a silent Bug-Class-#53 miss of exactly the kind this cycle exists to prevent. **Gate the WRITE, not the CONSULT.** §4.4 and AC14 rewritten; AC14 gains a second mandatory test that drives the vacancy arm specifically.
