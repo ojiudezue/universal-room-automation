@@ -66,6 +66,7 @@ class TestDatabaseSchemaAdditions:
             "mode_before TEXT",
             "mode_after TEXT",
             "restore_ok INTEGER",
+            "restore_ok_immediate INTEGER",
         ):
             assert col in ddl, f"schema missing: {col}"
 
@@ -74,7 +75,8 @@ class TestDatabaseSchemaAdditions:
         # migration (guarded by the "not in are_columns" check).
         for col in (
             "preset_before", "preset_after",
-            "mode_before", "mode_after", "restore_ok",
+            "mode_before", "mode_after",
+            "restore_ok", "restore_ok_immediate",
         ):
             assert (
                 f'"{col}"' in database_src or f"'{col}'" in database_src
@@ -88,7 +90,8 @@ class TestDatabaseSchemaAdditions:
         )
         for col in (
             "preset_before", "preset_after",
-            "mode_before", "mode_after", "restore_ok",
+            "mode_before", "mode_after",
+            "restore_ok", "restore_ok_immediate",
         ):
             assert col in insert, f"INSERT missing column {col}"
 
@@ -129,7 +132,10 @@ class TestNudgeRestoredWireIn:
             "event_type=AC_RAMP_EVENT_NUDGE_RESTORED",
             "    async def ",
         )
-        for kw in ("preset_after=", "mode_after=", "restore_ok="):
+        for kw in (
+            "preset_after=", "mode_after=",
+            "restore_ok=", "restore_ok_immediate=",
+        ):
             assert kw in block, (
                 f"nudge_restored log call must pass {kw} "
                 f"(D1 wire-in anchor)"
@@ -144,7 +150,7 @@ class TestNudgeRestoredWireIn:
         # here would be a behavioural change.
         block = _slice_between(
             hvac_override_src,
-            "HVAC-GOVERNED-EXCURSION-1 D1: post-restore telemetry",
+            "HVAC-GOVERNED-EXCURSION-1 D1: paired IMMEDIATE / SETTLED",
             "await self._db.log_ac_ramp_event(",
         )
         assert "self.hass.states.get(" in block, (
@@ -204,7 +210,8 @@ async def test_d1_schema_has_observability_columns(tmp_path):
             cols = {row[1] for row in await cur.fetchall()}
         for expected in (
             "preset_before", "preset_after",
-            "mode_before", "mode_after", "restore_ok",
+            "mode_before", "mode_after",
+            "restore_ok", "restore_ok_immediate",
         ):
             assert expected in cols, f"missing column {expected}"
     finally:
@@ -455,3 +462,333 @@ async def test_d1_wirein_nudge_restored_populates_post_state_and_restore_ok(
     assert row2.get("restore_ok") is None, (
         "self-disarm must log restore_ok=NULL, never guess"
     )
+
+
+# ===========================================================================
+# HVAC-GOVERNED-EXCURSION-1 D1 — SETTLED-verdict paired-sample tests.
+#
+# Rationale (coordinator directive): an immediate post-restore read
+# systematically records restore_ok=1 in the FAILURE case (late cloud-poll
+# clobber lands ~500 ms later), so the metric would lie about the very
+# defect this deliverable exists to measure. The paired
+# (immediate=1, settled=0) signature is what identifies the clobber.
+# ===========================================================================
+
+
+class TestSettledSampleConstant:
+
+    def test_settle_delay_constant_declared_as_module_const(self):
+        # Rung: module constant (numbers-get-knobs ladder rung 1).
+        # Changing this window should require a code review, not an
+        # operator turn — it is a measurement window, not policy.
+        path = (
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac_const.py"
+        )
+        with open(path) as f:
+            src = f.read()
+        assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12" in src, (
+            "settled-sample delay must be a Final module constant"
+        )
+
+
+class TestSettledSampleWireIn:
+
+    def test_restore_after_nudge_imports_and_schedules_settled_timer(
+        self, hvac_override_src,
+    ):
+        # Import present.
+        assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S" in hvac_override_src
+
+        idx = hvac_override_src.find("async def _restore_after_nudge")
+        # 12000 covers the post-restore telemetry + settled-callback block.
+        body = hvac_override_src[idx: idx + 12000]
+
+        # Scheduler: async_call_later using the NAMED constant, not a literal.
+        assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S" in body, (
+            "delayed settled callback must use the named constant"
+        )
+        # Handle stored on the per-zone timer dict for cancel-safety.
+        assert "_nudge_settled_timers[zone_id]" in body, (
+            "settled timer handle must be registered for teardown cancel"
+        )
+        # DAO call must be the settled-update helper (not another INSERT).
+        assert "update_ac_ramp_restore_settled" in body, (
+            "settled verdict must be UPDATE-ed onto the existing row, "
+            "not inserted as a new one"
+        )
+        # Immediate row must be inserted with restore_ok=None so the
+        # settled UPDATE has a NULL to fill.
+        assert "restore_ok=None," in body, (
+            "immediate INSERT must leave restore_ok NULL for the settled "
+            "callback to fill"
+        )
+
+    def test_settled_timer_dict_initialised_and_torn_down(
+        self, hvac_override_src,
+    ):
+        assert (
+            "self._nudge_settled_timers: dict[str, CALLBACK_TYPE] = {}"
+            in hvac_override_src
+        ), "settled-timer dict must be initialised on the coordinator"
+        # Teardown block must cancel + clear the dict.
+        assert "self._nudge_settled_timers.values()" in hvac_override_src, (
+            "teardown must iterate the settled-timer dict"
+        )
+        assert "self._nudge_settled_timers.clear()" in hvac_override_src, (
+            "teardown must clear the settled-timer dict"
+        )
+
+    def test_settled_callback_uses_cached_states_get_no_service_calls(
+        self, hvac_override_src,
+    ):
+        idx = hvac_override_src.find("async def _write_settled(")
+        assert idx > 0, "settled-write inner coroutine must exist"
+        body = hvac_override_src[idx: idx + 3000]
+        # Passive read only.
+        assert "self.hass.states.get(" in body, (
+            "settled read must be via cached hass.states.get"
+        )
+        # No thermostat writes / service calls / suppression flips
+        # inside the settled callback (perturbation-free by construction).
+        for banned in (
+            "async_call_service",
+            "hass.services.async_call",
+            "emit_set_temperature",
+            "emit_set_preset_mode",
+            "self.suppress(",
+        ):
+            assert banned not in body, (
+                f"settled callback must not perform {banned} — that would "
+                f"perturb the race being measured"
+            )
+
+
+class TestDAOSettledUpdate:
+
+    def test_update_dao_signature_and_only_touches_null_rows(
+        self, database_src,
+    ):
+        # Signature.
+        assert "async def update_ac_ramp_restore_settled(" in database_src
+        # Guarded UPDATE: must only touch the row where restore_ok IS NULL
+        # so a delayed callback can never overwrite a subsequent nudge's
+        # settled row.
+        idx = database_src.find("async def update_ac_ramp_restore_settled(")
+        body = database_src[idx: idx + 2500]
+        # Anchor on the SQL fragment (AND ...) not the bare phrase, so
+        # deleting the WHERE clause is not masked by the docstring
+        # mentioning the same words.
+        assert "AND restore_ok IS NULL" in body, (
+            "settled UPDATE must be guarded by 'AND restore_ok IS NULL' "
+            "in its SQL so a delayed callback cannot overwrite a fresh row"
+        )
+        # Silent no-op via WHERE clause when row is absent (retention or
+        # DB reset): a filtered UPDATE that matches zero rows is a no-op
+        # by construction, and the outer try/except is the belt-and-braces.
+        assert "try:" in body and "except Exception" in body, (
+            "settled UPDATE must be exception-guarded so a delayed "
+            "callback firing after DB teardown degrades silently"
+        )
+
+
+# ---- Behavioural: paired-sample distinguishes clobber from clean ----------
+
+
+@_ha_only
+@pytest.mark.asyncio
+async def test_d1_paired_sample_distinguishes_clobber_from_clean(tmp_path):
+    """Round-trip that proves the (immediate, settled) pair identifies the
+    late-clobber defect signature vs a clean restore.
+
+    Scenario A (CLOBBER): _restore_after_nudge sees preset restored
+    immediately (immediate=1), then a delayed cloud poll re-flips it to
+    "manual" — settled UPDATE writes restore_ok=0. Pair = (1, 0).
+
+    Scenario B (CLEAN): both immediate and settled see the intended
+    preset — pair = (1, 1).
+
+    Scenario C (SELF-DISARM): no intent captured — both verdicts NULL.
+    """
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    from runtime_harness import StubHass
+
+    hass = StubHass(config_dir=str(tmp_path))
+    db = UniversalRoomDatabase(hass)
+    await db.start_write_worker()
+    try:
+        assert await db.init_db()
+
+        # A — insert immediate=1 with restore_ok=NULL, then settled UPDATE
+        # writes restore_ok=0 (the clobber).
+        await db.log_ac_ramp_event(
+            zone_id="clobber_zone",
+            event_type="nudge_restored",
+            preset_after="sleep",
+            mode_after="cool",
+            restore_ok=None,
+            restore_ok_immediate=True,
+        )
+        # B — insert immediate=1, settled will also be 1.
+        await db.log_ac_ramp_event(
+            zone_id="clean_zone",
+            event_type="nudge_restored",
+            preset_after="sleep",
+            mode_after="cool",
+            restore_ok=None,
+            restore_ok_immediate=True,
+        )
+        # C — self-disarm.
+        await db.log_ac_ramp_event(
+            zone_id="disarm_zone",
+            event_type="nudge_restored",
+            preset_after="manual",
+            mode_after="cool",
+            restore_ok=None,
+            restore_ok_immediate=None,
+        )
+        for _ in range(30):
+            if db._write_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+
+        # Simulated settled samples (as the callback would run).
+        await db.update_ac_ramp_restore_settled(
+            zone_id="clobber_zone",
+            preset_settled="manual",  # cloud-poll clobber landed
+            mode_settled="cool",
+            restore_ok=False,
+        )
+        await db.update_ac_ramp_restore_settled(
+            zone_id="clean_zone",
+            preset_settled="sleep",
+            mode_settled="cool",
+            restore_ok=True,
+        )
+        await db.update_ac_ramp_restore_settled(
+            zone_id="disarm_zone",
+            preset_settled="manual",
+            mode_settled="cool",
+            restore_ok=None,
+        )
+        for _ in range(30):
+            if db._write_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+
+        import aiosqlite
+        async with aiosqlite.connect(db.db_file) as conn:
+            cur = await conn.execute(
+                "SELECT zone_id, preset_after, restore_ok, "
+                "restore_ok_immediate "
+                "FROM ac_ramp_events "
+                "WHERE event_type = 'nudge_restored' "
+                "ORDER BY zone_id"
+            )
+            rows = {r[0]: r for r in await cur.fetchall()}
+
+        # Load-bearing invariant: pair distinguishes clobber from clean.
+        assert rows["clobber_zone"][3] == 1 and rows["clobber_zone"][2] == 0, (
+            "clobber signature = (immediate=1, settled=0); got "
+            f"{rows['clobber_zone']}"
+        )
+        assert rows["clean_zone"][3] == 1 and rows["clean_zone"][2] == 1, (
+            "clean = (1, 1)"
+        )
+        assert (
+            rows["disarm_zone"][3] is None and rows["disarm_zone"][2] is None
+        ), "self-disarm = (NULL, NULL) — never guessed"
+
+        # Explicit discrimination check: the immediate column alone would
+        # fail to distinguish clobber from clean (both =1).
+        assert (
+            rows["clobber_zone"][3] == rows["clean_zone"][3]
+        ), "sanity: immediate values match — paired settled is what discriminates"
+        # But settled column DOES distinguish them.
+        assert (
+            rows["clobber_zone"][2] != rows["clean_zone"][2]
+        ), "settled column must discriminate clobber (0) from clean (1)"
+
+        # And the settled UPDATE must have only touched restore_ok=NULL
+        # rows — insert a second row for clobber_zone and confirm a
+        # subsequent settled UPDATE cannot corrupt the first.
+        await db.log_ac_ramp_event(
+            zone_id="clobber_zone",
+            event_type="nudge_restored",
+            preset_after="sleep",
+            mode_after="cool",
+            restore_ok=None,
+            restore_ok_immediate=True,
+        )
+        for _ in range(30):
+            if db._write_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+        await db.update_ac_ramp_restore_settled(
+            zone_id="clobber_zone",
+            preset_settled="sleep",
+            mode_settled="cool",
+            restore_ok=True,
+        )
+        for _ in range(30):
+            if db._write_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+        async with aiosqlite.connect(db.db_file) as conn:
+            cur = await conn.execute(
+                "SELECT restore_ok, restore_ok_immediate FROM ac_ramp_events "
+                "WHERE zone_id='clobber_zone' AND event_type='nudge_restored' "
+                "ORDER BY event_id"
+            )
+            two = await cur.fetchall()
+        assert len(two) == 2
+        assert two[0] == (0, 1), (
+            "original clobber row must remain (settled=0, immediate=1) — "
+            "a subsequent settled UPDATE must not overwrite an already-"
+            "settled row"
+        )
+        assert two[1] == (1, 1), "second row settled cleanly"
+    finally:
+        if db._write_task and not db._write_task.done():
+            db._write_task.cancel()
+
+
+@_ha_only
+@pytest.mark.asyncio
+async def test_d1_settled_update_no_row_is_silent_noop(tmp_path):
+    """If the row is gone (retention, kill, wrong zone), the settled
+    UPDATE must silently no-op rather than raise or insert a phantom row.
+    """
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    from runtime_harness import StubHass
+
+    hass = StubHass(config_dir=str(tmp_path))
+    db = UniversalRoomDatabase(hass)
+    await db.start_write_worker()
+    try:
+        assert await db.init_db()
+        # No row exists for this zone.
+        await db.update_ac_ramp_restore_settled(
+            zone_id="ghost",
+            preset_settled="sleep",
+            mode_settled="cool",
+            restore_ok=True,
+        )
+        for _ in range(30):
+            if db._write_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+        import aiosqlite
+        async with aiosqlite.connect(db.db_file) as conn:
+            cur = await conn.execute(
+                "SELECT COUNT(*) FROM ac_ramp_events WHERE zone_id='ghost'"
+            )
+            (n,) = await cur.fetchone()
+        assert n == 0, "settled UPDATE must not insert a phantom row"
+    finally:
+        if db._write_task and not db._write_task.done():
+            db._write_task.cancel()

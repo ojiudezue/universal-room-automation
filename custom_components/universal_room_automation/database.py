@@ -1520,7 +1520,8 @@ class UniversalRoomDatabase:
                         preset_after TEXT,
                         mode_before TEXT,
                         mode_after TEXT,
-                        restore_ok INTEGER
+                        restore_ok INTEGER,
+                        restore_ok_immediate INTEGER
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_ac_ramp_events_zone_ts
                     ON ac_ramp_events(zone_id, timestamp)""",
@@ -1634,6 +1635,7 @@ class UniversalRoomDatabase:
                         ("mode_before", "TEXT"),
                         ("mode_after", "TEXT"),
                         ("restore_ok", "INTEGER"),
+                        ("restore_ok_immediate", "INTEGER"),
                     ):
                         if _col not in are_columns:
                             await db.execute(
@@ -7419,6 +7421,7 @@ class UniversalRoomDatabase:
         mode_before: str | None = None,
         mode_after: str | None = None,
         restore_ok: bool | None = None,
+        restore_ok_immediate: bool | None = None,
     ) -> None:
         """Append an event row to the ramp-down log.
 
@@ -7439,8 +7442,9 @@ class UniversalRoomDatabase:
                         soft_nudge_count_today, hard_reset_count_today,
                         lockout_triggered, notes, effective,
                         preset_before, preset_after,
-                        mode_before, mode_after, restore_ok
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        mode_before, mode_after, restore_ok,
+                        restore_ok_immediate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         zone_id,
                         dt_util.now().isoformat(),
@@ -7462,6 +7466,7 @@ class UniversalRoomDatabase:
                         mode_before,
                         mode_after,
                         None if restore_ok is None else (1 if restore_ok else 0),
+                        None if restore_ok_immediate is None else (1 if restore_ok_immediate else 0),
                     ),
                 )
                 await db.commit()
@@ -7469,6 +7474,56 @@ class UniversalRoomDatabase:
             _LOGGER.warning(
                 "ac_ramp_events log failed for %s/%s: %s",
                 zone_id, event_type, err,
+            )
+
+    async def update_ac_ramp_restore_settled(
+        self,
+        zone_id: str,
+        preset_settled: str | None,
+        mode_settled: str | None,
+        restore_ok: bool | None,
+    ) -> None:
+        """Write the SETTLED restore verdict onto the most-recent
+        nudge_restored row for ``zone_id``.
+
+        HVAC-GOVERNED-EXCURSION-1 D1. Called by a scheduled callback
+        ``AC_NUDGE_RESTORE_SETTLE_DELAY_S`` after ``_restore_after_nudge``
+        completes, so a late cloud-poll setpoint clobber (the defect this
+        cycle exists to measure) is captured in ``restore_ok`` — the
+        immediate verdict lives in ``restore_ok_immediate``.
+
+        Degrades to a silent no-op if the row no longer exists (retention
+        cleanup, DB reset). Only updates rows where ``restore_ok IS NULL``
+        so a delayed callback cannot overwrite a settled row from a
+        subsequent nudge cycle on the same zone.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """UPDATE ac_ramp_events
+                       SET preset_after = ?,
+                           mode_after = ?,
+                           restore_ok = ?
+                       WHERE event_id = (
+                           SELECT event_id FROM ac_ramp_events
+                           WHERE zone_id = ?
+                             AND event_type = 'nudge_restored'
+                             AND restore_ok IS NULL
+                           ORDER BY event_id DESC
+                           LIMIT 1
+                       )""",
+                    (
+                        preset_settled,
+                        mode_settled,
+                        None if restore_ok is None else (1 if restore_ok else 0),
+                        zone_id,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_ramp_events settled-update failed for %s: %s",
+                zone_id, err,
             )
 
     async def get_ac_ramp_events_recent(

@@ -406,7 +406,7 @@ class TestDetectionLogic:
 
     def test_check_ac_reset_master_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         # Gate 1: master switch
         assert "self._ramp_master_enabled" in body
         # Must return BEFORE iterating zones
@@ -419,12 +419,12 @@ class TestDetectionLogic:
 
     def test_check_ac_reset_per_zone_enable_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "zone.ramp_zone_enabled" in body
 
     def test_check_ac_reset_ac_load_sensor_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "zone.ac_load_sensor" in body
         # Must set ramp_state to DISABLED when sensor not configured (graceful)
         assert "AC_RAMP_STATE_DISABLED" in body
@@ -468,7 +468,7 @@ class TestDetectionLogic:
 
     def test_check_ac_reset_lockout_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "lockout_flag" in body
         assert "AC_RAMP_STATE_LOCKED_OUT" in body
 
@@ -536,7 +536,7 @@ class TestSoftNudge:
         forever with no record. R1 mitigation requires DB-first ordering.
         """
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         db_write_pos = body.find("set_ac_in_flight_nudge")
         # feature/freeze-floor: setpoint dispatch routed through the chokepoint
         # `emit_set_temperature(...)`; the raw services.async_call now lives in
@@ -561,7 +561,7 @@ class TestSoftNudge:
         conditional stamp.
         """
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         suppress_pos = body.find("self.suppress(zone.climate_entity")
         service_pos = body.find("emit_set_temperature(")
         assert suppress_pos > 0, "R11 suppress call missing"
@@ -580,30 +580,30 @@ class TestSoftNudge:
 
     def test_perform_soft_nudge_schedules_restore(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "_nudge_restore_timers" in body
         assert "async_call_later" in body
 
     def test_perform_soft_nudge_logs_event(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         assert "AC_RAMP_EVENT_NUDGE_STARTED" in body
 
     def test_perform_soft_nudge_increments_counter(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         assert "soft_nudge_count" in body
         assert "+ 1" in body  # increment
 
     def test_restore_after_nudge_clears_in_flight(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "clear_ac_in_flight_nudge" in body
         assert "AC_RAMP_EVENT_NUDGE_RESTORED" in body
 
     def test_restore_after_nudge_schedules_evaluation(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "AC_NUDGE_EVALUATION_DELAY_S" in body
         assert "_nudge_eval_timers" in body
 
@@ -630,7 +630,7 @@ class TestHardResetEscalation:
         query and classification block.
         """
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         assert "AC_NUDGE_EVAL_MIN_DROP_FRAC" in body
         assert "post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before" in body
 
@@ -655,7 +655,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "self._hard_reset_daily_limit" in body
 
     def test_hard_reset_checks_global_min_interval(self, hvac_override_src):
@@ -664,7 +664,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "get_global_last_hard_reset_ts" in body
         assert "self._hard_reset_min_interval_min" in body
 
@@ -672,7 +672,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "_engage_lockout" in body
 
     def test_hard_reset_reuses_existing_perform_ac_reset(
@@ -707,13 +707,13 @@ class TestLockout:
         """One persistent notification per zone (HA dedupes by id) — no
         spam if multiple lockouts fire in sequence."""
         idx = hvac_override_src.find("async def _engage_lockout(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "ura_ac_ramp_lockout_" in body
         assert "notification_id" in body
 
     def test_lockout_logs_event_with_flag(self, hvac_override_src):
         idx = hvac_override_src.find("async def _engage_lockout(")
-        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
+        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
         assert "AC_RAMP_EVENT_LOCKOUT_ENGAGED" in body
         assert "lockout_triggered=True" in body
 
@@ -743,7 +743,7 @@ class TestStartupRampAudit:
         idx = hvac_override_src.find(
             "async def async_startup_ramp_audit("
         )
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         assert "elapsed_s >= duration_s" in body
 
     def test_audit_resumes_in_flight_nudges(self, hvac_override_src):
@@ -752,7 +752,7 @@ class TestStartupRampAudit:
         idx = hvac_override_src.find(
             "async def async_startup_ramp_audit("
         )
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         assert "remaining_s = duration_s - elapsed_s" in body
 
     def test_audit_clears_stale_rows_for_missing_zones(
@@ -763,7 +763,7 @@ class TestStartupRampAudit:
         idx = hvac_override_src.find(
             "async def async_startup_ramp_audit("
         )
-        body = hvac_override_src[idx:idx + 8000]
+        body = hvac_override_src[idx:idx + 12000]
         assert "if zone is None:" in body
         assert "clear_ac_in_flight_nudge" in body
 
@@ -800,12 +800,12 @@ class TestNumberEntities:
 
     def test_per_zone_factory_uses_zone_id_in_unique_id(self, number_src):
         idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
-        body = number_src[idx:idx + 8000]
+        body = number_src[idx:idx + 12000]
         assert 'f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"' in body
 
     def test_per_zone_factory_pushes_to_zone_state(self, number_src):
         idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
-        body = number_src[idx:idx + 8000]
+        body = number_src[idx:idx + 12000]
         # Push target is ZoneState.kwh_rate_threshold, not sub-controller
         assert "zone.kwh_rate_threshold = float(self._value)" in body
 
@@ -834,7 +834,7 @@ class TestNumberEntities:
         """3-ton heuristic: ~25-30% of rated. User raises to 1.0 for 4-ton
         post-deploy via slider — no redeploy needed."""
         idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
-        body = number_src[idx:idx + 8000]
+        body = number_src[idx:idx + 12000]
         assert "DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD" in body
 
 
@@ -1044,7 +1044,7 @@ class TestPerZoneButtons:
         # at column 0. Use a wide window since the class grew with
         # v4.5.11.3's async_added_to_hass + signal subscription.
         idx = button_src.find("class _ACRampButton(")
-        body = button_src[idx:idx + 8000]
+        body = button_src[idx:idx + 12000]
         assert "self._method_name" in body
         assert "getattr(arr, self._method_name" in body
 
@@ -1330,12 +1330,12 @@ class TestZoneResolutionAcrossSchemes:
 
     def test_button_init_stores_climate_entity(self, button_src):
         idx = button_src.find("class _ACRampButton(")
-        body = button_src[idx:idx + 8000]
+        body = button_src[idx:idx + 12000]
         assert "self._climate_entity = climate_entity" in body
 
     def test_button_press_passes_climate_entity_not_zone_id(self, button_src):
         idx = button_src.find("class _ACRampButton(")
-        body = button_src[idx:idx + 8000]
+        body = button_src[idx:idx + 12000]
         # The runtime call to OverrideArrester methods should use
         # climate_entity (which _resolve_zone handles) — NOT the
         # locally-derived zone_id.

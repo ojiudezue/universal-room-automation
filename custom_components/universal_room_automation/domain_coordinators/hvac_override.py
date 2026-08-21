@@ -31,6 +31,7 @@ from .hvac_const import (
     AC_KWH_STALE_WARN_INTERVAL_S,
     AC_NUDGE_EVAL_MIN_DROP_FRAC,
     AC_NUDGE_EVALUATION_DELAY_S,
+    AC_NUDGE_RESTORE_SETTLE_DELAY_S,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
@@ -225,6 +226,11 @@ class OverrideArrester:
         # by an unrelated hard-reset path on the same zone.
         self._nudge_restore_timers: dict[str, CALLBACK_TYPE] = {}
         self._nudge_eval_timers: dict[str, CALLBACK_TYPE] = {}
+        # HVAC-GOVERNED-EXCURSION-1 D1: per-zone timers for the
+        # delayed SETTLED-verdict re-read. Fires
+        # AC_NUDGE_RESTORE_SETTLE_DELAY_S after each _restore_after_nudge
+        # completes; passive read + UPDATE only, no thermostat writes.
+        self._nudge_settled_timers: dict[str, CALLBACK_TYPE] = {}
         # v4.7.17.1: track restore wall-clock ISO timestamp per zone so the
         # evaluator can query recorder history over [restore_ts, eval_ts]
         # for the trailing-window minimum kW (the new effectiveness rule).
@@ -1440,6 +1446,11 @@ class OverrideArrester:
         for cancel in self._nudge_eval_timers.values():
             cancel()
         self._nudge_eval_timers.clear()
+        # HVAC-GOVERNED-EXCURSION-1 D1: cancel-safe teardown of
+        # delayed settled-verdict timers.
+        for cancel in self._nudge_settled_timers.values():
+            cancel()
+        self._nudge_settled_timers.clear()
         self._nudge_in_flight.clear()
 
         # F5 (2026-08-07 fix-up cycle-4): cancel any pending deferred-
@@ -3267,16 +3278,21 @@ class OverrideArrester:
         )
         if self._db is not None:
             await self._db.clear_ac_in_flight_nudge(zone_id)
-            # HVAC-GOVERNED-EXCURSION-1 D1: post-restore telemetry.
-            # Read HA's cached state dict (no I/O, no await) so this
-            # cannot perturb the ordering race being measured. Reads the
-            # "settled-so-far" state; a later cloud-poll setpoint clobber
-            # (the observed 509 ms defect) will land as a subsequent
-            # state change and is out of scope for this log row —
-            # measuring that latency window is D2/D3.
+            # HVAC-GOVERNED-EXCURSION-1 D1: paired IMMEDIATE / SETTLED
+            # telemetry. The immediate verdict is computed here from
+            # hass.states.get (cached dict, no await) — it captures what
+            # HA sees the moment the restore sequence completes. The
+            # SETTLED verdict is written by a scheduled callback
+            # AC_NUDGE_RESTORE_SETTLE_DELAY_S later, so a late-landing
+            # cloud-poll setpoint that clobbers preset back to "manual"
+            # (the observed ~509 ms defect this cycle exists to measure)
+            # is captured in restore_ok. The pair (immediate=1, settled=0)
+            # is the load-bearing signature of the clobber; reading only
+            # at t=0 would systematically record success in the failure
+            # case, which is worse than no metric.
             _tele_preset_after: str | None = None
             _tele_mode_after: str | None = None
-            _tele_restore_ok: bool | None
+            _tele_restore_ok_immediate: bool | None
             try:
                 _cs_final = self.hass.states.get(zone.climate_entity)
             except Exception:  # noqa: BLE001 — defensive
@@ -3284,18 +3300,18 @@ class OverrideArrester:
             if _cs_final is not None:
                 _tele_preset_after = _cs_final.attributes.get("preset_mode", "") or ""
                 _tele_mode_after = _cs_final.state
-            # restore_ok semantics:
+            # Verdict semantics (identical for immediate + settled):
             #   pre_preset (intent) empty  -> no intent (self-disarm or
             #     nothing to restore) -> NULL, never guess.
             #   pre_preset set + preset_after unreadable -> NULL.
             #   pre_preset set + preset_after == pre_preset -> True.
             #   pre_preset set + preset_after != pre_preset -> False.
             if not pre_preset:
-                _tele_restore_ok = None
+                _tele_restore_ok_immediate = None
             elif _tele_preset_after is None:
-                _tele_restore_ok = None
+                _tele_restore_ok_immediate = None
             else:
-                _tele_restore_ok = (_tele_preset_after == pre_preset)
+                _tele_restore_ok_immediate = (_tele_preset_after == pre_preset)
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
@@ -3303,7 +3319,76 @@ class OverrideArrester:
                 kwh_rate_before=zone.nudge_kwh_rate_before,
                 preset_after=_tele_preset_after,
                 mode_after=_tele_mode_after,
-                restore_ok=_tele_restore_ok,
+                # restore_ok is left NULL here; the delayed settled
+                # callback below fills it in AC_NUDGE_RESTORE_SETTLE_DELAY_S
+                # from now. Any read that sees restore_ok IS NULL is a
+                # "measurement in flight OR settled row lost to
+                # retention/kill" case — both are valid NULL.
+                restore_ok=None,
+                restore_ok_immediate=_tele_restore_ok_immediate,
+            )
+
+            # ---- SETTLED sample: delayed passive re-read ------------------
+            # Cancel any prior in-flight settled timer for this zone (a
+            # rapid re-nudge cycle would otherwise leak the previous
+            # callback). Store the new handle so teardown can cancel it.
+            _prev_settled = self._nudge_settled_timers.pop(zone_id, None)
+            if _prev_settled is not None:
+                try:
+                    _prev_settled()
+                except Exception:  # noqa: BLE001 — defensive
+                    pass
+
+            _intent_preset = pre_preset  # closure capture (already popped)
+
+            async def _write_settled(_now, _zid=zone_id,
+                                     _entity=zone.climate_entity,
+                                     _intent=_intent_preset) -> None:
+                # Passive re-read + UPDATE only. Issues no service call,
+                # touches no thermostat, adds no await into the restore
+                # path — it runs after the setpoint/preset race has fully
+                # resolved (or not).
+                self._nudge_settled_timers.pop(_zid, None)
+                try:
+                    _cs_settled = self.hass.states.get(_entity)
+                except Exception:  # noqa: BLE001 — defensive
+                    _cs_settled = None
+                _preset_settled: str | None = None
+                _mode_settled: str | None = None
+                if _cs_settled is not None:
+                    _preset_settled = (
+                        _cs_settled.attributes.get("preset_mode", "") or ""
+                    )
+                    _mode_settled = _cs_settled.state
+                # Same verdict rules as the immediate sample.
+                if not _intent:
+                    _settled_ok: bool | None = None
+                elif _preset_settled is None:
+                    _settled_ok = None
+                else:
+                    _settled_ok = (_preset_settled == _intent)
+                if self._db is not None:
+                    try:
+                        await self._db.update_ac_ramp_restore_settled(
+                            zone_id=_zid,
+                            preset_settled=_preset_settled,
+                            mode_settled=_mode_settled,
+                            restore_ok=_settled_ok,
+                        )
+                    except Exception as _e:  # noqa: BLE001 — defensive
+                        _LOGGER.debug(
+                            "settled restore verdict update failed "
+                            "on %s: %s", _zid, _e,
+                        )
+
+            @callback
+            def _on_settled_fire(_now):
+                self.hass.async_create_task(_write_settled(_now))
+
+            self._nudge_settled_timers[zone_id] = async_call_later(
+                self.hass,
+                AC_NUDGE_RESTORE_SETTLE_DELAY_S,
+                _on_settled_fire,
             )
 
         zone.ramp_state = AC_RAMP_STATE_AWAITING_EVAL
