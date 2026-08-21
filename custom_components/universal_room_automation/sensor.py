@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.86.0
+# Universal Room Automation vv5.87.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1938,6 +1938,25 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                 "UnavailableEntitiesSensor: chatter telemetry raise "
                 "swallowed (attrs=chatter_telemetry omitted)",
                 exc_info=True,
+            )
+        # RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21): expose duty-cycle
+        # NOTIFY-ONLY stuck set. The WARNING that used to fire every tick
+        # per sensor is now edge-triggered (WARN on enter, INFO on
+        # release) — this attribute preserves the diagnostic surface so
+        # operators can see the current stuck notify-only set at any
+        # time without grepping historical logs. Excluded stuck sensors
+        # remain surfaced via existing `dutycycle_excluded_now` /
+        # RoomInsightSensor paths (unchanged).
+        try:
+            notify_active = getattr(
+                self.coordinator, "_dutycycle_notify_active", None,
+            )
+            if notify_active is not None:
+                attrs["dutycycle_stuck_notify"] = sorted(notify_active)
+        except Exception:  # noqa: BLE001 — diagnostics must degrade
+            _LOGGER.debug(
+                "UnavailableEntitiesSensor: dutycycle_stuck_notify raise "
+                "swallowed", exc_info=True,
             )
         # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
         # a room with no lights/fans has no reconciler, so we degrade to zeros.
@@ -12670,7 +12689,9 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
             "last_trigger_time": t.isoformat() if (t := getattr(hvac, '_last_pre_arrival_time', None)) else None,
             "last_trigger_source": getattr(hvac, '_last_pre_arrival_source', ""),
             "last_trigger_person": getattr(hvac, '_last_pre_arrival_person', ""),
-            "triggers_today": getattr(hvac, '_pre_arrival_triggers_today', 0),
+            # RESTART-SAFETY-DOCTRINE-1: _pre_arrival_triggers_today is now
+            # a DailyCounter; int() coerces via __int__.
+            "triggers_today": int(getattr(hvac, '_pre_arrival_triggers_today', 0) or 0),
             "person_zone_map": getattr(hvac, '_person_zone_map', {}),
             "fan_rooms_activated": getattr(predictor, '_last_fan_activation_rooms', []) if predictor else [],
             "fan_rooms_skipped": getattr(predictor, '_last_fan_skipped_rooms', []) if predictor else [],

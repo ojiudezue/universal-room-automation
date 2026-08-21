@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.86.0
+# Universal Room Automation vv5.87.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -346,6 +346,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # STUCK-SENSOR-1 D2a — surface the current tick's exclusion set
         # on RoomInsightSensor.
         self._dutycycle_excluded_now: dict[str, datetime] = {}
+        # RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21): edge-triggered latch for
+        # the "duty-cycle stuck — NOTIFY-ONLY" WARNING. Was firing every
+        # tick per stuck sensor (3565 hits in 5h across two sensors),
+        # feeding the recorder-bloat flood. A stuck sensor is a persistent
+        # state; warn once on entry, once on exit (release scan below).
+        # Detection unchanged — only announcement cadence.
+        self._dutycycle_notify_active: set[str] = set()
         # STUCK-SENSOR-1 D3 persistence — dedup date stamp so a restart
         # within the same calendar day does not re-fire NM latches.
         self._stuck_sensor_fired_date: str | None = None
@@ -2509,6 +2516,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001 — fail-safe (default enabled)
             return DEFAULT_STUCK_SENSOR_EXCLUSION_ENABLED
 
+    def _dutycycle_notify_warn_on_enter(
+        self, sensor: str, room_name: str,
+    ) -> bool:
+        """RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21) — edge-triggered WARN
+        for the "duty-cycle stuck — NOTIFY-ONLY" line. Thin adapter over
+        ``_dutycycle_notify.notify_warn_on_enter`` so the real logic is
+        hermetically testable without the full HA import graph."""
+        from .domain_coordinators._dutycycle_notify import (  # noqa: PLC0415
+            notify_warn_on_enter,
+        )
+        return notify_warn_on_enter(
+            self._dutycycle_notify_active, sensor, room_name, _LOGGER,
+        )
+
+    def _dutycycle_notify_release(
+        self, current_notify: set[str], room_name: str,
+    ) -> set[str]:
+        """RECORDER-BLOAT-LOGFLOOD-1 — release-edge scan. Thin adapter."""
+        from .domain_coordinators._dutycycle_notify import (  # noqa: PLC0415
+            notify_release,
+        )
+        return notify_release(
+            self._dutycycle_notify_active, current_notify, room_name, _LOGGER,
+        )
+
     def _promote_dutycycle_to_exclusion(
         self, sensor: str, now: datetime,
     ) -> bool:
@@ -2934,6 +2966,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 occupancy_sensors=occupancy_sensors,
                 room_name=room_name,
             )
+            # RECORDER-BLOAT-LOGFLOOD-1: current-tick notify-only set for
+            # edge-triggered release below.
+            _current_notify: set[str] = set()
             for s in dc_stuck:
                 if s in stuck_sensors:
                     # Continuous rule already caught this one; keep the
@@ -2968,12 +3003,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         room_name, s, int(CORROBORATOR_DISAGREE_S),
                     )
                 else:
-                    _LOGGER.warning(
-                        "Room %s: Sensor %s duty-cycle stuck (on-ratio "
-                        "exceeded over rolling window) — NOTIFY-ONLY, "
-                        "not excluded from occupancy",
-                        room_name, s,
-                    )
+                    # RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21): edge-triggered
+                    # WARN via helper (behavioural anchor for tests).
+                    _current_notify.add(s)
+                    self._dutycycle_notify_warn_on_enter(s, room_name)
                 # M-3 fix-up: caller-side latch pre-check to avoid per-tick
                 # task spam. `_stuck_signal_nm` still per-day-dedups the
                 # NM itself; this just prevents scheduling redundant tasks.
@@ -3032,6 +3065,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         ),
                         exclusion_engaged=True,
                     ))
+            # RECORDER-BLOAT-LOGFLOOD-1: release edge for the notify-only
+            # WARN latch (behavioural anchor for tests).
+            self._dutycycle_notify_release(_current_notify, room_name)
             # B-MED-1: reached only if the try body did NOT raise. Every
             # `_dutycycle_excluded_now` write above is now trustworthy,
             # so the release-edge scan is safe to run.

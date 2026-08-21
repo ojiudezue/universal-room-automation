@@ -2284,6 +2284,140 @@ cards:
     observability gap 4); a dull trigger is silence.
     SOFT-NUDGE CAP: Number defaulted 40-60/zone/day — above today''s 31-43 so it is a runaway guard,
     not a policy lever.'
+  CYCLE_ANATOMY_AND_TIMING_2026_08_21: 'OPERATOR: "Nudge takes time to go through its cycle.
+    Understand its cycle." / "I have a feeling the timing is off and it should close sooner but
+    remember the decision tick is 5m." Correct on both counts — I read a 12-second window and drew a
+    conclusion about a cycle I had not mapped. Mapped now, from a forced nudge on zone_1 with the
+    house empty (2026-08-21):
+    | t | event | elapsed |
+    | 11:33:48 | nudge_started (+1.5F applied) | 0 |
+    | 11:38:48 | nudge_restored (setpoint back, preset restore attempted) | +5 min = DEFAULT_HVAC_AC_NUDGE_DURATION |
+    | 11:48:48 | nudge_evaluated | +10 min after restore = AC_NUDGE_EVALUATION_DELAY_S 600s |
+    TOTAL ~15 MINUTES per nudge cycle. Plus my D1 settle read at restore+12s.
+    THE WHY OF EACH PHASE, since the numbers are only defensible if their purpose is stated:
+    - 5-MIN HOLD exists because the detection premise is kW-based on a VARIABLE-SPEED compressor.
+      The +1.5F is a smaller demand signal, and the unit must be given time to actually ramp down
+      AND for the power meter to reflect it. Too short and you measure the transient, not the
+      response.
+    - 10-MIN EVAL exists because the ONLY escalation trigger is "the nudge failed", and escalation
+      means a hard reset — the design''s explicitly worst-case action (goal 3: "rapid compressor
+      cycling is the worst possible failure mode"). A long observation window buys a confident
+      verdict before doing something expensive. sample_count=119 over 600s ~= one sample per 5s,
+      matching the SPAN meter cadence.
+    - 12-SEC SETTLE (D1, new) is unrelated to effectiveness — it is only the preset verdict.
+    THIRD CLASSIFICATION DISCOVERED, previously unknown to me: the classifier emits effective /
+    ineffective / **INCONCLUSIVE**. My forced nudge returned classification=inconclusive with the
+    `effective` column left NULL, because kwh_rate_before was ~0.004 kW (compressor already idle) —
+    there was nothing to reduce, so the effect is unmeasurable. Sensible behaviour, and it matters
+    for the redefine-effective work: any recurrence/durability redefinition must handle THREE
+    outcomes, not two, and must decide whether inconclusive counts toward a recurrence trigger.
+    It also means a forced nudge on an idle compressor is a VALID TELEMETRY test but an INVALID
+    effectiveness sample — do not mix the two when gathering the before-number.'
+  TICK_VS_TIMER_DECOMPOSITION_2026_08_21: 'OPERATOR: "even that can be shortened across the board to
+    make the house more responsive in one go." The lever is real but it does NOT do what it might
+    appear to, and the distinction decides whether it helps here:
+    THE 5-MIN DECISION TICK GOVERNS: overshoot DETECTION latency, preset application, and the
+    resolution of zone_entry_dwell / vacancy_grace. Shortening it makes the house more responsive
+    across all of those in one change — and it is precisely the lever that would have helped the
+    2026-08-20 case where an occupant walked into an 80F zone and reached the thermostat about
+    THREE MINUTES before URA could act (HVAC-HOT-ENTRY-LATENCY-1).
+    THE NUDGE CYCLE DOES NOT RIDE THE TICK. The 5-min hold, the 10-min eval and the 12s settle are
+    all scheduled via async_call_later, independent of the decision cycle. So shortening the tick
+    would NOT shorten the ~15-minute nudge cycle at all. These are two separate levers and
+    conflating them would produce a change that feels like it should help and does not.
+    COSTS of shortening the tick, to be priced not assumed: more cloud writes to the
+    Bryant/Carrier API per hour (and that cloud already 504s), more DB rows, more CPU per hour, and
+    every dwell/grace value re-quantised — grace=10 stops being "2 ticks" and becomes 5 ticks at a
+    2-min tick, which silently changes damping behaviour the operator deliberately tuned. A tick
+    change is therefore NOT a free responsiveness win; it re-bases every timing knob in the HVAC
+    coordinator at once. Sequence it as: name the literal (HVAC-TICK-LITERAL-1), then re-express
+    the damping knobs in ticks-or-seconds explicitly, THEN consider shortening.
+    CAN THE NUDGE CYCLE ITSELF CLOSE SOONER? Answerable from data we already hold, not by guessing.
+    The eval window''s job is to let post_min stabilise; if it stabilises well before 600s the
+    window is simply over-long. PROBE (read-only, cheap): for a sample of past nudges, replay the
+    recorder power series and compute what post_min / classification WOULD have been at 2, 3, 5 and
+    10 minutes post-restore. The output is the shortest window that preserves the
+    effective/ineffective/inconclusive verdict. If 3 minutes reproduces the 10-minute verdict, the
+    cycle drops from ~15 min to ~8 min with no loss of confidence — which also roughly doubles how
+    many recurrence samples a night yields for the escalation work. Do this BEFORE touching the
+    knob.'
+  RAMPDOWN_PROBE_2026_08_21: 'OPERATOR FIELD CLAIM: "In practice I have found that 60-120s means
+    the Bryant can react to new high set point easing and ramp down. And that the return it now sees
+    the success of the temp and the target and doesn''t ramp up again quickly or more measured."
+    MEASURED AND CONFIRMED, precisely. Replayed 142 real nudges (2026-08-18 onward, kwh_rate_before
+    > 1.0 kW so idle-compressor cases are excluded) against the HA recorder''s SPAN AC power series
+    at ~5s cadence.
+    RAMP-DOWN, time from nudge_started until power falls below 25% of pre-nudge baseline:
+    MEDIAN 72s, p25 52s, p75 102s, max 179s. 104/127 within 120s. **127/127 within 180s.**
+    The operator''s 60-120s is dead on and the 300s (DEFAULT_HVAC_AC_NUDGE_DURATION=5min) hold is
+    roughly 4x longer than the compressor needs. Median WASTED hold time = 228 seconds per nudge.
+    POST-RESTORE, time to climb back above 50% of baseline: MEDIAN 365s (~6 min), and 7/142 never
+    recovered within 15 minutes. This confirms the second half of the claim — on restore the unit
+    does NOT slam back; recovery is measured. That is a real, quantified property we can design
+    against rather than an impression.'
+  WIDE_CYCLE_REFUTED_LOAD_MATCHED_2026_08_21: '⚠️ SUPERSEDES the block below. I reported the
+    unmatched split as "real signal" for the operator''s hunch. THAT WAS PREMATURE — I split on a
+    variable confounded with load and read the result before controlling for it. Controlled now,
+    and the hypothesis DOES NOT SURVIVE.
+    THE CONFOUND, measured: FAST-ramp nudges have baseline 1747W median; SLOW-ramp 2462W.
+    Correlation between ramp-down time and baseline power = +0.543. More power to shed takes longer
+    to shed — so "fast ramp" was largely a proxy for "lower load", not for "wasted hold time".
+    The operator''s counter-argument (the 1.3kW detection threshold already excludes a
+    near-minimum-modulation compressor) is CORRECT IN PRINCIPLE but does not do the work needed: the
+    threshold excludes the idle case, yet the surviving population still spans 1.3kW to 4.2kW, and
+    the two groups sit in materially different load regimes on either side of it.
+    LOAD-MATCHED RESULT (276 cycles from 2026-08-15, split by ramp-down WITHIN each baseline band):
+    | baseline band | n | net FAST | net SLOW | excess FAST | excess SLOW |
+    | 1300-1900W | 88 | +0.142 | +0.163 | 0.058 | 0.037 |
+    | 1900-2400W | 60 | +0.279 | +0.312 | 0.005 | 0.000 |
+    | 2400-3000W | 78 | +0.364 | +0.366 | 0.000 | 0.000 |
+    | 3000-4500W | 43 | +0.497 | +0.476 | 0.000 | 0.000 |
+    Within every band the difference collapses to noise, and in the highest band it INVERTS (fast
+    slightly better). The original +0.155 vs +0.353 gap was ENTIRELY a load artifact. Post-restore
+    excess is ~0.000 in every band above 1900W; the only non-trivial rebound is in the lowest band
+    where the saving is smallest anyway.
+    HONEST LIMIT OF THIS REFUTATION: it tests whether, within a FIXED 300s hold, bottoming out early
+    vs late changes the outcome. It does NOT directly test 300s vs 120s, because there are zero
+    120s observations in the record. So it rules out a strong effect from extra idle time across the
+    observed range (52s-123s to bottom), but cannot rule out that a genuinely shorter hold behaves
+    differently. The A/B remains the only way to settle THAT — but the prior is now weak, not
+    supportive, and the A/B should be scoped as "confirm no harm" rather than "capture a gain".
+    WHAT SURVIVES UNCHANGED, and is the actionable part: shortening the hold from 300s to ~150s
+    costs NOTHING in effectiveness (127/127 bottom out within 180s, median 72s) and halves the
+    cycle. The justification is CYCLE TIME AND SAMPLE RATE — more recurrence samples per night for
+    the escalation work, faster feedback — NOT energy. Do not sell it as an energy win.'
+  WIDE_CYCLE_EFFECTIVENESS_2026_08_21: '⚠️ SUPERSEDED — see WIDE_CYCLE_REFUTED_LOAD_MATCHED above;
+    this block''s split was not load-controlled and its conclusion is withdrawn. ORIGINAL:
+    OPERATOR: "I suspect the wide cycle is making it less
+    effective honestly but have no proof." THE DATA SUPPORTS IT BUT DOES NOT PROVE IT — and the
+    confound is important enough that I am not going to let this be recorded as proven.
+    Split the 127 analysed cycles at the median ramp-down time:
+    | group | ramp-down | net saving/cycle | post-restore EXCESS over baseline |
+    | FAST (idled longest at the degraded setpoint) | 52s | +0.155 kWh | 0.052 kWh |
+    | SLOW (used more of the hold productively)     | 102s | +0.353 kWh | 0.000 kWh |
+    The FAST group — the ones that hit bottom quickest and then sat there ~248s doing nothing —
+    show LESS THAN HALF the net saving AND the only measurable post-restore rebound. The SLOW group
+    shows zero excess. That asymmetry is exactly the shape the operator predicted.
+    THE CONFOUND, stated plainly: ramp-down speed is not independent of load. A compressor already
+    near its minimum modulation ramps down FAST and also has less absolute power available to shed —
+    which would produce a smaller net saving with no reference to wasted hold time at all. So the
+    lower saving in the FAST group has a fully innocent explanation. The rebound number is the more
+    suggestive half (0.052 vs 0.000), but it is not immune to the same confound.
+    THE CLEAN TEST IS AN A/B, AND IT IS CHEAP because the hold is already a knob
+    (CONF_HVAC_AC_NUDGE_DURATION, exposed as a Number): set it to ~120s, gather nudges under real
+    load, and compare net saving and post-restore excess against the 300s history on matched
+    baseline power. Requires the compressor to actually be RUNNING — a forced nudge on an idle unit
+    returns classification=inconclusive and is useless for this. So the experiment waits for load
+    (afternoon heat or the overnight coast), not for a code change.
+    SEPARATE AND STRONGER CONCLUSION, independent of the effectiveness question: shortening the hold
+    from 300s to ~120-150s is justified by the RAMP-DOWN data alone — 127/127 reached bottom within
+    180s. That change does not depend on resolving the confound. It also shortens the whole cycle,
+    which doubles the recurrence samples available per night for the escalation work.
+    COUNTERFACTUAL CAVEAT ON THE SAVINGS NUMBER: net saving here is computed against "baseline power
+    continues unchanged", which is NOT a valid counterfactual — the compressor would have cycled off
+    by itself eventually. So the +0.274 kWh/cycle median is an UPPER BOUND, not a measurement. This
+    is the same weakness that makes the shipped ac_ramp_savings_* figures suspect (~35 kWh claimed
+    on a night 49 kWh was burned). 0/127 cycles were net-negative even on this generous basis.'
   next: 'Cheap discriminating query FIRST (does any post-08-15 nudge_evaluated carry effective=0),
     because it decides whether this is one defect or two. Then the design question for the operator,
     which is a policy call not an implementation detail: what SHOULD happen when a zone needs its
@@ -2294,6 +2428,57 @@ cards:
     regardless — a specced safety cap that silently never shipped is its own problem, and 31/day
     against a design of 6 means nobody has been looking at this number.'
 - id: HVAC-GOVERNED-EXCURSION-1
+  PLAN_REVIEW_B_2026_08_21: 'FRAMING B (adversarial build-prediction): **FIX-THEN-BUILD** — 3 CRITICAL,
+    6 HIGH, 5 MEDIUM, 3 LOW. Doc: docs/reviews/code-review/PLANREVIEW_B_governed_excursion_build_prediction.md
+    Two of the three CRITICALs land on MY design decisions, not the planner''s.
+    C1 — "INTENDED PRESET" HAS NO RESOLVER. My design said snapshot the preset "the preset-manager
+    would apply". No such call exists. The value S1 actually writes is a local `effective_preset`
+    computed inline across ~150 lines of _apply_house_state_presets (hvac.py:1534->1744, emitted at
+    :1981), mutated by vacancy-grace, runtime_exceeded, stale-occupancy, fan-trust, pre-arrival and
+    the ARREST-COMFORT skip. The only thing resembling a resolver,
+    PresetManager.get_preset_for_house_state (hvac_preset.py:111), is a bare map lookup that knows
+    NONE of that. Consequence if built as written: a zone legitimately forced `away` gets restored
+    to comfort/sleep every excursion — URA fighting itself on a 5-minute cadence, on the exact axis
+    this cycle exists to govern. The intended preset is an EMERGENT COMPUTATION, not a stored value,
+    and the plan must say how it is obtained (extract the ladder into a callable? stamp the value at
+    emit time and read the stamp?) before any build.
+    C2 — MY restore_ok_immediate IS MEASURING BEFORE THE WRITE LANDS. The preset write is
+    blocking=False (hvac_override.py:3258) and restore_ok_immediate is computed from an immediate
+    hass.states.get at :3288-3292 — i.e. before the service call completes. So immediate is ~always
+    0 for the preset axis regardless of outcome. THIS RETRACTS MY EARLIER CLAIM that today''s
+    observed (immediate=0, settled=0) was "a third failure mode". It is not a third shape; immediate
+    is simply uninformative as I specified it, and the only real signal in that row is settled=0.
+    Worse, the plan''s acceptance criterion AC1 queries WHERE immediate=1 AND settled=0, which would
+    return ZERO rows for the real defect -> ship, query, declare PASS, defect untested. Fix: pass
+    predicate becomes any settled-FAIL; immediate demoted to a diagnostic split.
+    C3 — NEEDS OPERATOR SIGN-OFF, see below.
+    KEY HIGHs: H-3 both chokepoints default blocking=False (hvac_setpoint.py:124,177) so
+    `await emit_set_temperature(...)` compiles and returns before the call lands — the ordering fix
+    is not actually specified; and return_excursion must pass NO gate, because a deferred write is
+    DROPPED not queued (hvac_setpoint.py:12-16), which would strand the zone mid-excursion.
+    H-2 no specification for exception mid-sequence or partial failure, and the state PK is zone_id
+    so a stale row collides with the next begin(). H-4 the 2x30s retry is inherited by analogy with
+    no trigger predicate (emit_* returns True on ISSUED, not landed).
+    ADJUDICATIONS (both were "options offered where one is correct"): DROP hard_reset_preset_assert
+    from the primitive — replace with one emit_set_preset_mode at the verify success branch and
+    delete the enum kind so nobody wires it later by analogy. And NO dual-write — use a nullable
+    excursion_id on ac_ramp_events; two writers for one fact is the census-double-count shape.
+    ON THE REFUTED RESTART CLAIM: the plan handles it correctly — non-goal 6 names the exemplar,
+    cites the audit, and pre-lists the sub-surfaces a reviewer might wrongly attack. No finding.'
+  OPERATOR_DECISION_NEEDED_C3_2026_08_21: 'CRITICAL 3 is a BEHAVIOUR CHANGE requiring an explicit
+    ruling, not a plan edit. The plan proposes deleting `_nudge_pre_preset` as a simplification.
+    That dict is filtered ON PURPOSE (hvac_override.py:3107-3112, comment: "we don''t want to fight
+    a user-set manual mid-night") and the restore is gated on `_cur_preset == "manual"` at :3253.
+    Making the preset write unconditional and manager-sourced DOES fix the self-disarm latch — but it
+    also means an operator who sets `manual` at 22:00 gets overwritten at the next nudge, which on
+    the current cadence is within ~30 minutes.
+    RELATED PRIOR RULING, but not the same question: the operator already ruled that URA reverting
+    deliberate human thermostat adjustments is INTENDED ("Its supposed to. I''m happy with that. The
+    arrester already has its own grace and mid point math"). That ruling was about the ARRESTER,
+    which has grace and midpoint logic. This is the NUDGE RESTORE, which has neither — it would
+    overwrite immediately and silently. Also unstated: interaction with immune holds and with the
+    Temp Arrester Override switch on the preset axis.
+    PARKED PENDING OPERATOR ANSWER — do not build either way until answered.'
   title: One governed-write primitive for all three thermostat axes — mode got hardened in v4.7.32,
     setpoints and presets never did, and the same call sites leak on the ungoverned axes
   thread: hvac
@@ -2437,7 +2622,8 @@ cards:
   title: URA is not universally restart-safe — islands of persistence built ad hoc after each
     burn, no shared standard, and at least three detectors that can never reach their own threshold
   thread: platform
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.87.0
   updated: '2026-08-21 10:05'
   approval: needs_operator
   tags:
@@ -2619,6 +2805,162 @@ cards:
     agents in this repo. The guard exists for a reason and the reason is sharper than "slow" — with
     source-mutating tests present, concurrency causes hard kills and hard kills corrupt the tree.
     Serialise suite runs; parallelise everything else.'
+- id: HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1
+  title: The 14 HVAC tunable Numbers display the operator's value but the coordinator runs the
+    DEFAULT until someone touches the knob — a nudge after a restart used 300s, not the configured 120s
+  thread: hvac
+  status: shipped_organic
+  shipped_version: v5.87.0
+  updated: '2026-08-21 12:30'
+  approval: explicit
+  approved_by: 'operator 2026-08-21 ("kWh threshold and make force use the configuration not the
+    default. Fix in cycle if practical")'
+  tags:
+  - restart-safety
+  - operator-corrected-me
+  origin:
+    date: '2026-08-21'
+    gist: 'I forced a nudge to gather D1 telemetry and it ran a 300s hold / 600s eval — the module
+      DEFAULTS — while the Number entities plainly read 2 min and 240 s. I first concluded "the
+      knobs are inert", then that "the force button ignores config". The operator refused both and
+      told me to re-verify for measurement error. Both of my conclusions were wrong; the real
+      mechanism is narrower and worse.'
+  evidence: 'DECISIVE, from 943 historical nudges plus the one I forced:
+    - 937/943 AUTO nudges hold ~120s and 761/942 evaluate at ~240s — the CONFIGURED values. The
+      knobs are honoured, so "inert knobs" is REFUTED.
+    - The single 300s hold in the entire history is mine, at 11:33:48, and its logged action_taken
+      literally reads "target 80.0->81.5 for 300s" while the auto nudge 63 minutes earlier at
+      10:30:01 reads "for 120s".
+    - The discriminator is NOT force-vs-auto (force_nudge calls the same _perform_soft_nudge with
+      triggered_by="manual"; hvac_override.py:3952). It is BEFORE-vs-AFTER RESTART. I deployed
+      v5.86.0 and restarted at 11:07. The 10:30 nudge (pre-restart) used 120s; mine (post-restart)
+      used 300s.
+    MECHANISM, code-verified:
+    - `self._nudge_duration_min = DEFAULT_HVAC_AC_NUDGE_DURATION` (=5) at hvac_override.py:214 —
+      the runtime field is born at the DEFAULT on every construction.
+    - `hvac.py:234` constructs OverrideArrester WITHOUT passing any nudge tunable, and hvac.py never
+      calls set_nudge_duration — verified by grep, zero hits.
+    - The Number factory reads options for its DISPLAY value only: `self._value =
+      cast(cm_config.get(conf_key, default))` at number.py:2150. The push to the sub-controller
+      (`setattr(sub, runtime_field, ...)`) happens in async_set_native_value — i.e. ONLY on a write.
+    - So after every restart the entity shows the operator value while the coordinator runs the
+      default, until some write pushes it across. The factory docstring says "entry.options is the
+      SOLE source of truth (no RestoreEntity)" — options ARE the truth for DISPLAY; nothing rebuilds
+      RUNTIME from them at setup.
+    CLASS: this is RESTART-SAFETY-DOCTRINE-1 hazard class (c)/REBUILD — a value that should be
+    REBUILT from options at setup and simply is not. It is the same shape as the chatter t_floor and
+    DP drain-target findings: an operator-set value that never reaches the code that uses it.
+    SCOPE: all 14 factory tunables share this path, so the blast radius is every AC-ramp and cover
+    tunable, not just duration. UNVERIFIED and must be checked by the builder: why 937/943 landed on
+    120s despite ~2.9 restarts/day — some write must be pushing them in most sessions. Do not ship a
+    fix without explaining that, or the fix is aimed at a mechanism we have only half-proven.'
+  recommendations_for_posterity_2026_08_21: 'RECORDED AT OPERATOR REQUEST — the tuning
+    recommendations from the probe sequence, with their status, so a later session does not re-derive
+    or wrongly re-apply them:
+    1. NUDGE HOLD 300s -> 150s: **WITHDRAWN, DO NOT APPLY.** Based on the DEFAULT constant. Production
+       is already configured to 120s, which sits exactly in the operator''s measured 60-120s
+       sweet spot. Ramp-down median is 72s, so 120s carries ~48s of margin. Already correct.
+    2. EVAL WINDOW 600s -> 180s: **WITHDRAWN as stated, but a REAL finding underneath.** Production is
+       already 240s, not 600s. The finding that survives: post_min (which drives the VERDICT,
+       hvac_override.py:3567) is within 0.05 kW of its final value for 99% of cycles by 120s, so the
+       verdict could be reached sooner. BUT post_mean drives the SAVINGS MAGNITUDE (:3584), and a
+       shorter window samples only the trough and would INFLATE an already-suspect savings figure.
+       Correct fix is to DECOUPLE: verdict early, magnitude over a longer window. Code change, not a
+       knob.
+    3. DETECTION THRESHOLD 1.3 -> ~1.8 kW: **STILL LIVE, and operator-approved.** Measured trade-off
+       across 347 cycles: 1.3kW keeps 337 nudges / 94.17 kWh net / 7.42 kWh rebound; 1.8kW keeps 258
+       nudges (74%) / 82.02 kWh (87%) / 4.27 kWh rebound (-42%). Value per nudge rises 0.279 ->
+       0.318. The second benefit is larger than the energy one: each nudge is TWO raw setpoint
+       writes and therefore a manual-preset risk, so 26% fewer nudges is 26% fewer chances to lose
+       the preset race. GATED ON THIS CARD — the per-zone threshold Numbers
+       (_hvac_zone_kwh_threshold_factory, number.py:2467) use the SAME factory and therefore the SAME
+       seeding bug, so turning the knob before the seeding is fixed would be turning a knob the
+       coordinator may not read. Fix seeding, THEN turn.
+    4. LOAD-DEPENDENT VALUE (context for any future threshold choice): rebound is a function of load
+       level, not of hold length. At 1300-1800W baseline, net +0.143 kWh with 0.056 rebound (~a third
+       given back); at 2900W+, net +0.470 with ZERO rebound. A nudge at high load is worth roughly
+       5x one at low load, and 61 of 164 zone_1 cycles sat in the lowest band.'
+  DEFAULT_0_8_RATIONALE_2026_08_21: 'RESOLVED from code, three independent sites — the 0.8 default
+    is a 3-TON HEURISTIC and is acknowledged in-code as wrong for 4-ton units:
+    - hvac_zones.py:113-114 "per-zone slider value, defaults to 0.8 kW (3-ton heuristic). Tune up
+      for larger units."
+    - hvac_const.py:534-537 "kwh threshold scales with AC tonnage, the only variable that does, so
+      house-wide would force a 4-ton unit to use the 3-ton threshold or vice versa" +
+      `DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD: Final = 0.8  # kW (3-ton heuristic; 4-ton ~= 1.0)`
+    - number.py:2462 "Threshold scales with AC tonnage (~25-30% of rated power floor). 3-ton units
+      default to 0.8 kW; 4-ton typically wants 1.0 kW."
+    OPERATOR CONFIRMED THE TOPOLOGY: zone_1 is a 4-TON unit; zones 2 and 3 are 3-ton. So the single
+    flat default is measurably wrong for zone_1 — on a seed failure the 4-ton zone falls to 0.8 kW
+    (~20% of rated power) rather than the ~25-30% design point the author intended. The code author
+    expected a per-capacity default and never built it.
+    OPEN QUESTION FOR THE OPERATOR, framed by the builder and worth quoting because the two readings
+    imply opposite trade-offs: is the dataclass default a DESIGN POINT ("what to use if the operator
+    never touched the slider") or a SAFETY NET ("what to use if RestoreState is broken")? If the
+    former, a per-zone capacity input is the correct fix and the config-flow already carries a
+    per-zone family (ac_load_sensor, ramp_zone_enabled, hvac_const.py:544-550) for it to join. If
+    the latter, always-seed + WARNING is sufficient and the default should simply never be reached.
+    Not changed. Not carded as work until the operator rules.'
+  THRESHOLD_RECOMMENDATION_NEEDS_PER_ZONE_REDO_2026_08_21: '⚠️ MY FLAT 1.8 kW RECOMMENDATION REPEATS
+    THE TONNAGE ERROR THE OPERATOR ALREADY CAUGHT ME ON. The trade-off table behind it (337 -> 258
+    nudges, 94.17 -> 82.02 kWh net, 7.42 -> 4.27 rebound) POOLED ALL THREE ZONES, so it bands a
+    4-ton unit with two 3-tons in absolute watts — the exact apples-to-apples failure that produced
+    the earlier false conclusion about hold length. And the code says explicitly that this knob is
+    the ONE parameter that scales with tonnage.
+    Per-zone context already measured: baseline medians zone_1 2104W / zone_2 2028W / zone_3 2647W,
+    but per-ton that is 526 / 676 / 882 W-per-ton. zone_1 runs at the LOWEST fraction of capacity and
+    contributed 140 of the analysed cycles, so a flat threshold cuts it least where it may deserve
+    cutting most. A tonnage-scaled pair (3-ton X, 4-ton ~1.25X per the code''s own 0.8/1.0 ratio) is
+    the likely right shape.
+    DO NOT APPLY A FLAT 1.8 TO ALL THREE ZONES. Re-run the trade-off per zone before turning
+    anything. The knob is already per-zone, so nothing blocks doing it correctly.'
+  MECHANISM_CORRECTED_2026_08_21: '⚠️ MY "NOTHING SEEDS IT" FRAMING WAS WRONG IN DETAIL — corrected
+    by the builder, which is what the blocking deliverable-1 question was for.
+    A seeding path DOES exist: number.py:2187 `async_added_to_hass -> _push_to_controller()` sets the
+    sub-controller runtime field, and when the sub-controller is not yet visible at add time it
+    registers a listener on SIGNAL_HVAC_ENTITIES_UPDATE (fired from hvac.py:1352 on every decision
+    tick) and retries. That is why 937/943 nudges used the configured 120s: the push lands either at
+    async_added_to_hass or on the first HVAC tick after platform load.
+    SO THE DEFECT IS A RACE, NOT AN ABSENCE. The ~6 misses are boot orderings where the
+    sub-controller was invisible at add time AND the retry did not land before the value was read.
+    My forced nudge at 11:33 (26 min after a restart) hit exactly that window. This distinction
+    matters for the fix: the right move is to make the EXISTING path deterministic, not to add a
+    redundant second seeding path that would then need keeping in sync.
+    FIX SHIPPED ON BRANCH: a single seed call at CM setup immediately after the HVAC coordinator is
+    registered, iterating `_HVAC_TUNABLE_DISPATCH` — the same dict `_apply_in_place` uses — so seed
+    and options-update stay lockstep and a 15th tunable added there is seeded for free. Silent no-op
+    on missing sub-controller or absent option key, so the no-change path is byte-identical.'
+  ZONE_TUNABLES_FAIL_UNSAFE_2026_08_21: 'SECOND, WORSE INSTANCE — found while checking whether the
+    threshold turn was actually unblocked. It was not.
+    The per-zone kWh threshold does NOT use the sub-controller path and is NOT in
+    `_HVAC_TUNABLE_DISPATCH`, so the fix above does not cover it. `_hvac_zone_kwh_threshold_factory`
+    (number.py:2467) resolves coordinator -> _zone_manager -> zones[zone_id] and sets
+    `zone.kwh_rate_threshold`, a dataclass field on ZoneState with **default 0.8**
+    (hvac_zones.py:124), consumed at hvac_override.py:2717 and stamped into ledger notes at :3041.
+    Production runs 1.30 (visible as `threshold=1.30` in detection_fired notes).
+    DIRECTION OF FAILURE IS THE POINT. The duration race fails SAFE — a boot race gives a 300s hold
+    instead of 120s, i.e. more conservative. This one fails UNSAFE: a boot race drops the threshold
+    from 1.30 to 0.8, making detection MORE sensitive and firing MORE nudges — and every nudge is two
+    raw setpoint writes and therefore a manual-preset risk. Same race, opposite hazard, and this is
+    the hazardous direction.
+    Sent back in-cycle (operator: "fix in cycle if practical") to extend the deterministic seeding to
+    zone-targeted Numbers, with a sweep for siblings of that shape and an ordering check that the
+    seed runs after ZoneManager has built its zones.'
+  TEST_PROTECTION_GAP_2026_08_21: 'Noted, not actioned: the builder reports
+    quality/tests/test_part2_ec_hc_writeback.py at 38 failed / 29 passed BOTH with and without the
+    change — pre-existing, zero delta. But that is the suite covering this exact dispatch/writeback
+    mechanism, and it is more than half red, so it offers almost no regression protection for
+    changes in this area. Filed as evidence against TEST-STRATEGY-REARCH-1; it also raises the value
+    of the targeted tests written in this cycle, since they are effectively the only guard.'
+  next: 'Fix in-cycle per operator. TWO deliverables:
+    (a) SEED RUNTIME FROM OPTIONS AT SETUP for all 14 factory tunables — the fix must be at the
+    factory/CM-setup level, not 14 hand-written seeds, and must be covered by a test that fails if
+    the seeding call site is removed (wire-in anchor, not a source grep). MUST first explain the
+    937/943 observation above.
+    (b) THEN raise the per-zone detection threshold to 1.8 kW and verify the coordinator actually
+    reads it (read back the runtime value, not the entity state — the entity was never the liar).
+    NOTE the force button itself needs NO fix: it already calls the same code path. The operator''s
+    instruction "make force use the configuration not the default" is satisfied by (a), because the
+    default was coming from the un-seeded runtime, not from the force path.'
 - id: HVAC-TICK-LITERAL-1
   title: HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3
     structurally inert and grace_constrained=5 the minimum expressible value
@@ -7622,7 +7964,8 @@ cards:
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life —
     fed by three log floods
   thread: platform
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.87.0
   created: '2026-08-20 14:15'
   updated: '2026-08-20 14:15'
   refinement_status: initial
