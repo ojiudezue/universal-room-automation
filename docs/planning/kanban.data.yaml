@@ -7537,9 +7537,50 @@ cards:
     life (RECORDER-BLOAT-LOGFLOOD-1). Tier 3 confirmed: shared primitive, cost-AND-comfort
     impacting, and the failure mode is one-missed-site across 13 setpoint-write sites of which 9
     never restore a preset.'
+  ARCHITECTURAL_REFRAME_2026_08_21_DECIDER_VS_WRITER: 'OPERATOR REFRAME, and it renames the
+    root defect. Operator: "if the preset writer is just a method, then it doesn''t decide anything.
+    Its called by a function that has made a decision." The principle is right; the code does NOT
+    honour it, and checking that is what produced this entry.
+    WHAT IS ACTUALLY TRUE (verified 2026-08-21, not inferred). _apply_house_state_presets
+    (hvac.py:1411) is called BARE from the tick at hvac.py:1333 — no arguments, no target passed in,
+    no decision handed down. It DERIVES the target from house state AND writes it, in one method.
+    So it is neither a pure writer nor a clean decider: the two roles are FUSED. The upstream
+    decider the operator is describing does not exist yet.
+    THE DECISION IS SMEARED ACROSS FIVE PLACES: (1) the tick''s unconditional call, hvac.py:1333;
+    (2) the derive-from-house-state inside the method; (3) gates INSIDE the method — D6 consensus
+    defer, observation mode, two switch-driven skips; (4) should_change_preset in a DIFFERENT FILE
+    (hvac_preset.py:202), whose own docstring says the quiet part out loud — "arrester handles this,
+    not preset manager"; (5) hvac.py:1892, a branch that explicitly BYPASSES (4):
+    "# Bypass should_change_preset() manual guard for vacancy (RH3 fix)".
+    ITEM (5) IS THE TELL. When one caller must route around its own predicate, the predicate is
+    holding POLICY that belongs to the caller. should_change_preset is named as a predicate and
+    behaves as a policy authority — which is also exactly why it is a PURE TWO-STRING FUNCTION that
+    cannot consult provenance (see SELF_LOCKOUT_CONFIRMED). The self-lockout is not a bug IN
+    should_change_preset; it is the predictable consequence of putting a policy decision somewhere
+    that structurally cannot see the facts the decision needs.
+    THIS RENAMES THE CYCLE. Not "zone 1 got stuck in manual" but: NO SINGLE THING OWNS THE PRESET
+    DECISION, so five things partially own it, and the manual lockout is one emergent symptom of
+    that. The target architecture is three layers with opinions in exactly one: DECIDER (owns
+    policy: what should this zone be in, given house state, provenance, and any active excursion) ->
+    WRITER (mechanism: emits, no opinion) -> BORROWER (excursion: snapshots and restores what it
+    found, no opinion). The unopinionated ruling of 2026-08-20 scopes to RESTORE paths and WRITER
+    paths; it does NOT mean nobody decides.
+    ALSO: THERE ARE FOUR PRESET EMIT SITES, NOT ONE — hvac.py:2013, hvac_override.py:2554 and :3258,
+    hvac_egress.py:677. Any plan claiming to gate "the preset write" must enumerate against that
+    list, not against a singular mental model.
+    SCOPE RULING (operator agreed 2026-08-21): the decider/writer split is ITS OWN cycle and must
+    NOT be folded into the governed-excursion build, which is already Tier 3. Folding would double
+    the blast radius. The excursion lands its lease at the emit merge point (correct regardless of
+    how the layering is later resolved); this card owns the layering.'
+  STALE_LINE_REFS_2026_08_21: 'WARNING TO WHOEVER SCOPES THIS: several line refs in the older
+    entries below have DRIFTED by roughly +32 lines since they were written on 2026-08-20. Verified
+    examples: should_change_preset sole call site recorded as hvac.py:1864 is now hvac.py:1896; the
+    vacancy bypass recorded as hvac.py:1860 is now hvac.py:1892. The SYMBOL names are still correct
+    and are the reliable way in — grep the identifier, do not seek the line number. Re-verify every
+    file:line in this card before relying on it.'
   created: '2026-08-20 14:40'
-  updated: '2026-08-20 14:40'
-  refinement_status: initial
+  updated: '2026-08-21 09:05'
+  refinement_status: reframed_architectural_root
   approval: unreviewed
   tags:
   - no-fabrication-verify
