@@ -119,10 +119,57 @@ Sweeping only the board would have re-planned parked work as novel.
 
 ## Columns
 
-`📥 Inbox` (raw capture) · `🧭 Pre-planning` (idea being decomposed) · `📝 Planned` (has a
+`📥 Inbox` (raw capture) · `🔬 Investigating` (we do not yet know what is true; measuring) ·
+`🧭 Pre-planning` (idea being decomposed) · `📝 Planned` (has a
 plan / acceptance criteria) · `🔨 In progress` · `🔍 Review` · `🚀 Shipped — organic open` ·
 `⏸️ Waiting on operator` · `⏳ Waiting on me (Claude)` · `🅿️ Parked` (deliberate, with a
 revisit-trigger).
+
+**`status:` values are a CLOSED SET** — `inbox`, `investigating`, `pre_planning`, `planned`,
+`in_progress`, `review`, `shipped_organic`, `waiting_operator`, `waiting_me`, `parked`, `done`.
+Inventing a near-synonym is a silent hygiene failure: the renderer cannot lane it, so the card
+becomes invisible to every status-based read of the board while still *looking* filed.
+Observed 2026-08-21: a session invented `intake` and used it for all seven cards it created that
+day — every one of them dropped out of the lane view until caught. If a card does not fit a lane,
+that is a signal to discuss the lane, not to coin a status.
+
+**One field owns the lane: `status:`.** The renderer buckets on `status` ONLY
+(`kanban_render.py: _column_for(c.get("status"))`); anything it does not recognise falls into an
+`other` bucket that no one reads. Do not introduce a parallel field for the same concept.
+Observed 2026-08-21: 33 cards — a quarter of the board — carried their lane in a legacy `column:`
+field instead. Their values were all perfectly valid (`inbox` 12, `parked` 6, `shipped_organic` 5,
+`done` 5, …) and the information was never lost; the renderer simply could not see it, so those
+cards were invisible to every lane view while looking complete in the YAML. Migrated to `status:`
+and the `column:` field is now retired — if you see it reappear, it is drift, not a variant.
+
+The two failure shapes to watch, because they look different and read identically on the board:
+a card in a lane that no longer matches its work (a stale value), and a card whose lane the
+renderer cannot see at all (a wrong field or an invented value). The first is a judgement error;
+the second is silent and worse.
+
+### 🔬 Investigating — why this lane exists (operator-coined 2026-08-21)
+
+Operator: *"Do we have an investigate step in the flow?"* We did not, and its absence was doing
+real damage. `Pre-planning` means *"we know the problem, we are shaping the solution."*
+Investigation is the step BEFORE that: **we do not yet know what is true, and we are measuring to
+find out.** They are not the same activity and they have different exit conditions.
+
+Without this lane, investigation work has nowhere to live, so it piles up in `Inbox` behind raw
+one-line captures — which makes a card carrying hours of measurement, refutations and corrections
+look identical to something someone thought of in the shower. Observed 2026-08-20/21: an entire
+session of diagnostic work (EVSE drain-precedence, the zone-2 manual episode, the AC-ramp
+escalation gap) sat in raw-capture lanes while substantial findings accumulated on the cards.
+
+**Entry:** the card's next action is a MEASUREMENT, not a build or a decomposition.
+
+**Exit is mandatory and binary — an investigation that cannot say which, is not finished:**
+- **CONFIRMED / mechanism found** → promote to `pre_planning` or `planned`, carrying the evidence.
+- **REFUTED** → the card CLOSES (`done`) with the refutation recorded. A refuted investigation is
+  a completed one, not a failed one — and closing it is what stops the next session re-deriving
+  the dead mechanism.
+
+Cards must not rot here. An investigation with no measurable next step belongs in `parked` with a
+revisit-trigger, or in `waiting_me` if the measurement is a debt I owe.
 
 **Two waiting lanes, symmetric.** Track obligations on *both* sides. "Waiting on operator" =
 decisions/actions only the operator can take (physical fixes, go/no-go, design choices).
@@ -284,6 +331,61 @@ a big-bang pass.
 
 The renderer surfaces `created` / `updated` / `refinement_status` on each card in both KANBAN.md
 and the Artifact board so staleness and maturity are visible without opening the YAML.
+
+## Understanding changes → the card changes, SAME TURN (operator-coined 2026-08-21)
+
+Operator: *"Update the card anyway so a new season doesn't make mistakes."* Said in a case where
+the FIX was being folded into another cycle — and the instinct is the point: **where the work
+happens has nothing to do with whether the card is still telling the truth.** A card is not a
+task ticket, it is the durable record of what we currently believe. A belief that has been
+superseded and not written down is a trap set for the next session.
+
+Whenever any of these happen, the card is edited in the SAME turn, not "later":
+
+- **A root cause is refuted or replaced.** Do not simply add the new story underneath — mark the
+  old one WRONG and say why, with the evidence that killed it. A card carrying two mechanisms and
+  no verdict is worse than one carrying a wrong mechanism, because the reader cannot tell which
+  survived. Observed 2026-08-21: `HVAC-ANOMALY-BLIND-1` carried a restart-reset root cause that
+  measured restart cadence had refuted; had the fix simply been done elsewhere, the card would
+  have kept teaching the wrong mechanism indefinitely.
+- **A claim I made turns out to be false** — including a claim made to the operator in chat.
+  Retract it ON THE CARD, not just in conversation. Chat scrolls away; the card is what the next
+  session reads. Say "I claimed X; that is wrong; here is what refuted it."
+- **Scope changes** (something folded in, dropped, or handed to another card) — record the
+  decision AND its reason, so a future reader sees a choice rather than an omission.
+- **An estimate becomes a measurement.** Replace the guess with the number and cite how it was
+  obtained. Leaving "~probably a few hours" next to a measured 5.55h median invites re-litigation.
+
+**Test for whether an edit is required:** would a fresh session, reading only this card, act on
+something we now know to be untrue? If yes, edit it now. Folding the work into another cycle,
+being mid-flight, or "the fix will make it moot" are NOT reasons to defer — a fix in flight can
+be abandoned, and then only the card remains.
+
+## Status must track reality, not just the body (operator-coined 2026-08-21)
+
+Operator: *"moving them to the right next workflow implied quickly ie inbox to investigate or
+planned etc."* Two distinct hygiene failures, and the second is the sneaky one:
+
+1. A card whose body is being actively updated while its `status` still says `inbox`.
+2. A card whose implied next step has clearly changed — an audit finished, a build landed, a
+   blocker cleared — but which nobody moved.
+
+Both produce the same damage: **the board's lane view stops describing the work.** Anyone reading
+status-first (which is how the board is meant to be read, and how a returning operator reads it)
+gets a false picture, while the truth is buried in card bodies nobody scrolls.
+
+The rule: **whenever you write a material update to a card, ask what lane it is now in and move it
+in the same edit.** Bump `updated` at the same time — a body edit with a stale `updated` and a
+stale `status` is two hygiene misses, not one.
+
+Common transitions to apply promptly, none of which should wait for a session boundary:
+- raw capture gains a measurement plan → `inbox` → `investigating`
+- investigation produces a mechanism → `investigating` → `pre_planning` / `planned`
+- investigation refutes the mechanism → `investigating` → `done` (refutation recorded)
+- scope + acceptance criteria settled → `pre_planning` → `planned`
+- a branch exists with real work on it → `planned` → `in_progress`
+- work needs an operator decision → any lane → `waiting_operator` (and say what is being waited on)
+- I owe a re-measurement or sweep → `waiting_me`, never `waiting_operator`
 
 ## Watch results write back to cards — MANDATORY (operator-coined 2026-08-11)
 

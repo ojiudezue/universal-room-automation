@@ -7414,7 +7414,32 @@ cards:
     i.e. flap — the exact thing PRESET-FLAP-1 was fixing. Any ending MUST therefore fire ONCE PER
     OFF-PHASE, not per tick. That is the anti-flap property and the criterion that discriminates a
     good fix from a re-opened flap.'
-  THE_ENDING_NEEDS_THREE_PARTS_NOT_ONE: 'Operator proposed reading S14s own interventional setpoint.
+  OPERATOR_CHOSE_A_TIMER_2026_08_21: 'DECIDED — operator: "Give it a timer." The ending is a BOUNDED
+    TIMER, not the off-phase-expiry discharge originally proposed below. THIS IS THE LOWER-RISK
+    CHOICE and supersedes part (1) of the three-part proposal: off-phase-expiry would couple S14s
+    release to the energy coordinators off-phase state (cross-coordinator state — a categorically
+    risky ingredient per the marginal-benefit rule) to buy a semantic nicety. A timer always fires
+    and adds no seam. Orchestrator had over-elaborated; operator picked the simple version.
+    MANDATORY GUARD — A TIMER ALONE FLAPS. Timer expires -> release to preset -> next tick sees the
+    off-phase STILL RUNNING -> S14 re-applies the ceiling -> manual again -> timer -> release. A slow
+    oscillation replaces the permanent hold, which re-creates exactly what PRESET-FLAP-1 was fixing.
+    FIX (keeps the operators simple design): ONE-SHOT PER OFF-PHASE. Release once when the timer
+    expires; for the REMAINDER of that off-phase fall back to suppression-only (do not flip to away,
+    do not re-write the ceiling). Re-arm on the NEXT off-phase. This preserves the discriminating
+    acceptance criterion (release fires once per off-phase, not per tick) with no new coupling.
+    STILL REQUIRED TO BE COMPLETE:
+    (a) KNOB for the duration — per the Numbers Get Knobs ladder this is policy the operator would
+    legitimately tune by observation, so a NUMBER ENTITY (same rung as drain target / arbitrage lead
+    time), NOT a module constant. Kill-switch semantics documented on the knob.
+    (b) DECLARED RESTART BEHAVIOUR — if HA restarts mid-hold the timer dies and the zone is stranded
+    in manual again, i.e. the ORIGINAL BUG REINTRODUCED. Either PERSIST the timer, or have startup
+    release any zone sitting in manual with no live hold record. Declare PERSIST/RESET/REBUILD
+    explicitly; do not leave it implicit.
+    (c) RELINQUISH still applies — see part (3) below; the operators setpoint-divergence idea is
+    retained as the do-not-stomp check, unchanged.'
+  THE_ENDING_NEEDS_THREE_PARTS_NOT_ONE: 'SUPERSEDED IN PART — see OPERATOR_CHOSE_A_TIMER above:
+    part (1) is REPLACED by a bounded timer + one-shot-per-off-phase; parts (2) and (3) stand.
+    ORIGINAL: Operator proposed reading S14s own interventional setpoint.
     CORRECT but it is a RELINQUISH signal, not an ENDING — it answers "do I still own this?", not
     "should this still be held?". If nothing else touches the thermostat the setpoint reads unchanged
     forever and the indefinite hold returns. Need all three:
@@ -7439,10 +7464,13 @@ cards:
   parsimony:
     problem: an energy-saving hold with no exit locks the zone out of preset control indefinitely
     verdict: BUILD
-    note: gate behind HVAC-GOVERNED-EXCURSION-1 landing; migrate as a kind rather than hand-rolling
-      a second restore path
+    note: 'operator 2026-08-21 — the borrow framing "makes sense honestly but you do not need to
+      chain it. You can address that fix after the borrow work is done." So this is SEQUENCED AFTER
+      the borrow primitive, NOT GATED ON IT: it does not block, and it must not be folded into that
+      cycle. Migrate as a kind rather than hand-rolling a second restore path.'
   next: 'Wait for HVAC-GOVERNED-EXCURSION-1 (D2+D3) to land and live-validate. Then scope S14 as a
-    borrow kind with the three-part ending above. Deliverables include INVERTING
+    borrow kind whose ending is a BOUNDED TIMER + one-shot-per-off-phase (operator decision
+    2026-08-21), with a Number-entity duration knob and declared restart behaviour. Deliverables include INVERTING
     test_ceiling_held_until_next_preset_transition and annotating
     PLANNING_preset_flap_offphase_honesty.md:184-195,:280. Discriminating acceptance criterion: the
     release fires ONCE PER OFF-PHASE, not per tick.'
