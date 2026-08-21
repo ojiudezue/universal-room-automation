@@ -19,36 +19,17 @@ import sys
 from unittest.mock import MagicMock, AsyncMock
 
 _this_dir = os.path.dirname(__file__)
-sys.path.insert(0, _this_dir)
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
 
-# Trigger the HA-mock harness.
-# HA-mock harness MUST load first (lease_ac14_behavioural bootstraps
-# homeassistant.helpers.dispatcher etc.). Order matters — ttl_suppression
-# alone doesn't set up all required mocks.
-import test_hvac_excursion_lease_ac14_behavioural  # noqa: E402,F401
-import test_override_arrester_ttl_suppression as _tsp  # noqa: E402
-
-# Force-load hvac_predict (the lease_ac14 harness restores sys.modules
-# at its tail, popping this submodule — we need a fresh load).
-import importlib.util
-_pmod_name = "custom_components.universal_room_automation.domain_coordinators.hvac_predict"
-if _pmod_name not in sys.modules:
-    _pmod_path = os.path.join(
-        os.path.dirname(__file__), "..", "..",
-        "custom_components", "universal_room_automation",
-        "domain_coordinators", "hvac_predict.py",
-    )
-    _spec = importlib.util.spec_from_file_location(_pmod_name, _pmod_path)
-    _mod = importlib.util.module_from_spec(_spec)
-    sys.modules[_pmod_name] = _mod
-    _spec.loader.exec_module(_mod)
-hvac_predict = sys.modules[_pmod_name]
+import _excursion_harness  # noqa: E402
+_mods = _excursion_harness.bootstrap()
+hvac_predict = _mods["hvac_predict"]
+_ex_mod = _mods["hvac_excursion"]
 HVACPredictor = hvac_predict.HVACPredictor
-ZoneState = _tsp.ZoneState
-
-_ex_mod = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_excursion"
-]
+ZoneState = sys.modules[
+    "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+].ZoneState
 
 
 def _run(coro):
@@ -124,7 +105,7 @@ def _make_predictor():
 def test_execute_zone_pre_cool_creates_lease_row_11():
     p, zone = _make_predictor()
     _run(p._execute_zone_pre_cool(zone, offset=-3.0, reason="solar_bank"))
-    assert _ex_mod.lease_active(ZONE_ID) is True, (
+    assert _ex_mod._test_has_row(ZONE_ID) is True, (
         "Row 11: _execute_zone_pre_cool must open a BANKING excursion "
         "lease so ticks defer at S1 while the zone is banked."
     )
@@ -138,9 +119,9 @@ def test_execute_zone_pre_cool_creates_lease_row_11():
 def test_release_banked_zones_clears_lease_row_10():
     p, zone = _make_predictor()
     _run(p._execute_zone_pre_cool(zone, offset=-3.0, reason="solar_bank"))
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
     _run(p._release_banked_zones({ZONE_ID}))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Row 10: _release_banked_zones must call return_excursion "
         "to clear the lease when the banking master flips OFF."
     )

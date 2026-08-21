@@ -20,19 +20,19 @@ import sys
 from unittest.mock import MagicMock, AsyncMock
 
 _this_dir = os.path.dirname(__file__)
-sys.path.insert(0, _this_dir)
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
 
-import test_override_arrester_ttl_suppression as _tsp  # noqa: E402
-
-OverrideArrester = _tsp.OverrideArrester
-ZoneState = _tsp.ZoneState
-ZONE_ID = _tsp.ZONE_ID
-CLIMATE_ENTITY = _tsp.CLIMATE_ENTITY
-hvac_override = _tsp.hvac_override
-
-_ex_mod = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_excursion"
-]
+import _excursion_harness  # noqa: E402
+_mods = _excursion_harness.bootstrap()
+hvac_override = _mods["hvac_override"]
+_ex_mod = _mods["hvac_excursion"]
+OverrideArrester = hvac_override.OverrideArrester
+ZoneState = sys.modules[
+    "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+].ZoneState
+ZONE_ID = "zone_a"
+CLIMATE_ENTITY = "climate.zone_a"
 
 
 def _run(coro):
@@ -93,7 +93,7 @@ def _setup(preset_now: str = "home"):
 def test_apply_compromise_creates_lease_row_4():
     a, zone = _setup()
     _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True, (
+    assert _ex_mod._test_has_row(ZONE_ID) is True, (
         "Row 4: _apply_compromise must open an excursion lease."
     )
     assert ZONE_ID in a._compromise_excursion_tokens
@@ -105,9 +105,9 @@ def test_revert_override_releases_lease_row_5_timer_path():
     """Normal revert path: after _revert_override, lease is cleared."""
     a, zone = _setup()
     _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
     _run(a._revert_override(zone, "home"))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Row 5: _revert_override (timer path) must call "
         "return_excursion to release the lease."
     )
@@ -120,11 +120,11 @@ def test_revert_override_releases_lease_on_immunity_early_return():
     leave a permanent lease and permanently defer all ticks."""
     a, zone = _setup()
     _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
     # Force the immunity guard True.
     a._corrective_writes_suppressed = MagicMock(return_value=True)
     _run(a._revert_override(zone, "home"))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Immunity early-return must still release the lease. "
         "Leaving it stranded is the accidental-permanent-lock the "
         "cycle exists to prevent, in explicit form."
@@ -135,10 +135,10 @@ def test_revert_override_releases_lease_on_comfort_delay_early_return():
     """comfort_delay_active fires -> revert bails early -> lease released."""
     a, zone = _setup()
     _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
     a.comfort_delay_active = MagicMock(return_value=True)
     _run(a._revert_override(zone, "home"))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "comfort_delay early-return must still release the lease."
     )
 
@@ -148,7 +148,7 @@ def test_kill_switch_off_produces_no_compromise_lease():
     _ex_mod._test_set_kill_switch(False)
     try:
         _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
-        assert _ex_mod.lease_active(ZONE_ID) is False
+        assert _ex_mod._test_has_row(ZONE_ID) is False
         # But the compromise itself still emits.
         assert hvac_override.emit_set_temperature.await_count >= 1
     finally:

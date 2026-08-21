@@ -1981,50 +1981,6 @@ class HVACCoordinator(BaseCoordinator):
                 except Exception:  # noqa: BLE001
                     pass
 
-            # HVAC-GOVERNED-EXCURSION-1 D3 (rev-5): LEASE CHECK AT EMIT
-            # MERGE POINT (§4.4). Placed AFTER both decision arms converge
-            # (the vacancy-bypass arm at :~1889 and the general
-            # should_change_preset arm at :~1902) and BEFORE the arrester
-            # suppress + emit. Gating the write here — not the consult —
-            # is structural: a future arm added upstream cannot bypass it
-            # (the existing vacancy arm ALREADY bypasses the
-            # `should_change_preset` consult, which is exactly why rev-4's
-            # proposed pre-consult placement was WRONG and would have
-            # shipped a hole).
-            #
-            # AC14 (the general lease-honoured test) and AC14b (the
-            # vacancy-arm adherence test, MANDATORY) both drive this
-            # single check. AC14b specifically exercises a zone that is
-            # vacant-past-grace with effective_preset == "away" — i.e. it
-            # arrives here via the bypass arm at :1892-1894, not via
-            # should_change_preset. A build that puts the lease check
-            # upstream of should_change_preset fails AC14b.
-            #
-            # If the lease is active: DROP the preset decision for this
-            # tick (matches the comfort-gate DROP policy at
-            # hvac_setpoint.py:12-16). Do NOT queue — the reason ladder
-            # recomputes every tick; a real change re-emits naturally
-            # once the lease clears.
-            try:
-                from .hvac_excursion import lease_active as _excursion_lease_active
-                if _excursion_lease_active(zone_id):
-                    _LOGGER.debug(
-                        "HVAC: preset write for %s deferred — "
-                        "excursion lease active (reason=%s target=%s)",
-                        zone.zone_name, preset_change_reason, effective_preset,
-                    )
-                    continue
-            except Exception as _lease_exc:  # noqa: BLE001
-                # Never let a lease-registry defect block the tick. Log
-                # and proceed — status quo (no lease honoured) is safe
-                # relative to the pre-cycle baseline where the lease
-                # did not exist at all.
-                _LOGGER.debug(
-                    "HVAC: lease_active check errored for zone %s: %s "
-                    "(proceeding without lease deferral)",
-                    zone_id, _lease_exc,
-                )
-
             # Suppress arrester for URA-initiated changes
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity)

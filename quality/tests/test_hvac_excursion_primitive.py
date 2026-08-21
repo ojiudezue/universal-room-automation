@@ -67,8 +67,8 @@ def setup_function(_):
     _ex._test_clear_leases()
 
 
-def test_lease_active_false_when_no_lease():
-    assert _ex.lease_active("zone_1") is False
+def test_row_probe_false_when_absent():
+    assert _ex._test_has_row("zone_1") is False
 
 
 def test_begin_populates_lease_and_snapshots_unfiltered_preset():
@@ -85,7 +85,7 @@ def test_begin_populates_lease_and_snapshots_unfiltered_preset():
     assert tok.pre_preset == "manual"
     assert tok.pre_target_low == 68.0
     assert tok.pre_target_high == 74.0
-    assert _ex.lease_active("zone_1") is True
+    assert _ex._test_has_row("zone_1") is True
 
 
 def test_return_clears_lease():
@@ -94,10 +94,10 @@ def test_return_clears_lease():
         hass, zone_id="zone_1", entity_id="climate.z1",
         kind=_ex.EXCURSION_KIND.NUDGE, duration_s=120, site="test",
     ))
-    assert _ex.lease_active("zone_1") is True
+    assert _ex._test_has_row("zone_1") is True
     outcome = _run(_ex.return_excursion(tok, trigger="timer"))
     assert outcome.trigger == "timer"
-    assert _ex.lease_active("zone_1") is False
+    assert _ex._test_has_row("zone_1") is False
 
 
 def test_double_return_is_no_op_returns_cached_outcome():
@@ -126,7 +126,7 @@ def test_begin_rejects_when_lease_already_active():
     assert t1 is not None
     assert t2 is None
     # Lease still points at t1
-    assert _ex.lease_active("zone_1") is True
+    assert _ex._test_has_row("zone_1") is True
 
 
 def test_expiry_bounded_by_max_when_duration_none():
@@ -137,7 +137,7 @@ def test_expiry_bounded_by_max_when_duration_none():
         kind=_ex.EXCURSION_KIND.EGRESS_PAUSE, duration_s=None, site="egress",
     ))
     assert tok is not None
-    assert tok.expiry_ts() == tok.started_ts + _ex.EXCURSION_LEASE_MAX_S
+    assert tok.stale_ts() == tok.started_ts + _ex.EXCURSION_LEASE_MAX_S
 
 
 def test_expiry_uses_duration_plus_slack_when_bounded():
@@ -148,7 +148,7 @@ def test_expiry_uses_duration_plus_slack_when_bounded():
         kind=_ex.EXCURSION_KIND.NUDGE, duration_s=120, site="nudge",
     ))
     expected = tok.started_ts + 120 + _ex.EXCURSION_LEASE_SLACK_S
-    assert abs(tok.expiry_ts() - expected) < 0.001
+    assert abs(tok.stale_ts() - expected) < 0.001
 
 
 def test_expired_lease_reads_as_inactive_and_self_clears():
@@ -160,10 +160,10 @@ def test_expired_lease_reads_as_inactive_and_self_clears():
         duration_s=1,
         started_ts=1.0,  # way in the past → immediately expired
     )
-    assert tok.expiry_ts() < _ex._now()
-    assert _ex.lease_active("zone_1") is False
+    assert tok.stale_ts() < _ex._now()
+    assert _ex._test_has_row("zone_1") is False
     # Cleared as a side effect
-    assert "zone_1" not in _ex._leases
+    assert "zone_1" not in _ex._rows
 
 
 def test_excursion_kind_does_not_contain_hard_reset_preset_assert():

@@ -36,28 +36,23 @@ import sys
 from unittest.mock import MagicMock, AsyncMock
 
 
-# Reuse the ttl_suppression harness (which loads hvac_override + the HA
-# mocks + hvac_excursion into sys.modules already). This test file must
-# import AFTER that harness runs; pytest collection order alphabetizes, so
-# lease_ac14_behavioural loads first (also HA-mocked), then we run.
+# Use the shared, idempotent harness (C-H2 fix — no more coupling
+# by importing another test file for its module-scope side effects).
 _this_dir = os.path.dirname(__file__)
-sys.path.insert(0, _this_dir)
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
 
-# Trigger the ttl_suppression module-level bootstrap.
-import test_override_arrester_ttl_suppression as _tsp  # noqa: E402
+import _excursion_harness  # noqa: E402
+_mods = _excursion_harness.bootstrap()
+hvac_override = _mods["hvac_override"]
+_ex_mod = _mods["hvac_excursion"]
+OverrideArrester = hvac_override.OverrideArrester
+ZoneState = sys.modules[
+    "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+].ZoneState
 
-OverrideArrester = _tsp.OverrideArrester
-ZoneState = _tsp.ZoneState
-_make_arrester = _tsp._make_arrester
-ZONE_ID = _tsp.ZONE_ID
-CLIMATE_ENTITY = _tsp.CLIMATE_ENTITY
-hvac_override = _tsp.hvac_override
-
-# The excursion primitive module (imported into sys.modules by the
-# earlier harness — sibling load list includes it).
-_ex_mod = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_excursion"
-]
+ZONE_ID = "zone_a"
+CLIMATE_ENTITY = "climate.zone_a"
 
 
 def _run(coro):
@@ -142,7 +137,7 @@ def test_perform_soft_nudge_creates_lease_row_6():
     _perform_soft_nudge → this test fails."""
     a, zone = _setup_arrester_for_nudge()
     _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True, (
+    assert _ex_mod._test_has_row(ZONE_ID) is True, (
         "Row 6: _perform_soft_nudge must open an excursion lease "
         "so decision ticks defer at the S1 gate. No lease means the "
         "begin_excursion call was skipped/deleted."
@@ -186,9 +181,9 @@ def test_restore_after_nudge_releases_lease_row_7():
     _restore_after_nudge → this test fails (lease survives)."""
     a, zone = _setup_arrester_for_nudge()
     _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True  # pre-condition
+    assert _ex_mod._test_has_row(ZONE_ID) is True  # pre-condition
     _run(a._restore_after_nudge(zone, original_target=76.0))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Row 7: _restore_after_nudge must call return_excursion to "
         "release the lease. A lingering lease permanently blocks "
         "future decision-tick preset writes for the zone."
@@ -225,13 +220,13 @@ def test_cancel_nudge_releases_lease_row_8():
     cancel_nudge → this test fails (lease survives after cancel)."""
     a, zone = _setup_arrester_for_nudge()
     _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
 
     # cancel_nudge takes a zone_id or entity_id and resolves via
     # self._resolve_zone. Stub that to return our zone.
     a._resolve_zone = MagicMock(return_value=zone)
     _run(a.cancel_nudge(ZONE_ID))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Row 8: cancel_nudge must call return_excursion. Cancelled "
         "nudges that leave a lease behind permanently block ticks."
     )
@@ -249,7 +244,7 @@ def test_kill_switch_off_produces_no_lease_but_still_nudges():
     _ex_mod._test_set_kill_switch(False)
     try:
         _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
-        assert _ex_mod.lease_active(ZONE_ID) is False, (
+        assert _ex_mod._test_has_row(ZONE_ID) is False, (
             "§4.7 BEGIN-ONLY: kill switch OFF must yield no lease."
         )
         # Wire write still fires (the switch does not gate the emit,

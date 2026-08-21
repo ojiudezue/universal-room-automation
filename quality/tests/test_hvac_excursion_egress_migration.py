@@ -18,48 +18,19 @@ Neuter drills:
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import os
 import sys
 from unittest.mock import MagicMock, AsyncMock
 
 _this_dir = os.path.dirname(__file__)
-sys.path.insert(0, _this_dir)
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
 
-import test_hvac_excursion_lease_ac14_behavioural  # noqa: E402,F401
-
-_egress_mod_name = "custom_components.universal_room_automation.domain_coordinators.hvac_egress"
-# Re-install the dt mock that the lease_ac14 harness restored to the
-# real (missing on bench) version at its tail — hvac_egress needs it.
-if _egress_mod_name not in sys.modules:
-    import types as _types
-    from datetime import datetime as _dt, timezone as _tz
-    _dt_mock = _types.ModuleType("homeassistant.util.dt")
-    _dt_mock.utcnow = lambda: _dt.now(_tz.utc)
-    _dt_mock.now = lambda: _dt.now(_tz.utc)
-    _dt_mock.as_local = lambda d: d
-    def _parse(s):
-        try:
-            return _dt.fromisoformat(s) if isinstance(s, str) else None
-        except (ValueError, TypeError):
-            return None
-    _dt_mock.parse_datetime = _parse
-    sys.modules["homeassistant.util.dt"] = _dt_mock
-    _p = os.path.join(
-        os.path.dirname(__file__), "..", "..",
-        "custom_components", "universal_room_automation",
-        "domain_coordinators", "hvac_egress.py",
-    )
-    _spec = importlib.util.spec_from_file_location(_egress_mod_name, _p)
-    _m = importlib.util.module_from_spec(_spec)
-    sys.modules[_egress_mod_name] = _m
-    _spec.loader.exec_module(_m)
-hvac_egress = sys.modules[_egress_mod_name]
+import _excursion_harness  # noqa: E402
+_mods = _excursion_harness.bootstrap()
+hvac_egress = _mods["hvac_egress"]
+_ex_mod = _mods["hvac_excursion"]
 EgressManager = hvac_egress.EgressManager
-
-_ex_mod = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_excursion"
-]
 
 
 _ORIG_EMIT_PRESET = hvac_egress.emit_set_preset_mode
@@ -140,7 +111,7 @@ def test_engage_pause_creates_lease_row_15():
         triggered_room="Living Room",
         now=None,
     ))
-    assert _ex_mod.lease_active(ZONE_ID) is True, (
+    assert _ex_mod._test_has_row(ZONE_ID) is True, (
         "Row 15: _engage_pause must open EGRESS_PAUSE lease BEFORE the "
         "set_hvac_mode:off wire write (R1 ordering / persist-before-actuate)."
     )
@@ -158,11 +129,11 @@ def test_engage_resume_releases_lease_row_14():
         zone_id=ZONE_ID, zone_state=_StubZoneState(),
         triggered_room="Living Room", now=None,
     ))
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
     _run(em._engage_resume(
         zone_id=ZONE_ID, zone_state=_StubZoneState(), now=None,
     ))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Row 14: _engage_resume must call return_excursion."
     )
     assert ZONE_ID not in em._egress_excursion_tokens
@@ -193,7 +164,7 @@ def test_engage_resume_mode_fail_still_attempts_preset_LEAK_FIX():
         "state's preset (potentially 'manual' induced by the mode-off)."
     )
     # Lease still released even on mode failure.
-    assert _ex_mod.lease_active(ZONE_ID) is False
+    assert _ex_mod._test_has_row(ZONE_ID) is False
 
 
 def test_kill_switch_off_produces_no_egress_lease():
@@ -204,6 +175,6 @@ def test_kill_switch_off_produces_no_egress_lease():
             zone_id=ZONE_ID, zone_state=_StubZoneState(),
             triggered_room="Living Room", now=None,
         ))
-        assert _ex_mod.lease_active(ZONE_ID) is False
+        assert _ex_mod._test_has_row(ZONE_ID) is False
     finally:
         _ex_mod._test_set_kill_switch(True)

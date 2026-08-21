@@ -1,37 +1,58 @@
 """Governed thermostat excursion primitive (HVAC-GOVERNED-EXCURSION-1 D2).
 
-See ``docs/planning/PLANNING_hvac_governed_excursion.md`` REV-5 for the
-full specification. This module ships:
+See ``docs/planning/PLANNING_hvac_governed_excursion.md`` for the full
+specification.
 
-* Public API (§4.1): ``ExcursionToken``, ``begin_excursion``,
-  ``return_excursion``, ``lease_active``, ``async_startup_excursion_audit``.
-* In-memory lease registry with **explicit, bounded expiry** per §4.4:
-  ``expiry_ts = min(started_ts + duration_s + EXCURSION_LEASE_SLACK_S,
-                    started_ts + EXCURSION_LEASE_MAX_S)``.
-* Persistence via new DAOs on ``URADatabase``:
-  ``save_excursion_row`` / ``clear_excursion_row`` /
-  ``get_all_excursion_rows``, and ``log_excursion_event`` for non-nudge
-  outcomes (§4.5). Nudge outcomes remain in ``ac_ramp_events`` via the
-  new ``excursion_id`` column (§4.5 "Authority rule per kind").
-* Boot audit (§4.4 restart interaction) that rehydrates live leases and
-  emits a ``stuck_excursion_lease`` NM signal on any row whose age
-  already exceeds ``EXCURSION_LEASE_MAX_S`` at boot.
-* Kill switch (§4.7) — BEGIN-ONLY semantics. The switch entity lives in
+**Design change 2026-08-21 (post-Tier-3 review):** the operator ruled to
+STRIP the lease GATE from the S1 preset-apply site. That gate was
+scoped to protect excursions once HVAC-MANUAL-PRESET-CONTRACT-1 removes
+the accidental ``preset_mode == "manual"`` lockout that protects them
+TODAY. The sibling cycle has not landed. Until it does, the gate's
+current value is zero while three reviewers independently measured its
+risk as real (a suppression with no reliable discharge — the same bug
+class as the lockout it insures against). So this module KEEPS the
+snapshot / restore / persistence / kill-switch / boot-audit machinery
+that is the cycle's actual value, and DROPS the tick-side gate + the
+"lease" framing that named it.
+
+What this module now provides:
+
+* Public API: ``ExcursionToken``, ``begin_excursion``, ``return_excursion``,
+  ``async_startup_excursion_audit``.
+* Snapshot-restore semantics (§13.5 CLOSED): UNFILTERED. ``pre_preset``
+  is the raw observed value at ``begin_excursion`` (may be ``"manual"``,
+  ``""``, or ``None``).
+* Persistence via URADatabase DAOs (``save_excursion_row`` /
+  ``clear_excursion_row`` / ``get_all_excursion_rows``); non-nudge
+  outcomes go to ``hvac_excursion_events`` via ``log_excursion_event``;
+  nudge outcomes stay in ``ac_ramp_events``.
+* Restart-safety via ``async_startup_excursion_audit`` — rehydrates
+  the in-memory row registry from persisted rows, drops any row whose
+  age already exceeds ``EXCURSION_LEASE_MAX_S`` at boot, and fires a
+  low-severity ``stale_excursion_row`` notice on such drops. NUDGE and
+  BANKING rows are cleared without rehydration (collision-avoidance
+  with ``ac_reset_state.in_flight_nudge_*`` and ``_first_eval_done``
+  respectively).
+* Kill switch (§4.7) — BEGIN-ONLY. Switch entity lives in
   ``switch.py``; this module exposes ``set_kill_switch_enabled`` +
-  ``is_kill_switch_enabled`` so the coordinator property can push state.
-* Stuck-lease housekeeping (§4.4 + AC15): ``lease_active`` self-clears
-  expired rows and fires the ``stuck_excursion_lease`` NM signal.
+  ``is_kill_switch_enabled`` for the coordinator's property setter.
 
-Snapshot semantics (§4.3): UNFILTERED. ``pre_preset`` is the raw
-observed value at ``begin_excursion`` — may be ``"manual"``, may be
-empty, may be ``None`` — with no interpretation. The self-disarm latch
-this cycle exists to fix dissolves at source under UNFILTERED snapshot.
+What this module NO LONGER provides (removed with the design change):
 
-The lease surface is the load-bearing correctness property (§1.2): it
-replaces the accidental ``preset_mode == "manual"`` lockout at
-``hvac_preset.py:202-217`` with an explicit, visible, bounded lease
-that the S1 preset-apply site consults at the emit merge point in
-``_apply_house_state_presets``.
+* ``lease_active(zone_id)`` as a consumed API — gone. The last (and
+  only) consumer was the S1 preset-apply merge-point gate in
+  ``hvac.py``; that gate is removed. The module retains an INTERNAL
+  ``_row_present_and_fresh`` helper for the ``begin_excursion``
+  overlap-detection invariant (§4.6 REJECT-on-existing-row) and for
+  the boot-audit's own stale-row triage — both are bookkeeping, not
+  runtime governance.
+* The gate-related ``stuck_excursion_lease`` HIGH-severity NM alert.
+  The rename to ``stale_excursion_row`` at severity=low reflects what
+  the observation actually diagnoses: an un-returned row on the
+  ``hvac_excursion_state`` table — a caller defect worth surfacing but
+  NOT a signal of live wire misbehaviour (with the gate gone, an
+  un-returned row does not defer decision writes and does not affect
+  the thermostat).
 """
 
 from __future__ import annotations
@@ -46,33 +67,27 @@ _LOGGER = logging.getLogger(__name__)
 
 
 # --- Knob ladder (§6) --------------------------------------------------------
-#
-# Both constants are at ladder rung 1 (module constant) per §6: making them
-# operator-tunable would let an operator recreate the accidental-permanent-
-# lock failure mode the lease exists to prevent.
 
 EXCURSION_LEASE_SLACK_S: int = 30
-"""Grace beyond a bounded ``duration_s`` before a tick treats the lease as
-expired (§4.4). Covers the settle window + small margin for cloud-poll
-latency."""
+"""Grace beyond a bounded ``duration_s`` before a row is treated as stale
+(§4.4). Historically named for the deleted lease; kept as the "row stale"
+grace for the boot audit + housekeeping paths."""
 
 EXCURSION_LEASE_MAX_S: int = 7200  # 2 hours
-"""Absolute cap on lease age regardless of ``duration_s`` (§4.4). Sized to
-comfortably cover a legitimately long egress (front door held open through
-a party) while still an order of magnitude below the 14-hour stuck-manual
+"""Absolute cap on row age regardless of ``duration_s``. Sized to comfortably
+cover a legitimately long egress (front door held open through a party)
+while still an order of magnitude below the 14-hour stuck-manual
 observations that motivated the cycle."""
 
 EXCURSION_RETURN_BLOCKING: bool = True
-"""The `blocking=True` contract on return-path emits (§4.1). Named so
-Reviewer C's mutation drill can flip at one point."""
+"""The `blocking=True` contract on return-path emits (§4.1). Named so a
+mutation drill can flip at one point."""
 
 
 class EXCURSION_KIND(str, Enum):
     """Five kinds per §4.1.
 
-    ``HARD_RESET_PRESET_ASSERT`` is DELIBERATELY absent (§8 non-goal 6) —
-    that path uses a small self-contained snapshot pair in the hard-reset
-    lifecycle, NOT this primitive.
+    ``HARD_RESET_PRESET_ASSERT`` is DELIBERATELY absent (§8 non-goal 6).
     """
 
     NUDGE = "nudge"
@@ -102,8 +117,15 @@ class ExcursionToken:
     _returned: bool = False
     _return_outcome: Any = None
 
-    def expiry_ts(self) -> float:
-        """Explicit, bounded expiry per §4.4."""
+    def stale_ts(self) -> float:
+        """Time at which this row becomes stale for boot-audit purposes.
+
+        Same computation as the pre-design-change lease expiry:
+        ``min(started + duration + SLACK, started + MAX)``. Retained
+        because the boot audit still needs to distinguish rows that
+        outlived their window from ones that are legitimately in-flight
+        across a fast restart.
+        """
         cap = self.started_ts + EXCURSION_LEASE_MAX_S
         if self.duration_s is None:
             return cap
@@ -134,23 +156,20 @@ class ReturnOutcome:
     detail: Optional[str] = None
 
 
-# --- In-memory lease registry ------------------------------------------------
+# --- In-memory row registry --------------------------------------------------
 #
-# The runtime source of truth for ``lease_active``. Populated by
-# ``begin_excursion`` and by ``async_startup_excursion_audit`` (rehydration
-# from ``hvac_excursion_state``). Cleared by ``return_excursion`` and by
-# stuck-lease housekeeping in ``lease_active``.
-#
-# Module-global (not per-coordinator) because ``lease_active`` is called
-# from ``_apply_house_state_presets`` where reaching a coordinator ref
-# would require plumbing through many arms. One-URA-per-process makes a
-# module singleton correct here (single_user_no_backcompat memory).
+# Bookkeeping only (post design-change). Populated by ``begin_excursion``
+# and by ``async_startup_excursion_audit``; consumed by
+# ``begin_excursion`` for the overlap-reject invariant, by
+# ``return_excursion`` to look up the cached outcome on a double-return,
+# and by tests via ``_test_*`` helpers. NO runtime write path consults
+# this map — the S1 gate that used to is removed.
 
-_leases: dict[str, ExcursionToken] = {}
+_rows: dict[str, ExcursionToken] = {}
 _kill_switch_enabled: bool = True
 _db_ref: Any = None            # URADatabase instance; None => no persistence
-_hass_ref: Any = None          # HomeAssistant instance; for NM dispatch
-_nm_stuck_leases: set[str] = set()  # dedupe stuck-lease NM emits (per zone)
+_hass_ref: Any = None          # HomeAssistant instance
+_nm_stale_rows: set[str] = set()  # dedupe stale-row NM notices (per excursion_id)
 
 
 def _now() -> float:
@@ -170,7 +189,7 @@ def set_kill_switch_enabled(enabled: bool) -> None:
     global _kill_switch_enabled
     _kill_switch_enabled = bool(enabled)
     _LOGGER.info(
-        "excursion.kill_switch=%s (begin-only; existing leases unaffected)",
+        "excursion.kill_switch=%s (begin-only; existing rows unaffected)",
         _kill_switch_enabled,
     )
 
@@ -186,32 +205,36 @@ def bind(hass: Any, db: Any) -> None:
     _db_ref = db
 
 
-def _fire_stuck_lease_nm(zone_id: str, tok: ExcursionToken, elapsed_s: float) -> None:
-    """Emit ``stuck_excursion_lease`` via the existing stuck-signal dispatcher.
+def _fire_stale_row_nm(zone_id: str, tok: ExcursionToken, elapsed_s: float) -> None:
+    """Emit ``stale_excursion_row`` (low severity) once per excursion_id.
 
-    §4.4 + AC15. Dedupe on ``excursion_id`` so a lease that fails to
-    return only alerts once per lifetime. Uses
-    ``domain_coordinators._stuck_signal_nm.fire_stuck_signal`` — the same
-    pattern already imported at ``hvac.py:~1624``.
+    Design-change 2026-08-21: renamed from ``stuck_excursion_lease`` +
+    severity dropped from HIGH → low. With the tick-side gate removed,
+    an un-returned row does NOT defer decision writes and does NOT
+    affect the wire. The row is still worth surfacing (it is a caller
+    defect — a begin without a matching return) but the alert must not
+    describe a return-path clobber that it cannot diagnose from the row
+    alone.
     """
-    if tok.excursion_id in _nm_stuck_leases:
+    if tok.excursion_id in _nm_stale_rows:
         return
-    _nm_stuck_leases.add(tok.excursion_id)
+    _nm_stale_rows.add(tok.excursion_id)
     diagnosis = (
-        f"HVAC excursion lease for zone {zone_id} (kind={tok.kind.value}, "
+        f"HVAC excursion row for zone {zone_id} (kind={tok.kind.value}, "
         f"started_ts={tok.started_iso}, duration_s={tok.duration_s}, "
-        f"elapsed={int(elapsed_s)}s) expired without a return call — "
-        "the thermostat wire is in an unknown state and the lease has "
-        "been cleared. This indicates a return-path defect in the "
-        "excursion caller."
+        f"elapsed={int(elapsed_s)}s) outlived its window without a matching "
+        f"return_excursion call. Row cleared. This is bookkeeping — with "
+        f"the S1 gate removed the row does not affect wire behaviour — "
+        f"but a missing return in caller_site={tok.caller_site!r} is a "
+        f"caller defect."
     )
     remedy = (
-        "Check the site named in caller_site on hvac_excursion_state "
-        "for a missing return_excursion invocation."
+        f"Check the caller at {tok.caller_site!r} for a return path that "
+        f"can silently skip return_excursion."
     )
     if _hass_ref is None:
-        _LOGGER.warning(
-            "excursion.nm.stuck_lease not dispatched (hass not bound): %s",
+        _LOGGER.info(
+            "excursion.nm.stale_row not dispatched (hass not bound): %s",
             diagnosis,
         )
         return
@@ -220,14 +243,14 @@ def _fire_stuck_lease_nm(zone_id: str, tok: ExcursionToken, elapsed_s: float) ->
         _hass_ref.async_create_task(
             fire_stuck_signal(
                 _hass_ref,
-                "stuck_excursion_lease",
+                "stale_excursion_row",
                 (zone_id, tok.excursion_id),
                 diagnosis,
                 remedy,
             )
         )
     except Exception as exc:  # noqa: BLE001
-        _LOGGER.debug("excursion.nm.stuck_lease dispatch failed: %s", exc)
+        _LOGGER.debug("excursion.nm.stale_row dispatch failed: %s", exc)
 
 
 def _schedule_db_clear(zone_id: str) -> None:
@@ -240,31 +263,38 @@ def _schedule_db_clear(zone_id: str) -> None:
         _LOGGER.debug("excursion: db clear schedule failed: %s", exc)
 
 
-def lease_active(zone_id: str) -> bool:
-    """Return True iff an UNEXPIRED lease exists for ``zone_id`` (§4.4).
+def _row_present_and_fresh(zone_id: str) -> bool:
+    """Internal invariant — is there a non-stale row for ``zone_id``?
 
-    Also self-clears an expired row it observes (housekeeping happens on
-    the same read path — see §4.4 "Stuck-lease visibility") AND fires
-    the ``stuck_excursion_lease`` NM alert on first observation of the
-    expiry (§4.4 + AC15 discharge).
+    Consumed by:
+      * ``begin_excursion`` for §4.6 REJECT-on-existing-row (a second
+        begin on the same zone is a caller defect worth logging + refusing).
+      * The boot audit (indirectly, via ``_reap_stale``).
+
+    NOT a runtime tick gate — the pre-design-change ``lease_active`` name
+    was removed to make that clear at every call site.
     """
-    tok = _leases.get(zone_id)
+    tok = _rows.get(zone_id)
     if tok is None:
         return False
-    now = _now()
-    if now >= tok.expiry_ts():
-        elapsed = now - tok.started_ts
-        _LOGGER.warning(
-            "excursion: lease for zone %s (kind=%s, started_ts=%s, "
-            "duration_s=%s, elapsed=%.0fs) expired without return — "
-            "clearing (trigger_detail=lease_expired_no_return)",
-            zone_id, tok.kind.value, tok.started_iso, tok.duration_s, elapsed,
-        )
-        _fire_stuck_lease_nm(zone_id, tok, elapsed)
-        _leases.pop(zone_id, None)
-        _schedule_db_clear(zone_id)
+    if _now() >= tok.stale_ts():
+        _reap_stale(zone_id, tok)
         return False
     return True
+
+
+def _reap_stale(zone_id: str, tok: ExcursionToken) -> None:
+    """Delete a stale row + emit the low-severity NM notice."""
+    elapsed = _now() - tok.started_ts
+    _LOGGER.warning(
+        "excursion: row for zone %s (kind=%s, started_ts=%s, "
+        "duration_s=%s, elapsed=%.0fs) outlived its window without return "
+        "— clearing (bookkeeping only; no wire effect)",
+        zone_id, tok.kind.value, tok.started_iso, tok.duration_s, elapsed,
+    )
+    _fire_stale_row_nm(zone_id, tok, elapsed)
+    _rows.pop(zone_id, None)
+    _schedule_db_clear(zone_id)
 
 
 async def begin_excursion(
@@ -286,12 +316,10 @@ async def begin_excursion(
     """Open an excursion; return a token or None (§4.1).
 
     §4.7 kill-switch: OFF => return ``None`` immediately, no state row,
-    no lease, no suppress, no wire write. Already-persisted rows are
-    unaffected (BEGIN-ONLY semantics).
+    no wire write. Already-persisted rows are unaffected.
 
-    §4.6 REJECT-on-existing-row: if a lease exists for ``zone_id``, log
-    a warning and return ``None`` — a second beginning on the same zone
-    is a caller defect, not something to paper over by overwriting.
+    §4.6 REJECT-on-existing-row: if a fresh row exists for ``zone_id``,
+    log a warning and return ``None``.
     """
     if not _kill_switch_enabled:
         _LOGGER.debug(
@@ -300,11 +328,12 @@ async def begin_excursion(
         )
         return None
 
-    if zone_id in _leases and lease_active(zone_id):
+    if _row_present_and_fresh(zone_id):
+        existing = _rows[zone_id]
         _LOGGER.warning(
-            "excursion.begin: zone %s already has an active lease "
+            "excursion.begin: zone %s already has an active row "
             "(kind=%s, site=%s) — refusing to overwrite (site=%s, kind=%s)",
-            zone_id, _leases[zone_id].kind.value, _leases[zone_id].caller_site,
+            zone_id, existing.kind.value, existing.caller_site,
             site, kind.value,
         )
         return None
@@ -351,26 +380,23 @@ async def begin_excursion(
         excursion_target_low=excursion_low,
         excursion_target_high=excursion_high,
     )
-    _leases[zone_id] = token
+    _rows[zone_id] = token
 
-    # R1 ordering — DB write BEFORE any downstream wire call. Callers
-    # perform the actual wire write themselves in the current migration
-    # cut; the DB row here means a crash between now and the wire call
-    # leaves the boot audit with an unadjudicated row to close.
+    # R1 ordering — DB write BEFORE the downstream wire call.
     if _db_ref is not None:
         try:
             await _db_ref.save_excursion_row(token.to_row())
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
-                "excursion.begin: DB save failed for %s (in-memory lease "
-                "will still gate ticks this process): %s",
+                "excursion.begin: DB save failed for %s (in-memory row "
+                "still recorded this process): %s",
                 zone_id, exc,
             )
 
     _LOGGER.info(
         "excursion.begin: zone=%s kind=%s site=%s pre_preset=%r "
-        "duration_s=%s expiry=%.0f",
-        zone_id, kind.value, site, pre_preset, duration_s, token.expiry_ts(),
+        "duration_s=%s stale_ts=%.0f",
+        zone_id, kind.value, site, pre_preset, duration_s, token.stale_ts(),
     )
     return token
 
@@ -386,15 +412,16 @@ async def return_excursion(
     target_low_after: Optional[float] = None,
     target_high_after: Optional[float] = None,
     mode_after: Optional[str] = None,
+    trigger_detail: Optional[str] = None,
 ) -> ReturnOutcome:
-    """Close an excursion; release the lease + adjudicate the outcome row.
+    """Close an excursion; clear the row + adjudicate the outcome.
 
     Callers still emit the actual wire writes in the current migration
-    cut (each site performs (a) set_temperature → (b) set_preset_mode →
-    (c) set_hvac_mode via the existing chokepoint helpers per §1). This
-    method's job is:
+    (each site performs its own (a) set_temperature → (b) set_preset_mode →
+    (c) set_hvac_mode via the existing chokepoint helpers). This method's
+    job is:
 
-    * release the in-memory lease so ticks stop deferring;
+    * drop the in-memory row (bookkeeping);
     * delete the persisted state row (§4.5);
     * write an outcome event row — nudge kinds via ``log_ac_ramp_event``
       (already the D1 site), others via ``log_excursion_event``.
@@ -408,10 +435,11 @@ async def return_excursion(
         trigger=trigger,
         restore_ok_immediate=restore_ok_immediate,
         restore_ok=restore_ok,
+        detail=trigger_detail,
     )
     token._returned = True
     token._return_outcome = outcome
-    _leases.pop(token.zone_id, None)
+    _rows.pop(token.zone_id, None)
 
     if _db_ref is not None:
         try:
@@ -422,8 +450,7 @@ async def return_excursion(
                 token.zone_id, exc,
             )
         # Non-nudge outcome landing (§4.5). Nudge writes to
-        # ac_ramp_events via the caller's existing D1 path; the
-        # excursion_id is populated there so JOINs work either way.
+        # ac_ramp_events via the caller's existing D1 path.
         if token.kind != EXCURSION_KIND.NUDGE:
             try:
                 await _db_ref.log_excursion_event(
@@ -433,6 +460,7 @@ async def return_excursion(
                     started_ts=token.started_iso,
                     ended_ts=_now_iso(),
                     trigger=trigger,
+                    trigger_detail=trigger_detail,
                     site=token.caller_site,
                     duration_actual_s=int(_now() - token.started_ts),
                     pre_preset=token.pre_preset,
@@ -460,23 +488,29 @@ async def return_excursion(
 
 
 async def async_startup_excursion_audit(hass, coord) -> None:
-    """Rehydrate live leases from persisted rows (§4.4 + §4.5 restart).
+    """Rehydrate rows from persistence + fire preset restores (§4.4 restart).
 
-    Walks every ``hvac_excursion_state`` row; for each:
+    Walks every ``hvac_excursion_state`` row; per row:
 
-    * If the row's age already exceeds ``EXCURSION_LEASE_MAX_S``, treat
-      it as stuck, fire the NM alert, and DELETE the row. The physical
-      thermostat is NOT touched — a return that never fired left the
-      wire in an unknown state and the audit is not entitled to guess
-      (§4.4 stuck-lease clause).
-    * Otherwise, re-materialise the ``ExcursionToken`` into ``_leases``
-      so ticks continue to defer for the remaining lease window. The
-      shipped per-kind restore paths (nudge audit at ``hvac_override.py:
-      4057``, egress resume at ``hvac_egress.py``, etc.) still own the
-      wire-restore for their kind; this audit just re-arms the lease.
+    * NUDGE / BANKING — cleared without rehydration. NUDGE collides with
+      ``ac_reset_state.in_flight_nudge_*`` (the authoritative ramp-audit
+      home); BANKING collides with ``_first_eval_done`` in hvac_predict.
+      **NUDGE preset restore (F1 fix, 2026-08-21):** for a NUDGE row whose
+      ``pre_preset`` snapshot was non-empty, emit
+      ``set_preset_mode(pre_preset)`` before clearing the row. Without
+      this, a restart mid-nudge left ``preset_mode=manual`` behind on
+      the Bryant/Carrier thermostat, reproducing the exact zone-lockout
+      this cycle exists to fix. ``async_startup_ramp_audit`` restores
+      only the setpoint; the preset restore has to happen here.
 
-    Filtered to NUDGE / COMPROMISE / PREHEAT / EGRESS_PAUSE (§4.5
-    collision-avoidance: BANKING is owned by ``_first_eval_done``).
+    * Any row whose age already exceeds ``EXCURSION_LEASE_MAX_S`` at boot:
+      cleared with a ``stale_excursion_row`` NM notice.
+
+    * All remaining rows (PREHEAT, COMPROMISE, EGRESS_PAUSE, fresh
+      others): re-materialise the ``ExcursionToken`` into ``_rows`` so
+      the boot-time overlap-reject invariant sees them and so the
+      shipped per-kind restore paths that call ``return_excursion``
+      after boot can find their token.
     """
     if _db_ref is None:
         _LOGGER.debug("excursion.startup_audit: DB not bound; skipping")
@@ -489,50 +523,27 @@ async def async_startup_excursion_audit(hass, coord) -> None:
 
     now = _now()
     rehydrated = 0
-    dropped_stuck = 0
+    dropped_stale = 0
+    nudge_preset_restored = 0
+    dropped_nudge = 0
     dropped_banking = 0
     for row in rows:
         kind_str = row.get("kind") or ""
+        zone_id = row.get("zone_id")
         try:
             kind = EXCURSION_KIND(kind_str)
         except ValueError:
             _LOGGER.warning(
                 "excursion.startup_audit: unknown kind %r for zone %s — dropping",
-                kind_str, row.get("zone_id"),
+                kind_str, zone_id,
             )
             try:
-                await _db_ref.clear_excursion_row(row["zone_id"])
+                await _db_ref.clear_excursion_row(zone_id)
             except Exception:  # noqa: BLE001
                 pass
             continue
 
-        if kind == EXCURSION_KIND.BANKING:
-            # §4.5 collision-avoidance — banking is owned by
-            # `_first_eval_done` in hvac_predict.py; clear the row so
-            # the audit doesn't fight it.
-            try:
-                await _db_ref.clear_excursion_row(row["zone_id"])
-            except Exception:  # noqa: BLE001
-                pass
-            dropped_banking += 1
-            continue
-
-        if kind == EXCURSION_KIND.NUDGE:
-            # Collision-avoidance with ac_reset_state.in_flight_nudge_*:
-            # OverrideArrester.async_startup_ramp_audit is the authoritative
-            # boot handler for nudge restarts. It restores the pre-nudge
-            # setpoint and (via the D3 migration) calls return_excursion
-            # to clear this row. Rehydrating a lease here would either
-            # double-defer or race the ramp_audit. Clear on boot; the
-            # short nudge duration (5-15 min) means any residual lease
-            # window is negligible compared to the boot delay.
-            try:
-                await _db_ref.clear_excursion_row(row["zone_id"])
-            except Exception:  # noqa: BLE001
-                pass
-            continue
-
-        # Parse started_ts (ISO) back to epoch for the lease math.
+        # Parse started_ts back to epoch for the stale-ts math.
         started_ts_iso = row.get("started_ts") or ""
         started_epoch: Optional[float] = None
         try:
@@ -541,13 +552,69 @@ async def async_startup_excursion_audit(hass, coord) -> None:
         except Exception:  # noqa: BLE001
             started_epoch = None
         if started_epoch is None:
-            started_epoch = now  # conservative — a fresh lease from now
+            started_epoch = now  # conservative — treat as fresh from now
 
-        # Boot-safety guard on a maximally-stale lease (§4.4).
         age = now - started_epoch
+
+        # F1 fix (2026-08-21): NUDGE rows carry the pre-nudge preset;
+        # ramp_audit restores only the setpoint, so if we drop these
+        # without firing the preset restore we reproduce the manual-
+        # lockout defect. Do it here BEFORE clearing the row.
+        if kind == EXCURSION_KIND.NUDGE:
+            pre_preset = row.get("pre_preset") or ""
+            entity_id = None
+            # Prefer the zone's live climate entity if available.
+            if coord is not None:
+                zm = getattr(coord, "_zone_manager", None)
+                if zm is not None:
+                    zone_obj = getattr(zm, "zones", {}).get(zone_id)
+                    if zone_obj is not None:
+                        entity_id = getattr(zone_obj, "climate_entity", None)
+            if pre_preset and entity_id and hass is not None:
+                try:
+                    from .hvac_setpoint import emit_set_preset_mode  # noqa: PLC0415
+                    await emit_set_preset_mode(
+                        hass,
+                        entity_id,
+                        pre_preset,
+                        blocking=True,
+                        gate=None,
+                        site="startup_audit_nudge_preset_restore",
+                        zone_id=zone_id,
+                        reason="startup_audit_nudge_preset_restore",
+                    )
+                    nudge_preset_restored += 1
+                    _LOGGER.info(
+                        "excursion.startup_audit: NUDGE preset restored "
+                        "for zone %s (entity=%s preset=%s)",
+                        zone_id, entity_id, pre_preset,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "excursion.startup_audit: NUDGE preset restore "
+                        "FAILED for zone %s (entity=%s preset=%s): %s "
+                        "— zone may remain locked in preset_mode=manual",
+                        zone_id, entity_id, pre_preset, exc,
+                    )
+            try:
+                await _db_ref.clear_excursion_row(zone_id)
+            except Exception:  # noqa: BLE001
+                pass
+            dropped_nudge += 1
+            continue
+
+        if kind == EXCURSION_KIND.BANKING:
+            try:
+                await _db_ref.clear_excursion_row(zone_id)
+            except Exception:  # noqa: BLE001
+                pass
+            dropped_banking += 1
+            continue
+
+        # Non-nudge / non-banking: check for stale before rehydrating.
         if age >= EXCURSION_LEASE_MAX_S:
             tok = ExcursionToken(
-                zone_id=row["zone_id"],
+                zone_id=zone_id,
                 excursion_id=row["excursion_id"],
                 kind=kind,
                 started_ts=started_epoch,
@@ -559,17 +626,16 @@ async def async_startup_excursion_audit(hass, coord) -> None:
                 duration_s=row.get("duration_s"),
                 caller_site=row.get("caller_site") or "restart_audit",
             )
-            _fire_stuck_lease_nm(row["zone_id"], tok, age)
+            _fire_stale_row_nm(zone_id, tok, age)
             try:
-                await _db_ref.clear_excursion_row(row["zone_id"])
+                await _db_ref.clear_excursion_row(zone_id)
             except Exception:  # noqa: BLE001
                 pass
-            dropped_stuck += 1
+            dropped_stale += 1
             continue
 
-        # Rehydrate.
         tok = ExcursionToken(
-            zone_id=row["zone_id"],
+            zone_id=zone_id,
             excursion_id=row["excursion_id"],
             kind=kind,
             started_ts=started_epoch,
@@ -583,23 +649,23 @@ async def async_startup_excursion_audit(hass, coord) -> None:
             excursion_target_low=row.get("excursion_target_low"),
             excursion_target_high=row.get("excursion_target_high"),
         )
-        _leases[row["zone_id"]] = tok
+        _rows[zone_id] = tok
         rehydrated += 1
 
     _LOGGER.info(
-        "excursion.startup_audit: rehydrated=%d stuck_dropped=%d "
-        "banking_dropped=%d",
-        rehydrated, dropped_stuck, dropped_banking,
+        "excursion.startup_audit: rehydrated=%d stale_dropped=%d "
+        "nudge_dropped=%d nudge_preset_restored=%d banking_dropped=%d",
+        rehydrated, dropped_stale, dropped_nudge,
+        nudge_preset_restored, dropped_banking,
     )
 
 
 # --- Test helpers ------------------------------------------------------------
 #
-# Tests import these directly to seed/inspect the lease registry without
-# reaching through hass state. Not part of the public runtime API.
+# Tests import these directly. Not part of the runtime public API.
 
 
-def _test_seed_lease(
+def _test_seed_row(
     zone_id: str,
     *,
     kind: EXCURSION_KIND = EXCURSION_KIND.NUDGE,
@@ -608,7 +674,7 @@ def _test_seed_lease(
     pre_preset: Optional[str] = None,
     site: str = "test_seed",
 ) -> ExcursionToken:
-    """Insert a synthetic lease token (tests only)."""
+    """Insert a synthetic row token (tests only)."""
     now = started_ts if started_ts is not None else _now()
     tok = ExcursionToken(
         zone_id=zone_id,
@@ -623,13 +689,25 @@ def _test_seed_lease(
         duration_s=duration_s,
         caller_site=site,
     )
-    _leases[zone_id] = tok
+    _rows[zone_id] = tok
     return tok
 
 
+# Legacy alias — existing tests may still call _test_seed_lease.
+_test_seed_lease = _test_seed_row
+
+
+def _test_has_row(zone_id: str) -> bool:
+    """Bookkeeping probe for tests (previously exposed as ``lease_active``)."""
+    return _row_present_and_fresh(zone_id)
+
+
 def _test_clear_leases() -> None:
-    _leases.clear()
-    _nm_stuck_leases.clear()
+    _rows.clear()
+    _nm_stale_rows.clear()
+
+
+_test_clear_rows = _test_clear_leases
 
 
 def _test_set_kill_switch(enabled: bool) -> None:

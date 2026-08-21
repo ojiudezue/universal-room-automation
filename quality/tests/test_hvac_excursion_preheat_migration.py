@@ -13,34 +13,22 @@ Neuter drills:
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import os
 import sys
 from unittest.mock import MagicMock, AsyncMock
 
 _this_dir = os.path.dirname(__file__)
-sys.path.insert(0, _this_dir)
+if _this_dir not in sys.path:
+    sys.path.insert(0, _this_dir)
 
-import test_hvac_excursion_lease_ac14_behavioural  # noqa: E402,F401
-import test_override_arrester_ttl_suppression as _tsp  # noqa: E402
-
-_pmod_name = "custom_components.universal_room_automation.domain_coordinators.hvac_predict"
-if _pmod_name not in sys.modules:
-    _p = os.path.join(
-        os.path.dirname(__file__), "..", "..",
-        "custom_components", "universal_room_automation",
-        "domain_coordinators", "hvac_predict.py",
-    )
-    _spec = importlib.util.spec_from_file_location(_pmod_name, _p)
-    _m = importlib.util.module_from_spec(_spec)
-    sys.modules[_pmod_name] = _m
-    _spec.loader.exec_module(_m)
-hvac_predict = sys.modules[_pmod_name]
+import _excursion_harness  # noqa: E402
+_mods = _excursion_harness.bootstrap()
+hvac_predict = _mods["hvac_predict"]
+_ex_mod = _mods["hvac_excursion"]
 HVACPredictor = hvac_predict.HVACPredictor
-ZoneState = _tsp.ZoneState
-_ex_mod = sys.modules[
-    "custom_components.universal_room_automation.domain_coordinators.hvac_excursion"
-]
+ZoneState = sys.modules[
+    "custom_components.universal_room_automation.domain_coordinators.hvac_zones"
+].ZoneState
 
 
 def _run(coro):
@@ -116,7 +104,7 @@ def _make():
 def test_execute_pre_heat_creates_lease_row_12_start():
     p, zone = _make()
     _run(p._execute_pre_heat())
-    assert _ex_mod.lease_active(ZONE_ID) is True, (
+    assert _ex_mod._test_has_row(ZONE_ID) is True, (
         "Row 12 START: _execute_pre_heat must open PREHEAT excursion "
         "lease so ticks defer at S1 during the pre-heat window."
     )
@@ -130,9 +118,9 @@ def test_execute_pre_heat_creates_lease_row_12_start():
 def test_return_preheat_releases_lease_and_updates_throttle_row_12():
     p, zone = _make()
     _run(p._execute_pre_heat())
-    assert _ex_mod.lease_active(ZONE_ID) is True
+    assert _ex_mod._test_has_row(ZONE_ID) is True
     _run(p._return_preheat(ZONE_ID))
-    assert _ex_mod.lease_active(ZONE_ID) is False, (
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
         "Row 12 RETURN: _return_preheat must call return_excursion."
     )
     assert ZONE_ID not in p._preheat_excursion_tokens
@@ -152,6 +140,6 @@ def test_kill_switch_off_produces_no_preheat_lease():
     _ex_mod._test_set_kill_switch(False)
     try:
         _run(p._execute_pre_heat())
-        assert _ex_mod.lease_active(ZONE_ID) is False
+        assert _ex_mod._test_has_row(ZONE_ID) is False
     finally:
         _ex_mod._test_set_kill_switch(True)
