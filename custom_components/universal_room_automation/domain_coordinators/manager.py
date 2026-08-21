@@ -29,6 +29,7 @@ from .coordinator_diagnostics import (
     AnomalyDetector,
     AnomalySeverity,
     ComplianceTracker,
+    DailyCounter,
     DecisionLogger,
 )
 from .house_state import HouseState, HouseStateMachine
@@ -187,8 +188,22 @@ class CoordinatorManager:
         self._processing = False
         self._batch_timer_unsub = None
         self._running = False
-        self._conflicts_resolved_today: int = 0
-        self._decisions_today: int = 0
+        # RESTART-SAFETY-DOCTRINE-1 F13: display-only counters exposed on
+        # the CM diagnostics sensor. restart: RESET WITH REASON — metric-y
+        # counters, no rate-cap consumer. Confirmed no reads on decision
+        # paths; only sensor payloads at manager.py:751-752.
+        self._conflicts_resolved_today = DailyCounter(
+            name="coordinator_manager.conflicts_resolved_today",
+            persist=False,
+            reason="display-only diagnostic counter; not read on any policy path",
+        )
+        self._decisions_today = DailyCounter(
+            name="coordinator_manager.decisions_today",
+            persist=False,
+            reason="display-only diagnostic counter; not read on any policy path",
+        )
+        # Retained for any legacy caller that might still probe the field;
+        # DailyCounter now owns its own rollover date internally.
         self._last_reset_date: str = ""
 
         # v3.6.0-c0.4: Shared diagnostics components
@@ -354,22 +369,22 @@ class CoordinatorManager:
     @property
     def conflicts_resolved_today(self) -> int:
         """Return number of conflicts resolved today."""
-        self._maybe_reset_daily_counters()
-        return self._conflicts_resolved_today
+        return self._conflicts_resolved_today.value
 
     @property
     def decisions_today(self) -> int:
         """Return number of decisions made today."""
-        self._maybe_reset_daily_counters()
-        return self._decisions_today
+        return self._decisions_today.value
 
     def _maybe_reset_daily_counters(self) -> None:
-        """Reset daily counters if the date has changed."""
-        today = dt_util.now().date().isoformat()
-        if today != self._last_reset_date:
-            self._conflicts_resolved_today = 0
-            self._decisions_today = 0
-            self._last_reset_date = today
+        """Force a rollover check on the DailyCounter primitives.
+
+        Kept for backward compatibility with any external caller. The
+        counters now roll over lazily on access, so this is a no-op in
+        the steady state.
+        """
+        self._conflicts_resolved_today.rollover_if_needed()
+        self._decisions_today.rollover_if_needed()
 
     def register_coordinator(self, coordinator: BaseCoordinator) -> None:
         """Register a domain coordinator and inject diagnostics."""
@@ -463,6 +478,25 @@ class CoordinatorManager:
                     "Error stopping coordinator %s", coordinator.coordinator_id
                 )
 
+        # RESTART-SAFETY-DOCTRINE-1 F2: persist setup AnomalyDetector
+        # baselines. Sibling of the safety.py F1 fix; setup timing is
+        # sampled once per boot so MINIMUM_SAMPLES=10 takes ~10 restarts to
+        # reach — the ONLY way baselines can arm is by surviving each
+        # restart. Load call at manager.py:428 was previously paired with
+        # no save.
+        if self._setup_anomaly_detector is not None:
+            try:
+                await self._setup_anomaly_detector.save_baselines()
+                _LOGGER.info(
+                    "CM: saved setup_anomaly_detector baselines on stop"
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "CM: failed to save setup_anomaly_detector baselines "
+                    "on stop",
+                    exc_info=True,
+                )
+
         # v3.6.29: Stop Notification Manager
         if self._notification_manager:
             try:
@@ -550,12 +584,12 @@ class CoordinatorManager:
             resolved = self._conflict_resolver.resolve(all_actions)
             conflicts = pre_resolve_count - len(resolved)
             if conflicts > 0:
-                self._conflicts_resolved_today += conflicts
+                self._conflicts_resolved_today.increment(conflicts)
 
             # Execute approved actions
             for coordinator, action in resolved:
                 await self._execute_action(coordinator, action)
-                self._decisions_today += 1
+                self._decisions_today.increment()
 
         except Exception:
             _LOGGER.exception("Error processing intent batch")
@@ -748,8 +782,8 @@ class CoordinatorManager:
             "coordinators_active": sum(
                 1 for c in self._coordinators.values() if c.enabled
             ),
-            "decisions_today": self._decisions_today,
-            "conflicts_resolved_today": self._conflicts_resolved_today,
+            "decisions_today": self._decisions_today.value,
+            "conflicts_resolved_today": self._conflicts_resolved_today.value,
             "health_status": health_status,
             "status_per_coordinator": status_per_coordinator,
         }
