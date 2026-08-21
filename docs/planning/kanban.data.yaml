@@ -7517,7 +7517,31 @@ cards:
     i.e. flap — the exact thing PRESET-FLAP-1 was fixing. Any ending MUST therefore fire ONCE PER
     OFF-PHASE, not per tick. That is the anti-flap property and the criterion that discriminates a
     good fix from a re-opened flap.'
-  OPERATOR_CHOSE_A_TIMER_2026_08_21: 'DECIDED — operator: "Give it a timer." The ending is a BOUNDED
+  TIMER_RESOLVED_BY_THE_BORROW_2026_08_21: 'FINAL SHAPE, after operator asked "Borrow framing good.
+    But you want a timer still? Suggestions?" ANSWER: yes, but the borrow ALREADY HAS ONE — do not
+    build a second. The lease expiry IS the timer:
+    expiry_ts = min(started + duration_s + EXCURSION_LEASE_SLACK_S, started + EXCURSION_LEASE_MAX_S).
+    As a borrow kind, S14 inherits ALL FOUR requirements for free: the timer (lease expiry), the hard
+    backstop (LEASE_MAX), restart safety (async_startup_excursion_audit), and the preset-write
+    restore (the return path). A bespoke S14 timer would duplicate existing machinery.
+    THE ONLY REMAINING DECISION IS WHAT duration_s TO PASS AT begin(). RECOMMENDATION: pass the
+    COMPUTED OFF-PHASE REMAINING, clamped by LEASE_MAX. Precedent already in the plan — §4.4 lists
+    "preheat with computed hour boundary" as a duration_s case, i.e. the exact shape.
+    THIS DISSOLVES THE EARLIER OBJECTION. The orchestrator argued against an off-phase-expiry ending
+    because it would couple S14 release to energy-coordinator state (a categorically risky
+    ingredient). But as a duration_s it is A VALUE HANDED OVER ONCE AT BEGIN TIME, NOT A STATE READ
+    EVERY TICK. The coupling objected to was continuous; this is a single parameter. So the
+    semantically-correct ending and the hard cap are obtained together, with no live cross-coordinator
+    dependency.
+    KNOBS: EXCURSION_LEASE_MAX_S already exists as the backstop, so S14 likely needs NO KNOB OF ITS
+    OWN. This supersedes the earlier recommendation to add a Number entity for the duration — the
+    system can compute it, and a knob for a computable value is an invitation to drift.
+    STILL MANDATORY: the ONE-SHOT-PER-OFF-PHASE guard (below). If the duty cycle extends past the
+    original estimate the lease expires early, the next tick re-arms, and the slow flap returns.
+    ORIGINAL OPERATOR DECISION PRESERVED: "Give it a timer."'
+  SUPERSEDED_OPERATOR_CHOSE_A_TIMER_2026_08_21: 'SUPERSEDED by TIMER_RESOLVED_BY_THE_BORROW above —
+    the timer is the lease, not a new mechanism, and the duration knob is withdrawn in favour of a
+    computed duration_s. The FLAP GUARD in this entry STANDS. Original: operator: "Give it a timer." The ending is a BOUNDED
     TIMER, not the off-phase-expiry discharge originally proposed below. THIS IS THE LOWER-RISK
     CHOICE and supersedes part (1) of the three-part proposal: off-phase-expiry would couple S14s
     release to the energy coordinators off-phase state (cross-coordinator state — a categorically
