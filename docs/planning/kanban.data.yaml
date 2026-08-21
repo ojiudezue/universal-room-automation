@@ -7568,6 +7568,111 @@ cards:
   - KITCHEN-OCCUPANCY-DEAD-1
   - CHATTER-RATE-VS-BURST-GAP-1
 
+- id: EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1
+  title: "person_id has NEVER been populated — 0 of 6,763 rows across 5.5 months. The eight
+    identity-consumer cards are blocked on a producer that emits nothing, not a sparse one. NO-GO."
+  thread: presence
+  status: investigating
+  created: '2026-08-21 19:10'
+  updated: '2026-08-21 19:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - measure-before-build
+  - blocks-a-card-cluster
+  THE_MEASUREMENT_ORCHESTRATOR_VERIFIED: 'MEASURED and INDEPENDENTLY RE-VERIFIED by the orchestrator
+    (not relayed on the agent word): table person_entry_exit_events in the LIVE URA DB —
+    rows = 6,763, person_id NOT NULL = 0, DISTINCT person_id = 0, span 2026-03-04T23:53 ->
+    2026-08-21T22:35. FIVE AND A HALF MONTHS, NEVER ONCE POPULATED.
+    This is not a coverage RATE. There is no coverage.'
+  WHY_IT_IS_ZERO_AND_WHY_THAT_IS_NOT_A_WIRING_BUG: 'The feature is ARMED, not dormant:
+    egress_identity_enabled = True on the integration entry and kill switch
+    switch.ura_name_people_at_doors has been ON since 08-18. Registry resolution of all five egress
+    cameras is CORRECT, including the awkward case garage_b (person entity UNSUFFIXED
+    binary_sensor.garage_b_person_occupancy while its face sensor IS suffixed _2) — so the Frigate-1
+    `_2` handling is NOT broken here.
+    The zero is explained by ABSENCE OF FACES TO MATCH, not by a broken stamp. Split at the 08-18
+    ship boundary, counting a named face on the same camera stem within FACE_MATCH_WINDOW_S=60
+    (const.py:2162) BEFORE the crossing — exactly the condition _resolve_egress_face_identity tests:
+    - PRE-ship 08-14..08-17: 252 crossings, 7 with a face in window (2.8%), 0 stamped.
+    - POST-ship 08-18..08-21: 112 crossings, ZERO with a face in window. No opportunity to stamp.
+    Widening the window barely helps: 60s->7/364, 120s->7/364, 300s->8/364, 900s->10/364 (2.7%).
+    The faces are not there to find. No code defect was found in _resolve_egress_face_identity,
+    register_egress_face, or log_entry_exit_event.'
+  THE_REAL_SHAPE_FACE_RECOGNITION_WORKS_ON_THE_WRONG_CAMERAS: 'Named-face events over 7.6 days:
+    INTERIOR cameras — master_hallway 68, playroom 30, upstairs_hall 18, staircase/stairs_top 20.
+    EGRESS cameras — garage_a 10, front_door_aerial 5, madrone_g6_entry 3, doorbell_lite 3,
+    garage_b 1.
+    Frigate face recognition WORKS WELL where people face the lens at conversational distance. On
+    door/garage cameras (overhead + aerial angles, people in motion, often back-of-head) it produces
+    ~3 named events per camera per WEEK against 15-45 crossings. The capability is fine; the
+    GEOMETRY is wrong.
+    Also MEASURED: UniFi Protect named-face events are NOT in this path at all — no Protect person
+    entity is linked to any of the five egress devices in the registry. Protect and Frigate person
+    detection DO corroborate (deduped within 5s in _resolve_direction), but neither Protect leg
+    carries identity into this table.'
+  CEILING_AND_WHY_IT_KILLS_THE_CONSUMER_CARDS: 'REALISTIC CEILING ~2% (4 named episodes / 229
+    deduplicated crossing episodes over 7.6 days). Poisson noise alone spans roughly 0.5%-4%; call it
+    0-6% honestly. A consumer that names the person at the door would stay SILENT ON ROUGHLY 49 OF
+    EVERY 50 ENTRIES — erratic, not present.
+    THIS IS THE MEASURE-BEFORE-BUILD RULE PAYING OUT EXACTLY AS WRITTEN: "always measure the real
+    production rate of the new value first — a sparse producer caps every consumer value and may
+    argue for a different producer, not more consumers." It does here.
+    NO-GO on scoping PERIMETER-ALERT-NAME-PERSON-1, GUEST-GATE-DOOR-IDENTITY-1,
+    ARRIVAL-DEPARTURE-NOTIFY-1, CENSUS-FACE-RESOLVER-MIGRATE-1, GUEST-COUNT-DEDUP-MIGRATE-1,
+    SECURITY-CENSUS-UNKNOWN-WIRE-1, UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1,
+    EGRESS-INTERIOR-COUNT-REINFORCE-1. The work in front of them is RAISING EGRESS FACE YIELD, not
+    wiring downstream readers. Do not close them — re-gate them behind this card.'
+  PRODUCER_FIX_CANDIDATES_ALL_INFERRED: 'NONE OF THESE ARE MEASURED — they are hypotheses for a
+    producer cycle, and the cycle should start with a measurement of WHY faces miss (the
+    face-event-vs-crossing LAG DISTRIBUTION), which needs debug logs, not the recorder.
+    (a) FACE_MATCH_WINDOW_S=60 with an age>=0 constraint requires the face to land BEFORE the
+    crossing. Frigate face inference may routinely land AFTER. A signed-lag histogram would settle
+    it and is the cheapest first probe.
+    (b) Camera angle/placement at the doors — the geometry finding above suggests this is the
+    dominant term.
+    (c) MOST PROMISING: fuse an INTERIOR face within a short window of an egress crossing rather than
+    requiring the same camera stem. Interior cameras produce 136 named events/week vs 22 across all
+    five egress cameras. That is a producer REDESIGN, not a consumer card.'
+  SUPERSEDES_THE_7PCT_MEMORY: 'This measurement SUPERSEDES memory
+    reference_egress_face_coverage_7pct_not_a_ceiling. That memo said the 7% figure was measured on
+    the WRONG camera (front door) and that the identity path was therefore VIABLE. The first half was
+    right; the CONCLUSION was wrong. Measuring the RIGHT cameras did not rescue the rate — it landed
+    LOWER (~2%), by a different and better method (per-camera temporal join against actually-logged
+    crossings, rather than pooled front-door face coverage). Memory corrected 2026-08-21.'
+  links:
+    blocks:
+    - PERIMETER-ALERT-NAME-PERSON-1
+    - GUEST-GATE-DOOR-IDENTITY-1
+    - ARRIVAL-DEPARTURE-NOTIFY-1
+    - CENSUS-FACE-RESOLVER-MIGRATE-1
+    - GUEST-COUNT-DEDUP-MIGRATE-1
+    - SECURITY-CENSUS-UNKNOWN-WIRE-1
+    - UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
+    - EGRESS-INTERIOR-COUNT-REINFORCE-1
+    related:
+    - EGRESS-CAMERA-DEAD-CONFIG-1
+    context: 'Blocks all eight identity-consumer cards — they read a value that is always NULL, so
+      none can be scoped until egress face yield rises. EGRESS-CAMERA-DEAD-CONFIG-1 fixed the dead
+      garage camera names, which was necessary but NOT sufficient: the cameras are alive and the
+      producer still emits nothing.'
+  parsimony:
+    problem: eight cards are queued against a value that has never once been produced
+    verdict: INVESTIGATE
+    note: the producer is the finding; consumers are moot until yield rises above a usable floor
+  next: 'Do NOT scope the eight consumers. Instead run the producer probe: measure the SIGNED LAG
+    between Frigate named-face events and egress crossings on the same stem (needs debug logs, not
+    recorder). That single distribution discriminates candidate (a) window/ordering from (b)
+    geometry. If lag is the problem it is a cheap fix; if geometry is, the interior-face fusion in
+    (c) is the real cycle. Separately re-measure the GARAGE route on 2026-08-28 (only 8 crossings in
+    4 days post-Frigate-2; too thin to characterise) — but do not hold the eight cards for it, the
+    front-door route already has 104 post-ship crossings with zero named.'
+  refs:
+  - person_entry_exit_events (URA DB)
+  - const.py:2162 FACE_MATCH_WINDOW_S
+  - switch.ura_name_people_at_doors
+
 - id: CHATTER-RATE-VS-BURST-GAP-1
   title: The chatter detector cannot see the house's actual chatter — it detects BURSTS OF
     IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T17:39:07-05:00_ - _Data commit: `98a247459cc4`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T17:43:15-05:00_ - _Data commit: `819e35da7c64`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-21T17:39:07-05:00_ - _Data commit: `98a247459cc4`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
@@ -287,7 +287,7 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
@@ -302,6 +302,22 @@ _created 2026-08-21 18:00 · initial_
   - `THE_HYPOTHESIS_AND_WHY_IT_INVERTS_THE_OBVIOUS_FIX`: The chatter is DROP-OUTS, not false positives. MEASURED (48h): kitchen _presence ON-durations have ZERO episodes under 25s and a hard mode at 25-28s — the 27s hold is governing cleanly and nothing cuts presence short. ALL the churn is on...
   - `THE_EVIDENCE_THAT_RULED_OUT_HARDWARE`: DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE. DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY — _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output ...
   - `ACCEPTANCE_AND_NEXT_STEPS`: RE-MEASURE IN 48H with the same script (interval histogram, sub-5s count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare against the recorded baseline: 724 transitions, median interval 44.0s, 116 ...
+
+### `EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1` - person_id has NEVER been populated — 0 of 6,763 rows across 5.5 months. The eight identity-consumer cards are blocked on a producer that emits nothing, not a sparse one. NO-GO.
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-21 19:10 · initial_
+- **Next:** Do NOT scope the eight consumers. Instead run the producer probe: measure the SIGNED LAG between Frigate named-face events and egress crossings on the same stem (needs debug logs, not recorder). That single distribution discriminates can...
+- **Tags:** measured-not-inferred, measure-before-build, blocks-a-card-cluster
+- **Parsimony:** [INVESTIGATE] eight cards are queued against a value that has never once been produced
+- **Refs:** person_entry_exit_events (URA DB); const.py:2162 FACE_MATCH_WINDOW_S; switch.ura_name_people_at_doors
+- **Forensic keys (7):**
+  - `THE_MEASUREMENT_ORCHESTRATOR_VERIFIED`: MEASURED and INDEPENDENTLY RE-VERIFIED by the orchestrator (not relayed on the agent word): table person_entry_exit_events in the LIVE URA DB — rows = 6,763, person_id NOT NULL = 0, DISTINCT person_id = 0, span 2026-03-04T23:53 -> 2026-0...
+  - `WHY_IT_IS_ZERO_AND_WHY_THAT_IS_NOT_A_WIRING_BUG`: The feature is ARMED, not dormant: egress_identity_enabled = True on the integration entry and kill switch switch.ura_name_people_at_doors has been ON since 08-18. Registry resolution of all five egress cameras is CORRECT, including the ...
+  - `THE_REAL_SHAPE_FACE_RECOGNITION_WORKS_ON_THE_WRONG_CAMERAS`: Named-face events over 7.6 days: INTERIOR cameras — master_hallway 68, playroom 30, upstairs_hall 18, staircase/stairs_top 20. EGRESS cameras — garage_a 10, front_door_aerial 5, madrone_g6_entry 3, doorbell_lite 3, garage_b 1. Frigate fa...
+  - `CEILING_AND_WHY_IT_KILLS_THE_CONSUMER_CARDS`: REALISTIC CEILING ~2% (4 named episodes / 229 deduplicated crossing episodes over 7.6 days). Poisson noise alone spans roughly 0.5%-4%; call it 0-6% honestly. A consumer that names the person at the door would stay SILENT ON ROUGHLY 49 O...
+  - `PRODUCER_FIX_CANDIDATES_ALL_INFERRED`: NONE OF THESE ARE MEASURED — they are hypotheses for a producer cycle, and the cycle should start with a measurement of WHY faces miss (the face-event-vs-crossing LAG DISTRIBUTION), which needs debug logs, not the recorder. (a) FACE_MATC...
+  - `SUPERSEDES_THE_7PCT_MEMORY`: This measurement SUPERSEDES memory reference_egress_face_coverage_7pct_not_a_ceiling. That memo said the 7% figure was measured on the WRONG camera (front door) and that the identity path was therefore VIABLE. The first half was right; t...
+  - `links`: blocks: PERIMETER-ALERT-NAME-PERSON-1
 
 ### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
 thread: **presence** - status: **investigating** - approval: **unreviewed**
