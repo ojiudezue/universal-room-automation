@@ -249,18 +249,19 @@ All RestoreEntity-backed; URA mirror pattern (form value = install-time seed; sl
 - **Verify:** room config flow shows ac_load_sensor field; selection saves and reads back
 - **Verify:** v4.5.10.1 AST-walk import test still passes (regression guard)
 - **Test:** `test_v4511_entities_*` — 14 house-wide tests + 4 per-zone-isolation tests = 18
-- **Live:** confirm 6 house-wide + 3 per-zone sliders show; tune zone-3 threshold to 1.0 kW post-deploy (4-ton unit); restart; value preserved
+- **Live:** confirm 6 house-wide + 3 per-zone sliders show; tune the **zone-1** threshold to 1.0 kW post-deploy (**zone 1 is the 4-ton unit**); restart; value preserved
+  <br>*(corrected 2026-08-21 — this line originally read "zone-3 … (4-ton unit)", which is FALSE. See the correction note below.)*
 
-> **⚠️ CORRECTION 2026-08-21 — THIS LINE IS FACTUALLY WRONG. DO NOT CITE IT.**
-> Zone 3 is **not** the 4-ton unit. Operator (authoritative oracle for hardware
+> **⚠️ CORRECTION 2026-08-21 — the line above has been FIXED IN PLACE.**
+> It originally said zone **3** was the 4-ton unit. It is not. Operator (authoritative oracle for hardware
 > facts, 2026-08-20): **zone 1 is the 4-ton; zones 2 and 3 are 3-ton.** The
 > tonnage-based 0.8 / 1.0 scheme in this section was never applied in production
 > either — live values are 1.3 / 1.3 / 1.2, tuned by observation. Operator on the
 > 0.8 default: *"Arbitrary. Do better if you can."*
-> Left in place rather than edited so the error stays visible: this line reads as
-> verified (it is a *live acceptance criterion*) and is not. A planning doc is
-> authoritative for code and decisions, **never for physical facts about the
-> house** — those have exactly one oracle, the operator or a measurement.
+> **Why this one was dangerous:** it is a *live acceptance criterion*, so it reads
+> as already-verified. A planning doc is authoritative for code and decisions,
+> **never for physical facts about the house** — those have exactly one oracle,
+> the operator or a measurement.
 > See memory `reference-hvac-zone-tonnage` for the number-vs-name tuning trap.
 
 ### D6: Lockout notification + day rollover

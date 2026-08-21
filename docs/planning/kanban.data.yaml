@@ -7379,6 +7379,82 @@ cards:
   - hvac.py:1788-1795
   - aggregation.py:4017-4019, 4152-4154
   - memory feedback_suppression_needs_discharge
+- id: S14-CEILING-NEEDS-AN-ENDING-1
+  title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending
+    (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
+  thread: hvac
+  status: planned
+  created: '2026-08-21 10:20'
+  updated: '2026-08-21 10:20'
+  refinement_status: initial
+  approval: operator_decided
+  sibling_of: HVAC-PRESET-FLAP-1
+  tags:
+  - tier-2db
+  - re-litigates-shipped-trade
+  - suppression-needs-a-discharge
+  OPERATOR_DECISION_2026_08_21: 'Operator chose option (a) "give it an ending" from the three costed
+    in HVAC-MANUAL-PRESET-CONTRACT-1 / S14_OPERATOR_VERDICT (a: add ending, b: reduce to
+    suppression-only, c: remove entirely). Operator suggestion for the mechanism: "Maybe reading its
+    interventional setpoint?"'
+  THE_DEFECT: 'During an energy coast/shed off-phase in an OCCUPIED zone, S14 (_apply_duty_off_phase,
+    hvac.py ~:2972-2983) writes a RAW SETPOINT to hold the cooling ceiling instead of flipping the
+    zone to away. The raw write puts the Bryant into preset `manual`. Its documented exit is "holds
+    until the next preset transition" — and that exit is STRUCTURALLY UNREACHABLE, because
+    should_change_preset (hvac_preset.py:202) returns False whenever the current preset is manual.
+    S14 CREATES THE EXACT CONDITION THAT PREVENTS ITS OWN EXIT. No timer, no decay, no restore.'
+  RE_LITIGATES_A_DELIBERATE_SHIPPED_TRADE: 'IMPORTANT — the no-release behaviour is INTENDED, not
+    accidental, and THREE artifacts encode it. Overturn all three deliberately and visibly:
+    (1) PLANNING_preset_flap_offphase_honesty.md:184-195 states the ceiling holds until the next
+    preset transition BY DESIGN; (2) :280 is a LIVE ACCEPTANCE CRITERION asserting that NO follow-on
+    restore write fires; (3) shipped test `test_ceiling_held_until_next_preset_transition` ENFORCES
+    it. That test currently encodes the defect as a guarantee and must be INVERTED, with the parked
+    plan annotated to record the operator revisiting the trade on 2026-08-21. Do NOT delete it
+    silently. WHY the original trade wanted no release: a release write is another preset transition,
+    i.e. flap — the exact thing PRESET-FLAP-1 was fixing. Any ending MUST therefore fire ONCE PER
+    OFF-PHASE, not per tick. That is the anti-flap property and the criterion that discriminates a
+    good fix from a re-opened flap.'
+  THE_ENDING_NEEDS_THREE_PARTS_NOT_ONE: 'Operator proposed reading S14s own interventional setpoint.
+    CORRECT but it is a RELINQUISH signal, not an ENDING — it answers "do I still own this?", not
+    "should this still be held?". If nothing else touches the thermostat the setpoint reads unchanged
+    forever and the indefinite hold returns. Need all three:
+    (1) ENDING / primary discharge — the JUSTIFYING CONDITION EXPIRES. The ceiling exists because of
+    the off-phase; release when the off-phase ends. Fires once per off-phase (anti-flap).
+    (2) BACKSTOP — bounded max duration, so the hold cannot outlive its reason if the discharge
+    misfires or a restart eats the state. Declare restart behaviour (PERSIST/RESET/REBUILD).
+    (3) RELINQUISH — the divergence check: if the current setpoint no longer matches what S14 wrote,
+    someone else owns the zone; disarm SILENTLY rather than stomp them. Needs TOLERANCE (cloud echo +
+    rounding make exact comparison flaky) — REUSE the v5.51.1 echo-guard, do not hand-roll.
+    THE RELEASE ITSELF MUST BE A PRESET WRITE per the operator hygiene rule. Restoring preset
+    GOVERNANCE is the point; just putting the number back leaves the zone in manual.'
+  RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING: 'STRONG RECOMMENDATION — do NOT build a
+    bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart
+    audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was
+    EXCLUDED from that cycle for exactly ONE reason — it was an INDEFINITE hold (plan §12 parked-plan
+    trigger, verbatim: "If the operator wants the ceiling to self-release, that is a separate card
+    that re-litigates PRESET-FLAP-1"). The operator decision removes the indefiniteness, so the
+    exclusion rationale evaporates. Building a second differently-shaped restore path is PRECISELY
+    how this codebase reached 13 setpoint-write sites of which 9 never restore a preset. Sequence:
+    let the primitive land and live-validate, THEN migrate S14 as a kind.'
+  parsimony:
+    problem: an energy-saving hold with no exit locks the zone out of preset control indefinitely
+    verdict: BUILD
+    note: gate behind HVAC-GOVERNED-EXCURSION-1 landing; migrate as a kind rather than hand-rolling
+      a second restore path
+  next: 'Wait for HVAC-GOVERNED-EXCURSION-1 (D2+D3) to land and live-validate. Then scope S14 as a
+    borrow kind with the three-part ending above. Deliverables include INVERTING
+    test_ceiling_held_until_next_preset_transition and annotating
+    PLANNING_preset_flap_offphase_honesty.md:184-195,:280. Discriminating acceptance criterion: the
+    release fires ONCE PER OFF-PHASE, not per tick.'
+  refs:
+  - hvac.py:2972-2983
+  - hvac_preset.py:202
+  - PLANNING_preset_flap_offphase_honesty.md:184-195,:280
+  - PLANNING_hvac_governed_excursion.md §12
+  - test_ceiling_held_until_next_preset_transition
+  - HVAC-MANUAL-PRESET-CONTRACT-1
+  - HVAC-GOVERNED-EXCURSION-1
+
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
   title: Design spec says control the thermostats via PRESETS, never raw manual setpoints
     — reality is zones sitting in manual for hours; do the sanctioned excursions return?
