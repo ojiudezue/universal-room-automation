@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T16:45:46-05:00_ - _Data commit: `dc0c3f54f0c8`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T17:01:55-05:00_ - _Data commit: `d552bcbf7ab8`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-21T16:45:46-05:00_ - _Data commit: `dc0c3f54f0c8`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
@@ -21,7 +21,7 @@ _Generated: 2026-08-21T16:45:46-05:00_ - _Data commit: `dc0c3f54f0c8`_ - _last_r
 | ⏸️ Waiting on operator | 3 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 14 |
-| ✅ Done | 32 |
+| ✅ Done | 33 |
 
 ## 📥 Inbox (26)
 _raw capture_
@@ -285,23 +285,8 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
-
-### `KITCHEN-OCCUPANCY-DEAD-1` - Kitchen occupancy NEVER fires while kitchen motion fires 1,161x in 3 days — busiest room in the house is invisible to URA presence
-thread: **presence** - status: **investigating** - approval: **unreviewed**
-_created 2026-08-21 16:45 · initial_
-- **Next:** REPOINT the Kitchen room config: mmwave list looponunity2 -> mmwave_lux_wifi_esphome_kitchen via the options flow (config only, no code). Then confirm binary_sensor.kitchen_occupied actually fires. THEN work the sibling sweep: determine ...
-- **Tags:** measured-not-inferred, live-defect, config-suspected
-- **Parsimony:** [INVESTIGATE] the busiest room in the house never reports occupied despite constant motion
-- **Refs:** binary_sensor.kitchen_occupied; binary_sensor.kitchen_motion; binary_sensor.mmwave_looponunity2_wifi_2_has_human_target; sensor.kitchen_unavailable_entities; memory project_jaya_bedroom_occupancy_resolved; AC-RAMP-ZONE3-NO-BENEFIT-1 (+1 more)
-- **Forensic keys (6):**
-  - `THE_MEASUREMENT_VERIFIED_2026_08_21`: MEASURED via ha_get_history over 2026-08-19 -> 08-21: binary_sensor.kitchen_motion = 1,161 STATE CHANGES (firing constantly; dozens of on/off cycles within a single hour). binary_sensor.kitchen_occupied = ONE row, state off, never change...
-  - `MECHANISM_CONFIRMED_2026_08_21_STALE_CONFIG`: OPERATOR: "Loop unity was removed and replace by the esp mmwave." THAT IS THE MECHANISM. The kitchen room config still references the REMOVED looponunity2 device; its live ESP replacement is present but NOT WIRED IN. Verified: - DEAD (co...
-  - `SIBLING_SWEEP_2026_08_21`: SWEPT for the same defect house-wide rather than fixing the kitchen alone. sensor.<room>_unavailable_entities is non-zero in SIX rooms — EIGHT dead configured inputs total: game_room 2, garage_a 2, kitchen 1, living_room 1, master_bedroo...
-  - `SUPERSEDED_SUSPECTED_BUT_NOT_CONFIRMED`: SUPERSEDED — mechanism confirmed above by the operator. Original: sensor.kitchen_unavailable_entities = 1, so ONE configured kitchen input is dead. A kitchen mmWave device is offline: binary_sensor.mmwave_looponunity2_wifi_2_ has_human_t...
-  - `WHY_THIS_MATTERS_BEYOND_HVAC`: The kitchen is described by the operator as part of the busiest pass-through area in the house. Its occupancy is currently invisible to URA, which propagates to every consumer of room occupancy: zone occupancy, house occupancy, HVAC vaca...
-  - `RECORDER_COUPLING`: Secondary: an entity that reports a constant value still writes rows. A measurement agent estimated ~5,600 off-writes/day from this sensor alone. Relevant to RECORDER-BLOAT-LOGFLOOD-1 (31GB/7 days on flash at 51% life). NOTE this figure ...
 
 ### `AC-RAMP-ZONE3-NO-BENEFIT-1` - Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence rather than retune
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
@@ -1489,7 +1474,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-## ✅ Done (32)
+## ✅ Done (33)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -1847,6 +1832,18 @@ _created 2026-08-19 04:10 · updated 2026-08-19 05:15 · refined_
   - `operator_direction_2026_08_19`: OPERATOR DIRECTION: do not just instrument around it — WORK THROUGH THE CODE and find the bug. Bet: it has a bug and "feels like it has never worked." Strong candidate: the per-tick recheck call is wrapped in a swallowed except -> DEBUG ...
   - `bug_found_2026_08_19`: CODE TRACE FOUND IT (AUDIT_fan_recheck_bug_hunt.md). CONFIRMED: (1) the recheck has NEVER vacated a room — apply_fan_recheck_release guards on outcome==VACATED and never ran; 08-13 occupied_confirmed was the non-vacate path. (2) WHY IT S...
   - `CONFIRMED_LIVE_2026_08_19`: CONFIRMED LIVE (no build needed — the disambiguator sensor already existed). sensor.living_room_living_room_fan_recheck_state: veto_counts={not_occupied:1}, eval_count=1, last_attempt 2026-08-13. The recheck evaluated ONCE at boot, hit n...
+
+### `KITCHEN-OCCUPANCY-DEAD-1` - RESOLVED — NOT A DEFECT: kitchen occupancy is pinned off by switch.kitchen_override_vacant (room deliberately disabled); three inferred mechanisms were wrong before the switch was checked
+thread: **presence** - status: **done** - approval: **n/a**
+_created 2026-08-21 16:45 · updated 2026-08-21 17:20 · resolved_
+- **Next:** Ask the operator whether the Kitchen room is intended to stay disabled. If yes, close. If no, turn on switch.kitchen_automation and switch.kitchen_ai_automation and turn OFF switch.kitchen_override_vacant, then confirm binary_sensor.kitc...
+- **Parsimony:** [NO-BUILD] none — behaviour is as configured
+- **Refs:** coordinator.py:4623-4645; switch.kitchen_override_vacant; binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence; feedback_verify_claim_types_not_felt_uncertainty
+- **Forensic keys (4):**
+  - `RESOLUTION_2026_08_21`: NOT A DEFECT. The Kitchen room is DELIBERATELY DISABLED: switch.kitchen_override_vacant = ON, switch.kitchen_automation = OFF, switch.kitchen_ai_automation = OFF. The override (a v3.20.0 feature, coordinator.py:4634-4637, _is_override_va...
+  - `METHOD_POSTMORTEM_THREE_WRONG_MECHANISMS`: KEPT DELIBERATELY — this card is a better example of a reasoning failure than of a bug. THREE mechanisms were asserted and refuted in sequence, each inferred from partial evidence, before anyone checked the room switches: (1) "missing/mi...
+  - `CONSEQUENCE_FOR_THE_ZONE3_MEASUREMENT`: The zone-3 occupancy/coincidence analysis treated the kitchen as contributing nothing to zone occupancy. That remains TRUE and the numbers stand — but the REASON is the deliberate override, not a defect. Nuance that still matters: for th...
+  - `SIBLING_SWEEP_STILL_VALID_2026_08_21`: The house-wide sweep stands on its own and is NOT invalidated by this resolution: sensor.<room>_unavailable_entities is non-zero in SIX rooms — EIGHT dead configured inputs: game_room 2, garage_a 2, kitchen 1, living_room 1, master_bedro...
 
 ### `HVAC-STALE-ACTUATOR-FRESHNESS-1` - A thermostat can go stale-but-"available" and URA keeps deciding on 90-minute-old data with nothing flagging it
 thread: **hvac** - status: **done** - approval: **explicit**

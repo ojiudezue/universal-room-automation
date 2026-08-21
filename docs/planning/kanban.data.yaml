@@ -7460,105 +7460,74 @@ cards:
   - PLANNING_hvac_kwh_avoided_savings.md
 
 - id: KITCHEN-OCCUPANCY-DEAD-1
-  title: Kitchen occupancy NEVER fires while kitchen motion fires 1,161x in 3 days — busiest
-    room in the house is invisible to URA presence
+  title: "RESOLVED — NOT A DEFECT: kitchen occupancy is pinned off by switch.kitchen_override_vacant
+    (room deliberately disabled); three inferred mechanisms were wrong before the switch was checked"
   thread: presence
-  status: investigating
+  status: done
   created: '2026-08-21 16:45'
-  updated: '2026-08-21 16:45'
-  refinement_status: initial
-  approval: unreviewed
-  tags:
-  - measured-not-inferred
-  - live-defect
-  - config-suspected
-  THE_MEASUREMENT_VERIFIED_2026_08_21: 'MEASURED via ha_get_history over 2026-08-19 -> 08-21:
-    binary_sensor.kitchen_motion = 1,161 STATE CHANGES (firing constantly; dozens of on/off cycles
-    within a single hour). binary_sensor.kitchen_occupied = ONE row, state off, never changed.
-    Live read also shows kitchen_occupied attribute last_motion = 2026-08-21T16:35 (i.e. motion
-    seen MINUTES ago) while the entity itself sits off.
-    SO THE DEFECT IS NOT "no motion source". It is MOTION IS DETECTED AND OCCUPANCY DOES NOT FOLLOW.
-    That is a materially different and more specific finding than the one a measurement agent
-    reported ("42,299 rows, 100% off, missing/misconfigured motion source") — the agent inferred a
-    missing source; the history shows an active source with a broken consumer. Verified before
-    relaying, per the claim-type rule.'
-  MECHANISM_CONFIRMED_2026_08_21_STALE_CONFIG: 'OPERATOR: "Loop unity was removed and replace by
-    the esp mmwave." THAT IS THE MECHANISM. The kitchen room config still references the REMOVED
-    looponunity2 device; its live ESP replacement is present but NOT WIRED IN. Verified:
-    - DEAD (config points here): binary_sensor.mmwave_looponunity2_wifi_2_has_human_target /
-      _has_moving_human_target / _has_still_human_target — all unavailable.
-    - LIVE REPLACEMENT (unwired): binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence /
-      _moving_target / _still_target — all reporting.
-    SAME CLASS AS THE FRIGATE-1 DEAD-CAMERA CONFIG (EGRESS-CAMERA-DEAD-CONFIG-1) and the Jaya
-    Bedroom substrate gap: a config entry pointing at retired hardware, silently contributing
-    nothing, with a working replacement sitting unused. HA never repoints config when a device is
-    replaced.
-    FIX: repoint the Kitchen room config mmwave list looponunity2 -> mmwave_lux_wifi_esphome_kitchen
-    via the options flow. Config change, no code. Note SENSCAP-ORPHAN-1 (shipped v5.85.1) fixed the
-    bug that made de-wiring a sensor unsaveable, so this edit should now go through cleanly.'
-  SIBLING_SWEEP_2026_08_21: 'SWEPT for the same defect house-wide rather than fixing the kitchen
-    alone. sensor.<room>_unavailable_entities is non-zero in SIX rooms — EIGHT dead configured
-    inputs total: game_room 2, garage_a 2, kitchen 1, living_room 1, master_bedroom 1,
-    upstairs_guestroom 1. Only 20 rooms expose this sensor at all, so coverage of the sweep is
-    PARTIAL and the true count may be higher.
-    DO NOT ASSUME ALL SIX ARE THE SAME DEFECT. The count means "currently unavailable", which covers
-    BOTH (a) stale config pointing at removed hardware (the kitchen case — needs a repoint) and
-    (b) a device that is merely offline right now (needs power/WiFi attention, per the CLAUDE.md
-    troubleshooting ladder: device offline is NOT integration failure). Each room needs its own
-    determination. There is also an ESP mmWave for STUDY B
-    (binary_sensor.mmwave_lux_wifi_esphome_studyb_*) — check whether Study B was likewise replaced.
-    DIAGNOSTIC GAP WORTH NOTING: kitchen_unavailable_entities has read 1 throughout, and nothing
-    surfaced that the consequence was TOTAL LOSS of occupancy for that room. A count of dead inputs
-    does not convey "this room is now invisible to presence". Candidate follow-up: escalate when a
-    dead input leaves a room with NO working occupancy source.'
-  SUPERSEDED_SUSPECTED_BUT_NOT_CONFIRMED: 'SUPERSEDED — mechanism confirmed above by the operator.
-    Original: sensor.kitchen_unavailable_entities = 1, so ONE configured kitchen
-    input is dead. A kitchen mmWave device is offline: binary_sensor.mmwave_looponunity2_wifi_2_
-    has_human_target / _has_moving_human_target / _has_still_human_target are ALL unavailable.
-    TWO CANDIDATE MECHANISMS, NEITHER VERIFIED — do not act on one until discriminated:
-    (a) occupancy CONFIDENCE includes the dead mmWave, so confidence never reaches the threshold
-    that would set occupied, even though motion is present;
-    (b) the motion leg is not wired into the kitchen occupancy SUBSTRATE at all, so occupancy has
-    no admissible input once the mmWave died.
-    PRIOR ART — THIS IS A KNOWN FAILURE CLASS: memory project_jaya_bedroom_occupancy_resolved
-    records the same shape (BLE room-mapping gap + Zigbee mmWave missing from the substrate,
-    initially misattributed to a fan veto) and it was FIXED BY CONFIG, not code. Check config first.'
-  WHY_THIS_MATTERS_BEYOND_HVAC: 'The kitchen is described by the operator as part of the busiest
-    pass-through area in the house. Its occupancy is currently invisible to URA, which propagates to
-    every consumer of room occupancy: zone occupancy, house occupancy, HVAC vacancy sweeps, the
-    guest-mode continuous-occupancy gate (30 min), lighting, and the census. A room that is heavily
-    used but never reports occupied is a silent under-count everywhere, not just in HVAC.
-    IT ALSO CONTAMINATED THIS SESSION MEASUREMENT: the zone-3 occupancy/coincidence analysis treats
-    a zone as occupied if ANY member room is occupied. With the kitchen contributing nothing, zone-3
-    occupancy and the entry-during-nudge coincidence rate are LOWER BOUNDS. Partly masked because
-    Kitchen Hallway / Breakfast Nook / Kitchen Hallway Garage overlap the same physical space, but
-    the bias direction is known and one-way.'
-  RECORDER_COUPLING: 'Secondary: an entity that reports a constant value still writes rows. A
-    measurement agent estimated ~5,600 off-writes/day from this sensor alone. Relevant to
-    RECORDER-BLOAT-LOGFLOOD-1 (31GB/7 days on flash at 51% life). NOTE this figure is INFERRED from
-    the agent report and was NOT independently verified — do not cite it as measured.'
+  updated: '2026-08-21 17:20'
+  refinement_status: resolved
+  approval: n/a
+  RESOLUTION_2026_08_21: 'NOT A DEFECT. The Kitchen room is DELIBERATELY DISABLED:
+    switch.kitchen_override_vacant = ON, switch.kitchen_automation = OFF,
+    switch.kitchen_ai_automation = OFF. The override (a v3.20.0 feature, coordinator.py:4634-4637,
+    _is_override_vacant) forces STATE_OCCUPIED=False and stamps occupancy_source="override"
+    REGARDLESS OF SENSORS. All four switches share last_changed 2026-08-21T14:09:20, which is a
+    RESTART timestamp (RestoreEntity rehydration), not four manual toggles — so this has been the
+    standing configuration.
+    EVERYTHING ELSE IS HEALTHY: the PIR (binary_sensor.motiontempluxhum_protect_blu_kitchen_motion,
+    UniFi Protect) fires normally; the ESP mmWave
+    (binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence) is live and correctly wired as the
+    room Presence sensor; capability declarations are correct. Confirmed from the operator screenshot
+    of the Sensors config page plus live entity reads.
+    OPEN QUESTION FOR THE OPERATOR (the only remaining item): is the kitchen MEANT to be disabled? If
+    yes, close this permanently. If no, the fix is flipping three switches — no code, no config edit.'
+  METHOD_POSTMORTEM_THREE_WRONG_MECHANISMS: 'KEPT DELIBERATELY — this card is a better example of a
+    reasoning failure than of a bug. THREE mechanisms were asserted and refuted in sequence, each
+    inferred from partial evidence, before anyone checked the room switches:
+    (1) "missing/misconfigured motion source" — from a measurement agent seeing 100% off. REFUTED by
+        history: the PIR fires constantly (1,161 state changes in 3 days).
+    (2) "occupancy confidence gated by a dead mmWave" / "motion not in the substrate" — inferred from
+        sensor.kitchen_unavailable_entities=1 plus unavailable looponunity entities. REFUTED: the
+        looponunity entities are ORPHANED REGISTRY LEFTOVERS from a removed device and are NOT
+        referenced by the kitchen config at all.
+    (3) "stale config points at the removed looponunity, replacement unwired" — inferred from the
+        operator noting the device had been replaced. REFUTED by the operator directly ("pretty sure
+        the loopunity is not in config pages") and then by the config screenshot: the ESP mmWave was
+        already wired.
+    THE ACTUAL ANSWER WAS ONE STATE READ AWAY THE WHOLE TIME. Lesson, consistent with
+    feedback_verify_claim_types_not_felt_uncertainty: a CAUSAL MECHANISM claim is contraband without
+    evidence, and "is this thing simply switched off?" is the cheapest disconfirming check available
+    for any "X never fires" symptom. CHECK THE OVERRIDE/ENABLE SWITCHES FIRST — before substrate,
+    config, or code.'
+  CONSEQUENCE_FOR_THE_ZONE3_MEASUREMENT: 'The zone-3 occupancy/coincidence analysis treated the
+    kitchen as contributing nothing to zone occupancy. That remains TRUE and the numbers stand — but
+    the REASON is the deliberate override, not a defect. Nuance that still matters: for the question
+    "was a human physically present during a nudge", URA genuinely does not know about the kitchen,
+    so the coincidence rate is still an UNDER-COUNT of real human presence. Design choice, not bug.'
+  SIBLING_SWEEP_STILL_VALID_2026_08_21: 'The house-wide sweep stands on its own and is NOT
+    invalidated by this resolution: sensor.<room>_unavailable_entities is non-zero in SIX rooms —
+    EIGHT dead configured inputs: game_room 2, garage_a 2, kitchen 1, living_room 1, master_bedroom 1,
+    upstairs_guestroom 1. Only 20 rooms expose the sensor, so coverage is PARTIAL.
+    DO NOT assume a shared cause — "unavailable" covers both stale config pointing at removed
+    hardware AND a device merely offline right now, which need different fixes. Also note the kitchen
+    still shows 1 dead input whose identity was never established (it is NOT the looponunity, which
+    is unreferenced). Worth its own small pass; tracked here rather than spawning a card until
+    someone determines whether these are stale config or offline devices.'
   parsimony:
-    problem: the busiest room in the house never reports occupied despite constant motion
-    verdict: INVESTIGATE
-    note: config-first per the Jaya Bedroom precedent; do not scope code until (a) vs (b) is
-      discriminated
-  next: 'REPOINT the Kitchen room config: mmwave list looponunity2 -> mmwave_lux_wifi_esphome_kitchen
-    via the options flow (config only, no code). Then confirm binary_sensor.kitchen_occupied actually
-    fires. THEN work the sibling sweep: determine per room whether each dead input is stale config or
-    a merely-offline device.
-    SUPERSEDED FIRST STEP: read the Kitchen room config entry Then discriminate (a) confidence-gated
-    vs (b) motion-not-in-substrate by checking whether occupancy would set on motion alone. If the
-    dead mmWave is simply an offline device, the first question is whether it is physically dead or
-    off-WiFi (see the CLAUDE.md troubleshooting ladder — device offline is not integration failure).
-    Fix is likely config, per precedent.'
+    problem: none — behaviour is as configured
+    verdict: NO-BUILD
+    note: resolved by inspection; retained for the method postmortem and the sibling sweep
+  next: 'Ask the operator whether the Kitchen room is intended to stay disabled. If yes, close. If no,
+    turn on switch.kitchen_automation and switch.kitchen_ai_automation and turn OFF
+    switch.kitchen_override_vacant, then confirm binary_sensor.kitchen_occupied fires. Separately,
+    work the six-room dead-input sweep, determining per room whether each input is stale config or an
+    offline device.'
   refs:
-  - binary_sensor.kitchen_occupied
-  - binary_sensor.kitchen_motion
-  - binary_sensor.mmwave_looponunity2_wifi_2_has_human_target
-  - sensor.kitchen_unavailable_entities
-  - memory project_jaya_bedroom_occupancy_resolved
-  - AC-RAMP-ZONE3-NO-BENEFIT-1
-  - RECORDER-BLOAT-LOGFLOOD-1
+  - coordinator.py:4623-4645
+  - switch.kitchen_override_vacant
+  - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
+  - feedback_verify_claim_types_not_felt_uncertainty
 
 - id: AC-RAMP-ZONE3-NO-BENEFIT-1
   title: Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for
