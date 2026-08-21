@@ -5754,20 +5754,24 @@ class PresenceCoordinator(BaseCoordinator):
         elif guest_room_gate_armed:
             _d5_guest_confidence = 0.9
         else:
-            # Review B-LOW-2 (2026-08-16) canary: structurally unreachable
-            # under D2 (guest_armed depends on guest_room_gate_armed only,
-            # so entering this outer ``if guest_armed:`` block with
-            # guest_room_gate_armed=False cannot happen). Kept for shape /
-            # future readers; log-only canary (matches project convention
-            # of "should never happen" defensive warnings, e.g.
-            # energy.py:3188). Firing here indicates a future edit made
-            # this branch reachable — expected to be caught by review.
+            # RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21): the original canary
+            # was authored against a phantom outer ``if guest_armed:``
+            # block that does not exist in this method — the confidence
+            # if/elif/else runs UNCONDITIONALLY every tick, so the else
+            # branch fires on every normal no-guest cycle (2525 hits in
+            # 5h). Re-guard to the check the author intended: the branch
+            # is a real invariant violation only when guest_armed is True
+            # while guest_room_gate_armed is False (arming predicate got
+            # re-composed to include something other than the room gate).
+            # Demoted to debug — inert canaries do not deserve WARNING.
             _d5_guest_confidence = 0.8
-            _LOGGER.warning(
-                "D2 canary: _d5_guest_confidence census-only branch reached "
-                "(should be unreachable — guest_armed depends on room only). "
-                "A recent change may have re-composed the arming predicate."
-            )
+            if guest_armed and not guest_room_gate_armed:
+                _LOGGER.debug(
+                    "D2 canary: _d5_guest_confidence census-only branch "
+                    "reached with guest_armed=True but "
+                    "guest_room_gate_armed=False — arming predicate may "
+                    "have been re-composed to include non-room signals."
+                )
 
         # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
         # For each zone, build a weight map keyed by room_name using the

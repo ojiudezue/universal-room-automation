@@ -1939,6 +1939,25 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
                 "swallowed (attrs=chatter_telemetry omitted)",
                 exc_info=True,
             )
+        # RECORDER-BLOAT-LOGFLOOD-1 (2026-08-21): expose duty-cycle
+        # NOTIFY-ONLY stuck set. The WARNING that used to fire every tick
+        # per sensor is now edge-triggered (WARN on enter, INFO on
+        # release) — this attribute preserves the diagnostic surface so
+        # operators can see the current stuck notify-only set at any
+        # time without grepping historical logs. Excluded stuck sensors
+        # remain surfaced via existing `dutycycle_excluded_now` /
+        # RoomInsightSensor paths (unchanged).
+        try:
+            notify_active = getattr(
+                self.coordinator, "_dutycycle_notify_active", None,
+            )
+            if notify_active is not None:
+                attrs["dutycycle_stuck_notify"] = sorted(notify_active)
+        except Exception:  # noqa: BLE001 — diagnostics must degrade
+            _LOGGER.debug(
+                "UnavailableEntitiesSensor: dutycycle_stuck_notify raise "
+                "swallowed", exc_info=True,
+            )
         # Reconcile-on-Return (v5.8.0, D2.4): reconcile diagnostics. None-safe —
         # a room with no lights/fans has no reconciler, so we degrade to zeros.
         reconciler = self._reconciler()
