@@ -288,6 +288,16 @@ sys.modules[
 sys.modules[
     "custom_components.universal_room_automation.domain_coordinators.hvac"
 ] = _hvac_mod
+
+# Pop only `homeassistant.helpers.storage` (not the whole HA tree) so
+# test_hvac_excursion_d1_observability's `try: from homeassistant.helpers.storage
+# import Store` gate for _HA_REAL doesn't falsely detect a real HA
+# install from our mock. Other HA mocks stay resident so sibling tests
+# that consume them (e.g. test_hvac_vacancy_sweep_manual_on_guard) still
+# work when collected after this file. The d1 gate needs BOTH
+# `helpers.storage` AND `util.dt` to succeed; util.dt is already popped
+# above (via _HA_DT_ORIG restore).
+sys.modules.pop("homeassistant.helpers.storage", None)
 if _HA_DT_ORIG is _MISSING:
     sys.modules.pop("homeassistant.util.dt", None)
 else:
