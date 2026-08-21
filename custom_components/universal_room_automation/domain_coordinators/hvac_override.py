@@ -2528,7 +2528,11 @@ class OverrideArrester:
             self._log_shave_skipped(
                 zone.zone_name, zone_id, "revert",
             )
-            await self._compromise_release_lease(zone_id, trigger="immunity_skip")
+            await self._compromise_release_lease(
+                zone_id, trigger="immunity_skip",
+                restore_ok=False,
+                trigger_detail="revert_skipped_immunity",
+            )
             return
 
         # Fix-up D-MED-1: short-circuit the ENTIRE revert while a comfort-
@@ -2542,7 +2546,11 @@ class OverrideArrester:
                     "Override revert on %s SKIPPED — comfort_delay_active",
                     zone.zone_name,
                 )
-                await self._compromise_release_lease(zone_id, trigger="comfort_delay_skip")
+                await self._compromise_release_lease(
+                    zone_id, trigger="comfort_delay_skip",
+                    restore_ok=False,
+                    trigger_detail="revert_skipped_comfort_delay",
+                )
                 return
         except Exception:  # noqa: BLE001 — never let this deny safety
             pass
@@ -2583,14 +2591,23 @@ class OverrideArrester:
                     zone.zone_name, zone.hvac_mode,
                 )
 
+            # F2 fix (plan §3 row 5): the preset value MUST come from the
+            # token snapshot, not the caller's `original_preset` argument.
+            # The two can disagree — the token is taken at compromise
+            # begin_excursion time (what the wire held); `original_preset`
+            # is the caller's intended value which may have drifted.
+            _cmp_token = self._compromise_excursion_tokens.get(zone_id)
+            _revert_preset = (
+                _cmp_token.pre_preset if _cmp_token is not None
+                and _cmp_token.pre_preset
+                else original_preset
+            )
+
             # ARREST-COMFORT-1 §3.7 S4: DEFER while comfort_delay_active.
-            # Migrated from the legacy inline hass.services.async_call to
-            # the new `emit_set_preset_mode` chokepoint (rev-2 D6 + §8
-            # tertiary-risk mitigation: no raw preset-write bypass).
             _s4_written = await emit_set_preset_mode(
                 self.hass,
                 zone.climate_entity,
-                original_preset,
+                _revert_preset,
                 blocking=False,
                 gate=lambda z=zone_id: self.comfort_delay_active(z),
                 site="S4_revert",
@@ -2604,27 +2621,51 @@ class OverrideArrester:
                 "Override: failed to revert %s to preset %s: %s",
                 zone.climate_entity, original_preset, e,
             )
+            _s4_written = False
 
         # HVAC-GOVERNED-EXCURSION-1 D3 (row 5, S4 compromise RETURN):
-        # release the excursion lease on the normal revert path.
-        await self._compromise_release_lease(zone_id, trigger="timer")
+        # F2 fix — pass restore_ok=_s4_written so a comfort-delay defer
+        # (or an exception) records a divergence in the outcome event
+        # row rather than silently closing "OK". Without this, an event
+        # row shows the compromise ended cleanly while the wire is still
+        # at the compromise setpoint.
+        await self._compromise_release_lease(
+            zone_id,
+            trigger="timer",
+            restore_ok=bool(_s4_written),
+            preset_after=_revert_preset if _s4_written else None,
+            trigger_detail=(
+                None if _s4_written else "s4_preset_write_deferred_or_failed"
+            ),
+        )
 
     async def _compromise_release_lease(
         self, zone_id: str, *, trigger: str,
+        restore_ok: bool | None = None,
+        preset_after: str | None = None,
+        trigger_detail: str | None = None,
     ) -> None:
-        """Release the compromise excursion lease for zone_id.
+        """Release the compromise excursion row for zone_id.
 
-        Called from every _revert_override exit path — including the
-        immunity and comfort_delay early returns — so a scheduled
-        compromise cannot leak a lease that would permanently defer
-        decision-tick preset writes for the zone.
+        Called from every _revert_override exit path. Bookkeeping only
+        post-gate-removal — a leaked row is a false signal and a boot-
+        audit input, but no longer suppresses decision writes.
+
+        F2 fix: accepts restore_ok / preset_after / trigger_detail so an
+        S4 preset-write deferral (or exception) records a divergence in
+        the outcome event row rather than silently closing "OK".
         """
         _cmp_token = self._compromise_excursion_tokens.pop(zone_id, None)
         if _cmp_token is None:
             return
         try:
             from . import hvac_excursion as _ex_mod  # noqa: PLC0415
-            await _ex_mod.return_excursion(_cmp_token, trigger=trigger)
+            await _ex_mod.return_excursion(
+                _cmp_token, trigger=trigger,
+                restore_ok=restore_ok,
+                preset_after=preset_after,
+                trigger_detail=trigger_detail,
+            )
         except Exception as _ret_exc:  # noqa: BLE001
             _LOGGER.debug(
                 "compromise: return_excursion (trigger=%s) failed for %s: %s",
@@ -3242,6 +3283,25 @@ class OverrideArrester:
                 await self._db.clear_ac_in_flight_nudge(zone_id)
             # FIX B2: nudge never took effect, don't try to restore preset later.
             self._nudge_pre_preset.pop(zone_id, None)
+            # STRUCTURAL FIX (2026-08-21): release the excursion — the
+            # wire write failed so the token cannot legitimately be
+            # returned by _restore_after_nudge later. Using the
+            # auto-release helper here documents intent + guarantees no
+            # leak. (Nudge is a NUDGE kind — outcome row goes to
+            # ac_ramp_events via the D1 path, so we release with
+            # restore_ok=False here and don't attempt a second write.)
+            _leaked_token = self._nudge_excursion_tokens.pop(zone_id, None)
+            if _leaked_token is not None:
+                try:
+                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                    await _ex_mod.return_excursion(
+                        _leaked_token,
+                        trigger="wire_write_failed",
+                        restore_ok=False,
+                        trigger_detail="s5_nudge_set_temperature_exception",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             return
 
         self._nudge_in_flight.add(zone_id)
@@ -3259,6 +3319,17 @@ class OverrideArrester:
                 zone, AC_RAMP_EVENT_NUDGE_STARTED, triggered_by,
                 kwh_before=kwh_rate_before,
             )
+            # #53 fix: populate ac_ramp_events.excursion_id from the
+            # NUDGE token opened by begin_excursion above. Without this,
+            # the column added in D2 was DEAD — plumbed through the DAO
+            # but never given a value. The join key that lets
+            # ac_ramp_events UNION-analyse against hvac_excursion_events
+            # is only useful if it has a value.
+            _tele_excursion_id = (
+                self._nudge_excursion_tokens[zone_id].excursion_id
+                if zone_id in self._nudge_excursion_tokens
+                else None
+            )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_STARTED,
@@ -3274,6 +3345,7 @@ class OverrideArrester:
                 # HVAC-GOVERNED-EXCURSION-1 D1: pre-write telemetry.
                 preset_before=_tele_preset_before,
                 mode_before=_tele_mode_before,
+                excursion_id=_tele_excursion_id,
             )
 
         _LOGGER.info(
@@ -3414,6 +3486,13 @@ class OverrideArrester:
                 _tele_restore_ok_immediate = None
             else:
                 _tele_restore_ok_immediate = (_tele_preset_after == pre_preset)
+            # #53 fix: same excursion_id from the token so nudge_started
+            # and nudge_restored can be JOINed.
+            _tele_excursion_id_r = (
+                self._nudge_excursion_tokens[zone_id].excursion_id
+                if zone_id in self._nudge_excursion_tokens
+                else None
+            )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
@@ -3428,6 +3507,7 @@ class OverrideArrester:
                 # retention/kill" case — both are valid NULL.
                 restore_ok=None,
                 restore_ok_immediate=_tele_restore_ok_immediate,
+                excursion_id=_tele_excursion_id_r,
             )
 
             # ---- SETTLED sample: delayed passive re-read ------------------
@@ -3986,10 +4066,19 @@ class OverrideArrester:
         # against a stale window.
         self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
-        # FIX B2: also clear pre-preset snapshot on cancel — the
-        # cancel_nudge restore path emits its own set_temperature but
-        # not a preset write, so any stashed preset is now stale.
-        self._nudge_pre_preset.pop(zone_id, None)
+        # F3 fix (2026-08-21, plan §3 row 8): capture the snapshot BEFORE
+        # popping so the cancel restore path can also write the preset
+        # back. Pre-cycle behaviour discarded the snapshot then emitted
+        # setpoint only, which left preset_mode=manual on preset-based
+        # thermostats (Bryant/Carrier) — a cancel that was supposed to
+        # UN-do the nudge but only undid half of it. The excursion
+        # snapshot on the token is the authoritative source (matches the
+        # normal restore path); the legacy _nudge_pre_preset dict entry
+        # is popped for cleanup symmetry.
+        _cancel_snapshot_preset = self._nudge_pre_preset.pop(zone_id, "") or ""
+        _cancel_token = self._nudge_excursion_tokens.get(zone_id)
+        if _cancel_token is not None and _cancel_token.pre_preset:
+            _cancel_snapshot_preset = _cancel_token.pre_preset
 
         original_target = None
         if self._db is not None:
@@ -4027,6 +4116,36 @@ class OverrideArrester:
                     "cancel_nudge restore failed for %s: %s",
                     zone.climate_entity, e,
                 )
+
+            # F3 fix (2026-08-21, plan §3 row 8): also restore the
+            # snapshotted preset — cancel must be the full undo of the
+            # nudge, not just the setpoint half. Unconditional per §13.5
+            # (equality no-op when snapshot matches current). Suppression
+            # re-opened with kind="preset" so the induced settle event
+            # from set_preset_mode doesn't self-count as a user override.
+            if _cancel_snapshot_preset:
+                self.suppress(zone.climate_entity, kind="preset")
+                try:
+                    await emit_set_preset_mode(
+                        self.hass,
+                        zone.climate_entity,
+                        _cancel_snapshot_preset,
+                        blocking=True,
+                        gate=None,
+                        site="S8_cancel_nudge_preset_restore",
+                        zone_id=zone_id,
+                        reason="cancel_nudge_preset_restore",
+                    )
+                    _LOGGER.info(
+                        "cancel_nudge preset restore on %s -> %s "
+                        "(F3 fix — snapshot-restore, unconditional)",
+                        zone.zone_name, _cancel_snapshot_preset,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.error(
+                        "cancel_nudge preset restore failed on %s: %s",
+                        zone.climate_entity, e,
+                    )
 
         self._track_zone_action(
             zone, AC_RAMP_EVENT_CANCEL_INVOKED, triggered_by,

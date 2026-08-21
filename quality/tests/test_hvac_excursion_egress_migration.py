@@ -178,3 +178,35 @@ def test_kill_switch_off_produces_no_egress_lease():
         assert _ex_mod._test_has_row(ZONE_ID) is False
     finally:
         _ex_mod._test_set_kill_switch(True)
+
+
+
+# ---------------------------------------------------------------------------
+# C-H1 - egress abort branch: _engage_resume with saved_mode empty
+# ---------------------------------------------------------------------------
+
+def test_C_H1_engage_resume_abort_branch_closes_excursion():
+    """The `not thermostat or not saved_mode` abort branch used to
+    return without closing the excursion — leaving a stranded row.
+    Post-fix: the branch calls return_excursion(trigger='egress_abort')
+    before returning.
+
+    Neuter anchor: comment out the return_excursion block inside the
+    abort branch -> this test fails."""
+    em, log = _make_em()
+    _run(em._engage_pause(
+        zone_id=ZONE_ID, zone_state=_StubZoneState(),
+        triggered_room="Living Room", now=None,
+    ))
+    assert _ex_mod._test_has_row(ZONE_ID) is True
+    # Force the abort branch by clearing saved_mode via _paused_by_egress
+    # (empty dict for the zone means .get("mode") -> None -> saved_mode
+    # ends up "" and the `not thermostat or not saved_mode` guard fires).
+    em._paused_by_egress[ZONE_ID] = {"thermostat": CLIMATE, "mode": ""}
+    _run(em._engage_resume(
+        zone_id=ZONE_ID, zone_state=_StubZoneState(), now=None,
+    ))
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
+        "C-H1: _engage_resume abort branch must close the excursion. "
+        "A stranded row is a false signal + a boot-audit input."
+    )

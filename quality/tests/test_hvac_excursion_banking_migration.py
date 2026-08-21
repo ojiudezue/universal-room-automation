@@ -126,3 +126,28 @@ def test_release_banked_zones_clears_lease_row_10():
         "to clear the lease when the banking master flips OFF."
     )
     assert ZONE_ID not in p._banking_excursion_tokens
+
+
+
+# ---------------------------------------------------------------------------
+# Structural fix - release on incomplete wire write
+# ---------------------------------------------------------------------------
+
+def test_structural_release_banking_defer_closes_excursion():
+    """S12 comfort-grace defer must release the excursion. Pre-fix the
+    row stranded until EXCURSION_LEASE_MAX_S. Post-fix: released with
+    restore_ok=False + trigger_detail describing the defer.
+
+    Neuter anchor: comment out the _release_banking_on_incomplete_write
+    call in the `if not _s12_written` branch of _execute_zone_pre_cool
+    -> this test fails."""
+    p, zone = _make_predictor()
+    # Return False from the chokepoint -> defer.
+    hvac_predict.emit_set_temperature = AsyncMock(return_value=False)
+    _run(p._execute_zone_pre_cool(zone, offset=-3.0, reason="solar_bank"))
+    assert _ex_mod._test_has_row(ZONE_ID) is False, (
+        "Structural fix: banking excursion must be released when the "
+        "S12 wire write defers. Otherwise the row is stranded until "
+        "EXCURSION_LEASE_MAX_S expiry (2h)."
+    )
+    assert ZONE_ID not in p._banking_excursion_tokens

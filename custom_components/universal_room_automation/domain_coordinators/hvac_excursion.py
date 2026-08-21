@@ -109,7 +109,14 @@ class ExcursionToken:
     pre_preset: Optional[str]  # SNAPSHOT — may be "manual"; None = no attr
     pre_target_low: Optional[float]
     pre_target_high: Optional[float]
-    intended_mode: str
+    intended_mode: str  # #53 audit 2026-08-21: NARROW consumer — this
+    # field is written to hvac_excursion_events.mode_before by
+    # return_excursion (analytics use) and it is NOT consumed by any
+    # return logic to drive mode restoration. Each site owns its own
+    # mode-restore path (egress reads _paused_by_egress[zid]["mode"];
+    # nudge/compromise/banking/preheat don't touch mode at all). Do NOT
+    # add a mode-restore consumer here without wiring it into every
+    # affected caller in one motion.
     duration_s: Optional[int]
     caller_site: str
     excursion_target_low: Optional[float] = None
@@ -657,6 +664,86 @@ async def async_startup_excursion_audit(hass, coord) -> None:
         "nudge_dropped=%d nudge_preset_restored=%d banking_dropped=%d",
         rehydrated, dropped_stale, dropped_nudge,
         nudge_preset_restored, dropped_banking,
+    )
+
+
+# --- Structural release-on-incomplete-write helper --------------------------
+#
+# Operator ruling 2026-08-21: prefer ONE structural fix for lease-release
+# leaks on early-exit paths over N scattered patches, "so a future site
+# cannot forget." The context manager below is that fix. Callers wrap
+# their wire-write attempt in:
+#
+#     token = await begin_excursion(...)
+#     async with auto_release_on_incomplete(token, trigger="wire_failed"):
+#         await emit_set_temperature(...)
+#         # ... normal path calls return_excursion below
+#
+# If the block exits normally AFTER calling ``return_excursion`` the CM
+# is a no-op (checks ``token._returned``). If the block exits by
+# exception, or by a normal fall-through that FORGOT to call
+# ``return_excursion``, the CM fires ``return_excursion`` with the
+# supplied trigger + restore_ok=False. Future sites that use this CM
+# cannot leak a row on an early-exit path.
+
+
+class _AutoReleaseOnIncomplete:
+    """Return-excursion-on-scope-exit context manager. See module docs."""
+
+    def __init__(
+        self,
+        token: Optional[ExcursionToken],
+        *,
+        trigger: str,
+        trigger_detail: Optional[str] = None,
+    ):
+        self._token = token
+        self._trigger = trigger
+        self._trigger_detail = trigger_detail
+
+    async def __aenter__(self):
+        return self._token
+
+    async def __aexit__(self, exc_type, exc, tb):
+        tok = self._token
+        if tok is None:
+            return False
+        if tok._returned:
+            return False
+        # Block exited (exception or fall-through) without a
+        # return_excursion call — release with restore_ok=False so the
+        # outcome row records the divergence honestly.
+        try:
+            await return_excursion(
+                tok,
+                trigger=self._trigger,
+                restore_ok=False,
+                trigger_detail=(
+                    self._trigger_detail
+                    or (
+                        f"auto_release_on_incomplete_write"
+                        f"({exc_type.__name__})" if exc_type else
+                        "auto_release_on_scope_exit_no_return_call"
+                    )
+                ),
+            )
+        except Exception as _e:  # noqa: BLE001
+            _LOGGER.debug(
+                "auto_release_on_incomplete: return_excursion failed for "
+                "%s: %s", tok.zone_id, _e,
+            )
+        return False  # do not suppress the exception
+
+
+def auto_release_on_incomplete(
+    token: Optional[ExcursionToken],
+    *,
+    trigger: str = "auto_release_on_incomplete",
+    trigger_detail: Optional[str] = None,
+) -> _AutoReleaseOnIncomplete:
+    """Public factory for the auto-release context manager."""
+    return _AutoReleaseOnIncomplete(
+        token, trigger=trigger, trigger_detail=trigger_detail,
     )
 
 

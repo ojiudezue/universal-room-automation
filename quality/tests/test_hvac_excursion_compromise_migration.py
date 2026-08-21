@@ -153,3 +153,61 @@ def test_kill_switch_off_produces_no_compromise_lease():
         assert hvac_override.emit_set_temperature.await_count >= 1
     finally:
         _ex_mod._test_set_kill_switch(True)
+
+
+# ---------------------------------------------------------------------------
+# F2 fix - restore_ok signal + preset source from token
+# ---------------------------------------------------------------------------
+
+def test_F2_revert_records_restore_ok_False_when_s4_write_deferred(monkeypatch):
+    """S4 emit deferred by comfort-delay grace -> _s4_written False ->
+    the returned outcome must carry restore_ok=False, NOT silently
+    close as OK. Under the pre-fix implementation, _compromise_release_
+    lease was called with no restore_ok arg and the outcome recorded
+    as clean.
+
+    Neuter anchor: revert the restore_ok=_s4_written change in
+    _revert_override -> this test fails."""
+    a, zone = _setup()
+    _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
+    hvac_override.emit_set_preset_mode = AsyncMock(return_value=False)
+    outcomes = []
+    orig_return = _ex_mod.return_excursion
+    async def _capture(tok, **kw):
+        out = await orig_return(tok, **kw)
+        outcomes.append({"trigger": kw.get("trigger"),
+                         "restore_ok": kw.get("restore_ok"),
+                         "trigger_detail": kw.get("trigger_detail")})
+        return out
+    monkeypatch.setattr(_ex_mod, "return_excursion", _capture)
+    _run(a._revert_override(zone, "home"))
+    assert outcomes, "return_excursion must have been called"
+    assert outcomes[-1]["restore_ok"] is False, (
+        "F2: S4 deferred write must yield restore_ok=False; got "
+        f"{outcomes[-1]}"
+    )
+    assert outcomes[-1]["trigger_detail"] == "s4_preset_write_deferred_or_failed"
+
+
+def test_F2_revert_uses_token_snapshot_not_caller_arg(monkeypatch):
+    """Plan section 3 row 5: preset comes from token snapshot, not
+    caller argument. Drift between the two used to silently write the
+    caller's stale value on the wire.
+
+    Neuter anchor: revert the _revert_preset = token.pre_preset or ...
+    change -> this test fails (wire sees mismatched_arg not home)."""
+    a, zone = _setup(preset_now="home")
+    _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
+    tok = a._compromise_excursion_tokens[ZONE_ID]
+    assert tok.pre_preset == "home"
+    calls = []
+    async def _capture(hass, entity, preset, *, blocking, gate=None,
+                       site=None, zone_id=None, reason=None):
+        calls.append(preset)
+        return True
+    hvac_override.emit_set_preset_mode = _capture
+    _run(a._revert_override(zone, "mismatched_arg"))
+    assert calls == ["home"], (
+        "F2: S4 must write the token snapshot value, not the caller drift. "
+        f"Got: {calls}"
+    )

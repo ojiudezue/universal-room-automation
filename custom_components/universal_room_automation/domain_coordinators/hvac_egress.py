@@ -607,6 +607,24 @@ class EgressManager:
                 "EgressManager: set_hvac_mode failed for %s — keeping counter",
                 thermostat, exc_info=True,
             )
+            # STRUCTURAL FIX (2026-08-21): release the excursion — the
+            # mode-off wire write failed so the token cannot be
+            # legitimately returned by _engage_resume later. Otherwise
+            # the row is stranded until EXCURSION_LEASE_MAX_S expiry.
+            _leaked_token = getattr(
+                self, "_egress_excursion_tokens", {},
+            ).pop(zone_id, None)
+            if _leaked_token is not None:
+                try:
+                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                    await _ex_mod.return_excursion(
+                        _leaked_token,
+                        trigger="wire_write_failed",
+                        restore_ok=False,
+                        trigger_detail="s15_engage_pause_set_hvac_mode_exception",
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             return
 
         self._paused_by_egress[zone_id] = {

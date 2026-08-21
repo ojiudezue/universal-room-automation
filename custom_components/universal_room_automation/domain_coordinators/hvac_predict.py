@@ -972,6 +972,15 @@ class HVACPredictor:
                     # map (next release cycle re-emits naturally after grace).
                     if self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
+                    # STRUCTURAL FIX (2026-08-21): release the excursion
+                    # too — wire didn't move, but the release-attempt
+                    # outcome row records restore_ok=False honestly.
+                    # Without this the token is stranded until
+                    # EXCURSION_LEASE_MAX_S (a leaked release row is a
+                    # false signal + a boot-audit input).
+                    await self._release_banking_on_incomplete_write(
+                        zone_id, "s11_release_deferred_comfort_grace",
+                    )
                     continue
                 # Keep throttle map consistent with the value we just wrote.
                 if last_emitted is not None:
@@ -1113,6 +1122,14 @@ class HVACPredictor:
             if not _s12_written:
                 if self._override_arrester:
                     self._override_arrester.unsuppress(zone.climate_entity)
+                # STRUCTURAL FIX (2026-08-21): comfort-grace deferred the
+                # wire write. Release the excursion — banking is
+                # caller-owned lifetime; if the write did not land the
+                # release path _release_banked_zones will not find a
+                # token to close (it iterates the map).
+                await self._release_banking_on_incomplete_write(
+                    zone.zone_id, "s12_pre_cool_deferred",
+                )
                 return
             _LOGGER.info(
                 "HVAC: Zone %s pre-cool (%s): %.1f -> %.1f (offset=%.1f, floor=%.1f)",
@@ -1121,6 +1138,36 @@ class HVACPredictor:
             )
         except Exception as e:
             _LOGGER.error("HVAC: Failed to pre-cool %s: %s", zone.climate_entity, e)
+            # STRUCTURAL FIX (2026-08-21): wire write raised — same
+            # release contract as the defer path above.
+            await self._release_banking_on_incomplete_write(
+                zone.zone_id, f"s12_pre_cool_exception:{type(e).__name__}",
+            )
+
+    async def _release_banking_on_incomplete_write(
+        self, zone_id: str, detail: str,
+    ) -> None:
+        """Structural release helper for banking early-exit paths.
+
+        Called from _execute_zone_pre_cool wherever the S12 wire write
+        does not complete (comfort-delay defer OR exception). Without
+        this the excursion row is stranded until EXCURSION_LEASE_MAX_S.
+        """
+        _bt = getattr(self, "_banking_excursion_tokens", {}).pop(
+            zone_id, None,
+        )
+        if _bt is None:
+            return
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            await _ex_mod.return_excursion(
+                _bt,
+                trigger="wire_write_failed",
+                restore_ok=False,
+                trigger_detail=detail,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _activate_zone_fans(self, zone) -> None:
         """Turn on zone fans for comfort bridge during pre-arrival.
@@ -1321,6 +1368,51 @@ class HVACPredictor:
 
             pre_heat_temp = zone.target_temp_low + 2  # Raise by 2F from current
 
+            # HVAC-GOVERNED-EXCURSION-1 D3 (row 12, S13 PREHEAT START):
+            # A-CRIT-2 fix (2026-08-21) — begin_excursion MUST run BEFORE
+            # the emit. Pre-fix ordering (emit first, then snapshot)
+            # captured the excursion value on entities that reflect the
+            # write in-loop; _return_preheat then "restored" +2°F onto
+            # itself AND wrote it into _last_emitted_range. Matches the
+            # ordering already used by nudge / compromise / banking /
+            # egress.
+            _pt = None
+            try:
+                from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                _now = dt_util.now()
+                _target = _now.replace(
+                    hour=OFF_PEAK_END_HOUR, minute=0,
+                    second=0, microsecond=0,
+                )
+                if _target <= _now:
+                    from datetime import timedelta
+                    _target = _target + timedelta(days=1)
+                _dur = int((_target - _now).total_seconds())
+                _pt = await _ex_mod.begin_excursion(
+                    self.hass,
+                    zone_id=zone.zone_id,
+                    entity_id=zone.climate_entity,
+                    kind=_ex_mod.EXCURSION_KIND.PREHEAT,
+                    excursion_low=pre_heat_temp,
+                    excursion_high=zone.target_temp_high,
+                    duration_s=_dur,
+                    site="S13_pre_heat",
+                    intended_mode="heat_cool",
+                )
+                if not hasattr(self, "_preheat_excursion_tokens"):
+                    self._preheat_excursion_tokens = {}
+                if not hasattr(self, "_preheat_return_timers"):
+                    # B-HIGH-4 fix: track the async_call_later handle
+                    # so we can cancel outstanding timers on teardown or
+                    # early return, preventing a callback firing against
+                    # a torn-down coordinator hours after unload.
+                    self._preheat_return_timers = {}
+            except Exception as _phe:  # noqa: BLE001
+                _LOGGER.debug(
+                    "preheat: begin_excursion failed for %s: %s",
+                    zone.zone_id, _phe,
+                )
+
             # Suppress override arrester for this change
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
@@ -1352,57 +1444,39 @@ class HVACPredictor:
                 if not _s13_written:
                     if self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
+                    # A-CRIT-2 cleanup: the emit deferred but we already
+                    # opened the excursion. Close it — bookkeeping, no
+                    # wire write to perform.
+                    if _pt is not None:
+                        try:
+                            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                            await _ex_mod.return_excursion(
+                                _pt, trigger="emit_deferred",
+                                restore_ok=None,
+                                trigger_detail="s13_pre_heat_deferred",
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
                     continue
                 _LOGGER.info(
                     "HVAC Pre-heat: %s set to %.0fF (was %.0fF)",
                     zone.zone_name, pre_heat_temp, zone.target_temp_low,
                 )
+                # Emit landed — commit the excursion bookkeeping.
+                if _pt is not None:
+                    self._preheat_excursion_tokens[zone.zone_id] = _pt
+                    self._pre_conditioning_zones.add(zone.zone_id)
 
-                # HVAC-GOVERNED-EXCURSION-1 D3 (row 12, S13 PREHEAT START):
-                # open the governed excursion and schedule its return at
-                # OFF_PEAK_END_HOUR. Plan §3 row 12: also track the zone
-                # in _pre_conditioning_zones (symmetric with pre-cool) so
-                # downstream consumers see the pre-heat as active.
-                try:
-                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
-                    _now = dt_util.now()
-                    # Seconds until OFF_PEAK_END_HOUR today (or tomorrow if past).
-                    _target = _now.replace(
-                        hour=OFF_PEAK_END_HOUR, minute=0,
-                        second=0, microsecond=0,
-                    )
-                    if _target <= _now:
-                        from datetime import timedelta
-                        _target = _target + timedelta(days=1)
-                    _dur = int((_target - _now).total_seconds())
-                    _pt = await _ex_mod.begin_excursion(
-                        self.hass,
-                        zone_id=zone.zone_id,
-                        entity_id=zone.climate_entity,
-                        kind=_ex_mod.EXCURSION_KIND.PREHEAT,
-                        excursion_low=pre_heat_temp,
-                        excursion_high=zone.target_temp_high,
-                        duration_s=_dur,
-                        site="S13_pre_heat",
-                        intended_mode="heat_cool",
-                    )
-                    if not hasattr(self, "_preheat_excursion_tokens"):
-                        self._preheat_excursion_tokens = {}
-                    if _pt is not None:
-                        self._preheat_excursion_tokens[zone.zone_id] = _pt
-                        self._pre_conditioning_zones.add(zone.zone_id)
-                        # Schedule the return callback at OFF_PEAK_END_HOUR.
-                        @callback
-                        def _fire(_now_cb, _zid=zone.zone_id):
-                            self.hass.async_create_task(
-                                self._return_preheat(_zid)
-                            )
-                        async_call_later(self.hass, _dur, _fire)
-                except Exception as _phe:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "preheat: begin_excursion failed for %s: %s",
-                        zone.zone_id, _phe,
-                    )
+                    # B-HIGH-4 fix: retain the async_call_later handle
+                    # so teardown / early-return can cancel it — mirrors
+                    # the nudge pattern at hvac_override.py:3291.
+                    @callback
+                    def _fire(_now_cb, _zid=zone.zone_id):
+                        self.hass.async_create_task(
+                            self._return_preheat(_zid)
+                        )
+                    _unsub = async_call_later(self.hass, _dur, _fire)
+                    self._preheat_return_timers[zone.zone_id] = _unsub
             except Exception as e:
                 _LOGGER.error("HVAC Pre-heat failed on %s: %s",
                               zone.climate_entity, e)
@@ -1415,6 +1489,15 @@ class HVACPredictor:
         restored pair, drops the zone from _pre_conditioning_zones, and
         releases the excursion lease.
         """
+        # B-HIGH-4 fix: pop the scheduled-timer handle at the same time
+        # so a manual call (test / operator button) also removes the
+        # future callback — no double-fire.
+        _unsub = getattr(self, "_preheat_return_timers", {}).pop(zone_id, None)
+        if _unsub is not None:
+            try:
+                _unsub()
+            except Exception:  # noqa: BLE001
+                pass
         tok = getattr(self, "_preheat_excursion_tokens", {}).pop(
             zone_id, None,
         )
@@ -1459,6 +1542,26 @@ class HVACPredictor:
                 "preheat return_excursion failed for %s: %s",
                 zone_id, _re,
             )
+
+    async def async_cancel_all_preheat_timers(self) -> None:
+        """Cancel every outstanding preheat return timer.
+
+        B-HIGH-4 fix teardown hook: an ``async_call_later`` handle whose
+        ``_dur`` reaches ~24h will otherwise fire against a torn-down
+        coordinator after unload/reload and issue a real climate write.
+        Callers: coordinator teardown / options reload. Idempotent —
+        cancels only; does NOT return the excursions (a torn-down
+        coordinator has nothing to restore to).
+        """
+        timers = getattr(self, "_preheat_return_timers", {})
+        for zid, unsub in list(timers.items()):
+            try:
+                if callable(unsub):
+                    unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        if timers:
+            timers.clear()
 
     def _store_daily_outcome(self) -> None:
         """Store daily outcome measurement."""

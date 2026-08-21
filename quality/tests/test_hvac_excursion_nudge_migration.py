@@ -252,3 +252,82 @@ def test_kill_switch_off_produces_no_lease_but_still_nudges():
         assert hvac_override.emit_set_temperature.await_count >= 1
     finally:
         _ex_mod._test_set_kill_switch(True)
+
+
+
+# ---------------------------------------------------------------------------
+# F3 fix - cancel_nudge writes preset from snapshot
+# ---------------------------------------------------------------------------
+
+def test_F3_cancel_nudge_writes_preset_from_snapshot():
+    """Plan section 3 row 8: cancel_nudge must restore the preset from
+    the snapshot, not just the setpoint. Pre-cycle behaviour popped and
+    discarded _nudge_pre_preset and emitted set_temperature only, which
+    left preset_mode=manual on preset-based thermostats (Bryant/Carrier).
+
+    Neuter anchor: delete the F3 preset-restore block at the tail of
+    cancel_nudge -> this test fails."""
+    a, zone = _setup_arrester_for_nudge(preset_now="home")
+    # A real DB stub returns the in-flight target so cancel proceeds.
+    class _FakeDB:
+        async def get_ac_reset_state(self, zid):
+            return {"in_flight_nudge_original_target": 76.0,
+                    "soft_nudge_count": 0}
+        async def save_ac_reset_state(self, st): return None
+        async def clear_ac_in_flight_nudge(self, zid): return None
+        async def log_ac_ramp_event(self, **kw): return None
+        async def set_ac_in_flight_nudge(self, **kw): return None
+    a._db = _FakeDB()
+    # Take a nudge (populates _nudge_excursion_tokens with snapshot=home).
+    _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
+    tok = a._nudge_excursion_tokens[ZONE_ID]
+    assert tok.pre_preset == "home"
+    # Reset preset-mock count.
+    hvac_override.emit_set_preset_mode.reset_mock()
+    # Resolve-zone stub for cancel path.
+    a._resolve_zone = MagicMock(return_value=zone)
+    _run(a.cancel_nudge(ZONE_ID))
+    # The preset chokepoint MUST have been called for the cancel restore.
+    calls = hvac_override.emit_set_preset_mode.await_args_list
+    preset_values = [c.args[2] if len(c.args) > 2 else c.kwargs.get("preset")
+                     for c in calls]
+    assert "home" in preset_values, (
+        "F3: cancel_nudge must restore the preset from the snapshot; "
+        f"preset writes captured: {preset_values}"
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# #53 sweep - ac_ramp_events.excursion_id is populated (not dead)
+# ---------------------------------------------------------------------------
+
+def test_53_ac_ramp_events_excursion_id_populated_by_nudge_calls():
+    """The excursion_id column added by D2 was DEAD pre-fix — the DAO
+    accepted it, no caller passed it. Post-fix: _perform_soft_nudge
+    passes the token's excursion_id so ac_ramp_events can UNION-analyse
+    against hvac_excursion_events.
+
+    Neuter anchor: delete the excursion_id kwarg from either
+    log_ac_ramp_event call in _perform_soft_nudge -> this test fails."""
+    a, zone = _setup_arrester_for_nudge()
+    captured = []
+    class _CaptureDB:
+        async def get_ac_reset_state(self, zid):
+            return {"soft_nudge_count": 0}
+        async def save_ac_reset_state(self, st): return None
+        async def set_ac_in_flight_nudge(self, **kw): return None
+        async def clear_ac_in_flight_nudge(self, zid): return None
+        async def log_ac_ramp_event(self, **kw):
+            captured.append(kw)
+        async def update_ac_ramp_restore_settled(self, **kw): return None
+    a._db = _CaptureDB()
+    _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
+    started = [c for c in captured if c.get("event_type") == "nudge_started"]
+    assert started, f"no nudge_started row captured: {captured}"
+    assert started[0].get("excursion_id"), (
+        "#53: nudge_started must populate excursion_id from the token. "
+        f"kwargs={started[0]}"
+    )
+    tok = a._nudge_excursion_tokens[ZONE_ID]
+    assert started[0]["excursion_id"] == tok.excursion_id

@@ -226,6 +226,14 @@ def bootstrap():
     )
     _BOOTSTRAPPED = True
 
+    # Pop homeassistant.helpers.storage from sys.modules so
+    # test_hvac_excursion_d1_observability's `try: from
+    # homeassistant.helpers.storage import Store` gate does not
+    # falsely detect a real HA install from our mock. Same for util.dt.
+    # URA modules are already loaded and cache their own dt handle.
+    sys.modules.pop("homeassistant.helpers.storage", None)
+    sys.modules.pop("homeassistant.util.dt", None)
+
     return {
         "hvac": sys.modules[
             "custom_components.universal_room_automation.domain_coordinators.hvac"
