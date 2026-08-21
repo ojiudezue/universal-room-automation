@@ -3077,8 +3077,20 @@ class OverrideArrester:
             _pre_preset = (
                 _cs.attributes.get("preset_mode", "") if _cs is not None else ""
             )
+            # HVAC-GOVERNED-EXCURSION-1 D1: observability-only snapshot of
+            # the raw pre-write preset+mode. Reads HA's cached state dict
+            # (no I/O, no await) so it cannot perturb the setpoint-vs-preset
+            # race the telemetry is measuring. Unlike _pre_preset (which is
+            # filtered to non-manual/non-empty for restore intent), these
+            # capture the RAW state so a "manual" preset_before is visible
+            # in the DB — that is the SELF-DISARM signal (defect #2).
+            _pre_mode = _cs.state if _cs is not None else None
         except Exception:  # noqa: BLE001 — defensive
             _pre_preset = ""
+            _pre_mode = None
+        # None (not empty string) means "state unreadable, do not guess".
+        _tele_preset_before: str | None = _pre_preset if _cs is not None else None
+        _tele_mode_before: str | None = _pre_mode
         # Only snapshot a non-manual, non-empty preset. If the thermostat
         # was already in "manual" (user-driven) or reports no preset,
         # leave the snapshot empty so restore is a no-op — we don't want
@@ -3148,6 +3160,9 @@ class OverrideArrester:
                     f"for {duration_s}s"
                 ),
                 soft_nudge_count_today=state["soft_nudge_count"],
+                # HVAC-GOVERNED-EXCURSION-1 D1: pre-write telemetry.
+                preset_before=_tele_preset_before,
+                mode_before=_tele_mode_before,
             )
 
         _LOGGER.info(
@@ -3252,11 +3267,43 @@ class OverrideArrester:
         )
         if self._db is not None:
             await self._db.clear_ac_in_flight_nudge(zone_id)
+            # HVAC-GOVERNED-EXCURSION-1 D1: post-restore telemetry.
+            # Read HA's cached state dict (no I/O, no await) so this
+            # cannot perturb the ordering race being measured. Reads the
+            # "settled-so-far" state; a later cloud-poll setpoint clobber
+            # (the observed 509 ms defect) will land as a subsequent
+            # state change and is out of scope for this log row —
+            # measuring that latency window is D2/D3.
+            _tele_preset_after: str | None = None
+            _tele_mode_after: str | None = None
+            _tele_restore_ok: bool | None
+            try:
+                _cs_final = self.hass.states.get(zone.climate_entity)
+            except Exception:  # noqa: BLE001 — defensive
+                _cs_final = None
+            if _cs_final is not None:
+                _tele_preset_after = _cs_final.attributes.get("preset_mode", "") or ""
+                _tele_mode_after = _cs_final.state
+            # restore_ok semantics:
+            #   pre_preset (intent) empty  -> no intent (self-disarm or
+            #     nothing to restore) -> NULL, never guess.
+            #   pre_preset set + preset_after unreadable -> NULL.
+            #   pre_preset set + preset_after == pre_preset -> True.
+            #   pre_preset set + preset_after != pre_preset -> False.
+            if not pre_preset:
+                _tele_restore_ok = None
+            elif _tele_preset_after is None:
+                _tele_restore_ok = None
+            else:
+                _tele_restore_ok = (_tele_preset_after == pre_preset)
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
                 target_high=original_target,
                 kwh_rate_before=zone.nudge_kwh_rate_before,
+                preset_after=_tele_preset_after,
+                mode_after=_tele_mode_after,
+                restore_ok=_tele_restore_ok,
             )
 
         zone.ramp_state = AC_RAMP_STATE_AWAITING_EVAL

@@ -406,7 +406,7 @@ class TestDetectionLogic:
 
     def test_check_ac_reset_master_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         # Gate 1: master switch
         assert "self._ramp_master_enabled" in body
         # Must return BEFORE iterating zones
@@ -419,12 +419,12 @@ class TestDetectionLogic:
 
     def test_check_ac_reset_per_zone_enable_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "zone.ramp_zone_enabled" in body
 
     def test_check_ac_reset_ac_load_sensor_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "zone.ac_load_sensor" in body
         # Must set ramp_state to DISABLED when sensor not configured (graceful)
         assert "AC_RAMP_STATE_DISABLED" in body
@@ -468,7 +468,7 @@ class TestDetectionLogic:
 
     def test_check_ac_reset_lockout_gate(self, hvac_override_src):
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "lockout_flag" in body
         assert "AC_RAMP_STATE_LOCKED_OUT" in body
 
@@ -580,7 +580,7 @@ class TestSoftNudge:
 
     def test_perform_soft_nudge_schedules_restore(self, hvac_override_src):
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "_nudge_restore_timers" in body
         assert "async_call_later" in body
 
@@ -597,13 +597,13 @@ class TestSoftNudge:
 
     def test_restore_after_nudge_clears_in_flight(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "clear_ac_in_flight_nudge" in body
         assert "AC_RAMP_EVENT_NUDGE_RESTORED" in body
 
     def test_restore_after_nudge_schedules_evaluation(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "AC_NUDGE_EVALUATION_DELAY_S" in body
         assert "_nudge_eval_timers" in body
 
@@ -655,7 +655,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "self._hard_reset_daily_limit" in body
 
     def test_hard_reset_checks_global_min_interval(self, hvac_override_src):
@@ -664,7 +664,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "get_global_last_hard_reset_ts" in body
         assert "self._hard_reset_min_interval_min" in body
 
@@ -672,7 +672,7 @@ class TestHardResetEscalation:
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "_engage_lockout" in body
 
     def test_hard_reset_reuses_existing_perform_ac_reset(
@@ -707,13 +707,13 @@ class TestLockout:
         """One persistent notification per zone (HA dedupes by id) — no
         spam if multiple lockouts fire in sequence."""
         idx = hvac_override_src.find("async def _engage_lockout(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "ura_ac_ramp_lockout_" in body
         assert "notification_id" in body
 
     def test_lockout_logs_event_with_flag(self, hvac_override_src):
         idx = hvac_override_src.find("async def _engage_lockout(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 8000]  # D1 bumped
         assert "AC_RAMP_EVENT_LOCKOUT_ENGAGED" in body
         assert "lockout_triggered=True" in body
 

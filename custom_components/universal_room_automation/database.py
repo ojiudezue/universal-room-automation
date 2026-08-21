@@ -1515,7 +1515,12 @@ class UniversalRoomDatabase:
                         hard_reset_count_today INTEGER,
                         lockout_triggered INTEGER NOT NULL DEFAULT 0,
                         notes TEXT,
-                        effective INTEGER
+                        effective INTEGER,
+                        preset_before TEXT,
+                        preset_after TEXT,
+                        mode_before TEXT,
+                        mode_after TEXT,
+                        restore_ok INTEGER
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_ac_ramp_events_zone_ts
                     ON ac_ramp_events(zone_id, timestamp)""",
@@ -1616,6 +1621,24 @@ class UniversalRoomDatabase:
                         await db.execute(
                             "ALTER TABLE ac_ramp_events ADD COLUMN effective INTEGER"
                         )
+                    # HVAC-GOVERNED-EXCURSION-1 D1: additive observability
+                    # columns capturing preset/mode state around the nudge
+                    # lifecycle. ADD COLUMN is O(1) — SQLite records the
+                    # new column in the schema only; existing rows are not
+                    # rewritten (they read as NULL). Safe on the live
+                    # 1.18 GB DB. Each column is guarded individually so a
+                    # partially-migrated DB (interrupted deploy) converges.
+                    for _col, _decl in (
+                        ("preset_before", "TEXT"),
+                        ("preset_after", "TEXT"),
+                        ("mode_before", "TEXT"),
+                        ("mode_after", "TEXT"),
+                        ("restore_ok", "INTEGER"),
+                    ):
+                        if _col not in are_columns:
+                            await db.execute(
+                                f"ALTER TABLE ac_ramp_events ADD COLUMN {_col} {_decl}"
+                            )
                     await db.commit()
                 except Exception as e:
                     _LOGGER.warning("ac_ramp_events migration failed: %s", e)
@@ -7391,6 +7414,11 @@ class UniversalRoomDatabase:
         lockout_triggered: bool = False,
         notes: str | None = None,
         effective: bool | None = None,
+        preset_before: str | None = None,
+        preset_after: str | None = None,
+        mode_before: str | None = None,
+        mode_after: str | None = None,
+        restore_ok: bool | None = None,
     ) -> None:
         """Append an event row to the ramp-down log.
 
@@ -7409,8 +7437,10 @@ class UniversalRoomDatabase:
                         current_temp, target_high,
                         kwh_rate_before, kwh_rate_after, action_taken,
                         soft_nudge_count_today, hard_reset_count_today,
-                        lockout_triggered, notes, effective
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        lockout_triggered, notes, effective,
+                        preset_before, preset_after,
+                        mode_before, mode_after, restore_ok
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         zone_id,
                         dt_util.now().isoformat(),
@@ -7427,6 +7457,11 @@ class UniversalRoomDatabase:
                         notes,
                         # SQLite has no native BOOLEAN; INTEGER 0/1 + NULL.
                         None if effective is None else (1 if effective else 0),
+                        preset_before,
+                        preset_after,
+                        mode_before,
+                        mode_after,
+                        None if restore_ok is None else (1 if restore_ok else 0),
                     ),
                 )
                 await db.commit()
