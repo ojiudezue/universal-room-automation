@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T16:15:47-05:00_ - _Data commit: `2a094a98a643`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T16:21:18-05:00_ - _Data commit: `77c8dc3e7622`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -479,18 +479,19 @@ _created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
 - **Forensic keys (1):**
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
-### `AC-RAMP-SAVINGS-OVERSTATED-1` - AC-ramp kWh-avoided over-claims ~3-10x — documented tech debt whose stated justification ("conservative bias") is REFUTED by measurement, and whose revisit trigger has already fired
+### `AC-RAMP-SAVINGS-OVERSTATED-1` - AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc correction (magnitude is NOT a defect; the figure is explicitly not billing-grade)
 thread: **energy** - status: **planned** - approval: **unreviewed**
 _created 2026-08-21 11:40 · initial_
-- **Next:** Re-open the TECH_DEBT v4.5.11 entry. Correct the "conservative bias" claim with the measured direction. Then cost two options: (a) net the post-restore rebound window into kwh_avoided, (b) full recorder-baselined difference math now that...
+- **Next:** One-line correction to the docs/TECH_DEBT.md v4.5.11 entry: replace the "conservative bias is correct direction" justification with the measured direction (it over-claims, because the 30-min projection does not net the post-restore rebou...
 - **Tags:** measured-not-inferred, refutes-an-accepted-rationale
-- **Parsimony:** [BUILD] a shipped savings figure over-claims by 3-10x and its accepted rationale asserts the opposite direction
+- **Parsimony:** [DOC-FIX] the tech-debt entry gives a bias direction that measurement contradicts; future readers will reason from it
 - **Refs:** {'docs/TECH_DEBT.md "v4.5.11 — AC ramp-down': 'rough kWh-avoided estimate"'}; hvac_override.py:3442,3492-3495; sensor.py:12239-12276; PLANNING_hvac_kwh_avoided_savings.md
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `NOT_A_NEW_DEFECT_IT_IS_KNOWN_DEBT`: IMPORTANT FRAMING — do NOT card this as a newly discovered bug. It is ALREADY DOCUMENTED in docs/TECH_DEBT.md ("v4.5.11 — AC ramp-down: rough kWh-avoided estimate"), which states the formula and explicitly acknowledges it is "not baselin...
   - `WHAT_IS_ACTUALLY_NEW_TWO_THINGS`: THE DEBT ENTRY IS WRONG ABOUT ITS OWN DIRECTION, and its revisit trigger has fired. Both are new. (1) THE JUSTIFICATION IS REFUTED. TECH_DEBT.md justifies the shortcut with: "Conservative bias is correct direction (better to under-claim ...
-  - `CONSUMER_IMPACT`: sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=$1.40 under v5.33.0 H4 — that confirmed the number was PRESENT and forward-only, NOT t...
+  - `CONSUMER_IMPACT_CONTEXT_ONLY`: RETIRED AS A DEFECT per the operator ruling above — retained as context, NOT as work. sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=...
   - `METHOD_CAVEAT_BE_HONEST`: The measurement controls for regression-to-the-mean via the -90/-45 window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min comparison window sits later in the day than the control. That confound c...
+  - `OPERATOR_RULING_2026_08_21_NOT_A_DEFECT`: OPERATOR PUSHBACK, ACCEPTED: "Saving is approximate. It is marked not billing grade explicitly. It needs to be directionally accurate not forensically." CORRECT, and this card was OVER-ESCALATED — the orchestrator relayed a measurement a...
 
 ### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
 thread: **hvac** - status: **planned** - approval: **operator_decided**

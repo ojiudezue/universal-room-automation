@@ -7380,9 +7380,8 @@ cards:
   - aggregation.py:4017-4019, 4152-4154
   - memory feedback_suppression_needs_discharge
 - id: AC-RAMP-SAVINGS-OVERSTATED-1
-  title: AC-ramp kWh-avoided over-claims ~3-10x — documented tech debt whose stated
-    justification ("conservative bias") is REFUTED by measurement, and whose revisit trigger
-    has already fired
+  title: AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc
+    correction (magnitude is NOT a defect; the figure is explicitly not billing-grade)
   thread: energy
   status: planned
   created: '2026-08-21 11:40'
@@ -7412,7 +7411,8 @@ cards:
     the HA recorder and was used to produce the measurement above — control window E[-90,-45] chosen
     deliberately over E[-45,0] so that regression-to-the-mean is not baked in (the nudge fires
     BECAUSE power was high). The prerequisite the entry was waiting for has been sitting there.'
-  CONSUMER_IMPACT: 'sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed
+  CONSUMER_IMPACT_CONTEXT_ONLY: 'RETIRED AS A DEFECT per the operator ruling above — retained as
+    context, NOT as work. sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed
     dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=$1.40 under v5.33.0
     H4 — that confirmed the number was PRESENT and forward-only, NOT that it was ACCURATE. Any
     savings claim built on this sensor is overstated by the same factor. Producer/consumer sweep
@@ -7424,16 +7424,35 @@ cards:
     Rebound IS independently acknowledged in code (hvac_override.py:3442,:3492-3495 describe
     variable-speed Bryant rebound-to-full-power in minutes 5-10 post-restore), which is consistent
     with the measured shortfall and is the mechanism the 30-min projection ignores.'
+  OPERATOR_RULING_2026_08_21_NOT_A_DEFECT: 'OPERATOR PUSHBACK, ACCEPTED: "Saving is approximate.
+    It is marked not billing grade explicitly. It needs to be directionally accurate not
+    forensically." CORRECT, and this card was OVER-ESCALATED — the orchestrator relayed a
+    measurement agent framing ("higher value than the threshold tuning") without applying the
+    operator standard to it. A 3-10x magnitude error is a PRECISION complaint, and precision is
+    explicitly not what this figure is for. Full recorder-baselined difference math is the elaborate
+    fix to a problem that does not exist at the stated standard. THE MAGNITUDE FINDING IS RETIRED as
+    a defect; it survives only as context.
+    WHAT SURVIVES, and it is small: the entry justifies the shortcut with "Conservative bias is
+    correct direction (better to under-claim than over-claim)". Measurement says it OVER-claims. The
+    DECISION to accept the debt stands; the REASON given for accepting it is backwards and someone
+    will reason from it later. ONE-LINE DOC CORRECTION. Do NOT touch the producer, do NOT do a
+    consumer sweep, do NOT build baselining.
+    THE DIRECTIONAL FAILURE LIVES ON THE OTHER CARD: see AC-RAMP-ZONE3-NO-BENEFIT-1. Everywhere but
+    zone 3 the figure is imprecise but points the right way (it rises when the feature does more
+    work) — which satisfies the directional standard. On zone 3 it reports savings where the effect
+    cannot be distinguished from zero. That is a SIGN/EXISTENCE error, not a magnitude error, and it
+    is the only place the directional standard actually fails.'
   parsimony:
-    problem: a shipped savings figure over-claims by 3-10x and its accepted rationale asserts the
-      opposite direction
-    verdict: BUILD
-    note: cheapest correct fix may be netting the rebound window rather than full weather-matched
-      baselining; cost both
-  next: 'Re-open the TECH_DEBT v4.5.11 entry. Correct the "conservative bias" claim with the measured
-    direction. Then cost two options: (a) net the post-restore rebound window into kwh_avoided, (b)
-    full recorder-baselined difference math now that the data is known to exist. Do a consumer sweep
-    of every surface reading the AC-ramp savings family before changing the producer.'
+    problem: the tech-debt entry gives a bias direction that measurement contradicts; future readers
+      will reason from it
+    verdict: DOC-FIX
+    note: NOT a build. Magnitude retired per operator - the figure is explicitly not billing-grade
+      and only needs to be directionally accurate.
+  next: 'One-line correction to the docs/TECH_DEBT.md v4.5.11 entry: replace the "conservative bias
+    is correct direction" justification with the measured direction (it over-claims, because the
+    30-min projection does not net the post-restore rebound that hvac_override.py:3492-3495 already
+    documents). Keep the acceptance decision unchanged. Fold into whatever cycle next touches that
+    file — this does not warrant its own cycle.'
   refs:
   - docs/TECH_DEBT.md "v4.5.11 — AC ramp-down: rough kWh-avoided estimate"
   - hvac_override.py:3442,3492-3495
