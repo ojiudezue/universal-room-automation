@@ -200,6 +200,8 @@ class OverrideArrester:
         # nudge start; consumed by restore/cancel/audit paths to call
         # return_excursion (which clears the persisted lease row).
         self._nudge_excursion_tokens: dict = {}
+        # Same for compromise (rows 4/5).
+        self._compromise_excursion_tokens: dict = {}
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
@@ -2416,6 +2418,34 @@ class OverrideArrester:
         # Remove grace timer reference
         self._grace_timers.pop(zone_id, None)
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 4, S3 compromise START):
+        # open the governed excursion. Stores the token on
+        # self._compromise_excursion_tokens so _revert_override can
+        # release it.
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            _cmp_token = await _ex_mod.begin_excursion(
+                self.hass,
+                zone_id=zone_id,
+                entity_id=zone.climate_entity,
+                kind=_ex_mod.EXCURSION_KIND.COMPROMISE,
+                excursion_low=compromise_heat,
+                excursion_high=compromise_cool,
+                duration_s=self._compromise_minutes * 60,
+                site="S3_compromise",
+                intended_mode="heat_cool",
+            )
+        except Exception as _cmp_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "compromise: begin_excursion failed for %s: %s",
+                zone_id, _cmp_exc,
+            )
+            _cmp_token = None
+        if not hasattr(self, "_compromise_excursion_tokens"):
+            self._compromise_excursion_tokens = {}
+        if _cmp_token is not None:
+            self._compromise_excursion_tokens[zone_id] = _cmp_token
+
         _LOGGER.info(
             "Override compromise on %s: setting cool=%.0f heat=%.0f for %dmin",
             zone.zone_name, compromise_cool, compromise_heat,
@@ -2498,6 +2528,7 @@ class OverrideArrester:
             self._log_shave_skipped(
                 zone.zone_name, zone_id, "revert",
             )
+            await self._compromise_release_lease(zone_id, trigger="immunity_skip")
             return
 
         # Fix-up D-MED-1: short-circuit the ENTIRE revert while a comfort-
@@ -2511,6 +2542,7 @@ class OverrideArrester:
                     "Override revert on %s SKIPPED — comfort_delay_active",
                     zone.zone_name,
                 )
+                await self._compromise_release_lease(zone_id, trigger="comfort_delay_skip")
                 return
         except Exception:  # noqa: BLE001 — never let this deny safety
             pass
@@ -2571,6 +2603,32 @@ class OverrideArrester:
             _LOGGER.error(
                 "Override: failed to revert %s to preset %s: %s",
                 zone.climate_entity, original_preset, e,
+            )
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 5, S4 compromise RETURN):
+        # release the excursion lease on the normal revert path.
+        await self._compromise_release_lease(zone_id, trigger="timer")
+
+    async def _compromise_release_lease(
+        self, zone_id: str, *, trigger: str,
+    ) -> None:
+        """Release the compromise excursion lease for zone_id.
+
+        Called from every _revert_override exit path — including the
+        immunity and comfort_delay early returns — so a scheduled
+        compromise cannot leak a lease that would permanently defer
+        decision-tick preset writes for the zone.
+        """
+        _cmp_token = self._compromise_excursion_tokens.pop(zone_id, None)
+        if _cmp_token is None:
+            return
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            await _ex_mod.return_excursion(_cmp_token, trigger=trigger)
+        except Exception as _ret_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "compromise: return_excursion (trigger=%s) failed for %s: %s",
+                trigger, zone_id, _ret_exc,
             )
 
     # =========================================================================

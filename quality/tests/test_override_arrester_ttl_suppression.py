@@ -657,7 +657,13 @@ class TestRevertOverrideOrdering:
 
         idx = src.find("async def _revert_override(")
         assert idx > 0, "could not locate _revert_override in source"
-        body = src[idx:idx + 4000]
+        # Slice bumped from 4000 to 6000 chars to accommodate the
+        # legitimate growth in _revert_override from the
+        # HVAC-GOVERNED-EXCURSION-1 D3 migration (lease-release calls
+        # on the immunity and comfort_delay early-return paths, plus
+        # the terminal release + a small helper heading). The
+        # ordering invariant this test guards remains intact.
+        body = src[idx:idx + 6000]
         end_markers = ["\n    async def ", "\n    def "]
         end = len(body)
         for marker in end_markers:
