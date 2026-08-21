@@ -7459,6 +7459,80 @@ cards:
   - sensor.py:12239-12276
   - PLANNING_hvac_kwh_avoided_savings.md
 
+- id: CHATTER-RATE-VS-BURST-GAP-1
+  title: The chatter detector cannot see the house's actual chatter — it detects BURSTS OF
+    IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25
+    impossibility events)
+  thread: presence
+  status: investigating
+  created: '2026-08-21 17:40'
+  updated: '2026-08-21 17:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - explains-a-null-result
+  OPERATOR_INSIGHT_2026_08_21: 'Operator, unprompted and correct: "I wonder if chatter is the right
+    thing vs burst chatter. which would be time scoped and not continuous." The measurement below
+    confirms it. This card exists because the operator named the distinction before the data was
+    fully read.'
+  THE_MEASUREMENT: 'Kitchen ESP mmWave, 48h from the HA recorder (MEASURED, computed from raw
+    state rows on the live host):
+    - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence (THE ONE WIRED INTO THE ROOM):
+      731 transitions, median interval 44.4s, min 0.22s. Interval histogram:
+      <1s: 1 | 1-5s: 24 | 5-15s: 36 | 15-60s: 364 | >=60s: 305.
+      SUB-5s events = 25 out of 730 intervals (3.4%), i.e. ~0.5/hour.
+    - binary_sensor.mmwave_lux_wifi_esphome_kitchen_moving_target (NOT wired into the room):
+      3,746 transitions, median 2.2s, SUB-5s = 2,741.'
+  WHY_THE_DETECTOR_CANNOT_SEE_IT: 'The definition, verbatim from chatter_detector.py:11-15: a sensor
+    is "chattering iff it emits >= CHATTER_BURST_K transitions WHOSE INTERVAL SINCE THE PRIOR
+    TRANSITION IS BELOW that sensor per-family T_floor (impossibility events) within the rolling
+    CHATTER_OBSERVATION_WINDOW_S window."
+    With K=10 and T_floor=5.0s, the WIRED sensor generates ~0.5 impossibility events/hour. It will
+    essentially never accumulate 10 inside one observation window unless they cluster. So the
+    detector will NOT flag a sensor that flips 731 times in two days. Raising T_floor 1.0 -> 5.0
+    (done 2026-08-20) does not change this — it broadens the net but the events remain far too sparse.
+    TWO DISTINCT SIGNALS, AND ONE CANNOT SEE THE OTHER:
+    - BURST OF IMPOSSIBILITY (what is built): K sub-T_floor intervals in a rolling window. Detects a
+      sensor doing something physically impossible.
+    - SUSTAINED RATE (what the kitchen actually does): 731 flips/48h where EVERY INDIVIDUAL FLIP IS
+      PHYSICALLY PLAUSIBLE. Absurd in aggregate, innocent in every instance.
+    THIS EXPLAINS THE NULL RESULT. Chatter shadow mode "found nothing" across the house overnight.
+    The detector is NOT mistuned — the houses actual chatter is the kind it was deliberately designed
+    not to look at.'
+  THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING: 'DO NOT simply add a rate threshold to the existing
+    detector. The impossibility framing was chosen ON PURPOSE so the detector could
+    QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a
+    physics violation a correctly-working sensor CANNOT satisfy. No corroborator gate."). That licence
+    is EARNED by impossibility: a working sensor cannot produce it, so no second opinion is needed.
+    A RATE DETECTOR CANNOT INHERIT THAT LICENCE. A busy open-plan kitchen legitimately produces a high
+    transition rate. So a rate-based detector needs EITHER a corroborator gate OR a softer response —
+    DEMOTE, not quarantine. Getting this wrong would quarantine a healthy sensor in the busiest room
+    in the house. The response class must be designed with the signal, not bolted on.'
+  SECOND_FINDING_WRONG_LEG_WATCHED: 'The detector registers over "the room blind-time-gated tier-1
+    entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow
+    chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,741 sub-5s
+    events) and is watched by NOTHING because it is not in the room config. A multi-leg sensor whose
+    unwired legs are the diagnostic ones is a general gap, not a kitchen quirk — worth checking
+    whether other ESP/mmWave rooms have the same shape.'
+  parsimony:
+    problem: the chatter detector cannot detect the failure mode the house actually exhibits
+    verdict: INVESTIGATE
+    note: 'do NOT bolt a rate threshold onto the impossibility detector — the response class
+      (quarantine vs demote) is coupled to the signal class. Design them together.'
+  next: 'Decide whether a RATE-based sensor-health signal is worth building at all — decompose the
+    benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only
+    transitions-per-hour surface with NO automatic action, letting the operator see a misbehaving
+    sensor rather than having URA act on it. If it is built, the response must be demote-with-
+    corroboration, never quarantine-always. Separately: check whether other rooms wire only the
+    quiet leg of a multi-leg mmWave.'
+  refs:
+  - chatter_detector.py:8-15
+  - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
+  - KITCHEN-OCCUPANCY-DEAD-1
+  - CHATTER-CAMERA-CONFIDENCE-FLAP-1
+  - SENSOR-MULTISTATE-FAULT-1
+
 - id: KITCHEN-OCCUPANCY-DEAD-1
   title: "RESOLVED — NOT A DEFECT: kitchen occupancy is pinned off by switch.kitchen_override_vacant
     (room deliberately disabled); three inferred mechanisms were wrong before the switch was checked"

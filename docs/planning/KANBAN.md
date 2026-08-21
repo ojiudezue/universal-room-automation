@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T17:01:55-05:00_ - _Data commit: `d552bcbf7ab8`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T17:18:31-05:00_ - _Data commit: `47c7f47b929c`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-21T17:01:55-05:00_ - _Data commit: `d552bcbf7ab8`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
@@ -285,8 +285,22 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
+
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-21 17:40 · initial_
+- **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
+- **Tags:** measured-not-inferred, explains-a-null-result
+- **Parsimony:** [INVESTIGATE] the chatter detector cannot detect the failure mode the house actually exhibits
+- **Refs:** chatter_detector.py:8-15; binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence; KITCHEN-OCCUPANCY-DEAD-1; CHATTER-CAMERA-CONFIDENCE-FLAP-1; SENSOR-MULTISTATE-FAULT-1
+- **Forensic keys (5):**
+  - `OPERATOR_INSIGHT_2026_08_21`: Operator, unprompted and correct: "I wonder if chatter is the right thing vs burst chatter. which would be time scoped and not continuous." The measurement below confirms it. This card exists because the operator named the distinction be...
+  - `THE_MEASUREMENT`: Kitchen ESP mmWave, 48h from the HA recorder (MEASURED, computed from raw state rows on the live host): - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence (THE ONE WIRED INTO THE ROOM): 731 transitions, median interval 44.4s, min 0...
+  - `WHY_THE_DETECTOR_CANNOT_SEE_IT`: The definition, verbatim from chatter_detector.py:11-15: a sensor is "chattering iff it emits >= CHATTER_BURST_K transitions WHOSE INTERVAL SINCE THE PRIOR TRANSITION IS BELOW that sensor per-family T_floor (impossibility events) within ...
+  - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
+  - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
 ### `AC-RAMP-ZONE3-NO-BENEFIT-1` - Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence rather than retune
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
