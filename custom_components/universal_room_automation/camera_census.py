@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.85.1
+# Universal Room Automation vv5.86.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -242,6 +242,26 @@ class CameraIntegrationManager:
         # crashes at WARNING to avoid log flood while surfacing the initial
         # regression signal.
         self._resolver_crash_count: int = 0
+        # EGRESS-CAMERA-DEAD-CONFIG-1 (2026-08-21): aggregate warn-once for
+        # configured-but-missing camera entities. A stored config fact that
+        # is re-checked every resolve tick must NOT re-log every tick (2,030
+        # WARNINGs / 5h observed pre-fix). We log the first miss per entity
+        # at WARNING (so operators can grep), then suppress until the entity
+        # registry changes (`_register_registry_listeners` already flips
+        # `_resolver_dirty` on EVENT_ENTITY_REGISTRY_UPDATED — we piggyback
+        # via `_maybe_reset_unresolved`). We do NOT auto-substitute a `_N`
+        # suffixed sibling — see PART C non-goal and
+        # docs/planning/AUDIT_frigate_dead_leg_correctness.md L1.
+        self._unresolved_warned: set[str] = set()
+        # Public snapshot for the diagnostic sensor (Part B), keyed by
+        # caller-supplied `scope` (typically the CONF_* list key). Each
+        # scoped call to `resolve_configured_cameras` replaces its own slice
+        # wholesale, so removal of an entity from stored config (the very
+        # next operator action on this card: swap camera.garage_a →
+        # camera.garage_a_2) is self-correcting on the next resolve tick.
+        # A single flat dict would either flap across the three list callers
+        # or need external knowledge of the union to prune correctly.
+        self._unresolved_by_scope: dict[str, dict[str, str]] = {}
 
     def _register_registry_listeners(self) -> None:
         """B-HIGH-1: register EVENT_ENTITY/DEVICE_REGISTRY_UPDATED listeners
@@ -263,6 +283,12 @@ class CameraIntegrationManager:
         @callback
         def _invalidate(_evt) -> None:
             self._resolver_dirty = True
+            # EGRESS-CAMERA-DEAD-CONFIG-1: clear warn-once set so an entity
+            # that returns (or a new one that disappears) re-emits exactly
+            # one WARNING on next resolve. Do NOT clear the per-scope
+            # snapshots — each scoped `resolve_configured_cameras` call
+            # rebuilds its own slice authoritatively.
+            self._unresolved_warned.clear()
 
         try:
             self._resolver_unsubs.append(
@@ -469,6 +495,11 @@ class CameraIntegrationManager:
         (e.g. high-res and medium-res channels), the device is only resolved once.
 
         Returns a flat list of all CameraInfo objects found.
+
+        The diagnostic snapshot (EGRESS-CAMERA-DEAD-CONFIG-1) is populated by a
+        separate scoped method (`record_unresolved_for_scope`) called from the
+        stored-config caller, so that in-tree resolver-shape test stubs that
+        pre-date the diagnostic remain signature-compatible.
         """
         seen_device_ids: set[str] = set()
         all_camera_infos: list[CameraInfo] = []
@@ -478,11 +509,19 @@ class CameraIntegrationManager:
         for camera_entity_id in camera_entity_ids:
             camera_entry = ent_reg.async_get(camera_entity_id)
             if camera_entry is None:
-                _LOGGER.warning(
-                    "Camera entity %s not found in registry — skipping",
-                    camera_entity_id,
-                )
+                # Part A: warn-once per entity; suppress until registry changes.
+                if camera_entity_id not in self._unresolved_warned:
+                    self._unresolved_warned.add(camera_entity_id)
+                    _LOGGER.warning(
+                        "Camera entity %s configured but not found in registry "
+                        "— skipping (further occurrences suppressed until "
+                        "registry updates; see Persons In House sensor "
+                        "attribute 'unresolved_configured_cameras')",
+                        camera_entity_id,
+                    )
                 continue
+            # Entity resolved — allow it to re-warn if it later disappears.
+            self._unresolved_warned.discard(camera_entity_id)
 
             device_id = camera_entry.device_id
             if not device_id:
@@ -506,6 +545,33 @@ class CameraIntegrationManager:
             all_camera_infos.extend(infos)
 
         return all_camera_infos
+
+    def record_unresolved_for_scope(
+        self, scope: str, camera_entity_ids: list[str]
+    ) -> None:
+        """EGRESS-CAMERA-DEAD-CONFIG-1: replace the per-scope diagnostic
+        snapshot for ``scope`` wholesale by walking the entity registry for
+        the current configured list. Removing an entity from stored config
+        (the operator's swap camera.garage_a -> camera.garage_a_2 flow) is
+        self-correcting on the next tick — the next call for the same scope
+        rebuilds a fresh slice. Empty lists clear the scope.
+
+        Kept separate from `resolve_configured_cameras` to preserve the
+        resolver's signature for in-tree test stubs that pre-date the
+        diagnostic surface.
+        """
+        ent_reg = er.async_get(self.hass)
+        slice_: dict[str, str] = {}
+        for eid in camera_entity_ids:
+            try:
+                if ent_reg.async_get(eid) is None:
+                    slice_[eid] = "not_in_registry"
+            except Exception:  # noqa: BLE001 — registry stub variability
+                continue
+        if slice_:
+            self._unresolved_by_scope[scope] = slice_
+        else:
+            self._unresolved_by_scope.pop(scope, None)
 
     def resolve_cross_platform_sensors(
         self,
@@ -896,6 +962,19 @@ class CameraIntegrationManager:
     def get_platform_for_camera(self, entity_id: str) -> str | None:
         """Return 'frigate' or 'unifiprotect' for a given camera entity_id."""
         return self._platform_by_entity.get(entity_id)
+
+    def get_unresolved_configured_cameras(self) -> dict[str, str]:
+        """Return {entity_id: reason} for configured cameras that failed to
+        resolve on the most recent resolve pass for each scoped list (Part B
+        of EGRESS-CAMERA-DEAD-CONFIG-1). Unions the per-scope snapshots so
+        the caller sees a flat map across all three stored-config lists.
+        Empty when every scoped resolve found all its entities. NEVER
+        auto-substitutes suffixed siblings.
+        """
+        out: dict[str, str] = {}
+        for slice_ in self._unresolved_by_scope.values():
+            out.update(slice_)
+        return out
 
     def get_all_frigate_cameras(self) -> list[CameraInfo]:
         """Return all discovered Frigate camera entities."""
@@ -1982,6 +2061,21 @@ class PersonCensus:
                 camera_entity_ids = merged.get(conf_key, [])
                 if not camera_entity_ids:
                     return []
+                # EGRESS-CAMERA-DEAD-CONFIG-1: record the per-scope diagnostic
+                # snapshot BEFORE resolving so a removal from stored config
+                # self-corrects on the next tick. Guarded by hasattr — some
+                # in-tree test stubs mimic the manager's public surface only.
+                if hasattr(self._camera_manager, "record_unresolved_for_scope"):
+                    try:
+                        self._camera_manager.record_unresolved_for_scope(
+                            conf_key, camera_entity_ids
+                        )
+                    except Exception:  # noqa: BLE001 — diagnostic must never crash callers
+                        _LOGGER.debug(
+                            "record_unresolved_for_scope failed for %s",
+                            conf_key,
+                            exc_info=True,
+                        )
                 # Resolve camera.* IDs -> person detection binary_sensor entity IDs
                 resolved = self._camera_manager.resolve_configured_cameras(camera_entity_ids)
                 return [info.person_binary_sensor for info in resolved if info.person_binary_sensor]
