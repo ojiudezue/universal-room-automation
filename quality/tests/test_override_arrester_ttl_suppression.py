@@ -862,8 +862,19 @@ class TestPresetPreservingRestore:
             "Preset snapshot must precede the set_temperature write, "
             "otherwise we'd capture the post-write (manual) preset."
         )
-        # Non-manual guard: don't overwrite a user-set manual mid-night.
-        assert '_pre_preset != "manual"' in body
+        # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED): the pre-existing
+        # `_pre_preset != "manual"` filter is deliberately DELETED —
+        # the excursion snapshots UNFILTERED (raw observed preset,
+        # including "manual" and empty). Restore is unconditional; if
+        # the snapshot was "manual", restore writes "manual" (equality
+        # no-op). Fighting an operator-set manual is the arrester's
+        # job, not the excursion's.
+        # Look for the CODE PATTERN (with `and`), not the bare string —
+        # the deletion documentation comment references the old pattern.
+        assert '_pre_preset and _pre_preset != "manual"' not in body, (
+            "Snapshot-restore semantics: the pre_preset filter must be "
+            "absent — the excursion is unopinionated about intent."
+        )
 
     def test_restore_after_nudge_writes_preset_when_flipped(self):
         """Source-shape guard: _restore_after_nudge must call
@@ -893,8 +904,19 @@ class TestPresetPreservingRestore:
             '"set_preset_mode"' in body
             or 'emit_set_preset_mode(' in body
         ), "restore must emit set_preset_mode to reverse the induced flip"
-        assert '_cur_preset == "manual"' in body, (
-            "restore must gate on current preset actually being manual"
+        # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED): the pre-existing
+        # `if _cur_preset == "manual"` gate is deliberately DELETED —
+        # restore now writes the snapshotted preset UNCONDITIONALLY.
+        # The manual-based gate WAS the self-disarm latch (defect #2 in
+        # §1.1): a mid-nudge tick could flip the thermostat back to a
+        # non-manual state, then the restore would skip its preset
+        # write and the pre-nudge preset would never be restored.
+        # Look for the CODE PATTERN (with colon), not the bare string —
+        # the deletion documentation comment references the old pattern.
+        assert 'if _cur_preset == "manual":' not in body, (
+            "Snapshot-restore semantics: the `if _cur_preset == 'manual':` "
+            "gate must be absent — restore writes the snapshot back "
+            "unconditionally (equality no-op when snapshot matches)."
         )
         # FIX B1 alignment: preset write must be under kind='preset'.
         assert 'kind="preset"' in body
@@ -978,8 +1000,13 @@ class TestRestoreAfterNudgeBehavioral:
 
     def test_restore_fires_set_preset_mode_when_manual_and_snapshot(self):
         """LOAD-BEARING: preset_now=='manual' + snapshot='home' → fire
-        set_preset_mode(home). Neutering `_cur_preset == "manual"` breaks
-        this assertion."""
+        set_preset_mode(home). Confirms the restore path emits the
+        snapshotted preset on the wire.
+
+        HVAC-GOVERNED-EXCURSION-1 D3 update: this test still passes but
+        the semantic is stronger now — the restore fires UNCONDITIONALLY
+        when a snapshot exists; the observable behavior when preset_now
+        drifted to 'manual' is unchanged."""
         arrester, zone, log = self._build(
             preset_now="manual", snapshotted_preset="home",
         )
@@ -992,18 +1019,34 @@ class TestRestoreAfterNudgeBehavioral:
         assert data.get("preset_mode") == "home"
         assert data.get("entity_id") == CLIMATE_ENTITY
 
-    def test_restore_does_not_fire_preset_when_not_manual(self):
-        """preset_now=='home' (already correct) → NO set_preset_mode."""
+    def test_restore_fires_preset_write_even_when_not_manual(self):
+        """HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED) — SEMANTICS
+        CHANGE from the pre-cycle behavior: preset_now=='home' (already
+        the snapshotted value) STILL fires set_preset_mode('home'). The
+        write is idempotent (same value the thermostat already shows)
+        but the restore is now UNCONDITIONAL — the old
+        `if _cur_preset == "manual"` gate WAS the self-disarm latch
+        (defect #2 in §1.1 of PLANNING_hvac_governed_excursion.md).
+
+        This test WOULD FAIL if a builder re-added the gate — an
+        intentional regression guard."""
         arrester, zone, log = self._build(
             preset_now="home", snapshotted_preset="home",
         )
         self._run(arrester._restore_after_nudge(zone, original_target=76.0))
-        assert self._preset_calls(log) == [], (
-            "No preset restore when thermostat isn't in manual"
+        preset_calls = self._preset_calls(log)
+        assert len(preset_calls) == 1, (
+            "Snapshot-restore semantics: preset write is unconditional "
+            f"when snapshot exists. Got: {preset_calls}"
         )
+        assert preset_calls[0][2].get("preset_mode") == "home"
 
     def test_restore_does_not_fire_preset_when_no_snapshot(self):
-        """No pre-nudge snapshot → skip restore entirely (empty pop)."""
+        """No pre-nudge snapshot → skip restore entirely (empty pop).
+
+        Snapshot-restore semantics preserve this behavior: an empty
+        snapshot means the thermostat had no preset attribute at begin
+        time; there is nothing to restore."""
         arrester, zone, log = self._build(
             preset_now="manual", snapshotted_preset="",
         )

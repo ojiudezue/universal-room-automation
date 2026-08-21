@@ -517,6 +517,21 @@ async def async_startup_excursion_audit(hass, coord) -> None:
             dropped_banking += 1
             continue
 
+        if kind == EXCURSION_KIND.NUDGE:
+            # Collision-avoidance with ac_reset_state.in_flight_nudge_*:
+            # OverrideArrester.async_startup_ramp_audit is the authoritative
+            # boot handler for nudge restarts. It restores the pre-nudge
+            # setpoint and (via the D3 migration) calls return_excursion
+            # to clear this row. Rehydrating a lease here would either
+            # double-defer or race the ramp_audit. Clear on boot; the
+            # short nudge duration (5-15 min) means any residual lease
+            # window is negligible compared to the boot delay.
+            try:
+                await _db_ref.clear_excursion_row(row["zone_id"])
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+
         # Parse started_ts (ISO) back to epoch for the lease math.
         started_ts_iso = row.get("started_ts") or ""
         started_epoch: Optional[float] = None
