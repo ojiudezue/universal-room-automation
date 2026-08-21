@@ -7459,6 +7459,74 @@ cards:
   - sensor.py:12239-12276
   - PLANNING_hvac_kwh_avoided_savings.md
 
+- id: KITCHEN-OCCUPANCY-DEAD-1
+  title: Kitchen occupancy NEVER fires while kitchen motion fires 1,161x in 3 days — busiest
+    room in the house is invisible to URA presence
+  thread: presence
+  status: investigating
+  created: '2026-08-21 16:45'
+  updated: '2026-08-21 16:45'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - live-defect
+  - config-suspected
+  THE_MEASUREMENT_VERIFIED_2026_08_21: 'MEASURED via ha_get_history over 2026-08-19 -> 08-21:
+    binary_sensor.kitchen_motion = 1,161 STATE CHANGES (firing constantly; dozens of on/off cycles
+    within a single hour). binary_sensor.kitchen_occupied = ONE row, state off, never changed.
+    Live read also shows kitchen_occupied attribute last_motion = 2026-08-21T16:35 (i.e. motion
+    seen MINUTES ago) while the entity itself sits off.
+    SO THE DEFECT IS NOT "no motion source". It is MOTION IS DETECTED AND OCCUPANCY DOES NOT FOLLOW.
+    That is a materially different and more specific finding than the one a measurement agent
+    reported ("42,299 rows, 100% off, missing/misconfigured motion source") — the agent inferred a
+    missing source; the history shows an active source with a broken consumer. Verified before
+    relaying, per the claim-type rule.'
+  SUSPECTED_BUT_NOT_CONFIRMED: 'sensor.kitchen_unavailable_entities = 1, so ONE configured kitchen
+    input is dead. A kitchen mmWave device is offline: binary_sensor.mmwave_looponunity2_wifi_2_
+    has_human_target / _has_moving_human_target / _has_still_human_target are ALL unavailable.
+    TWO CANDIDATE MECHANISMS, NEITHER VERIFIED — do not act on one until discriminated:
+    (a) occupancy CONFIDENCE includes the dead mmWave, so confidence never reaches the threshold
+    that would set occupied, even though motion is present;
+    (b) the motion leg is not wired into the kitchen occupancy SUBSTRATE at all, so occupancy has
+    no admissible input once the mmWave died.
+    PRIOR ART — THIS IS A KNOWN FAILURE CLASS: memory project_jaya_bedroom_occupancy_resolved
+    records the same shape (BLE room-mapping gap + Zigbee mmWave missing from the substrate,
+    initially misattributed to a fan veto) and it was FIXED BY CONFIG, not code. Check config first.'
+  WHY_THIS_MATTERS_BEYOND_HVAC: 'The kitchen is described by the operator as part of the busiest
+    pass-through area in the house. Its occupancy is currently invisible to URA, which propagates to
+    every consumer of room occupancy: zone occupancy, house occupancy, HVAC vacancy sweeps, the
+    guest-mode continuous-occupancy gate (30 min), lighting, and the census. A room that is heavily
+    used but never reports occupied is a silent under-count everywhere, not just in HVAC.
+    IT ALSO CONTAMINATED THIS SESSION MEASUREMENT: the zone-3 occupancy/coincidence analysis treats
+    a zone as occupied if ANY member room is occupied. With the kitchen contributing nothing, zone-3
+    occupancy and the entry-during-nudge coincidence rate are LOWER BOUNDS. Partly masked because
+    Kitchen Hallway / Breakfast Nook / Kitchen Hallway Garage overlap the same physical space, but
+    the bias direction is known and one-way.'
+  RECORDER_COUPLING: 'Secondary: an entity that reports a constant value still writes rows. A
+    measurement agent estimated ~5,600 off-writes/day from this sensor alone. Relevant to
+    RECORDER-BLOAT-LOGFLOOD-1 (31GB/7 days on flash at 51% life). NOTE this figure is INFERRED from
+    the agent report and was NOT independently verified — do not cite it as measured.'
+  parsimony:
+    problem: the busiest room in the house never reports occupied despite constant motion
+    verdict: INVESTIGATE
+    note: config-first per the Jaya Bedroom precedent; do not scope code until (a) vs (b) is
+      discriminated
+  next: 'Read the Kitchen room config entry — which entities are in motion / mmwave / occupancy
+    lists, and is the offline looponunity2 mmWave among them. Then discriminate (a) confidence-gated
+    vs (b) motion-not-in-substrate by checking whether occupancy would set on motion alone. If the
+    dead mmWave is simply an offline device, the first question is whether it is physically dead or
+    off-WiFi (see the CLAUDE.md troubleshooting ladder — device offline is not integration failure).
+    Fix is likely config, per precedent.'
+  refs:
+  - binary_sensor.kitchen_occupied
+  - binary_sensor.kitchen_motion
+  - binary_sensor.mmwave_looponunity2_wifi_2_has_human_target
+  - sensor.kitchen_unavailable_entities
+  - memory project_jaya_bedroom_occupancy_resolved
+  - AC-RAMP-ZONE3-NO-BENEFIT-1
+  - RECORDER-BLOAT-LOGFLOOD-1
+
 - id: AC-RAMP-ZONE3-NO-BENEFIT-1
   title: Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for
     disable-pending-evidence rather than retune

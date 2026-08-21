@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-21T16:30:09-05:00_ - _Data commit: `507e48fd9f25`_ - _last_reconciled: 2026-08-21_
+_Generated: 2026-08-21T16:31:33-05:00_ - _Data commit: `b67d263d8f70`_ - _last_reconciled: 2026-08-21_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-21T16:30:09-05:00_ - _Data commit: `507e48fd9f25`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
@@ -285,8 +285,21 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
+
+### `KITCHEN-OCCUPANCY-DEAD-1` - Kitchen occupancy NEVER fires while kitchen motion fires 1,161x in 3 days — busiest room in the house is invisible to URA presence
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-21 16:45 · initial_
+- **Next:** Read the Kitchen room config entry — which entities are in motion / mmwave / occupancy lists, and is the offline looponunity2 mmWave among them. Then discriminate (a) confidence-gated vs (b) motion-not-in-substrate by checking whether oc...
+- **Tags:** measured-not-inferred, live-defect, config-suspected
+- **Parsimony:** [INVESTIGATE] the busiest room in the house never reports occupied despite constant motion
+- **Refs:** binary_sensor.kitchen_occupied; binary_sensor.kitchen_motion; binary_sensor.mmwave_looponunity2_wifi_2_has_human_target; sensor.kitchen_unavailable_entities; memory project_jaya_bedroom_occupancy_resolved; AC-RAMP-ZONE3-NO-BENEFIT-1 (+1 more)
+- **Forensic keys (4):**
+  - `THE_MEASUREMENT_VERIFIED_2026_08_21`: MEASURED via ha_get_history over 2026-08-19 -> 08-21: binary_sensor.kitchen_motion = 1,161 STATE CHANGES (firing constantly; dozens of on/off cycles within a single hour). binary_sensor.kitchen_occupied = ONE row, state off, never change...
+  - `SUSPECTED_BUT_NOT_CONFIRMED`: sensor.kitchen_unavailable_entities = 1, so ONE configured kitchen input is dead. A kitchen mmWave device is offline: binary_sensor.mmwave_looponunity2_wifi_2_ has_human_target / _has_moving_human_target / _has_still_human_target are ALL...
+  - `WHY_THIS_MATTERS_BEYOND_HVAC`: The kitchen is described by the operator as part of the busiest pass-through area in the house. Its occupancy is currently invisible to URA, which propagates to every consumer of room occupancy: zone occupancy, house occupancy, HVAC vaca...
+  - `RECORDER_COUPLING`: Secondary: an entity that reports a constant value still writes rows. A measurement agent estimated ~5,600 off-writes/day from this sensor alone. Relevant to RECORDER-BLOAT-LOGFLOOD-1 (31GB/7 days on flash at 51% life). NOTE this figure ...
 
 ### `AC-RAMP-ZONE3-NO-BENEFIT-1` - Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence rather than retune
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
