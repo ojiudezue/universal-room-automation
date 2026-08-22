@@ -880,6 +880,45 @@ signal discriminates the pathological night — energy, duration, continuity, fl
 recovery. Until something does, any trigger built on per-zone nightly pattern is a guess with a
 test attached.
 
+**CORRECTION 2026-08-22 — "ARITHMETICALLY IMPOSSIBLE" WAS TOO NARROW. The verdict stands; the
+reasoning above does not.** The operator asked why the numbers assumed a 30-min window when we had
+already shortened the nudge knobs (live: `hvac_ac_nudge_duration = 2` min,
+`hvac_ac_nudge_eval_delay = 240` s -> exactly the measured 6.00 min). That exposed a blind spot:
+Probe A swept the LOOKBACK while holding the MEASUREMENT WINDOW fixed at 30 min — a value ABOVE the
+25-min inter-nudge cadence, which guarantees near-universal truncation. `CONF_HVAC_AC_DURABILITY_WINDOW`
+does not exist yet, so that value was a free choice, not a constraint. **Decoupling the two windows
+DOES open a reachable region.** The impossibility was an artefact of our own arbitrary knob choice,
+and both the probe and the orchestrator stated it as structural.
+
+**A FOURTH probe swept the measurement window. The verdict is UNCHANGED and now far better
+supported.** MEASURED:
+
+- **Truncation cliff sits between M=15 and M=20**, not at the 25-min median (the inter-nudge
+  distribution has a hard left edge just under 20 min): truncation 2.5/7.6/5.8% at M=15 ->
+  54.5/52.7/47.5% at M=20.
+- **M <= 15 degenerates:** `durable=0` in **97%** of zone_1 full-window rows; medians 9-16
+  fires/night. That is the count trigger by another name — rejected twice already.
+- **M >= 20 is decorative.** NEGATIVE CONTROL: recomputing with `durable` IGNORED (qualifying on
+  FULL-WINDOW alone) changes zone_1's fire count by 1-2 and **detects the pathological night
+  IDENTICALLY** (patho=2 either way, at (20,45,2), (20,60,2) and (25,60,2)). The trigger is a
+  NUDGE-SPACING detector, not a durability detector. It fails §14's meta-rule — no observation
+  discriminates the real implementation from a stub — before it ever reaches the fire-rate rule.
+- **No cell passes in all three zones.** Per-zone passes are disjoint BY MECHANISM: zone_1 only at
+  large M (20-25, N=2); zone_2/zone_3 only at small M (10-15, N=3), where zone_1's median blows out
+  to 9.0/night on 88% of nights. A single shipped config cannot satisfy the rule.
+
+**THE FINDING THAT OUTRANKS THE VERDICT — and it should drive the next cycle.** In zone_1,
+`durable=0` runs **85-97% AT EVERY USABLE WINDOW**. The compressor is back above threshold ~20
+minutes after nearly every nudge. **In the problem zone, THE NUDGE DOES NOT HOLD, essentially ever.**
+That is a fact about the equipment and the load, not about trigger design, and it independently
+confirms that `effective` (307/308) measures actuation rather than resolution.
+
+**REFRAME FOR WHOEVER PICKS THIS UP:** three probes have now asked "WHEN should escalation fire" and
+all three answers were "no signal supports any trigger". The prior question is **"why does zone_1 take
+16-22 nudges a night that do not hold, and is nudging the right intervention there at all?"** Start a
+discovery probe from the 97% non-durability figure. Do NOT design a fourth trigger and test it
+afterwards.
+
 **RULING: the cycle ships WITHOUT escalation.** D-GATE4 plus carried-forward D2-D8 are all
 measured and motivated and are unaffected by this. "When should a reset fire" returns to being
 an open question requiring its own discovery probe — NOT a third design-then-test attempt.
