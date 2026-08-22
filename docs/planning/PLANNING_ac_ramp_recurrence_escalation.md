@@ -1,694 +1,1108 @@
 # PLANNING — AC-RAMP-NO-RECURRENCE-ESCALATION-1
 
-**Tier:** 3 (delicate shared-primitive; touches compressor-cycling policy,
-persists cross-restart state, layers over the just-shipped
-HVAC-GOVERNED-EXCURSION-1 nudge path). Elevated because the escalation being
-built cycles compressors — the original v4.5.11 design named this "the worst
-possible failure mode" — and one missed emission site or one mis-classified
-outcome ships silent hardware wear.
+**Tier:** 3.
+**Revision:** 2 (2026-08-22). Revised in response to two framing-disjoint
+plan reviews that returned REVISE FIRST — both converged on the same
+class of defect: the previous revision named functions and gates that
+do not exist, understated the migration + DAO discipline, and offered
+choices where a decision is required. This revision GREPS every anchor
+before naming it, asserts every decision, and propagates each ruling
+into every section that consumes it.
 
 **Governing constraint (operator, verbatim):** *"I do not expect you to
-rebuild ac reset from scratch. We always work from existing and goals or
-enhancements or correctness problems."* Every deliverable in this doc is a
-DELTA on working machinery. If the builder finds themselves restructuring
-the nudge/reset core, stop and re-read this line.
+rebuild ac reset from scratch. We always work from existing and goals
+or enhancements or correctness problems."* Every deliverable below is a
+delta on real, verified anchors. If the builder finds themselves
+restructuring, stop.
 
 ---
 
-## 0. What already works — do not rebuild
+## 0. What already works — verified anchors (do not rebuild)
 
-Enumerated with file:line so the builder knows where the seams are and does
-not confuse "not yet wired for this cycle" with "missing".
+Every line:number here was grepped against
+`custom_components/universal_room_automation/` on 2026-08-22. Where the
+previous revision was wrong, the correction is called out.
 
-**Detection + soft-nudge path (v4.5.11 core, still fires 31-43x/zone/day):**
-- Overshoot detection + kWh gate:
-  `hvac_override.py` — `_evaluate_ac_ramp_zone` and helpers.
-- Soft-nudge setpoint write: `_perform_soft_nudge` at
-  `hvac_override.py:3099` (`set_temperature`, blocking=False).
-- 5-min hold → `_restore_after_nudge` at `hvac_override.py:3197`.
-- 10-min evaluation window: `AC_NUDGE_EVALUATION_DELAY_S` / operator knob
-  `CONF_HVAC_AC_NUDGE_EVAL_DELAY` (default 600s, `hvac_const.py:525-526`).
-- Nudge-interval enforcement: `AC_NUDGE_MIN_INTERVAL_S` — this is the
-  PATTERN to copy for the missing daily cap.
+### Detection ladder (soft-nudge entry point)
 
-**Escalation gate (armed, proven, has not fired since 2026-08-15):**
-- Single `if escalate:` on nudge-ineffective at
-  `hvac_override.py:3757-3772` (verified: the ONLY branch that raises
-  `escalate=True` is `classification in {ineffective, ineffective_no_samples}`).
-- Hard-reset off/restore: `_perform_ac_reset` at `hvac_override.py:2884` →
-  `_restore_after_reset` at `hvac_override.py:2921`.
-- Off-window duration: `AC_RESET_OFF_DURATION_SECONDS: Final = 60`
-  (`hvac_const.py:493`), consumed at `hvac_override.py:2906` (the
-  `async_call_later` delay) and interpolated into the NM alert at :2915.
-- Daily hard-reset cap: `DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT = 2`
-  (`hvac_const.py:534-535`), enforced at `hvac_override.py:3938`.
-- Compressor-protection min interval:
-  `DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL = 120` min (`hvac_const.py:537-538`).
-- Post-restore verify + 30s retry×2: `_verify_restore` at
-  `hvac_override.py:2966+`.
+- Entry: `check_ac_reset` at `hvac_override.py:2684`, invoked from the
+  5-minute HVAC decision cycle.
+- Gate ladder 0a → 9 at `:2720-2860`:
+  - 0a/0b — master + nudge-enabled short-circuits (`:2720-2741`).
+  - 1 — `_ramp_master_enabled` (`:2743`).
+  - 2 — per-zone `zone.ramp_zone_enabled` (`:2769`).
+  - 3 — `zone.ac_load_sensor` configured (`:2774`).
+  - 4 — `hvac_action == "cooling"` + valid temps (`:2779, :2785`).
+  - 5 — DB `lockout_flag` (`:2789-2793`).
+  - 6 — overshoot at-or-below setpoint (`:2795-2813`).
+  - 7 — kWh rate above threshold N consecutive samples
+    (`:2825-2836`).
+  - 8 — time-sustained ≥ detection_time_gate min (`:2838-2856`).
+  - 9 — not already `in _nudge_in_flight` (`:2857-2858`).
+- **CORRECTION vs revision 1 and vs the card body:** there is NO
+  `AC_NUDGE_MIN_INTERVAL_S` constant and NO `_evaluate_ac_ramp_zone`
+  function anywhere in the repo. The card's claim that "the 30-minute
+  min interval IS being honoured / the interval knob shipped and the
+  cap did not" is FACTUALLY WRONG at the code level — the ~2/hour
+  cadence is EMERGENT from Gates 8 (10-min sustained overshoot) + the
+  5-min hold + the 600s eval + Gate 9 (no re-entry while in-flight),
+  not from an interval enforcement. This finding is flagged §12; the
+  card's "measured:" section should be corrected downstream.
 
-**Persistence (restart-safe, and the exemplar this cycle extends):**
-- `ac_reset_state` table at `database.py:1430-1446`, keyed
-  `(zone_id, date)`, carries `soft_nudge_count`, `hard_reset_count`,
-  `last_soft_nudge_ts`, `last_hard_reset_ts`, `last_overshoot_ts`,
-  `in_flight_nudge_original_target`, `in_flight_nudge_started_ts`,
-  `in_flight_nudge_duration_s`, `lockout_flag`. Day-rollover reset in-code.
-- `ac_ramp_events` append-only ledger at `database.py:1503-1531` — 4
-  event types per cycle, ALREADY carries
-  `preset_before / preset_after / mode_before / mode_after /
-  restore_ok / restore_ok_immediate` (shipped by
-  HVAC-GOVERNED-EXCURSION-1 D1 in v5.86.0). See §1 for the direct
-  consequence for this cycle's D5.
+### Soft nudge — perform / restore / evaluate / classify
+
+- `_perform_soft_nudge` at `hvac_override.py:3099` (setpoint write,
+  blocking=False; manual-invoke path enters here at `:4205`).
+- `_restore_after_nudge` at `hvac_override.py:3197`.
+- Telemetry writeback (SETTLED sample) at `:3462-3540` — this is the
+  in-repo pattern D4 and D6 mirror.
+- Classifier at `hvac_override.py:3745-3772` — the ONLY branch that
+  raises `escalate=True` is the ineffective / ineffective_no_samples
+  paths at `:3763` and `:3772`; on `escalate=True` the caller invokes
+  `_perform_hard_reset_escalation`.
+
+### Escalation actuator (NOT a predicate)
+
+- **CORRECTION:** the function is `_perform_hard_reset_escalation` at
+  `hvac_override.py:3874` — not `_hard_reset_eligible` as the previous
+  revision incorrectly named 6-8 times. It is an actuator with side
+  effects, not a boolean gate. Its shape:
+  - Early-return guards: `_ac_reset_enabled` (`:3911`); corrective
+    writes suppressed (`:3924`); no DB (`:3931`).
+  - Gate A (daily cap): `hard_reset_count >= _hard_reset_daily_limit`
+    → **`_engage_lockout(zone, state)`** at `:3937-3940`.
+    `_engage_lockout` sets `lockout_flag=1`, fires a persistent
+    "controller may be broken" NM notification, and disables the
+    zone's ramp feature at Gate 5 for the rest of the day.
+  - Gate B (global min-interval, across day-rollover) at `:3942-3957`
+    using `get_global_last_hard_reset_ts` — logs and skips on fail
+    (no lockout).
+  - On both gates passing: increment `hard_reset_count` at `:3960`;
+    persist via `save_ac_reset_state` at `:3962`; **already writes
+    `hard_reset_started` via `log_ac_ramp_event` at `:3967-3972`**;
+    then calls `_perform_ac_reset` at `:3977`.
+- `_perform_ac_reset` at `hvac_override.py:2884` — issues
+  `set_hvac_mode=off` (blocking=True), schedules `_on_reset_fire` via
+  `async_call_later(AC_RESET_OFF_DURATION_SECONDS)` at `:2904-2908`,
+  sends NM alert at `:2911-2919` interpolating
+  `AC_RESET_OFF_DURATION_SECONDS` at `:2915` and
+  `AC_RESET_MAX_PER_DAY` at `:2916`.
+- `_restore_after_reset` at `hvac_override.py:2921`, chooses
+  `target_mode = heat_cool if _supports_heat_cool(...) else
+  original_mode` at `:2937-2939`, issues `set_hvac_mode` at
+  `:2952-2958`, launches `_verify_restore` at `:2968+` with three
+  terminal branches:
+  - Success at `:3022-3027` (logs "verified").
+  - Failure after 2 retries at `:3005-3021` (critical NM).
+  - Cancelled/pop at `:2999-3001`.
+- **Already writes `hard_reset_completed`** via `log_ac_ramp_event`
+  at `:3049-3055`.
+- **SECOND CALLER of `_restore_after_reset`** at `hvac_override.py:2000`
+  — the `ac_reset_enabled` property setter's disable-path calls
+  `_restore_after_reset(zone, "heat_cool")` to unstick mid-reset
+  zones when the operator flips the feature OFF. This is an ABORT,
+  not a completion.
+
+### Persistence
+
+- Table `ac_reset_state` DDL at `database.py:1431-1446`. PK is
+  `(zone_id, date)`. Carries `soft_nudge_count`, `hard_reset_count`,
+  three timestamps, three `in_flight_nudge_*` fields, `lockout_flag`.
+- Table `ac_ramp_events` DDL at `database.py:1503-1531`. Already
+  carries `preset_before`, `preset_after`, `mode_before`, `mode_after`,
+  `restore_ok`, `restore_ok_immediate`, `excursion_id` (all added by
+  HVAC-GOVERNED-EXCURSION-1 D1 in v5.86.0). Indexed on
+  `(zone_id, timestamp)` and on `timestamp`.
+- Live-DB migration pattern (the ONLY one that actually runs against
+  the 1.18 GB DB): `PRAGMA table_info` + guarded
+  `ALTER TABLE ... ADD COLUMN` inside a try/except that logs on
+  failure. **Precedent for `ac_ramp_events` at
+  `database.py:1681-1712`.** There is currently NO such block for
+  `ac_reset_state`; this cycle MUST create one (see §3-D2 and §12-3).
+- Save DAO: `save_ac_reset_state` at `database.py:7306-7340` —
+  **`INSERT OR REPLACE` with an EXPLICIT COLUMN TUPLE** at
+  `:7314-7322`. Any column added to DDL that is not also added to
+  this tuple resets to its DEFAULT on every save. This is the highest-
+  probability silent failure in the cycle (Reviewer B).
+- Read DAO: `get_ac_reset_state` above at `:7250-7305`; returns dict
+  with defaults for missing keys.
+- Global min-interval read: `get_global_last_hard_reset_ts` at
+  `database.py:7344+`.
+
+### Startup / teardown
+
 - Startup restore of in-flight nudges: `async_startup_ramp_audit` at
-  `hvac_override.py:3925`. The AC-ramp nudge is the codebase's exemplar
-  of restart-safe in-flight excursion (per the
-  HVAC-GOVERNED-EXCURSION-1 restart-safety audit — do not re-litigate).
+  `hvac_override.py:3925` — codebase exemplar of restart-safe
+  in-flight excursion.
+- Teardown registries + cancel loops live at
+  `hvac_override.py:1439-1459` — includes `_verify_tasks`,
+  `_reset_timers`, `_nudge_settled_timers`. New delayed callbacks in
+  this cycle register here.
 
-**NM alerts + live sensors:** ramp state and last action per zone,
-nudges/hard-resets today, false-positive rate, kWh avoided today/total,
-per-zone kW rate, four savings sensors. (Observability audit
-"WHAT IS GOOD" list on the card.)
+### Aggregators that must not be polluted
 
-**Empirically settled by the DELTA_T_PROBE** and referenced here so the
-builder does not re-open them:
-- Adaptive/delta-T nudge sizing: refuted. Do not build.
-- Delta-T only earns a place as an escalation VETO (do not hard-reset when
-  outdoor very high) — parked, not in this cycle.
-- Wide-cycle 300s→150s hold: the RAMP-DOWN data supports shortening for
-  cycle-time reasons only, not energy. **Parked** for a separate cycle
-  (AC-NUDGE-HOLD-SHORTEN-1) — this cycle needs the current cadence as its
-  baseline so the recurrence trigger's N and W are calibrated against
-  what ships today. See non-goal 5.
+- Savings aggregator: `database.py:7806-7830` — reads
+  `ac_ramp_events` with NO `event_type` filter, summing
+  `kwh_avoided` extracted from `notes`.
+- False-positive aggregator: `database.py:7896-7906` — same shape,
+  no `event_type` filter.
+- Consequence: any NEW event_type this cycle emits MUST leave
+  `effective` NULL AND MUST NOT carry a `kwh_avoided=` token in
+  `notes`, or the live savings/FP sensors mis-count. This is an
+  invariant, not a suggestion (§3-D8, AC-INVARIANT-AGG).
+
+### Coordinator write-through for Number-backed knobs
+
+- Precedent: `set_hard_reset_daily_limit` at
+  `hvac_override.py:1276+`. Every Number entity in this cycle needs
+  a sibling setter, or the slider moves and the coordinator never
+  sees the new value.
+
+### Manual buttons
+
+- Manual soft-nudge: `force_nudge` invokes `_perform_soft_nudge`
+  with `triggered_by="manual"` at `hvac_override.py:4205`.
+- Manual hard reset: `force_ac_reset` at `hvac_override.py:4207+`.
+
+### Sibling constant for settle delays
+
+- `AC_NUDGE_RESTORE_SETTLE_DELAY_S = 12` (`hvac_const.py`, rung 1).
+  D6's reset-outcome settle knob follows this precedent.
 
 ---
 
 ## 1. Institutional context verified
 
-### Greps run + REUSED / NEW disposition for every proposed addition
+### Grep table — REUSED vs NEW, one row per proposed addition
 
-Ran on 2026-08-22 against `custom_components/universal_room_automation/`.
+Ran on 2026-08-22 against `custom_components/universal_room_automation/`
+and `docs/`.
 
 | Proposed | Search | Result | Disposition |
 |---|---|---|---|
-| Recurrence trigger: window count of `nudge_started` per zone | `grep -n "nudge_started" hvac_override.py database.py` | Event constant `AC_RAMP_EVENT_NUDGE_STARTED` exists; emitted from `_perform_soft_nudge`; already persisted as an `ac_ramp_events` row with `zone_id`+`timestamp` indexed (`idx_ac_ramp_events_zone_ts`, `database.py:1526`). | **REUSED** — the trigger reads the existing ledger. NO new event, NO new sensor for the raw count. Add a live sensor for "nudges in last W" as a display consumer only (D6). |
-| Recurrence knobs `N` and `W` | grep `ac_recurrence` / `recurrence_window` / `recurrence_count` in `const.py` + `hvac_const.py` + `number.py` | None. | **NEW** — sibling of the existing hard-reset knobs. See knob ladder §5. |
-| Recurrence master enable (default OFF) | grep `_MASTER_ENABLED` `hvac_const.py` | `CONF_HVAC_AC_RAMP_MASTER_ENABLED` exists (`hvac_const.py:509`, default OFF) as the whole-feature kill switch. | **NEW sub-switch** required — the recurrence trigger needs its OWN kill switch that is independent of the master (the master flag flips the whole feature; the recurrence trigger needs to ship OFF while everything else ships ON — see §3-D1 safety). |
-| Day/night reset counters | grep `day_reset_count` / `night_reset_count` / `ac_reset_state` in `database.py` + `hvac_override.py` | Only `hard_reset_count` exists (`database.py:1435`, consumed at `hvac_override.py:3938`). Table PK `(zone_id, date)` (`database.py:1443`). | **NEW columns** on `ac_reset_state` — additive `ADD COLUMN` via the codebase's `CREATE TABLE IF NOT EXISTS` pattern, no re-key, no migration. `hard_reset_count` retained as `day_reset_count + night_reset_count` reconciliation invariant during rollout, then may be deprecated (parked). |
-| Day/night window boundaries | grep `night_start` / `night_end` / `quiet_hours` in `hvac_const.py` + `const.py` | Not for this axis. `night_hours_start/end` exist elsewhere but are presence/notification concerns; card explicitly argues WALL-CLOCK boundary for compressor policy over house-state coupling. | **NEW knobs** — dedicated to this axis, wall clock. See §5. |
-| Soft-nudge daily cap | grep `soft_nudge.*limit` / `soft_nudge.*cap` / `soft_nudge.*max` `hvac_const.py` `hvac_override.py` `number.py` | None. `soft_nudge_count` counter exists but no ceiling. `AC_NUDGE_MIN_INTERVAL_S` enforcement pattern at the nudge-eligibility site is what to copy. | **NEW** — the v4.5.11 design specced 6/day and it never shipped. See §3-D3. |
-| `durable` / `durable_minutes` columns | grep `durable` `database.py` | None on `ac_ramp_events`. | **NEW columns** (nullable) on `ac_ramp_events`, additive. Written by a delayed callback modelled on the shipped `_write_settled` pattern at `hvac_override.py:3521-3528` (that pattern already handles cancellation on rapid re-nudge). |
-| `preset_before` / `preset_after` on ac_ramp_events | grep | **ALREADY EXIST** on the ledger (`database.py:1519-1520`) AND are already WRITTEN on the nudge path (`hvac_override.py:3341`, `:3496`) by the HVAC-GOVERNED-EXCURSION-1 D1 that shipped in v5.86.0. **Not present on the hard-reset path** (`_perform_ac_reset` / `_restore_after_reset` at `hvac_override.py:2884-2968` — verified: no `preset_before`/`preset_after` capture, and `mode_before` / `mode_after` / `restore_ok` are similarly not written for the reset event). | **REUSED columns; NEW producer wiring on the reset path only.** See §3-D5 correction — this deliverable is narrower than the brief implied. Flagged in §12. |
-| Temp at reset start/end | grep `current_temp` around `_perform_ac_reset` / `_restore_after_reset` | Not captured. `ac_ramp_events` has `current_temp` and `target_high` per row (`database.py:1509-1510`) but the reset path currently writes no `ac_ramp_events` row on start/end. | **NEW producer wiring** using the existing `current_temp`/`target_high` columns on the ledger, plus new `hard_reset_started` / `hard_reset_completed` event rows if not already emitted (verify — 11 historical `hard_reset_*` rows exist per the card's `measured:` section, so the event types DO emit; confirm they write `current_temp`). |
-| Rung-3 promotion of `AC_RESET_OFF_DURATION_SECONDS` | grep for `number.py` entities that follow the pattern (`ac_hard_reset_daily_limit` at `number.py:2435-2441` per the card). | Sibling knob pattern exists. | **REUSED pattern; NEW Number entity** `hvac_ac_reset_off_duration`. See §5 and §3-D7. |
-| Recurrence-considered-and-declined trail | grep `escalation_declined` / `reset_declined` `hvac_override.py` `database.py` | None. Observability audit gap #4. | **NEW** — write an `ac_ramp_events` row with a new `event_type` value (or an existing `hard_reset_declined` type — verify by grep before choosing). Reuses the ledger; no schema change. |
+| Rolling count of `nudge_started` per zone in window W | `grep -n "nudge_started" hvac_override.py database.py` | `AC_RAMP_EVENT_NUDGE_STARTED` emitted from `_perform_soft_nudge`; already persisted via `log_ac_ramp_event`; indexed on `(zone_id, timestamp)` (`database.py:1526`). | **REUSED** — no new event type, no new counter table. |
+| Recurrence knobs N and W | grep `recurrence` in `hvac_const.py` `number.py` | None. | **NEW** — Number entities per §5. |
+| Recurrence-mode 3-state select | grep `AC_RECURRENCE_MODE` | None. | **NEW** — Select entity (`off`/`shadow`/`live`, default `shadow`). §5, §12-13. |
+| Day/night reset counters | grep `day_reset_count` `night_reset_count` `database.py` `hvac_override.py` | None. | **NEW columns** on `ac_reset_state` via guarded ADD COLUMN block (see §3-D2). |
+| Wall-clock night-window knobs | grep `night_start` `night_end` this axis | None on this axis. | **NEW** options-flow knobs, string HH:MM. |
+| Soft-nudge daily cap | grep `soft_nudge.*limit` | None. | **NEW** — Number entity + gate site between real Gate 5 and Gate 6 (see §3-D3). |
+| `durable` / `durable_minutes` on ac_ramp_events | grep | None. | **NEW columns** via the existing ac_ramp_events ALTER pattern at `database.py:1681-1712`. |
+| `in_flight_durable_started_ts` on ac_reset_state | grep | None. | **NEW column** in the same new ALTER block as D2's counters. |
+| `reset_outcome` on ac_ramp_events | grep | None. | **NEW column** via the same ac_ramp_events ALTER pattern. |
+| `preset_before/after`, `mode_before/after`, `restore_ok*` on ac_ramp_events | grep | **ALREADY EXIST** (`database.py:1519-1524`), producer wired for nudge path only. | **REUSED**; D5 only wires the HARD-RESET-path producer as an ENRICHMENT of the existing `log_ac_ramp_event` calls at `:3967` and `:3050` (see §3-D5). |
+| `hard_reset_declined` event type | grep constants for the string | None. | **NEW** — add `AC_RAMP_EVENT_HARD_RESET_DECLINED` to `hvac_const.py`. |
+| Recurrence-shadow event type | grep | None. | **NEW** — `AC_RAMP_EVENT_RECURRENCE_WOULD_FIRE`. |
+| Rung-3 promotion of `AC_RESET_OFF_DURATION_SECONDS` | Number siblings at `number.py:2435-2441` per card. | Sibling knob pattern exists; setter precedent `set_hard_reset_daily_limit` at `:1276`. | **REUSED pattern; NEW Number entity + coordinator setter** (see §3-D7). |
 
 ### Prior planning docs consulted
 
 - `docs/planning/PLANNING_v4.5.11_ac_energy_aware_ramp_down.md` — the
   objective doc; goal 3 ("rapid compressor cycling is the worst possible
-  failure mode") is the invariant this cycle must not violate. Specced the
-  6/day soft-nudge cap that D3 finally builds.
-- `docs/planning/PLANNING_hvac_governed_excursion.md` (HVAC-GOVERNED-EXCURSION-1)
-  — the just-shipped D1 that added `preset_before / preset_after /
-  mode_before / mode_after / restore_ok / restore_ok_immediate` to
-  `ac_ramp_events` and wrote them on the nudge path. This cycle rides on
-  top; D5 is only the reset-path wiring gap left behind. **D2/D3 of the
-  excursion cycle are still UNBUILT per the STATUS_CORRECTED_2026_08_22
-  note on that card** — assume they may land during or after this build
-  and design D5 to not conflict.
-- Kanban card `AC-RAMP-NO-RECURRENCE-ESCALATION-1` — the entire body,
-  including every dated addendum. Especially:
-  `RESET_DRIFT_CONSTRAINT_2026_08_22`,
+  failure mode") drives Invariant I. Specced the 6/day soft-nudge cap
+  that D3 finally builds.
+- `docs/planning/PLANNING_hvac_governed_excursion.md`
+  (HVAC-GOVERNED-EXCURSION-1) — D1 shipped the preset/mode/restore
+  columns on `ac_ramp_events` and their nudge-path producer wiring
+  in v5.86.0. D2/D3 (primitive) are UNBUILT per that card's
+  STATUS_CORRECTED_2026_08_22 note. This cycle is designed to be
+  compatible with either ship order; D5 writes telemetry DIRECTLY at
+  the reset producer sites (enriching the existing `log_ac_ramp_event`
+  calls) and does not create a new writer.
+- Kanban card `AC-RAMP-NO-RECURRENCE-ESCALATION-1` — every dated
+  addendum, in particular `RESET_DRIFT_CONSTRAINT_2026_08_22`,
   `RECOMMENDATION_EFFECTIVE_REDEFINITION_2026_08_21`,
   `LAYERING_AND_RETROACTIVE_2026_08_21`,
   `LIVE_INSTANCE_AND_MECHANISM_2026_08_22`,
   `AC_RAMP_IS_A_MANUAL_INDUCER_2026_08_21`,
   `OBSERVABILITY_AUDIT_2026_08_21`, `DELTA_T_PROBE_2026_08_21`,
   `RESET_BUDGET_WINDOWING_2026_08_21`,
-  `CYCLE_ANATOMY_AND_TIMING_2026_08_21`,
-  `RAMPDOWN_PROBE_2026_08_21`,
-  `WIDE_CYCLE_REFUTED_LOAD_MATCHED_2026_08_21` (SUPERSEDES the earlier
-  `WIDE_CYCLE_EFFECTIVENESS_2026_08_21` block — respected).
+  `WIDE_CYCLE_REFUTED_LOAD_MATCHED_2026_08_21` (SUPERSEDES the
+  earlier `WIDE_CYCLE_EFFECTIVENESS_2026_08_21` — respected).
 
 ### Memories pulled
 
-- `feedback_measure_before_build.md` — the probe-first gate is already
-  discharged on this card (DELTA_T_PROBE, RAMPDOWN_PROBE,
-  WIDE_CYCLE_REFUTED_LOAD_MATCHED). Do not re-run these; do run one new
-  probe (see §7) to size N and W against real cadence.
-- `feedback_marginal_benefit_pushback.md` — applied to D2 (day/night
-  budgets) below: the SIMPLEST version raises the daily cap to 3; the
-  fancier version PARTITIONS it. The partition is justified only because
-  night is where the measured damage lives.
-- `feedback_cross_investigation_synthesis.md` — this cycle intersects
-  HVAC-GOVERNED-EXCURSION-1 D2/D3 (still unbuilt) and
-  HVAC-MANUAL-PRESET-CONTRACT-1. D5 of this cycle sits inside the same
-  restore-preset-on-exit territory. Order-of-ship discussed §11.
-- `feedback_suppression_needs_discharge.md` — the recurrence trigger's
-  kill switch is a suppression: if disabled, what re-arms it, and does a
-  restart re-arm to enabled or preserve disabled? Answered §6-D1.
-- `reference_ec_reserve_verifiable_backout_knob.md` — precedent for a
-  safety kill knob that ships defaulted to a specific safe value. The
-  recurrence-trigger enable is the sibling here.
+- `feedback_measure_before_build.md` — probe-first gate discharged
+  on the card; one further calibration probe scoped in §7.
+- `feedback_marginal_benefit_pushback.md` — applied to D1 (three-mode
+  Select vs boolean; Select wins because §12-3 requires disabling
+  shadow too).
+- `feedback_cross_investigation_synthesis.md` — D5 sits inside
+  HVAC-GOVERNED-EXCURSION-1 D2/D3 territory; §10 states the ship
+  order.
+- `feedback_suppression_needs_discharge.md` — the recurrence-mode
+  Select is a suppression: what re-arms it, and what does a restart
+  observe? Answered §6, §9.
+- `feedback_wire_in_anchor_mandatory.md` — every deliverable names
+  its enclosing method + the neuter drill that must fail (§11).
+- `reference_ec_reserve_verifiable_backout_knob.md` — precedent for
+  a safety kill knob defaulted to a specific safe value.
 
 ### Code read end-to-end during scoping
 
-- `custom_components/universal_room_automation/domain_coordinators/hvac_override.py`
-  lines 2880-2970 (`_perform_ac_reset`, `_restore_after_reset`,
-  `_verify_restore`), 3080-3260 (`_perform_soft_nudge`,
-  `_restore_after_nudge`), 3450-3560 (settled/telemetry writeback),
-  3720-3800 (classifier + `if escalate:`), 3870-4020 (hard-reset
-  eligibility, cap check, lockout write).
-- `custom_components/universal_room_automation/domain_coordinators/hvac_const.py`
-  lines 480-540 (AC reset legacy + v4.5.11 knobs).
-- `custom_components/universal_room_automation/database.py` lines
-  1425-1531 (ac_reset_state + ac_ramp_events DDL) and 7275-7530 (state
-  read/write DAO).
+- `hvac_override.py`: lines 1276-1310 (Number write-throughs),
+  1439-1459 (teardown), 1990-2005 (setter abort path into
+  `_restore_after_reset`), 2680-2870 (`check_ac_reset` gate ladder),
+  2884-3055 (`_perform_ac_reset` + `_restore_after_reset` +
+  `_verify_restore` + `hard_reset_completed` write),
+  3099-3260 (soft nudge perform/restore), 3450-3540
+  (telemetry SETTLED), 3745-3800 (classifier + escalate),
+  3874-4020 (`_perform_hard_reset_escalation` + `_engage_lockout`),
+  4200-4260 (`force_nudge`, `force_ac_reset`), 3925 (startup audit).
+- `hvac_const.py`: 480-540 (AC reset legacy + v4.5.11 knobs), and
+  the `AC_NUDGE_RESTORE_SETTLE_DELAY_S = 12` sibling.
+- `database.py`: 1431-1531 (DDL), 1681-1712 (live ALTER precedent),
+  7250-7345 (ac_reset_state DAO — critical INSERT OR REPLACE tuple),
+  7480-7530 (`log_ac_ramp_event` — verified it returns from execute
+  but does NOT currently expose `lastrowid`; §3-D4 requires that).
+- `database.py`: 7806-7830 (savings aggregator, no event_type filter);
+  7896-7906 (FP aggregator, no event_type filter).
 
 ---
 
-## 2. The falsifiable invariant
+## 2. The falsifiable invariants
 
-The cycle must guarantee, in breakable form:
+### Invariant I — bounded compressor cycling under the new trigger
 
-> **Invariant I:** Given any 24h window, the total number of
-> `hard_reset_started` events for a single zone is bounded by
-> `day_reset_budget + night_reset_budget`, with per-partition counts
-> bounded individually AND respecting the existing
-> `hard_reset_min_interval` gap between any two consecutive
-> `hard_reset_started` events on the same zone across partitions.
-> Additionally, **no `hard_reset_started` event may fire while the
-> recurrence-trigger master knob is OFF unless it was armed by the
-> pre-existing `escalate=True` classifier at `hvac_override.py:3757-3772`
-> (i.e. the pre-existing ineffective-nudge path).**
+> Given any 24h window, the total number of `hard_reset_started`
+> events for a single zone is bounded by `day_reset_budget +
+> night_reset_budget`, with per-partition counts bounded
+> individually, and every consecutive pair on the same zone is ≥
+> `hard_reset_min_interval` minutes apart across the day-rollover
+> boundary. When `hvac_ac_recurrence_mode ∈ {off, shadow}` throughout
+> the window, ZERO `ac_ramp_events` rows have
+> `triggered_by = 'recurrence'` AND `event_type =
+> 'hard_reset_started'`. Furthermore, a denied-by-cap recurrence
+> request MUST NOT call `_engage_lockout` — lockout is reserved for
+> the ineffective-nudge path where the classifier concluded the
+> controller may be broken.
 
-The second clause is what Reviewer D exists to break: enumerate every
-path that reaches `_perform_ac_reset` and prove none of the new
-recurrence code paths route around the OFF switch.
+### Invariant II — reset outcome measurability
 
-Corollary invariant for D6 (temp measurement):
+> Every `hard_reset_started` row in `ac_ramp_events` written by the
+> automatic path (i.e. NOT the `ac_reset_enabled` setter abort at
+> `hvac_override.py:2000`) carries a non-NULL `current_temp` if the
+> zone's temperature sensor was reporting a valid value at that
+> instant; the paired `hard_reset_completed` row (identified by
+> `event_id` from the started-row via the D4/D6 event_id thread —
+> §3-D4-3, §3-D5) carries `reset_outcome ∈ {'floor_survived',
+> 'justified_ramp', 'inconclusive'}` and a non-NULL `current_temp`
+> if the sensor was reporting at the outcome-settle point. Rows
+> written by the setter-abort path at `:2000` carry `reset_outcome =
+> NULL` and `triggered_by = 'abort_reason=feature_disabled'`.
 
-> **Invariant II:** Every `hard_reset_completed` row in `ac_ramp_events`
-> carries a non-NULL `current_temp` recorded at reset-END, and every
-> `hard_reset_started` row carries a non-NULL `current_temp` recorded at
-> reset-START, whenever the zone's temperature sensor is available. Any
-> classification that scores a reset as "failed" MUST have both temps
-> present or must classify inconclusive.
+Reviewer D's sole job: break these. Every enumeration below (call
+sites, decline paths, restart branches, aborts) is a candidate leak.
+
+### Invariant III — aggregator non-pollution
+
+> New event types introduced by this cycle
+> (`recurrence_would_fire`, `hard_reset_declined`) MUST leave
+> `effective` NULL AND MUST NOT include a `kwh_avoided=` substring
+> in `notes`. Enforced by a test that inserts one of each new type
+> and asserts the shipped savings and false-positive aggregators
+> return unchanged results.
 
 ---
 
-## 3. Deliverables (all deltas)
+## 3. Deliverables (all deltas — every decision asserted)
 
-Each deliverable states LIVE-ON-SHIP vs OFF-BY-DEFAULT explicitly per the
-safety constraint.
+Every deliverable states LIVE-ON-SHIP vs SHADOW vs OFF explicitly.
 
 ### D1 — Recurrence trigger (SECOND, orthogonal escalation path)
 
-**Status on ship: OFF by default.** Ships complete, ships tested, ships
-observable in shadow mode; enabling is a deliberate operator flip.
-Mirror the v5.85.0 STEP-chatter shadow pattern.
+**Status on ship: SHADOW.** Ships complete, ships tested, ships
+observable in shadow mode. The operator moves the Select from
+`shadow` to `live` when the recurrence data looks right.
 
-**Behaviour when enabled:** N `nudge_started` events on one zone within
-rolling window W → arm hard-reset escalation, subject to the pre-existing
-`_hard_reset_eligible` gate (day/night budget from D2, 120-min min
-interval, lockout flag). Reads only `nudge_started` timestamps from
-`ac_ramp_events` (indexed) or the in-memory rolling counter — never
-consults `effective`, `durable`, `classification`, or `kwh_avoided`.
+**Mode knob — ASSERTED as a 3-state Select, not a boolean:**
+`hvac_ac_recurrence_mode` with values `off` / `shadow` / `live`,
+default `shadow` (see §5 and §12-13). A boolean cannot express three
+behaviours, and the ruling below requires disabling shadow too.
 
-**Behaviour when OFF (shadow):** compute the trigger and emit a
-`recurrence_would_fire` row (new event_type value on the existing ledger)
-with `notes="shadow"`. Zero effect on `_perform_ac_reset`. This is what
-lets the operator watch the cadence for a week before enabling.
+- `off` — the recurrence code path returns immediately from its
+  gate site; no computation, no shadow rows, no reset requests.
+- `shadow` — computes the trigger; if N in W is met, writes ONE
+  `recurrence_would_fire` event row per **window crossing**
+  (edge-triggered — see §12-19; state kept in the coordinator as
+  `_last_shadow_fire_ts` per zone). No call into the escalation
+  actuator.
+- `live` — same computation; on fire, calls
+  `_perform_hard_reset_escalation` via a new keyword-only param
+  `triggered_by="recurrence"`, AND passes `engage_lockout_on_cap=False`
+  (see next paragraph).
 
-**Kill switch:** new `CONF_HVAC_AC_RECURRENCE_ENABLED`
-(rung 2 — config/options flow), default False. When False, the code path
-runs but the emission-arming branch is unreachable — verified by mutation
-drill (Tier 3 test-authority requirement §8).
+**No-lockout-on-cap for recurrence — ASSERTED (Reviewer critical #1).**
+`_perform_hard_reset_escalation` at `hvac_override.py:3874` gains a
+new keyword-only parameter `engage_lockout_on_cap: bool = True`
+(default preserves today's behaviour for the ineffective-nudge
+path). When the recurrence caller passes `False` and Gate A fails,
+the function MUST NOT call `_engage_lockout`; it MUST write ONE
+`hard_reset_declined` event row with
+`notes="reason=day_budget_exhausted"` (or `night_budget_exhausted`)
+and return with `zone.ramp_state = AC_RAMP_STATE_IDLE`. Rationale
+embedded in code comment: *"lockout means 'the controller is broken',
+earned only by the ineffective-nudge classification path; a
+recurrence-count denial is 'we already spent our budget', not a
+controller pathology, and must not disable the working
+ineffective-nudge escalation path."* Same discipline for Gate B
+(min-interval); today it already skips without lockout, so the
+recurrence caller inherits the correct behaviour.
 
-**Interaction with the existing `if escalate:` at line 3757-3772:** the
-recurrence trigger is a SECOND caller of `_hard_reset_eligible` →
-`_perform_ac_reset`. The pre-existing ineffective-nudge branch is
-untouched. Two independent triggers can request the reset in the same
-window; the existing eligibility gate (interval + budget + lockout)
-already deduplicates by refusing back-to-back requests.
+**`triggered_by` plumbing — ASSERTED (Reviewer critical #10).**
+`_perform_hard_reset_escalation` currently writes
+`log_ac_ramp_event(...event_type=HARD_RESET_STARTED, ...)` at
+`:3967-3972` WITHOUT passing `triggered_by`, which defaults to
+`'auto'`. The parameter must be threaded from the caller through
+the actuator into both the `_track_zone_action` call at `:3963-3966`
+AND the `log_ac_ramp_event` call at `:3967-3972`. The
+ineffective-nudge caller passes `"auto"`; the recurrence caller
+passes `"recurrence"`. The setter-abort caller (§3-D5-B) passes
+`"abort_reason=feature_disabled"`.
 
-**Producer:** N nudge_started rows in ≤ W seconds on zone Z.
-**Consumers:** `_hard_reset_eligible` (trust), `sensor.ac_recurrence_window_count_<zone>` (display, D8),
-`ac_ramp_events` shadow rows (audit).
+**Positive-control test requirement:** the AC1/AC7 test suite
+includes, BEFORE the absence assertions, a positive-control test
+that deliberately triggers the recurrence branch in `live` mode and
+asserts EXACTLY ONE row exists with
+`event_type='hard_reset_started' AND triggered_by='recurrence'`.
+Only after that assertion passes does the shadow-mode absence
+assertion mean anything.
+
+**Producer of the count:** rolling read over `ac_ramp_events`
+`WHERE event_type='nudge_started' AND zone_id=Z AND
+timestamp > now() - W`. Dependency healthy (47 rows/night verified
+on 08-20).
+**Consumers:**
+- `_perform_hard_reset_escalation` (trust) — only when mode=`live`.
+- `sensor.ac_recurrence_window_count_<zone>` (display, D8).
+- `ac_ramp_events` `recurrence_would_fire` rows in shadow (audit).
 
 ### D2 — Day/night partitioned reset budgets, no borrowing
 
-**Status on ship: LIVE.** This is a policy change to an existing cap; it
-does not add automated actions the operator has not already approved.
+**Status on ship: LIVE.**
 
-**Schema:** ADD COLUMN `day_reset_count INTEGER NOT NULL DEFAULT 0` and
-`night_reset_count INTEGER NOT NULL DEFAULT 0` on `ac_reset_state`.
-Retain `hard_reset_count` as the SUM invariant for one release; it
-becomes `day_reset_count + night_reset_count` and can be deprecated in a
-follow-up (parked). Additive per the codebase's `CREATE TABLE IF NOT
-EXISTS` pattern; no migration.
+**Defaults — ASSERTED as DAY 1 / NIGHT 1 (Reviewer critical #12).**
+Total daily cap remains 2, matching today's
+`DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT`. Do not raise the total in
+this cycle; partitioning is the change. Both `§3-D2`, `§5`, and every
+sensor default read the same value.
 
-**Enforcement:** `_hard_reset_eligible` at `hvac_override.py:3938` now
-computes the current partition from wall-clock time against the
-day-boundary knobs, reads the matching counter, denies if
-`>= partition_limit`. Global 120-min min-interval remains unchanged.
+**Wall-clock window — ASSERTED as `[22:00:00, 06:00:00)` local, wrap
+around midnight (Reviewer HIGH #17).** Boundary-string knobs
+`hvac_ac_night_start_hhmm = "22:00"` and
+`hvac_ac_night_end_hhmm = "06:00"`. Partition membership is computed
+by a helper `_is_night_now(now, start_hhmm, end_hhmm)` with the
+wrap-around case handled EXPLICITLY: `if start > end: night =
+now >= start OR now < end`. Unparseable input fails CLOSED to
+`day` (the smaller budget). This is the ONLY sanctioned
+implementation; the plan states this so a builder writing
+`start <= now < end` gets caught by review.
 
-**Defaults:** `day_reset_budget = 1`, `night_reset_budget = 2`. Total 3 —
-this IS a rise from today's 2. Justified because the measurement lives
-overnight (49 kWh burn, 03:00 waste) and the DP-hazard tail is bounded by
-the 120-min min-interval. Flagged §12 for operator confirmation.
+**Night-session date-key — ASSERTED (Reviewer HIGH #7).** The DB PK is
+`(zone_id, date)`, and a naïve night bucket keyed on `now.date()`
+lets a `night_budget=1` policy fire once at 23:30 (date=D) and
+again at 00:30 (date=D+1) because the second reset reads a
+fresh row. The rule: the night-partition counter is keyed to the
+`night_session_date`, defined as `now.date()` if
+`now.time() >= 06:00` else `now.date() - 1`. The night counter
+lives on the row whose `date = night_session_date`. Producer and
+consumer BOTH compute `night_session_date` via the same helper
+`_night_session_date(now, night_start_hhmm, night_end_hhmm)`. A
+test firing 23:30 + 00:30 with `night_budget=1` asserts the second
+request is DENIED with `notes="reason=night_budget_exhausted"`.
 
-**Window definition (wall clock):** `night_start = 22:00`,
-`night_end = 06:00` (local). Rationale in the card
-(`RESET_BUDGET_WINDOWING_2026_08_21`): decouples compressor protection
-from the presence stack, which has been observed sitting wrong for
-hours.
+**Schema (guarded ALTER — Reviewer critical #3):** create a new
+migration block for `ac_reset_state` modelled EXACTLY on the
+`ac_ramp_events` block at `database.py:1681-1712`. Use
+`PRAGMA table_info(ac_reset_state)` → `are_columns = {row[1] ...}`
+→ per-column guarded `ALTER TABLE ac_reset_state ADD COLUMN ...`
+inside a try/except. Columns:
 
-**Restart safety:** counters PERSIST across restart (existing pattern —
-`ac_reset_state` is rebuilt from DB on boot).
+| column | type | default |
+|---|---|---|
+| `day_reset_count` | INTEGER | NOT NULL DEFAULT 0 |
+| `night_reset_count` | INTEGER | NOT NULL DEFAULT 0 |
+| `night_session_date` | TEXT | NULL |
+| `in_flight_durable_started_ts` | TEXT | NULL |
 
-**Producer:** `_perform_ac_reset` increments the correct partition
-counter based on now().
-**Consumer:** `_hard_reset_eligible` (trust); day/night sensors (display).
+**`save_ac_reset_state` tuple — ASSERTED must be extended
+(Reviewer critical #5).** The INSERT OR REPLACE column list at
+`database.py:7314-7322` MUST list the four new columns AND the
+parameter tuple at `:7323-7335` MUST bind them, or every save
+resets partition counters to 0 and the budget never denies. The
+plan flags this as the highest-probability silent failure; the D2
+test suite includes a specific case that saves a state with
+`day_reset_count=1`, reads it back, asserts the returned dict has
+`day_reset_count == 1`. This test fails deterministically if the
+tuple is not extended.
 
-### D3 — Soft-nudge daily cap (specced v4.5.11, never built)
+**Partition increment site — ASSERTED at
+`hvac_override.py:3960`, in the same read-modify-write block as
+`hard_reset_count`, BEFORE `_perform_ac_reset` (Reviewer #14).**
+Ordering is deliberate — a reset whose off-call fails still
+consumes budget (fail-closed compressor protection). Comment
+in-source: *"do not move this after `_perform_ac_reset`; charge
+budget before actuating."* `hard_reset_count` continues to
+increment as `day_reset_count + night_reset_count` reconciliation
+invariant during rollout, then the next cycle may deprecate it
+(parked).
 
-**Status on ship: LIVE.** Runaway guard, not a policy lever. Default is
-above today's observed 31-43/day so it never fires under current
-behaviour.
+**Enforcement site — ASSERTED at
+`hvac_override.py:3938` (Gate A):** replace the single-counter
+check with a partition-aware check that reads the current
+partition, compares against the matching budget knob, and (via
+D1) either calls `_engage_lockout` (ineffective-nudge caller) or
+writes a decline row (recurrence caller, via
+`engage_lockout_on_cap=False`).
 
-**Enforcement pattern:** copy the existing `AC_NUDGE_MIN_INTERVAL_S`
-enforcement site in `_evaluate_ac_ramp_zone`. Add the same-shape check
-against `state["soft_nudge_count"]` before calling `_perform_soft_nudge`.
+**Restart safety:** PERSIST — counters and `night_session_date`
+live on `ac_reset_state`, loaded on boot by the existing DAO.
 
-**Knob:** `CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT`, default **50**
-(rung 3 — Number entity). Placed above measured 31-43 so a change in
-weather does not silently trip it.
+**Producer:** `_perform_hard_reset_escalation` increments the
+correct partition counter based on `_is_night_now(now, ...)`.
+**Consumers:** the partition check inside
+`_perform_hard_reset_escalation`; two display sensors
+(`sensor.ac_reset_day_count_<zone>`,
+`sensor.ac_reset_night_count_<zone>`).
 
-**Producer:** `state["soft_nudge_count"]` (already exists).
-**Consumer:** the new eligibility gate + existing daily counter sensor.
+### D3 — Soft-nudge daily cap
 
-**Restart safety:** REUSED — the counter already persists.
+**Status on ship: LIVE.** Runaway guard, not a policy lever. Default
+`50/day` above measured 31-43/day.
 
-### D4 — Durable effectiveness (additive columns, NON-MUTATING)
+**Gate site — ASSERTED between real Gate 5 and real Gate 6 in
+`check_ac_reset` (`hvac_override.py:2793-2795`), immediately BEFORE
+the `_perform_soft_nudge` call reached at `:3157` via the detection
+path (Reviewer critical #2).** Not "at the `AC_NUDGE_MIN_INTERVAL_S`
+enforcement site" — no such site exists. Add:
 
-**Status on ship: LIVE for column presence + delayed write; the
-classification derived from `durable` is DISPLAY-ONLY at first (no
-consumer flips savings math).** This preserves the ledger invariant the
-card argues for extensively in `LAYERING_AND_RETROACTIVE_2026_08_21`.
+```
+# Gate 5b (D3): soft-nudge daily cap — runaway guard
+if int(state.get("soft_nudge_count", 0)) >= self._soft_nudge_daily_limit:
+    zone.ramp_state = AC_RAMP_STATE_LOCKED_OUT
+    _LOGGER.info("soft_nudge_daily_limit_reached zone=%s count=%d",
+                 zone.zone_id, state["soft_nudge_count"])
+    continue
+```
 
-**Schema:** ADD COLUMN `durable INTEGER` (nullable) and
-`durable_minutes INTEGER` (nullable) on `ac_ramp_events`.
+**Applies to auto only — ASSERTED (Reviewer #16).** The manual
+`force_nudge` entry at `hvac_override.py:4205` (`_perform_soft_nudge`
+called with `triggered_by="manual"`) BYPASSES the D3 cap. Operator
+intent beats a runaway guard. Documented in the manual-button
+docstring and in the D3 acceptance test.
 
-**Producer:** on `nudge_evaluated`, schedule a `_write_durable` callback
-at now + D minutes (D = `CONF_HVAC_AC_DURABILITY_WINDOW`, default 30 min,
-rung 2). At fire time, passive re-read of kW; if the load stayed below
-`AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before` for the whole window,
-set `durable=1`; else `durable=0`. `durable_minutes` = the interval
-actually observed (may be < D if a subsequent nudge on the same zone
-fired within the window — then `durable_minutes` records the truncated
-observation and `durable=0`).
+**Coordinator setter for the Number:** `set_soft_nudge_daily_limit`
+following `set_hard_reset_daily_limit` precedent at
+`hvac_override.py:1276+`.
 
-Pattern SOURCE: `_write_settled` in `hvac_override.py:3521-3528` — copy
-the cancellation-on-teardown handling verbatim.
+**Producer:** `state["soft_nudge_count"]` (already written).
+**Consumer:** the new Gate 5b + display sensor.
 
-**Consumers:**
-- `sensor.ac_ramp_durability_rate_<zone>` (display).
-- Savings arithmetic: **NOT wired in this cycle.** Additive, reversible,
-  makes no headline number move. A follow-up cycle
-  (AC-RAMP-SAVINGS-REBASE-1) decides whether to re-base savings on
-  `durable`. Parked.
+**Restart safety:** REUSED — counter already persists on
+`ac_reset_state`.
 
-**Non-goal:** MUST NOT overwrite `effective`. Reviewer D checks this via
-mutation drill.
+### D4 — Durable effectiveness (additive, non-mutating)
 
-**Restart safety:** the delayed callback is scheduled via
-`async_call_later` and is REBUILT on restart from an
-`in_flight_durable_started_ts` column added to `ac_reset_state`
-(mirroring the existing `in_flight_nudge_*` pattern at `database.py:1439-1441`).
-Startup audit at `async_startup_ramp_audit` (`hvac_override.py:3925`)
-gets a sibling call that resumes durable evaluations with elapsed-time
-arithmetic; a durable callback whose remaining time is ≤0 fires
-immediately post-boot; missing kW history at boot returns `durable=NULL`
-(the "measurement in flight or lost" case documented at
-`hvac_override.py:3500-3502`).
+**Status on ship:** columns LIVE, delayed write LIVE, classification
+DISPLAY-ONLY. No consumer flips savings math this cycle.
 
-### D5 — Preset/mode/restore telemetry on the HARD-RESET path
+**Schema (ac_ramp_events ALTER block at `:1681-1712`):**
+- `durable INTEGER` — nullable.
+- `durable_minutes INTEGER` — nullable.
 
-**CORRECTED SCOPE (see §12 flag #1):** the columns `preset_before`,
-`preset_after`, `mode_before`, `mode_after`, `restore_ok`,
-`restore_ok_immediate` **already exist** on `ac_ramp_events`
-(`database.py:1519-1524`) and are already written by the NUDGE path
-(shipped by HVAC-GOVERNED-EXCURSION-1 D1 in v5.86.0, sites at
-`hvac_override.py:3341` and `:3496`). The brief-implied "add these
-columns" is redundant.
+Neither column is referenced by `save_ac_reset_state`; they live on
+`ac_ramp_events` which is append-only, so no INSERT OR REPLACE
+tuple discipline applies here.
 
-**Actual scope:** wire the same telemetry into the HARD-RESET path.
-Producer sites `_perform_ac_reset` (`hvac_override.py:2884`) and
-`_restore_after_reset` (`hvac_override.py:2921`) currently record no
-`ac_ramp_events` rows for the reset itself (11 historical
-`hard_reset_started`/`_completed` rows exist per the card — verify
-which method emits them; if none, add via the existing
-`_track_zone_action` helper).
+**Producer:** on `nudge_evaluated`, schedule `_write_durable` at
+`now + D` minutes (`D = CONF_HVAC_AC_DURABILITY_WINDOW`, default
+30, rung 2). Captured on the outer scope: the `event_id` returned
+by the `nudge_evaluated` `log_ac_ramp_event` call — see next
+paragraph.
 
-**Deliverable:** on hard-reset start, write a `hard_reset_started`
-`ac_ramp_events` row carrying `preset_before`, `mode_before`,
-`current_temp` at reset-start (this is D6's producer half). On
-hard-reset complete AND after settle window, write
-`hard_reset_completed` carrying `preset_after`, `mode_after`,
-`restore_ok`, and `current_temp` at reset-end (D6's other half).
+**Row identity — ASSERTED (Reviewer critical #6).**
+`log_ac_ramp_event` at `database.py:7480+` MUST be extended to
+return `cursor.lastrowid` (an `int`). The callback closes over that
+`event_id` and updates precisely that row:
+`UPDATE ac_ramp_events SET durable=?, durable_minutes=? WHERE
+event_id=?`. This eliminates the "UPDATE latest row" race that
+would land the old measurement on a NEW nudge at the measured
+31-43/day cadence.
 
-**Status on ship: LIVE** — telemetry only, no behaviour change.
+**Cancel vs truncate — ASSERTED (Reviewer HIGH #11).** The rule:
+- **Re-nudge on the same zone inside D fires the pending callback
+  EARLY** with the elapsed interval as `durable_minutes` and
+  `durable = 1 if kW stayed below threshold across the elapsed
+  interval else 0`. Implementation: on entering
+  `_perform_soft_nudge` for zone Z, look up
+  `self._durable_timers[Z]`; if present, cancel the async_call_later
+  handle AND immediately invoke the `_write_durable` closure with
+  `truncated=True`.
+- **Cancellation applies to teardown/unload only** — no write.
+- **D reached without a re-nudge:** `_write_durable` fires,
+  passive-reads kW, writes `durable=1, durable_minutes=D` (or 0 if
+  kW recovered mid-window).
 
-**Producer:** `_perform_ac_reset` (start row) + `_restore_after_reset`
-(completed row).
-**Consumer:** operator diagnostics + D6 drift discriminator.
+Pattern SOURCE for the cancellation-handle registry:
+`_nudge_settled_timers` at `hvac_override.py:3512`. New registry
+`self._durable_timers[zone_id]` follows the same shape and is
+cancelled in the teardown block at `hvac_override.py:1439-1459`
+(see D6 for the same discipline).
 
-### D6 — Room temp at reset-start and reset-end (drift discriminator)
+**Restart safety:** PERSIST via `in_flight_durable_started_ts`
+column on `ac_reset_state` (added in D2's ALTER block; the
+`save_ac_reset_state` INSERT OR REPLACE tuple ALSO carries this
+column — same discipline as D2). `async_startup_ramp_audit` at
+`hvac_override.py:3925` gains a sibling call
+`_resume_in_flight_durable_evaluations` that computes remaining
+time and reschedules; remaining ≤ 0 fires immediately post-boot;
+missing kW history at boot writes `durable=NULL`.
 
-**Status on ship: LIVE for capture; DRIFT-BASED CLASSIFICATION IS
-DIAGNOSTIC-ONLY.** No automated behaviour keys off drift in this cycle.
-The escalation trigger (D1) is a nudge-count trigger, not a drift
-trigger.
+**Consumers:** `sensor.ac_ramp_durability_rate_<zone>` (display).
+No trust consumer.
 
-**Rationale:** per `RESET_DRIFT_CONSTRAINT_2026_08_22`, two indistinguishable
-power traces mean opposite things. This deliverable is the PREREQUISITE
-that makes future drift-informed policy possible; it captures the data
-from day one even while the reset window stays fixed.
+**Non-goal:** MUST NOT overwrite `effective`. Reviewer D mutation
+drill site #4 (§11).
 
-**Implementation:** ride on D5's producer sites — `current_temp`
-column already exists on `ac_ramp_events`. Read the zone's temperature
-sensor at reset-start (into the `hard_reset_started` row) and at
-reset-end after the `_restore_after_reset` verify success (into the
-`hard_reset_completed` row).
+### D5 — Enrich the EXISTING hard-reset event writes (not new rows)
 
-**Classifier (diagnostic only, no consumer flips behaviour):**
-- `temp_end > target_high` → `reset_outcome = "justified_ramp"` (case
-  (b) in the card — the reset WORKED, subsequent ramp is expected).
-- `temp_end ≈ target_high AND post_kW ramps back` →
-  `reset_outcome = "floor_survived"` (case (a) — reset FAILED).
-- `temp_end unavailable OR temp_start unavailable` →
-  `reset_outcome = "inconclusive"`.
-- Written as a new nullable `reset_outcome TEXT` column on
-  `ac_ramp_events`. Additive. Live sensor
-  `sensor.ac_reset_last_outcome_<zone>` exposes it.
+**CORRECTED SCOPE — ASSERTED as ENRICHMENT (Reviewer critical #4).**
+The `hard_reset_started` and `hard_reset_completed` rows are ALREADY
+written today at `hvac_override.py:3967-3972` and `:3050-3055`.
+Adding new rows via `_track_zone_action` (which is IN-MEMORY ONLY,
+per its docstring at `:1250` — "no DB hit") would write NOTHING to
+the DB AND double-count in the in-memory tracker if the plan
+mistakes it for a DB writer. This deliverable is EXCLUSIVELY the
+enrichment of those two existing `log_ac_ramp_event` calls with the
+additional kwargs described below.
 
-**Non-goal:** MUST NOT feed the recurrence trigger or the day/night
-budget in this cycle. Data collection first; policy in a later cycle
-once the operator has seen ≥ 20 samples.
+**D5-A — hard-reset started row enrichment (at `:3967-3972`).**
+Threading `triggered_by` per D1, PLUS:
+- `current_temp = zone.current_temperature` (feeds D6 Invariant II).
+- `target_high = zone.target_temp_high`.
+- `preset_before = zone.climate_entity state's preset_mode attr` at
+  the instant of the call (read `hass.states.get(...)` once,
+  extract preset).
+- `mode_before = zone.climate_entity state's `state` at that
+  instant.
 
-**Restart safety:** N/A — temps are captured synchronously at the
-producer sites; no in-flight state to persist.
+The `log_ac_ramp_event` DAO already accepts these kwargs (all six
+telemetry columns exist per `database.py:1519-1524`); this is
+producer-side wiring only.
+
+**D5-B — hard-reset completed row enrichment (at `:3050-3055`).**
+- Read `hass.states.get(zone.climate_entity)` after
+  `set_hvac_mode` returns; extract `preset_after`, `mode_after`,
+  `current_temp` (from the zone's temp sensor, not the climate
+  entity's target).
+- `restore_ok = NULL` at write time — the completion row goes in
+  IMMEDIATELY after `set_hvac_mode` returns, but the 30s +
+  possible retry `_verify_restore` at `:2966+` is what actually
+  proves restoration (Reviewer HIGH #9). Back-fill via `event_id`
+  (extend `log_ac_ramp_event` to return `lastrowid` — the same
+  extension D4 requires) from `_verify_restore`'s three terminal
+  branches:
+  - Success at `hvac_override.py:3022-3027` →
+    `UPDATE ... SET restore_ok=1 WHERE event_id=?`.
+  - Failure after retries at `:3005-3021` →
+    `UPDATE ... SET restore_ok=0 WHERE event_id=?`.
+  - Cancelled/pop at `:2999-3001` → no update (row stays NULL,
+    correctly reflecting "measurement lost").
+
+**D5-B setter-abort branch — ASSERTED (Reviewer HIGH #8).**
+`_restore_after_reset` has a SECOND caller at
+`hvac_override.py:2000` — the `ac_reset_enabled` setter's disable
+path — which invokes it with a hardcoded `"heat_cool"` after the
+operator toggles the feature OFF. This is an ABORT, not a
+completion. The plan threads an explicit `completed: bool = True`
+keyword-only parameter to `_restore_after_reset`. The setter caller
+passes `completed=False, abort_reason="feature_disabled"`. When
+`completed=False`, the enriched `hard_reset_completed` write:
+- Sets `triggered_by = f"abort_reason={abort_reason}"`.
+- Sets `reset_outcome = NULL` (D6 does not classify aborts —
+  §3-D6).
+- Skips scheduling `_write_reset_outcome` (D6).
+
+**Status on ship: LIVE** — telemetry only, no behaviour change on
+the automatic path. The setter-abort branch is instrumented for
+the first time.
+
+**Producer:** enriched `log_ac_ramp_event` calls at `:3967` and
+`:3050` (both callers), plus back-fill from `_verify_restore`.
+**Consumers:** operator diagnostics + D6 drift classifier.
+
+### D6 — Room temp at reset-start and reset-outcome (drift discriminator)
+
+**Status on ship: LIVE for capture; drift classification is
+DIAGNOSTIC-ONLY.** No automated behaviour keys off drift this cycle.
+
+**Measurement definition — ASSERTED (Reviewer #20).** Reset-end
+temp is read at `restore + AC_RESET_OUTCOME_SETTLE_S` seconds,
+NOT at the instant `_restore_after_reset` returns. Named this way
+in-source and in-doc so a future change to
+`hvac_ac_reset_off_duration` cannot silently change what is
+measured. `AC_RESET_OUTCOME_SETTLE_S = 60` (module constant, rung
+1, sibling of `AC_NUDGE_RESTORE_SETTLE_DELAY_S = 12`; §5).
+
+**Delayed callback:** `_write_reset_outcome`, scheduled from
+`_restore_after_reset` at reset-restore time, closes over the
+`hard_reset_completed` `event_id` (via `log_ac_ramp_event`
+returning `lastrowid`). At fire time:
+- Passive-read zone temp.
+- Compute:
+  - `reset_outcome = "justified_ramp"` if
+    `temp_settle > target_high` (drift above setpoint — the reset
+    WORKED; subsequent ramp is expected).
+  - `reset_outcome = "floor_survived"` if
+    `temp_settle <= target_high AND post_kW ramps back` (the
+    modulation floor SURVIVED — the reset FAILED).
+  - `reset_outcome = "inconclusive"` if `temp_settle` unavailable
+    OR `temp_start` unavailable (recorded on the started row).
+- `UPDATE ac_ramp_events SET reset_outcome=?, current_temp=?
+  WHERE event_id=?`.
+
+**Schema (ac_ramp_events ALTER block):** `reset_outcome TEXT`
+nullable.
+
+**Registry + teardown — ASSERTED (Reviewer #18).**
+`self._reset_outcome_timers[zone_id]` follows the
+`_nudge_settled_timers` shape and is cancelled in the teardown
+block at `hvac_override.py:1439-1459`.
+
+**Setter-abort exclusion — ASSERTED.** When D5-B's `completed=False`
+path fires, `_write_reset_outcome` is NOT scheduled and the
+completed row's `reset_outcome` stays NULL.
+
+**Restart safety:** REBUILD. The reset_outcome timer is short-lived
+(60s); if the process restarts inside that window, the pending
+callback is lost and the row keeps `reset_outcome=NULL`. The
+row IS on disk (D5-B wrote it), so the miss is visible and
+attributed correctly. Not worth persisting a per-zone in-flight
+row for a 60s window.
+
+**Producer:** `_write_reset_outcome` callback.
+**Consumers:** `sensor.ac_reset_last_outcome_<zone>` (display).
+No trust consumer.
+
+**Non-goal:** MUST NOT feed the recurrence trigger or the budget in
+this cycle. Data first; policy later once ≥ 20 samples exist.
 
 ### D7 — Promote `AC_RESET_OFF_DURATION_SECONDS` to rung 3
 
-**Status on ship: LIVE.** Pure knob-rung change; no algorithmic
-difference on day zero.
+**Status on ship: LIVE.** Pure knob-rung change; day-zero behaviour
+unchanged.
 
-**From:** module constant `AC_RESET_OFF_DURATION_SECONDS: Final = 60`
-(`hvac_const.py:493`).
-**To:** Number entity `hvac_ac_reset_off_duration` (default 60, range
-30-300 seconds), stored via the URA Number-persistence machinery,
-consumed at `hvac_override.py:2906` and `:2915` via the coordinator's
-config-value accessor (same shape as `_hard_reset_daily_limit` at
-`hvac_override.py:3938` sourced from the existing Number sibling at
-`number.py:2435-2441` per the card).
-
-**Rationale:** the operator's manual technique IS this parameter
-("off and back to auto to reclaim some energy. If I am lucky it is
-short enough..."). It is policy tuned by observation, not a safety
-bound.
-
-**Backward compatibility:** the module constant remains as the default
-seed value (mirror the `DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY` pattern at
-`hvac_const.py:526`). First-boot after upgrade instantiates the Number
-at the constant's current value → zero behaviour change on ship.
+- From: module constant `AC_RESET_OFF_DURATION_SECONDS: Final = 60`
+  (`hvac_const.py:493`).
+- To: Number entity `hvac_ac_reset_off_duration` (default 60,
+  range 30-300 seconds). The module constant remains as the
+  first-boot seed value (mirror the
+  `DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY` pattern at
+  `hvac_const.py:526`).
+- **Coordinator write-through — ASSERTED
+  (Reviewer #23):** new `set_ac_reset_off_duration` on the HVAC
+  coordinator, modelled on `set_hard_reset_daily_limit` at
+  `hvac_override.py:1276+`. Number entity `.async_set_native_value`
+  calls this setter. Without it the slider moves and
+  `_perform_ac_reset` at `:2906` keeps reading the stale
+  coordinator attribute.
+- **Consumption sites updated:** `hvac_override.py:2906` (the
+  `async_call_later` delay) AND `:2915` (NM alert string
+  interpolation) both read `self._ac_reset_off_duration_s`, not
+  the module constant.
 
 **Producer:** operator (dashboard slider).
-**Consumer:** `_perform_ac_reset` off-window scheduler; NM alert text.
+**Consumer:** `_perform_ac_reset` off-window scheduler + NM alert.
 
-### D8 — Live sensors + declined-decision trail (observability audit
-gaps #2 and #4)
+### D8 — Observability: live sensors + declined-decision trail
 
-**Status on ship: LIVE.** Read-only display; unblocks operator tuning
-of D1's N/W.
+**Status on ship: LIVE.**
 
-- `sensor.ac_recurrence_window_count_<zone>` — nudge_started count in
-  the last W seconds per zone.
-- `sensor.ac_reset_last_outcome_<zone>` — from D6.
-- `sensor.ac_reset_day_count_<zone>` / `sensor.ac_reset_night_count_<zone>` —
-  the two D2 partition counters exposed live.
-- Every escalation-denied path (cap, min-interval, disabled,
-  comfort-deferred, master OFF, recurrence-OFF) writes an event row
-  with `event_type = "hard_reset_declined"` and a `notes` field of
-  `reason=<code>`. Reuses the existing ledger — no schema change.
+- `sensor.ac_recurrence_window_count_<zone>` — rolling count over
+  `ac_ramp_events` in the last W seconds. Attributes: `mode`
+  (from D1 Select), `N`, `W`, `next_would_fire_estimate` (based
+  on cadence).
+- `sensor.ac_reset_day_count_<zone>` /
+  `sensor.ac_reset_night_count_<zone>` — the two partition
+  counters exposed live.
+- `sensor.ac_reset_last_outcome_<zone>` — most recent D6
+  `reset_outcome` value + timestamp attribute.
+- **Declined-decision trail — ASSERTED via a new event type
+  (Reviewer #19).** `AC_RAMP_EVENT_HARD_RESET_DECLINED` constant
+  added to `hvac_const.py`. Every escalation-denied path writes
+  ONE row of this type with `notes = f"reason={code}"` where
+  `code ∈ {day_budget_exhausted, night_budget_exhausted,
+  global_min_interval, feature_disabled, master_off,
+  recurrence_shadow, comfort_deferred}`. Writes are edge-triggered
+  (see §12-19): the coordinator tracks the last-declined reason
+  per zone and only writes when reason changes or ≥ 15 minutes
+  since last decline of same reason. This repo has a
+  DB-write-flood rollback in its history — level-triggered writes
+  are unacceptable.
+
+**Invariant III enforcement — ASSERTED (Reviewer #15).** The
+`hard_reset_declined` and `recurrence_would_fire` writes MUST leave
+`effective = NULL` AND MUST NOT include a `kwh_avoided=` substring
+in `notes`. Enforced by a test that inserts one of each and
+diffs the shipped savings and FP aggregator return values before /
+after.
+
+**NM alert repair — ASSERTED (Reviewer #22).** The NM alert string
+at `hvac_override.py:2915-2916` currently interpolates
+`AC_RESET_OFF_DURATION_SECONDS` (D7 — updated to read the
+coordinator attr) AND `AC_RESET_MAX_PER_DAY = 2` at
+`hvac_const.py:491`. Under partitioned budgets the "N/2 today"
+string is misleading. Change to
+`f"Reset #{used_this_partition}/{partition_budget} ({partition}). "`
+where `partition ∈ {"day","night"}`. Do NOT delete
+`AC_RESET_MAX_PER_DAY` (KEEP + WIRE per the supersession-triage
+discipline); rewire it to `day_budget + night_budget` as the
+"total daily" reference value.
 
 ---
 
 ## 4. Non-goals — explicit
 
-1. **Do NOT redefine `effective`.** The existing column stays a TRUE
-   statement about the instant of measurement. `LAYERING_AND_RETROACTIVE_2026_08_21`
-   documents the ledger + monotonic-lifetime-sensor + savings-baseline
-   reasoning.
-2. **Do NOT create an "excursion / borrow kind" for reset.** No new
-   enum kind; use the existing hard-reset code path with additional
-   telemetry.
-3. **Do NOT rebuild working machinery.** Detection, soft nudge, the
-   `if escalate:` branch, `_hard_reset_eligible`, `_perform_ac_reset`,
-   `_restore_after_reset`, verify+retry, `async_startup_ramp_audit`,
-   `ac_reset_state`, and `ac_ramp_events` all remain. Every deliverable
-   is an ADD (column, sensor, knob, sibling emission site).
-4. **Do NOT change the nudge hold duration (300s → shorter).** Parked
-   as a separate cycle (see `WIDE_CYCLE_REFUTED_LOAD_MATCHED_2026_08_21`).
-   Sample-rate concerns for calibrating N and W are addressed by the
-   §7 probe, not by a code change here.
-5. **Do NOT wire `durable` into savings arithmetic in this cycle.** D4
-   is instrumentation. Rebasing savings is a separate cycle after ≥ 2
-   weeks of `durable` data.
-6. **Do NOT re-do the restart-safety story for the nudge path.** The
-   nudge is the codebase exemplar; the HVAC-GOVERNED-EXCURSION-1
-   restart-safety audit refuted the earlier hazard claim. New in-flight
-   state added here (D4's `in_flight_durable_started_ts`) follows the
-   same pattern; do not perturb the existing fields.
-7. **Do NOT couple to house-state.** Wall-clock boundary only for
-   day/night budgets. House-state is available if a later cycle proves
-   it worth the coupling risk.
-8. **Do NOT touch the excursion primitive** landing under
-   HVAC-GOVERNED-EXCURSION-1 D2/D3 (still unbuilt as of 2026-08-22).
-   D5 here writes telemetry directly at the reset producer sites, not
-   via the excursion API, so the two cycles can ship in either order.
-   If the excursion primitive lands first, D5 can be re-plumbed as a
-   consumer in a follow-up; that is not a goal of this cycle.
+1. Do NOT redefine `effective`.
+2. Do NOT create an "excursion / borrow kind" for reset.
+3. Do NOT rebuild working machinery (detection, soft nudge, the
+   escalate branch, `_perform_hard_reset_escalation`,
+   `_perform_ac_reset`, `_restore_after_reset`, verify+retry,
+   `async_startup_ramp_audit`, `ac_reset_state`, `ac_ramp_events`).
+4. Do NOT change the nudge hold duration (300s → shorter). Parked
+   as AC-NUDGE-HOLD-SHORTEN-1 per
+   `WIDE_CYCLE_REFUTED_LOAD_MATCHED_2026_08_21`.
+5. Do NOT wire `durable` into savings arithmetic this cycle.
+6. Do NOT re-do restart-safety for the nudge path (the
+   HVAC-GOVERNED-EXCURSION-1 audit refuted the earlier hazard
+   claim).
+7. Do NOT couple partitioned budgets to house-state. Wall-clock
+   only.
+8. Do NOT touch the excursion primitive (HVAC-GOVERNED-EXCURSION-1
+   D2/D3) — D5 writes directly at the reset producer sites so
+   ship-order between the two cycles is free.
+9. Do NOT extend the D3 soft-nudge cap to the manual `force_nudge`
+   button (`:4205`). Operator intent beats runaway guard.
+10. Do NOT delete `AC_RESET_MAX_PER_DAY` (KEEP + WIRE per §3-D8).
+11. Do NOT `_engage_lockout` on a recurrence-triggered cap failure.
 
 ---
 
 ## 5. Knob ladder — every new number, placed and justified
 
-Per CLAUDE.md "Numbers Get Knobs". Every threshold, duration, window
-below is a named configurable with an explicit rung.
-
 | Knob | Default | Rung | Why here |
 |---|---|---|---|
-| `CONF_HVAC_AC_RECURRENCE_ENABLED` | `False` | 2 (config/options) | Kill switch for automated compressor cycling. Ships OFF; enabling is a deliberate operator flip. Not rung 3 because the operator does not flip it by dashboard-tuning; it's a one-time arm. |
-| `CONF_HVAC_AC_RECURRENCE_COUNT_N` | `2` | 3 (Number) | Policy tuned by observation of the shadow data. Value chosen off measured cadence per §7 probe. |
-| `CONF_HVAC_AC_RECURRENCE_WINDOW_MIN` | `90` (minutes) | 3 (Number) | Same. Card recommends N=2 within W=90min per observed ~1 nudge/30min pathological cadence. |
-| `CONF_HVAC_AC_RESET_DAY_BUDGET` | `1` | 3 (Number, 0-4) | Policy — operator wants the balance-finding tunable per the card. 0 disables day resets entirely. |
-| `CONF_HVAC_AC_RESET_NIGHT_BUDGET` | `2` | 3 (Number, 0-4) | Same. Night gets the larger share where measured damage lives. |
-| `CONF_HVAC_AC_NIGHT_START_HHMM` | `"22:00"` | 2 (options flow, string) | Wall-clock boundary. Rung 2 not 3 because it is set once for a household, not tuned by observation. |
-| `CONF_HVAC_AC_NIGHT_END_HHMM` | `"06:00"` | 2 | Same. |
-| `CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT` | `50` | 3 (Number) | Runaway guard above measured 31-43/day. Operator explicitly wanted this configurable — card `RECOMMENDATION_EFFECTIVE_REDEFINITION_2026_08_21`. |
-| `CONF_HVAC_AC_DURABILITY_WINDOW` | `30` (minutes) | 2 (options flow) | Set once per household to match observed recurrence cadence. Not rung 3 because moving it retroactively re-classifies past rows (confusing telemetry). |
-| `hvac_ac_reset_off_duration` (Number) | `60` (seconds) | 3 (Number, 30-300s) | Operator tunes by hand today. See D7 rationale. |
+| `hvac_ac_recurrence_mode` (Select) | `shadow` | 3 (Select) | 3-state (`off`/`shadow`/`live`) — a boolean cannot express three behaviours per §12-13. Rung 3 because the operator moves it by observation of the shadow rows. |
+| `hvac_ac_recurrence_count_n` (Number int) | `2` | 3 | Tuned by observation. Calibrated by §7 probe. |
+| `hvac_ac_recurrence_window_min` (Number int, minutes) | `90` | 3 | Same. |
+| `hvac_ac_reset_day_budget` (Number int, 0-4) | `1` | 3 | Policy per operator. 0 disables day resets entirely. |
+| `hvac_ac_reset_night_budget` (Number int, 0-4) | `1` | 3 | Same. Together = today's total cap of 2 per §12-12. |
+| `hvac_ac_night_start_hhmm` (options string) | `"22:00"` | 2 | Set once per household. String HH:MM. |
+| `hvac_ac_night_end_hhmm` (options string) | `"06:00"` | 2 | Same. Wrap-around handled per §3-D2. |
+| `hvac_ac_soft_nudge_daily_limit` (Number int) | `50` | 3 | Runaway guard above measured 31-43/day; operator wanted it configurable. |
+| `hvac_ac_durability_window` (options int, minutes) | `30` | 2 | Set once; moving it retroactively re-classifies rows. |
+| `hvac_ac_reset_off_duration` (Number int, seconds, 30-300) | `60` | 3 | Operator technique parameter (§3-D7). |
+| `AC_RESET_OUTCOME_SETTLE_S` (module const, seconds) | `60` | 1 | Measurement primitive; sibling of `AC_NUDGE_RESTORE_SETTLE_DELAY_S = 12`. Changing it changes what "reset outcome" means; must require review. |
 
-Kill-switch semantics documented on each: `RECURRENCE_ENABLED=False` →
-D1 runs in shadow, no `_perform_ac_reset` call from the recurrence
-branch. `SOFT_NUDGE_DAILY_LIMIT=0` disables the cap. `RESET_DAY_BUDGET=0`
-or `RESET_NIGHT_BUDGET=0` disables resets in that partition entirely
-(useful for guest-in-house night suppression later).
+Kill-switch semantics: `hvac_ac_recurrence_mode = off` → D1 code
+path exits at the mode gate; no compute, no shadow rows, no
+reset requests. `shadow` → compute + edge-triggered shadow rows
+only. `soft_nudge_daily_limit=0` → cap disables the check.
+`reset_day_budget=0` OR `reset_night_budget=0` → the corresponding
+partition is disabled entirely (day denies with
+`reason=day_budget_exhausted`; night denies with
+`reason=night_budget_exhausted`).
 
 ---
 
-## 6. Producer/consumer map — every new value
+## 6. Producer / consumer map — every new value
 
 ### D1 — recurrence window count
 
-- **Producer:** the count is a live rolling read over `ac_ramp_events`
-  rows WHERE `event_type='nudge_started' AND zone_id=Z AND timestamp >
-  now() - W`. Depends on: the existing `_track_zone_action` writing
-  `nudge_started` rows (verified live, 47 rows in one night per the
-  card). Dependency healthy.
+- **Producer arithmetic:** SQL count over `ac_ramp_events` WHERE
+  `event_type='nudge_started' AND zone_id=? AND timestamp >
+  now() - W`. Depends on: the existing `nudge_started` writes on
+  the soft-nudge producer (verified live, 47 rows/night on 08-20).
 - **Consumers:**
-  - `_hard_reset_eligible` (trust decision) — only when
-    `CONF_HVAC_AC_RECURRENCE_ENABLED=True`.
+  - `_perform_hard_reset_escalation` (trust) — only when
+    `recurrence_mode='live'`, and always with
+    `engage_lockout_on_cap=False`.
   - `sensor.ac_recurrence_window_count_<zone>` (display).
-  - `ac_ramp_events` shadow row `recurrence_would_fire` (audit).
+  - `ac_ramp_events` `recurrence_would_fire` rows (audit — edge
+    triggered).
 
 ### D2 — day/night reset counts
 
-- **Producer:** `_perform_ac_reset` increments the partition matching
-  wall-clock now against the boundary knobs.
-- **Consumers:** `_hard_reset_eligible` (trust); two live sensors
-  (display); day-rollover reset code in `ac_reset_state` DAO.
+- **Producer:** `_perform_hard_reset_escalation` at `:3960` — the
+  increment of the correct partition counter based on
+  `_is_night_now(now, ...)`, keyed on `night_session_date` when
+  in night.
+- **Consumers:**
+  - Partition check inside `_perform_hard_reset_escalation` at
+    `:3938` (trust).
+  - Day-rollover reset in `ac_reset_state` DAO.
+  - `sensor.ac_reset_day_count_<zone>`,
+    `sensor.ac_reset_night_count_<zone>` (display).
+  - `_send_nm_alert` message at `:2911-2919` (display, per D8
+    correction).
 
-### D3 — soft-nudge daily count check
+### D3 — soft-nudge daily count
 
-- **Producer:** `state["soft_nudge_count"]` (already written).
-- **Consumer:** new eligibility check in `_evaluate_ac_ramp_zone`.
+- **Producer:** `state["soft_nudge_count"]` (already exists).
+- **Consumers:** new Gate 5b in `check_ac_reset`; existing daily
+  counter sensor.
 
 ### D4 — durable / durable_minutes
 
-- **Producer:** `_write_durable` callback scheduled from
-  `nudge_evaluated`.
+- **Producer:** `_write_durable` callback scheduled from the
+  `nudge_evaluated` `log_ac_ramp_event` return `event_id`. Fires
+  at D minutes OR early on re-nudge (truncated).
 - **Consumers:** `sensor.ac_ramp_durability_rate_<zone>` (display).
-  No trust consumer in this cycle.
+  No trust consumer.
 
-### D5/D6 — reset telemetry rows + reset_outcome
+### D5 — hard-reset row enrichment
 
-- **Producer:** `_perform_ac_reset` (start row) + `_restore_after_reset`
-  post-verify (completed row) + a delayed `_classify_reset_outcome`
-  callback that reads temp_end.
+- **Producers:** enriched `log_ac_ramp_event` calls at
+  `hvac_override.py:3967-3972` (started) and `:3050-3055`
+  (completed). `restore_ok` back-filled from `_verify_restore` at
+  `:3005/3016/3022`.
+- **Consumers:** D6 (`_write_reset_outcome` reads `current_temp`
+  from the started row via `event_id`); operator diagnostics.
+
+### D6 — reset_outcome
+
+- **Producer:** `_write_reset_outcome` at
+  `restore + AC_RESET_OUTCOME_SETTLE_S`. Closes over
+  `event_id`.
 - **Consumers:** `sensor.ac_reset_last_outcome_<zone>` (display).
-  No trust consumer in this cycle.
 
-### D7 — reset off-duration knob
+### D7 — off-duration
 
-- **Producer:** operator (dashboard slider) via Number entity.
-- **Consumer:** `_perform_ac_reset` off-window scheduler.
+- **Producer:** operator (Number entity) → coordinator setter →
+  `self._ac_reset_off_duration_s`.
+- **Consumer:** `_perform_ac_reset` at `hvac_override.py:2906` and
+  `:2915`.
+
+### D8 — hard_reset_declined rows
+
+- **Producer:** every gate-fail path in
+  `_perform_hard_reset_escalation` writes one row (edge-triggered
+  per §12-19). Recurrence-mode=`shadow` decline writes one row per
+  window crossing.
+- **Consumers:** operator diagnostics; NM message counts.
 
 ---
 
 ## 7. Measure-before-build probe — calibrating N and W
 
-**One-shot read-only probe, cheap.** Runs on the HA host via SSH against
-`ac_ramp_events` (already has 6+ days of `nudge_started` rows on 3
-zones). Output goes into this doc under §7 before D1 code lands.
+One-shot read-only probe, cheap. Runs on the HA host via SSH
+against `ac_ramp_events`. Output feeds §7.1 BEFORE build dispatch.
 
-For each zone, compute:
+For each of zone_1/zone_2/zone_3, compute:
 
-1. Distribution of inter-nudge intervals — median, p25, p75, count of
-   intervals < 30min, < 60min, < 90min.
-2. For candidate (N, W) pairs in {(2, 60), (2, 90), (2, 120), (3, 90),
-   (3, 120)}, count how many times per day the trigger WOULD have
-   fired historically.
-3. Cross-reference with the 11 historical `hard_reset_*` events: does
-   the recurrence trigger fire at least as often as the ineffective
-   branch did?
+1. Inter-`nudge_started` intervals per zone since 2026-07-22 —
+   median, p25, p75, count < 30/60/90 min.
+2. For candidate (N, W) ∈ {(2, 60), (2, 90), (2, 120), (3, 90),
+   (3, 120)}: how many times/day would the trigger have fired
+   (edge-triggered, no double-fires within W).
+3. Cross-reference with the 11 historical `hard_reset_started`
+   rows: does at least one candidate fire ≥ 1x on each of those
+   dates?
 
-**Decision:** if any candidate would have fired > 4x/day on any zone,
-the default is too aggressive and D2 budgets will refuse anyway — but
-the operator experience is "the automation keeps proposing resets it
-won't do", which pollutes the declined trail. Prefer the largest (N, W)
-that still fires ≥ 1x on the 08-20 overnight case (47 nudges) — that is
-the founding operator complaint and the acceptance case.
+**Decision rule:** pick the largest (N, W) that fires ≥ 1x on the
+08-20 overnight case AND ≤ 4x/day/zone on the median historical
+day. Provisional §5 defaults (N=2, W=90) are the working
+hypothesis; §7.1 supersedes.
 
-**Do this before dispatching the build.** Result goes into a new §7.1
-in this doc. Builder reads §7.1 for the default values, not the table
-in §5 (which is provisional).
+**§7.1 — populated by the orchestrator BEFORE build dispatch.**
+Placeholder retained here; no builder starts D1 until §7.1 is
+filled.
 
 ---
 
 ## 8. Acceptance criteria — DISCRIMINATING
 
-Each criterion states what the observation looks like under the fix
-AND under a plausible different failure. If the two look identical,
-the criterion is rejected and rewritten.
+Each criterion states what the fix looks like AND a plausible
+different failure that produces a different observation.
 
-### AC1 (D1 — recurrence trigger shadow, ships live-observable)
+### AC1 (D1 recurrence — shadow AND live positive control)
 
-- **Verify:** with `CONF_HVAC_AC_RECURRENCE_ENABLED=False`, force
-  N+1 nudges on zone_1 within W by manipulating detection thresholds
-  in a test harness. Expect exactly N `recurrence_would_fire` shadow
-  rows in `ac_ramp_events` for zone_1 in the run window, and ZERO
-  `hard_reset_started` rows attributable to the recurrence branch.
-- **Under a plausible failure** (recurrence code accidentally live
-  despite kill switch): a `hard_reset_started` row appears with
-  `triggered_by='recurrence'`. The criterion discriminates because it
-  asserts BOTH the shadow row presence AND the reset absence.
-- **Live:** after enabling in production for one overnight, at least
-  one `recurrence_would_fire` row appears on the 08-20-shape night;
-  and after arming, at least one `hard_reset_started` row with
-  `triggered_by='recurrence'` appears within 7 days.
+- **Positive control (in-suite):** with mode=`live`, hand-craft
+  N+1 `nudge_started` rows within W for zone_1 (bypass the
+  detection ladder). Trigger the recurrence gate site. Assert
+  EXACTLY ONE new row exists WHERE
+  `event_type='hard_reset_started' AND triggered_by='recurrence'`.
+  **Failure shape:** `triggered_by='auto'` (parameter not
+  threaded through `log_ac_ramp_event`) — the row exists but
+  attribution is wrong; test discriminates because it asserts
+  BOTH type and triggered_by.
+- **Shadow absence (in-suite):** repeat with mode=`shadow`. Assert
+  ZERO rows with `event_type='hard_reset_started' AND
+  triggered_by='recurrence'` AND at least one row with
+  `event_type='recurrence_would_fire'`. **Failure shape:** a
+  `hard_reset_started/recurrence` row appears despite shadow
+  mode — the kill switch leaked.
+- **Off (in-suite):** mode=`off`. Assert ZERO rows of either
+  type. **Failure shape:** shadow rows still appear — the Select
+  is not disabling shadow, only live (which was the whole point of
+  the 3-state Select over a boolean).
+- **No-lockout-on-recurrence-cap (in-suite):** mode=`live`,
+  `day_budget=0`, day-time now. Trigger recurrence. Assert:
+  (a) one `hard_reset_declined` row with
+  `notes="reason=day_budget_exhausted"`; (b) `lockout_flag` in
+  `ac_reset_state` is UNCHANGED (still 0); (c) no persistent
+  "controller may be broken" NM notification was fired.
+  **Failure shape:** `lockout_flag=1` AND NM notification fired
+  — the recurrence caller wrongly triggered lockout, disabling
+  the ineffective-nudge escalation path for the rest of the day.
+- **Live (post-deploy):** after the operator flips to `live`,
+  within 7 days at least one `ac_ramp_events` row exists with
+  `event_type='hard_reset_started' AND triggered_by='recurrence'`.
 
-### AC2 (D2 — day/night budgets)
+### AC2 (D2 partitioned budgets)
 
-- **Sensor:** `sensor.ac_reset_day_count_<zone>` and
-  `sensor.ac_reset_night_count_<zone>` both present and non-negative
-  post-restart.
-- **Verify (mutation):** temporarily set `day_reset_count=1,
-  night_reset_count=0` in DB for a zone, then trigger a reset request
-  during the day window — the request is denied with
-  `reason=day_budget_exhausted` written to a
-  `hard_reset_declined` row; a reset request the same minute during
-  the night window (by clock override in test) succeeds.
-- **Under a plausible failure** (budget check uses the wrong
-  partition or falls back to combined counter): the daytime request
-  succeeds when it should be denied. The criterion discriminates
-  because the DENIED row's `reason` code is inspected, not merely the
-  count.
+- **Save-round-trip discrimination (in-suite):** save an
+  `ac_reset_state` dict with
+  `day_reset_count=1, night_reset_count=2`, read back via
+  `get_ac_reset_state`, assert both values persist. **Failure
+  shape:** returned dict has 0/0 — the `INSERT OR REPLACE` tuple
+  at `database.py:7314-7322` was not extended. This test fails
+  deterministically if D2's DAO discipline is skipped.
+- **Partition denial with reason (in-suite):** hand-craft
+  `day_reset_count=1, night_reset_count=0` for zone_1, wall-clock
+  = 15:00. Call `_perform_hard_reset_escalation` with the
+  ineffective-nudge triggered_by. Assert: one
+  `hard_reset_declined` row with
+  `notes="reason=day_budget_exhausted"`; `_engage_lockout` called
+  (this IS the ineffective-nudge path where lockout is
+  appropriate). Then wall-clock = 23:30, repeat: assert one
+  `hard_reset_started` row is written and reset actuates.
+  **Failure shape:** daytime request succeeds (partition
+  membership computed wrongly, or fell back to combined counter);
+  discriminates because the criterion asserts BOTH the reason
+  string AND the counter comparison.
+- **Night wrap-around date-key (in-suite):** wall-clock = 23:30,
+  night_budget=1. Trigger a reset — assert
+  `night_reset_count=1` on the row `date=D`. Advance wall-clock
+  to 00:30 (date=D+1). Trigger another reset — assert one
+  `hard_reset_declined` row with `night_budget_exhausted`. Assert
+  the state row read at 00:30 has
+  `date=D+1 AND night_reset_count=1` (because
+  `night_session_date=D` still), NOT `date=D+1 AND
+  night_reset_count=0`. **Failure shape:** second reset succeeds
+  — the night bucket keyed on `now.date()` reset over midnight.
+- **HHMM wrap-around helper (in-suite):** for
+  `start="22:00", end="06:00"`, assert
+  `_is_night_now(23:30)=True`, `_is_night_now(02:00)=True`,
+  `_is_night_now(12:00)=False`, `_is_night_now(06:00)=False`
+  (right-open). Unparseable input → returns False (fail closed to
+  day).
 
-### AC3 (D3 — soft-nudge daily cap)
+### AC3 (D3 soft-nudge cap)
 
-- **Verify (in-suite):** hand-craft `ac_reset_state.soft_nudge_count =
-  50` for a zone; trigger `_evaluate_ac_ramp_zone`; assert no
-  `_perform_soft_nudge` call AND a log line
-  `"soft_nudge_daily_limit_reached"`.
-- **Under a plausible failure** (cap check uses previous day's
-  counter or off-by-one): the 50th nudge fires. Discriminates because
-  the counter and the log line are both asserted.
-- **Live:** soft-nudge count in `ac_reset_state` never exceeds 50 for
-  any zone in any single day post-deploy.
+- **In-suite auto path:** set
+  `state["soft_nudge_count"]=50` for zone_1. Trigger `check_ac_reset`
+  with all other gates passing. Assert: no `_perform_soft_nudge`
+  call; log line `soft_nudge_daily_limit_reached zone=zone_1
+  count=50`; `zone.ramp_state=AC_RAMP_STATE_LOCKED_OUT`. **Failure
+  shape:** the 50th nudge fires (off-by-one, or the gate is
+  placed AFTER `_perform_soft_nudge`).
+- **In-suite manual bypass:** with `state["soft_nudge_count"]=50`,
+  call `force_nudge`. Assert: `_perform_soft_nudge` IS called with
+  `triggered_by="manual"`; a `nudge_started` row is written.
+  **Failure shape:** manual is blocked — the D3 gate wrongly
+  applies to manual.
+- **Live (post-deploy):** across 7 days no `soft_nudge_count`
+  value in `ac_reset_state` exceeds 50 for any zone.
 
-### AC4 (D4 — durable columns + delayed write)
+### AC4 (D4 durable + delayed write)
 
-- **Verify (in-suite):** simulate a nudge_evaluated with
-  kwh_rate_before=2.5, post_min=0.2; advance simulated clock by 30
-  min with kW staying at 0.3; assert `durable=1, durable_minutes=30`.
-  Then repeat with kW returning to 2.4 at t+15 min: assert
-  `durable=0, durable_minutes=15`.
-- **Under a plausible failure** (`_write_durable` mutates `effective`):
-  the classifier's `effective=1` on the original evaluated row would
-  read back different. Discriminates because the test asserts BOTH
-  `durable=0` AND `effective=1` on the same row (not just one).
-- **Live:** ≥ 24 hours post-deploy, at least one `ac_ramp_events` row
-  has non-NULL `durable` for each zone that saw nudge activity.
+- **Full-window in-suite:** simulate `nudge_evaluated` with
+  `kwh_rate_before=2.5, post_min=0.2`, advance simulated clock 30
+  min with kW≈0.3 the whole time. Assert the row's `durable=1,
+  durable_minutes=30, effective=1` (BOTH assertions on the same
+  row — this is what discriminates the non-mutation invariant).
+  **Failure shape:** the row's `effective` has been overwritten
+  to 0 by `_write_durable`.
+- **Truncated in-suite:** same setup, but at simulated t+15 min
+  fire a fresh `_perform_soft_nudge` on the SAME zone. Assert
+  the original row (identified by `event_id` captured on
+  scheduling) is UPDATED with `durable=0, durable_minutes=15`
+  (early fire, truncated), AND the new nudge's row is UNTOUCHED
+  by this callback. **Failure shape:** the callback writes to the
+  latest row on that zone (ORDER BY timestamp DESC LIMIT 1
+  antipattern) — the new nudge's row gets the truncated
+  measurement. Discriminates by asserting on TWO row IDs, not
+  one.
+- **Cancel-on-teardown in-suite:** schedule a durable write,
+  invoke the coordinator's teardown at
+  `hvac_override.py:1439-1459`. Assert: no UPDATE fires; the row
+  keeps `durable=NULL`.
+- **Live (24h post-deploy):** at least one `ac_ramp_events` row
+  per active zone carries non-NULL `durable`.
 
-### AC5 (D5/D6 — reset telemetry + drift)
+### AC5 (D5/D6 reset telemetry + drift)
 
-- **Verify (in-suite):** trigger a hard reset in a test with
-  temp_start=76.0, target=76.0. After
-  `_restore_after_reset` completes with temp_end=76.1, assert
-  `hard_reset_completed` row has `current_temp=76.1`,
-  `preset_after=<known>`, `mode_after='heat_cool'`,
-  `reset_outcome='floor_survived'`. Repeat with temp_end=77.5 →
-  `reset_outcome='justified_ramp'`.
-- **Under a plausible failure** (temp captured before restore, so
-  temp_end == temp_start): both scenarios above collapse to the same
-  outcome. Discriminates because two temperatures produce two
-  different outcomes.
-- **Live:** the first live hard reset post-deploy writes both a
-  `hard_reset_started` row with non-NULL `current_temp` and a
-  `hard_reset_completed` row with non-NULL `current_temp` and a
-  non-NULL `reset_outcome`.
+- **Started row enrichment in-suite:** trigger a hard reset with
+  `zone.current_temperature=76.0, target_high=76.0`. Assert the
+  new `hard_reset_started` row has `current_temp=76.0,
+  target_high=76.0, preset_before=<known>, mode_before=<known>,
+  triggered_by=<caller>`. **Failure shape:** any of those fields
+  is NULL — the enrichment kwargs were not threaded.
+- **Completed row + restore_ok back-fill in-suite:** after
+  `_restore_after_reset` runs successfully, assert the
+  `hard_reset_completed` row has non-NULL `preset_after`,
+  `mode_after`, `current_temp`, AND `restore_ok=1` (back-filled
+  by `_verify_restore`'s success branch at `:3022-3027`). Then
+  re-run with a verify that hits the failure branch at
+  `:3005-3021` — assert `restore_ok=0`. **Failure shape:** row
+  has `restore_ok=NULL` post-verify — the event_id back-fill
+  from `_verify_restore` was not wired.
+- **Drift discriminator in-suite:** two runs, both temp_start=76,
+  target=76:
+  - Run A: temp_settle=76.1 → `reset_outcome='floor_survived'`.
+  - Run B: temp_settle=77.5 → `reset_outcome='justified_ramp'`.
+  Assert two DIFFERENT `reset_outcome` values. **Failure shape:**
+  both = `floor_survived` (temp_settle captured at the wrong
+  moment — before drift could develop) OR both = `inconclusive`
+  (event_id not threaded, temp read fails). Discriminates
+  because it requires two temperatures to produce two outcomes.
+- **Setter-abort exclusion in-suite:** flip
+  `ac_reset_enabled=False` while a reset is mid-flight. Assert
+  the resulting `hard_reset_completed` row has
+  `triggered_by='abort_reason=feature_disabled'`, `reset_outcome
+  IS NULL`, no `_write_reset_outcome` callback was scheduled.
+  **Failure shape:** row has `reset_outcome='floor_survived'` —
+  the abort path fabricated a verdict for an operator kill-switch
+  flip.
 
-### AC6 (D7 — off-duration knob)
+### AC6 (D7 off-duration knob)
 
-- **Verify:** set Number entity to 90; trigger a reset; measure
-  `async_call_later` delay = 90s (not 60s). NM alert message
-  interpolates "90s".
-- **Under a plausible failure** (module constant still consumed):
-  delay is 60s. Discriminates on the observed delay AND the alert
-  string.
+- **In-suite:** set `hvac_ac_reset_off_duration=90` via the
+  coordinator setter. Trigger a reset. Assert the
+  `async_call_later` delay = 90s AND the NM alert message
+  interpolates `"90s"`. **Failure shape:** delay=60s or alert
+  says `"60s"` — the setter is missing or the consumption site
+  still reads the module constant.
 
-### AC7 (invariant I — non-negotiable)
+### AC7 (Invariant I — non-negotiable)
 
-- **Test:** for any 24h window in a simulated day-loop that runs the
-  cycle 100x under randomised nudge cadence, total
-  `hard_reset_started` per zone ≤ `day_budget + night_budget`, AND
-  every consecutive pair on the same zone is ≥ 120 min apart, AND if
-  `RECURRENCE_ENABLED=False` throughout, no row has
-  `triggered_by='recurrence'`. All three sub-assertions must hold on
-  every iteration.
+- **Simulated day loop, 100 iterations, randomised nudge cadence:**
+  for each iteration assert (a) total `hard_reset_started` per
+  zone ≤ `day_budget + night_budget`; (b) every consecutive pair
+  on the same zone is ≥ 120 min apart; (c) if
+  `recurrence_mode ∈ {off, shadow}` throughout, ZERO rows have
+  `triggered_by='recurrence'`. All three sub-assertions must
+  hold on every iteration.
+
+### AC8 (Invariant III — aggregators unpolluted)
+
+- **In-suite:** snapshot the shipped savings aggregator
+  (`database.py:7806-7830`) and FP aggregator (`:7896-7906`)
+  return values. Insert one `recurrence_would_fire` and one
+  `hard_reset_declined` row, both with `effective IS NULL` and
+  `notes` free of `kwh_avoided=`. Re-run the aggregators. Assert
+  outputs UNCHANGED. **Failure shape:** aggregator sums changed
+  — a new event type polluted the ledger.
 
 ---
 
@@ -696,209 +1110,285 @@ the criterion is rejected and rewritten.
 
 | New state | Category | Mechanism |
 |---|---|---|
-| `day_reset_count` / `night_reset_count` | **PERSIST** | Columns on existing `ac_reset_state`; loaded by existing DAO on boot. |
-| Rolling `nudge_started` window for D1 | **REBUILD** | Computed on demand from `ac_ramp_events` (indexed on `zone_id, timestamp`); no in-memory state that must survive. |
-| `_write_durable` in-flight callback | **PERSIST via `in_flight_durable_started_ts`** | Sibling column on `ac_reset_state`, sibling audit step in `async_startup_ramp_audit`; elapsed-time arithmetic; callback ≤ 0 remaining fires immediately post-boot. |
-| Number entity `hvac_ac_reset_off_duration` | **PERSIST** | URA Number-persistence machinery (existing). |
-| Config/options flow knobs | **PERSIST** | HA config-entry storage (existing). |
-| `recurrence_would_fire` shadow rows | **PERSIST** | Written to `ac_ramp_events` — the ledger is the record. |
+| `day_reset_count` / `night_reset_count` / `night_session_date` | **PERSIST** | Columns on `ac_reset_state`; loaded by existing DAO on boot; MUST be added to `save_ac_reset_state` INSERT OR REPLACE tuple per §3-D2. |
+| Rolling `nudge_started` window (D1) | **REBUILD** | Computed on demand from `ac_ramp_events` (`idx_ac_ramp_events_zone_ts`); no in-memory state to survive. |
+| `_last_shadow_fire_ts` per zone (D1 edge trigger) | **REBUILD** | Recomputed on boot from the most recent `recurrence_would_fire` row per zone; stale/absent → next tick may fire (correct behaviour — worst case is one duplicate shadow row across a restart). |
+| `_write_durable` in-flight | **PERSIST via `in_flight_durable_started_ts`** | Sibling column on `ac_reset_state` (in D2's ALTER block AND the save tuple). Startup audit adds `_resume_in_flight_durable_evaluations` mirroring the existing `_resume_in_flight_nudges` pattern; elapsed-time arithmetic; remaining ≤ 0 fires immediately post-boot; missing kW history → `durable=NULL`. |
+| `_write_reset_outcome` in-flight | **REBUILD (drop)** | 60s window; not worth persisting. Restart inside window leaves `reset_outcome=NULL` on the completed row — correctly reflects "measurement lost". |
+| `hvac_ac_reset_off_duration` (Number) | **PERSIST** | URA Number-persistence (existing). |
+| `hvac_ac_recurrence_mode` (Select) | **PERSIST** | HA Select entity persistence — on boot, mode is restored. A restart never re-arms a disabled trigger. |
+| Config/options flow knobs (night HHMM, durability window) | **PERSIST** | HA config-entry storage. |
+| `recurrence_would_fire` and `hard_reset_declined` rows | **PERSIST** | `ac_ramp_events` is the ledger. Both edge-triggered per §12-19. |
 
-No state category is RESET — the existing day-rollover logic on
-`ac_reset_state` handles daily zeroing of counters and the two new
-partition counters ride on the same rollover.
+No state category is RESET beyond the existing day-rollover on
+`ac_reset_state` (which now zeros the two new partition counters
+as well).
 
 ---
 
-## 10. Layering with HVAC-GOVERNED-EXCURSION-1
+## 10. Ship order with HVAC-GOVERNED-EXCURSION-1
 
 Both cycles touch the reset producer sites (`_perform_ac_reset`,
 `_restore_after_reset`). Ship order:
 
-- **This cycle first:** D5's producer wiring writes telemetry directly
-  via `_track_zone_action` (the existing helper). No dependency on
-  the excursion primitive.
-- **Excursion cycle D2/D3 later:** re-plumbs the reset path through
-  the excursion API. D5's rows become a consumer of the primitive
-  rather than a peer emitter.
+- **This cycle first.** D5 enriches the EXISTING
+  `log_ac_ramp_event` calls at `:3967` and `:3050` directly. No
+  dependency on the excursion primitive.
+- **Excursion cycle D2/D3 later.** Re-plumbs reset through the
+  excursion API. D5's writes become consumers of the primitive
+  rather than direct writers. Compatible because the column set
+  is identical.
 
-The two orderings are compatible because D5 writes the SAME column
-set the excursion cycle would (columns already exist on
-`ac_ramp_events` from EXCURSION D1). A follow-up refactor consolidates
-the writer.
-
-**Do NOT block this cycle on excursion D2/D3.** The measured defect is
-recurring and operator-costing; the excursion primitive is
-architectural cleanup.
+Do NOT block this cycle on excursion D2/D3.
 
 ---
 
-## 11. Tier 3 test-authority (real per-site source mutation)
+## 11. Tier 3 test-authority — real per-site source mutation
 
-For Reviewer C (test authority) and the mandatory orchestrator
-verification before ship:
+For Reviewer C and the mandatory orchestrator pre-ship verification.
+Each site names its enclosing method AND the neuter drill AND the
+specific test that MUST fail. A site whose neutering leaves the
+suite green is untested — unacceptable.
 
-- **Site 1:** `_hard_reset_eligible` day/night partition gate. Neuter
-  the partition check (make it always return true). Expect AC7's
-  budget invariant test to fail with a specific over-budget count.
-- **Site 2:** D1 recurrence-enabled kill switch. Neuter (make the
-  branch always live). Expect AC1's shadow-mode test to fail with
-  a `hard_reset_started/triggered_by=recurrence` row.
-- **Site 3:** D3 soft-nudge cap. Neuter. Expect AC3's counter test to
-  fail at N=51.
-- **Site 4:** D4 durable non-mutation. Mutate `_write_durable` to
-  overwrite `effective`. Expect AC4's "both durable and effective on
-  the same row" assertion to fail.
-- **Site 5:** D6 temp-end capture. Neuter (write temp_end = temp_start).
-  Expect AC5's two-outcome test to fail.
-- **Site 6:** D7 knob read. Neuter (always read module constant).
-  Expect AC6 delay assertion to fail at knob=90.
+- **Site 1 (D2 partition gate):** in
+  `_perform_hard_reset_escalation` at `:3938`, neuter the
+  partition check to always return `budget_ok=True`. Expected:
+  AC2's partition-denial test fails.
+- **Site 2 (D1 no-lockout-on-recurrence-cap):** remove the
+  `engage_lockout_on_cap=False` short-circuit; always call
+  `_engage_lockout` on cap fail. Expected: AC1's no-lockout test
+  fails (lockout_flag=1 appears).
+- **Site 3 (D1 mode gate):** at the recurrence gate site, force
+  the code past the mode check regardless of Select value.
+  Expected: AC1's shadow-absence test fails (a
+  `hard_reset_started/recurrence` row appears in shadow mode).
+- **Site 4 (D4 non-mutation):** mutate `_write_durable` to also
+  set `effective` in its UPDATE. Expected: AC4's
+  same-row-both-columns assertion fails.
+- **Site 5 (D4 event_id identity):** replace the
+  `WHERE event_id=?` clause in `_write_durable` with
+  `ORDER BY timestamp DESC LIMIT 1`. Expected: AC4's
+  truncated-vs-fresh-nudge test fails (the fresh nudge's row
+  gets the old measurement).
+- **Site 6 (D3 cap):** neuter the Gate 5b check (always
+  `budget_ok=True`). Expected: AC3's auto-path assertion fails at
+  N=51. Also confirm neutering does NOT affect manual — AC3's
+  manual bypass test must still pass.
+- **Site 7 (D5 restore_ok back-fill):** remove the
+  `UPDATE ... SET restore_ok=? WHERE event_id=?` in
+  `_verify_restore`'s success branch. Expected: AC5's
+  completed-row back-fill test fails (row keeps `restore_ok=NULL`
+  post-verify).
+- **Site 8 (D5 setter-abort separation):** default the
+  `completed` kwarg to `True` unconditionally in
+  `_restore_after_reset`. Expected: AC5's setter-abort test
+  fails (`reset_outcome` is set instead of NULL).
+- **Site 9 (D6 temp-settle):** in `_write_reset_outcome`, read
+  temp at scheduling time instead of at fire time. Expected:
+  AC5's two-outcome-two-temps test fails (both outcomes collapse).
+- **Site 10 (D7 knob):** in `_perform_ac_reset` consumption at
+  `:2906`, hard-code `AC_RESET_OFF_DURATION_SECONDS` instead of
+  `self._ac_reset_off_duration_s`. Expected: AC6 fails at knob=90.
+- **Site 11 (D2 save-tuple):** remove
+  `day_reset_count`/`night_reset_count` from the INSERT OR
+  REPLACE column list in `save_ac_reset_state`. Expected: AC2's
+  save-round-trip test fails (returned dict has 0/0).
+- **Site 12 (Invariant III):** in the `hard_reset_declined`
+  emit, include a fake `kwh_avoided=0.5` in `notes`. Expected:
+  AC8 fails (savings aggregator sum changes).
 
-A site whose neutering leaves the suite green is untested = unacceptable.
-Orchestrator re-runs sites 1, 2, and 4 personally before ship (highest
-blast radius).
-
----
-
-## 12. Flags on the brief — issues raised for the orchestrator
-
-Per instruction "flag anything in this brief you believe is wrong":
-
-1. **D5 as written is redundant on the nudge path.** The columns
-   `preset_before`, `preset_after`, `mode_before`, `mode_after`,
-   `restore_ok`, `restore_ok_immediate` already exist on
-   `ac_ramp_events` (`database.py:1519-1524`) and are written on the
-   nudge path by HVAC-GOVERNED-EXCURSION-1 D1 (v5.86.0). The remaining
-   gap is HARD-RESET-path telemetry — narrower than "add
-   `preset_before`/`preset_after` columns" implies. §3-D5 documents
-   the corrected scope. Confirm the corrected framing before build.
-
-2. **D2 defaults raise total daily cap from 2 to 3.** DAY 1 + NIGHT 2
-   = 3, versus today's `DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT=2`.
-   The 120-min min-interval bounds the worst case (max ~12
-   theoretical, in practice far fewer), but this IS a policy
-   loosening on top of the partitioning. Alternatives: DAY 1 +
-   NIGHT 1 (holds total at 2, simplest); DAY 0 + NIGHT 2 (rare in
-   day, generous at night, matches "measured damage lives overnight"
-   most literally). Recommend operator picks one before ship.
-   Provisionally planned as 1/2 per the card's suggestion.
-
-3. **"Defaults OFF" is under-specified: hard-off vs shadow-mode-on?**
-   The brief cites the STEP-chatter shadow pattern which is a
-   THIRD option (compute + log + do-not-act, distinct from both
-   feature-disabled and full-live). §3-D1 assumes shadow-on-by-default
-   with the live-arming as the operator flip. This is more valuable
-   than hard-off because it collects the tuning data. Confirm.
-
-4. **`AC_RESET_STUCK_MINUTES = 10` at `hvac_const.py:492` was not
-   mentioned in the brief.** It is a sibling reset constant; not
-   promoting it is defensible (it is a detection threshold, not the
-   operator's manual technique). Flagging so the decision is
-   explicit rather than accidental.
-
-5. **The brief's phrase "ships complete and tested" for D1 conflicts
-   subtly with the shadow-on-by-default interpretation above.** In
-   shadow, the RESET-firing branch is untested-in-production until
-   the operator arms it — the shadow rows are tested, the reset
-   emission is only in-suite tested. This is by design (that's the
-   point of shadow), but worth stating: enabling in production is a
-   separate live-validation event and belongs on the post-ship
-   validation table.
-
-6. **D6's `reset_outcome` classification runs against a moving
-   target.** `temp_end` is read at some delay after
-   `_restore_after_reset` — the card says the point of the OFF
-   window is short enough that temp has not drifted meaningfully,
-   but the classifier itself needs a settle window (analogous to
-   the 12s D1 settle in HVAC-GOVERNED-EXCURSION-1). Recommend a
-   parallel `_write_reset_outcome` delayed callback modelled on
-   `_write_settled`, with a fixed 60-second settle. Not called out
-   explicitly in the brief but the classifier needs it.
-
-7. **The observability audit gap #5 (savings unreconciled — ~35
-   kWh claimed on a 49 kWh night) is not addressed by this cycle.**
-   D4 lays the groundwork (durability metric), but reconciliation
-   with metered whole-house energy is a separate cycle
-   (AC-RAMP-SAVINGS-RECONCILE-1). Parked.
+Orchestrator personally re-runs sites 1, 2, 4, and 11 before ship
+(highest blast radius: budget correctness, lockout non-regression,
+ledger non-mutation, silent persist failure).
 
 ---
 
-## 13. Files touched (summary for the builder)
+## 12. Findings the reviewers/brief were right about, and what changed
+
+Each item corresponds to a numbered finding from the coordinator's
+message. Documented so future rounds can audit that each was
+addressed.
+
+1. **`_hard_reset_eligible` does not exist.** Every reference
+   corrected to `_perform_hard_reset_escalation` at
+   `hvac_override.py:3874`. The eligibility check is inside that
+   actuator, not a predicate. §3-D1 adds the
+   `engage_lockout_on_cap=False` parameter and states the
+   rationale in code-comment form (lockout is a controller
+   pathology verdict, not a budget-spent verdict). §3-D2's
+   enforcement site is `:3938`, inside the actuator.
+2. **`_evaluate_ac_ramp_zone` and `AC_NUDGE_MIN_INTERVAL_S` do
+   not exist.** Detection entry corrected everywhere to
+   `check_ac_reset` at `hvac_override.py:2684` with the Gate 0a→9
+   ladder at `:2720-2860`. D3's gate lives as a new Gate 5b in
+   `check_ac_reset`. Card body error (the "30-min interval IS
+   being honoured / interval knob shipped and cap did not"
+   claim) flagged §12-2 for downstream correction — the
+   ~2/hour cadence is EMERGENT from Gates 8 + 5-min hold + 600s
+   eval + Gate 9, not enforced.
+3. **`CREATE TABLE IF NOT EXISTS` fails silently against the
+   live 1.18 GB DB.** §3-D2 mandates a new guarded ALTER block
+   for `ac_reset_state`, modelled exactly on the
+   `ac_ramp_events` block at `database.py:1681-1712`. §0 lists
+   the precedent explicitly.
+4. **D5 producer sites already emit — double-emit risk.** §3-D5
+   entirely rewritten to enrich the EXISTING
+   `log_ac_ramp_event` calls at `:3967-3972` and `:3050-3055`,
+   not to add new rows. `_track_zone_action` explicitly called
+   out as IN-MEMORY-ONLY per its docstring at `:1250`.
+5. **`save_ac_reset_state` INSERT OR REPLACE tuple.** §3-D2
+   documents the tuple as the highest-probability silent
+   failure. AC2 adds a save-round-trip test that fails
+   deterministically if columns are added to DDL but not to the
+   tuple. Site 11 in §11 mutation drills the same.
+6. **Delayed writes and row identity.** `log_ac_ramp_event`
+   extended to return `cursor.lastrowid`. Both D4 and D5-B
+   callbacks close over `event_id` and UPDATE by that key. Site 5
+   in §11 mutation-drills the alternative and confirms it fails.
+7. **Night wrap-around date-key.** §3-D2 defines
+   `night_session_date` and the `_night_session_date` helper.
+   AC2 includes a 23:30 + 00:30 test asserting the second is
+   denied.
+8. **Setter-abort caller into `_restore_after_reset`.** §3-D5-B
+   threads `completed: bool` and `abort_reason: str` kwargs; the
+   setter caller at `:2000` passes
+   `completed=False, abort_reason="feature_disabled"`.
+   `_write_reset_outcome` is NOT scheduled for aborts.
+   `reset_outcome=NULL`.
+9. **`restore_ok` unknowable at write time.** §3-D5-B writes it
+   NULL and back-fills from the three terminal branches of
+   `_verify_restore` at `:3005/3016/3022`. Invariant II
+   re-stated so absent rows (no write at all) cannot make it
+   vacuously true — the invariant is stated over rows that ARE
+   written on the automatic path.
+10. **`triggered_by='recurrence'` not plumbed.** §3-D1 threads
+    the kwarg through both `_track_zone_action` at `:3963-3966`
+    AND `log_ac_ramp_event` at `:3967-3972`. AC1 begins with
+    a POSITIVE CONTROL test that asserts existence of the
+    correctly-labelled row BEFORE the shadow-absence assertion.
+11. **D4 cancel vs truncate contradiction.** §3-D4 asserts the
+    rule: re-nudge FIRES the pending callback early with
+    truncated interval; cancellation applies to teardown only.
+    AC4 tests both branches; Site 4/5 in §11 mutation drill the
+    non-mutation and event_id-identity requirements.
+12. **1/1 defaults propagated into every consuming section.**
+    §3-D2, §5, §6-D2, §9. Total daily cap remains 2, matching
+    today. Any raise from 2 is a separate future policy call.
+13. **3-state Select instead of boolean kill switch.** §3-D1,
+    §5 knob table, §12-3 handling. `select.py` added to §13
+    files-touched.
+14. **Partition increment ordering.** §3-D2 states "in the
+    same read-modify-write block as `hard_reset_count`, BEFORE
+    `_perform_ac_reset`", and includes the in-source comment
+    forbidding movement.
+15. **Aggregator non-pollution.** Invariant III + AC8. §3-D8
+    calls it out on the new event types.
+16. **D3 vs manual button.** §3-D3 and non-goal 9 assert the
+    manual button bypasses the cap; AC3 tests the bypass.
+17. **HHMM wrap-around.** §3-D2's `_is_night_now` helper
+    specifies `if start > end: night = now >= start OR now <
+    end`; unparseable input fails closed to day. AC2 covers the
+    helper and the failure mode explicitly.
+18. **Teardown for delayed writes.** §3-D4 and §3-D6 register
+    handles at `hvac_override.py:1439-1459` following the
+    `_nudge_settled_timers` pattern.
+19. **Edge-triggered shadow + declined writes.** §3-D8 states
+    the rule (write on reason-change OR ≥ 15 min since last
+    same-reason). Cites the write-flood rollback precedent
+    (v4.7.33 optimizer DB write-flood incident 2026-06-09).
+20. **D6 60s settle knob.** `AC_RESET_OUTCOME_SETTLE_S = 60`
+    added at rung 1 to §5, sibling of
+    `AC_NUDGE_RESTORE_SETTLE_DELAY_S = 12`. Named "temp at
+    restore + settle", not "temp at reset-end", to survive a
+    future change to `hvac_ac_reset_off_duration`.
+21. **Duplicate heading + missing §7.1.** Duplicate removed;
+    §7 placeholder remains until §7.1 is populated. Build
+    dispatch blocks on §7.1 (see §7).
+22. **`AC_RESET_MAX_PER_DAY` KEEP + WIRE.** §3-D8 rewires the
+    NM alert string; the constant is retained and re-purposed as
+    a "total daily reference".
+23. **D7 coordinator write-through.** §3-D7 mandates
+    `set_ac_reset_off_duration` on the coordinator, modelled on
+    `set_hard_reset_daily_limit` at `hvac_override.py:1276+`.
+
+### What I still believe may be wrong in the brief
+
+- **The card claim that the 30-minute nudge interval "IS being
+  honoured" (finding block, defect (2)) is factually wrong.** No
+  such enforcement exists. The observed cadence is emergent.
+  The card should be corrected downstream; this plan does NOT
+  rely on the (nonexistent) enforcement and does NOT introduce
+  it.
+
+---
+
+## 13. Files touched — for the builder
 
 - `custom_components/universal_room_automation/domain_coordinators/hvac_const.py`
-  — new CONF_/DEFAULT_ constants per §5.
+  — new CONF_/DEFAULT_ constants per §5; new event-type constants
+  `AC_RAMP_EVENT_HARD_RESET_DECLINED`,
+  `AC_RAMP_EVENT_RECURRENCE_WOULD_FIRE`; new module constant
+  `AC_RESET_OUTCOME_SETTLE_S = 60`.
 - `custom_components/universal_room_automation/domain_coordinators/hvac_override.py`
-  — recurrence trigger + shadow emit; day/night partition check in
-  `_hard_reset_eligible`; soft-nudge cap check in
-  `_evaluate_ac_ramp_zone`; `_write_durable` delayed callback +
-  startup audit sibling; reset telemetry writes at
-  `_perform_ac_reset` + `_restore_after_reset`; `_write_reset_outcome`
-  delayed callback; consume Number entity for off-duration.
+  — recurrence gate site + shadow/live/off dispatch (D1); Gate 5b
+  soft-nudge cap in `check_ac_reset` (D3); partition-aware Gate A
+  + `engage_lockout_on_cap` parameter in
+  `_perform_hard_reset_escalation` (D2 + D1); partition increment
+  at `:3960` with the `_is_night_now` / `_night_session_date`
+  helpers; enrichment kwargs on `log_ac_ramp_event` at `:3967`
+  (started) and `:3050` (completed) (D5); `completed` +
+  `abort_reason` kwargs on `_restore_after_reset` and the two
+  caller sites (`:3037` completion, `:2000` abort); `_write_durable`
+  + `_write_reset_outcome` delayed callbacks (D4/D6); handle
+  registries + teardown at `:1439-1459`;
+  `_resume_in_flight_durable_evaluations` added to
+  `async_startup_ramp_audit` at `:3925`; restore_ok back-fill in
+  `_verify_restore`'s three terminal branches (`:3005/3016/3022`);
+  D7 consumption at `:2906` + `:2915` reads coordinator attr;
+  coordinator setters (`set_soft_nudge_daily_limit`,
+  `set_reset_day_budget`, `set_reset_night_budget`,
+  `set_recurrence_count_n`, `set_recurrence_window_min`,
+  `set_ac_reset_off_duration`) modelled on
+  `set_hard_reset_daily_limit` at `:1276+`; recurrence-mode
+  Select accessor.
 - `custom_components/universal_room_automation/database.py`
-  — ADD COLUMN on `ac_reset_state` (`day_reset_count`,
-  `night_reset_count`, `in_flight_durable_started_ts`); ADD COLUMN
-  on `ac_ramp_events` (`durable`, `durable_minutes`,
-  `reset_outcome`); DAO read/write updates for the new columns.
+  — NEW guarded ALTER block for `ac_reset_state` (§3-D2)
+  modelled on the `ac_ramp_events` block at `:1681-1712`, adding
+  `day_reset_count`, `night_reset_count`, `night_session_date`,
+  `in_flight_durable_started_ts`; EXTEND
+  `save_ac_reset_state` INSERT OR REPLACE column list AND
+  parameter tuple at `:7314-7335` for the four new columns;
+  EXTEND `get_ac_reset_state` default dict to include new keys;
+  guarded ALTER on `ac_ramp_events` adding `durable`,
+  `durable_minutes`, `reset_outcome` in the existing block at
+  `:1681-1712`; extend `log_ac_ramp_event` to return
+  `cursor.lastrowid`; NEW DAO method
+  `update_ac_ramp_event_fields(event_id, **fields)` used by
+  D4/D5/D6 back-fills.
 - `custom_components/universal_room_automation/number.py`
-  — new Number entity `hvac_ac_reset_off_duration`; two new Number
-  entities for `RECURRENCE_COUNT_N` and `RECURRENCE_WINDOW_MIN`; two
-  for `RESET_DAY_BUDGET` and `RESET_NIGHT_BUDGET`; one for
-  `SOFT_NUDGE_DAILY_LIMIT`.
+  — new Number entities: `hvac_ac_reset_off_duration`,
+  `hvac_ac_recurrence_count_n`, `hvac_ac_recurrence_window_min`,
+  `hvac_ac_reset_day_budget`, `hvac_ac_reset_night_budget`,
+  `hvac_ac_soft_nudge_daily_limit`. Each calls its coordinator
+  setter on `async_set_native_value`.
+- `custom_components/universal_room_automation/select.py`
+  — NEW: `hvac_ac_recurrence_mode` Select (`off`/`shadow`/`live`,
+  default `shadow`). Calls a coordinator
+  `set_ac_recurrence_mode` setter.
 - `custom_components/universal_room_automation/config_flow.py` +
-  `options_flow.py` — `RECURRENCE_ENABLED` toggle, night boundary
-  strings, `DURABILITY_WINDOW`.
+  `options_flow.py`
+  — `hvac_ac_night_start_hhmm`, `hvac_ac_night_end_hhmm`
+  string fields; `hvac_ac_durability_window` integer field
+  (minutes).
 - `custom_components/universal_room_automation/sensor.py`
-  — the D8 live sensors.
-- Tests under `quality/tests/` — one test per acceptance criterion,
-  plus the mutation drill fixtures per §11.
+  — D8 live sensors:
+  `sensor.ac_recurrence_window_count_<zone>`,
+  `sensor.ac_reset_day_count_<zone>`,
+  `sensor.ac_reset_night_count_<zone>`,
+  `sensor.ac_reset_last_outcome_<zone>`.
+- `quality/tests/` — one test file per deliverable covering
+  every acceptance criterion in §8 plus the mutation-drill
+  fixtures in §11.
 
-Builder: verify the exact file names/paths before editing (Institutional
-Context First applies to your edits as well as to this plan).
-
----
-
-## 13. Orchestrator rulings on the planner's §12 pushbacks (2026-08-22)
-
-Operator is asleep; these are orchestrator calls, each flagged as such and reversible.
-
-**§12.1 — D5 largely already built. ACCEPTED, and it is the plan's best finding.**
-`preset_before` / `preset_after` / `mode_before` / `mode_after` / `restore_ok` /
-`restore_ok_immediate` already exist (`database.py:1519-1524`) and are already written on the
-NUDGE path (v5.86.0 D1, `hvac_override.py:3341`, `:3496`). Only the HARD-RESET path is missing.
-This is exactly the "extend, do not rebuild" principle paying out — a deliverable I had listed as
-new was two-thirds shipped. D5 is rescoped to the reset path only.
-
-**§12.2 — DAY/NIGHT budget defaults. RULED: ship DAY 1 / NIGHT 1, not 1/2.**
-The planner is right that DAY 1 + NIGHT 2 raises the total daily cap from 2 to 3, which is a
-policy LOOSENING smuggled in as a default. Ship **1 + 1**, keeping the existing total of 2
-unchanged, with both values as knobs. Rationale: the recurrence trigger ships in SHADOW, so no
-additional resets fire either way — there is no cost to the conservative default and it avoids
-pre-deciding a policy question while the operator sleeps. The operator's own card suggested
-NIGHT 2 and that remains the likely end state; it becomes a one-knob flip they make deliberately
-after seeing shadow data. **Flag this for confirmation in the morning.**
-
-**§12.3 — "Defaults OFF" under-specified. ACCEPTED: shadow, not hard-off.**
-Compute the recurrence condition, write `recurrence_would_fire` shadow rows, do NOT act. Strictly
-better than hard-off: it collects the (N, W) tuning data from the moment it ships, and it mirrors
-the STEP-chatter v5.85.0 pattern. Satisfies the operator safety constraint in full — nothing new
-actuates unattended. The kill switch must still exist and must still be able to disable the
-shadow computation.
-
-**§12.4 — `AC_RESET_STUCK_MINUTES` stays rung 1. ACCEPTED.** It is a detection threshold, not the
-operator's hand-tuned technique. The rung-3 promotion applies to `AC_RESET_OFF_DURATION_SECONDS`
-only.
-
-**§12.5 — D6 needs a settle-window callback. ACCEPTED, and this is a correctness fix.** A direct
-temp read at `_restore_after_reset` return measures too early to detect drift. Model
-`_write_reset_outcome` on the shipped `_write_settled` (`hvac_override.py:3521-3528`).
-
-**§12.6 — savings-vs-metered reconciliation parked as `AC-RAMP-SAVINGS-RECONCILE-1`. ACCEPTED.**
-Out of scope; the operator has already ruled the savings figure is directional-not-forensic.
-
-**§12.7 — D4 needs `in_flight_durable_started_ts` + a startup-audit sibling. ACCEPTED, required
-for correctness.** Without it the durable callback is stranded by a restart. Mirrors the existing
-`in_flight_nudge_*` pattern, which the card correctly identifies as the exemplar.
-
-### Standing constraint restated for the builder
-Nothing in this cycle may cause a hard reset to fire that would not have fired before, until the
-operator deliberately enables the recurrence trigger. Columns, telemetry, the soft-nudge cap and
-the knob promotions ship live; the trigger ships in shadow.
+Builder: apply Institutional Context First to your edits. Any
+anchor that "should exist" here MUST be grep-verified before use.

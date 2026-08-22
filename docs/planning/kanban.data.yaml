@@ -6651,6 +6651,24 @@ cards:
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
 - id: SUITE-ORDER-POLLUTION-1
+  INSTANCE_2026_08_22_EVSE_DP_CARRIER: 'THIRD INSTANCE. Two tests in
+    test_evse_drain_precedence_session_b2c2_fixup.py — test_transition_entry_pauses_actual_configured_evse_id
+    and test_transition_entry_pauses_only_charging_evse_ids_multi_evse — FAIL in the full suite and
+    PASS in isolation, on BOTH develop and any branch. Deterministic across repeated full runs (two
+    identical runs, same two failures). Failure text: "tick failed to reach TRANSITIONED:
+    state=hold_only" — the DP carrier state machine does not advance.
+    NOT caused by the AC-reset-preset cycle: they are present on develop itself.
+    NOTE PYTEST COLLECTION SEMANTICS, which is what makes this class so slippery: pytest IMPORTS
+    EVERY TEST MODULE during collection BEFORE running any test. So a module-level side effect in a
+    file that sorts LATER alphabetically still executes BEFORE an earlier file runs. "It sorts after,
+    so it cannot affect it" is FALSE reasoning and was nearly used here to dismiss this.
+    ORCHESTRATOR METHOD ERROR WORTH RECORDING: these were initially read as regressions from the
+    AC-reset cycle because the develop BASELINE WAS STALE — captured before v5.88.0 merged into
+    develop, then compared against a branch that contained v5.88.0. A stale baseline MANUFACTURES
+    PHANTOM REGRESSIONS. Re-baselining develop at its current HEAD produced an empty name-diff both
+    directions. RULE: re-baseline develop immediately before every name-diff; never reuse a baseline
+    across a merge to develop.
+    Belongs to the family this card tracks; the durable fix remains TEST-STRATEGY-REARCH-1.'
   INSTANCE_2026_08_21_GATE_BLOCKER_FIXED: 'SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED
     THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON
     DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not just the
