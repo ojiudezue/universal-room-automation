@@ -3065,10 +3065,11 @@ cards:
     tick guarantees single-tick round trips. Blocks nothing, but any HVAC-PRESET-FLAP-1 tuning or
     rate-limit work should land the constant first so the reviewer can see the quantum.'
 - id: HVAC-PRESET-FLAP-1
+  STATUS_CORRECTED_2026_08_22: 'Was `review`; nothing is under review. The card own next field says: "Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule between the coast..." — i.e. it is waiting on an OPERATOR DECISION, not on a reviewer. Moved to waiting_operator so it surfaces in the right queue. Per the skill rule: status must track reality, not just the body.'
   title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B
     removal)
   thread: hvac
-  status: review
+  status: waiting_operator
   updated: '2026-08-20 18:10'
   refinement_status: refined
   TUNING_SIMULATION_2026_08_20: 'MEASURED, not assumed. Simulated both knobs against the real
@@ -4757,10 +4758,11 @@ cards:
     roles. Do not be confused by multiple entity families for this one device; my earlier "not in live
     F2 config" registry read may reflect a different F2 slug rather than absence. Do not re-litigate.
 - id: MEMORY-PROGRAM-EPIC
+  STATUS_CORRECTED_2026_08_22: 'Was `in_progress`; the card own next field says "Epic foundation DELIVERED (writers + compactor live). Remaining is optional/parked (zone_phantom). Consider cl[osing]". Closing per that. The parked remainder is optional and recorded in the body — if it is revived it earns its own card rather than holding an epic open indefinitely. Reversible: reopen if the parked work is taken up.'
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable,
     compressed history behind one queryable interface'
   thread: memory
-  status: in_progress
+  status: done
   approval: explicit
   approved_by: 'operator 2026-08-02 (founding concept: "What if each room had memory? ... zones ... house
     ... coordinators ... shared, with a standard interface queryable by any node at any level"); Stage-2
@@ -6355,9 +6357,10 @@ cards:
     entities + 25 f1retired removed, F2 sole NVR, hardware repurposed by homelab agent. Go/no-go resolved
     months of soak ago.'
 - id: SWEEP
+  STATUS_CORRECTED_2026_08_22: 'Was `waiting_me` and untouched since 2026-08-17. Its own next says "Recurring morning-sweep placeholder; re-fires each session start. No standing action." That is a PROCESS placeholder, not work, and holding it in an active lane makes the active queue read as busier than it is. Parked. The sweep still happens at session start via the skill; it does not need a card to occur.'
   title: Morning sweep
   thread: ops
-  status: waiting_me
+  status: parked
   approval: implied
   why: reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58
     organic criteria
@@ -7351,8 +7354,9 @@ cards:
     stub-completeness (homeassistant.util missing) is another pollution instance. These are the parallel-collision
     root cause in miniature.'
 - id: CHATTER-OBSERVE-CONTROL-D7-1
+  SHADOW_RESULT_2026_08_22: 'Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen the net, and it detected NOTHING across the house. Measurement on 2026-08-21/22 explains why: the detector counts SUB-T_floor impossibility events, and this house actual chatter is SUSTAINED MODERATE RATE (kitchen mmWave: 731 presence transitions in 48h, median interval 44.4s, only 25 sub-5s events ~0.5/hr — it can never accumulate K=10 in a window). See CHATTER-RATE-VS-BURST-GAP-1. So this card is BLOCKED on a value decision (is a RATE-based signal worth building at all), not on more shadow observation. Continuing to run shadow accumulates no further information. Moved to waiting_operator.'
   title: 'STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)'
-  status: in_progress
+  status: waiting_operator
   thread: diagnostics
   created: 2026-08-19 09:00
   updated: 2026-08-19 10:55
