@@ -2105,11 +2105,24 @@ cards:
     COROLLARY — RESET DURATION IS A LOAD-BEARING PARAMETER, not an arbitrary constant. The operator
     "if I am lucky it is short enough" is doing real work: the off-window must be long enough for the
     unit to drop its control state, SHORT enough that room temp has not drifted so far that it
-    justifiably ramps back to full. Too long and the reset defeats itself. Whatever the automated
-    reset uses must be justified against that window, and it should be a KNOB, measured — not
-    inherited. Note current constants: AC_RESET_MAX_PER_DAY=2 (hvac_const.py:491),
-    DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL=120 min (:538). No off-duration constant was located in
-    hvac_const.py — find where the 60s off-window actually lives before building, and knob it.
+    justifiably ramps back to full. Too long and the reset defeats itself.
+    THE CONSTANT — LOCATED (operator was right that one exists; the orchestrator first search missed
+    it by grepping for the NAME it expected rather than the concept):
+      AC_RESET_OFF_DURATION_SECONDS: Final = 60   # hvac_const.py:493, "seconds to hold off during reset"
+      consumed at hvac_override.py:2906 as the async_call_later delay before _restore_after_reset,
+      and interpolated into the NM alert text at :2915.
+      IT IS RUNG 1 (module constant) — NOT exposed in config_flow, options_flow or as a Number
+      entity. Per the knob ladder it belongs at RUNG 3: this is policy the operator would
+      legitimately tune by observation (their manual technique IS this parameter), not a safety
+      bound that should require review to change.
+      Sibling constants for reference: AC_RESET_MAX_PER_DAY=2 (:491),
+      DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL=120 min (:538), AC_RESET_STUCK_MINUTES.
+    NO TEMP CAPTURE EXISTS AT RESET START OR END — verified across hvac_override.py:2890-2968. So the
+    drift discriminator described below CANNOT be computed for any past reset, and the 11 historical
+    resets (2026-07-22 -> 2026-08-15) mostly predate the recorder 7.5-day window, so they are not
+    reconstructible either. Capturing temp at reset-start/end is therefore a PREREQUISITE deliverable,
+    not an optional enrichment — without it there is no way to tell a survived-floor from a justified
+    ramp, and no baseline to tune the window against.
     PRIORITY EFFECT: this is now a MEASURED, RECURRING, OPERATOR-COSTING defect with a live instance
     days apart (2026-08-21 overnight, 2026-08-22 02:00). It is doing manual labour that the
     automation was designed to do.'
