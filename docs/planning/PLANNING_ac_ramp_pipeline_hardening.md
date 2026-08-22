@@ -44,8 +44,21 @@ moved since v5.86.0).
   Keys off `post_min` in the trailing window.
 - **STAGE 4 — ESCALATE.** `if escalate:` at `:3891`, calling
   `_perform_hard_reset_escalation` at `:3901`; definition at
-  `:3925`. Never fires because Stage 3 never says failed. Wired,
-  working, waiting.
+  `:3925`. **Fires RARELY — not never.** MEASURED: 9 hard resets
+  2026-08-06 -> 2026-08-15, including overnight (04:53, 00:40),
+  ~0.30/day house-wide. It is rate-starved because Stage 3 almost
+  never returns `ineffective` (307/308 `effective`), not because the
+  path is unreachable. Wired, working, under-triggered.
+  **WORDING DISCIPLINE, and this matters for how the cycle is framed:**
+  do NOT write "never fires", "structurally unreachable", or "turns
+  resets on for the first time". All three are FALSE and all three were
+  used loosely in conversation before the operator caught them. The
+  accurate statement of what D-SCORE does is: **it raises the reset
+  rate from a measured ~0.30/day to potentially several per day.** That
+  is a RATE CHANGE to an existing, working capability — which is still
+  worth shipping behind a measure-only flip, but is a materially
+  different risk from activating something dormant, and should be
+  described as such in the README and to the operator.
 - **STAGE 5 — RESET.** `_perform_ac_reset` at `:2871`
   (`AC_RESET_OFF_DURATION_SECONDS = 60` at `hvac_const.py:493`);
   `_restore_after_reset` at `:2938`; `_verify_restore` at `:2985`.
