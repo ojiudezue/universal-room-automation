@@ -8073,7 +8073,8 @@ cards:
   title: AC hard reset never restores a preset — the plan specified a one-liner, it was dropped
     without accounting, and it is the last path that can still strand a zone in manual
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.88.1
   created: '2026-08-22 02:10'
   updated: '2026-08-22 02:10'
   refinement_status: initial
@@ -8127,7 +8128,8 @@ cards:
 - id: BORROW-FRIENDLY-NAME-RENAME-1
   title: Rename user-facing "Governed thermostat borrows" labels — ship with next batch
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.88.1
   created: '2026-08-22 02:10'
   updated: '2026-08-22 02:10'
   refinement_status: initial
