@@ -1284,7 +1284,8 @@ _created 2026-08-20 14:15 · initial_
 - **Next:** Cheapest first, all config-level and outside URA code: fix the Sonoff number range, fix or disable the pantry adaptive-lighting automation, resolve the camera_census entity ids via FRIGATE-LEG-NAMING-1. THEN re-measure db growth before t...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22`: NEW MEASURED SOURCE, found incidentally while checking a Garage Hallway sensor swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE churn: binary_sensor.garage_hallw...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox) covers the Frigate live/dead leg naming inconsistency and is the likely home for the camera_census garage_a/garage_b flood — fold that flood in there rather than duplicating. The MQT...
 
 ## ⏸️ Waiting on operator (4)

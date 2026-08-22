@@ -8920,6 +8920,34 @@ cards:
   - Carrier 504 getInfinityEnergy 12:14:15 2026-08-20
   - sensor.ura_hvac_coordinator_override_arrester (live attrs)
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22: 'NEW MEASURED SOURCE, found incidentally while checking a
+    Garage Hallway sensor swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS
+    PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE churn:
+      binary_sensor.garage_hallway_occupied     4,638 rows/24h ->   52 real flips = 89.2x
+      binary_sensor.kitchen_hallway_occupied    2,952 rows/24h ->   64 real flips = 46.1x
+      binary_sensor.staircase_person_occupancy    160 rows/24h ->  155 real flips =  1.0x  (control)
+    The plain Frigate binary sensor writes 1:1. The URA room sensors carry ~30 attributes, several
+    changing continuously (idle_duration, last_motion, timer/elapsed-style fields), and HA RECORDS
+    ATTRIBUTE CHANGES — so every attribute tick is a row.
+    SCALE: ~40 rooms. If the two measured rooms are representative that is on the order of 1e5 rows
+    per day from room occupancy alone, on flash at 51 percent life. NOT among the three floods fixed
+    in v5.87.0 — those were per-tick LOG floods; this is per-tick ROW churn, a different mechanism.
+    METHOD NOTE, because the naive query is WRONG and I nearly reported it as a defect: counting rows
+    in `states` does NOT count state changes. The first measurement read 4,639 and looked like
+    catastrophic occupancy flapping. Comparing each row against the previous state gives 52. Any
+    recorder-volume work must count TRANSITIONS, not rows, or it will chase phantom flapping and miss
+    the real cause.
+    SIDE FINDING: this DEFLATES the room-level flap story — 52 real flips/24h in a 12-room transit
+    corridor is not catastrophic. Relevant to HVAC-PRESET-FLAP-1, whose re-measure should count
+    transitions at the ROOM level rather than infer from raw volume.
+    OPERATOR NOTE 2026-08-22: "Ura has an occupancy state" — i.e. room occupancy is a richer STATE
+    than the binary on/off the entity exposes, so some attribute richness is intentional and carries
+    real meaning. DO NOT strip attributes blindly. The fix should target CONTINUOUSLY-CHANGING
+    DERIVED values (countdowns, elapsed timers) which can be recomputed from an absolute timestamp,
+    NOT the state-carrying attributes. Same discipline already applied deliberately to the new borrow
+    sensor, which uses absolute `started` / `expires_at` rather than countdowns precisely to avoid
+    this. Candidate mechanisms to cost: recorder exclude_attributes for the churny keys, or replace
+    countdowns with absolute timestamps at source (preferred — it fixes the cause, not the symptom).'
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life —
     fed by three log floods
   thread: platform
