@@ -85,7 +85,29 @@ def _reset_stats():
     _ex_mod._last_return = None
 
 
+def _ensure_util_dt():
+    """Sibling tests (bootstrap-based) POP homeassistant.util.dt at
+    module tail. If we later import _stuck_signal_nm (via monkeypatch),
+    it needs dt_util at import time. Re-install a mock right before
+    each test call that touches NM."""
+    import types as _types
+    from datetime import datetime as _dt, timezone as _tz
+    if "homeassistant.util.dt" not in sys.modules:
+        m = _types.ModuleType("homeassistant.util.dt")
+        m.now = lambda: _dt.now(_tz.utc)
+        m.utcnow = lambda: _dt.now(_tz.utc)
+        m.as_local = lambda d: d
+        def _pd(s):
+            try:
+                return _dt.fromisoformat(s) if isinstance(s, str) else None
+            except (ValueError, TypeError):
+                return None
+        m.parse_datetime = _pd
+        sys.modules["homeassistant.util.dt"] = m
+
+
 def setup_function(_):
+    _ensure_util_dt()
     _reset_stats()
 
 

@@ -349,6 +349,27 @@ async def _surface_restore_failure(
     Called ONLY when ``restore_ok is False`` (attempted-and-diverged).
     Never called on None (policy skip) or True (success).
 
+    Per-episode alerting semantics (fix-up r6, 2026-08-21):
+
+      * The per-day latch inside ``fire_stuck_signal`` caps this alert
+        at one emit per calendar day for a given (kind, key) - that is
+        the BACKSTOP.
+      * A subsequent ``restore_ok is True`` for the same zone fires
+        ``fire_stuck_signal_recovered`` (from ``return_excursion``) to
+        DISCHARGE that latch. This changes the semantics from "one
+        alert per day" to "ONE ALERT PER FAILURE EPISODE".
+      * Consequence: consistent failure -> latch holds -> ONE alert
+        (correct: one ongoing problem, not spam).
+      * Consequence: fail -> succeed -> fail -> TWO alerts (correct:
+        alternating failure is MORE alarming than steady failure, not
+        less; a system that keeps flipping between working and broken
+        is worse news than one that is steadily broken).
+      * The three-way distinction on ``restore_ok`` is load-bearing
+        here: only True discharges (proof the mechanism works), only
+        False emits (proof it doesn't). None means policy chose not to
+        try; treating None as recovery would silently re-arm the alert
+        on a zone that has not actually succeeded at anything.
+
     Log (section B): greppable ``[GOVERNED BORROW RESTORE FAILED]``
     _LOGGER.error with the full snapshot + observed post-restore state.
     Fires ALWAYS, INDEPENDENT of NM path success. History: NM recipients
@@ -455,6 +476,69 @@ async def _surface_restore_failure(
         _LOGGER.debug(
             "[GOVERNED BORROW RESTORE FAILED] NM dispatch failed "
             "(swallowed; log already fired): %s", _exc,
+        )
+
+
+async def _discharge_restore_failure_latch(zone_id: str) -> None:
+    """Discharge the per-day NM latch for ``(borrow_restore_failed, zone_id)``.
+
+    Called from ``return_excursion`` ONLY on ``restore_ok is True`` -
+    a successful restore is the natural "recovered" event on a
+    restore-fail latch (it proves the borrow mechanism works again for
+    that zone).
+
+    Scope: ONLY the (borrow_restore_failed, zone_id) latch. Do NOT
+    discharge stale_excursion_row or any other kind - each has its own
+    recovery semantics (or, in stale_excursion_row's case, deliberately
+    none).
+
+    Load-bearing three-way distinction on ``restore_ok`` (see
+    ReturnOutcome docstring): True discharges, False emits, None does
+    NEITHER. None means policy chose not to attempt (immunity /
+    comfort_delay); treating that as recovery would silently re-arm the
+    alert on a zone that has not actually succeeded at anything. That
+    guard is enforced by the caller (the ``elif restore_ok is True``
+    branch in ``return_excursion``); do NOT relax it here.
+
+    Precedent (verbatim from the CHATTER latch docs; operator ruling
+    fix-up r6, 2026-08-21): "on a True->False flip, immediately fire
+    recovered-NM for each previously-latched (kind, entity) pair to
+    discharge the per-day latch - otherwise the latch would stay armed
+    and a legitimate future chatter would be silently suppressed until
+    midnight." Same failure mode, already written down as a thing to
+    avoid.
+
+    fire_stuck_signal_recovered is a no-op when no latch was previously
+    set (line 285 of _stuck_signal_nm.py: ``if latch_key not in
+    _STUCK_SIGNAL_NOTIFIED: return False``), so this call is safe to
+    fire on every successful restore.
+
+    Never raises.
+    """
+    if _hass_ref is None:
+        return
+    try:
+        from ._stuck_signal_nm import (  # noqa: PLC0415
+            fire_stuck_signal_recovered,
+        )
+        _hass_ref.async_create_task(
+            fire_stuck_signal_recovered(
+                _hass_ref,
+                "borrow_restore_failed",
+                (zone_id,),
+                (
+                    f"Governed thermostat borrow for zone {zone_id} "
+                    "successfully restored; the previous failure latch "
+                    "for this zone is cleared and a future failure will "
+                    "re-notify."
+                ),
+            )
+        )
+    except Exception as _exc:  # noqa: BLE001
+        _LOGGER.debug(
+            "borrow_restore_failed discharge dispatch failed "
+            "(swallowed): zone=%s err=%s",
+            zone_id, _exc,
         )
 
 
@@ -691,6 +775,49 @@ async def return_excursion(
             target_high_after=target_high_after,
             mode_after=mode_after,
         )
+    elif restore_ok is True:
+        # Fix-up r6 (2026-08-21): discharge the per-day NM latch for
+        # this zone's borrow_restore_failed alert, so a fail-then-
+        # succeed-then-fail sequence emits TWO alerts (two episodes),
+        # not one (per-day cap).
+        #
+        # Trigger: THIS successful restore for this zone. The natural
+        # "recovered" event on a restore-fail latch is a subsequent
+        # successful restore for the same (kind, zone_id) - it proves
+        # the borrow mechanism works again for that zone+kind.
+        #
+        # Load-bearing three-way distinction on restore_ok
+        # (see ReturnOutcome docstring): True discharges, False emits,
+        # None does NEITHER. `None` means "policy chose not to attempt"
+        # (immunity / comfort_delay); treating that as recovery would
+        # silently re-arm the alert on a zone that has not actually
+        # succeeded at anything.
+        #
+        # Scope: ONLY the (borrow_restore_failed, zone_id) latch. Do
+        # NOT discharge stale_excursion_row or any other kind - those
+        # have their own recovery semantics (or, in stale_excursion_
+        # row's case, deliberately have none).
+        #
+        # Precedent + hazard, verbatim from the CHATTER latch docs:
+        # "on a True->False flip, immediately fire recovered-NM for
+        # each previously-latched (kind, entity) pair to discharge the
+        # per-day latch - otherwise the latch would stay armed and a
+        # legitimate future chatter would be silently suppressed until
+        # midnight." Same failure mode, already written down as a
+        # thing to avoid.
+        #
+        # Semantics summary (also encoded in _surface_restore_failure's
+        # docstring):
+        #   * consistent failure -> latch holds -> ONE alert
+        #     (correct: one ongoing problem, not spam)
+        #   * fail -> succeed -> fail -> TWO alerts
+        #     (correct: alternating failure is MORE alarming than
+        #     steady failure, not less)
+        #
+        # The per-day latch STAYS as the backstop; the discharge just
+        # makes it per-episode rather than per-day. Do not remove or
+        # weaken the latch.
+        await _discharge_restore_failure_latch(token.zone_id)
 
     if _db_ref is not None:
         try:
