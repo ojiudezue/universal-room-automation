@@ -805,6 +805,85 @@ Read-only join over `ac_ramp_events` and the HA recorder / SPAN history,
 patho ≈ 0, D-ESC-CONSUME is REWORKED (§3.1 asserts this, not the probe).
 Probe output goes into §7.1 as a data block.
 
+---
+
+### §7.1 RESULTS — RUN 2026-08-22. **VERDICT: D-ESC-CONSUME IS REWORKED.**
+
+**Steps 1-3 — D-GATE4 CONFIRMED, ship it.**
+
+| zone | blind % of time-above-threshold | blind hours |
+|---|---|---|
+| zone_1 | **12.2%** | 11.35 h |
+| zone_2 | **7.1%** | 4.58 h |
+| zone_3 | **12.9%** | 6.80 h |
+
+Reproduces the earlier run to within rounding (11.05 / 4.58 / 6.49 h). **NOTE FOR ANY
+FUTURE READER: the probe agent reported these as 6.33 / 2.57 / 3.79% and inferred a "2x
+divergence" caused by the threshold retune. THAT INFERENCE IS WRONG — it used a different
+DENOMINATOR (fraction of the WHOLE window rather than of time-above-threshold). Dividing by
+the time-above-threshold fractions (51.4 / 36.4 / 28.9%) recovers 12.3 / 7.1 / 13.1%. The
+figures agree; there is no divergence and no threshold-retune effect to chase.**
+
+Supporting: `hvac_mode` gating removes essentially nothing (all three thermostats sit in
+`heat_cool` ~99.6% of the window) — so the mode check earns its place as a HEATING guard, not
+as a discriminator. `blower_rpm` EXISTS on all three entities and reads >=500 rpm during
+**93-96%** of blind time, corroborating that the air handler genuinely runs while the cloud
+says idle. Blind time is `idle` 98.9-99.5% — a confident wrong answer, not `unknown`.
+
+**Step 4 — D-ESC-CONSUME IS NOT MERELY MIS-CALIBRATED. IT IS ARITHMETICALLY IMPOSSIBLE.**
+
+MEASURED over the full 30-day event history, independent of any SPAN simulation:
+
+| zone | eval->eval pairs within the 30-min lookback | of those, prior row FULL-WINDOW |
+|---|---|---|
+| zone_1 | 286 | **0** |
+| zone_2 | 163 | **0** |
+| zone_3 | 73 | **0** |
+| **total** | **522** | **0** |
+
+The proof: `nudge_started -> nudge_evaluated` is a hard **6.00 minutes** (measured p50 = min,
+n=912). For a prior row to be FULL-WINDOW the next nudge must land **> t+30 min**; the next
+EVALUATION therefore lands **> t+36 min**; but the streak lookback is **30 min**. **The two
+conditions are mutually exclusive by exactly the nudge duration, always.** AC-E's positive
+control is constructible only as a hand-crafted fixture — no production path can generate it,
+so the deliverable would have shipped green and never fired once.
+
+**No tuning escape exists.** Full-window-only fires **exactly 0**. Counting truncated rows
+fires **5.9 / 8.7 / 17.1 per zone-day** — roughly one per nudge, i.e. the count trigger §7.1's
+predecessor already rejected. There is no middle at W=30. Sensitivity sweep (full-window-only,
+N_ESC=2), per zone-day with patho-night fires in brackets:
+
+| lookback | zone_1 | zone_2 | zone_3 |
+|---|---|---|---|
+| 30 (spec) | 0.00 (0) | 0.00 (0) | 0.00 (0) |
+| 60 | 0.40 (0) | 0.13 (0) | 0.54 (0) |
+| 90 | 1.47 (1) | 0.27 (0) | 0.54 (0) |
+| 120 | 2.28 (2) | 0.67 (1) | 0.94 (0) |
+
+**No (N, W) satisfies both halves of the §3.1 decision rule.** W=60 meets the median bound but
+fires 0 on the pathological night in every zone. W=120 catches it in z1/z2 but breaches the
+median in z1 and still misses z3.
+
+**ROOT CAUSE — and it was flagged and not fixed.** `CONF_HVAC_AC_DURABILITY_WINDOW` is doing
+TWO jobs: the durability MEASUREMENT window and the escalation LOOKBACK window. Reviewer B
+raised exactly this as B-M5; the revision DISCLOSED the double duty on the knob row instead of
+DECOUPLING it. The two jobs are incompatible by precisely the 6-minute nudge duration.
+Decoupling them into two knobs is a PRECONDITION for any rework — and note the sensitivity
+table above already contains no passing cell, so decoupling alone does not rescue it.
+
+**PROCESS NOTE, recorded because it is the second occurrence.** Measurement has now killed the
+escalation deliverable TWICE, on two different mechanisms (count trigger; durability streak).
+That is a signal about the APPROACH, not about the knob values: we have twice designed an
+escalation trigger and then measured it, rather than measuring first to find what actually
+separates a bad night from an ordinary one. §7.1's predecessor established that NO tested
+signal discriminates the pathological night — energy, duration, continuity, floor persistence,
+recovery. Until something does, any trigger built on per-zone nightly pattern is a guess with a
+test attached.
+
+**RULING: the cycle ships WITHOUT escalation.** D-GATE4 plus carried-forward D2-D8 are all
+measured and motivated and are unaffected by this. "When should a reset fire" returns to being
+an open question requiring its own discovery probe — NOT a third design-then-test attempt.
+
 ### §7.2 — Probe B: D10 retrospective lag
 
 Join `nudge_started` rows to `climate.<zone>.target_temp_high` state
