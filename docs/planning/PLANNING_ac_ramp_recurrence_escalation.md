@@ -1,3 +1,29 @@
+> # ⛔ SUPERSEDED — DO NOT BUILD FROM THIS DOCUMENT
+>
+> **Superseded 2026-08-22 by `PLANNING_ac_ramp_pipeline_hardening.md`.**
+>
+> This plan proposed a COUNT-BASED RECURRENCE TRIGGER (escalate after N nudges in window W) as its
+> headline deliverable. **§7.1 of this document records the probe that REJECTED it on measured
+> grounds.** Do not resurrect it without reading §7.1 first — the rejection is data, not opinion.
+>
+> **WHAT IS DEAD:** D1 (the count trigger) and everything downstream of it — the N/W knobs, the
+> 3-state recurrence mode select, the `recurrence_would_fire` shadow rows, the `triggered_by=
+> 'recurrence'` plumbing, and the shadow-vs-live rollout built around it.
+>
+> **WHAT IS ALIVE AND CARRIED FORWARD** into the successor plan, unchanged in intent:
+> D2 day/night partitioned reset budgets · D3 the never-built soft-nudge daily cap ·
+> D4 `durable`/`durable_minutes` · D5 reset-path ledger enrichment · D6 temp at reset start/end
+> (the drift discriminator) · D7 `AC_RESET_OFF_DURATION_SECONDS` to rung 3 · D8 the declined trail.
+>
+> **WHAT IS STILL VALUABLE HERE AND NOT COPIED FORWARD:** the two plan reviews' findings and the
+> §12/§13 correction record. The successor plan cites them rather than repeating them. In
+> particular the corrected code anchors (`_perform_hard_reset_escalation` at `hvac_override.py:3874`,
+> the `check_ac_reset` gate ladder at `:2684`, the `save_ac_reset_state` upsert trap, the
+> `CREATE TABLE IF NOT EXISTS` migration no-op) are still accurate and still load-bearing.
+>
+> **READ ORDER for anyone picking this up:** successor plan first; this document only for §7.1
+> (why the count trigger died) and §12/§13 (the anchor corrections).
+
 # PLANNING — AC-RAMP-NO-RECURRENCE-ESCALATION-1
 
 **Tier:** 3.
