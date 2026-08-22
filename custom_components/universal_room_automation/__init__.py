@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.86.0
+# Universal Room Automation vv5.87.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3531,6 +3531,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         ),
                     )
                     coordinator_manager.register_coordinator(hvac)
+                    # HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1 (2026-08-21):
+                    # Deterministically seed the 14 factory-tunable
+                    # runtime fields from CM options at construction —
+                    # closes the boot race where
+                    # `Number.async_added_to_hass` may fire before the
+                    # sub-controllers are visible via
+                    # `hass.data[DOMAIN]["coordinator_manager"]`, leaving
+                    # the coordinator running the module DEFAULT until
+                    # some later write pushes the operator value across.
+                    # Reuses `_HVAC_TUNABLE_DISPATCH` so a 15th tunable
+                    # added there inherits this seeding for free (no
+                    # hand-written per-knob call). Byte-identical when
+                    # options match defaults.
+                    _seed_hvac_runtime_tunables_from_options(hvac, cm_config)
                     # CRIT-A1 dormant WARN + voice-default WARN. Emit
                     # only when the arrester is ENABLED (dormant
                     # immunity is only a problem if the arrester itself
@@ -3635,6 +3649,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 await coordinator_manager.async_start()
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
+
+                # HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1 zone-arm (2026-08-21):
+                # The per-zone AC kWh Rate Threshold Number
+                # (`_hvac_zone_kwh_threshold_factory`, number.py:2467)
+                # persists via HA RestoreEntity — NOT entry.options — so
+                # it can't ride the sub-controller seed above. It writes
+                # `zone.kwh_rate_threshold` on a ZoneState that only
+                # exists after `HVACCoordinator.async_setup()` has run
+                # `async_discover_zones()` (hvac.py:815), which happens
+                # inside `coordinator_manager.async_start()`. Hence a
+                # SECOND call site here, deliberately after async_start:
+                # ordering-required, not stylistic. Fails UNSAFE without
+                # this seed — a boot race drops the runtime from the
+                # operator's 1.30 to the dataclass default 0.8, doubling
+                # detection sensitivity and nudge frequency.
+                try:
+                    hvac_coord = coordinator_manager.coordinators.get("hvac")
+                    if hvac_coord is not None:
+                        await _seed_hvac_zone_kwh_thresholds_from_restore(
+                            hass, hvac_coord
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Per-zone AC kWh threshold seed failed (non-fatal)",
+                        exc_info=True,
+                    )
 
                 # EC Envoy boot-decoupling: schedule deferred re-validation
                 # AFTER CM registration (Review D D1 fix). On warm reloads
@@ -5719,6 +5759,180 @@ _HVAC_TUNABLE_DISPATCH: dict[str, tuple[str, str, type]] = {
     _CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT:   ("_override_arrester",  "_hard_reset_daily_limit",    int),
     _CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL:  ("_override_arrester",  "_hard_reset_min_interval_min", int),
 }
+
+
+def _seed_hvac_runtime_tunables_from_options(hvac, cm_config: dict) -> None:
+    """Seed the 14 HVAC factory-tunable runtime fields from CM options.
+
+    HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1 fix (2026-08-21). Called ONCE from
+    async_setup_entry immediately after the HVAC coordinator is
+    constructed and registered — before any decision cycle can read
+    the runtime field. Iterates `_HVAC_TUNABLE_DISPATCH` so the seed
+    path stays in lockstep with the options-update dispatch: any 15th
+    tunable added to the dispatch inherits this seeding for free.
+
+    Silent no-op when the sub-controller attribute is missing (defensive
+    for partial construction / tests). Missing option key falls back to
+    the sub-controller's already-assigned module default — the seed
+    call is byte-identical to the pre-fix behaviour in that case.
+    """
+    for conf_key, (sub_attr, runtime_field, cast_fn) in _HVAC_TUNABLE_DISPATCH.items():
+        sub = getattr(hvac, sub_attr, None)
+        if sub is None:
+            continue
+        if conf_key not in cm_config:
+            continue
+        try:
+            setattr(sub, runtime_field, cast_fn(cm_config[conf_key]))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC tunable seed failed for %s -> %s.%s",
+                conf_key, sub_attr, runtime_field,
+                exc_info=True,
+            )
+    _LOGGER.info(
+        "HVAC runtime tunables seeded from CM options (14 factory keys)"
+    )
+
+
+async def _seed_hvac_zone_kwh_thresholds_from_restore(hass, hvac) -> None:
+    """Seed per-zone `ZoneState.kwh_rate_threshold` from HA RestoreState.
+
+    HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1 zone-arm (2026-08-21).
+    Companion to `_seed_hvac_runtime_tunables_from_options` for the ONE
+    Number that writes into a ZoneState field instead of a
+    sub-controller attr (sweep: number.py:2467
+    `_hvac_zone_kwh_threshold_factory`, sole hit for
+    `zone.<field> =` in number.py). That entity uses RestoreEntity as
+    its source of truth (deliberately split out from Part 2 D3), so
+    the CM-options path used by the 14 factory tunables does not apply.
+
+    Ordering: MUST run after `coordinator_manager.async_start()` because
+    `HVACCoordinator.async_setup` runs `async_discover_zones()`
+    (hvac.py:815) which populates `zone_manager.zones`. Called before
+    that point, the lookup finds nothing and the seed is a no-op.
+
+    Failure visibility (2026-08-21 fix-up): this knob fails UNSAFE —
+    the ZoneState dataclass default is 0.8 kW (hvac_zones.py:124) but
+    production runs 1.30 kW. A silent seed failure LOWERS the
+    detection threshold, making the nudge MORE sensitive and firing
+    MORE nudges (each nudge = 2 raw setpoint writes = manual-preset
+    risk). Every unresolvable per-zone lookup therefore logs at
+    WARNING (not debug) with the zone_id + reason, so the operator
+    can grep for it in a WARNING-and-above filtered log. The
+    infrastructural failures (import, RestoreStateData instance) also
+    log at WARNING because they take out the whole seed pass.
+    """
+    zm = getattr(hvac, "_zone_manager", None)
+    if zm is None or not zm.zones:
+        # Not a failure — this is the pre-async_start / no-AC-zones
+        # posture. Legit no-op (debug only).
+        _LOGGER.debug(
+            "Zone-kWh seed: no zones registered (pre-async_start "
+            "or no AC zones configured); nothing to seed"
+        )
+        return
+    # RESTORE-STATE ACCESS SHAPE (2026-08-21 fix-up B-RE-1 sibling):
+    # Use the module-level SYNC `async_get` helper (a HA @callback).
+    # `RestoreStateData` has no async classmethod — the awaited-
+    # classmethod form NEVER worked and raised TypeError on every boot,
+    # which the defensive except swallowed => guaranteed silent no-op =>
+    # guaranteed UNSAFE fallback to 0.8 kW. Matches the pre-existing correct
+    # exemplar at `__init__.py:1301-1313` (v5.7.1 D5 migration, guarded
+    # by test_v5_7_1_energy_precool.py::test_restore_state_helper_is_called_sync_not_awaited).
+    try:
+        from homeassistant.helpers.restore_state import (
+            async_get as async_get_restore_data,
+        )
+        from homeassistant.helpers import entity_registry as er
+        from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "Zone-kWh seed FAILED (import error): all AC zones will "
+            "fall back to dataclass default 0.8 kW — UNSAFE direction "
+            "(more nudges, more manual-preset risk). Configured "
+            "values will NOT take effect until an operator write "
+            "pushes each per-zone threshold across.",
+            exc_info=True,
+        )
+        return
+    # SYNC call. Do NOT await — `async_get` is @callback, not a coroutine.
+    restore_data = async_get_restore_data(hass)
+    if restore_data is None:
+        _LOGGER.warning(
+            "Zone-kWh seed FAILED (RestoreStateData unavailable): all "
+            "AC zones will fall back to dataclass default 0.8 kW — "
+            "UNSAFE direction (more nudges, more manual-preset risk)"
+        )
+        return
+    last_states = getattr(restore_data, "last_states", {}) or {}
+    ent_reg = er.async_get(hass)
+    seeded = 0
+    unresolved: list[tuple[str, str]] = []  # (zone_id, reason)
+    for spec in iter_canonical_hvac_zones(hass):
+        zone_id = spec.get("zone_id") or "<unknown>"
+        climate_entity = spec.get("climate_entity")
+        if not spec.get("zone_id") or not climate_entity:
+            unresolved.append((zone_id, "spec missing zone_id or climate_entity"))
+            continue
+        unique_id = f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"
+        entity_id = ent_reg.async_get_entity_id("number", DOMAIN, unique_id)
+        if entity_id is None:
+            unresolved.append((
+                zone_id,
+                f"no entity registered for unique_id={unique_id} "
+                "(first boot after per-zone Number added? or unique_id drift)",
+            ))
+            continue
+        stored = last_states.get(entity_id)
+        if stored is None:
+            unresolved.append((
+                zone_id,
+                f"no RestoreState entry for {entity_id} (fresh install / "
+                "state store cleared / entity never wrote a state)",
+            ))
+            continue
+        try:
+            raw = stored.state.state  # StoredState.state is a State-like obj
+            val = float(raw)
+        except (AttributeError, ValueError, TypeError) as e:
+            unresolved.append((
+                zone_id,
+                f"restored state for {entity_id} is not numeric: {e!r}",
+            ))
+            continue
+        matched = False
+        for zone in zm.zones.values():
+            if getattr(zone, "climate_entity", None) == climate_entity:
+                try:
+                    zone.kwh_rate_threshold = val
+                    seeded += 1
+                    matched = True
+                except Exception as e:  # noqa: BLE001
+                    unresolved.append((
+                        zone_id,
+                        f"setattr on ZoneState failed: {e!r}",
+                    ))
+                break
+        if not matched and not any(z == zone_id for z, _ in unresolved):
+            unresolved.append((
+                zone_id,
+                f"no ZoneManager zone matched climate_entity={climate_entity}",
+            ))
+    for zone_id, reason in unresolved:
+        _LOGGER.warning(
+            "Zone-kWh seed UNRESOLVED for zone %s: %s. Zone will use "
+            "ZoneState default 0.8 kW — UNSAFE direction (more nudges, "
+            "more manual-preset risk). Configured value will NOT take "
+            "effect until an operator write pushes the threshold across.",
+            zone_id, reason,
+        )
+    if seeded:
+        _LOGGER.info(
+            "HVAC: seeded %d per-zone AC kWh threshold(s) from RestoreState",
+            seeded,
+        )
+
 
 # Energy Coordinator setter-based dispatch (calls a coordinator method, NOT
 # a direct attr write — the setters carry side-effects like

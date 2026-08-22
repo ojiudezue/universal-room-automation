@@ -384,11 +384,17 @@ class TestImpactCacheInfrastructure:
     """
 
     def test_impact_cache_initialized_in_init(self, hvac_override_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (2026-08-21).
+        # This previously sliced a FIXED window (6000, then 8000 chars) and
+        # searched it, so every time `__init__` grew the target fell outside
+        # the window and the test failed for a reason unrelated to what it
+        # asserts. Extract the ACTUAL method body instead: from
+        # `def __init__(` to the next method at class-body indent. Cannot
+        # silently truncate; a failure now means the init really is missing.
         idx = hvac_override_src.find("def __init__(")
-        # Window widened 6000 -> 8000: B1/B2 comment additions pushed the
-        # `_impact_cache` init assignment past the prior 6000-char slice.
-        # (Same mechanical fix already applied to test_v4511.)
-        body = hvac_override_src[idx:idx + 8000]
+        assert idx != -1, "could not locate __init__ in hvac_override source"
+        nxt = hvac_override_src.find("\n    def ", idx + 1)
+        body = hvac_override_src[idx:nxt if nxt != -1 else len(hvac_override_src)]
         assert "self._impact_cache: dict =" in body
 
     @pytest.mark.parametrize(

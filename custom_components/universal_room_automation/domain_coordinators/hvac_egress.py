@@ -93,7 +93,20 @@ class EgressManager:
         self._egress_first_closed_at: dict[str, datetime] = {}
         # zone_id -> expiry datetime (tz-aware)
         self._cooldowns: dict[str, datetime] = {}
-        # NM dedup: (zone_id, event_type) -> date.isoformat() last emitted
+        # NM dedup: (zone_id, event_type) -> date.isoformat() last emitted.
+        # RESTART-SAFETY-DOCTRINE-1 F16 — declared. restart: RESET WITH REASON.
+        #   Reason: this is a dedupe dict, not a scalar counter — it does NOT
+        #   fit the tranche-1 DailyCounter(name, persist, reason) primitive
+        #   which is int-only. The audit recommends PERSIST (to prevent one
+        #   duplicate NM per (zone,event) per restart in the same local day),
+        #   which requires a Store instance plus a hook into the HVAC
+        #   coordinator's setup/teardown lifecycle (HVACEgress has no
+        #   equivalent hooks today). Impact is bounded: at most one duplicate
+        #   emit per (zone,event) per restart, and the measured median restart
+        #   interval (5.55h) means the same-day dedupe survives most of the
+        #   duplicate window in practice. Deferred to the persist=True
+        #   follow-up cycle (RESTART-SAFETY-DOCTRINE-2) alongside F8
+        #   (`OverrideArrester.override_count_today`, arrester-owned).
         self._nm_emitted_today: dict[tuple[str, str], str] = {}
         # Rehydrate gate — first tick MUST early-return until True.
         self._rehydrate_done: bool = False
