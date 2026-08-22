@@ -2056,6 +2056,34 @@ cards:
     ALSO NOTE FOR THE RECORD: the zone recovered without intervention at 22:15. Whatever else is
     true, this was not a stuck state.'
 - id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
+  RESET_DRIFT_CONSTRAINT_2026_08_22: 'OPERATOR REFINEMENT, and it changes how reset success must be
+    MEASURED: "If the temp delta is high it can come back with the temp already elevated above
+    setpoint. At which case it will make its own decision - justifiably."
+    NOTE THIS IS A DIFFERENT CLAIM FROM THE ONE THE PROBE REFUTED. DELTA_T_PROBE tested whether the
+    nudge TRIGGER is load-driven and found it is not (draw at setpoint flat ~2.5 kW across 80-100F
+    outdoor). This claim is about the RESET OFF-WINDOW, where drift rate genuinely does scale with
+    delta and with the zone thermal mass. The earlier refutation does NOT apply here; do not cite it
+    against this.
+    THE MEASUREMENT TRAP — two outcomes are INDISTINGUISHABLE from the power trace alone and mean
+    OPPOSITE things:
+      (a) unit returns, ramps to full, ROOM STILL AT SETPOINT  -> the modulation floor SURVIVED the
+          reset. Reset FAILED.
+      (b) unit returns, ramps to full, ROOM DRIFTED ABOVE SETPOINT -> real demand exists. Reset
+          WORKED; the unit is behaving correctly.
+    Scoring these the same would classify a correctly-behaving system as a failure and escalate
+    against it — i.e. cycle a compressor for no reason, which goal 3 of the original design calls
+    "the worst possible failure mode". This is the SAME class of error as instantaneous-vs-durable
+    `effective` for nudges: measuring the instant instead of the outcome.
+    THE DISCRIMINATOR, and it needs no new instrumentation: RECORD ROOM TEMP AT RESET-START AND AT
+    RESET-END. The delta across the off-window IS both the drift measurement and the discriminator.
+    If temp_end > target, case (b) and the subsequent ramp is expected — do not count it against the
+    reset.
+    CONSEQUENCE FOR THE OFF-DURATION KNOB: it should NOT be a flat constant. The safe window is
+    bounded by drift rate, which varies by zone (zone 3 — kitchen + hallways, high infiltration and
+    the transit zone — will drift materially faster than zone 1) and by conditions. Start with a
+    measured constant per the knob ladder, but design the evaluation so an adaptive or per-zone
+    window can be added later WITHOUT re-defining reset success. Capture the drift data from day one
+    even if the window stays fixed — that is what makes the later tuning possible.'
   LIVE_INSTANCE_AND_MECHANISM_2026_08_22: 'OPERATOR PERFORMED ANOTHER MANUAL RESET at ~02:00 CDT on
     2026-08-22, hours after v5.88.0 shipped. RULED OUT AS A REGRESSION FIRST (the deploy touched every
     thermostat write path, so this had to be excluded before attributing it to the known gap):
