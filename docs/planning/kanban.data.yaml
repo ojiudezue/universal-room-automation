@@ -2056,6 +2056,76 @@ cards:
     ALSO NOTE FOR THE RECORD: the zone recovered without intervention at 22:15. Whatever else is
     true, this was not a stuck state.'
 - id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
+  RESET_DRIFT_CONSTRAINT_2026_08_22: 'OPERATOR REFINEMENT, and it changes how reset success must be
+    MEASURED: "If the temp delta is high it can come back with the temp already elevated above
+    setpoint. At which case it will make its own decision - justifiably."
+    NOTE THIS IS A DIFFERENT CLAIM FROM THE ONE THE PROBE REFUTED. DELTA_T_PROBE tested whether the
+    nudge TRIGGER is load-driven and found it is not (draw at setpoint flat ~2.5 kW across 80-100F
+    outdoor). This claim is about the RESET OFF-WINDOW, where drift rate genuinely does scale with
+    delta and with the zone thermal mass. The earlier refutation does NOT apply here; do not cite it
+    against this.
+    THE MEASUREMENT TRAP — two outcomes are INDISTINGUISHABLE from the power trace alone and mean
+    OPPOSITE things:
+      (a) unit returns, ramps to full, ROOM STILL AT SETPOINT  -> the modulation floor SURVIVED the
+          reset. Reset FAILED.
+      (b) unit returns, ramps to full, ROOM DRIFTED ABOVE SETPOINT -> real demand exists. Reset
+          WORKED; the unit is behaving correctly.
+    Scoring these the same would classify a correctly-behaving system as a failure and escalate
+    against it — i.e. cycle a compressor for no reason, which goal 3 of the original design calls
+    "the worst possible failure mode". This is the SAME class of error as instantaneous-vs-durable
+    `effective` for nudges: measuring the instant instead of the outcome.
+    THE DISCRIMINATOR, and it needs no new instrumentation: RECORD ROOM TEMP AT RESET-START AND AT
+    RESET-END. The delta across the off-window IS both the drift measurement and the discriminator.
+    If temp_end > target, case (b) and the subsequent ramp is expected — do not count it against the
+    reset.
+    CONSEQUENCE FOR THE OFF-DURATION KNOB: it should NOT be a flat constant. The safe window is
+    bounded by drift rate, which varies by zone (zone 3 — kitchen + hallways, high infiltration and
+    the transit zone — will drift materially faster than zone 1) and by conditions. Start with a
+    measured constant per the knob ladder, but design the evaluation so an adaptive or per-zone
+    window can be added later WITHOUT re-defining reset success. Capture the drift data from day one
+    even if the window stays fixed — that is what makes the later tuning possible.'
+  LIVE_INSTANCE_AND_MECHANISM_2026_08_22: 'OPERATOR PERFORMED ANOTHER MANUAL RESET at ~02:00 CDT on
+    2026-08-22, hours after v5.88.0 shipped. RULED OUT AS A REGRESSION FIRST (the deploy touched every
+    thermostat write path, so this had to be excluded before attributing it to the known gap):
+    borrow machinery healthy — started_today {nudge: 1}, returned_today {nudge: 1},
+    restore_failed_today {} empty, active_borrows [] empty; zone_1 on preset `sleep` NOT `manual`, so
+    the founding lockout defect is NOT recurring post-deploy. This is the known escalation gap.
+    OPERATOR DESCRIPTION, verbatim and worth preserving because it articulates the MECHANISM better
+    than the card previously did: "I saw high wattage when the setpoint had been reached. You would
+    expect the ac to ramp down it a variable compressor. Yet it was 2+kw running. When that happens I
+    tend to reset. Off and back to auto to reclaim some energy. If I am lucky it is short enough that
+    when it gets back it is the same temp and it read that as no need to ramp back up to full power."
+    WHY THE RESET WORKS AND THE NUDGE DOES NOT — this is the missing half of the design rationale.
+    A NUDGE changes the SETPOINT temporarily; on restore the unit resumes its PRIOR CONTROL STATE and
+    climbs back (measured: median 365s to return above 50% of baseline). A RESET clears that control
+    state — the compressor restarts its loop, re-reads current temp against target, finds itself
+    ALREADY AT SETPOINT, and elects low demand instead of resuming the previous ramp. That is why the
+    hard reset is the correct escalation for a MODULATION-FLOOR failure and why repeating the nudge
+    47 times cannot fix it: the nudge never clears the state that is holding the floor.
+    COROLLARY — RESET DURATION IS A LOAD-BEARING PARAMETER, not an arbitrary constant. The operator
+    "if I am lucky it is short enough" is doing real work: the off-window must be long enough for the
+    unit to drop its control state, SHORT enough that room temp has not drifted so far that it
+    justifiably ramps back to full. Too long and the reset defeats itself.
+    THE CONSTANT — LOCATED (operator was right that one exists; the orchestrator first search missed
+    it by grepping for the NAME it expected rather than the concept):
+      AC_RESET_OFF_DURATION_SECONDS: Final = 60   # hvac_const.py:493, "seconds to hold off during reset"
+      consumed at hvac_override.py:2906 as the async_call_later delay before _restore_after_reset,
+      and interpolated into the NM alert text at :2915.
+      IT IS RUNG 1 (module constant) — NOT exposed in config_flow, options_flow or as a Number
+      entity. Per the knob ladder it belongs at RUNG 3: this is policy the operator would
+      legitimately tune by observation (their manual technique IS this parameter), not a safety
+      bound that should require review to change.
+      Sibling constants for reference: AC_RESET_MAX_PER_DAY=2 (:491),
+      DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL=120 min (:538), AC_RESET_STUCK_MINUTES.
+    NO TEMP CAPTURE EXISTS AT RESET START OR END — verified across hvac_override.py:2890-2968. So the
+    drift discriminator described below CANNOT be computed for any past reset, and the 11 historical
+    resets (2026-07-22 -> 2026-08-15) mostly predate the recorder 7.5-day window, so they are not
+    reconstructible either. Capturing temp at reset-start/end is therefore a PREREQUISITE deliverable,
+    not an optional enrichment — without it there is no way to tell a survived-floor from a justified
+    ramp, and no baseline to tune the window against.
+    PRIORITY EFFECT: this is now a MEASURED, RECURRING, OPERATOR-COSTING defect with a live instance
+    days apart (2026-08-21 overnight, 2026-08-22 02:00). It is doing manual labour that the
+    automation was designed to do.'
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight
     while the house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
@@ -2995,10 +3065,23 @@ cards:
     tick guarantees single-tick round trips. Blocks nothing, but any HVAC-PRESET-FLAP-1 tuning or
     rate-limit work should land the constant first so the reviewer can see the quantum.'
 - id: HVAC-PRESET-FLAP-1
+  STATUS_CORRECTED_TWICE_2026_08_22: 'CORRECTED, and my FIRST correction was also wrong. I moved this
+    review -> waiting_operator on the strength of the stale `next` line WITHOUT reading the ruling
+    fields already on this card. Operator: "Preset flap. I thought I ruled already." THEY DID, three
+    times, all 2026-08-20 and all still present above: OPERATOR_DECLINED_TUNING_MOVE (no knob changes
+    until the manual-write fix and the sensor swap land, then re-measure), OPERATOR_DESIGN_PRINCIPLE
+    (the fix axis is person-assignment-aware + transit-aware, NOT a global debounce, and it must
+    survive zone_3 mixing transit corridors with a rarely-used guest bedroom), and OPERATOR_TASK
+    (operator owns the input-side sensor swap).
+    So this is BLOCKED ON PRECONDITIONS, which is a different lane from awaiting a decision.
+    LESSON, recorded because it repeated within one session: a status change must be driven by the
+    card BODY, not by the `next` line. Where body and next disagree, the BODY wins and the next is
+    what needs rewriting.'
+  STATUS_CORRECTED_2026_08_22: 'Was `review`; nothing is under review. The card own next field says: "Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule between the coast..." — i.e. it is waiting on an OPERATOR DECISION, not on a reviewer. Moved to waiting_operator so it surfaces in the right queue. Per the skill rule: status must track reality, not just the body.'
   title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B
     removal)
   thread: hvac
-  status: review
+  status: parked
   updated: '2026-08-20 18:10'
   refinement_status: refined
   TUNING_SIMULATION_2026_08_20: 'MEASURED, not assumed. Simulated both knobs against the real
@@ -3302,13 +3385,22 @@ cards:
     at and died on the next fact. The history query I ran FOURTH should have been FIRST; I had last_changed
     timestamps in the opening read and looked past them. Rule: for any "it keeps doing X" complaint, pull
     the state history BEFORE proposing a mechanism.'
-  next: 'Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule
-    between the coast duty-limiter and occupied-zone comfort. Candidates: (a) exempt the limiter when
-    the zone is occupied AND recovering from a large delta — the recovery load is legitimate, not a fault;
-    (b) let the limiter win but hold it (stop re-writing home each window) so it stops flapping — steady
-    discomfort beats oscillation; (c) consult battery SOC — it was 94% with solar_class "excellent" while
-    the limiter throttled comfort to avoid a peak the battery could have covered. (c) is the one worth
-    thinking hardest about.'
+  next: 'BLOCKED ON PRECONDITIONS, not awaiting a decision — the design axis is ALREADY RULED by the
+    operator (person-assignment-aware + transit-aware zone policy, explicitly NOT a global debounce).
+    Gates, in order: (1) the manual-write half — v5.88.0 shipped the borrow restore so URA-induced
+    manual is largely addressed, but HVAC-MANUAL-PRESET-CONTRACT-1 (the decider/writer split) has NOT
+    landed; (2) the operator-owned Garage Hallway sensor swap; (3) RE-MEASURE the flap rate after both,
+    because the operator suspicion is that much of the apparent flapping IS the manual writes — if so
+    the residual flap is smaller and differently shaped than todays numbers suggest.
+    Only then size any knob turn. Do NOT tune before the re-measure: grace=10 is deliberate (it spans
+    TWO ticks), grace_constrained=5 is meant to be a FRACTION of grace rather than an independent
+    value, and entry dwell was already moved 3 -> 5 by the operator.
+    SUPERSEDED PRIOR NEXT (kept for the record, it predates and contradicts the rulings above it):
+    it framed this as an open DESIGN question about arbitrating the coast duty-limiter against
+    occupied-zone comfort, with candidates (a) exempt the limiter when the zone is occupied and
+    recovering from a large delta, (b) let the limiter win but HOLD it so it stops re-writing, (c)
+    consult battery SOC. Those remain useful sub-options for the eventual build, but they are not a
+    blocking question — they are implementation choices inside the ruled axis.'
   refs:
   - docs/planning/kanban.data.yaml card P1P3 (the falsification)
   - custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder),
@@ -4687,10 +4779,11 @@ cards:
     roles. Do not be confused by multiple entity families for this one device; my earlier "not in live
     F2 config" registry read may reflect a different F2 slug rather than absence. Do not re-litigate.
 - id: MEMORY-PROGRAM-EPIC
+  STATUS_CORRECTED_2026_08_22: 'Was `in_progress`; the card own next field says "Epic foundation DELIVERED (writers + compactor live). Remaining is optional/parked (zone_phantom). Consider cl[osing]". Closing per that. The parked remainder is optional and recorded in the body — if it is revived it earns its own card rather than holding an epic open indefinitely. Reversible: reopen if the parked work is taken up.'
   title: 'EPIC — Hierarchical Entity Memory: every node (room/zone/house/coordinator) owns consultable,
     compressed history behind one queryable interface'
   thread: memory
-  status: in_progress
+  status: done
   approval: explicit
   approved_by: 'operator 2026-08-02 (founding concept: "What if each room had memory? ... zones ... house
     ... coordinators ... shared, with a standard interface queryable by any node at any level"); Stage-2
@@ -6285,9 +6378,10 @@ cards:
     entities + 25 f1retired removed, F2 sole NVR, hardware repurposed by homelab agent. Go/no-go resolved
     months of soak ago.'
 - id: SWEEP
+  STATUS_CORRECTED_2026_08_22: 'Was `waiting_me` and untouched since 2026-08-17. Its own next says "Recurring morning-sweep placeholder; re-fires each session start. No standing action." That is a PROCESS placeholder, not work, and holding it in an active lane makes the active queue read as busier than it is. Parked. The sweep still happens at session start via the skill; it does not need a card to occur.'
   title: Morning sweep
   thread: ops
-  status: waiting_me
+  status: parked
   approval: implied
   why: reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58
     organic criteria
@@ -6557,6 +6651,24 @@ cards:
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
 - id: SUITE-ORDER-POLLUTION-1
+  INSTANCE_2026_08_22_EVSE_DP_CARRIER: 'THIRD INSTANCE. Two tests in
+    test_evse_drain_precedence_session_b2c2_fixup.py — test_transition_entry_pauses_actual_configured_evse_id
+    and test_transition_entry_pauses_only_charging_evse_ids_multi_evse — FAIL in the full suite and
+    PASS in isolation, on BOTH develop and any branch. Deterministic across repeated full runs (two
+    identical runs, same two failures). Failure text: "tick failed to reach TRANSITIONED:
+    state=hold_only" — the DP carrier state machine does not advance.
+    NOT caused by the AC-reset-preset cycle: they are present on develop itself.
+    NOTE PYTEST COLLECTION SEMANTICS, which is what makes this class so slippery: pytest IMPORTS
+    EVERY TEST MODULE during collection BEFORE running any test. So a module-level side effect in a
+    file that sorts LATER alphabetically still executes BEFORE an earlier file runs. "It sorts after,
+    so it cannot affect it" is FALSE reasoning and was nearly used here to dismiss this.
+    ORCHESTRATOR METHOD ERROR WORTH RECORDING: these were initially read as regressions from the
+    AC-reset cycle because the develop BASELINE WAS STALE — captured before v5.88.0 merged into
+    develop, then compared against a branch that contained v5.88.0. A stale baseline MANUFACTURES
+    PHANTOM REGRESSIONS. Re-baselining develop at its current HEAD produced an empty name-diff both
+    directions. RULE: re-baseline develop immediately before every name-diff; never reuse a baseline
+    across a merge to develop.
+    Belongs to the family this card tracks; the durable fix remains TEST-STRATEGY-REARCH-1.'
   INSTANCE_2026_08_21_GATE_BLOCKER_FIXED: 'SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED
     THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON
     DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not just the
@@ -7281,8 +7393,9 @@ cards:
     stub-completeness (homeassistant.util missing) is another pollution instance. These are the parallel-collision
     root cause in miniature.'
 - id: CHATTER-OBSERVE-CONTROL-D7-1
+  SHADOW_RESULT_2026_08_22: 'Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen the net, and it detected NOTHING across the house. Measurement on 2026-08-21/22 explains why: the detector counts SUB-T_floor impossibility events, and this house actual chatter is SUSTAINED MODERATE RATE (kitchen mmWave: 731 presence transitions in 48h, median interval 44.4s, only 25 sub-5s events ~0.5/hr — it can never accumulate K=10 in a window). See CHATTER-RATE-VS-BURST-GAP-1. So this card is BLOCKED on a value decision (is a RATE-based signal worth building at all), not on more shadow observation. Continuing to run shadow accumulates no further information. Moved to waiting_operator.'
   title: 'STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)'
-  status: in_progress
+  status: waiting_operator
   thread: diagnostics
   created: 2026-08-19 09:00
   updated: 2026-08-19 10:55
@@ -7955,6 +8068,126 @@ cards:
   refs:
   - AC-RAMP-SAVINGS-OVERSTATED-1
   - number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2
+
+- id: AC-RESET-PRESET-ASSERT-DROPPED-1
+  title: AC hard reset never restores a preset — the plan specified a one-liner, it was dropped
+    without accounting, and it is the last path that can still strand a zone in manual
+  thread: hvac
+  status: shipped_organic
+  shipped_version: v5.88.1
+  created: '2026-08-22 02:10'
+  updated: '2026-08-22 02:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - dropped-deliverable
+  - measured-not-inferred
+  THE_GAP_VERIFIED: 'MEASURED 2026-08-22 on shipped v5.88.0: `_verify_restore` in hvac_override.py
+    spans lines 2968-3062 and contains ZERO preset references — no emit_set_preset_mode, no
+    pre_preset, nothing. The hard-reset ladder writes set_hvac_mode off/on and restores the MODE and
+    SETPOINT, then leaves whatever preset results. After a raw setpoint write on a Bryant/Carrier
+    that is `manual`.
+    CONSEQUENCE: this is the SAME lockout mechanism v5.88.0 exists to eliminate, surviving in the
+    reset path. should_change_preset refuses to act on a manual zone, so a zone hard-reset into
+    manual is locked out of preset governance exactly as the nudge path used to leave it.'
+  IT_WAS_SPECIFIED_AND_DROPPED: 'This is NOT a newly discovered defect — the plan called for it and
+    it went missing. PLANNING_hvac_governed_excursion.md scope decisions: hard_reset_preset_assert
+    is deliberately NOT a primitive-managed kind (EXCURSION_KIND_hard_reset_preset_assert MUST NOT
+    exist so it cannot be wired by analogy later); INSTEAD a one-line
+    emit_set_preset_mode(snapshot_preset) belongs in `_verify_restore`s SUCCESS branch.
+    Review D caught the omission (F7: "plan Scope decisions required a one-line
+    emit_set_preset_mode in _verify_restore success branch. Grep finds no emit_set_preset_mode
+    anywhere in that region. Dropped without accounting.") and it never returned in any of the six
+    fix-up rounds.
+    ORCHESTRATOR MISS, recorded plainly: fix-up rounds were driven off REVIEW FINDINGS and the
+    orchestrator never cross-checked the PLANs own scope decisions for un-built items. A finding
+    raised as a LOW in one review can be lost between rounds when nobody holds the plan-to-build
+    checklist. Lesson: before closing a cycle, diff the plan scope decisions against what shipped —
+    not just the review findings against what was fixed.'
+  parsimony:
+    problem: the hard-reset path can still strand a zone in manual, the exact defect the cycle shipped
+      to remove
+    verdict: BUILD
+    note: small and already specified - a one-liner in the success branch plus a snapshot to read
+      from; do NOT make it a borrow kind (explicit non-goal)
+  next: 'Add the preset assert to `_verify_restore` success branch per the plan scope decision. Needs
+    a snapshot source — check whether the reset path already captures a pre-reset preset, and if not
+    capture one at reset start (NOT by making it a borrow kind). Wire-in anchor + neuter drill
+    required. Ship with the next batch alongside the friendly-name rename.'
+  links:
+    related:
+    - HVAC-GOVERNED-EXCURSION-1
+    - HVAC-MANUAL-PRESET-CONTRACT-1
+    context: 'HVAC-GOVERNED-EXCURSION-1 shipped the primitive that fixed this class everywhere ELSE;
+      this is the one site it deliberately excluded and then did not implement the alternative for.
+      HVAC-MANUAL-PRESET-CONTRACT-1 is the parent contract (every write should be a preset write).'
+  refs:
+  - hvac_override.py:2968-3062 (_verify_restore)
+  - PLANNING_hvac_governed_excursion.md (scope decisions)
+
+- id: BORROW-FRIENDLY-NAME-RENAME-1
+  title: Rename user-facing "Governed thermostat borrows" labels — ship with next batch
+  thread: hvac
+  status: shipped_organic
+  shipped_version: v5.88.1
+  created: '2026-08-22 02:10'
+  updated: '2026-08-22 02:10'
+  refinement_status: initial
+  approval: operator_decided
+  OPERATOR_DIRECTION: 'Operator 2026-08-22: "I think we should rename the friendly names. Ship with
+    next batch." Scope is USER-FACING TEXT ONLY — code, module names, table names, column names,
+    log messages and comments all STAY as `excursion` per the earlier ruling.'
+  IMPORTANT_ENTITY_IDS_WILL_NOT_MOVE: 'Renaming a friendly name does NOT change an already-registered
+    entity_id. The sensor is registered as sensor.ura_hvac_coordinator_governed_thermostat_borrows
+    (HA derived it from the label at first registration) and it will KEEP that id after a rename.
+    Result: a clean label over a longer id. Harmless, but do not expect the id to follow, and do NOT
+    attempt a registry rename to chase it — that risks breaking anything already referencing the id.'
+  OPERATOR_DECIDED_2026_08_22: 'DECIDED. Operator: "B for the label. I like the verb version.
+    Everything else leave as is."
+    FINAL STRINGS:
+    - SENSOR friendly name  -> "Temporary Thermostat Changes"   (option B noun)
+    - CONFIG TOGGLE label   -> "Restore thermostats after temporary changes"   (verb form, from A)
+    Noun for the sensor because it is a count of things; verb phrase for the toggle because it must
+    say what turning it ON does, not name a subsystem.
+    INTERPRETATION CONFIRMED BY OPERATOR 2026-08-22 — QUESTION CLOSED, do not re-open. The original
+    instruction paired "B for the label" with "I like the verb version", and B as presented had a
+    NOUN toggle, so the orchestrator flagged its reading (B sensor + A toggle) rather than assume it.
+    Operator then confirmed explicitly: "The toggle text is not quite right. The sensor is. Use the A
+    version for the toggle." The recorded strings ALREADY matched that — sensor from B, toggle from A
+    — so NO CHANGE was required; the flag is simply resolved.
+    NOTE FOR NEXT TIME: the flag itself caused the round-trip. It led with the AMBIGUITY (noting
+    that option B as presented carried a noun toggle) instead of leading with the CHOICE MADE, which
+    made it read as though the option-B toggle might have been taken. Flagging an interpretation is
+    correct practice; the flag should state what WAS chosen first and the residual ambiguity second,
+    never the reverse.
+    "EVERYTHING ELSE LEAVE AS IS" — do NOT change: the config description body (which opens with
+    "URA occasionally BORROWS a thermostat..."), the log tag [GOVERNED BORROW RESTORE FAILED], the
+    NM kind identifier borrow_restore_failed, any entity_id, or any code/table/column/comment.
+    MILD INCONSISTENCY, NOTED NOT ACTIONED: with the label no longer saying "borrow", the
+    description now introduces the borrow metaphor without the label setting it up. Judged
+    acceptable — the description explains itself in its first clause — and explicitly out of scope
+    per the operator instruction. Flagged so a future reader knows it was seen and left, not missed.'
+  OPTIONS_PRESENTED: 'A (recommended): sensor "Thermostat Borrows" / config toggle "Restore
+    thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold
+    and Restore" / "Hold and restore thermostats".
+    RECOMMENDATION REASONING: drop "Governed" — it is internal vocabulary doing no work for the
+    reader. Sensor should be a NOUN (it is a count of things); config toggle should be a VERB PHRASE
+    (what turning it on does). A toggle naming a subsystem tells the operator nothing; one describing
+    behaviour tells them what they are switching off at 3am.'
+  parsimony:
+    problem: user-facing labels use internal jargon
+    verdict: BUILD
+    note: text-only, batch it - not worth its own deploy
+  next: 'DECIDED (see OPERATOR_DECIDED_2026_08_22). Update the sensor friendly name to "Temporary
+    Thermostat Changes" and the config toggle label to "Restore thermostats after temporary changes".
+    strings.json + translations/en.json MUST be updated IN LOCKSTEP — there is a test enforcing it
+    (test_strings_and_translations_data_keys_in_lockstep). Change NOTHING else. Ship batched with
+    AC-RESET-PRESET-ASSERT-DROPPED-1.'
+  links:
+    related:
+    - AC-RESET-PRESET-ASSERT-DROPPED-1
+    context: batch these two together - one is text-only, the other is a one-liner; neither warrants
+      its own deploy
 
 - id: S14-CEILING-NEEDS-AN-ENDING-1
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending
@@ -8707,6 +8940,34 @@ cards:
   - Carrier 504 getInfinityEnergy 12:14:15 2026-08-20
   - sensor.ura_hvac_coordinator_override_arrester (live attrs)
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22: 'NEW MEASURED SOURCE, found incidentally while checking a
+    Garage Hallway sensor swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS
+    PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE churn:
+      binary_sensor.garage_hallway_occupied     4,638 rows/24h ->   52 real flips = 89.2x
+      binary_sensor.kitchen_hallway_occupied    2,952 rows/24h ->   64 real flips = 46.1x
+      binary_sensor.staircase_person_occupancy    160 rows/24h ->  155 real flips =  1.0x  (control)
+    The plain Frigate binary sensor writes 1:1. The URA room sensors carry ~30 attributes, several
+    changing continuously (idle_duration, last_motion, timer/elapsed-style fields), and HA RECORDS
+    ATTRIBUTE CHANGES — so every attribute tick is a row.
+    SCALE: ~40 rooms. If the two measured rooms are representative that is on the order of 1e5 rows
+    per day from room occupancy alone, on flash at 51 percent life. NOT among the three floods fixed
+    in v5.87.0 — those were per-tick LOG floods; this is per-tick ROW churn, a different mechanism.
+    METHOD NOTE, because the naive query is WRONG and I nearly reported it as a defect: counting rows
+    in `states` does NOT count state changes. The first measurement read 4,639 and looked like
+    catastrophic occupancy flapping. Comparing each row against the previous state gives 52. Any
+    recorder-volume work must count TRANSITIONS, not rows, or it will chase phantom flapping and miss
+    the real cause.
+    SIDE FINDING: this DEFLATES the room-level flap story — 52 real flips/24h in a 12-room transit
+    corridor is not catastrophic. Relevant to HVAC-PRESET-FLAP-1, whose re-measure should count
+    transitions at the ROOM level rather than infer from raw volume.
+    OPERATOR NOTE 2026-08-22: "Ura has an occupancy state" — i.e. room occupancy is a richer STATE
+    than the binary on/off the entity exposes, so some attribute richness is intentional and carries
+    real meaning. DO NOT strip attributes blindly. The fix should target CONTINUOUSLY-CHANGING
+    DERIVED values (countdowns, elapsed timers) which can be recomputed from an absolute timestamp,
+    NOT the state-carrying attributes. Same discipline already applied deliberately to the new borrow
+    sensor, which uses absolute `started` / `expires_at` rather than countdowns precisely to avoid
+    this. Candidate mechanisms to cost: recorder exclude_attributes for the churny keys, or replace
+    countdowns with absolute timestamps at source (preferred — it fixes the cause, not the symptom).'
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life —
     fed by three log floods
   thread: platform

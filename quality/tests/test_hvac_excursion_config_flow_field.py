@@ -111,15 +111,19 @@ def test_config_flow_step_saves_field_to_options():
 
 
 def test_strings_uses_borrows_label_not_excursion():
-    """User-visible label reads 'Governed thermostat borrows' (operator
-    ruling: user-facing text says 'borrow'; internal identifiers stay
-    'excursion')."""
+    """User-visible label reads 'Restore thermostats after temporary changes'
+    (operator ruling 2026-08-22: user-facing toggle relabelled from
+    'Governed thermostat borrows' to plain-English restore semantics;
+    internal identifiers stay 'excursion')."""
     strings = _read("strings.json")
     trans = _read("translations/en.json")
     for name, text in (("strings.json", strings), ("translations/en.json", trans)):
-        assert '"excursion_primitive_enabled": "Governed thermostat borrows"' in text, (
+        assert (
+            '"excursion_primitive_enabled": "Restore thermostats after temporary changes"'
+            in text
+        ), (
             f"{name}: label missing or does not use the operator's "
-            "user-facing 'borrows' wording"
+            "2026-08-22 user-facing wording"
         )
 
 
