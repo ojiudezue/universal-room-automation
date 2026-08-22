@@ -59,7 +59,7 @@ git revert --no-commit <merge-commit>
 ## Fast health check after restart
 
 ```
-sensor.ura_hvac_coordinator_thermostat_borrows   -> exists, state 0 at idle
+sensor.ura_hvac_coordinator_governed_thermostat_borrows   -> exists, state 0 at idle
                                                  -> last_return.restore_ok == true
                                                  -> started_today.nudge == ac_nudges_today
 grep '[GOVERNED BORROW RESTORE FAILED]' in the log -> expect NONE
