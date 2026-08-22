@@ -12,7 +12,7 @@ _Generated: 2026-08-22T03:04:28-05:00_ - _Data commit: `e42e6dd4c2fc`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 4 |
+| 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
@@ -289,8 +289,23 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (4)
+## 🔬 Investigating (5)
 _measuring; truth not yet known_
+
+### `RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1` - Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW.
+thread: **hvac** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-22 14:05 · initial_
+- **Next:** Await the sizing probe: per zone, what share of time-above-threshold is vetoed by hvac_action != cooling; what share of THAT is also at-or-below setpoint (the costly subset, i.e. the exact modulation-floor case); and whether blind episod...
+- **Tags:** measured-not-inferred, lever-leak, operator-instinct-confirmed
+- **Parsimony:** [INVESTIGATE] a cloud-reported momentary claim can silently veto the entire power-based ramp feature
+- **Refs:** hvac_override.py:2684 (check_ac_reset gate ladder); hvac_override.py:2779 (Gate 4)
+- **Forensic keys (6):**
+  - `OPERATOR_CAUGHT_THIS`: Operator, on being told detection gates on hvac_action: "Hmm I thought it was draw and target attainment. Is that a third thing. Does feel like we should change it. Maybe we should model that carrier Bryant actuation a bit more. It might...
+  - `THE_GATE_VERIFIED`: Read from source, not relayed. `check_ac_reset` (hvac_override.py:2684) gate ladder, from its own docstring plus the code: Gate 4  ->  if zone.hvac_action != "cooling": continue        (~hvac_override.py:2779) Gate 6  ->  overshoot / tar...
+  - `MEASURED_INSTANCE`: Zone 1, 2026-08-22 13:29-13:47 CDT, from the HA recorder: 13:29  hvac_action=idle       11 W 13:30  hvac_action=idle    2,105 W 13:32  hvac_action=idle    3,265 W 13:37  hvac_action=idle    3,947 W 13:42  hvac_action=idle    4,181 W 13:4...
+  - `THE_STRUCTURAL_ARGUMENT`: Independent of how large the effect turns out to be, the DESIGN is inverted. `hvac_action` is a MOMENTARY, CLOUD-REPORTED CLAIM from a Carrier/Bryant cloud this repo already knows is unreliable (it 504s and drops all three zones together...
+  - `WHY_THIS_MAY_REDIRECT_THE_WHOLE_CYCLE`: AC-RAMP-NO-RECURRENCE-ESCALATION-1 assumes the pipeline is DETECT -> NUDGE -> (never escalates). Operator framing of the problem was: "either nudges did not work, we did not escalate to resets, or something is off." The probe work of 202...
+  - `links`: related: AC-RAMP-NO-RECURRENCE-ESCALATION-1
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
 thread: **presence** - status: **investigating** - approval: **operator_directed**
