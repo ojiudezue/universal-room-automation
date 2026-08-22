@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-22T01:35:50-05:00_ - _Data commit: `23678d081369`_ - _last_reconciled: 2026-08-22_
+_Generated: 2026-08-22T01:54:01-05:00_ - _Data commit: `9b6d123fc640`_ - _last_reconciled: 2026-08-22_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -556,13 +556,14 @@ _created 2026-08-22 02:10 · initial_
   - `links`: related: HVAC-GOVERNED-EXCURSION-1
 
 ### `BORROW-FRIENDLY-NAME-RENAME-1` - Rename user-facing "Governed thermostat borrows" labels — ship with next batch
-thread: **hvac** - status: **planned** - approval: **operator_directed**
+thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-22 02:10 · initial_
-- **Next:** Await operator pick from A/B/C, then update strings.json + translations/en.json IN LOCKSTEP (there is a test enforcing this) plus the sensor friendly name. Ship with AC-RESET-PRESET-ASSERT-DROPPED-1 in the next batch.
+- **Next:** DECIDED (see OPERATOR_DECIDED_2026_08_22). Update the sensor friendly name to "Temporary Thermostat Changes" and the config toggle label to "Restore thermostats after temporary changes". strings.json + translations/en.json MUST be update...
 - **Parsimony:** [BUILD] user-facing labels use internal jargon
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `OPERATOR_DIRECTION`: Operator 2026-08-22: "I think we should rename the friendly names. Ship with next batch." Scope is USER-FACING TEXT ONLY — code, module names, table names, column names, log messages and comments all STAY as `excursion` per the earlier r...
   - `IMPORTANT_ENTITY_IDS_WILL_NOT_MOVE`: Renaming a friendly name does NOT change an already-registered entity_id. The sensor is registered as sensor.ura_hvac_coordinator_governed_thermostat_borrows (HA derived it from the label at first registration) and it will KEEP that id a...
+  - `OPERATOR_DECIDED_2026_08_22`: DECIDED. Operator: "B for the label. I like the verb version. Everything else leave as is." FINAL STRINGS: - SENSOR friendly name  -> "Temporary Thermostat Changes"   (option B noun) - CONFIG TOGGLE label   -> "Restore thermostats after ...
   - `OPTIONS_PRESENTED`: A (recommended): sensor "Thermostat Borrows" / config toggle "Restore thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold and Restore" / "Hold and restore thermostats". RECOMMENDATION REASONI...
   - `links`: related: AC-RESET-PRESET-ASSERT-DROPPED-1
 

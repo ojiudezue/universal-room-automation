@@ -8018,7 +8018,7 @@ cards:
   created: '2026-08-22 02:10'
   updated: '2026-08-22 02:10'
   refinement_status: initial
-  approval: operator_directed
+  approval: operator_decided
   OPERATOR_DIRECTION: 'Operator 2026-08-22: "I think we should rename the friendly names. Ship with
     next batch." Scope is USER-FACING TEXT ONLY — code, module names, table names, column names,
     log messages and comments all STAY as `excursion` per the earlier ruling.'
@@ -8027,6 +8027,24 @@ cards:
     (HA derived it from the label at first registration) and it will KEEP that id after a rename.
     Result: a clean label over a longer id. Harmless, but do not expect the id to follow, and do NOT
     attempt a registry rename to chase it — that risks breaking anything already referencing the id.'
+  OPERATOR_DECIDED_2026_08_22: 'DECIDED. Operator: "B for the label. I like the verb version.
+    Everything else leave as is."
+    FINAL STRINGS:
+    - SENSOR friendly name  -> "Temporary Thermostat Changes"   (option B noun)
+    - CONFIG TOGGLE label   -> "Restore thermostats after temporary changes"   (verb form, from A)
+    Noun for the sensor because it is a count of things; verb phrase for the toggle because it must
+    say what turning it ON does, not name a subsystem.
+    ORCHESTRATOR INTERPRETATION FLAGGED: the instruction paired "B for the label" with "I like the
+    verb version", and B as presented had a NOUN toggle. Read as: take B for the sensor label, take
+    the VERB phrasing for the toggle. Low risk to get wrong (text only, ships later, trivially
+    changed) but recorded here so it can be corrected rather than silently assumed.
+    "EVERYTHING ELSE LEAVE AS IS" — do NOT change: the config description body (which opens with
+    "URA occasionally BORROWS a thermostat..."), the log tag [GOVERNED BORROW RESTORE FAILED], the
+    NM kind identifier borrow_restore_failed, any entity_id, or any code/table/column/comment.
+    MILD INCONSISTENCY, NOTED NOT ACTIONED: with the label no longer saying "borrow", the
+    description now introduces the borrow metaphor without the label setting it up. Judged
+    acceptable — the description explains itself in its first clause — and explicitly out of scope
+    per the operator instruction. Flagged so a future reader knows it was seen and left, not missed.'
   OPTIONS_PRESENTED: 'A (recommended): sensor "Thermostat Borrows" / config toggle "Restore
     thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold
     and Restore" / "Hold and restore thermostats".
@@ -8038,9 +8056,11 @@ cards:
     problem: user-facing labels use internal jargon
     verdict: BUILD
     note: text-only, batch it - not worth its own deploy
-  next: 'Await operator pick from A/B/C, then update strings.json + translations/en.json IN LOCKSTEP
-    (there is a test enforcing this) plus the sensor friendly name. Ship with
-    AC-RESET-PRESET-ASSERT-DROPPED-1 in the next batch.'
+  next: 'DECIDED (see OPERATOR_DECIDED_2026_08_22). Update the sensor friendly name to "Temporary
+    Thermostat Changes" and the config toggle label to "Restore thermostats after temporary changes".
+    strings.json + translations/en.json MUST be updated IN LOCKSTEP — there is a test enforcing it
+    (test_strings_and_translations_data_keys_in_lockstep). Change NOTHING else. Ship batched with
+    AC-RESET-PRESET-ASSERT-DROPPED-1.'
   links:
     related:
     - AC-RESET-PRESET-ASSERT-DROPPED-1
