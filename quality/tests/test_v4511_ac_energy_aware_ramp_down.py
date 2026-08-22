@@ -597,13 +597,19 @@ class TestSoftNudge:
 
     def test_restore_after_nudge_clears_in_flight(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
+        # HVAC-GOVERNED-EXCURSION-1 fix-up r3 (2026-08-21): slice bumped
+        # 12000 -> 20000. F3 (unconditional preset restore) + F2 (CM +
+        # snapshot-restore semantics) grew the method to ~12.3K chars.
+        # Bug Class #62 (source-string count); no cheaper behavioural
+        # anchor for the invariants this test guards.
+        body = hvac_override_src[idx:idx + 20000]
         assert "clear_ac_in_flight_nudge" in body
         assert "AC_RAMP_EVENT_NUDGE_RESTORED" in body
 
     def test_restore_after_nudge_schedules_evaluation(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge(")
-        body = hvac_override_src[idx:idx + 12000]  # D1 bumped
+        # Slice bumped - see test_restore_after_nudge_clears_in_flight.
+        body = hvac_override_src[idx:idx + 20000]
         assert "AC_NUDGE_EVALUATION_DELAY_S" in body
         assert "_nudge_eval_timers" in body
 

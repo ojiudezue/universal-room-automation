@@ -8067,9 +8067,11 @@ class UniversalRoomDatabase:
             Purged only when ``zone_id`` is not None (husk zones with no
             thermostat have no zone_id and never wrote id-keyed rows).
 
-        Six tables total. Verified via re-grep of every ``zone TEXT`` and
-        ``zone_id TEXT`` column in the ``CREATE TABLE`` DDL surface
-        (fix-up R5, review A-CRIT-1). ``room_state.last_lux_zone`` is a
+        Eight tables total (fix-up R5 = 6 + HVAC-GOVERNED-EXCURSION-1
+        fix-up r3 = +2 for hvac_excursion_state + hvac_excursion_events).
+        Verified via re-grep of every ``zone TEXT`` and ``zone_id TEXT``
+        column in the ``CREATE TABLE`` DDL surface (fix-up R5, review
+        A-CRIT-1). ``room_state.last_lux_zone`` is a
         lux-band label (bright/dim), NOT a zone name — not purged.
 
         Note on ``fan_recheck_state``: the plan lists it as zone_id-keyed,
@@ -8101,6 +8103,15 @@ class UniversalRoomDatabase:
             skipped (id-keyed tables when zone_id is None) map to 0.
             On failure returns an empty dict and logs a warning.
         """
+        # HVAC-GOVERNED-EXCURSION-1 fix-up r3 (2026-08-21): the D2
+        # tables hvac_excursion_state (PK zone_id) and
+        # hvac_excursion_events (zone_id NOT NULL) join the id-keyed
+        # regime. Without deletion here, deleting a zone leaves orphan
+        # excursion rows behind; a stale hvac_excursion_state row is
+        # exactly what async_startup_excursion_audit rehydrates, so an
+        # orphan produces a phantom excursion for a zone that no longer
+        # exists. Both purged only when zone_id is not None (husk zones
+        # have no id and never wrote id-keyed rows).
         result: dict[str, int] = {
             "zone_events": 0,
             "census_snapshots": 0,
@@ -8108,6 +8119,8 @@ class UniversalRoomDatabase:
             "ac_reset_state": 0,
             "egress_state": 0,
             "ac_ramp_events": 0,
+            "hvac_excursion_state": 0,
+            "hvac_excursion_events": 0,
         }
         try:
             async with self._db() as db:
@@ -8149,6 +8162,16 @@ class UniversalRoomDatabase:
                             (zone_id,),
                         )
                         result["ac_ramp_events"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM hvac_excursion_state WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["hvac_excursion_state"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM hvac_excursion_events WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["hvac_excursion_events"] = cur.rowcount or 0
                     await db.commit()
                 except Exception:
                     try:
@@ -8195,6 +8218,10 @@ class UniversalRoomDatabase:
             "ac_reset_state": 0,
             "egress_state": 0,
             "ac_ramp_events": 0,
+            # HVAC-GOVERNED-EXCURSION-1 fix-up r3: paired with the D2
+            # tables added to async_delete_zone_data.
+            "hvac_excursion_state": 0,
+            "hvac_excursion_events": 0,
         }
         try:
             async with self._db_read() as db:
@@ -8211,7 +8238,10 @@ class UniversalRoomDatabase:
                             "async_count_zone_rows(%s): %s", tbl, err,
                         )
                 if zone_id is not None:
-                    for tbl in ("ac_reset_state", "egress_state", "ac_ramp_events"):
+                    for tbl in (
+                        "ac_reset_state", "egress_state", "ac_ramp_events",
+                        "hvac_excursion_state", "hvac_excursion_events",
+                    ):
                         try:
                             cur = await db.execute(
                                 f"SELECT COUNT(*) FROM {tbl} WHERE zone_id = ?",

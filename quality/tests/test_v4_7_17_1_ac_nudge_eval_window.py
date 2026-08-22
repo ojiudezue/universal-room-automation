@@ -86,10 +86,15 @@ class TestRuntimeField:
         so changes to the Number entity affect the NEXT nudge."""
         idx = hvac_override_src.find("async def _restore_after_nudge")
         assert idx > 0
-        # Slice bumped (HVAC-GOVERNED-EXCURSION-1 D1): observability
-        # telemetry in this method grew the body past the old 5000-char
-        # window, moving these assertions out of range.
-        body = hvac_override_src[idx: idx + 12000]
+        # Slice bumped 5000 -> 12000 (HVAC-GOVERNED-EXCURSION-1 D1
+        # added observability telemetry), then 12000 -> 20000 (fix-up
+        # r3 2026-08-21: F3 unconditional preset restore + F2 CM +
+        # snapshot-restore semantics; method now ~12.3K chars, past the
+        # earlier bumped window). Bug Class #62 (source-string count);
+        # the invariant guarded (runtime field, not const, seeds
+        # async_call_later) has no cheaper behavioural anchor without
+        # a real coordinator fixture.
+        body = hvac_override_src[idx: idx + 20000]
         assert "eval_delay_s = int(self._nudge_eval_delay_s)" in body
         assert "async_call_later(\n            self.hass, eval_delay_s," in body
 
@@ -98,7 +103,7 @@ class TestRuntimeField:
 
     def test_post_restore_ts_populated_on_restore(self, hvac_override_src):
         idx = hvac_override_src.find("async def _restore_after_nudge")
-        body = hvac_override_src[idx: idx + 12000]  # bumped — see D1 note above
+        body = hvac_override_src[idx: idx + 20000]  # bumped - see fix-up r3 note above
         assert "self._nudge_post_restore_ts[zone_id] = dt_util.now().isoformat()" in body
 
     def test_post_restore_ts_cleared_on_cancel(self, hvac_override_src):
@@ -163,15 +168,55 @@ class TestLogAcRampEventSignature:
         assert "effective: bool | None = None" in sig
 
     def test_insert_writes_effective_column(self, database_src):
+        """The INSERT column list and placeholder count are consistent.
+
+        History of this test:
+          * pre-D1: 14 columns / 14 placeholders.
+          * D1 (HVAC-GOVERNED-EXCURSION-1 shipped): added 5 columns
+            (preset_before, preset_after, mode_before, mode_after,
+            restore_ok) plus restore_ok_immediate later -> 20.
+          * fix-up r3 (2026-08-21): +1 column excursion_id -> 21.
+            The pre-fix assertion hardcoded 20 placeholders, which
+            went stale as an intentional signature change (Bug Class
+            #62 - source-string count). Replaced with a BEHAVIOURAL
+            check: extract the column list + the placeholder list
+            and assert they match. This is stable across future
+            additive migrations.
+        """
+        import re as _re
         idx = database_src.find("async def log_ac_ramp_event(")
-        body = database_src[idx: idx + 5000]  # bumped — D1 added 5 columns
-        # Column name in INSERT statement
+        body = database_src[idx: idx + 5000]
+        # Column name still present in INSERT statement.
         assert "lockout_triggered, notes, effective" in body
-        # 19 placeholders — was 14 pre-D1; D1 (HVAC-GOVERNED-EXCURSION-1)
-        # added preset_before, preset_after, mode_before, mode_after,
-        # restore_ok for nudge-lifecycle observability.
-        assert "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" in body
-        # SQLite has no BOOLEAN — must convert
+        # Locate INSERT ... ac_ramp_events (...) VALUES (?, ?, ..., ?)
+        m = _re.search(
+            r"INSERT INTO ac_ramp_events\s*\(([^)]+)\)\s*VALUES\s*\(([^)]+)\)",
+            body,
+        )
+        assert m is not None, (
+            "log_ac_ramp_event INSERT statement shape changed; "
+            "the regex should still match a standard multi-column INSERT."
+        )
+        col_list = [c.strip() for c in m.group(1).split(",") if c.strip()]
+        placeholder_list = [
+            c.strip() for c in m.group(2).split(",") if c.strip()
+        ]
+        assert placeholder_list and all(p == "?" for p in placeholder_list), (
+            f"expected only positional ? placeholders, got {placeholder_list}"
+        )
+        assert len(col_list) == len(placeholder_list), (
+            f"log_ac_ramp_event: column/placeholder count mismatch. "
+            f"columns={len(col_list)} placeholders={len(placeholder_list)} "
+            f"cols={col_list}"
+        )
+        # Fix-up r3 (2026-08-21): assert the excursion_id column is
+        # present so the D2 join key isn't accidentally dropped.
+        assert "excursion_id" in col_list, (
+            "log_ac_ramp_event INSERT missing excursion_id column; "
+            "HVAC-GOVERNED-EXCURSION-1 D2 requires this column as the "
+            "cross-table join key with hvac_excursion_events."
+        )
+        # SQLite has no BOOLEAN - must convert
         assert "None if effective is None else (1 if effective else 0)" in body
 
 

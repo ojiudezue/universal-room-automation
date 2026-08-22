@@ -52,6 +52,13 @@ _TABLES_UNDER_TEST = (
     "ac_reset_state",
     "egress_state",
     "ac_ramp_events",
+    # HVAC-GOVERNED-EXCURSION-1 fix-up r3 (2026-08-21): the D2 tables
+    # join the id-keyed regime; both are purged in
+    # async_delete_zone_data. Without deletion, deleting a zone left
+    # orphan rows and (worse) the boot audit rehydrated an orphan
+    # hvac_excursion_state row as a phantom excursion for a deleted zone.
+    "hvac_excursion_state",
+    "hvac_excursion_events",
 )
 
 
@@ -167,7 +174,9 @@ def _count(conn, table: str, where_col: str, value: str) -> int:
 def _run_dao(conn, zone_name: str, zone_id: str | None) -> dict[str, int]:
     """Mirror of UniversalRoomDatabase.async_delete_zone_data (sync sqlite3).
 
-    Six tables — three name-keyed + three id-keyed (fix-up R5).
+    Eight tables - three name-keyed + five id-keyed (fix-up R5 + HVAC-
+    GOVERNED-EXCURSION-1 fix-up r3 adding hvac_excursion_state +
+    hvac_excursion_events).
     """
     result = {
         "zone_events": 0,
@@ -176,6 +185,8 @@ def _run_dao(conn, zone_name: str, zone_id: str | None) -> dict[str, int]:
         "ac_reset_state": 0,
         "egress_state": 0,
         "ac_ramp_events": 0,
+        "hvac_excursion_state": 0,
+        "hvac_excursion_events": 0,
     }
     conn.execute("BEGIN")
     try:
@@ -185,7 +196,10 @@ def _run_dao(conn, zone_name: str, zone_id: str | None) -> dict[str, int]:
             )
             result[tbl] = cur.rowcount or 0
         if zone_id is not None:
-            for tbl in ("ac_reset_state", "egress_state", "ac_ramp_events"):
+            for tbl in (
+                "ac_reset_state", "egress_state", "ac_ramp_events",
+                "hvac_excursion_state", "hvac_excursion_events",
+            ):
                 cur = conn.execute(
                     f"DELETE FROM {tbl} WHERE zone_id = ?", (zone_id,)
                 )
@@ -579,12 +593,14 @@ def test_confirm_name_gate_uses_production_helper():
 
 
 def test_dao_returns_rowcount_dict_shape(real_zone_schema_db):
-    """Zero rows → full 6-key dict of zeros (fix-up R5 shape).
+    """Zero rows -> full 8-key dict of zeros (fix-up R5 = 6 shape +
+    HVAC-GOVERNED-EXCURSION-1 fix-up r3 = +2 excursion tables).
     """
     conn = real_zone_schema_db
     expected_keys = {
         "zone_events", "census_snapshots", "ura_activity_log",
         "ac_reset_state", "egress_state", "ac_ramp_events",
+        "hvac_excursion_state", "hvac_excursion_events",
     }
     result = _run_dao(conn, "Nonexistent Zone", zone_id=None)
     assert set(result.keys()) == expected_keys
@@ -631,10 +647,13 @@ def test_six_zone_keyed_tables_enumerated():
                 or stripped.startswith("zone_name TEXT")):
                 zone_tables.add(table)
                 break
-    # Expected set — fix-up R5.
+    # Expected set - fix-up R5 + HVAC-GOVERNED-EXCURSION-1 fix-up r3
+    # (2026-08-21): the D2 tables hvac_excursion_state and
+    # hvac_excursion_events join the zone_id-keyed regime.
     expected = {
         "zone_events", "census_snapshots", "ura_activity_log",
         "ac_reset_state", "egress_state", "ac_ramp_events",
+        "hvac_excursion_state", "hvac_excursion_events",
     }
     assert zone_tables == expected, (
         f"Zone-keyed table set drifted. Found: {zone_tables}. "
@@ -757,9 +776,12 @@ def test_dao_source_covers_six_tables():
     for tbl in (
         "zone_events", "census_snapshots", "ura_activity_log",
         "ac_reset_state", "egress_state", "ac_ramp_events",
+        # HVAC-GOVERNED-EXCURSION-1 fix-up r3:
+        "hvac_excursion_state", "hvac_excursion_events",
     ):
         assert f"DELETE FROM {tbl}" in body, (
-            f"async_delete_zone_data missing DELETE for {tbl} (fix-up R5)"
+            f"async_delete_zone_data missing DELETE for {tbl} "
+            "(fix-up R5 / HVAC-GOVERNED-EXCURSION-1 fix-up r3)"
         )
     # Fix-up T6 mutation A: rollback branch MUST be present.
     assert "await db.rollback()" in body, (
