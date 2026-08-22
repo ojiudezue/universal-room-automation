@@ -2428,6 +2428,15 @@ cards:
     regardless — a specced safety cap that silently never shipped is its own problem, and 31/day
     against a design of 6 means nobody has been looking at this number.'
 - id: HVAC-GOVERNED-EXCURSION-1
+  STATUS_CORRECTED_2026_08_22: 'Card read `shipped_organic` while D2+D3 were still UNBUILT. D1
+    (observability columns + settled callback) shipped organically in v5.86.0 and the card was marked
+    shipped off the back of it — but D1 was only ever an INPUT to this cycle. The status then sat
+    wrong through an entire Tier-3 build, four reviews and six fix-up rounds, and was caught only by
+    the deploy gate refusing to accept a card list.
+    This is exactly the failure the kanban skill rule "Status must track reality, not just the body"
+    (added 2026-08-21) exists to prevent — and it was sitting on this cycle own card the whole time.
+    A multi-deliverable card must not be marked shipped until EVERY deliverable has shipped; partial
+    delivery gets a note, not a status change.'
   PLAN_REVIEW_B_2026_08_21: 'FRAMING B (adversarial build-prediction): **FIX-THEN-BUILD** — 3 CRITICAL,
     6 HIGH, 5 MEDIUM, 3 LOW. Doc: docs/reviews/code-review/PLANREVIEW_B_governed_excursion_build_prediction.md
     Two of the three CRITICALs land on MY design decisions, not the planner''s.
@@ -2482,7 +2491,7 @@ cards:
   title: One governed-write primitive for all three thermostat axes — mode got hardened in v4.7.32,
     setpoints and presets never did, and the same call sites leak on the ungoverned axes
   thread: hvac
-  status: shipped_organic
+  status: in_progress
   shipped_version: v5.86.0
   updated: '2026-08-21 09:50'
   approval: needs_operator
