@@ -3065,11 +3065,23 @@ cards:
     tick guarantees single-tick round trips. Blocks nothing, but any HVAC-PRESET-FLAP-1 tuning or
     rate-limit work should land the constant first so the reviewer can see the quantum.'
 - id: HVAC-PRESET-FLAP-1
+  STATUS_CORRECTED_TWICE_2026_08_22: 'CORRECTED, and my FIRST correction was also wrong. I moved this
+    review -> waiting_operator on the strength of the stale `next` line WITHOUT reading the ruling
+    fields already on this card. Operator: "Preset flap. I thought I ruled already." THEY DID, three
+    times, all 2026-08-20 and all still present above: OPERATOR_DECLINED_TUNING_MOVE (no knob changes
+    until the manual-write fix and the sensor swap land, then re-measure), OPERATOR_DESIGN_PRINCIPLE
+    (the fix axis is person-assignment-aware + transit-aware, NOT a global debounce, and it must
+    survive zone_3 mixing transit corridors with a rarely-used guest bedroom), and OPERATOR_TASK
+    (operator owns the input-side sensor swap).
+    So this is BLOCKED ON PRECONDITIONS, which is a different lane from awaiting a decision.
+    LESSON, recorded because it repeated within one session: a status change must be driven by the
+    card BODY, not by the `next` line. Where body and next disagree, the BODY wins and the next is
+    what needs rewriting.'
   STATUS_CORRECTED_2026_08_22: 'Was `review`; nothing is under review. The card own next field says: "Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule between the coast..." — i.e. it is waiting on an OPERATOR DECISION, not on a reviewer. Moved to waiting_operator so it surfaces in the right queue. Per the skill rule: status must track reality, not just the body.'
   title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B
     removal)
   thread: hvac
-  status: waiting_operator
+  status: parked
   updated: '2026-08-20 18:10'
   refinement_status: refined
   TUNING_SIMULATION_2026_08_20: 'MEASURED, not assumed. Simulated both knobs against the real
@@ -3373,13 +3385,22 @@ cards:
     at and died on the next fact. The history query I ran FOURTH should have been FIRST; I had last_changed
     timestamps in the opening read and looked past them. Rule: for any "it keeps doing X" complaint, pull
     the state history BEFORE proposing a mechanism.'
-  next: 'Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule
-    between the coast duty-limiter and occupied-zone comfort. Candidates: (a) exempt the limiter when
-    the zone is occupied AND recovering from a large delta — the recovery load is legitimate, not a fault;
-    (b) let the limiter win but hold it (stop re-writing home each window) so it stops flapping — steady
-    discomfort beats oscillation; (c) consult battery SOC — it was 94% with solar_class "excellent" while
-    the limiter throttled comfort to avoid a peak the battery could have covered. (c) is the one worth
-    thinking hardest about.'
+  next: 'BLOCKED ON PRECONDITIONS, not awaiting a decision — the design axis is ALREADY RULED by the
+    operator (person-assignment-aware + transit-aware zone policy, explicitly NOT a global debounce).
+    Gates, in order: (1) the manual-write half — v5.88.0 shipped the borrow restore so URA-induced
+    manual is largely addressed, but HVAC-MANUAL-PRESET-CONTRACT-1 (the decider/writer split) has NOT
+    landed; (2) the operator-owned Garage Hallway sensor swap; (3) RE-MEASURE the flap rate after both,
+    because the operator suspicion is that much of the apparent flapping IS the manual writes — if so
+    the residual flap is smaller and differently shaped than todays numbers suggest.
+    Only then size any knob turn. Do NOT tune before the re-measure: grace=10 is deliberate (it spans
+    TWO ticks), grace_constrained=5 is meant to be a FRACTION of grace rather than an independent
+    value, and entry dwell was already moved 3 -> 5 by the operator.
+    SUPERSEDED PRIOR NEXT (kept for the record, it predates and contradicts the rulings above it):
+    it framed this as an open DESIGN question about arbitrating the coast duty-limiter against
+    occupied-zone comfort, with candidates (a) exempt the limiter when the zone is occupied and
+    recovering from a large delta, (b) let the limiter win but HOLD it so it stops re-writing, (c)
+    consult battery SOC. Those remain useful sub-options for the eventual build, but they are not a
+    blocking question — they are implementation choices inside the ruled axis.'
   refs:
   - docs/planning/kanban.data.yaml card P1P3 (the falsification)
   - custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder),
