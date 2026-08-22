@@ -7956,6 +7956,97 @@ cards:
   - AC-RAMP-SAVINGS-OVERSTATED-1
   - number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2
 
+- id: AC-RESET-PRESET-ASSERT-DROPPED-1
+  title: AC hard reset never restores a preset — the plan specified a one-liner, it was dropped
+    without accounting, and it is the last path that can still strand a zone in manual
+  thread: hvac
+  status: planned
+  created: '2026-08-22 02:10'
+  updated: '2026-08-22 02:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - dropped-deliverable
+  - measured-not-inferred
+  THE_GAP_VERIFIED: 'MEASURED 2026-08-22 on shipped v5.88.0: `_verify_restore` in hvac_override.py
+    spans lines 2968-3062 and contains ZERO preset references — no emit_set_preset_mode, no
+    pre_preset, nothing. The hard-reset ladder writes set_hvac_mode off/on and restores the MODE and
+    SETPOINT, then leaves whatever preset results. After a raw setpoint write on a Bryant/Carrier
+    that is `manual`.
+    CONSEQUENCE: this is the SAME lockout mechanism v5.88.0 exists to eliminate, surviving in the
+    reset path. should_change_preset refuses to act on a manual zone, so a zone hard-reset into
+    manual is locked out of preset governance exactly as the nudge path used to leave it.'
+  IT_WAS_SPECIFIED_AND_DROPPED: 'This is NOT a newly discovered defect — the plan called for it and
+    it went missing. PLANNING_hvac_governed_excursion.md scope decisions: hard_reset_preset_assert
+    is deliberately NOT a primitive-managed kind (EXCURSION_KIND_hard_reset_preset_assert MUST NOT
+    exist so it cannot be wired by analogy later); INSTEAD a one-line
+    emit_set_preset_mode(snapshot_preset) belongs in `_verify_restore`s SUCCESS branch.
+    Review D caught the omission (F7: "plan Scope decisions required a one-line
+    emit_set_preset_mode in _verify_restore success branch. Grep finds no emit_set_preset_mode
+    anywhere in that region. Dropped without accounting.") and it never returned in any of the six
+    fix-up rounds.
+    ORCHESTRATOR MISS, recorded plainly: fix-up rounds were driven off REVIEW FINDINGS and the
+    orchestrator never cross-checked the PLANs own scope decisions for un-built items. A finding
+    raised as a LOW in one review can be lost between rounds when nobody holds the plan-to-build
+    checklist. Lesson: before closing a cycle, diff the plan scope decisions against what shipped —
+    not just the review findings against what was fixed.'
+  parsimony:
+    problem: the hard-reset path can still strand a zone in manual, the exact defect the cycle shipped
+      to remove
+    verdict: BUILD
+    note: small and already specified - a one-liner in the success branch plus a snapshot to read
+      from; do NOT make it a borrow kind (explicit non-goal)
+  next: 'Add the preset assert to `_verify_restore` success branch per the plan scope decision. Needs
+    a snapshot source — check whether the reset path already captures a pre-reset preset, and if not
+    capture one at reset start (NOT by making it a borrow kind). Wire-in anchor + neuter drill
+    required. Ship with the next batch alongside the friendly-name rename.'
+  links:
+    related:
+    - HVAC-GOVERNED-EXCURSION-1
+    - HVAC-MANUAL-PRESET-CONTRACT-1
+    context: 'HVAC-GOVERNED-EXCURSION-1 shipped the primitive that fixed this class everywhere ELSE;
+      this is the one site it deliberately excluded and then did not implement the alternative for.
+      HVAC-MANUAL-PRESET-CONTRACT-1 is the parent contract (every write should be a preset write).'
+  refs:
+  - hvac_override.py:2968-3062 (_verify_restore)
+  - PLANNING_hvac_governed_excursion.md (scope decisions)
+
+- id: BORROW-FRIENDLY-NAME-RENAME-1
+  title: Rename user-facing "Governed thermostat borrows" labels — ship with next batch
+  thread: hvac
+  status: planned
+  created: '2026-08-22 02:10'
+  updated: '2026-08-22 02:10'
+  refinement_status: initial
+  approval: operator_directed
+  OPERATOR_DIRECTION: 'Operator 2026-08-22: "I think we should rename the friendly names. Ship with
+    next batch." Scope is USER-FACING TEXT ONLY — code, module names, table names, column names,
+    log messages and comments all STAY as `excursion` per the earlier ruling.'
+  IMPORTANT_ENTITY_IDS_WILL_NOT_MOVE: 'Renaming a friendly name does NOT change an already-registered
+    entity_id. The sensor is registered as sensor.ura_hvac_coordinator_governed_thermostat_borrows
+    (HA derived it from the label at first registration) and it will KEEP that id after a rename.
+    Result: a clean label over a longer id. Harmless, but do not expect the id to follow, and do NOT
+    attempt a registry rename to chase it — that risks breaking anything already referencing the id.'
+  OPTIONS_PRESENTED: 'A (recommended): sensor "Thermostat Borrows" / config toggle "Restore
+    thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold
+    and Restore" / "Hold and restore thermostats".
+    RECOMMENDATION REASONING: drop "Governed" — it is internal vocabulary doing no work for the
+    reader. Sensor should be a NOUN (it is a count of things); config toggle should be a VERB PHRASE
+    (what turning it on does). A toggle naming a subsystem tells the operator nothing; one describing
+    behaviour tells them what they are switching off at 3am.'
+  parsimony:
+    problem: user-facing labels use internal jargon
+    verdict: BUILD
+    note: text-only, batch it - not worth its own deploy
+  next: 'Await operator pick from A/B/C, then update strings.json + translations/en.json IN LOCKSTEP
+    (there is a test enforcing this) plus the sensor friendly name. Ship with
+    AC-RESET-PRESET-ASSERT-DROPPED-1 in the next batch.'
+  links:
+    related:
+    - AC-RESET-PRESET-ASSERT-DROPPED-1
+    context: batch these two together - one is text-only, the other is a one-liner; neither warrants
+      its own deploy
+
 - id: S14-CEILING-NEEDS-AN-ENDING-1
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending
     (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
