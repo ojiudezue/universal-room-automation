@@ -12,7 +12,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
@@ -966,25 +967,52 @@ class HVACPredictor:
                     zone_id=zone_id,
                     reason="banking_release",
                 )
+                _release_ok = bool(_s11_written)
+                _release_detail = (
+                    None if _release_ok
+                    else "s11_release_deferred_comfort_grace"
+                )
                 if not _s11_written:
-                    # Deferred by comfort-grace — do not update the throttle
-                    # map (next release cycle re-emits naturally after grace).
                     if self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
-                    continue
-                # Keep throttle map consistent with the value we just wrote.
-                if last_emitted is not None:
-                    last_emitted[zone_id] = (emit_low, emit_high)
-                _LOGGER.info(
-                    "HVAC: Solar banking master OFF — released %s to baseline "
-                    "(low=%.1f high=%.1f)",
-                    zone.zone_name, base_low, base_high,
-                )
+                else:
+                    if last_emitted is not None:
+                        last_emitted[zone_id] = (emit_low, emit_high)
+                    _LOGGER.info(
+                        "HVAC: Solar banking master OFF — released %s to baseline "
+                        "(low=%.1f high=%.1f)",
+                        zone.zone_name, base_low, base_high,
+                    )
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error(
                     "HVAC: Failed to release banked zone %s: %s",
                     zone.climate_entity, e,
                 )
+                _release_ok = False
+                _release_detail = f"s11_release_exception:{type(e).__name__}"
+
+            # HVAC-GOVERNED-EXCURSION-1 D3 (row 10, S11 banking RETURN):
+            # release the excursion row on every zone. Item-2 structural
+            # (2026-08-21): restore_ok carries the wire outcome; defer +
+            # exception paths produce restore_ok=False + trigger_detail
+            # naming the reason. The pre-refactor `continue`-on-defer
+            # left the row live for stranding.
+            _bt = getattr(self, "_banking_excursion_tokens", {}).pop(
+                zone_id, None,
+            )
+            if _bt is not None:
+                try:
+                    from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                    await _ex_mod.return_excursion(
+                        _bt, trigger="banking_release",
+                        restore_ok=_release_ok,
+                        trigger_detail=_release_detail,
+                    )
+                except Exception as _rc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "banking release: return_excursion failed for %s: %s",
+                        zone_id, _rc,
+                    )
 
     def _get_net_power(self) -> float:
         """Read real-time net power. Negative = exporting to grid.
@@ -1032,41 +1060,84 @@ class HVACPredictor:
         if self._override_arrester:
             self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 11, S12 banking START):
+        # Item-2 retrofit (2026-08-21): use the CM structurally. The
+        # site-local _release_banking_on_incomplete_write helper is
+        # removed — the CM is now the ONLY release path for early exits.
+        from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+        _baseline_pair = self._resolve_baseline_range(zone.zone_id)
         try:
-            # ARREST-COMFORT-1 D-HIGH-1 fix-up: S12_pre_cool — gate on
-            # comfort_delay_active. Predictive pre-cool would otherwise
-            # override a comfort-qualified manual mid-grace.
-            _s12_zid = zone.zone_id
-            def _s12_gate(z=_s12_zid) -> bool:
-                if self._override_arrester is None:
-                    return False
-                try:
-                    return bool(self._override_arrester.comfort_delay_active(z))
-                except Exception:  # noqa: BLE001
-                    return False
-            _s12_written = await emit_set_temperature(
+            _bt = await _ex_mod.begin_excursion(
                 self.hass,
-                zone.climate_entity,
-                target_temp_low=zone.target_temp_low,
-                target_temp_high=effective_high,
-                freeze_active=self._freeze_active(),
-                blocking=False,
-                gate=_s12_gate,
-                site="S12_pre_cool",
                 zone_id=zone.zone_id,
-                reason=reason,
+                entity_id=zone.climate_entity,
+                kind=_ex_mod.EXCURSION_KIND.BANKING,
+                excursion_low=zone.target_temp_low,
+                excursion_high=effective_high,
+                duration_s=None,
+                site="S12_pre_cool",
+                intended_mode="heat_cool",
             )
-            if not _s12_written:
-                if self._override_arrester:
-                    self._override_arrester.unsuppress(zone.climate_entity)
-                return
-            _LOGGER.info(
-                "HVAC: Zone %s pre-cool (%s): %.1f -> %.1f (offset=%.1f, floor=%.1f)",
-                zone.zone_name, reason,
-                zone.target_temp_high, effective_high, offset, floor,
+            # Snapshot override: use _resolve_baseline_range values so
+            # the ratchet at :858-866 doesn't re-strand us on release.
+            if _bt is not None and _baseline_pair is not None:
+                _bt.pre_target_low, _bt.pre_target_high = _baseline_pair
+        except Exception as _bk_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "banking: begin_excursion failed for %s: %s",
+                zone.zone_id, _bk_exc,
             )
-        except Exception as e:
-            _LOGGER.error("HVAC: Failed to pre-cool %s: %s", zone.climate_entity, e)
+            _bt = None
+        if not hasattr(self, "_banking_excursion_tokens"):
+            self._banking_excursion_tokens = {}
+
+        async with _ex_mod.auto_release_on_incomplete(
+            _bt, trigger="s12_banking_wire_failed",
+        ) as _s12_guard:
+            try:
+                # ARREST-COMFORT-1 D-HIGH-1 fix-up: S12_pre_cool — gate
+                # on comfort_delay_active. Predictive pre-cool would
+                # otherwise override a comfort-qualified manual mid-grace.
+                _s12_zid = zone.zone_id
+                def _s12_gate(z=_s12_zid) -> bool:
+                    if self._override_arrester is None:
+                        return False
+                    try:
+                        return bool(self._override_arrester.comfort_delay_active(z))
+                    except Exception:  # noqa: BLE001
+                        return False
+                _s12_written = await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=zone.target_temp_low,
+                    target_temp_high=effective_high,
+                    freeze_active=self._freeze_active(),
+                    blocking=False,
+                    gate=_s12_gate,
+                    site="S12_pre_cool",
+                    zone_id=zone.zone_id,
+                    reason=reason,
+                )
+                if not _s12_written:
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+                    # Defer: CM auto-releases (no mark_committed).
+                    return
+                _LOGGER.info(
+                    "HVAC: Zone %s pre-cool (%s): %.1f -> %.1f (offset=%.1f, floor=%.1f)",
+                    zone.zone_name, reason,
+                    zone.target_temp_high, effective_high, offset, floor,
+                )
+                # Wire landed — commit the excursion + register token
+                # so _release_banked_zones can find it later.
+                _s12_guard.mark_committed()
+                if _bt is not None:
+                    self._banking_excursion_tokens[zone.zone_id] = _bt
+            except Exception as e:
+                _LOGGER.error("HVAC: Failed to pre-cool %s: %s",
+                              zone.climate_entity, e)
+                # CM auto-releases with trigger_detail =
+                # "wire_exception:<type>".
 
     async def _activate_zone_fans(self, zone) -> None:
         """Turn on zone fans for comfort bridge during pre-arrival.
@@ -1267,45 +1338,174 @@ class HVACPredictor:
 
             pre_heat_temp = zone.target_temp_low + 2  # Raise by 2F from current
 
-            # Suppress override arrester for this change
-            if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
-
+            # HVAC-GOVERNED-EXCURSION-1 D3 (row 12, S13 PREHEAT START):
+            # A-CRIT-2 (2026-08-21) - begin_excursion MUST run BEFORE
+            # the emit; Item-2 (2026-08-21) - wire write MUST run
+            # inside auto_release_on_incomplete.
+            from . import hvac_excursion as _ex_mod
+            _now = dt_util.now()
+            _target = _now.replace(
+                hour=OFF_PEAK_END_HOUR, minute=0,
+                second=0, microsecond=0,
+            )
+            if _target <= _now:
+                from datetime import timedelta
+                _target = _target + timedelta(days=1)
+            _dur = int((_target - _now).total_seconds())
             try:
-                # ARREST-COMFORT-1 D-HIGH-1 fix-up: S13_pre_heat — gate on
-                # comfort_delay_active. Predictive pre-heat would otherwise
-                # override a warm-direction comfort manual.
-                _s13_zid = zone.zone_id
-                def _s13_gate(z=_s13_zid) -> bool:
-                    if self._override_arrester is None:
-                        return False
-                    try:
-                        return bool(self._override_arrester.comfort_delay_active(z))
-                    except Exception:  # noqa: BLE001
-                        return False
-                _s13_written = await emit_set_temperature(
+                _pt = await _ex_mod.begin_excursion(
+                    self.hass,
+                    zone_id=zone.zone_id,
+                    entity_id=zone.climate_entity,
+                    kind=_ex_mod.EXCURSION_KIND.PREHEAT,
+                    excursion_low=pre_heat_temp,
+                    excursion_high=zone.target_temp_high,
+                    duration_s=_dur,
+                    site="S13_pre_heat",
+                    intended_mode="heat_cool",
+                )
+            except Exception as _phe:
+                _LOGGER.debug(
+                    "preheat: begin_excursion failed for %s: %s",
+                    zone.zone_id, _phe,
+                )
+                _pt = None
+            if not hasattr(self, "_preheat_excursion_tokens"):
+                self._preheat_excursion_tokens = {}
+            if not hasattr(self, "_preheat_return_timers"):
+                self._preheat_return_timers = {}
+
+            if self._override_arrester:
+                self._override_arrester.suppress(zone.climate_entity, kind="temp")
+
+            async with _ex_mod.auto_release_on_incomplete(
+                _pt, trigger="s13_preheat_wire_failed",
+            ) as _s13_guard:
+                try:
+                    _s13_zid = zone.zone_id
+                    def _s13_gate(z=_s13_zid) -> bool:
+                        if self._override_arrester is None:
+                            return False
+                        try:
+                            return bool(self._override_arrester.comfort_delay_active(z))
+                        except Exception:
+                            return False
+                    _s13_written = await emit_set_temperature(
+                        self.hass,
+                        zone.climate_entity,
+                        target_temp_low=pre_heat_temp,
+                        target_temp_high=zone.target_temp_high,
+                        freeze_active=self._freeze_active(),
+                        blocking=False,
+                        gate=_s13_gate,
+                        site="S13_pre_heat",
+                        zone_id=zone.zone_id,
+                        reason="pre_heat",
+                    )
+                    if not _s13_written:
+                        if self._override_arrester:
+                            self._override_arrester.unsuppress(zone.climate_entity)
+                        continue
+                    _LOGGER.info(
+                        "HVAC Pre-heat: %s set to %.0fF (was %.0fF)",
+                        zone.zone_name, pre_heat_temp, zone.target_temp_low,
+                    )
+                    _s13_guard.mark_committed()
+                    if _pt is not None:
+                        self._preheat_excursion_tokens[zone.zone_id] = _pt
+                        self._pre_conditioning_zones.add(zone.zone_id)
+                        @callback
+                        def _fire(_now_cb, _zid=zone.zone_id):
+                            self.hass.async_create_task(
+                                self._return_preheat(_zid)
+                            )
+                        _unsub = async_call_later(self.hass, _dur, _fire)
+                        self._preheat_return_timers[zone.zone_id] = _unsub
+                except Exception as e:
+                    _LOGGER.error("HVAC Pre-heat failed on %s: %s",
+                                  zone.climate_entity, e)
+
+    async def _return_preheat(self, zone_id: str) -> None:
+        """HVAC-GOVERNED-EXCURSION-1 D3 (row 12, S13 PREHEAT RETURN).
+
+        Fires at OFF_PEAK_END_HOUR. Restores the pre-heat zone's low
+        setpoint to the snapshot, updates the DPM throttle map to the
+        restored pair, drops the zone from _pre_conditioning_zones, and
+        releases the excursion lease.
+        """
+        # B-HIGH-4 fix: pop the scheduled-timer handle at the same time
+        # so a manual call (test / operator button) also removes the
+        # future callback — no double-fire.
+        _unsub = getattr(self, "_preheat_return_timers", {}).pop(zone_id, None)
+        if _unsub is not None:
+            try:
+                _unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        tok = getattr(self, "_preheat_excursion_tokens", {}).pop(
+            zone_id, None,
+        )
+        if tok is None:
+            return
+        zone = self._zone_manager.zones.get(zone_id)
+        if zone is not None and tok.pre_target_low is not None \
+                and tok.pre_target_high is not None:
+            if self._override_arrester:
+                self._override_arrester.suppress(zone.climate_entity, kind="temp")
+            try:
+                await emit_set_temperature(
                     self.hass,
                     zone.climate_entity,
-                    target_temp_low=pre_heat_temp,
-                    target_temp_high=zone.target_temp_high,
+                    target_temp_low=tok.pre_target_low,
+                    target_temp_high=tok.pre_target_high,
                     freeze_active=self._freeze_active(),
-                    blocking=False,
-                    gate=_s13_gate,
-                    site="S13_pre_heat",
-                    zone_id=zone.zone_id,
-                    reason="pre_heat",
+                    blocking=True,  # EXCURSION_RETURN_BLOCKING
+                    site="S13_preheat_return",
+                    zone_id=zone_id,
+                    reason="preheat_boundary",
                 )
-                if not _s13_written:
-                    if self._override_arrester:
-                        self._override_arrester.unsuppress(zone.climate_entity)
-                    continue
-                _LOGGER.info(
-                    "HVAC Pre-heat: %s set to %.0fF (was %.0fF)",
-                    zone.zone_name, pre_heat_temp, zone.target_temp_low,
+                # Plan §3 row 12: update _last_emitted_range so the DPM
+                # throttle at hvac.py:2252-2255 doesn't re-strand the
+                # +2°F floor.
+                coord = self._hvac_coord
+                if coord is not None and hasattr(coord, "_last_emitted_range"):
+                    coord._last_emitted_range[zone_id] = (
+                        tok.pre_target_low, tok.pre_target_high,
+                    )
+            except Exception as _rex:  # noqa: BLE001
+                _LOGGER.warning(
+                    "preheat return: emit failed for %s: %s",
+                    zone_id, _rex,
                 )
-            except Exception as e:
-                _LOGGER.error("HVAC Pre-heat failed on %s: %s",
-                              zone.climate_entity, e)
+        self._pre_conditioning_zones.discard(zone_id)
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            await _ex_mod.return_excursion(tok, trigger="preheat_boundary")
+        except Exception as _re:  # noqa: BLE001
+            _LOGGER.debug(
+                "preheat return_excursion failed for %s: %s",
+                zone_id, _re,
+            )
+
+    async def async_cancel_all_preheat_timers(self) -> None:
+        """Cancel every outstanding preheat return timer.
+
+        B-HIGH-4 fix teardown hook: an ``async_call_later`` handle whose
+        ``_dur`` reaches ~24h will otherwise fire against a torn-down
+        coordinator after unload/reload and issue a real climate write.
+        Callers: coordinator teardown / options reload. Idempotent —
+        cancels only; does NOT return the excursions (a torn-down
+        coordinator has nothing to restore to).
+        """
+        timers = getattr(self, "_preheat_return_timers", {})
+        for zid, unsub in list(timers.items()):
+            try:
+                if callable(unsub):
+                    unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        if timers:
+            timers.clear()
 
     def _store_daily_outcome(self) -> None:
         """Store daily outcome measurement."""

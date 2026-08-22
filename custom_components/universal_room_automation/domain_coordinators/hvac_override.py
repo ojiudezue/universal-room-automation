@@ -196,6 +196,12 @@ class OverrideArrester:
         # it. Empty snapshot (unknown/unavailable at nudge time) = skip
         # restore = fail-safe (no worse than pre-fix behavior).
         self._nudge_pre_preset: dict[str, str] = {}
+        # HVAC-GOVERNED-EXCURSION-1 D3: per-zone ExcursionToken issued at
+        # nudge start; consumed by restore/cancel/audit paths to call
+        # return_excursion (which clears the persisted lease row).
+        self._nudge_excursion_tokens: dict = {}
+        # Same for compromise (rows 4/5).
+        self._compromise_excursion_tokens: dict = {}
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
@@ -2412,6 +2418,32 @@ class OverrideArrester:
         # Remove grace timer reference
         self._grace_timers.pop(zone_id, None)
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 4, S3 compromise START):
+        # open the governed excursion. Item-2 retrofit (2026-08-21):
+        # wire write MUST run inside auto_release_on_incomplete so an
+        # emit exception or comfort-grace defer cannot leak the row.
+        from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+        try:
+            _cmp_token = await _ex_mod.begin_excursion(
+                self.hass,
+                zone_id=zone_id,
+                entity_id=zone.climate_entity,
+                kind=_ex_mod.EXCURSION_KIND.COMPROMISE,
+                excursion_low=compromise_heat,
+                excursion_high=compromise_cool,
+                duration_s=self._compromise_minutes * 60,
+                site="S3_compromise",
+                intended_mode="heat_cool",
+            )
+        except Exception as _cmp_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "compromise: begin_excursion failed for %s: %s",
+                zone_id, _cmp_exc,
+            )
+            _cmp_token = None
+        if not hasattr(self, "_compromise_excursion_tokens"):
+            self._compromise_excursion_tokens = {}
+
         _LOGGER.info(
             "Override compromise on %s: setting cool=%.0f heat=%.0f for %dmin",
             zone.zone_name, compromise_cool, compromise_heat,
@@ -2419,31 +2451,32 @@ class OverrideArrester:
         )
 
         # ARREST-COMFORT-1 §3.7 S3: DEFER while comfort_delay_active.
-        # Fix-up A-MED-2: suppress AFTER the emit and ONLY when the emit
-        # actually fires. Stamping suppress BEFORE the gate check leaves
-        # a ~5s SUPPRESS_TTL window that would mask a genuine manual on a
-        # deferred no-op write.
-        # FIX B1: kind="temp" — the compromise is a set_temperature write
-        # which can induce a preset_mode side effect on preset thermostats;
-        # that induced manual must not self-count as another user override.
-        try:
-            _s3_written = await emit_set_temperature(
-                self.hass,
-                zone.climate_entity,
-                target_temp_low=compromise_heat,
-                target_temp_high=compromise_cool,
-                freeze_active=self._freeze_active(),
-                blocking=False,
-                gate=lambda z=zone_id: self.comfort_delay_active(z),
-                site="S3_compromise",
-                zone_id=zone_id,
-                reason="normal_override_compromise",
-            )
-            if _s3_written:
-                self.suppress(zone.climate_entity, kind="temp")
-        except Exception as e:
-            _LOGGER.error("Override: failed to set compromise on %s: %s",
-                          zone.climate_entity, e)
+        async with _ex_mod.auto_release_on_incomplete(
+            _cmp_token, trigger="s3_compromise_wire_failed",
+        ) as _s3_guard:
+            try:
+                _s3_written = await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=compromise_heat,
+                    target_temp_high=compromise_cool,
+                    freeze_active=self._freeze_active(),
+                    blocking=False,
+                    gate=lambda z=zone_id: self.comfort_delay_active(z),
+                    site="S3_compromise",
+                    zone_id=zone_id,
+                    reason="normal_override_compromise",
+                )
+                if _s3_written:
+                    self.suppress(zone.climate_entity, kind="temp")
+                    # Commit — future _revert_override owns the return.
+                    _s3_guard.mark_committed()
+                    if _cmp_token is not None:
+                        self._compromise_excursion_tokens[zone_id] = _cmp_token
+            except Exception as e:
+                _LOGGER.error("Override: failed to set compromise on %s: %s",
+                              zone.climate_entity, e)
+                # CM auto-releases; legacy did not return early here.
 
         # Schedule full revert after compromise period
         compromise_seconds = self._compromise_minutes * 60
@@ -2494,6 +2527,16 @@ class OverrideArrester:
             self._log_shave_skipped(
                 zone.zone_name, zone_id, "revert",
             )
+            # Item-1 (2026-08-21): policy DECIDED not to restore
+            # (immunity engaged). Nothing was attempted on the wire;
+            # analytics counting restore_ok=False as failures should
+            # NOT see these. restore_ok=None ("we deliberately did not
+            # try") vs False ("we tried and the wire is wrong").
+            await self._compromise_release_lease(
+                zone_id, trigger="immunity_skip",
+                restore_ok=None,
+                trigger_detail="revert_skipped_immunity",
+            )
             return
 
         # Fix-up D-MED-1: short-circuit the ENTIRE revert while a comfort-
@@ -2506,6 +2549,12 @@ class OverrideArrester:
                 _LOGGER.debug(
                     "Override revert on %s SKIPPED — comfort_delay_active",
                     zone.zone_name,
+                )
+                # Item-1 (2026-08-21): policy skip — see immunity block above.
+                await self._compromise_release_lease(
+                    zone_id, trigger="comfort_delay_skip",
+                    restore_ok=None,
+                    trigger_detail="revert_skipped_comfort_delay",
                 )
                 return
         except Exception:  # noqa: BLE001 — never let this deny safety
@@ -2547,14 +2596,23 @@ class OverrideArrester:
                     zone.zone_name, zone.hvac_mode,
                 )
 
+            # F2 fix (plan §3 row 5): the preset value MUST come from the
+            # token snapshot, not the caller's `original_preset` argument.
+            # The two can disagree — the token is taken at compromise
+            # begin_excursion time (what the wire held); `original_preset`
+            # is the caller's intended value which may have drifted.
+            _cmp_token = self._compromise_excursion_tokens.get(zone_id)
+            _revert_preset = (
+                _cmp_token.pre_preset if _cmp_token is not None
+                and _cmp_token.pre_preset
+                else original_preset
+            )
+
             # ARREST-COMFORT-1 §3.7 S4: DEFER while comfort_delay_active.
-            # Migrated from the legacy inline hass.services.async_call to
-            # the new `emit_set_preset_mode` chokepoint (rev-2 D6 + §8
-            # tertiary-risk mitigation: no raw preset-write bypass).
             _s4_written = await emit_set_preset_mode(
                 self.hass,
                 zone.climate_entity,
-                original_preset,
+                _revert_preset,
                 blocking=False,
                 gate=lambda z=zone_id: self.comfort_delay_active(z),
                 site="S4_revert",
@@ -2567,6 +2625,56 @@ class OverrideArrester:
             _LOGGER.error(
                 "Override: failed to revert %s to preset %s: %s",
                 zone.climate_entity, original_preset, e,
+            )
+            _s4_written = False
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 5, S4 compromise RETURN):
+        # F2 fix — pass restore_ok=_s4_written so a comfort-delay defer
+        # (or an exception) records a divergence in the outcome event
+        # row rather than silently closing "OK". Without this, an event
+        # row shows the compromise ended cleanly while the wire is still
+        # at the compromise setpoint.
+        await self._compromise_release_lease(
+            zone_id,
+            trigger="timer",
+            restore_ok=bool(_s4_written),
+            preset_after=_revert_preset if _s4_written else None,
+            trigger_detail=(
+                None if _s4_written else "s4_preset_write_deferred_or_failed"
+            ),
+        )
+
+    async def _compromise_release_lease(
+        self, zone_id: str, *, trigger: str,
+        restore_ok: bool | None = None,
+        preset_after: str | None = None,
+        trigger_detail: str | None = None,
+    ) -> None:
+        """Release the compromise excursion row for zone_id.
+
+        Called from every _revert_override exit path. Bookkeeping only
+        post-gate-removal — a leaked row is a false signal and a boot-
+        audit input, but no longer suppresses decision writes.
+
+        F2 fix: accepts restore_ok / preset_after / trigger_detail so an
+        S4 preset-write deferral (or exception) records a divergence in
+        the outcome event row rather than silently closing "OK".
+        """
+        _cmp_token = self._compromise_excursion_tokens.pop(zone_id, None)
+        if _cmp_token is None:
+            return
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            await _ex_mod.return_excursion(
+                _cmp_token, trigger=trigger,
+                restore_ok=restore_ok,
+                preset_after=preset_after,
+                trigger_detail=trigger_detail,
+            )
+        except Exception as _ret_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "compromise: return_excursion (trigger=%s) failed for %s: %s",
+                trigger, zone_id, _ret_exc,
             )
 
     # =========================================================================
@@ -3102,47 +3210,94 @@ class OverrideArrester:
         # None (not empty string) means "state unreadable, do not guess".
         _tele_preset_before: str | None = _pre_preset if _cs is not None else None
         _tele_mode_before: str | None = _pre_mode
-        # Only snapshot a non-manual, non-empty preset. If the thermostat
-        # was already in "manual" (user-driven) or reports no preset,
-        # leave the snapshot empty so restore is a no-op — we don't want
-        # to fight a user-set manual mid-night.
-        if _pre_preset and _pre_preset != "manual":
+        # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED, snapshot-restore):
+        # UNFILTERED snapshot. Rev-4 deleted the pre-existing filter
+        # that excluded manual/empty preset values. The excursion
+        # snapshots exactly what it finds and restores exactly that.
+        # If pre_preset is "manual", restore writes "manual" (equality
+        # no-op); if empty, restore skips the preset step. Fighting an
+        # operator-set manual is the arrester's job (per operator's
+        # ruling), not the excursion's.
+        if _pre_preset:
             self._nudge_pre_preset[zone_id] = _pre_preset
         else:
             self._nudge_pre_preset.pop(zone_id, None)
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 6, S5 start): open the
+        # governed excursion. Every begin_excursion caller MUST wrap
+        # the wire-write attempt in auto_release_on_incomplete so an
+        # early-exit (defer, exception, fall-through) cannot leak a
+        # row. Item-2 retrofit (2026-08-21).
+        from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+        try:
+            _ex_token = await _ex_mod.begin_excursion(
+                self.hass,
+                zone_id=zone_id,
+                entity_id=zone.climate_entity,
+                kind=_ex_mod.EXCURSION_KIND.NUDGE,
+                excursion_low=zone.target_temp_low,
+                excursion_high=new_target,
+                duration_s=duration_s,
+                site="S5_nudge_start",
+                intended_mode="heat_cool",
+            )
+        except Exception as _ex_exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "nudge: begin_excursion failed for %s (non-fatal): %s",
+                zone_id, _ex_exc,
+            )
+            _ex_token = None
+        if not hasattr(self, "_nudge_excursion_tokens"):
+            self._nudge_excursion_tokens = {}
+
         # ARREST-COMFORT-1 §3.7 S5: DEFER while comfort_delay_active.
         # Fix-up A-MED-2: suppress AFTER the emit; only stamp when it
-        # actually fires (deferred no-op writes must not open a TTL
-        # window that would swallow a real manual for ~5s).
-        # FIX B1: kind="temp" — the nudge set_temperature can induce a
-        # preset_mode sleep->manual side effect on preset thermostats
-        # (Carrier/Bryant); that induced transition must stay suppressed.
-        try:
-            _s5_written = await emit_set_temperature(
-                self.hass,
-                zone.climate_entity,
-                target_temp_low=zone.target_temp_low,
-                target_temp_high=new_target,
-                freeze_active=self._freeze_active(),
-                blocking=False,
-                gate=lambda z=zone_id: self.comfort_delay_active(z),
-                site="S5_nudge_start",
-                zone_id=zone_id,
-                reason="soft_nudge_start",
-            )
-            if _s5_written:
-                self.suppress(zone.climate_entity, kind="temp")
-        except Exception as e:
-            _LOGGER.error(
-                "Soft nudge: set_temperature failed on %s: %s",
-                zone.climate_entity, e,
-            )
-            if self._db is not None:
-                await self._db.clear_ac_in_flight_nudge(zone_id)
-            # FIX B2: nudge never took effect, don't try to restore preset later.
-            self._nudge_pre_preset.pop(zone_id, None)
-            return
+        # actually fires. FIX B1: kind="temp".
+        async with _ex_mod.auto_release_on_incomplete(
+            _ex_token, trigger="s5_nudge_wire_failed",
+        ) as _s5_guard:
+            try:
+                _s5_written = await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=zone.target_temp_low,
+                    target_temp_high=new_target,
+                    freeze_active=self._freeze_active(),
+                    blocking=False,
+                    gate=lambda z=zone_id: self.comfort_delay_active(z),
+                    site="S5_nudge_start",
+                    zone_id=zone_id,
+                    reason="soft_nudge_start",
+                )
+                if _s5_written:
+                    self.suppress(zone.climate_entity, kind="temp")
+                    # Commit the excursion — CM will be a no-op; the
+                    # timer-scheduled _restore_after_nudge below owns
+                    # the future return_excursion call.
+                    _s5_guard.mark_committed()
+                    if _ex_token is not None:
+                        self._nudge_excursion_tokens[zone_id] = _ex_token
+            except Exception as e:
+                _LOGGER.error(
+                    "Soft nudge: set_temperature failed on %s: %s",
+                    zone.climate_entity, e,
+                )
+                if self._db is not None:
+                    await self._db.clear_ac_in_flight_nudge(zone_id)
+                # FIX B2: nudge never took effect, don't try to restore
+                # preset later.
+                self._nudge_pre_preset.pop(zone_id, None)
+                # CM auto-releases the excursion on scope exit (no
+                # mark_committed). Re-raise cleanup path: we return
+                # early below to skip in-flight bookkeeping.
+                # (No re-raise: legacy behaviour swallowed the exception.)
+                return
+            # Legacy behaviour on comfort-grace defer: DO NOT return
+            # early — flow continues to in-flight bookkeeping below
+            # (daily counter etc.). Legacy assumed the write would
+            # eventually land via re-emit. Preserving that; CM will
+            # auto-release the excursion since mark_committed was
+            # skipped, so the row does not linger.
 
         self._nudge_in_flight.add(zone_id)
         zone.ramp_state = AC_RAMP_STATE_NUDGING
@@ -3159,6 +3314,17 @@ class OverrideArrester:
                 zone, AC_RAMP_EVENT_NUDGE_STARTED, triggered_by,
                 kwh_before=kwh_rate_before,
             )
+            # #53 fix: populate ac_ramp_events.excursion_id from the
+            # NUDGE token opened by begin_excursion above. Without this,
+            # the column added in D2 was DEAD — plumbed through the DAO
+            # but never given a value. The join key that lets
+            # ac_ramp_events UNION-analyse against hvac_excursion_events
+            # is only useful if it has a value.
+            _tele_excursion_id = (
+                self._nudge_excursion_tokens[zone_id].excursion_id
+                if zone_id in self._nudge_excursion_tokens
+                else None
+            )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_STARTED,
@@ -3174,6 +3340,7 @@ class OverrideArrester:
                 # HVAC-GOVERNED-EXCURSION-1 D1: pre-write telemetry.
                 preset_before=_tele_preset_before,
                 mode_before=_tele_mode_before,
+                excursion_id=_tele_excursion_id,
             )
 
         _LOGGER.info(
@@ -3242,35 +3409,37 @@ class OverrideArrester:
         # so the induced settle events from set_preset_mode stay
         # suppressed and don't self-count as a user override.
         pre_preset = self._nudge_pre_preset.pop(zone_id, "")
+        # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED, row 7):
+        # UNCONDITIONAL preset write from the snapshot. Rev-4 deleted
+        # the pre-existing `if _cur_preset == "manual"` gate — the
+        # excursion restores exactly what it snapshotted. If pre_preset
+        # equals the current thermostat preset, the write is idempotent;
+        # if it differs, we restore. The old "only rewrite when we see
+        # manual" gate was the self-disarm latch (defect #2 in §1.1).
         if pre_preset:
+            self.suppress(zone.climate_entity, kind="preset")
             try:
-                _cs_after = self.hass.states.get(zone.climate_entity)
-                _cur_preset = (
-                    _cs_after.attributes.get("preset_mode", "")
-                    if _cs_after is not None else ""
+                # ARREST-COMFORT-1 §3.7 S7: ALLOW (restoration).
+                # HVAC-GOVERNED-EXCURSION-1: return path uses
+                # blocking=True (EXCURSION_RETURN_BLOCKING) so the D1
+                # immediate-read below sees the settled write, not a
+                # racing cloud poll.
+                await emit_set_preset_mode(
+                    self.hass,
+                    zone.climate_entity,
+                    pre_preset,
+                    blocking=True,
                 )
-            except Exception:  # noqa: BLE001 — defensive
-                _cur_preset = ""
-            if _cur_preset == "manual":
-                self.suppress(zone.climate_entity, kind="preset")
-                try:
-                    # ARREST-COMFORT-1 §3.7 S7: ALLOW (restoration).
-                    await emit_set_preset_mode(
-                        self.hass,
-                        zone.climate_entity,
-                        pre_preset,
-                        blocking=False,
-                    )
-                    _LOGGER.info(
-                        "Soft nudge restore on %s: preset "
-                        "manual->%s (FIX B2 preset-preserving)",
-                        zone.zone_name, pre_preset,
-                    )
-                except Exception as e:  # noqa: BLE001 — defensive
-                    _LOGGER.error(
-                        "Soft nudge preset restore failed on %s: %s",
-                        zone.climate_entity, e,
-                    )
+                _LOGGER.info(
+                    "Soft nudge restore on %s: preset -> %s "
+                    "(snapshot-restore, unconditional)",
+                    zone.zone_name, pre_preset,
+                )
+            except Exception as e:  # noqa: BLE001 — defensive
+                _LOGGER.error(
+                    "Soft nudge preset restore failed on %s: %s",
+                    zone.climate_entity, e,
+                )
 
         self._track_zone_action(
             zone, AC_RAMP_EVENT_NUDGE_RESTORED, "auto",
@@ -3312,6 +3481,13 @@ class OverrideArrester:
                 _tele_restore_ok_immediate = None
             else:
                 _tele_restore_ok_immediate = (_tele_preset_after == pre_preset)
+            # #53 fix: same excursion_id from the token so nudge_started
+            # and nudge_restored can be JOINed.
+            _tele_excursion_id_r = (
+                self._nudge_excursion_tokens[zone_id].excursion_id
+                if zone_id in self._nudge_excursion_tokens
+                else None
+            )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
@@ -3326,6 +3502,7 @@ class OverrideArrester:
                 # retention/kill" case — both are valid NULL.
                 restore_ok=None,
                 restore_ok_immediate=_tele_restore_ok_immediate,
+                excursion_id=_tele_excursion_id_r,
             )
 
             # ---- SETTLED sample: delayed passive re-read ------------------
@@ -3395,6 +3572,27 @@ class OverrideArrester:
         # v4.7.17.1: capture restore wall-clock for recorder query in
         # _evaluate_nudge_outcome (trailing-window min kW rule).
         self._nudge_post_restore_ts[zone_id] = dt_util.now().isoformat()
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 7, S5/S6 nudge RETURN):
+        # release the excursion lease. Clears the in-memory lease
+        # entry AND deletes the persisted hvac_excursion_state row.
+        # Callers of subsequent decision ticks stop deferring; a
+        # follow-up preset write from S1 is again allowed. The nudge
+        # continues to write its outcome to ac_ramp_events via the
+        # existing D1 path above (with the D2 excursion_id column
+        # populated by the token so cross-table analytics can JOIN).
+        _ex_token = self._nudge_excursion_tokens.pop(zone_id, None)
+        if _ex_token is not None:
+            try:
+                from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                await _ex_mod.return_excursion(
+                    _ex_token, trigger="timer",
+                )
+            except Exception as _ret_exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "nudge: return_excursion failed for %s: %s",
+                    zone_id, _ret_exc,
+                )
 
         @callback
         def _on_eval_fire(_now):
@@ -3863,10 +4061,19 @@ class OverrideArrester:
         # against a stale window.
         self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
-        # FIX B2: also clear pre-preset snapshot on cancel — the
-        # cancel_nudge restore path emits its own set_temperature but
-        # not a preset write, so any stashed preset is now stale.
-        self._nudge_pre_preset.pop(zone_id, None)
+        # F3 fix (2026-08-21, plan §3 row 8): capture the snapshot BEFORE
+        # popping so the cancel restore path can also write the preset
+        # back. Pre-cycle behaviour discarded the snapshot then emitted
+        # setpoint only, which left preset_mode=manual on preset-based
+        # thermostats (Bryant/Carrier) — a cancel that was supposed to
+        # UN-do the nudge but only undid half of it. The excursion
+        # snapshot on the token is the authoritative source (matches the
+        # normal restore path); the legacy _nudge_pre_preset dict entry
+        # is popped for cleanup symmetry.
+        _cancel_snapshot_preset = self._nudge_pre_preset.pop(zone_id, "") or ""
+        _cancel_token = self._nudge_excursion_tokens.get(zone_id)
+        if _cancel_token is not None and _cancel_token.pre_preset:
+            _cancel_snapshot_preset = _cancel_token.pre_preset
 
         original_target = None
         if self._db is not None:
@@ -3905,6 +4112,36 @@ class OverrideArrester:
                     zone.climate_entity, e,
                 )
 
+            # F3 fix (2026-08-21, plan §3 row 8): also restore the
+            # snapshotted preset — cancel must be the full undo of the
+            # nudge, not just the setpoint half. Unconditional per §13.5
+            # (equality no-op when snapshot matches current). Suppression
+            # re-opened with kind="preset" so the induced settle event
+            # from set_preset_mode doesn't self-count as a user override.
+            if _cancel_snapshot_preset:
+                self.suppress(zone.climate_entity, kind="preset")
+                try:
+                    await emit_set_preset_mode(
+                        self.hass,
+                        zone.climate_entity,
+                        _cancel_snapshot_preset,
+                        blocking=True,
+                        gate=None,
+                        site="S8_cancel_nudge_preset_restore",
+                        zone_id=zone_id,
+                        reason="cancel_nudge_preset_restore",
+                    )
+                    _LOGGER.info(
+                        "cancel_nudge preset restore on %s -> %s "
+                        "(F3 fix — snapshot-restore, unconditional)",
+                        zone.zone_name, _cancel_snapshot_preset,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.error(
+                        "cancel_nudge preset restore failed on %s: %s",
+                        zone.climate_entity, e,
+                    )
+
         self._track_zone_action(
             zone, AC_RAMP_EVENT_CANCEL_INVOKED, triggered_by,
         )
@@ -3925,6 +4162,22 @@ class OverrideArrester:
             "Nudge cancelled on %s (triggered_by=%s)",
             zone.zone_name, triggered_by,
         )
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 8, S8 cancel_nudge RETURN):
+        # release the excursion lease on cancel. Same clearing semantics
+        # as the timer-driven restore path.
+        _ex_token = self._nudge_excursion_tokens.pop(zone_id, None)
+        if _ex_token is not None:
+            try:
+                from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                await _ex_mod.return_excursion(
+                    _ex_token, trigger="cancel",
+                )
+            except Exception as _ret_exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "nudge cancel: return_excursion failed for %s: %s",
+                    zone_id, _ret_exc,
+                )
 
     async def force_nudge(self, zone_id: str) -> None:
         """User-triggered nudge (D9 button).

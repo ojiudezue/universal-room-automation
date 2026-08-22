@@ -319,6 +319,9 @@ async def async_setup_entry(
             # remain until operator removes them via HA UI.
             # v3.8.0-H1: HVAC Coordinator sensors
             HVACModeSensor(hass, entry),
+            # HVAC-GOVERNED-EXCURSION-1 fix-up r5 addendum A:
+            # diagnostic sensor for active thermostat borrows.
+            HVACThermostatBorrowsSensor(hass, entry),
             HVACAnomalySensor(hass, entry),
             HVACComplianceSensor(hass, entry),
             HVACOverrideFrequencySensor(hass, entry),
@@ -16767,3 +16770,149 @@ class RoomOptimizationHealthSensor(UniversalRoomEntity, SensorEntity):
                 pass
         self._signal_unsubs.clear()
         await super().async_will_remove_from_hass()
+
+
+
+class HVACThermostatBorrowsSensor(SensorEntity):
+    """HVAC-GOVERNED-EXCURSION-1 fix-up r5 addendum A - diagnostic sensor.
+
+    Entity: sensor.ura_hvac_coordinator_thermostat_borrows
+    Device: URA: HVAC Coordinator
+    Category: DIAGNOSTIC.
+
+    State: count of ACTIVE governed thermostat borrows in the primitive's
+    IN-MEMORY row registry (nudge, compromise, banking, pre-heat,
+    egress-pause). Never queries the DB per update.
+
+    Per-active-borrow attributes: zone, zone_name, kind, site, entity_id,
+    started, expires_at, pre_preset, pre_target_low, pre_target_high,
+    excursion_id. ABSOLUTE TIMESTAMPS (started / expires_at), NOT
+    countdowns (age_s / expires_in_s). Operator ruling (r5): HA records
+    attribute changes; a countdown = a recorder write per tick per zone
+    - the flood pattern v5.87.0 just fixed on a flash disk at 51% life.
+    Static per-borrow values mean the sensor writes only when a borrow
+    starts or ends. Anyone wanting a countdown subtracts client-side.
+
+    Aggregates broken out per EXCURSION_KIND value:
+    started_today.<kind>, returned_today.<kind>, restore_failed_today.
+    <kind>. Plus last_return + primitive_enabled + stats_date.
+
+    Reconciliation invariant (operator ruling, r5): the
+    `started_today.nudge` value should EQUAL the independently-produced
+    `ac_nudges_today` sensor. Two producers, one invariant. Divergence
+    is itself the alarm; neither number has to be trusted alone. Do NOT
+    "simplify" the per-kind breakout away.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-lines"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = (
+            f"{DOMAIN}_hvac_coordinator_thermostat_borrows"
+        )
+        self._attr_name = "Governed thermostat borrows"
+        self._attr_device_info = _hvac_device_info()
+
+    def _ex_mod(self):
+        try:
+            from .domain_coordinators import hvac_excursion  # noqa: PLC0415
+            return hvac_excursion
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_hvac_coord(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> int:
+        ex = self._ex_mod()
+        if ex is None:
+            return 0
+        return len(getattr(ex, "_rows", {}))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ex = self._ex_mod()
+        if ex is None:
+            return {}
+        stats = ex.get_borrow_stats()
+        rows = getattr(ex, "_rows", {})
+        active = []
+        hvac = self._get_hvac_coord()
+        for zone_id, tok in rows.items():
+            zone_name = zone_id
+            entity_id = None
+            if hvac is not None:
+                try:
+                    zone_obj = hvac._zone_manager.zones.get(zone_id)
+                    if zone_obj is not None:
+                        zone_name = getattr(
+                            zone_obj, "zone_name", zone_id,
+                        )
+                        entity_id = getattr(
+                            zone_obj, "climate_entity", None,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            from datetime import datetime as _dt, timezone as _tz  # noqa: PLC0415
+            try:
+                expires_at = _dt.fromtimestamp(
+                    tok.stale_ts(), tz=_tz.utc,
+                ).isoformat()
+            except Exception:  # noqa: BLE001
+                expires_at = None
+            active.append({
+                "zone": zone_id,
+                "zone_name": zone_name,
+                "kind": tok.kind.value,
+                "site": tok.caller_site,
+                "entity_id": entity_id,
+                "started": tok.started_iso,
+                "expires_at": expires_at,
+                "pre_preset": tok.pre_preset,
+                "pre_target_low": tok.pre_target_low,
+                "pre_target_high": tok.pre_target_high,
+                "excursion_id": tok.excursion_id,
+            })
+        primitive_enabled = True
+        if hvac is not None:
+            try:
+                primitive_enabled = bool(hvac.excursion_primitive_enabled)
+            except Exception:  # noqa: BLE001
+                pass
+        return {
+            "active_borrows": active,
+            "started_today": stats.get("started_today", {}),
+            "returned_today": stats.get("returned_today", {}),
+            "restore_failed_today": stats.get("restore_failed_today", {}),
+            "last_return": stats.get("last_return"),
+            "primitive_enabled": primitive_enabled,
+            "stats_date": stats.get("date"),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+            async_dispatcher_connect,
+        )
+        from .domain_coordinators.hvac_const import (  # noqa: PLC0415
+            SIGNAL_HVAC_ENTITIES_UPDATE,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_ENTITIES_UPDATE,
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_schedule_update_ha_state()

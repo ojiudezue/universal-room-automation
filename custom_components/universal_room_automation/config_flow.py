@@ -4856,6 +4856,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_ARRESTER_ENABLED,
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
+            # HVAC-GOVERNED-EXCURSION-1 fix-up r5 (2026-08-21):
+            # the kill switch moved from a dashboard entity to
+            # this config-flow field. Sibling of the other HVAC
+            # coordinator-level feature toggles.
+            CONF_EXCURSION_PRIMITIVE_ENABLED,
+            DEFAULT_EXCURSION_PRIMITIVE_ENABLED,
             CONF_HVAC_FAN_CONTROL_ENABLED,
             DEFAULT_FAN_CONTROL_ENABLED,
             CONF_ZONE_VACANCY_SWEEP_ENABLED,
@@ -5259,6 +5265,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HVAC_AC_RESET_ENABLED,
                 default=self._get_current(CONF_HVAC_AC_RESET_ENABLED, DEFAULT_AC_RESET_ENABLED),
+            ): selector.BooleanSelector(),
+            # HVAC-GOVERNED-EXCURSION-1 fix-up r5 (2026-08-21): Governed
+            # Thermostat Borrows kill switch. Sibling of the two toggles
+            # above (Override Arrester + AC Reset). BEGIN-ONLY: OFF
+            # prevents NEW borrows from being recorded; in-flight ones
+            # still complete via the legacy path and thermostats are
+            # still restored. See strings.json data_description for the
+            # honest label.
+            vol.Optional(
+                CONF_EXCURSION_PRIMITIVE_ENABLED,
+                default=self._get_current(
+                    CONF_EXCURSION_PRIMITIVE_ENABLED,
+                    DEFAULT_EXCURSION_PRIMITIVE_ENABLED,
+                ),
             ): selector.BooleanSelector(),
             # v3.18.2: Zone sweep toggle
             vol.Optional(
