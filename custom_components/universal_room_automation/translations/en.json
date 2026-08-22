@@ -1074,7 +1074,7 @@
           "hvac_fan_control_enabled": "Fan Control",
           "hvac_arrester_enabled": "Override Arrester",
           "hvac_ac_reset_enabled": "AC Reset",
-          "excursion_primitive_enabled": "Governed thermostat borrows",
+          "excursion_primitive_enabled": "Restore thermostats after temporary changes",
           "zone_vacancy_sweep_enabled": "Vacancy Auto-Off",
           "pre_arrival_sources": "Pre-Arrival Trigger Sources",
           "hvac_zone_entry_dwell": "Zone Entry Wait Time (minutes)",

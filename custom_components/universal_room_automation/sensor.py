@@ -16814,7 +16814,7 @@ class HVACThermostatBorrowsSensor(SensorEntity):
         self._attr_unique_id = (
             f"{DOMAIN}_hvac_coordinator_thermostat_borrows"
         )
-        self._attr_name = "Governed thermostat borrows"
+        self._attr_name = "Temporary Thermostat Changes"
         self._attr_device_info = _hvac_device_info()
 
     def _ex_mod(self):
