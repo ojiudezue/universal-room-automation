@@ -1392,3 +1392,72 @@ addressed.
 
 Builder: apply Institutional Context First to your edits. Any
 anchor that "should exist" here MUST be grep-verified before use.
+
+---
+
+## 7.1 — Probe results: THE COUNT-BASED RECURRENCE TRIGGER IS REJECTED BY THE DATA
+
+**Run 2026-08-22 against `ac_ramp_events`, 2026-07-23 → 2026-08-22 (30.1 days, 914 `nudge_started`
+rows). MEASURED. This section supersedes the provisional defaults in §5.**
+
+### The finding that blocks D1
+
+**The "47-nudge pathological night" is a POOLED-ACROSS-THREE-ZONES ARTEFACT.** The trigger
+evaluates PER ZONE. Per zone, that night was ordinary — independently re-verified by the
+orchestrator:
+
+| zone | nudges on 2026-08-20 night | rank among that zone's nights |
+|---|---|---|
+| zone_1 | 22 | **3rd of 28** (top: 24, 24, 22, 22, 21, 21) |
+| zone_2 | 10 | **11th of 19** |
+| zone_3 | 15 | 3rd of 12 |
+
+Three further measurements close the door:
+
+1. **Inter-nudge median is EXACTLY 25.0 min in every zone in both periods.** That is the nudge
+   loop's own cadence (5-min hold + 600s eval + tick), not a behavioural distribution. So
+   "N in W" reduces to "N consecutive 25-minute cycles", and the structural ceiling is
+   `floor(W/25)+1` → W=120 → 5, W=180 → 8, W=240 → 10. **N=6/W=120 and N=8/W=120 and N=8/W=180
+   are at or beyond that ceiling — cells showing "0 fires" there are ARITHMETIC ARTEFACTS, not
+   conservative calibration.** A builder must not read them as safe.
+2. **Rolling-window occupancy has p90 ≈ max at EVERY (zone, W).** There is no upper tail to
+   threshold against — during any active stretch a zone runs at the ceiling.
+3. **Neither excursion magnitude nor nudge effectiveness separates the nights either.** Patho-night
+   `kwh_rate_before` sits inside the normal range; effectiveness is ~100% on both.
+
+### Consequence
+
+No (N, W) in the grid separates the pathological night from an ordinary busy one. The most
+conservative structurally-honest candidate (N=8, W=240) still fires on **64% of zone_1 active
+nights and 59% of zone_2**, and would take house-wide hard resets from a measured **0.30/day to
+roughly 1.8/day — a ~6x increase**. Any N low enough to catch the bad night early fires on 68-96%
+of nights; any N high enough to be rare sits at the ceiling and fires 3-5 hours in, failing the
+operator's "escalate early" goal. **Both halves of the requirement cannot be met by this signal.**
+
+Per the repo's discriminating-acceptance-criteria rule, a count trigger yields an observation that
+is IDENTICAL under "pathological" and "ordinary busy". It does not discriminate, so it must not
+ship.
+
+### Ruling
+
+**D1 (count-based recurrence trigger) is NOT APPROVED FOR BUILD.** This is measure-before-build
+working as designed: a cheap read-only probe rejected the cycle's headline deliverable before a
+Tier-3 build was dispatched. The other deliverables (D2-D8) are unaffected by this finding and
+remain valid — they are columns, caps, knob promotions and telemetry, none of which depend on D1.
+
+### What the pathology actually was — still open
+
+The operator's experience is REAL and unexplained by nudge count: they woke to ~10 kW draw having
+burned ~49 kWh overnight. A follow-up probe is running to test whether ENERGY, DURATION/CONTINUITY,
+SUSTAINED-DRAW-AT-SETPOINT, or RECOVERY QUALITY discriminates that night per zone. **If none does,
+the escalation trigger is not a per-zone nightly-pattern problem and the real fix is elsewhere.**
+A negative result there is a valid and valuable outcome.
+
+### Incidental measured facts
+
+- `lockout_engaged` has **ZERO rows, ever**. Any plan logic assuming lockout state is observable in
+  this table is unverified.
+- The POST-threshold-change period is only **1.13 days** (25/12/17 nudges) — far too short to
+  calibrate against. Everything above is fitted on the PRE period. The 08-21 retune to 1.5/2.2/2.2
+  kW will reduce nudge rates, so these figures OVER-state future firing by an unmeasured amount.
+  Re-run after ~14 days at the new thresholds before trusting any count-based figure.
