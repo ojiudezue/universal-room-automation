@@ -193,9 +193,60 @@ class ReturnOutcome:
 
 _rows: dict[str, ExcursionToken] = {}
 _kill_switch_enabled: bool = True
+
+# --- Diagnostic counters (fix-up r5 addendum A) --------------------------
+# Per-day counters keyed by EXCURSION_KIND value. Reset on calendar-day
+# rollover in _bump_counter. The sensor at
+# sensor.ura_hvac_coordinator_thermostat_borrows reads these.
+#
+# Reconciliation invariant (operator ruling, r5 addendum A): the
+# `started_today.nudge` value should EQUAL the existing, independently-
+# produced `ac_nudges_today` counter (v4.5.11 ramp-down sensor). Two
+# producers, one invariant between them - divergence is itself the
+# alarm, and neither number has to be trusted alone. Do NOT "simplify"
+# the per-kind breakout away; the per-kind split is what makes the
+# cross-producer reconciliation possible.
+_stats_date: Optional[str] = None
+_started_today: dict[str, int] = {}
+_returned_today: dict[str, int] = {}
+_restore_failed_today: dict[str, int] = {}
+_last_return: Optional[dict] = None
 _db_ref: Any = None            # URADatabase instance; None => no persistence
 _hass_ref: Any = None          # HomeAssistant instance
 _nm_stale_rows: set[str] = set()  # dedupe stale-row NM notices (per excursion_id)
+
+
+def _today_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _bump_counter(bucket: dict, kind: str) -> None:
+    """Increment a per-kind counter with day rollover."""
+    global _stats_date, _started_today, _returned_today, _restore_failed_today
+    today = _today_iso()
+    if _stats_date != today:
+        _stats_date = today
+        _started_today.clear()
+        _returned_today.clear()
+        _restore_failed_today.clear()
+    bucket[kind] = bucket.get(kind, 0) + 1
+
+
+def get_borrow_stats() -> dict:
+    """Snapshot the diagnostic counters + active-row summary for the sensor.
+
+    Read-only helper - never mutates state. Returns aggregates
+    broken out by EXCURSION_KIND value + a `last_return` snapshot.
+    The sensor reads _rows directly for per-borrow attributes.
+    """
+    return {
+        "date": _stats_date,
+        "started_today": dict(_started_today),
+        "returned_today": dict(_returned_today),
+        "restore_failed_today": dict(_restore_failed_today),
+        "last_return": dict(_last_return) if _last_return else None,
+    }
 
 
 def _now() -> float:
@@ -245,18 +296,22 @@ def _fire_stale_row_nm(zone_id: str, tok: ExcursionToken, elapsed_s: float) -> N
     if tok.excursion_id in _nm_stale_rows:
         return
     _nm_stale_rows.add(tok.excursion_id)
+    # User-facing NM text uses "borrow" per operator ruling (fix-up r5).
+    # Internal identifiers (kind names, caller_site strings, log tags,
+    # return_excursion) stay in code but do NOT appear in this surface.
     diagnosis = (
-        f"HVAC excursion row for zone {zone_id} (kind={tok.kind.value}, "
-        f"started_ts={tok.started_iso}, duration_s={tok.duration_s}, "
-        f"elapsed={int(elapsed_s)}s) outlived its window without a matching "
-        f"return_excursion call. Row cleared. This is bookkeeping — with "
-        f"the S1 gate removed the row does not affect wire behaviour — "
-        f"but a missing return in caller_site={tok.caller_site!r} is a "
-        f"caller defect."
+        f"Governed thermostat borrow for zone {zone_id} "
+        f"(kind={tok.kind.value}, started_ts={tok.started_iso}, "
+        f"duration_s={tok.duration_s}, elapsed={int(elapsed_s)}s) "
+        "outlived its window without being closed. The row has been "
+        "cleared. This is bookkeeping only — the thermostat is not "
+        "affected by this row — but a borrow that never closed is a "
+        f"defect in the code path at {tok.caller_site!r}."
     )
     remedy = (
-        f"Check the caller at {tok.caller_site!r} for a return path that "
-        f"can silently skip return_excursion."
+        f"Check the code path at {tok.caller_site!r} for an exit that "
+        "does not close the borrow (missing close call on an early "
+        "return, an unraised exception, or a torn-down coordinator)."
     )
     if _hass_ref is None:
         _LOGGER.info(
@@ -277,6 +332,130 @@ def _fire_stale_row_nm(zone_id: str, tok: ExcursionToken, elapsed_s: float) -> N
         )
     except Exception as exc:  # noqa: BLE001
         _LOGGER.debug("excursion.nm.stale_row dispatch failed: %s", exc)
+
+
+async def _surface_restore_failure(
+    token: ExcursionToken,
+    trigger: str,
+    trigger_detail: Optional[str],
+    *,
+    preset_after: Optional[str],
+    target_low_after: Optional[float],
+    target_high_after: Optional[float],
+    mode_after: Optional[str],
+) -> None:
+    """Fix-up r5 addendum B + C - surface a restore failure to log + NM.
+
+    Called ONLY when ``restore_ok is False`` (attempted-and-diverged).
+    Never called on None (policy skip) or True (success).
+
+    Log (section B): greppable ``[GOVERNED BORROW RESTORE FAILED]``
+    _LOGGER.error with the full snapshot + observed post-restore state.
+    Fires ALWAYS, INDEPENDENT of NM path success. History: NM recipients
+    were once empty and every alert was silently dropped; the log is the
+    record of last resort. Chose ``.error`` over ``.warning`` because
+    the wire is in a state the operator did not intend and no other
+    machinery will correct it before the next tick.
+
+    NM (section C): routed through the standard fire_stuck_signal helper
+    so every governance layer applies:
+      - NM kill switch (fire_stuck_signal._kill_switch_on)
+      - Recipient / subscriber routing (nm.async_notify)
+      - Per-recipient preferences (nm.async_notify)
+      - Quiet hours + severity threshold (Severity.MEDIUM per
+        fire_stuck_signal default - NOT CRITICAL, per Bug Class #16)
+      - Per-day latch (kind="borrow_restore_failed", key=(zone_id))
+      - Anomaly-row persistence (via fire_stuck_signal internal call)
+    Observation-mode gate (Bug Class #23) is checked separately before
+    dispatch since fire_stuck_signal itself does not read that flag.
+
+    Kind identifier "borrow_restore_failed" (snake_case, sibling of
+    stale_excursion_row / zone_stale_occupancy / actuator_flap; word
+    "borrow" chosen to match the operator's user-facing rename since
+    the kind is displayed in NM titles).
+    """
+    # (B) LOG - always, first, independent of NM.
+    _LOGGER.error(
+        "[GOVERNED BORROW RESTORE FAILED] zone=%s kind=%s site=%s "
+        "excursion_id=%s trigger=%s trigger_detail=%s | snapshot: "
+        "pre_preset=%r pre_target_low=%s pre_target_high=%s | "
+        "post-restore wire: preset=%r target_low=%s target_high=%s "
+        "mode=%r. The thermostat is in a state URA did not intend; "
+        "no other machinery will correct it before the next tick.",
+        token.zone_id, token.kind.value, token.caller_site,
+        token.excursion_id, trigger, trigger_detail,
+        token.pre_preset, token.pre_target_low, token.pre_target_high,
+        preset_after, target_low_after, target_high_after, mode_after,
+    )
+
+    # (C) NM - governed, via the standard helper.
+    if _hass_ref is None:
+        # Bench / no-hass tests: log already fired above; NM would be
+        # dropped by fire_stuck_signal anyway.
+        return
+    # Bug Class #23: observation-mode gate. Read from the HVAC
+    # coordinator via hass.data; degrades to "not in obs mode" if we
+    # can't reach it (which is the safe default - alert fires).
+    try:
+        cm = _hass_ref.data.get("universal_room_automation", {}).get(
+            "coordinator_manager",
+        )
+        hvac_coord = (
+            cm.coordinators.get("hvac")
+            if cm is not None and hasattr(cm, "coordinators")
+            else None
+        )
+        if hvac_coord is not None and getattr(
+            hvac_coord, "_observation_mode", False,
+        ):
+            _LOGGER.debug(
+                "[GOVERNED BORROW RESTORE FAILED] NM suppressed - "
+                "observation mode active (log fired independently)."
+            )
+            return
+    except Exception as _exc:  # noqa: BLE001
+        _LOGGER.debug(
+            "[GOVERNED BORROW RESTORE FAILED] observation-mode "
+            "check errored (%s); proceeding to NM emit.", _exc,
+        )
+
+    diagnosis = (
+        f"Governed thermostat borrow FAILED to restore for zone "
+        f"{token.zone_id} (kind={token.kind.value}). URA tried to put "
+        f"the thermostat back to preset={token.pre_preset!r} / "
+        f"target_low={token.pre_target_low} / target_high="
+        f"{token.pre_target_high}, but the wire read back preset="
+        f"{preset_after!r} / target_low={target_low_after} / "
+        f"target_high={target_high_after}. The thermostat is in a "
+        "state URA did not intend."
+    )
+    remedy = (
+        f"trigger={trigger}, trigger_detail={trigger_detail}, "
+        f"site={token.caller_site}. Check the thermostat's live state "
+        "on the dashboard and consider whether a manual reassert is "
+        "needed; also grep '[GOVERNED BORROW RESTORE FAILED]' in the "
+        "log for the paired entry."
+    )
+    try:
+        from ._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+        _hass_ref.async_create_task(
+            fire_stuck_signal(
+                _hass_ref,
+                "borrow_restore_failed",
+                (token.zone_id,),
+                diagnosis,
+                remedy,
+                title_override=(
+                    f"Governed borrow restore failed: {token.zone_id} "
+                    f"({token.kind.value})"
+                ),
+            )
+        )
+    except Exception as _exc:  # noqa: BLE001
+        _LOGGER.debug(
+            "[GOVERNED BORROW RESTORE FAILED] NM dispatch failed "
+            "(swallowed; log already fired): %s", _exc,
+        )
 
 
 def _schedule_db_clear(zone_id: str) -> None:
@@ -407,6 +586,7 @@ async def begin_excursion(
         excursion_target_high=excursion_high,
     )
     _rows[zone_id] = token
+    _bump_counter(_started_today, kind.value)
 
     # R1 ordering — DB write BEFORE the downstream wire call.
     if _db_ref is not None:
@@ -466,6 +646,51 @@ async def return_excursion(
     token._returned = True
     token._return_outcome = outcome
     _rows.pop(token.zone_id, None)
+
+    # Diagnostic counters (fix-up r5 addendum A). Increment returned;
+    # increment restore_failed only when restore_ok is exactly False
+    # (None means "policy did not attempt" - see ReturnOutcome docstring
+    # semantics; conflating None with False here would train the reader
+    # to ignore the count).
+    _bump_counter(_returned_today, token.kind.value)
+    if restore_ok is False:
+        _bump_counter(_restore_failed_today, token.kind.value)
+
+    # Snapshot the last return for the sensor (absolute-timestamp fields
+    # only - no age_s / countdown, per operator ruling: static values
+    # mean the sensor writes only on borrow start/end, not per-tick).
+    global _last_return
+    _last_return = {
+        "zone_id": token.zone_id,
+        "kind": token.kind.value,
+        "site": token.caller_site,
+        "excursion_id": token.excursion_id,
+        "trigger": trigger,
+        "trigger_detail": trigger_detail,
+        "restore_ok": restore_ok,
+        "ended_iso": _now_iso(),
+    }
+
+    # Restore-failure surfacing (fix-up r5 addendum B + C).
+    # B (log): MANDATORY, INDEPENDENT of NM. Operator ruling: "We need
+    # a log line on failure not just nm." History - NM recipients were
+    # once empty and every alert was silently dropped. The log is the
+    # record of last resort.
+    # C (NM): governed via the standard fire_stuck_signal path so every
+    # recipient/preferences/quiet-hours/threshold/kill-switch layer
+    # applies (Bug Class #16: NOT CRITICAL). Observation-mode gate
+    # (Bug Class #23) is checked before dispatch.
+    # `restore_ok is None` MUST fire neither - that means "policy did
+    # not attempt to restore" (immunity / comfort_delay), not a wire
+    # divergence.
+    if restore_ok is False:
+        await _surface_restore_failure(
+            token, trigger, trigger_detail,
+            preset_after=preset_after,
+            target_low_after=target_low_after,
+            target_high_after=target_high_after,
+            mode_after=mode_after,
+        )
 
     if _db_ref is not None:
         try:
