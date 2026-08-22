@@ -8034,10 +8034,17 @@ cards:
     - CONFIG TOGGLE label   -> "Restore thermostats after temporary changes"   (verb form, from A)
     Noun for the sensor because it is a count of things; verb phrase for the toggle because it must
     say what turning it ON does, not name a subsystem.
-    ORCHESTRATOR INTERPRETATION FLAGGED: the instruction paired "B for the label" with "I like the
-    verb version", and B as presented had a NOUN toggle. Read as: take B for the sensor label, take
-    the VERB phrasing for the toggle. Low risk to get wrong (text only, ships later, trivially
-    changed) but recorded here so it can be corrected rather than silently assumed.
+    INTERPRETATION CONFIRMED BY OPERATOR 2026-08-22 — QUESTION CLOSED, do not re-open. The original
+    instruction paired "B for the label" with "I like the verb version", and B as presented had a
+    NOUN toggle, so the orchestrator flagged its reading (B sensor + A toggle) rather than assume it.
+    Operator then confirmed explicitly: "The toggle text is not quite right. The sensor is. Use the A
+    version for the toggle." The recorded strings ALREADY matched that — sensor from B, toggle from A
+    — so NO CHANGE was required; the flag is simply resolved.
+    NOTE FOR NEXT TIME: the flag itself caused the round-trip. It led with the AMBIGUITY (noting
+    that option B as presented carried a noun toggle) instead of leading with the CHOICE MADE, which
+    made it read as though the option-B toggle might have been taken. Flagging an interpretation is
+    correct practice; the flag should state what WAS chosen first and the residual ambiguity second,
+    never the reverse.
     "EVERYTHING ELSE LEAVE AS IS" — do NOT change: the config description body (which opens with
     "URA occasionally BORROWS a thermostat..."), the log tag [GOVERNED BORROW RESTORE FAILED], the
     NM kind identifier borrow_restore_failed, any entity_id, or any code/table/column/comment.
