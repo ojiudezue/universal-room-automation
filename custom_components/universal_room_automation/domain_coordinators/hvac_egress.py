@@ -63,14 +63,36 @@ _EX_MOD_CACHE = ...  # sentinel: not yet loaded
 
 
 def _try_load_excursion_module():
-    """Return the hvac_excursion module or None (memoized)."""
+    """Return the hvac_excursion module or None (memoized).
+
+    On the ImportError fallback path we emit a one-time WARNING naming
+    the consequence. Rationale (fix-up r4, 2026-08-21): in production
+    this import always succeeds, so silent fallback would go unnoticed;
+    if a future edit (circular import, partial deploy, hotfix syntax
+    error) breaks the import, egress excursions silently stop being
+    governed (no begin_excursion, no-op CM, no return_excursion) while
+    the wire writes still happen. That is a fail-open with no signal -
+    the same class this cycle exists to eliminate. A log scan for
+    "hvac_excursion unavailable" catches it.
+    """
     global _EX_MOD_CACHE
     if _EX_MOD_CACHE is not ...:
         return _EX_MOD_CACHE
     try:
         from . import hvac_excursion as _mod  # noqa: PLC0415
         _EX_MOD_CACHE = _mod
-    except ImportError:
+    except ImportError as _exc:
+        _LOGGER.warning(
+            "hvac_excursion unavailable (ImportError: %s); egress "
+            "excursions will NOT be governed - begin_excursion, "
+            "auto_release_on_incomplete, and return_excursion are all "
+            "no-ops for this process. Wire writes still happen; only "
+            "the excursion primitive's row/analytics/audit is missing. "
+            "In production this branch is a test-harness fallback; "
+            "seeing this in production logs indicates a broken import "
+            "path (circular, partial deploy, hotfix defect).",
+            _exc,
+        )
         _EX_MOD_CACHE = None
     return _EX_MOD_CACHE
 

@@ -84,17 +84,16 @@ class TestRuntimeField:
     def test_restore_after_nudge_uses_runtime_value(self, hvac_override_src):
         """The async_call_later must read the runtime field, not the const,
         so changes to the Number entity affect the NEXT nudge."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent - no magic-number bumps.
         idx = hvac_override_src.find("async def _restore_after_nudge")
-        assert idx > 0
-        # Slice bumped 5000 -> 12000 (HVAC-GOVERNED-EXCURSION-1 D1
-        # added observability telemetry), then 12000 -> 20000 (fix-up
-        # r3 2026-08-21: F3 unconditional preset restore + F2 CM +
-        # snapshot-restore semantics; method now ~12.3K chars, past the
-        # earlier bumped window). Bug Class #62 (source-string count);
-        # the invariant guarded (runtime field, not const, seeds
-        # async_call_later) has no cheaper behavioural anchor without
-        # a real coordinator fixture.
-        body = hvac_override_src[idx: idx + 20000]
+        assert idx != -1, "could not locate async def _restore_after_nudge in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "eval_delay_s = int(self._nudge_eval_delay_s)" in body
         assert "async_call_later(\n            self.hass, eval_delay_s," in body
 
@@ -102,8 +101,16 @@ class TestRuntimeField:
         assert "self._nudge_post_restore_ts: dict[str, str] = {}" in hvac_override_src
 
     def test_post_restore_ts_populated_on_restore(self, hvac_override_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent - no magic-number bumps.
         idx = hvac_override_src.find("async def _restore_after_nudge")
-        body = hvac_override_src[idx: idx + 20000]  # bumped - see fix-up r3 note above
+        assert idx != -1, "could not locate async def _restore_after_nudge in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "self._nudge_post_restore_ts[zone_id] = dt_util.now().isoformat()" in body
 
     def test_post_restore_ts_cleared_on_cancel(self, hvac_override_src):
@@ -127,6 +134,12 @@ class TestNumberEntity:
         assert "76 · AC Nudge Eval Delay" in number_src
 
     def test_number_factory_runtime_field(self, number_src):
+        # Magic-number slice retained: non-method find (dict key inside
+        # the number-factory table). No structural next-boundary; the 1000
+        # window covers the factory-entry block whose growth is bounded by
+        # the number of key/value pairs in one entry. Precedent:
+        # test_v4512_observability.py keeps magic for similar attribute
+        # finds (self._impact_cache: dict =).
         idx = number_src.find('"ac_nudge_eval_delay"')
         assert idx > 0
         body = number_src[idx: idx + 1000]
@@ -147,6 +160,11 @@ class TestDatabaseSchema:
 
     def test_create_table_includes_effective_column(self, database_src):
         """Fresh installs get the column in CREATE TABLE."""
+        # Magic-number slice retained: non-method find (SQL DDL string).
+        # The 1500 window covers ONE CREATE TABLE statement; the "next
+        # CREATE TABLE" boundary is available but the natural bound here
+        # is the closing triple-quote, which is symmetric to the magic
+        # window in practice.
         idx = database_src.find("CREATE TABLE IF NOT EXISTS ac_ramp_events")
         assert idx > 0
         body = database_src[idx: idx + 1500]
@@ -162,9 +180,18 @@ class TestLogAcRampEventSignature:
 
     def test_signature_accepts_effective(self, database_src):
         """log_ac_ramp_event must accept the new `effective: bool | None`."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = database_src.find("async def log_ac_ramp_event(")
-        assert idx > 0
-        sig = database_src[idx: idx + 1500]
+        assert idx != -1, "could not locate async def log_ac_ramp_event( in database_src"
+        _nxt_async = database_src.find("\n    async def ", idx + 1)
+        _nxt_sync = database_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(database_src)
+        sig = database_src[idx:_end]
         assert "effective: bool | None = None" in sig
 
     def test_insert_writes_effective_column(self, database_src):
@@ -184,8 +211,18 @@ class TestLogAcRampEventSignature:
             additive migrations.
         """
         import re as _re
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = database_src.find("async def log_ac_ramp_event(")
-        body = database_src[idx: idx + 5000]
+        assert idx != -1, "could not locate async def log_ac_ramp_event( in database_src"
+        _nxt_async = database_src.find("\n    async def ", idx + 1)
+        _nxt_sync = database_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(database_src)
+        body = database_src[idx:_end]
         # Column name still present in INSERT statement.
         assert "lockout_triggered, notes, effective" in body
         # Locate INSERT ... ac_ramp_events (...) VALUES (?, ?, ..., ?)
@@ -225,23 +262,52 @@ class TestFpRateAggregation:
     column, with NULL → excluded from both numerator and denominator."""
 
     def test_query_selects_effective_column(self, database_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = database_src.find("async def get_ac_ramp_kwh_avoided(")
-        assert idx > 0
-        body = database_src[idx: idx + 4000]
+        assert idx != -1, "could not locate async def get_ac_ramp_kwh_avoided( in database_src"
+        _nxt_async = database_src.find("\n    async def ", idx + 1)
+        _nxt_sync = database_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(database_src)
+        body = database_src[idx:_end]
         assert "SELECT kwh_rate_before, kwh_rate_after, notes, effective" in body
 
     def test_null_effective_excluded_from_counts(self, database_src):
         """Pre-v4.7.17.1 rows (or inconclusive ones) skip — `effective IS
         NULL` must NOT count toward denominator OR false-pos count."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = database_src.find("async def get_ac_ramp_kwh_avoided(")
-        body = database_src[idx: idx + 4000]
+        assert idx != -1, "could not locate async def get_ac_ramp_kwh_avoided( in database_src"
+        _nxt_async = database_src.find("\n    async def ", idx + 1)
+        _nxt_sync = database_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(database_src)
+        body = database_src[idx:_end]
         # Iteration over rows with skip-on-None
         assert "if effective is None:" in body
         assert "continue" in body
 
     def test_effective_zero_counts_as_fp(self, database_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = database_src.find("async def get_ac_ramp_kwh_avoided(")
-        body = database_src[idx: idx + 4000]
+        assert idx != -1, "could not locate async def get_ac_ramp_kwh_avoided( in database_src"
+        _nxt_async = database_src.find("\n    async def ", idx + 1)
+        _nxt_sync = database_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(database_src)
+        body = database_src[idx:_end]
         assert "if effective == 0:" in body
         assert "false_pos += 1" in body
 
@@ -253,59 +319,133 @@ class TestEvaluateNudgeOutcome:
         assert "async def _compute_post_restore_min_kw(" in hvac_override_src
 
     def test_helper_calls_recorder_get_significant_states(self, hvac_override_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent - no magic-number bumps.
         idx = hvac_override_src.find("async def _compute_post_restore_min_kw")
-        assert idx > 0
-        body = hvac_override_src[idx: idx + 4000]
+        assert idx != -1, "could not locate async def _compute_post_restore_min_kw in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "recorder_get_instance(self.hass)" in body
         assert "get_significant_states" in body
 
     def test_helper_normalises_watt_to_kilowatt(self, hvac_override_src):
         """Same unit normalisation pattern as _read_kwh_rate."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent - no magic-number bumps.
         idx = hvac_override_src.find("async def _compute_post_restore_min_kw")
-        body = hvac_override_src[idx: idx + 4000]
+        assert idx != -1, "could not locate async def _compute_post_restore_min_kw in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert 'unit in ("w", "watt", "watts")' in body
         assert "value = value / 1000.0" in body
 
     def test_evaluate_uses_post_restore_ts_and_helper(self, hvac_override_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        assert idx > 0
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "self._nudge_post_restore_ts.pop(zone_id, None)" in body
         assert "self._compute_post_restore_min_kw(" in body
 
     def test_evaluate_applies_floor_classification(self, hvac_override_src):
         """H3 resolved: kwh_rate_before below floor → inconclusive (effective=None)."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "AC_NUDGE_KWH_RATE_BEFORE_FLOOR" in body
         assert 'classification = "inconclusive"' in body
         assert "effective: bool | None = None" in body
 
     def test_evaluate_applies_new_rule(self, hvac_override_src):
         """Main rule: ineffective iff post_min >= 0.50 * kwh_rate_before."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before" in body
         assert 'classification = "effective"' in body
 
     def test_evaluate_no_samples_is_conservative_ineffective(self, hvac_override_src):
         """If recorder returns nothing, classify ineffective (escalate) —
         preserves pre-existing behavior for the no-data case."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "elif post_min is None:" in body
         assert 'classification = "ineffective_no_samples"' in body
 
     def test_evaluate_writes_effective_to_db(self, hvac_override_src):
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "effective=effective" in body
 
     def test_notes_format_remains_semicolon_separated(self, hvac_override_src):
         """M4 resolved: notes must stay key=value;key=value (parser at
         database.py:5576 splits on `;` then `=`)."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert 'f"kwh_avoided={kwh_avoided:.3f};"' in body
         assert "post_min=" in body
         assert "sample_count=" in body
@@ -348,9 +488,18 @@ class TestKwhAvoidedUsesMean:
         """Mutation-anchored: the delta compute uses post_mean, not
         post_min. This test FAILS if the arithmetic reverts to
         `kwh_rate_before - post_min`."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        assert idx > 0
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         # New: delta uses post_mean
         assert "delta = kwh_rate_before - post_mean" in body
         # Guard: the old min-based delta must be gone from this function
@@ -363,8 +512,18 @@ class TestKwhAvoidedUsesMean:
         """Byte-identical decision boundary preserved: the effective /
         ineffective_no_samples / ineffective classifier still keys off
         post_min. Escalation logic MUST NOT shift onto post_mean."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         # The load-bearing classification predicate is unchanged.
         assert "post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before" in body
         # The no-samples branch still keys off post_min is None.
@@ -376,8 +535,18 @@ class TestKwhAvoidedUsesMean:
         """The notes string carries `post_mean=` alongside `post_min=`
         for audit/observability. Existing keys + order preserved
         (append-only)."""
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
+        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
+        # has no cheaper behavioural anchor without a real coordinator fixture.
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx: idx + 9000]
+        assert idx != -1, "could not locate async def _evaluate_nudge_outcome( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        body = hvac_override_src[idx:_end]
         assert "post_mean=" in body
         # Existing keys still present in the notes assignment.
         assert 'f"kwh_avoided={kwh_avoided:.3f};"' in body
@@ -385,15 +554,19 @@ class TestKwhAvoidedUsesMean:
 
     def test_helper_returns_three_tuple_min_mean_count(self, hvac_override_src):
         """`_compute_post_restore_min_kw` now returns (min, mean, count)."""
-        idx = hvac_override_src.find(
-            "async def _compute_post_restore_min_kw("
-        )
-        assert idx > 0
-        # Signature return-type annotation carries the new mean slot.
-        sig = hvac_override_src[idx: idx + 400]
+        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
+        # find the method, then find the START OF THE NEXT method at class-body
+        # indent. Slice tracks the method's real extent - no magic-number bumps.
+        idx = hvac_override_src.find("async def _compute_post_restore_min_kw(")
+        assert idx != -1, "could not locate async def _compute_post_restore_min_kw( in hvac_override_src"
+        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
+        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
+        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
+        sig = hvac_override_src[idx:_end]
         assert "tuple[float | None, float | None, int]" in sig
         # Body computes a running sum and derives mean = sum / count.
-        body = hvac_override_src[idx: idx + 4000]
+        body = hvac_override_src[idx:_end]  # reuse structural bound
         assert "sum_kw" in body
         assert "mean_kw" in body
         # No-sample paths return the 3-tuple form.
