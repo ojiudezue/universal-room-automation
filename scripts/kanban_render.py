@@ -36,6 +36,7 @@ README_DIR = REPO_ROOT / "docs" / "readmes"
 # Column display order + labels + emoji. Anything not in this map falls into "other".
 COLUMN_META: list[tuple[str, str, str, str]] = [
     ("inbox",            "\U0001F4E5", "Inbox",              "raw capture"),
+    ("investigating",    "\U0001F52C", "Investigating",      "measuring; truth not yet known"),
     ("pre_planning",     "\U0001F9ED", "Pre-planning",       "idea being decomposed"),
     ("planned",          "\U0001F4DD", "Planned",            "has plan / acceptance"),
     ("in_progress",      "\U0001F528", "In progress",        "being built"),
@@ -845,7 +846,7 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     # approve (operator grants explicit approval without a chat turn)
     # and investigate (flags the card for the bounded lull sweep).
     extra = ''
-    if str(c.get("status", "")) in ("inbox", "pre_planning"):
+    if str(c.get("status", "")) in ("inbox", "investigating", "pre_planning"):
         extra = ('<button type="button" data-action="approve">▶ approve</button>'
                  '<button type="button" data-action="investigate">🔍 investigate</button>')
     out.append('<div class="actions">'

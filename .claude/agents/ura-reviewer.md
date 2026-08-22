@@ -1,7 +1,7 @@
 ---
 name: ura-reviewer
 description: Code-reviews an external version folder (e.g. v3.3.5.4 from OneDrive) against the current branch before committing. Use when ingesting changes from older OneDrive versions. Produces a structured ✅/⚠️/❌ report and a suggested commit message.
-model: claude-opus-4-7
+model: claude-opus-5
 ---
 
 # URA Code Reviewer Agent

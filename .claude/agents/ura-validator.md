@@ -1,7 +1,7 @@
 ---
 name: ura-validator
 description: Runs tests and validates code quality after any changes. Never edits code — only executes tests and checks output against quality checklists. Use after any build or fix, and before git merges.
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 ---
 
 # URA Validator Agent

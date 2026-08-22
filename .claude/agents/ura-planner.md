@@ -1,7 +1,7 @@
 ---
 name: ura-planner
 description: Plans new URA features from scratch, reviews and critiques existing planning docs, and updates or refocuses plans that have grown too large. Use when starting a new feature idea, asking for plan review, simplifying scope, or when a plan needs updating.
-model: claude-opus-4-7
+model: claude-opus-5
 ---
 
 # URA Planner Agent

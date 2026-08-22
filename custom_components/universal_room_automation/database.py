@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.87.0
+# Universal Room Automation vv5.88.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1530,6 +1530,68 @@ class UniversalRoomDatabase:
                 ]):
                     failed_tables.append("ac_ramp_events")
 
+                # -- HVAC-GOVERNED-EXCURSION-1 D2 (persistence) --------------
+                # hvac_excursion_state: PER-ZONE persisted lease + snapshot
+                # row (§4.5 of PLANNING_hvac_governed_excursion.md). PK is
+                # zone_id — at most one live excursion per zone at a time.
+                # The row IS the lease token (§4.4). REBUILD cache is
+                # populated from this table by async_startup_excursion_audit.
+                if not await self._create_table_safe(
+                    db, "hvac_excursion_state", [
+                        """CREATE TABLE IF NOT EXISTS hvac_excursion_state (
+                            zone_id TEXT PRIMARY KEY,
+                            excursion_id TEXT NOT NULL,
+                            kind TEXT NOT NULL,
+                            started_ts TEXT NOT NULL,
+                            duration_s INTEGER,
+                            pre_preset TEXT,
+                            pre_target_low REAL,
+                            pre_target_high REAL,
+                            excursion_target_low REAL,
+                            excursion_target_high REAL,
+                            intended_mode TEXT NOT NULL,
+                            caller_site TEXT NOT NULL
+                        )""",
+                    ]
+                ):
+                    failed_tables.append("hvac_excursion_state")
+
+                # hvac_excursion_events: non-nudge outcome landing table
+                # (§4.5). Nudge continues writing to ac_ramp_events (via
+                # the new excursion_id column), preserving D1 sensors + AC8
+                # rate comparison. One row per return/expiry.
+                if not await self._create_table_safe(
+                    db, "hvac_excursion_events", [
+                        """CREATE TABLE IF NOT EXISTS hvac_excursion_events (
+                            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            excursion_id TEXT NOT NULL,
+                            zone_id TEXT NOT NULL,
+                            kind TEXT NOT NULL,
+                            started_ts TEXT NOT NULL,
+                            ended_ts TEXT,
+                            trigger TEXT,
+                            trigger_detail TEXT,
+                            site TEXT,
+                            duration_actual_s INTEGER,
+                            pre_preset TEXT,
+                            pre_target_low REAL,
+                            pre_target_high REAL,
+                            preset_after TEXT,
+                            target_low_after REAL,
+                            target_high_after REAL,
+                            mode_before TEXT,
+                            mode_after TEXT,
+                            restore_ok INTEGER,
+                            restore_ok_immediate INTEGER
+                        )""",
+                        """CREATE INDEX IF NOT EXISTS idx_hvac_excursion_events_zone_ts
+                        ON hvac_excursion_events(zone_id, started_ts)""",
+                        """CREATE INDEX IF NOT EXISTS idx_hvac_excursion_events_excursion_id
+                        ON hvac_excursion_events(excursion_id)""",
+                    ]
+                ):
+                    failed_tables.append("hvac_excursion_events")
+
                 # -- Hierarchical memory MVP (2026-08-02) --------------------
                 # See docs/planning/ARCHITECTURE_hierarchical_memory.md §4/§5c.
                 # memory_episodes: adjudicated notable events per node.
@@ -1636,6 +1698,11 @@ class UniversalRoomDatabase:
                         ("mode_after", "TEXT"),
                         ("restore_ok", "INTEGER"),
                         ("restore_ok_immediate", "INTEGER"),
+                        # HVAC-GOVERNED-EXCURSION-1 D2: cross-table analytics
+                        # join key between ac_ramp_events (nudge home) and
+                        # hvac_excursion_events (non-nudge). Nullable — rows
+                        # written before the primitive migration are NULL.
+                        ("excursion_id", "TEXT"),
                     ):
                         if _col not in are_columns:
                             await db.execute(
@@ -7422,6 +7489,7 @@ class UniversalRoomDatabase:
         mode_after: str | None = None,
         restore_ok: bool | None = None,
         restore_ok_immediate: bool | None = None,
+        excursion_id: str | None = None,
     ) -> None:
         """Append an event row to the ramp-down log.
 
@@ -7443,8 +7511,8 @@ class UniversalRoomDatabase:
                         lockout_triggered, notes, effective,
                         preset_before, preset_after,
                         mode_before, mode_after, restore_ok,
-                        restore_ok_immediate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        restore_ok_immediate, excursion_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         zone_id,
                         dt_util.now().isoformat(),
@@ -7467,6 +7535,7 @@ class UniversalRoomDatabase:
                         mode_after,
                         None if restore_ok is None else (1 if restore_ok else 0),
                         None if restore_ok_immediate is None else (1 if restore_ok_immediate else 0),
+                        excursion_id,
                     ),
                 )
                 await db.commit()
@@ -7524,6 +7593,149 @@ class UniversalRoomDatabase:
             _LOGGER.warning(
                 "ac_ramp_events settled-update failed for %s: %s",
                 zone_id, err,
+            )
+
+    # =========================================================================
+    # HVAC-GOVERNED-EXCURSION-1 D2 — hvac_excursion_state + _events DAOs.
+    # See PLANNING_hvac_governed_excursion.md §4.4 (lease) + §4.5 (schema).
+    # =========================================================================
+
+    async def save_excursion_row(self, row: dict) -> None:
+        """Upsert a hvac_excursion_state row. `zone_id` is the PK.
+
+        Called by ``hvac_excursion.begin_excursion`` BEFORE the service
+        call (R1 ordering — a crash between this write and the wire call
+        leaves a benign row the boot audit can adjudicate).
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO hvac_excursion_state (
+                        zone_id, excursion_id, kind, started_ts, duration_s,
+                        pre_preset, pre_target_low, pre_target_high,
+                        excursion_target_low, excursion_target_high,
+                        intended_mode, caller_site
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        row["zone_id"],
+                        row["excursion_id"],
+                        row["kind"],
+                        row["started_ts"],
+                        row.get("duration_s"),
+                        row.get("pre_preset"),
+                        row.get("pre_target_low"),
+                        row.get("pre_target_high"),
+                        row.get("excursion_target_low"),
+                        row.get("excursion_target_high"),
+                        row["intended_mode"],
+                        row["caller_site"],
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "hvac_excursion_state save failed for %s: %s",
+                row.get("zone_id"), err,
+            )
+
+    async def clear_excursion_row(self, zone_id: str) -> None:
+        """Delete the excursion state row for zone_id (called by return)."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    "DELETE FROM hvac_excursion_state WHERE zone_id = ?",
+                    (zone_id,),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "hvac_excursion_state clear failed for %s: %s",
+                zone_id, err,
+            )
+
+    async def get_all_excursion_rows(self) -> list[dict]:
+        """Return every persisted excursion state row.
+
+        Called by ``async_startup_excursion_audit`` to rehydrate leases
+        and adjudicate rows left over from a crash / restart.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT zone_id, excursion_id, kind, started_ts,
+                              duration_s, pre_preset, pre_target_low,
+                              pre_target_high, excursion_target_low,
+                              excursion_target_high, intended_mode, caller_site
+                       FROM hvac_excursion_state"""
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "zone_id": r[0], "excursion_id": r[1], "kind": r[2],
+                        "started_ts": r[3], "duration_s": r[4],
+                        "pre_preset": r[5], "pre_target_low": r[6],
+                        "pre_target_high": r[7],
+                        "excursion_target_low": r[8],
+                        "excursion_target_high": r[9],
+                        "intended_mode": r[10], "caller_site": r[11],
+                    }
+                    for r in rows
+                ]
+        except Exception as err:
+            _LOGGER.warning("hvac_excursion_state scan failed: %s", err)
+            return []
+
+    async def log_excursion_event(
+        self,
+        *,
+        excursion_id: str,
+        zone_id: str,
+        kind: str,
+        started_ts: str,
+        ended_ts: str | None = None,
+        trigger: str | None = None,
+        trigger_detail: str | None = None,
+        site: str | None = None,
+        duration_actual_s: int | None = None,
+        pre_preset: str | None = None,
+        pre_target_low: float | None = None,
+        pre_target_high: float | None = None,
+        preset_after: str | None = None,
+        target_low_after: float | None = None,
+        target_high_after: float | None = None,
+        mode_before: str | None = None,
+        mode_after: str | None = None,
+        restore_ok: bool | None = None,
+        restore_ok_immediate: bool | None = None,
+    ) -> None:
+        """Append a row to hvac_excursion_events (non-nudge home)."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO hvac_excursion_events (
+                        excursion_id, zone_id, kind, started_ts, ended_ts,
+                        trigger, trigger_detail, site, duration_actual_s,
+                        pre_preset, pre_target_low, pre_target_high,
+                        preset_after, target_low_after, target_high_after,
+                        mode_before, mode_after, restore_ok,
+                        restore_ok_immediate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        excursion_id, zone_id, kind, started_ts, ended_ts,
+                        trigger, trigger_detail, site, duration_actual_s,
+                        pre_preset, pre_target_low, pre_target_high,
+                        preset_after, target_low_after, target_high_after,
+                        mode_before, mode_after,
+                        None if restore_ok is None else (1 if restore_ok else 0),
+                        None if restore_ok_immediate is None
+                        else (1 if restore_ok_immediate else 0),
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "hvac_excursion_events log failed for %s/%s: %s",
+                zone_id, kind, err,
             )
 
     async def get_ac_ramp_events_recent(
@@ -7855,9 +8067,11 @@ class UniversalRoomDatabase:
             Purged only when ``zone_id`` is not None (husk zones with no
             thermostat have no zone_id and never wrote id-keyed rows).
 
-        Six tables total. Verified via re-grep of every ``zone TEXT`` and
-        ``zone_id TEXT`` column in the ``CREATE TABLE`` DDL surface
-        (fix-up R5, review A-CRIT-1). ``room_state.last_lux_zone`` is a
+        Eight tables total (fix-up R5 = 6 + HVAC-GOVERNED-EXCURSION-1
+        fix-up r3 = +2 for hvac_excursion_state + hvac_excursion_events).
+        Verified via re-grep of every ``zone TEXT`` and ``zone_id TEXT``
+        column in the ``CREATE TABLE`` DDL surface (fix-up R5, review
+        A-CRIT-1). ``room_state.last_lux_zone`` is a
         lux-band label (bright/dim), NOT a zone name — not purged.
 
         Note on ``fan_recheck_state``: the plan lists it as zone_id-keyed,
@@ -7889,6 +8103,15 @@ class UniversalRoomDatabase:
             skipped (id-keyed tables when zone_id is None) map to 0.
             On failure returns an empty dict and logs a warning.
         """
+        # HVAC-GOVERNED-EXCURSION-1 fix-up r3 (2026-08-21): the D2
+        # tables hvac_excursion_state (PK zone_id) and
+        # hvac_excursion_events (zone_id NOT NULL) join the id-keyed
+        # regime. Without deletion here, deleting a zone leaves orphan
+        # excursion rows behind; a stale hvac_excursion_state row is
+        # exactly what async_startup_excursion_audit rehydrates, so an
+        # orphan produces a phantom excursion for a zone that no longer
+        # exists. Both purged only when zone_id is not None (husk zones
+        # have no id and never wrote id-keyed rows).
         result: dict[str, int] = {
             "zone_events": 0,
             "census_snapshots": 0,
@@ -7896,6 +8119,8 @@ class UniversalRoomDatabase:
             "ac_reset_state": 0,
             "egress_state": 0,
             "ac_ramp_events": 0,
+            "hvac_excursion_state": 0,
+            "hvac_excursion_events": 0,
         }
         try:
             async with self._db() as db:
@@ -7937,6 +8162,16 @@ class UniversalRoomDatabase:
                             (zone_id,),
                         )
                         result["ac_ramp_events"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM hvac_excursion_state WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["hvac_excursion_state"] = cur.rowcount or 0
+                        cur = await db.execute(
+                            "DELETE FROM hvac_excursion_events WHERE zone_id = ?",
+                            (zone_id,),
+                        )
+                        result["hvac_excursion_events"] = cur.rowcount or 0
                     await db.commit()
                 except Exception:
                     try:
@@ -7983,6 +8218,10 @@ class UniversalRoomDatabase:
             "ac_reset_state": 0,
             "egress_state": 0,
             "ac_ramp_events": 0,
+            # HVAC-GOVERNED-EXCURSION-1 fix-up r3: paired with the D2
+            # tables added to async_delete_zone_data.
+            "hvac_excursion_state": 0,
+            "hvac_excursion_events": 0,
         }
         try:
             async with self._db_read() as db:
@@ -7999,7 +8238,10 @@ class UniversalRoomDatabase:
                             "async_count_zone_rows(%s): %s", tbl, err,
                         )
                 if zone_id is not None:
-                    for tbl in ("ac_reset_state", "egress_state", "ac_ramp_events"):
+                    for tbl in (
+                        "ac_reset_state", "egress_state", "ac_ramp_events",
+                        "hvac_excursion_state", "hvac_excursion_events",
+                    ):
                         try:
                             cur = await db.execute(
                                 f"SELECT COUNT(*) FROM {tbl} WHERE zone_id = ?",

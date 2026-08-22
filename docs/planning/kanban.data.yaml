@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-21'
+  last_reconciled: '2026-08-22'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -2428,6 +2428,15 @@ cards:
     regardless — a specced safety cap that silently never shipped is its own problem, and 31/day
     against a design of 6 means nobody has been looking at this number.'
 - id: HVAC-GOVERNED-EXCURSION-1
+  STATUS_CORRECTED_2026_08_22: 'Card read `shipped_organic` while D2+D3 were still UNBUILT. D1
+    (observability columns + settled callback) shipped organically in v5.86.0 and the card was marked
+    shipped off the back of it — but D1 was only ever an INPUT to this cycle. The status then sat
+    wrong through an entire Tier-3 build, four reviews and six fix-up rounds, and was caught only by
+    the deploy gate refusing to accept a card list.
+    This is exactly the failure the kanban skill rule "Status must track reality, not just the body"
+    (added 2026-08-21) exists to prevent — and it was sitting on this cycle own card the whole time.
+    A multi-deliverable card must not be marked shipped until EVERY deliverable has shipped; partial
+    delivery gets a note, not a status change.'
   PLAN_REVIEW_B_2026_08_21: 'FRAMING B (adversarial build-prediction): **FIX-THEN-BUILD** — 3 CRITICAL,
     6 HIGH, 5 MEDIUM, 3 LOW. Doc: docs/reviews/code-review/PLANREVIEW_B_governed_excursion_build_prediction.md
     Two of the three CRITICALs land on MY design decisions, not the planner''s.
@@ -2483,7 +2492,7 @@ cards:
     setpoints and presets never did, and the same call sites leak on the ungoverned axes
   thread: hvac
   status: shipped_organic
-  shipped_version: v5.86.0
+  shipped_version: v5.88.0
   updated: '2026-08-21 09:50'
   approval: needs_operator
   tags:
@@ -6548,6 +6557,63 @@ cards:
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
 - id: SUITE-ORDER-POLLUTION-1
+  INSTANCE_2026_08_21_GATE_BLOCKER_FIXED: 'SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED
+    THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON
+    DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not just the
+    one in flight. Nobody had noticed because a passing targeted run looks the same as a passing
+    suite from the outside.
+    MECHANISM: quality/tests/test_reboot_pickup_d2.py read `<mod>.__path__[0]` off package modules
+    fetched from sys.modules at IMPORT time (three sites: custom_components,
+    universal_room_automation, domain_coordinators). A sibling file that had already registered a
+    stub with an EMPTY __path__ made that raise IndexError — during COLLECTION, which pytest treats
+    as fatal, aborting all ~9,600 tests.
+    PROVENANCE: found by the orchestrator while attempting the pre-deploy gate for
+    HVAC-GOVERNED-EXCURSION-1. VERIFIED pre-existing on develop and NOT caused by that branch, and
+    NOT caused by the ~100 stale worktrees (reproduces with .claude ignored).
+    FIX (commit 71a769cfb): derive every path from __file__, which no sibling can corrupt; use the
+    sys.modules entries only for REGISTRATION; REPAIR a pre-existing module with a missing/empty
+    __path__ via _ensure_pkg_path() rather than trusting it. Before: 9,610 collected, 1 error,
+    interrupted. After: 9,615 collected, 0 errors. The file own 5 tests still pass.
+    THE GENERAL LESSON, and it is the one worth carrying: DEFENSIVE CODE THAT READS POLLUTED STATE IS
+    NOT DEFENSIVE. This file was carefully written to coexist with siblings (setdefault everywhere,
+    do-not-clobber comments) and still broke, because it TRUSTED what it read back out of
+    sys.modules. Compute from an authority nobody else can write to (__file__), do not read back
+    from shared mutable state.
+    STILL OPEN on this card: the reverse-order failures from test_override_arrester_ttl_suppression
+    (see the other INSTANCE block) — a different file, same family, not fixed.'
+  INSTANCE_2026_08_21_EXCURSION_CYCLE: 'CONCRETE MEASURED INSTANCE, found during the
+    HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority).
+    SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion
+    test files produces 7 COLLECTION ERRORS that take EVERY excursion test file down —
+    "ImportError: cannot import name HVACCoordinator" / "module hvac_override has no attribute
+    OverrideArrester". Default ALPHABETICAL order happens to be safe (test_hvac_* sorts before
+    test_override_*), so the suite reports green. That is an ACCIDENT OF NAMING, not a property.
+    WHY IT MATTERS BEYOND THIS CYCLE, and this is the important part: a green run DOES NOT PROVE THE
+    ANCHORS EXECUTED. Review C explicitly conditioned all 20 of its mutation-drill verdicts on that
+    ordering holding. Any -p randomly, xdist distribution, -k subset, or a developer running two
+    files by name can silently vaporise the anchors while the run still reports success. This
+    degrades the evidentiary value of EVERY reviewer pass, not just one cycle.
+    PARTIALLY FIXED 2026-08-21: the excursion cycle removed ITS OWN coupling (module-level
+    sys.modules surgery replaced by a shared idempotent bootstrap at quality/tests/_excursion_harness.py
+    which pops homeassistant.helpers.storage and homeassistant.util.dt on exit).
+    STILL OPEN AND OWNED HERE: test_override_arrester_ttl_suppression.py installs
+    homeassistant.helpers.storage in its own harness and NEVER POPS IT. In reverse order that
+    pollution flips the D1 _HA_REAL gate True, so 6 D1 behavioural tests run against mocks and fail.
+    VERIFIED PRE-EXISTING — the same 6-failure pattern reproduces on commit e6e69e8fe, before the
+    fix-up. Explicitly left out of the excursion cycle scope (it does not own that file) and routed
+    here instead.
+    FIX SHAPE: pop the installed modules at that file tail, or better, move every such harness to
+    the shared bootstrap pattern so no test file does import-time sys.modules surgery at all. The
+    second is the real fix and belongs to [[TEST-STRATEGY-REARCH-1]].'
+  links:
+    related:
+    - TEST-STRATEGY-REARCH-1
+    - HVAC-GOVERNED-EXCURSION-1
+    - TEST-SOURCE-MUTATION-KILL-UNSAFE-1
+    context: 'TEST-STRATEGY-REARCH-1 is the parent re-architecture (the durable fix — no import-time
+      sys.modules surgery anywhere). TEST-SOURCE-MUTATION-KILL-UNSAFE-1 is a sibling suite-hygiene
+      hazard from the same family (a killed source-mutating test corrupts the tree).
+      HVAC-GOVERNED-EXCURSION-1 is where this instance was found and where the partial fix shipped.'
   title: Presence tests fail order-dependently in large batches (suite hygiene)
   status: inbox
   thread: platform
@@ -7379,6 +7445,645 @@ cards:
   - hvac.py:1788-1795
   - aggregation.py:4017-4019, 4152-4154
   - memory feedback_suppression_needs_discharge
+- id: AC-RAMP-SAVINGS-OVERSTATED-1
+  title: AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc
+    correction (magnitude is NOT a defect; the figure is explicitly not billing-grade)
+  thread: energy
+  status: planned
+  created: '2026-08-21 11:40'
+  updated: '2026-08-21 11:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - refutes-an-accepted-rationale
+  NOT_A_NEW_DEFECT_IT_IS_KNOWN_DEBT: 'IMPORTANT FRAMING — do NOT card this as a newly discovered
+    bug. It is ALREADY DOCUMENTED in docs/TECH_DEBT.md ("v4.5.11 — AC ramp-down: rough kWh-avoided
+    estimate"), which states the formula and explicitly acknowledges it is "not baseline-matched
+    against a comparable-weather-day counterfactual". The ACTUAL formula, verified in source, is
+    max(0, kwh_before - kwh_after) x min(30, remaining_overshoot_minutes) / 60 — a DELTA times a
+    30-min-capped projection. (A measurement agent characterised it as "before_kW x duration";
+    numerically close because kwh_after averages only 0.07-0.26 kW, but the delta form is correct.)'
+  WHAT_IS_ACTUALLY_NEW_TWO_THINGS: 'THE DEBT ENTRY IS WRONG ABOUT ITS OWN DIRECTION, and its
+    revisit trigger has fired. Both are new.
+    (1) THE JUSTIFICATION IS REFUTED. TECH_DEBT.md justifies the shortcut with: "Conservative bias
+    is correct direction (better to under-claim than over-claim)." MEASURED, it OVER-claims.
+    Recorder-measured net energy per nudge over +90 min is 0.087-0.465 kWh depending on zone,
+    against a claimed ~0.7-1.5 kWh. That is roughly 3-10x overstatement, in the OPPOSITE direction
+    from the one the entry assumes and accepts. The whole "why acceptable" argument rests on a sign
+    that is backwards. Re-litigate the acceptance, do not just re-tune the number.
+    (2) THE REVISIT TRIGGER HAS ALREADY FIRED. The entry says revisit "if Span integration exposes a
+    historical API that lets us pull matched-weather day energy curves". That history EXISTS TODAY in
+    the HA recorder and was used to produce the measurement above — control window E[-90,-45] chosen
+    deliberately over E[-45,0] so that regression-to-the-mean is not baked in (the nudge fires
+    BECAUSE power was high). The prerequisite the entry was waiting for has been sitting there.'
+  CONSUMER_IMPACT_CONTEXT_ONLY: 'RETIRED AS A DEFECT per the operator ruling above — retained as
+    context, NOT as work. sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed
+    dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=$1.40 under v5.33.0
+    H4 — that confirmed the number was PRESENT and forward-only, NOT that it was ACCURATE. Any
+    savings claim built on this sensor is overstated by the same factor. Producer/consumer sweep
+    needed before deciding whether to correct the sensor or caveat it.'
+  METHOD_CAVEAT_BE_HONEST: 'The measurement controls for regression-to-the-mean via the -90/-45
+    window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min
+    comparison window sits later in the day than the control. That confound could push either
+    direction and is UNQUANTIFIED. The 3-10x magnitude should be treated as strong but not final.
+    Rebound IS independently acknowledged in code (hvac_override.py:3442,:3492-3495 describe
+    variable-speed Bryant rebound-to-full-power in minutes 5-10 post-restore), which is consistent
+    with the measured shortfall and is the mechanism the 30-min projection ignores.'
+  OPERATOR_RULING_2026_08_21_NOT_A_DEFECT: 'OPERATOR PUSHBACK, ACCEPTED: "Saving is approximate.
+    It is marked not billing grade explicitly. It needs to be directionally accurate not
+    forensically." CORRECT, and this card was OVER-ESCALATED — the orchestrator relayed a
+    measurement agent framing ("higher value than the threshold tuning") without applying the
+    operator standard to it. A 3-10x magnitude error is a PRECISION complaint, and precision is
+    explicitly not what this figure is for. Full recorder-baselined difference math is the elaborate
+    fix to a problem that does not exist at the stated standard. THE MAGNITUDE FINDING IS RETIRED as
+    a defect; it survives only as context.
+    WHAT SURVIVES, and it is small: the entry justifies the shortcut with "Conservative bias is
+    correct direction (better to under-claim than over-claim)". Measurement says it OVER-claims. The
+    DECISION to accept the debt stands; the REASON given for accepting it is backwards and someone
+    will reason from it later. ONE-LINE DOC CORRECTION. Do NOT touch the producer, do NOT do a
+    consumer sweep, do NOT build baselining.
+    THE DIRECTIONAL FAILURE LIVES ON THE OTHER CARD: see AC-RAMP-ZONE3-NO-BENEFIT-1. Everywhere but
+    zone 3 the figure is imprecise but points the right way (it rises when the feature does more
+    work) — which satisfies the directional standard. On zone 3 it reports savings where the effect
+    cannot be distinguished from zero. That is a SIGN/EXISTENCE error, not a magnitude error, and it
+    is the only place the directional standard actually fails.'
+  parsimony:
+    problem: the tech-debt entry gives a bias direction that measurement contradicts; future readers
+      will reason from it
+    verdict: DOC-FIX
+    note: NOT a build. Magnitude retired per operator - the figure is explicitly not billing-grade
+      and only needs to be directionally accurate.
+  next: 'One-line correction to the docs/TECH_DEBT.md v4.5.11 entry: replace the "conservative bias
+    is correct direction" justification with the measured direction (it over-claims, because the
+    30-min projection does not net the post-restore rebound that hvac_override.py:3492-3495 already
+    documents). Keep the acceptance decision unchanged. Fold into whatever cycle next touches that
+    file — this does not warrant its own cycle.'
+  refs:
+  - docs/TECH_DEBT.md "v4.5.11 — AC ramp-down: rough kWh-avoided estimate"
+  - hvac_override.py:3442,3492-3495
+  - sensor.py:12239-12276
+  - PLANNING_hvac_kwh_avoided_savings.md
+
+- id: KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1
+  title: "Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock
+    (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase"
+  thread: presence
+  status: investigating
+  created: '2026-08-21 18:00'
+  updated: '2026-08-21 18:00'
+  refinement_status: initial
+  approval: operator_directed
+  tags:
+  - live-experiment
+  - measure-before-build
+  - revert-values-recorded
+  THE_CHANGE_AND_HOW_TO_REVERT: 'APPLIED 2026-08-21 ~18:00 CDT to
+    number.mmwave_lux_wifi_esphome_kitchen_g{0..8}_still_threshold.
+    BEFORE (operator-modified, revert to these if needed): 39, 71, 58, 53, 60, 39, 38, 44, 49
+    AFTER  (= Study B stock profile, verified applied): 0, 0, 40, 40, 40, 30, 30, 20, 20
+    DELIBERATELY UNCHANGED so the experiment has ONE variable: move thresholds g0-g8 (already
+    IDENTICAL between the two units), max_move_distance_gate (kitchen 7 vs studyb 8),
+    max_still_distance_gate (kitchen 6 vs studyb 8), timeout (kitchen 27 vs studyb 30),
+    distance_resolution / out_pin_level / baud (already identical).
+    Operator context: "I do think Kitchen was modified and I dont think I knew what I was doing and
+    didnt think it would make much diff. The Study B looks relatively unmolested." So Study B is a
+    genuine untouched control.'
+  THE_HYPOTHESIS_AND_WHY_IT_INVERTS_THE_OBVIOUS_FIX: 'The chatter is DROP-OUTS, not false positives.
+    MEASURED (48h): kitchen _presence ON-durations have ZERO episodes under 25s and a hard mode at
+    25-28s — the 27s hold is governing cleanly and nothing cuts presence short. ALL the churn is on
+    the OFF side: 94 of 359 OFF-episodes under 25s, 24 under 5s. Study B has ZERO OFF-episodes under
+    30s.
+    That is the signature of A PRESENT PERSON BEING REPEATEDLY LOST, not of phantom triggers.
+    Higher still threshold = LESS still-sensitivity (INFERRED from LD2410 semantics, not read from
+    the ESPHome config — flagged as the weak link in the chain). So the raised thresholds plausibly
+    CAUSE the drop-outs: a person stands still, is no longer detected, presence times out after 27s,
+    they shift, presence returns. The likely history is that the thresholds were raised to suppress
+    false positives and instead produced drop-out chatter — i.e. THE FIX POINTS THE OPPOSITE WAY FROM
+    THE INTUITIVE ONE (lower, not raise).'
+  THE_EVIDENCE_THAT_RULED_OUT_HARDWARE: 'DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE.
+    DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY —
+    _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output stays
+    calm (35 transitions vs 724). Same raw churn in, wildly different presence out. Occupancy-
+    normalised (per hour-ON) the kitchen is still 5x chattier: 116/hr vs 22/hr.
+    NOTHING LOOKS LIKE FAILING HARDWARE: only 8 unavailable rows in 48h, no sub-second storms, no
+    missing episodes, ON-durations perfectly obey the configured hold. It behaves like a correctly
+    functioning LD2410 seeing more than we want it to.
+    FAN IS REAL BUT SECONDARY: conditioned on activity (30-min buckets with >=4 _moving_target
+    transitions) the fan multiplies presence chatter 1.57x and raw motion 1.47x — a multiplier on an
+    already-bad baseline, not the cause. The fan-OFF baseline alone is ~5x Study B. So URAs
+    mmwave_fan_demotions_since_boot=7 suspicion is WELL-FOUNDED but a fan gate alone will NOT make
+    this sensor calm. Caveat: only 15 fan-ON active buckets, so the direction is solid and the exact
+    multiplier is not.'
+  ACCEPTANCE_AND_NEXT_STEPS: 'RE-MEASURE IN 48H with the same script (interval histogram, sub-5s
+    count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare
+    against the recorded baseline: 724 transitions, median interval 44.0s, 116 transitions per hour-ON,
+    94 OFF-episodes under 25s.
+    DISCRIMINATING OUTCOMES: (a) chatter collapses toward Study B numbers -> tuning was the cause,
+    close this and leave stock; (b) chatter unchanged -> tuning exonerated, escalate to PLACEMENT
+    (move/re-aim the unit, or narrow max_move/max_still distance gates from 7/6) BEFORE any hardware
+    purchase; (c) chatter worsens -> revert to the BEFORE values above and reconsider.
+    ORDER OF ESCALATION AGREED: still thresholds -> distance gates -> move/re-aim -> replace. HARDWARE
+    LAST, NOT FIRST.
+    NOTE: switch.kitchen_override_vacant was turned back ON by the operator while this runs, so the
+    chatter is NOT reaching zone-3 occupancy in the meantime. The sensor still logs its transitions,
+    so the experiment is unaffected by the override.'
+  parsimony:
+    problem: a mmWave sensor chattering 724x/48h was heading for hardware replacement on a guess
+    verdict: INVESTIGATE
+    note: free reversible config experiment with a real control (Study B), run before spending money
+  next: 'Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the
+    discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.'
+  refs:
+  - number.mmwave_lux_wifi_esphome_kitchen_g0_still_threshold
+  - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
+  - binary_sensor.mmwave_lux_wifi_esphome_studyb_presence
+  - KITCHEN-OCCUPANCY-DEAD-1
+  - CHATTER-RATE-VS-BURST-GAP-1
+
+- id: EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1
+  title: "person_id has NEVER been populated — 0 of 6,763 rows across 5.5 months. The eight
+    identity-consumer cards are blocked on a producer that emits nothing, not a sparse one. NO-GO."
+  thread: presence
+  status: investigating
+  created: '2026-08-21 19:10'
+  updated: '2026-08-21 19:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - measure-before-build
+  - blocks-a-card-cluster
+  THE_MEASUREMENT_ORCHESTRATOR_VERIFIED: 'MEASURED and INDEPENDENTLY RE-VERIFIED by the orchestrator
+    (not relayed on the agent word): table person_entry_exit_events in the LIVE URA DB —
+    rows = 6,763, person_id NOT NULL = 0, DISTINCT person_id = 0, span 2026-03-04T23:53 ->
+    2026-08-21T22:35. FIVE AND A HALF MONTHS, NEVER ONCE POPULATED.
+    This is not a coverage RATE. There is no coverage.'
+  WHY_IT_IS_ZERO_AND_WHY_THAT_IS_NOT_A_WIRING_BUG: 'The feature is ARMED, not dormant:
+    egress_identity_enabled = True on the integration entry and kill switch
+    switch.ura_name_people_at_doors has been ON since 08-18. Registry resolution of all five egress
+    cameras is CORRECT, including the awkward case garage_b (person entity UNSUFFIXED
+    binary_sensor.garage_b_person_occupancy while its face sensor IS suffixed _2) — so the Frigate-1
+    `_2` handling is NOT broken here.
+    The zero is explained by ABSENCE OF FACES TO MATCH, not by a broken stamp. Split at the 08-18
+    ship boundary, counting a named face on the same camera stem within FACE_MATCH_WINDOW_S=60
+    (const.py:2162) BEFORE the crossing — exactly the condition _resolve_egress_face_identity tests:
+    - PRE-ship 08-14..08-17: 252 crossings, 7 with a face in window (2.8%), 0 stamped.
+    - POST-ship 08-18..08-21: 112 crossings, ZERO with a face in window. No opportunity to stamp.
+    Widening the window barely helps: 60s->7/364, 120s->7/364, 300s->8/364, 900s->10/364 (2.7%).
+    The faces are not there to find. No code defect was found in _resolve_egress_face_identity,
+    register_egress_face, or log_entry_exit_event.'
+  THE_REAL_SHAPE_FACE_RECOGNITION_WORKS_ON_THE_WRONG_CAMERAS: 'Named-face events over 7.6 days:
+    INTERIOR cameras — master_hallway 68, playroom 30, upstairs_hall 18, staircase/stairs_top 20.
+    EGRESS cameras — garage_a 10, front_door_aerial 5, madrone_g6_entry 3, doorbell_lite 3,
+    garage_b 1.
+    Frigate face recognition WORKS WELL where people face the lens at conversational distance. On
+    door/garage cameras (overhead + aerial angles, people in motion, often back-of-head) it produces
+    ~3 named events per camera per WEEK against 15-45 crossings. The capability is fine; the
+    GEOMETRY is wrong.
+    Also MEASURED: UniFi Protect named-face events are NOT in this path at all — no Protect person
+    entity is linked to any of the five egress devices in the registry. Protect and Frigate person
+    detection DO corroborate (deduped within 5s in _resolve_direction), but neither Protect leg
+    carries identity into this table.'
+  CEILING_AND_WHY_IT_KILLS_THE_CONSUMER_CARDS: 'REALISTIC CEILING ~2% (4 named episodes / 229
+    deduplicated crossing episodes over 7.6 days). Poisson noise alone spans roughly 0.5%-4%; call it
+    0-6% honestly. A consumer that names the person at the door would stay SILENT ON ROUGHLY 49 OF
+    EVERY 50 ENTRIES — erratic, not present.
+    THIS IS THE MEASURE-BEFORE-BUILD RULE PAYING OUT EXACTLY AS WRITTEN: "always measure the real
+    production rate of the new value first — a sparse producer caps every consumer value and may
+    argue for a different producer, not more consumers." It does here.
+    NO-GO on scoping PERIMETER-ALERT-NAME-PERSON-1, GUEST-GATE-DOOR-IDENTITY-1,
+    ARRIVAL-DEPARTURE-NOTIFY-1, CENSUS-FACE-RESOLVER-MIGRATE-1, GUEST-COUNT-DEDUP-MIGRATE-1,
+    SECURITY-CENSUS-UNKNOWN-WIRE-1, UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1,
+    EGRESS-INTERIOR-COUNT-REINFORCE-1. The work in front of them is RAISING EGRESS FACE YIELD, not
+    wiring downstream readers. Do not close them — re-gate them behind this card.'
+  PRODUCER_FIX_CANDIDATES_ALL_INFERRED: 'NONE OF THESE ARE MEASURED — they are hypotheses for a
+    producer cycle, and the cycle should start with a measurement of WHY faces miss (the
+    face-event-vs-crossing LAG DISTRIBUTION), which needs debug logs, not the recorder.
+    (a) FACE_MATCH_WINDOW_S=60 with an age>=0 constraint requires the face to land BEFORE the
+    crossing. Frigate face inference may routinely land AFTER. A signed-lag histogram would settle
+    it and is the cheapest first probe.
+    (b) Camera angle/placement at the doors — the geometry finding above suggests this is the
+    dominant term.
+    (c) MOST PROMISING: fuse an INTERIOR face within a short window of an egress crossing rather than
+    requiring the same camera stem. Interior cameras produce 136 named events/week vs 22 across all
+    five egress cameras. That is a producer REDESIGN, not a consumer card.'
+  SUPERSEDES_THE_7PCT_MEMORY: 'This measurement SUPERSEDES memory
+    reference_egress_face_coverage_7pct_not_a_ceiling. That memo said the 7% figure was measured on
+    the WRONG camera (front door) and that the identity path was therefore VIABLE. The first half was
+    right; the CONCLUSION was wrong. Measuring the RIGHT cameras did not rescue the rate — it landed
+    LOWER (~2%), by a different and better method (per-camera temporal join against actually-logged
+    crossings, rather than pooled front-door face coverage). Memory corrected 2026-08-21.'
+  links:
+    blocks:
+    - PERIMETER-ALERT-NAME-PERSON-1
+    - GUEST-GATE-DOOR-IDENTITY-1
+    - ARRIVAL-DEPARTURE-NOTIFY-1
+    - CENSUS-FACE-RESOLVER-MIGRATE-1
+    - GUEST-COUNT-DEDUP-MIGRATE-1
+    - SECURITY-CENSUS-UNKNOWN-WIRE-1
+    - UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
+    - EGRESS-INTERIOR-COUNT-REINFORCE-1
+    related:
+    - EGRESS-CAMERA-DEAD-CONFIG-1
+    context: 'Blocks all eight identity-consumer cards — they read a value that is always NULL, so
+      none can be scoped until egress face yield rises. EGRESS-CAMERA-DEAD-CONFIG-1 fixed the dead
+      garage camera names, which was necessary but NOT sufficient: the cameras are alive and the
+      producer still emits nothing.'
+  parsimony:
+    problem: eight cards are queued against a value that has never once been produced
+    verdict: INVESTIGATE
+    note: the producer is the finding; consumers are moot until yield rises above a usable floor
+  next: 'Do NOT scope the eight consumers. Instead run the producer probe: measure the SIGNED LAG
+    between Frigate named-face events and egress crossings on the same stem (needs debug logs, not
+    recorder). That single distribution discriminates candidate (a) window/ordering from (b)
+    geometry. If lag is the problem it is a cheap fix; if geometry is, the interior-face fusion in
+    (c) is the real cycle. Separately re-measure the GARAGE route on 2026-08-28 (only 8 crossings in
+    4 days post-Frigate-2; too thin to characterise) — but do not hold the eight cards for it, the
+    front-door route already has 104 post-ship crossings with zero named.'
+  refs:
+  - person_entry_exit_events (URA DB)
+  - const.py:2162 FACE_MATCH_WINDOW_S
+  - switch.ura_name_people_at_doors
+
+- id: CHATTER-RATE-VS-BURST-GAP-1
+  title: The chatter detector cannot see the house's actual chatter — it detects BURSTS OF
+    IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25
+    impossibility events)
+  thread: presence
+  status: investigating
+  created: '2026-08-21 17:40'
+  updated: '2026-08-21 17:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - explains-a-null-result
+  OPERATOR_INSIGHT_2026_08_21: 'Operator, unprompted and correct: "I wonder if chatter is the right
+    thing vs burst chatter. which would be time scoped and not continuous." The measurement below
+    confirms it. This card exists because the operator named the distinction before the data was
+    fully read.'
+  THE_MEASUREMENT: 'Kitchen ESP mmWave, 48h from the HA recorder (MEASURED, computed from raw
+    state rows on the live host):
+    - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence (THE ONE WIRED INTO THE ROOM):
+      731 transitions, median interval 44.4s, min 0.22s. Interval histogram:
+      <1s: 1 | 1-5s: 24 | 5-15s: 36 | 15-60s: 364 | >=60s: 305.
+      SUB-5s events = 25 out of 730 intervals (3.4%), i.e. ~0.5/hour.
+    - binary_sensor.mmwave_lux_wifi_esphome_kitchen_moving_target (NOT wired into the room):
+      3,746 transitions, median 2.2s, SUB-5s = 2,741.'
+  WHY_THE_DETECTOR_CANNOT_SEE_IT: 'The definition, verbatim from chatter_detector.py:11-15: a sensor
+    is "chattering iff it emits >= CHATTER_BURST_K transitions WHOSE INTERVAL SINCE THE PRIOR
+    TRANSITION IS BELOW that sensor per-family T_floor (impossibility events) within the rolling
+    CHATTER_OBSERVATION_WINDOW_S window."
+    With K=10 and T_floor=5.0s, the WIRED sensor generates ~0.5 impossibility events/hour. It will
+    essentially never accumulate 10 inside one observation window unless they cluster. So the
+    detector will NOT flag a sensor that flips 731 times in two days. Raising T_floor 1.0 -> 5.0
+    (done 2026-08-20) does not change this — it broadens the net but the events remain far too sparse.
+    TWO DISTINCT SIGNALS, AND ONE CANNOT SEE THE OTHER:
+    - BURST OF IMPOSSIBILITY (what is built): K sub-T_floor intervals in a rolling window. Detects a
+      sensor doing something physically impossible.
+    - SUSTAINED RATE (what the kitchen actually does): 731 flips/48h where EVERY INDIVIDUAL FLIP IS
+      PHYSICALLY PLAUSIBLE. Absurd in aggregate, innocent in every instance.
+    THIS EXPLAINS THE NULL RESULT. Chatter shadow mode "found nothing" across the house overnight.
+    The detector is NOT mistuned — the houses actual chatter is the kind it was deliberately designed
+    not to look at.'
+  THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING: 'DO NOT simply add a rate threshold to the existing
+    detector. The impossibility framing was chosen ON PURPOSE so the detector could
+    QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a
+    physics violation a correctly-working sensor CANNOT satisfy. No corroborator gate."). That licence
+    is EARNED by impossibility: a working sensor cannot produce it, so no second opinion is needed.
+    A RATE DETECTOR CANNOT INHERIT THAT LICENCE. A busy open-plan kitchen legitimately produces a high
+    transition rate. So a rate-based detector needs EITHER a corroborator gate OR a softer response —
+    DEMOTE, not quarantine. Getting this wrong would quarantine a healthy sensor in the busiest room
+    in the house. The response class must be designed with the signal, not bolted on.'
+  SECOND_FINDING_WRONG_LEG_WATCHED: 'The detector registers over "the room blind-time-gated tier-1
+    entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow
+    chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,741 sub-5s
+    events) and is watched by NOTHING because it is not in the room config. A multi-leg sensor whose
+    unwired legs are the diagnostic ones is a general gap, not a kitchen quirk — worth checking
+    whether other ESP/mmWave rooms have the same shape.'
+  parsimony:
+    problem: the chatter detector cannot detect the failure mode the house actually exhibits
+    verdict: INVESTIGATE
+    note: 'do NOT bolt a rate threshold onto the impossibility detector — the response class
+      (quarantine vs demote) is coupled to the signal class. Design them together.'
+  next: 'Decide whether a RATE-based sensor-health signal is worth building at all — decompose the
+    benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only
+    transitions-per-hour surface with NO automatic action, letting the operator see a misbehaving
+    sensor rather than having URA act on it. If it is built, the response must be demote-with-
+    corroboration, never quarantine-always. Separately: check whether other rooms wire only the
+    quiet leg of a multi-leg mmWave.'
+  refs:
+  - chatter_detector.py:8-15
+  - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
+  - KITCHEN-OCCUPANCY-DEAD-1
+  - CHATTER-CAMERA-CONFIDENCE-FLAP-1
+  - SENSOR-MULTISTATE-FAULT-1
+
+- id: KITCHEN-OCCUPANCY-DEAD-1
+  title: "RESOLVED — NOT A DEFECT: kitchen occupancy is pinned off by switch.kitchen_override_vacant
+    (room deliberately disabled); three inferred mechanisms were wrong before the switch was checked"
+  thread: presence
+  status: done
+  created: '2026-08-21 16:45'
+  updated: '2026-08-21 17:20'
+  refinement_status: resolved
+  approval: n/a
+  RESOLUTION_2026_08_21: 'NOT A DEFECT. The Kitchen room is DELIBERATELY DISABLED:
+    switch.kitchen_override_vacant = ON, switch.kitchen_automation = OFF,
+    switch.kitchen_ai_automation = OFF. The override (a v3.20.0 feature, coordinator.py:4634-4637,
+    _is_override_vacant) forces STATE_OCCUPIED=False and stamps occupancy_source="override"
+    REGARDLESS OF SENSORS. All four switches share last_changed 2026-08-21T14:09:20, which is a
+    RESTART timestamp (RestoreEntity rehydration), not four manual toggles — so this has been the
+    standing configuration.
+    EVERYTHING ELSE IS HEALTHY: the PIR (binary_sensor.motiontempluxhum_protect_blu_kitchen_motion,
+    UniFi Protect) fires normally; the ESP mmWave
+    (binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence) is live and correctly wired as the
+    room Presence sensor; capability declarations are correct. Confirmed from the operator screenshot
+    of the Sensors config page plus live entity reads.
+    OPEN QUESTION FOR THE OPERATOR (the only remaining item): is the kitchen MEANT to be disabled? If
+    yes, close this permanently. If no, the fix is flipping three switches — no code, no config edit.'
+  METHOD_POSTMORTEM_THREE_WRONG_MECHANISMS: 'KEPT DELIBERATELY — this card is a better example of a
+    reasoning failure than of a bug. THREE mechanisms were asserted and refuted in sequence, each
+    inferred from partial evidence, before anyone checked the room switches:
+    (1) "missing/misconfigured motion source" — from a measurement agent seeing 100% off. REFUTED by
+        history: the PIR fires constantly (1,161 state changes in 3 days).
+    (2) "occupancy confidence gated by a dead mmWave" / "motion not in the substrate" — inferred from
+        sensor.kitchen_unavailable_entities=1 plus unavailable looponunity entities. REFUTED: the
+        looponunity entities are ORPHANED REGISTRY LEFTOVERS from a removed device and are NOT
+        referenced by the kitchen config at all.
+    (3) "stale config points at the removed looponunity, replacement unwired" — inferred from the
+        operator noting the device had been replaced. REFUTED by the operator directly ("pretty sure
+        the loopunity is not in config pages") and then by the config screenshot: the ESP mmWave was
+        already wired.
+    THE ACTUAL ANSWER WAS ONE STATE READ AWAY THE WHOLE TIME. Lesson, consistent with
+    feedback_verify_claim_types_not_felt_uncertainty: a CAUSAL MECHANISM claim is contraband without
+    evidence, and "is this thing simply switched off?" is the cheapest disconfirming check available
+    for any "X never fires" symptom. CHECK THE OVERRIDE/ENABLE SWITCHES FIRST — before substrate,
+    config, or code.'
+  CONSEQUENCE_FOR_THE_ZONE3_MEASUREMENT: 'The zone-3 occupancy/coincidence analysis treated the
+    kitchen as contributing nothing to zone occupancy. That remains TRUE and the numbers stand — but
+    the REASON is the deliberate override, not a defect. Nuance that still matters: for the question
+    "was a human physically present during a nudge", URA genuinely does not know about the kitchen,
+    so the coincidence rate is still an UNDER-COUNT of real human presence. Design choice, not bug.'
+  SIBLING_SWEEP_STILL_VALID_2026_08_21: 'The house-wide sweep stands on its own and is NOT
+    invalidated by this resolution: sensor.<room>_unavailable_entities is non-zero in SIX rooms —
+    EIGHT dead configured inputs: game_room 2, garage_a 2, kitchen 1, living_room 1, master_bedroom 1,
+    upstairs_guestroom 1. Only 20 rooms expose the sensor, so coverage is PARTIAL.
+    DO NOT assume a shared cause — "unavailable" covers both stale config pointing at removed
+    hardware AND a device merely offline right now, which need different fixes. Also note the kitchen
+    still shows 1 dead input whose identity was never established (it is NOT the looponunity, which
+    is unreferenced). Worth its own small pass; tracked here rather than spawning a card until
+    someone determines whether these are stale config or offline devices.'
+  parsimony:
+    problem: none — behaviour is as configured
+    verdict: NO-BUILD
+    note: resolved by inspection; retained for the method postmortem and the sibling sweep
+  next: 'Ask the operator whether the Kitchen room is intended to stay disabled. If yes, close. If no,
+    turn on switch.kitchen_automation and switch.kitchen_ai_automation and turn OFF
+    switch.kitchen_override_vacant, then confirm binary_sensor.kitchen_occupied fires. Separately,
+    work the six-room dead-input sweep, determining per room whether each input is stale config or an
+    offline device.'
+  refs:
+  - coordinator.py:4623-4645
+  - switch.kitchen_override_vacant
+  - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
+  - feedback_verify_claim_types_not_felt_uncertainty
+
+- id: AC-RAMP-ZONE3-NO-BENEFIT-1
+  title: Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for
+    disable-pending-evidence rather than retune
+  thread: hvac
+  status: investigating
+  created: '2026-08-21 11:40'
+  updated: '2026-08-21 11:40'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - cannot-tell-from-this-data
+  THE_MEASUREMENT: 'Zone 3 (3-ton; back rooms + hallways + kitchen) pooled net energy effect per
+    nudge over +90 min is -0.087 +/- 0.128 kWh — the confidence interval SPANS ZERO. Implied value
+    +$0.08/day, CI -$0.16 to +$0.32. No individual pre-nudge power bucket reaches significance
+    either (1.5: +0.099; 2.0: -0.253; 2.5: +0.017; 3.0: -0.234, all CIs spanning zero). Zone 3 runs
+    ~11 nudges/day, peak 32. Compare zone 1 (-0.435 +/- 0.083, clearly saves) and zone 2 (savings
+    proven only at pre-nudge >= 2.5 kW). n=79 nudges with full recorder overlap over 7.5 days;
+    ac_ramp_events span 31 days.'
+  WHY_NO_THRESHOLD_WAS_SET: 'DELIBERATE NON-ACTION. Zone 1 and zone 2 thresholds were retuned
+    2026-08-21 (1.3->1.5 and 1.2->2.2). Zone 3 was LEFT AT 1.3 because tuning a knob on an
+    intervention with no measurable effect is optimising a number that does not matter. The plateau
+    structure would suggest ~1.6 by analogy with zone 2, and that value would look confident and be
+    unsupported. Explicitly not set.'
+  OPERATOR_OCCUPANCY_REFRAME_2026_08_21: 'OPERATOR: zone 3 differs from zone 2 in ONE way — "its a
+    zone not as often occupied as the others... Mostly only when we have guests are entertain a lot."
+    Same 3-ton HVAC model as zone 2, so EQUIPMENT is not the variable; OCCUPANCY is.
+    MEASURED (verified in source 2026-08-21): the AC-ramp gate block hvac_override.py:2660-2750
+    contains NO occupancy or preset reference whatsoever. Gates are ramp_zone_enabled -> cooling
+    action -> at-setpoint -> kwh_rate > threshold -> 3 consecutive samples -> 10-min sustain. The
+    ramp nudges regardless of whether anyone is in the zone.
+    THIS CORRECTS AN ERROR IN THIS CARD AS ORIGINALLY WRITTEN. The card argued zone 3 was "paying
+    ~11 comfort interruptions/day for nothing". That assumed SOMEONE WAS THERE TO BE INTERRUPTED. In
+    a mostly-empty zone a nudge has ZERO comfort cost, so: (a) the comfort argument for suppressing
+    zone-3 nudges is largely VOID, and (b) the disable-pending-evidence option is WEAKENED — disabling
+    would forfeit small-but-FREE savings. Do not disable on the strength of the null result alone.
+    THE THRESHOLD CHANGE TO 2.2 STILL STANDS but on the EQUIPMENT argument only: 1.3 sat inside zone
+    3s Stage 2 modulation band (0.90-1.50 kW), where a nudge yields little regardless of occupancy.
+    Same defect that was corrected on zone 2. NOT on the comfort argument.'
+  OCCUPANCY_PROFILE_CORRECTED_AGAIN_2026_08_21: 'SECOND CORRECTION, and it reverses the first.
+    OPERATOR: "Its not completely unoccupied. And its also the One that has sensitive drive bys by
+    people in the house." Zone 3 is the TRANSIT zone — hallways + kitchen, HIGH-FREQUENCY SHORT
+    occupancy by people passing through. Neither previous framing was right:
+    - framing 1 (occupied, so nudges cost comfort) — wrong, assumed DWELL occupancy;
+    - framing 2 (mostly empty, so nudges are free) — ALSO WRONG, an over-correction.
+    THE ACTUAL PROFILE IS TRANSIT, and it inverts the comfort math a second time. In a DWELL zone
+    occupants are present continuously: they experience a nudge as a gradual drift and are present
+    for the recovery. In a TRANSIT zone someone arrives at an UNPREDICTABLE moment; if they walk in
+    mid-nudge they meet the excursion with no warning and no adaptation, and they are gone before the
+    restore. So per-nudge comfort cost in zone 3 may be HIGHER than in a dwell zone, not zero.
+    Consistent with the operators presence-tuning sensitivity being concentrated in exactly these
+    rooms — back hallway dwell was the setting they moved from 3 to 5 minutes.
+    NET: both the "11 interruptions for nothing" framing AND the "nudges are free" correction are
+    retired. The comfort cost is real, is concentrated in unpredictable short entries, and is NOT
+    captured by any nudge-count metric.'
+  DESIGN_IDEA_EARLY_RETURN_ON_OCCUPANCY_DECOMPOSE_FIRST: 'IDEA, NOT A SPEC — decompose before
+    scoping (marginal-benefit duty). The ramp gate block has NO occupancy input (MEASURED,
+    hvac_override.py:2660-2750), so a nudge runs to completion regardless of who arrives. The
+    implication of the transit profile points OPPOSITE to the earlier suggestion: not "skip the nudge
+    when the zone is empty" but "END THE NUDGE EARLY WHEN SOMEONE WALKS IN."
+    NATURAL FIT FOR THE BORROW PRIMITIVE, not new machinery: an occupancy event becomes an
+    EARLY-RETURN TRIGGER on an existing lease. return_excursion() already exists; this is one more
+    discharge condition on it, not a new mechanism. That is a genuinely cheap version IF it is worth
+    doing at all.
+    DO NOT BUILD BEFORE MEASURING. The simple version already helps: a nudge is ~2 minutes, so the
+    overlap window with any given drive-by is small. Whether early-return earns its complexity depends
+    on HOW OFTEN A NUDGE AND AN ENTRY ACTUALLY COINCIDE — measurable from existing data, and it
+    belongs in the same occupancy split described below. If coincidence is rare, the idea is parked
+    with this note as the evidence trigger.'
+  THE_REAL_QUESTION_NOW: 'The question is NOT "does zone 3 save?" but "DOES ZONE 3 SAVE WHEN THE
+    HOUSE IS ENTERTAINING?" Those are the nudges that carry actual comfort cost and the only ones
+    worth tuning for. A null pooled across mostly-empty hours may be WASHING OUT a real signal from
+    the occupied minority — n=79 split by occupancy could be ~10 occupied and ~69 empty, and the
+    pooled mean would be dominated by the empty ones.
+    DISCRIMINATING TEST, runnable on data that ALREADY EXISTS (no 3-4 week wait): split zone 3s 79
+    nudges by occupancy/preset at fire time and compare net energy effect between the two halves.
+    ADD A THIRD MEASUREMENT given the transit profile: the COINCIDENCE RATE — how often does an
+    occupancy ENTRY event land inside a live nudge window (nudge start -> restore, ~2 min)? That
+    number, not the nudge count, is the real comfort-cost metric for a transit zone, and it is the
+    go/no-go gate on the early-return idea above.
+    - If occupied-half looks like zone 2 and empty-half is ~zero -> occupancy IS the mechanism; tune
+      for the occupied case and leave the free empty-zone nudges alone.
+    - If BOTH halves are null -> occupancy is NOT the mechanism; look elsewhere (thermal rebound
+      remains a candidate).
+    This supersedes the earlier "accumulate another 3-4 weeks" suggestion as the FIRST step.'
+  SUPERSEDED_HYPOTHESIS_UNTESTED: 'LOWER PRIORITY than the occupancy split above; retained as the
+    alternative if both halves come back null. Original: Zone 3 covers kitchen + hallways — high internal gain, high infiltration,
+    likely poor thermal mass. A nudged-off compressor may rebound almost immediately, which is what
+    the near-zero and slightly-positive +90 min numbers hint at. PLAUSIBLE, UNTESTED. Do not treat
+    as the mechanism until an observation discriminates it from the alternatives.'
+  parsimony:
+    problem: no demonstrated energy benefit on zone 3 — but the comfort-cost half of the original
+      framing is void, since the zone is mostly empty
+    verdict: INVESTIGATE
+    note: 'disable-pending-evidence is now WEAKENED, not a live option — an empty-zone nudge is free,
+      so disabling forfeits savings at no comfort gain. Run the occupancy split first.'
+  next: 'Two paths, not mutually exclusive. (1) Accumulate: another 3-4 weeks of ac_ramp_events
+    tightens the CI roughly 2x and may resolve the null. (2) Test the rebound hypothesis directly
+    against the recorder rather than waiting. If rebound is confirmed, the question becomes
+    ramp_zone_enabled=false for zone 3, NOT a threshold value. INTERIM option if comfort cost is
+    worth reducing while the question is open: 2.0 (7.7 nudges/day, -32%) — defensible only because
+    there is no measurable savings to lose, not because it is optimal.'
+  refs:
+  - AC-RAMP-SAVINGS-OVERSTATED-1
+  - number.ura_hvac_coordinator_ac_kwh_rate_threshold_back_hallway_2
+
+- id: S14-CEILING-NEEDS-AN-ENDING-1
+  title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending
+    (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
+  thread: hvac
+  status: planned
+  created: '2026-08-21 10:20'
+  updated: '2026-08-21 10:20'
+  refinement_status: initial
+  approval: operator_decided
+  sibling_of: HVAC-PRESET-FLAP-1
+  tags:
+  - tier-2db
+  - re-litigates-shipped-trade
+  - suppression-needs-a-discharge
+  OPERATOR_DECISION_2026_08_21: 'Operator chose option (a) "give it an ending" from the three costed
+    in HVAC-MANUAL-PRESET-CONTRACT-1 / S14_OPERATOR_VERDICT (a: add ending, b: reduce to
+    suppression-only, c: remove entirely). Operator suggestion for the mechanism: "Maybe reading its
+    interventional setpoint?"'
+  THE_DEFECT: 'During an energy coast/shed off-phase in an OCCUPIED zone, S14 (_apply_duty_off_phase,
+    hvac.py ~:2972-2983) writes a RAW SETPOINT to hold the cooling ceiling instead of flipping the
+    zone to away. The raw write puts the Bryant into preset `manual`. Its documented exit is "holds
+    until the next preset transition" — and that exit is STRUCTURALLY UNREACHABLE, because
+    should_change_preset (hvac_preset.py:202) returns False whenever the current preset is manual.
+    S14 CREATES THE EXACT CONDITION THAT PREVENTS ITS OWN EXIT. No timer, no decay, no restore.'
+  RE_LITIGATES_A_DELIBERATE_SHIPPED_TRADE: 'IMPORTANT — the no-release behaviour is INTENDED, not
+    accidental, and THREE artifacts encode it. Overturn all three deliberately and visibly:
+    (1) PLANNING_preset_flap_offphase_honesty.md:184-195 states the ceiling holds until the next
+    preset transition BY DESIGN; (2) :280 is a LIVE ACCEPTANCE CRITERION asserting that NO follow-on
+    restore write fires; (3) shipped test `test_ceiling_held_until_next_preset_transition` ENFORCES
+    it. That test currently encodes the defect as a guarantee and must be INVERTED, with the parked
+    plan annotated to record the operator revisiting the trade on 2026-08-21. Do NOT delete it
+    silently. WHY the original trade wanted no release: a release write is another preset transition,
+    i.e. flap — the exact thing PRESET-FLAP-1 was fixing. Any ending MUST therefore fire ONCE PER
+    OFF-PHASE, not per tick. That is the anti-flap property and the criterion that discriminates a
+    good fix from a re-opened flap.'
+  TIMER_RESOLVED_BY_THE_BORROW_2026_08_21: 'FINAL SHAPE, after operator asked "Borrow framing good.
+    But you want a timer still? Suggestions?" ANSWER: yes, but the borrow ALREADY HAS ONE — do not
+    build a second. The lease expiry IS the timer:
+    expiry_ts = min(started + duration_s + EXCURSION_LEASE_SLACK_S, started + EXCURSION_LEASE_MAX_S).
+    As a borrow kind, S14 inherits ALL FOUR requirements for free: the timer (lease expiry), the hard
+    backstop (LEASE_MAX), restart safety (async_startup_excursion_audit), and the preset-write
+    restore (the return path). A bespoke S14 timer would duplicate existing machinery.
+    THE ONLY REMAINING DECISION IS WHAT duration_s TO PASS AT begin(). RECOMMENDATION: pass the
+    COMPUTED OFF-PHASE REMAINING, clamped by LEASE_MAX. Precedent already in the plan — §4.4 lists
+    "preheat with computed hour boundary" as a duration_s case, i.e. the exact shape.
+    THIS DISSOLVES THE EARLIER OBJECTION. The orchestrator argued against an off-phase-expiry ending
+    because it would couple S14 release to energy-coordinator state (a categorically risky
+    ingredient). But as a duration_s it is A VALUE HANDED OVER ONCE AT BEGIN TIME, NOT A STATE READ
+    EVERY TICK. The coupling objected to was continuous; this is a single parameter. So the
+    semantically-correct ending and the hard cap are obtained together, with no live cross-coordinator
+    dependency.
+    KNOBS: EXCURSION_LEASE_MAX_S already exists as the backstop, so S14 likely needs NO KNOB OF ITS
+    OWN. This supersedes the earlier recommendation to add a Number entity for the duration — the
+    system can compute it, and a knob for a computable value is an invitation to drift.
+    STILL MANDATORY: the ONE-SHOT-PER-OFF-PHASE guard (below). If the duty cycle extends past the
+    original estimate the lease expires early, the next tick re-arms, and the slow flap returns.
+    ORIGINAL OPERATOR DECISION PRESERVED: "Give it a timer."'
+  SUPERSEDED_OPERATOR_CHOSE_A_TIMER_2026_08_21: 'SUPERSEDED by TIMER_RESOLVED_BY_THE_BORROW above —
+    the timer is the lease, not a new mechanism, and the duration knob is withdrawn in favour of a
+    computed duration_s. The FLAP GUARD in this entry STANDS. Original: operator: "Give it a timer." The ending is a BOUNDED
+    TIMER, not the off-phase-expiry discharge originally proposed below. THIS IS THE LOWER-RISK
+    CHOICE and supersedes part (1) of the three-part proposal: off-phase-expiry would couple S14s
+    release to the energy coordinators off-phase state (cross-coordinator state — a categorically
+    risky ingredient per the marginal-benefit rule) to buy a semantic nicety. A timer always fires
+    and adds no seam. Orchestrator had over-elaborated; operator picked the simple version.
+    MANDATORY GUARD — A TIMER ALONE FLAPS. Timer expires -> release to preset -> next tick sees the
+    off-phase STILL RUNNING -> S14 re-applies the ceiling -> manual again -> timer -> release. A slow
+    oscillation replaces the permanent hold, which re-creates exactly what PRESET-FLAP-1 was fixing.
+    FIX (keeps the operators simple design): ONE-SHOT PER OFF-PHASE. Release once when the timer
+    expires; for the REMAINDER of that off-phase fall back to suppression-only (do not flip to away,
+    do not re-write the ceiling). Re-arm on the NEXT off-phase. This preserves the discriminating
+    acceptance criterion (release fires once per off-phase, not per tick) with no new coupling.
+    STILL REQUIRED TO BE COMPLETE:
+    (a) KNOB for the duration — per the Numbers Get Knobs ladder this is policy the operator would
+    legitimately tune by observation, so a NUMBER ENTITY (same rung as drain target / arbitrage lead
+    time), NOT a module constant. Kill-switch semantics documented on the knob.
+    (b) DECLARED RESTART BEHAVIOUR — if HA restarts mid-hold the timer dies and the zone is stranded
+    in manual again, i.e. the ORIGINAL BUG REINTRODUCED. Either PERSIST the timer, or have startup
+    release any zone sitting in manual with no live hold record. Declare PERSIST/RESET/REBUILD
+    explicitly; do not leave it implicit.
+    (c) RELINQUISH still applies — see part (3) below; the operators setpoint-divergence idea is
+    retained as the do-not-stomp check, unchanged.'
+  THE_ENDING_NEEDS_THREE_PARTS_NOT_ONE: 'SUPERSEDED IN PART — see OPERATOR_CHOSE_A_TIMER above:
+    part (1) is REPLACED by a bounded timer + one-shot-per-off-phase; parts (2) and (3) stand.
+    ORIGINAL: Operator proposed reading S14s own interventional setpoint.
+    CORRECT but it is a RELINQUISH signal, not an ENDING — it answers "do I still own this?", not
+    "should this still be held?". If nothing else touches the thermostat the setpoint reads unchanged
+    forever and the indefinite hold returns. Need all three:
+    (1) ENDING / primary discharge — the JUSTIFYING CONDITION EXPIRES. The ceiling exists because of
+    the off-phase; release when the off-phase ends. Fires once per off-phase (anti-flap).
+    (2) BACKSTOP — bounded max duration, so the hold cannot outlive its reason if the discharge
+    misfires or a restart eats the state. Declare restart behaviour (PERSIST/RESET/REBUILD).
+    (3) RELINQUISH — the divergence check: if the current setpoint no longer matches what S14 wrote,
+    someone else owns the zone; disarm SILENTLY rather than stomp them. Needs TOLERANCE (cloud echo +
+    rounding make exact comparison flaky) — REUSE the v5.51.1 echo-guard, do not hand-roll.
+    THE RELEASE ITSELF MUST BE A PRESET WRITE per the operator hygiene rule. Restoring preset
+    GOVERNANCE is the point; just putting the number back leaves the zone in manual.'
+  RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING: 'STRONG RECOMMENDATION — do NOT build a
+    bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart
+    audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was
+    EXCLUDED from that cycle for exactly ONE reason — it was an INDEFINITE hold (plan §12 parked-plan
+    trigger, verbatim: "If the operator wants the ceiling to self-release, that is a separate card
+    that re-litigates PRESET-FLAP-1"). The operator decision removes the indefiniteness, so the
+    exclusion rationale evaporates. Building a second differently-shaped restore path is PRECISELY
+    how this codebase reached 13 setpoint-write sites of which 9 never restore a preset. Sequence:
+    let the primitive land and live-validate, THEN migrate S14 as a kind.'
+  parsimony:
+    problem: an energy-saving hold with no exit locks the zone out of preset control indefinitely
+    verdict: BUILD
+    note: 'operator 2026-08-21 — the borrow framing "makes sense honestly but you do not need to
+      chain it. You can address that fix after the borrow work is done." So this is SEQUENCED AFTER
+      the borrow primitive, NOT GATED ON IT: it does not block, and it must not be folded into that
+      cycle. Migrate as a kind rather than hand-rolling a second restore path.'
+  next: 'Wait for HVAC-GOVERNED-EXCURSION-1 (D2+D3) to land and live-validate. Then scope S14 as a
+    borrow kind whose ending is a BOUNDED TIMER + one-shot-per-off-phase (operator decision
+    2026-08-21), with a Number-entity duration knob and declared restart behaviour. Deliverables include INVERTING
+    test_ceiling_held_until_next_preset_transition and annotating
+    PLANNING_preset_flap_offphase_honesty.md:184-195,:280. Discriminating acceptance criterion: the
+    release fires ONCE PER OFF-PHASE, not per tick.'
+  refs:
+  - hvac.py:2972-2983
+  - hvac_preset.py:202
+  - PLANNING_preset_flap_offphase_honesty.md:184-195,:280
+  - PLANNING_hvac_governed_excursion.md §12
+  - test_ceiling_held_until_next_preset_transition
+  - HVAC-MANUAL-PRESET-CONTRACT-1
+  - HVAC-GOVERNED-EXCURSION-1
+
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
   title: Design spec says control the thermostats via PRESETS, never raw manual setpoints
     — reality is zones sitting in manual for hours; do the sanctioned excursions return?
@@ -7537,9 +8242,50 @@ cards:
     life (RECORDER-BLOAT-LOGFLOOD-1). Tier 3 confirmed: shared primitive, cost-AND-comfort
     impacting, and the failure mode is one-missed-site across 13 setpoint-write sites of which 9
     never restore a preset.'
+  ARCHITECTURAL_REFRAME_2026_08_21_DECIDER_VS_WRITER: 'OPERATOR REFRAME, and it renames the
+    root defect. Operator: "if the preset writer is just a method, then it doesn''t decide anything.
+    Its called by a function that has made a decision." The principle is right; the code does NOT
+    honour it, and checking that is what produced this entry.
+    WHAT IS ACTUALLY TRUE (verified 2026-08-21, not inferred). _apply_house_state_presets
+    (hvac.py:1411) is called BARE from the tick at hvac.py:1333 — no arguments, no target passed in,
+    no decision handed down. It DERIVES the target from house state AND writes it, in one method.
+    So it is neither a pure writer nor a clean decider: the two roles are FUSED. The upstream
+    decider the operator is describing does not exist yet.
+    THE DECISION IS SMEARED ACROSS FIVE PLACES: (1) the tick''s unconditional call, hvac.py:1333;
+    (2) the derive-from-house-state inside the method; (3) gates INSIDE the method — D6 consensus
+    defer, observation mode, two switch-driven skips; (4) should_change_preset in a DIFFERENT FILE
+    (hvac_preset.py:202), whose own docstring says the quiet part out loud — "arrester handles this,
+    not preset manager"; (5) hvac.py:1892, a branch that explicitly BYPASSES (4):
+    "# Bypass should_change_preset() manual guard for vacancy (RH3 fix)".
+    ITEM (5) IS THE TELL. When one caller must route around its own predicate, the predicate is
+    holding POLICY that belongs to the caller. should_change_preset is named as a predicate and
+    behaves as a policy authority — which is also exactly why it is a PURE TWO-STRING FUNCTION that
+    cannot consult provenance (see SELF_LOCKOUT_CONFIRMED). The self-lockout is not a bug IN
+    should_change_preset; it is the predictable consequence of putting a policy decision somewhere
+    that structurally cannot see the facts the decision needs.
+    THIS RENAMES THE CYCLE. Not "zone 1 got stuck in manual" but: NO SINGLE THING OWNS THE PRESET
+    DECISION, so five things partially own it, and the manual lockout is one emergent symptom of
+    that. The target architecture is three layers with opinions in exactly one: DECIDER (owns
+    policy: what should this zone be in, given house state, provenance, and any active excursion) ->
+    WRITER (mechanism: emits, no opinion) -> BORROWER (excursion: snapshots and restores what it
+    found, no opinion). The unopinionated ruling of 2026-08-20 scopes to RESTORE paths and WRITER
+    paths; it does NOT mean nobody decides.
+    ALSO: THERE ARE FOUR PRESET EMIT SITES, NOT ONE — hvac.py:2013, hvac_override.py:2554 and :3258,
+    hvac_egress.py:677. Any plan claiming to gate "the preset write" must enumerate against that
+    list, not against a singular mental model.
+    SCOPE RULING (operator agreed 2026-08-21): the decider/writer split is ITS OWN cycle and must
+    NOT be folded into the governed-excursion build, which is already Tier 3. Folding would double
+    the blast radius. The excursion lands its lease at the emit merge point (correct regardless of
+    how the layering is later resolved); this card owns the layering.'
+  STALE_LINE_REFS_2026_08_21: 'WARNING TO WHOEVER SCOPES THIS: several line refs in the older
+    entries below have DRIFTED by roughly +32 lines since they were written on 2026-08-20. Verified
+    examples: should_change_preset sole call site recorded as hvac.py:1864 is now hvac.py:1896; the
+    vacancy bypass recorded as hvac.py:1860 is now hvac.py:1892. The SYMBOL names are still correct
+    and are the reliable way in — grep the identifier, do not seek the line number. Re-verify every
+    file:line in this card before relying on it.'
   created: '2026-08-20 14:40'
-  updated: '2026-08-20 14:40'
-  refinement_status: initial
+  updated: '2026-08-21 09:05'
+  refinement_status: reframed_architectural_root
   approval: unreviewed
   tags:
   - no-fabrication-verify

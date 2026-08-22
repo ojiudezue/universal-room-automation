@@ -42,6 +42,73 @@ from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
 from .hvac_setpoint import emit_set_preset_mode
+
+
+# HVAC-GOVERNED-EXCURSION-1 fix-up r3 (2026-08-21): the 9 egress tests
+# in test_v478_egress_window.py load hvac_egress.py under a synthetic
+# `ura_egress_pkg.domain_coordinators` namespace that lacks a
+# hvac_excursion sibling. The function-local `from . import
+# hvac_excursion` (added by the D3 egress migration) fails
+# ImportError under that harness. Rather than teach the harness to
+# register a mock (option b — brittle, and a test harness dictating
+# production import structure), we guard the import here (option a).
+# Production has hvac_excursion; tests that don't provide it get graceful
+# excursion-tracking-disabled degradation. If _ex_mod is None:
+#   - begin_excursion is skipped (no token)
+#   - auto_release_on_incomplete is skipped (no CM wrap needed)
+#   - return_excursion is skipped
+# The wire write and _paused_by_egress bookkeeping still run.
+
+_EX_MOD_CACHE = ...  # sentinel: not yet loaded
+
+
+def _try_load_excursion_module():
+    """Return the hvac_excursion module or None (memoized).
+
+    On the ImportError fallback path we emit a one-time WARNING naming
+    the consequence. Rationale (fix-up r4, 2026-08-21): in production
+    this import always succeeds, so silent fallback would go unnoticed;
+    if a future edit (circular import, partial deploy, hotfix syntax
+    error) breaks the import, egress excursions silently stop being
+    governed (no begin_excursion, no-op CM, no return_excursion) while
+    the wire writes still happen. That is a fail-open with no signal -
+    the same class this cycle exists to eliminate. A log scan for
+    "hvac_excursion unavailable" catches it.
+    """
+    global _EX_MOD_CACHE
+    if _EX_MOD_CACHE is not ...:
+        return _EX_MOD_CACHE
+    try:
+        from . import hvac_excursion as _mod  # noqa: PLC0415
+        _EX_MOD_CACHE = _mod
+    except ImportError as _exc:
+        _LOGGER.warning(
+            "hvac_excursion unavailable (ImportError: %s); egress "
+            "excursions will NOT be governed - begin_excursion, "
+            "auto_release_on_incomplete, and return_excursion are all "
+            "no-ops for this process. Wire writes still happen; only "
+            "the excursion primitive's row/analytics/audit is missing. "
+            "In production this branch is a test-harness fallback; "
+            "seeing this in production logs indicates a broken import "
+            "path (circular, partial deploy, hotfix defect).",
+            _exc,
+        )
+        _EX_MOD_CACHE = None
+    return _EX_MOD_CACHE
+
+
+class _NullCM:
+    """No-op async context manager used when hvac_excursion is not
+    importable (synthetic-package test harnesses). __aenter__ returns
+    None so callers safely no-op mark_committed via hasattr()."""
+
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 from .hvac_const import (
     EGRESS_NM_EVENT_PAUSED,
     EGRESS_NM_EVENT_RESUMED,
@@ -567,31 +634,68 @@ class EgressManager:
             await self._db_clear(zone_id)
             return
 
-        try:
-            # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): on some
-            # thermostat firmware (notably Ecobee), a set_hvac_mode
-            # transition can cause the device to re-emit its preset
-            # defaults over a manual setpoint on the next tick — the
-            # DPM apply / arrester paths cover the resulting write via
-            # emit_* chokepoints. The egress pause itself is deliberately
-            # UNGATED by comfort-delay grace (safety > comfort during an
-            # open egress window); pending live evidence that this
-            # firmware quirk actually stomps an operator hold, we do not
-            # add a gate here. Revisit if operator observes a manual
-            # setpoint being overridden immediately after an egress
-            # pause on a comfort-qualified zone.
-            await self._hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": thermostat, "hvac_mode": "off"},
-                blocking=True,
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 15, S15 EGRESS_PAUSE START):
+        # begin_excursion BEFORE the set_hvac_mode:off wire write (R1
+        # ordering, fixes A-HIGH-2 persist-after-actuate at :570-592).
+        # UNFILTERED snapshot per section 13.5 (pre_preset may be None
+        # or 'manual'). duration_s=None - egress is caller-owned; the
+        # row is closed by _engage_resume (or by boot audit at MAX_S).
+        # Item-2 retrofit (2026-08-21): wire write MUST run inside
+        # auto_release_on_incomplete so a mode-off exception does not
+        # leak the row.
+        _ex_mod = _try_load_excursion_module()
+        _et = None
+        if _ex_mod is not None:
+            try:
+                _et = await _ex_mod.begin_excursion(
+                    self._hass,
+                    zone_id=zone_id,
+                    entity_id=thermostat,
+                    kind=_ex_mod.EXCURSION_KIND.EGRESS_PAUSE,
+                    duration_s=None,
+                    site="S15_egress_pause",
+                    intended_mode=prior_mode or "heat_cool",
+                )
+            except Exception as _ege:  # noqa: BLE001
+                _LOGGER.debug(
+                    "egress pause: begin_excursion failed for %s: %s",
+                    zone_id, _ege,
+                )
+                _et = None
+        if not hasattr(self, "_egress_excursion_tokens"):
+            self._egress_excursion_tokens = {}
+
+        # CM wrap only when the primitive is available; the wire-write
+        # path is identical either way. Under synthetic-package tests
+        # (test_v478_egress_window) _ex_mod is None and we skip the CM.
+        if _ex_mod is not None:
+            _cm = _ex_mod.auto_release_on_incomplete(
+                _et, trigger="s15_egress_pause_wire_failed",
             )
-        except Exception:
-            _LOGGER.warning(
-                "EgressManager: set_hvac_mode failed for %s — keeping counter",
-                thermostat, exc_info=True,
-            )
-            return
+        else:
+            _cm = _NullCM()
+        async with _cm as _s15_guard:
+            try:
+                # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): egress
+                # pause is deliberately UNGATED by comfort-delay grace
+                # (safety > comfort during an open egress window).
+                await self._hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {"entity_id": thermostat, "hvac_mode": "off"},
+                    blocking=True,
+                )
+                if _s15_guard is not None and hasattr(_s15_guard, "mark_committed"):
+                    _s15_guard.mark_committed()
+                if _et is not None:
+                    self._egress_excursion_tokens[zone_id] = _et
+            except Exception:
+                _LOGGER.warning(
+                    "EgressManager: set_hvac_mode failed for %s - keeping counter",
+                    thermostat, exc_info=True,
+                )
+                # CM auto-releases with trigger_detail="wire_exception:...".
+                return
 
         self._paused_by_egress[zone_id] = {
             "mode": prior_mode,
@@ -649,8 +753,27 @@ class EgressManager:
             self._paused_by_egress.pop(zone_id, None)
             self._egress_first_closed_at.pop(zone_id, None)
             await self._db_clear(zone_id)
+            # HVAC-GOVERNED-EXCURSION-1 D3: release lease on the abort
+            # path — a stranded egress lease permanently defers ticks.
+            _et = getattr(self, "_egress_excursion_tokens", {}).pop(zone_id, None)
+            if _et is not None:
+                _ex_mod = _try_load_excursion_module()
+                if _ex_mod is not None:
+                    try:
+                        await _ex_mod.return_excursion(
+                            _et, trigger="egress_abort",
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
             return
 
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 14, S14 EGRESS_PAUSE RETURN):
+        # Fix the pre-existing LEAK at :648-651 — a set_hvac_mode
+        # failure USED to `return` early, skipping the preset restore
+        # entirely (plan §3 row 14 + Reviewer A-MED-7). Under the new
+        # contract, mode-fail still attempts preset restore; the return
+        # records restore_ok=False with trigger_detail='mode_restore_failed'.
+        _mode_ok = False
         try:
             await self._hass.services.async_call(
                 "climate",
@@ -658,22 +781,17 @@ class EgressManager:
                 {"entity_id": thermostat, "hvac_mode": saved_mode},
                 blocking=True,
             )
+            _mode_ok = True
         except Exception:
             _LOGGER.warning(
-                "EgressManager: resume set_hvac_mode failed for %s",
+                "EgressManager: resume set_hvac_mode failed for %s "
+                "(continuing to preset restore per §3 row 14 leak fix)",
                 thermostat, exc_info=True,
             )
-            return
 
+        _preset_ok: bool | None = None
         if saved_preset:
             try:
-                # ARREST-COMFORT-1 B-MED-1 fix-up: migrate to the
-                # emit_set_preset_mode chokepoint. Classification: ALLOW
-                # (restoration path — this returns the thermostat to the
-                # preset the operator had before URA paused it; it is not
-                # a revert against a comfort-qualified manual). Passing
-                # gate=None means never DEFER; still routes through the
-                # chokepoint for uniform emit accounting.
                 await emit_set_preset_mode(
                     self._hass,
                     thermostat,
@@ -684,19 +802,45 @@ class EgressManager:
                     zone_id=zone_id,
                     reason="egress_resume",
                 )
+                _preset_ok = True
             except Exception:
                 _LOGGER.debug(
                     "EgressManager: resume set_preset_mode failed for %s",
                     thermostat, exc_info=True,
                 )
+                _preset_ok = False
 
         self._paused_by_egress.pop(zone_id, None)
         self._egress_first_closed_at.pop(zone_id, None)
         await self._db_clear(zone_id)
         _LOGGER.info(
-            "EgressManager: RESUMED zone %s (restored mode=%s preset=%s)",
-            zone_id, saved_mode, saved_preset,
+            "EgressManager: RESUMED zone %s (restored mode=%s preset=%s "
+            "mode_ok=%s preset_ok=%s)",
+            zone_id, saved_mode, saved_preset, _mode_ok, _preset_ok,
         )
+
+        # HVAC-GOVERNED-EXCURSION-1 D3 (row 14 RETURN): release the
+        # excursion lease. restore_ok combines mode+preset outcomes.
+        _et = getattr(self, "_egress_excursion_tokens", {}).pop(zone_id, None)
+        if _et is not None:
+            _ex_mod = _try_load_excursion_module()
+            if _ex_mod is not None:
+                try:
+                    _restore_ok = _mode_ok and (
+                        _preset_ok is None or _preset_ok
+                    )
+                    await _ex_mod.return_excursion(
+                        _et,
+                        trigger="egress_close",
+                        restore_ok=_restore_ok,
+                        preset_after=saved_preset if _preset_ok else None,
+                        mode_after=saved_mode if _mode_ok else None,
+                    )
+                except Exception as _rex:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "egress resume: return_excursion failed for %s: %s",
+                        zone_id, _rex,
+                    )
         await self._maybe_dispatch_nm(
             zone_id=zone_id,
             event=EGRESS_NM_EVENT_RESUMED,

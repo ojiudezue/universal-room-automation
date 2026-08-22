@@ -216,6 +216,7 @@ class HVACCoordinator(BaseCoordinator):
         # module defaults (fresh install / test bench).
         comfort_offphase_offset_f: float | None = None,
         hvac_offphase_honesty_enabled: bool | None = None,
+        excursion_primitive_enabled: bool | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -319,6 +320,21 @@ class HVACCoordinator(BaseCoordinator):
             if hvac_offphase_honesty_enabled is not None
             else bool(DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED)
         )
+        # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 — Excursion Primitive kill switch.
+        # BEGIN-ONLY. Persisted rows still run their return path when OFF.
+        from .hvac_const import DEFAULT_EXCURSION_PRIMITIVE_ENABLED as _DFLT_EX
+        self._excursion_primitive_enabled: bool = (
+            bool(excursion_primitive_enabled)
+            if excursion_primitive_enabled is not None
+            else bool(_DFLT_EX)
+        )
+        # Push the initial state into the primitive module so first-tick
+        # gating is correct even before the switch entity's setter fires.
+        try:
+            from . import hvac_excursion as _ex_mod
+            _ex_mod.set_kill_switch_enabled(self._excursion_primitive_enabled)
+        except Exception:  # noqa: BLE001
+            pass
         # Episode-gated ledger cache: (zone_id, house_state) -> True while a
         # single per-(zone, house_state) episode of the off-phase condition
         # has already emitted its `preset_change_suppressed` row (mirror of
@@ -650,6 +666,20 @@ class HVACCoordinator(BaseCoordinator):
     @hvac_offphase_honesty_enabled.setter
     def hvac_offphase_honesty_enabled(self, value: bool) -> None:
         self._hvac_offphase_honesty_enabled = bool(value)
+
+    @property
+    def excursion_primitive_enabled(self) -> bool:
+        """HVAC-GOVERNED-EXCURSION-1 §4.7 kill switch. BEGIN-ONLY."""
+        return bool(self._excursion_primitive_enabled)
+
+    @excursion_primitive_enabled.setter
+    def excursion_primitive_enabled(self, value: bool) -> None:
+        self._excursion_primitive_enabled = bool(value)
+        try:
+            from . import hvac_excursion as _ex_mod
+            _ex_mod.set_kill_switch_enabled(self._excursion_primitive_enabled)
+        except Exception:  # noqa: BLE001
+            pass
 
     @property
     def shed_active(self) -> bool:
@@ -1023,6 +1053,21 @@ class HVACCoordinator(BaseCoordinator):
         else:
             _LOGGER.warning(
                 "HVAC: database not available — AC ramp-down feature inert"
+            )
+
+        # HVAC-GOVERNED-EXCURSION-1 D2 — bind primitive to hass+db and run
+        # the startup audit (§4.4 restart interaction). Guarded because
+        # a DB-less bench mode still runs the coordinator; the primitive
+        # then works in-memory only (no restart-safety, but no crashes).
+        try:
+            from . import hvac_excursion as _ex_mod
+            _ex_mod.bind(self.hass, db)
+            if db is not None:
+                await _ex_mod.async_startup_excursion_audit(self.hass, self)
+        except Exception as _ex_boot_exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "HVAC: excursion primitive bind/audit failed (non-fatal): %s",
+                _ex_boot_exc,
             )
 
         # v4.7.8 D6: Wire DB into EgressManager and rehydrate state BEFORE
