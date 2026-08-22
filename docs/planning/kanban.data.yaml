@@ -2056,6 +2056,35 @@ cards:
     ALSO NOTE FOR THE RECORD: the zone recovered without intervention at 22:15. Whatever else is
     true, this was not a stuck state.'
 - id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
+  LIVE_INSTANCE_AND_MECHANISM_2026_08_22: 'OPERATOR PERFORMED ANOTHER MANUAL RESET at ~02:00 CDT on
+    2026-08-22, hours after v5.88.0 shipped. RULED OUT AS A REGRESSION FIRST (the deploy touched every
+    thermostat write path, so this had to be excluded before attributing it to the known gap):
+    borrow machinery healthy — started_today {nudge: 1}, returned_today {nudge: 1},
+    restore_failed_today {} empty, active_borrows [] empty; zone_1 on preset `sleep` NOT `manual`, so
+    the founding lockout defect is NOT recurring post-deploy. This is the known escalation gap.
+    OPERATOR DESCRIPTION, verbatim and worth preserving because it articulates the MECHANISM better
+    than the card previously did: "I saw high wattage when the setpoint had been reached. You would
+    expect the ac to ramp down it a variable compressor. Yet it was 2+kw running. When that happens I
+    tend to reset. Off and back to auto to reclaim some energy. If I am lucky it is short enough that
+    when it gets back it is the same temp and it read that as no need to ramp back up to full power."
+    WHY THE RESET WORKS AND THE NUDGE DOES NOT — this is the missing half of the design rationale.
+    A NUDGE changes the SETPOINT temporarily; on restore the unit resumes its PRIOR CONTROL STATE and
+    climbs back (measured: median 365s to return above 50% of baseline). A RESET clears that control
+    state — the compressor restarts its loop, re-reads current temp against target, finds itself
+    ALREADY AT SETPOINT, and elects low demand instead of resuming the previous ramp. That is why the
+    hard reset is the correct escalation for a MODULATION-FLOOR failure and why repeating the nudge
+    47 times cannot fix it: the nudge never clears the state that is holding the floor.
+    COROLLARY — RESET DURATION IS A LOAD-BEARING PARAMETER, not an arbitrary constant. The operator
+    "if I am lucky it is short enough" is doing real work: the off-window must be long enough for the
+    unit to drop its control state, SHORT enough that room temp has not drifted so far that it
+    justifiably ramps back to full. Too long and the reset defeats itself. Whatever the automated
+    reset uses must be justified against that window, and it should be a KNOB, measured — not
+    inherited. Note current constants: AC_RESET_MAX_PER_DAY=2 (hvac_const.py:491),
+    DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL=120 min (:538). No off-duration constant was located in
+    hvac_const.py — find where the 60s off-window actually lives before building, and knob it.
+    PRIORITY EFFECT: this is now a MEASURED, RECURRING, OPERATOR-COSTING defect with a live instance
+    days apart (2026-08-21 overnight, 2026-08-22 02:00). It is doing manual labour that the
+    automation was designed to do.'
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight
     while the house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
