@@ -2055,6 +2055,80 @@ cards:
     (b) is true there is nothing to fix and the card closes.
     ALSO NOTE FOR THE RECORD: the zone recovered without intervention at 22:15. Whatever else is
     true, this was not a stuck state.'
+- id: CARRIER-STALE-POLL-REFRESH-1
+  title: "ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a
+    periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped"
+  thread: hvac
+  status: investigating
+  created: '2026-08-22 15:30'
+  updated: '2026-08-22 15:30'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - third-party-defect
+  - operator-requested
+  - probe-pending
+  OPERATOR_REQUEST: 'Operator 2026-08-22: "I just found that reloading the carrier integration made
+    it show reality. Not required for nudging but definitely probably required for hvac ops. Else we
+    will lose responsiveness. Thinking of adding a periodic integration refresh to our operations."
+    THE REQUEST IS NOT REFUSED — it is SEPARATED. It was cut from
+    PLANNING_ac_ramp_pipeline_hardening as D9 so the cycle does not carry a near-zero-prior
+    deliverable across six sections, NOT because it lacks merit. Carded so it survives the cut.'
+  THE_DEFECT_MEASURED: 'ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor
+    draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an
+    independent implementation: 12.2% / 7.1% / 12.9% of high-draw time per zone. SUSTAINED, not lag —
+    91-95% of blind TIME is in episodes over 10 minutes, max 96/108/68 min, across 8 distinct days
+    and all three zones. >99% of blind time reports `idle`, not unknown/None.
+    CONFIRMED NOT A CLOUD PROBLEM: the Carrier APP showed "Cooling" for zones 1 and 3 at the same
+    moment the integration showed "Idle" (operator screenshots, 14:53). The cloud HAS the right
+    answer. ha_carrier derives hvac_action solely from `status_zone.conditioning`
+    (/config/custom_components/ha_carrier/climate.py:190-195).
+    RULED OUT: the post-write intercept guard — its own docstring says volatile status (temperature,
+    humidity, CONDITIONING, blower) is "deliberately excluded".'
+  WHY_update_entity_IS_UNLIKELY_TO_WORK: 'The mechanism EXISTS — ha_carrier entities are
+    CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() ->
+    coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and
+    DEFAULT_UPDATE_INTERVAL_MINUTES = 30 (const.py:46). Blind episodes ran 96, 108 and 68 minutes —
+    roughly THREE scheduled polls inside one blind window without clearing it. Polling sooner cannot
+    fix a value that survived three polls.
+    RELOAD does clear it (operator-observed). Reload tears down and rebuilds the carrier_api client
+    and its session; refresh reuses them. That points at a STALE CLIENT/SESSION object — a fault
+    class update_entity does not touch.'
+  PROBE_C_STILL_WORTH_RUNNING: 'A blind-episode detector is running (polls all three zones every 40s,
+    requires 3 consecutive blind reads). When it fires: capture state, call
+    homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE
+    episode settles it. Blind episodes occurred on 8 of 8 observed days, so the wait is short.
+    THE RESULT MATTERS EVEN THOUGH D9 IS CUT: if update_entity works, this card becomes a cheap
+    periodic task. If only reload works, the card becomes a harder cost/benefit call (reload has
+    lifecycle blast radius — see feedback_parent_reload_watchdog_hazard) or an upstream bug report.
+    DO NOT SHIP A REFRESH THAT DOES NOT REFRESH.'
+  SCOPE_NOTE_WHY_IT_IS_SEPARABLE: 'The pipeline-hardening cycle does NOT need this. Its Gate-4 fix
+    routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything
+    ha_carrier reports. That independence is a stated non-goal in that plan and is mutation-drilled.
+    What this card serves is the OPERATOR-STATED separate concern: HVAC ops responsiveness generally
+    — preset application, dwell/vacancy resolution and anything else that reads climate state may
+    still be acting on a stale picture for up to 1.8 hours. That is a real cost and it is NOT
+    addressed by the ramp fix.'
+  parsimony:
+    problem: a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
+    verdict: INVESTIGATE
+    note: probe first; the fix may be upstream rather than ours. Do not build a periodic no-op.
+  next: 'Wait for Probe C (detector running). Then decide among: (a) periodic update_entity if it
+    works; (b) periodic reload with the blast-radius cost explicitly accepted; (c) upstream bug report
+    to ha_carrier with the measured evidence; (d) accept and design around it as the ramp fix already
+    does. Also worth checking whether OTHER URA consumers of climate state (preset application, dwell,
+    vacancy) are materially degraded during blind episodes — that sizing has not been done.'
+  links:
+    related:
+    - RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+    context: 'Same root defect. That card covers URA no longer DEPENDING on the bad signal for ramp
+      detection; this card covers making the signal itself fresher for everything else that reads it.
+      Fixing either does not fix the other.'
+  refs:
+  - /config/custom_components/ha_carrier/climate.py:190-195
+  - /config/custom_components/ha_carrier/const.py:46
+  - carrier_entity.py:17
+
 - id: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
   title: "Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a
     power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW."

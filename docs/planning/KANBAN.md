@@ -12,7 +12,7 @@ _Generated: 2026-08-22T13:54:30-05:00_ - _Data commit: `4c88cd38a4b7`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 5 |
+| 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
@@ -289,8 +289,23 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (5)
+## 🔬 Investigating (6)
 _measuring; truth not yet known_
+
+### `CARRIER-STALE-POLL-REFRESH-1` - ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
+thread: **hvac** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-22 15:30 · initial_
+- **Next:** Wait for Probe C (detector running). Then decide among: (a) periodic update_entity if it works; (b) periodic reload with the blast-radius cost explicitly accepted; (c) upstream bug report to ha_carrier with the measured evidence; (d) acc...
+- **Tags:** third-party-defect, operator-requested, probe-pending
+- **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
+- **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
+- **Forensic keys (6):**
+  - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
+  - `THE_DEFECT_MEASURED`: ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an independent implementation: 12.2% / 7.1% / 12.9% of high-draw time ...
+  - `WHY_update_entity_IS_UNLIKELY_TO_WORK`: The mechanism EXISTS — ha_carrier entities are CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() -> coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and DEFAULT_UPDATE_...
+  - `PROBE_C_STILL_WORTH_RUNNING`: A blind-episode detector is running (polls all three zones every 40s, requires 3 consecutive blind reads). When it fires: capture state, call homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE ep...
+  - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
+  - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
 
 ### `RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1` - Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW.
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
