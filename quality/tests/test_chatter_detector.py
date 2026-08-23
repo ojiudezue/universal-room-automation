@@ -28,17 +28,41 @@ _URA = _ROOT / "custom_components" / "universal_room_automation"
 
 
 def _mod(name, **attrs):
-    m = types.ModuleType(name)
-    m.__path__ = []
+    """Ensure a stub module exists and carries `attrs`.
+
+    SUITE-ORDER-POLLUTION fix (2026-08-23): ADDITIVE, not replacing. If another
+    test file already installed this module, keep it (and its attributes, which
+    that file depends on) and only set the ones THIS file needs. Replacing it
+    outright would make this file a donor in the opposite direction.
+    """
+    m = sys.modules.get(name)
+    if m is None:
+        m = types.ModuleType(name)
+        sys.modules[name] = m
+    if not hasattr(m, "__path__"):
+        m.__path__ = []  # package shape, so submodules can be imported
     for k, v in attrs.items():
         setattr(m, k, v)
-    sys.modules[name] = m
     return m
 
 
 def _install_ha_stubs():
-    if "homeassistant" in sys.modules:
-        return
+    """Install the stubs THIS file needs, whether or not others exist.
+
+    WAS `if "homeassistant" in sys.modules: return` — an all-or-nothing guard
+    that made this file inherit whatever a previously-collected file happened
+    to install. Measured 2026-08-23: when
+    test_ac_ramp_master_option_persistence.py is collected first (alphabetical
+    order decides), it stubs `homeassistant` with a set that lacks
+    entity_registry and replaces async_track_state_change_event with a
+    MagicMock — so all 15 tests here failed with
+    "No module named homeassistant.helpers.entity_registry" and a null
+    `hass._cb`. The file passed 18/18 alone.
+
+    The guard has to be PER-SYMBOL, not per-package: the presence of
+    `homeassistant` says nothing about whether the specific pieces this file
+    needs are there.
+    """
     _mod("homeassistant")
     core = _mod("homeassistant.core")
 

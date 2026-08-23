@@ -38,8 +38,34 @@ from unittest.mock import MagicMock
 import pytest
 
 
+# SUITE-ORDER-POLLUTION fix (2026-08-23): stubs installed here land in
+# sys.modules at COLLECTION time and persist for the whole session, so every
+# later-collected file inherits them. Two properties are load-bearing:
+#
+#  1. PACKAGE SHAPE. A plain types.ModuleType has no __path__, so Python
+#     refuses to import ANY submodule under it — a later file doing
+#     `import homeassistant.helpers.entity_registry` gets
+#     "ModuleNotFoundError: ... 'homeassistant.helpers' is not a package".
+#     Giving package-shaped stubs an empty __path__ lets submodule imports
+#     (and further setdefault stubs) proceed.
+#  2. setdefault, not assignment — already used below, so a file that
+#     installed a richer stub first keeps it.
+#
+# Measured: this file alone caused 15 failures in test_chatter_detector.py
+# when collected before it (alphabetical order decides donor/victim).
+_PACKAGE_STUBS = {
+    "homeassistant",
+    "homeassistant.helpers",
+    "homeassistant.util",
+    "homeassistant.components",
+    "homeassistant.components.recorder",
+}
+
+
 def _mock_module(name, **attrs):
     m = types.ModuleType(name)
+    if name in _PACKAGE_STUBS:
+        m.__path__ = []  # mark as a package so submodules can be imported
     for k, v in attrs.items():
         setattr(m, k, v)
     return m
@@ -71,8 +97,37 @@ _mods = {
         "get_significant_states": MagicMock(),
     },
 }
+def _ensure_module(name, **attrs):
+    """Get-or-create a stub and FILL IN only what is missing.
+
+    SUITE-ORDER-POLLUTION fix (2026-08-23). The old line was
+    `sys.modules.setdefault(name, _mock_module(name, **attrs))`, which is
+    all-or-nothing at MODULE granularity: if any earlier-collected file had
+    already created `homeassistant.core`, this file's attributes were never
+    installed at all — and it then failed at import with
+    "cannot import name CALLBACK_TYPE from homeassistant.core".
+    That direction was broken before this fix and independently of it.
+
+    Existing attributes are LEFT ALONE. Other files install behavioural stubs
+    (e.g. an async_track_state_change_event that records hass._cb); clobbering
+    them with a MagicMock is what makes a file a donor. Fill gaps, never
+    overwrite.
+    """
+    m = sys.modules.get(name)
+    if m is None:
+        m = _mock_module(name, **attrs)
+        sys.modules[name] = m
+        return m
+    if name in _PACKAGE_STUBS and not hasattr(m, "__path__"):
+        m.__path__ = []
+    for k, v in attrs.items():
+        if not hasattr(m, k):
+            setattr(m, k, v)
+    return m
+
+
 for _n, _a in _mods.items():
-    sys.modules.setdefault(_n, _mock_module(_n, **_a))
+    _ensure_module(_n, **_a)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 _HERE = os.path.dirname(__file__)
