@@ -3230,6 +3230,42 @@ cards:
   organic_evidence: 'shipwatch 2026-08-11: L2 strongly positive — 22h/~28 Master Bathroom cycles, ZERO ble-source occupancy
     post-deploy; last strobe was 3min PRE-deploy. Confirm at 48h.'
 - id: FAN-MANUAL-1
+  WRITER_IDENTIFIED_2026_08_23_manual_switches_exit_sweep: 'MECHANISM PINNED. It is NOT the HVAC fan
+    logic at all, and BOTH earlier hypotheses on this card (mine: missing branch; then: tier ownership)
+    are superseded by this one, which has millisecond evidence.
+    THE WRITER: the room EXIT automation''s manual-switch sweep.
+      automation.py:934   occupancy off -> _handle_exit
+      automation.py:960   _handle_exit  -> _control_manual_switches_off()
+      automation.py:1265-1290  issues `homeassistant.turn_off` over manual_devices + manual_switches,
+      blocking=False, _LOGGER.debug only — with NO consultation of the manual-ON hold, NO
+      FanPolicyOracle actuate() wrap, and no hvac_fans involvement whatsoever.
+    THE FAN IS REGISTERED TWICE. Living Room config carries the SAME entity in two axes:
+      fans            = [fan.towerfan_dreopilotmaxs_wifi_livingroom]
+      manual_switches = [fan.towerfan_dreopilotmaxs_wifi_livingroom]
+    So the HVAC tier grants a manual-ON hold and the room-tier vacancy sweep turns it off anyway,
+    because the sweep does not know the hold exists.
+    MILLISECOND EVIDENCE (recorder):
+      11:27:16.095  binary_sensor.living_room_occupied  on -> off
+      11:27:16.871  fan ... on -> off        (776 ms after the vacancy edge; no context_user_id)
+      11:27:19.730  the 5-min HVAC tick      (2.9 s LATER — the tick did not do it)
+    Nothing else in the house changed state in that window.
+    TEST 2 EXPLAINED WITH NO EXTRA ASSUMPTION: ura_activity_log shows a Living Room occupancy_exit at
+    11:38:35, seventeen seconds BEFORE the 11:38:52 manual ON, and no further exit until the operator
+    OFF at 11:50:59 (which carries context_user_id). No exit edge while the fan was on => no sweep =>
+    the fan survived, and the 11:42:13 HVAC tick then opened the 1h hold. Test 1''s ON landed inside
+    an occupied window that expired 235 s later.
+    SCOPE IS THREE ROOMS, NOT ONE — verified directly in core.config_entries:
+      Living Room     fan.towerfan_dreopilotmaxs_wifi_livingroom
+      Master Bedroom  fan.polyfan_508s_wifi_masterbedroom
+      Jaya Bedroom    fan.fanswitch_treat_wifi_jayabedroom
+    OPERATOR QUESTION, genuinely undecidable from code: is listing a managed fan in manual_switches
+    DELIBERATE (so vacancy always kills it) or leftover config? If deliberate, the fix is that the
+    sweep must consult the manual-ON hold. If leftover, the fix is config. Do not assume.
+    MY EVIDENCE WAS UNSOUND AND I AM RECORDING THAT: I cited "ZERO hvac_fans log lines in test 1" as
+    proof no branch ran. HA''s retained log buffer only reaches back to ~11:39, so that negative was
+    UNOBSERVABLE, not observed. Fourth time today I treated absence-of-observation as
+    observation-of-absence. It happens not to change the verdict — the confirmed writer never logs
+    above DEBUG — but the reasoning was invalid.'
   MECHANISM_FOUND_2026_08_23_cooldown_gated_detection: 'ATTRIBUTION RESOLVED by re-running the test
     with URA at debug. The earlier PENDING-WITH-ADVERSE-EVIDENCE instance is now EXPLAINED, and the
     feature is PARTIALLY WORKING rather than broken.
@@ -3336,7 +3372,7 @@ cards:
     would have found it and neither plan, build, nor dispatch brief ran it. C-H2: the discharge-(b) test asserted None==None
     (its hold was never opened). C-H1+A-MED-2: recheck extension unanchored AND buggy (mid-pause expiry clears the hold, losing
     the extension). MED-B2: room-tier restart re-adoption claim is provably aspirational.'
-  next: 'CONFIRMING TEST, cheap: after 12:42 (manual hold expiry) and with NO cooldown active, switch the Living Room fan on externally and watch for an hvac_fans log line. No line + a revert = the cold-start path is confirmed unhandled, and the fix is extending manual-ON detection beyond the during-cooldown branch. Do this BEFORE scoping any fix — the current evidence is one observation each way plus a self-describing log line.'
+  next: 'OPERATOR RULING NEEDED FIRST: is a managed fan belonging in manual_switches deliberate or leftover? Three rooms are configured that way (Living Room, Master Bedroom, Jaya Bedroom). If DELIBERATE -> _control_manual_switches_off (automation.py:1265-1290) must consult the manual-ON hold before sweeping, and that is a code cycle. If LEFTOVER -> remove the fan from manual_switches in those three rooms and the HVAC tier owns it cleanly, which is config-only. The code fix is wrong if the answer is config, and vice versa.'
   organic_evidence: 'shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic
     1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).'
   organic_evidence_2: 'OPERATOR CONFIRMED 2026-08-11: "Living room fan is working afaik" — manual fan use no longer self-cancels.
@@ -5871,6 +5907,20 @@ cards:
   - https://claude.ai/code/artifact/ef6dc227-8488-4b59-b745-f71e946da6a8
   updated: 2026-08-17 23:30
 - id: D3-AREA-INHERIT
+  INSTANCE_2026_08_23_fans_on_sensor_structurally_blind: 'SAME CLASS AS THIS CARD, found while
+    investigating FAN-MANUAL-1. `sensor.living_room_fans_on` read 0 for the entire 10 minutes a
+    managed fan was physically ON. Root cause is NOT the fan logic:
+      coordinator.py:2724 counts fans via _get_entities_in_area() (:2695-2700), which filters
+      ent_reg.entities on `entity.area_id` ONLY. This fan''s registry entry has area_id = null —
+      its area is INHERITED from its device. So the sensor structurally cannot see it and will read
+      0 whether the fan is on or off, permanently.
+    That is this card''s defect (area not set on the entity, inherited from the device) showing up in
+    a different consumer. The fix shape is shared: either set area_id on the entity, or make the
+    area lookup fall back to the device''s area. The second is more general and fixes every consumer
+    at once rather than per-entity.
+    NOT an anomaly, for the record: binary_sensor.living_room_fan_should_run reading off was CORRECT
+    throughout — 78-79F is below the 80F fan_temp_threshold, so URA legitimately never wanted the fan
+    on. Only the fans_on counter was wrong.'
   title: URA D3 fused sensor should inherit room area on creation
   thread: camera
   status: done
@@ -5890,7 +5940,7 @@ cards:
   next: set _attr area / registry area from room area on D3 sensor creation
   refs:
   - binary_sensor.py CameraPersonDetectedSensor
-  updated: 2026-08-17 23:55
+  updated: '2026-08-23 15:05'
   resolution_2026_08_17: 'Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as done." Proof was a process/latent-event
     judgment not observable in live state; operator closed.'
 - id: F1-SUNSET

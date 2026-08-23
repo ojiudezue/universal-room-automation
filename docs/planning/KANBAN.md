@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T12:36:04-05:00_ - _Data commit: `5e4bcbac1634`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:44:33-05:00_ - _Data commit: `a0f82cdcb074`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -932,9 +932,10 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
 - **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
-- **Next:** CONFIRMING TEST, cheap: after 12:42 (manual hold expiry) and with NO cooldown active, switch the Living Room fan on externally and watch for an hvac_fans log line. No line + a revert = the cold-start path is confirmed unhandled, and the ...
+- **Next:** OPERATOR RULING NEEDED FIRST: is a managed fan belonging in manual_switches deliberate or leftover? Three rooms are configured that way (Living Room, Master Bedroom, Jaya Bedroom). If DELIBERATE -> _control_manual_switches_off (automatio...
 - **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `WRITER_IDENTIFIED_2026_08_23_manual_switches_exit_sweep`: MECHANISM PINNED. It is NOT the HVAC fan logic at all, and BOTH earlier hypotheses on this card (mine: missing branch; then: tier ownership) are superseded by this one, which has millisecond evidence. THE WRITER: the room EXIT automation...
   - `MECHANISM_FOUND_2026_08_23_cooldown_gated_detection`: ATTRIBUTION RESOLVED by re-running the test with URA at debug. The earlier PENDING-WITH-ADVERSE-EVIDENCE instance is now EXPLAINED, and the feature is PARTIALLY WORKING rather than broken. THE DECISIVE LOG LINE (test 2, fan switched on e...
   - `INSTANCE_2026_08_23_operator_owed_manual_test_RUN`: THE OPERATOR-OWED MANUAL TEST HAS NOW BEEN RUN BY CLAUDE — it did not need the operator. Result is ADVERSE but attribution is INCOMPLETE, so this is recorded as PENDING-WITH-ADVERSE-EVIDENCE, deliberately NOT `violated`. NON-VACUITY CHEC...
   - `INSTANCE_2026_08_23_fans_on_reads_zero_while_fan_runs`: SECOND FINDING from the same test, folded here rather than carded — adjacency sweep found NO existing card mentioning `fans_on`, and this may share a mechanism with the revert above (see FAN-LAYER-2 instance of the same date). sensor.liv...
@@ -1916,14 +1917,15 @@ _updated 2026-08-17 23:30_
 
 ### `D3-AREA-INHERIT` - URA D3 fused sensor should inherit room area on creation
 thread: **camera** - status: **done** - approval: **implied**
-_updated 2026-08-17 23:55_
+_updated 2026-08-23 15:05_
 - **Origin:** 2026-08-07 - 5 rooms had roomless CameraPersonDetectedSensor - manual entity-area set was a band-aid
 - **Why:** CameraPersonDetectedSensor (D3) does not set area_id from its room on creation, so new rooms silently ship roomless -> breaks resolver/transit room mapping. Durable fix so we do not hand-patch each new room.
 - **Next:** set _attr area / registry area from room area on D3 sensor creation
 - **Tags:** numbers-get-knobs
 - **Parsimony:** [BUILD] per-room fused camera sensors ship with no area
 - **Refs:** binary_sensor.py CameraPersonDetectedSensor
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `INSTANCE_2026_08_23_fans_on_sensor_structurally_blind`: SAME CLASS AS THIS CARD, found while investigating FAN-MANUAL-1. `sensor.living_room_fans_on` read 0 for the entire 10 minutes a managed fan was physically ON. Root cause is NOT the fan logic: coordinator.py:2724 counts fans via _get_ent...
   - `resolution_2026_08_17`: Operator ruling 2026-08-17: "The cards that are judgement calls, resolve as done." Proof was a process/latent-event judgment not observable in live state; operator closed.
 
 ### `F1-SUNSET` - Frigate-1 go/no-go
