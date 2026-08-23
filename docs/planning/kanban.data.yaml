@@ -2217,6 +2217,79 @@ cards:
   - hvac_override.py:2684 (check_ac_reset gate ladder)
   - hvac_override.py:2779 (Gate 4)
 
+- id: PRESET-RESTORE-DOES-NOT-TAKE-1
+  title: Restoring a REAL preset after a nudge fails ~90% of the time — measured 0/10; every
+    restore site repeats its own setpoint-then-preset write and the borrow does not centralise it
+  thread: hvac
+  status: planned
+  approval: approved
+  priority: immediate-next
+  updated: '2026-08-23 09:55'
+  tags:
+  - operator-directive
+  - measure-before-build
+  - fast-follow
+  origin:
+    date: '2026-08-23'
+    gist: 'Operator, on being shown the measurement: "Isn''t this a problem? How do we solve it? My
+      whole directive is exit via preset if possible. I assume it works some of the time? The app
+      seems to work." Then: "this is a fast follow to test and fix. Not cool with unnecessary feature
+      debt. Card properly and set for one of the immediate next things."'
+  measured: 'Sampled the live climate entities at T+1/2/5/10/20/30 min after each nudge_restored,
+    across 47 paired nudges (recorder, 2026-08-23):
+      intent == "manual" (restore is a NO-OP, writes manual over manual): 97% match at T+1m
+      intent is a REAL preset (away/home/sleep):  0/10 at T+1m AND T+2m; 1/10 (10%) from T+5m on
+    MORE SETTLE TIME DOES NOT HELP — 77% aggregate at T+1m vs 72% at T+30m, flat-to-declining. The
+    aggregate looked healthy ONLY because 37 of 47 intents were manual-over-manual no-ops.
+    THE MECHANISM IS NOT BROKEN GENERALLY: on zone_1 over the same window, presets held `away` 43.8h
+    and `home` 22.8h across 381 preset changes. The house-state preset writer (hvac.py:2063) writes
+    presets successfully. Both paths go through the SAME emit_set_preset_mode chokepoint
+    (hvac_setpoint.py) and the nudge path passes no gate that could drop the write. So this is NOT a
+    dead integration and NOT a dead helper — it is specific to restoring right after a nudge.'
+  SCOPE_ANSWER_ONE_OR_MANY: 'OPERATOR ASKED: "Is the restore via a borrow or its own mechanism? Just
+    want to understand if we fix one thing or many."
+    ANSWER: MANY. The borrow/excursion primitive is BOOKKEEPING ONLY. hvac_excursion.py:710 states it
+    verbatim: "each site performs its own (a) set_temperature -> (b) set_preset_mode". return_excursion
+    clears the lease and increments counters; it issues NO thermostat write.
+    So the setpoint-then-preset sequence is duplicated at every restore site rather than living in one
+    place. Sites in hvac_override.py: _revert_override, _restore_after_reset, _restore_after_nudge,
+    cancel_nudge — plus the house-state writer in hvac.py which is the one that demonstrably WORKS.
+    CONSEQUENCE FOR THE FIX: this is the Bug Class #53 shape (one missed site). Fixing only the nudge
+    path leaves the reset path, the cancel path and the revert path with the same sequence. The
+    STRONG candidate is to move the (a)->(b) sequence INTO return_excursion so there is exactly one
+    implementation and the borrow becomes the chokepoint it already looks like. Scope the cycle as
+    centralisation + fix, NOT as a one-site patch. Enumerate the sites independently before building —
+    the list above is from one grep and is a hypothesis.'
+  HYPOTHESIS_NOT_MEASURED: 'READ FROM ha_carrier SOURCE, NOT YET TESTED. Label kept explicit because
+    four mechanisms asserted on 2026-08-22/23 were subsequently refuted by measurement.
+    (1) `async_set_preset_mode` (climate.py:381) for a NAMED preset calls `set_config_hold(activity_type,
+        hold_until)` — it PINS A HOLD on that activity. It also applies that activity''s OWN setpoints
+        (`selected_activity.cool_set_point` / `heat_set_point`), then optimistically writes local state.
+    (2) Therefore the separate set_temperature write in the restore sequence may be REDUNDANT — the
+        activity carries its setpoints — and may be the very thing causing the failure: two writes to
+        the same zone seconds apart, where the setpoint write is what puts the zone into `manual`.
+        Hypothesis: the setpoint write''s manual hold wins at the cloud.
+    (3) The optimistic local write means the entity shows the new preset briefly; the next real
+        coordinator refresh (measured 42-79s median) overwrites it with the cloud truth. This is why
+        T+1m already reads `manual` and why waiting longer changes nothing.
+    (4) SEPARATE SEMANTIC QUESTION FOR THE OPERATOR: the integration exposes a special `"resume"`
+        preset that calls `resume_schedule` and CLEARS the hold. Restoring `home` pins a hold on the
+        home activity; `resume` returns the zone to its programmed schedule. These are NOT the same
+        action and today we do the first. Which one does "exit via preset" mean? Answer before building.'
+  next: 'CANARY FIRST, one night, one zone: restore via PRESET ONLY (skip the set_temperature write)
+    and sample the preset at T+1/2/5 min against the measured 0/10 baseline. If it takes, the fix is
+    DELETING a write, not adding machinery. Cheap, reversible, and it discriminates: preset-only
+    succeeding while setpoint+preset fails would confirm the collision hypothesis and refute
+    "Carrier rejects activity holds". THEN scope the centralisation into return_excursion.'
+  DO_NOT: 'Do NOT patch only _restore_after_nudge — three sibling sites carry the same sequence.
+    Do NOT add settle-delay machinery; time is measured NOT to be the variable.
+    Do NOT change the restore path without the canary; this is the exact code four Tier-3 reviewers
+    just cleared, and the hypothesis above is unmeasured.'
+  RELATED: 'Likely the MECHANISM behind HVAC-MANUAL-PRESET-CONTRACT-1 (zone_1 measured at 62% dwell in
+    `manual`, zone_2 46%, zone_3 26%) — every nudge flips the zone to manual and the restore does not
+    bring it back. If so, fixing this closes that card''s root cause rather than its symptom.
+    v5.89.0 does NOT fix this. It makes it VISIBLE: the settled restore verdict was re-enabled at 180s
+    and will now record restore_ok=False on these, which is the truth.'
 - id: BORROW-BANKING-LEASE-NOT-RELEASED-1
   title: A banking borrow sat 2h past its lease expiry without release — nudge borrows return
     cleanly, banking did not
