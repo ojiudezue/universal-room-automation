@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T12:54:38-05:00_ - _Data commit: `ae3084587e37`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:57:57-05:00_ - _Data commit: `2e63145df60c`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -604,15 +604,19 @@ _created 2026-08-20 14:40 · updated 2026-08-21 09:05 · reframed_architectural_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap
 thread: **hvac** - status: **planned** - approval: **explicit**
-_created 2026-08-20 14:15 · initial_
+_created 2026-08-20 14:15 · updated 2026-08-23 13:10 · initial_
 - **Problem / Solution:**
   - Problem: URA watches the heating/cooling system for unusual behaviour and reports "all normal" — but three of the five things it is supposed to watch have never received a single measurement, so "all normal" partly means "not looking". O...
 - **Why:** Live 2026-08-20: sensor.ura_hvac_coordinator_hvac_anomaly = nominal, 0 anomalies, but metrics_active_ratio "2/5" — short_cycle_rate, comfort_deviation_hours and egress_pause_frequency all sample_count 0 / active false. Only zone_call_fre...
 - **Next:** Read the HVAC metric record_observation call sites — determine whether the 3 silent metrics are (a) never called, (b) called but rejected by minimum_samples against a reset baseline (the BACKLOG defect), or (c) called with None. That dis...
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Refs:** docs/BACKLOG.md — CRITICAL "D3 anomaly detection persistence + dispatch"; sensor.ura_hvac_coordinator_hvac_anomaly (live attrs 2026-08-20); HVAC-PRESET-FLAP-1 DETECTOR_WAS_BLIND
-- **Forensic keys (2):**
+- **Forensic keys (6):**
   - `ROOT_CAUSE_CORRECTED_2026_08_21`: ⚠️ READ THIS BEFORE ACTING ON THIS CARD. The root cause recorded here previously — inherited from docs/BACKLOG.md (v4.6.10 Tier-2 review) — is "AnomalyDetector._baselines is an in-memory dict that resets to {} every restart, so minimum_s...
+  - `DIAGNOSIS_VERIFIED_2026_08_23`: BUILD-READY. Read-only investigation, code + live entity + URA DB + HA recorder. VERDICT ON THE PRIOR ROOT CAUSE: the restart-reset / baselines-lost mechanism is REFUTED — definitively, and now by a second disjoint line of evidence beyon...
+  - `MECHANISM_CONFIRMED_2026_08_23`: THE THREE BLIND METRICS ARE NEVER SAMPLED — a producer-absent wiring gap, not a NULL dependency, not a computed-then-discarded value, not Bug Class 53 (computed-but-not-consumed). The whole HVAC coordinator contains exactly TWO record_ob...
+  - `NOMINAL_IS_ACTIVELY_MISLEADING_2026_08_23`: QUANTIFIED, and it is worse than 2-of-5. Two independent facts. (1) The aggregate label launders the blindness: get_learning_status (coordinator_diagnostics.py:1031) reports ACTIVE when floor(n/2) metrics have a full baseline — for n=5 t...
+  - `HIGHEST_LEVERAGE_FIX_2026_08_23`: WIRE short_cycle_rate FIRST, and give sample_count 0 a visible fault state. The number that supports it, measured from the HA recorder over the last 7 days by counting hvac_action TRANSITIONS (not state rows — the climate entities write ...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md + planning docs. NOT NEW as a root cause — docs/BACKLOG.md carries a CRITICAL item "D3 anomaly detection persistence + dispatch" (from the v4.6.10 Tier-2 review) stating AnomalyDetector._baselines is an IN-MEMORY...
 
 ## 🔨 In progress (0)
