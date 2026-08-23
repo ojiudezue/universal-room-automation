@@ -625,3 +625,574 @@ class TestOffDurationSetter:
         a.set_ac_reset_off_duration(120)
         a.set_ac_reset_off_duration(9000)  # rejected
         assert a._ac_reset_off_duration_s == 120  # unchanged
+
+
+# ============================================================================
+# Hollow-anchor REWRITES (2026-08-22 fix-up test-authority round)
+# The four tests below REPLACE the pre-fix hollow anchors called out in
+# the fix-up brief. Each drives the ENCLOSING method / write path and
+# would fail against a plausible naive implementation.
+# ============================================================================
+
+
+def dt_util_now_date_iso():
+    return datetime.now().date().isoformat()
+
+
+class TestEscSignatureBehavioural:
+    """Rewrite of TestEscSignature::test_signature_accepts_new_kwargs.
+    A signature-only test passes against a function that accepts the
+    kwargs and ignores them. This drives the behaviour those kwargs
+    are supposed to change."""
+
+    @pytest.mark.asyncio
+    async def test_triggered_by_threads_into_started_row(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._hard_reset_daily_limit = 5
+        z.target_temp_high = 74.0
+        z.target_temp_low = 70.0
+        z.current_temperature = 74.0
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id, "date": "2026-08-22",
+            "day_reset_count": 0, "night_reset_count": 0,
+            "hard_reset_count": 0, "night_session_date": None,
+        })
+        a._db.get_global_last_hard_reset_ts = AsyncMock(return_value=None)
+        a._db.log_ac_ramp_event = AsyncMock(return_value=101)
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.update_ac_night_counter = AsyncMock()
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._perform_ac_reset = AsyncMock()
+        await a._perform_hard_reset_escalation(
+            z, 1.2, triggered_by="durability_fail",
+            engage_lockout_on_cap=True,
+        )
+        started_calls = [
+            c for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_started"
+        ]
+        assert len(started_calls) == 1
+        assert started_calls[0].kwargs.get("triggered_by") == "durability_fail"
+
+    @pytest.mark.asyncio
+    async def test_engage_lockout_on_cap_false_decline_route(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._reset_day_budget = 2
+        a._reset_night_budget = 2
+        a._hard_reset_daily_limit = 5
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id, "date": "2026-08-22",
+            "day_reset_count": 2, "night_reset_count": 2,
+            "hard_reset_count": 4, "night_session_date": None,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.update_ac_night_counter = AsyncMock()
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._engage_lockout = AsyncMock()
+        a._perform_ac_reset = AsyncMock()
+        await a._perform_hard_reset_escalation(
+            z, 1.2, triggered_by="durability_fail",
+            engage_lockout_on_cap=False,
+        )
+        a._engage_lockout.assert_not_called()
+        reasons = [
+            (c.kwargs.get("notes") or "")
+            for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_declined"
+        ]
+        assert any("true_cap_exhausted" in r for r in reasons), reasons
+
+
+class TestDGate4ModeAugmented:
+    """Adds negatives to the pre-fix positive-only pair. A blanket
+    return-True _gate4_is_ok would pass the positives and fail these."""
+
+    def test_legacy_mode_returns_false_when_hvac_action_not_cooling(self):
+        hass = _mk_hass_with_state("sensor.zone_a_kw", 1.2, unit="kW")
+        a, z = _mk_arrester(hass=hass)
+        a.set_gate4_predicate_mode("legacy")
+        z.hvac_action = "idle"
+        z.hvac_mode = "cool"
+        assert a._gate4_is_ok(z, datetime.now()) is False
+
+    def test_shadow_mode_returns_false_when_legacy_says_not_cooling(self):
+        hass = _mk_hass_with_state("sensor.zone_a_kw", 1.2, unit="kW")
+        a, z = _mk_arrester(hass=hass)
+        a.set_gate4_predicate_mode("shadow")
+        a._db = MagicMock()
+        a._db.log_ac_ramp_event = AsyncMock()
+        z.hvac_action = "idle"
+        z.hvac_mode = "cool"
+        assert a._gate4_is_ok(z, datetime.now()) is False
+
+    def test_live_mode_returns_true_when_new_predicate_ok_despite_legacy_off(self):
+        hass = _mk_hass_with_state("sensor.zone_a_kw", 1.2, unit="kW")
+        a, z = _mk_arrester(hass=hass)
+        a.set_gate4_predicate_mode("live")
+        z.hvac_action = "idle"
+        z.hvac_mode = "cool"
+        assert a._gate4_is_ok(z, datetime.now()) is True
+
+
+class TestDurableClassifierLiteral:
+    """Assert against literal elapsed minutes, not the same instance
+    attribute the write reads from."""
+
+    @pytest.mark.asyncio
+    async def test_full_window_writes_literal_elapsed_minutes(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._read_kwh_rate = MagicMock(return_value=0.1)
+        z.kwh_rate_threshold = 0.8
+        started = datetime.now() - timedelta(minutes=42)
+        a._durable_pending["zone_a"] = {
+            "event_id": 99, "started_ts": started,
+        }
+        await a._write_durable("zone_a", truncated=False)
+        _, kwargs = a._db.update_ac_ramp_event_fields.call_args
+        assert 41 <= kwargs["durable_minutes"] <= 43
+        assert kwargs["durable"] == 1
+        assert kwargs["truncated"] == 0
+
+
+# ============================================================================
+# T1-T6 wire-in tests. Each drives an enclosing method or its wired
+# entry point and would fail against a plausible bypass at the
+# load-bearing site. Per-site neuter drills documented in the commit.
+# ============================================================================
+
+
+class TestT1Gate4WireIn:
+    """T1: Gate 4 wire-in in check_ac_reset."""
+
+    @pytest.mark.asyncio
+    async def test_gate4_reject_clears_overshoot_and_samples(self):
+        a, z = _mk_arrester()
+        a._ac_nudge_enabled = True
+        a._ramp_master_enabled = True
+        z.ramp_zone_enabled = True
+        z.ac_load_sensor = "sensor.zone_a_kw"
+        z.hvac_mode = "cool"
+        z.hvac_action = "cooling"
+        z.target_temp_high = 74.0
+        z.current_temperature = 74.0
+        z.kwh_samples_above_threshold = 4
+        z.last_overshoot_started = "2026-08-22T10:00:00"
+        a._gate4_is_ok = MagicMock(return_value=False)
+        # Mock _read_kwh_rate too so a bypass-mutation lands on the
+        # assertion, not a downstream MagicMock TypeError.
+        a._read_kwh_rate = MagicMock(return_value=1.5)
+        a._db = MagicMock()
+        a._db.cleanup_ac_ramp_events = AsyncMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "lockout_flag": 0, "soft_nudge_count": 0,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._perform_soft_nudge = AsyncMock()
+        a._refresh_impact_cache = AsyncMock()
+        a._refresh_a1_cache = AsyncMock()
+        await a.check_ac_reset()
+        assert z.kwh_samples_above_threshold == 0
+        assert z.last_overshoot_started == ""
+
+
+class TestT2Gate5bWireIn:
+    """T2: Gate 5b soft-nudge cap runaway guard in check_ac_reset."""
+
+    @pytest.mark.asyncio
+    async def test_soft_nudge_cap_denies_and_declined_row_written(self):
+        a, z = _mk_arrester()
+        a._ac_nudge_enabled = True
+        a._ramp_master_enabled = True
+        a._soft_nudge_daily_limit = 5
+        z.ramp_zone_enabled = True
+        z.ac_load_sensor = "sensor.zone_a_kw"
+        z.hvac_mode = "cool"
+        z.hvac_action = "cooling"
+        z.target_temp_high = 74.0
+        z.current_temperature = 74.0
+        a._gate4_is_ok = MagicMock(return_value=True)
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "lockout_flag": 0, "soft_nudge_count": 5,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._db.cleanup_ac_ramp_events = AsyncMock()
+        a._perform_soft_nudge = AsyncMock()
+        a._refresh_impact_cache = AsyncMock()
+        a._refresh_a1_cache = AsyncMock()
+        await a.check_ac_reset()
+        a._perform_soft_nudge.assert_not_called()
+        decline_calls = [
+            c for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_declined"
+        ]
+        assert any(
+            "soft_nudge_daily_limit" in (c.kwargs.get("notes") or "")
+            for c in decline_calls
+        ), decline_calls
+
+
+class TestT3PartitionDenialWireIn:
+    """T3: partition-denial branch in _perform_hard_reset_escalation.
+    _hard_reset_daily_limit raised above day+night so Gate A's clamp
+    doesn't fire first — the partition path IS what denies."""
+
+    @pytest.mark.asyncio
+    async def test_day_denial_no_lockout_no_ac_reset(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._reset_day_budget = 2
+        a._reset_night_budget = 2
+        a._hard_reset_daily_limit = 5
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id,
+            "date": dt_util_now_date_iso(),
+            "day_reset_count": 2,
+            "night_reset_count": 0,
+            "hard_reset_count": 2,
+            "night_session_date": None,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.get_global_last_hard_reset_ts = AsyncMock(return_value=None)
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._engage_lockout = AsyncMock()
+        a._perform_ac_reset = AsyncMock()
+        a._is_night_now = MagicMock(return_value=False)
+        await a._perform_hard_reset_escalation(z, 1.2)
+        assert z.ramp_state == "idle"
+        a._engage_lockout.assert_not_called()
+        a._perform_ac_reset.assert_not_called()
+        decline_reasons = [
+            (c.kwargs.get("notes") or "")
+            for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_declined"
+        ]
+        assert any("day_budget_exhausted" in r for r in decline_reasons)
+
+
+class TestT5BackfillRestoreOkWireIn:
+    """T5: _backfill_restore_ok. Helper-level behavioural anchor;
+    the enclosing _verify_restore is exercised too deeply for a
+    focused test — the drill mutates the helper's DAO call to prove
+    binding."""
+
+    @pytest.mark.asyncio
+    async def test_backfill_uses_stashed_event_id_and_pops(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._hard_reset_completed_event_ids = {"zone_a": 909}
+        await a._backfill_restore_ok("zone_a", True, preset_ok=True)
+        assert "zone_a" not in a._hard_reset_completed_event_ids
+        call = a._db.update_ac_ramp_event_fields.call_args
+        assert call is not None
+        assert call.args[0] == 909
+        assert call.kwargs.get("restore_ok") is True
+        assert call.kwargs.get("preset_restore_ok") is True
+
+    @pytest.mark.asyncio
+    async def test_backfill_no_op_when_stash_missing(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._hard_reset_completed_event_ids = {}
+        await a._backfill_restore_ok("zone_a", True)
+        a._db.update_ac_ramp_event_fields.assert_not_called()
+
+
+class TestT6OffDurationConsumption:
+    """T6: _perform_ac_reset must schedule the off-timer using the
+    _ac_reset_off_duration_s knob, not a hard-coded constant."""
+
+    @pytest.mark.asyncio
+    async def test_perform_ac_reset_uses_knob_not_constant(self):
+        a, z = _mk_arrester()
+        z.target_temp_high = 74.0
+        z.target_temp_low = 70.0
+        z.current_temperature = 74.0
+        z.hvac_mode = "cool"
+        z.hvac_action = "cooling"
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "day_reset_count": 0, "night_reset_count": 0,
+            "hard_reset_count": 1, "date": "2026-08-22",
+        })
+        a._ac_reset_off_duration_s = 195
+        a._reset_day_budget = 4
+        a._reset_night_budget = 4
+        a._send_nm_alert = AsyncMock()
+        hass = a.hass
+        hass.services.async_call = AsyncMock()
+        hass.states.get = MagicMock(return_value=None)
+        from homeassistant.helpers.event import async_call_later
+        async_call_later.reset_mock()
+        a._supports_heat_cool = MagicMock(return_value=False)
+        await a._perform_ac_reset(z)
+        assert async_call_later.call_count >= 1
+        assert async_call_later.call_args_list[0].args[1] == 195
+
+
+# ============================================================================
+# Acceptance tests for the fix-up brief's explicit F-item repros.
+# ============================================================================
+
+
+class TestF1MidnightRepro:
+    def test_night_session_date_stable_across_midnight(self):
+        a, _ = _mk_arrester()
+        d1 = a._night_session_date(datetime(2026, 8, 22, 22, 10))
+        d2 = a._night_session_date(datetime(2026, 8, 23, 0, 35))
+        d3 = a._night_session_date(datetime(2026, 8, 23, 2, 40))
+        assert d1 == d2 == d3 == "2026-08-22"
+
+    def test_partition_check_uses_night_state_row_across_midnight(self):
+        a, _ = _mk_arrester()
+        a.set_reset_night_budget(2)
+        night_state = {
+            "night_reset_count": 0,
+            "night_session_date": "2026-08-22",
+        }
+        pre = a._increment_partition_counter(
+            state={"day_reset_count": 0, "date": "2026-08-22"},
+            now=datetime(2026, 8, 22, 22, 10),
+            night_state=night_state,
+        )
+        assert pre == "night" and night_state["night_reset_count"] == 1
+        post = a._increment_partition_counter(
+            state={"day_reset_count": 0, "date": "2026-08-23"},
+            now=datetime(2026, 8, 23, 0, 35),
+            night_state=night_state,
+        )
+        assert post == "night" and night_state["night_reset_count"] == 2
+        ok, part, _reason = a._gate_partition_check(
+            "zone_a", datetime(2026, 8, 23, 2, 40),
+            state={"day_reset_count": 0, "date": "2026-08-23"},
+            night_state=night_state,
+        )
+        assert ok is False and part == "night"
+
+
+class TestF3KillSwitch:
+    @pytest.mark.asyncio
+    async def test_limit_zero_declines_no_lockout(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._hard_reset_daily_limit = 0
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id, "date": "2026-08-22",
+            "day_reset_count": 0, "night_reset_count": 0,
+            "hard_reset_count": 0, "night_session_date": None,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.get_global_last_hard_reset_ts = AsyncMock(return_value=None)
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._engage_lockout = AsyncMock()
+        a._perform_ac_reset = AsyncMock()
+        a._is_night_now = MagicMock(return_value=False)
+        await a._perform_hard_reset_escalation(z, 1.2)
+        a._engage_lockout.assert_not_called()
+        a._perform_ac_reset.assert_not_called()
+        reasons = [
+            (c.kwargs.get("notes") or "")
+            for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_declined"
+        ]
+        assert any("feature_disabled" in r for r in reasons), reasons
+
+
+class TestF4LockoutBothDirections:
+    @pytest.mark.asyncio
+    async def test_true_cap_exhausted_engages_lockout_when_enabled(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._reset_day_budget = 1
+        a._reset_night_budget = 1
+        a._hard_reset_daily_limit = 5
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id, "date": "2026-08-22",
+            "day_reset_count": 1, "night_reset_count": 1,
+            "hard_reset_count": 2, "night_session_date": None,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.get_global_last_hard_reset_ts = AsyncMock(return_value=None)
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._engage_lockout = AsyncMock()
+        a._perform_ac_reset = AsyncMock()
+        a._is_night_now = MagicMock(return_value=False)
+        await a._perform_hard_reset_escalation(z, 1.2)
+        a._engage_lockout.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_true_cap_exhausted_declines_when_flag_false(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._reset_day_budget = 1
+        a._reset_night_budget = 1
+        a._hard_reset_daily_limit = 5
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id, "date": "2026-08-22",
+            "day_reset_count": 1, "night_reset_count": 1,
+            "hard_reset_count": 2, "night_session_date": None,
+        })
+        a._db.log_ac_ramp_event = AsyncMock()
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.get_global_last_hard_reset_ts = AsyncMock(return_value=None)
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._engage_lockout = AsyncMock()
+        a._perform_ac_reset = AsyncMock()
+        a._is_night_now = MagicMock(return_value=False)
+        await a._perform_hard_reset_escalation(
+            z, 1.2, engage_lockout_on_cap=False,
+        )
+        a._engage_lockout.assert_not_called()
+        reasons = [
+            (c.kwargs.get("notes") or "")
+            for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_declined"
+        ]
+        assert any("true_cap_exhausted" in r for r in reasons), reasons
+
+
+class TestF5ZoneThresholdAndTruncatedColumn:
+    @pytest.mark.asyncio
+    async def test_uses_zone_threshold_not_module_floor(self):
+        """kW=0.8 above the 0.5 module floor but below the zone
+        threshold 1.5 -> durable=1 under the corrected rule."""
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._read_kwh_rate = MagicMock(return_value=0.8)
+        z.kwh_rate_threshold = 1.5
+        a._durable_pending["zone_a"] = {
+            "event_id": 55,
+            "started_ts": datetime.now() - timedelta(minutes=30),
+        }
+        await a._write_durable("zone_a", truncated=False)
+        _, kwargs = a._db.update_ac_ramp_event_fields.call_args
+        assert kwargs["durable"] == 1
+
+    @pytest.mark.asyncio
+    async def test_truncated_column_written_alongside_durable(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        z.kwh_rate_threshold = 0.8
+        a._nudge_running_max_kw["zone_a"] = 1.2
+        a._durable_pending["zone_a"] = {
+            "event_id": 66,
+            "started_ts": datetime.now() - timedelta(minutes=5),
+        }
+        await a._write_durable("zone_a", truncated=True)
+        _, kwargs = a._db.update_ac_ramp_event_fields.call_args
+        assert kwargs["truncated"] == 1
+
+        a2, z2 = _mk_arrester()
+        a2._db = MagicMock()
+        a2._db.update_ac_ramp_event_fields = AsyncMock()
+        a2._read_kwh_rate = MagicMock(return_value=0.1)
+        z2.kwh_rate_threshold = 0.8
+        a2._durable_pending["zone_a"] = {
+            "event_id": 67,
+            "started_ts": datetime.now() - timedelta(minutes=30),
+        }
+        await a2._write_durable("zone_a", truncated=False)
+        _, kwargs2 = a2._db.update_ac_ramp_event_fields.call_args
+        assert kwargs2["truncated"] == 0
+
+
+class TestF7KwhUnitRejected:
+    def test_cumulative_kwh_sensor_returns_none(self):
+        hass = _mk_hass_with_state("sensor.zone_a_kwh", 42.5, unit="kWh")
+        a, z = _mk_arrester(hass=hass)
+        z.ac_load_sensor = "sensor.zone_a_kwh"
+        assert a._read_kwh_rate(z, datetime.now()) is None
+
+    def test_kw_and_w_units_accepted(self):
+        hass_kw = _mk_hass_with_state("sensor.zone_a_kw", 1.2, unit="kW")
+        a, z = _mk_arrester(hass=hass_kw)
+        z.ac_load_sensor = "sensor.zone_a_kw"
+        assert a._read_kwh_rate(z, datetime.now()) == 1.2
+        hass_w = _mk_hass_with_state("sensor.zone_a_w", 1200, unit="W")
+        a2, z2 = _mk_arrester(hass=hass_w)
+        z2.ac_load_sensor = "sensor.zone_a_w"
+        v = a2._read_kwh_rate(z2, datetime.now())
+        assert abs(v - 1.2) < 1e-6
+
+
+class TestF9PresetFailureVsRestoreOk:
+    @pytest.mark.asyncio
+    async def test_preset_failure_yields_preset_restore_ok_false(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._hard_reset_completed_event_ids = {"zone_a": 321}
+        await a._backfill_restore_ok(
+            "zone_a", False, preset_ok=False,
+        )
+        call = a._db.update_ac_ramp_event_fields.call_args
+        assert call.args[0] == 321
+        assert call.kwargs.get("restore_ok") is False
+        assert call.kwargs.get("preset_restore_ok") is False
+
+
+# ============================================================================
+# T4 wire-in: kwh_rate_settle. Under the mocked homeassistant harness,
+# async_call_later returns a MagicMock and does NOT execute the
+# scheduled callback. The T4 wire-in test therefore drives the D6
+# scheduler and asserts (a) TWO async_call_later schedules happened
+# (temp @ 60s + kW @ AC_RESET_OUTCOME_KWH_SETTLE_S), (b) the SECOND
+# is scheduled at the corrected kW settle delay. The DAO write shape
+# assertion (kwh_rate_settle populated) is enforced at the mutation
+# drill by neutering the kwarg in the source and observing this test
+# fail — reported UNBOUND with an explicit reason if the harness
+# cannot execute the closure.
+# ============================================================================
+
+
+class TestT4KwSettleScheduler:
+    @pytest.mark.asyncio
+    async def test_two_delayed_callbacks_scheduled_with_correct_delays(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        z.ac_load_sensor = "sensor.zone_a_kw"
+        a._read_kwh_rate = MagicMock(return_value=0.42)
+        a._reset_outcome_pending[z.zone_id] = {
+            "event_id": 77, "target_high": 74.0,
+        }
+        from homeassistant.helpers.event import async_call_later
+        from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
+            AC_RESET_OUTCOME_SETTLE_S,
+            AC_RESET_OUTCOME_KWH_SETTLE_S,
+        )
+        async_call_later.reset_mock()
+        a._schedule_reset_outcome(z, completed_event_id=77)
+        assert async_call_later.call_count == 2, (
+            "expected two schedules (temp @ 60s + kW @ kw-settle)"
+        )
+        # First = temp settle at AC_RESET_OUTCOME_SETTLE_S.
+        assert async_call_later.call_args_list[0].args[1] == AC_RESET_OUTCOME_SETTLE_S
+        # Second = kW settle at AC_RESET_OUTCOME_KWH_SETTLE_S (F6 fix-up
+        # for the actuation-lag envelope; must be >= 150s).
+        assert async_call_later.call_args_list[1].args[1] == AC_RESET_OUTCOME_KWH_SETTLE_S
+        assert AC_RESET_OUTCOME_KWH_SETTLE_S >= 150
