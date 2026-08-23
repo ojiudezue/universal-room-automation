@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T12:12:29-05:00_ - _Data commit: `c8406a45b475`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:31:05-05:00_ - _Data commit: `ce9371ec5f8d`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -328,7 +328,9 @@ _created 2026-08-21 19:10 · initial_
 - **Tags:** measured-not-inferred, measure-before-build, blocks-a-card-cluster
 - **Parsimony:** [INVESTIGATE] eight cards are queued against a value that has never once been produced
 - **Refs:** person_entry_exit_events (URA DB); const.py:2162 FACE_MATCH_WINDOW_S; switch.ura_name_people_at_doors
-- **Forensic keys (7):**
+- **Forensic keys (9):**
+  - `FRIGATE2_STORAGE_OUTAGE_INVALIDATES_PART_OF_THE_RULING_2026_08_23`: OPERATOR: "Frigate 2 was storage bound and swallowing detections since at least the 20th or so. Fixed now." That window overlaps the measurements this card's NO-GO rests on. Probe run 2026-08-23 12:30 CDT (scripts/probes/frigate_health_p...
+  - `RERUN_SCHEDULE_2026_08_23`: Operator directed a rerun "this evening and in 24 hours" to measure recovery on clean post-fix data. Probe: scripts/probes/frigate_health_probe.py. RUN 1 (this evening) — establishes the first clean partial day post-fix. RUN 2 (+24h) — t...
   - `THE_MEASUREMENT_ORCHESTRATOR_VERIFIED`: MEASURED and INDEPENDENTLY RE-VERIFIED by the orchestrator (not relayed on the agent word): table person_entry_exit_events in the LIVE URA DB — rows = 6,763, person_id NOT NULL = 0, DISTINCT person_id = 0, span 2026-03-04T23:53 -> 2026-0...
   - `WHY_IT_IS_ZERO_AND_WHY_THAT_IS_NOT_A_WIRING_BUG`: The feature is ARMED, not dormant: egress_identity_enabled = True on the integration entry and kill switch switch.ura_name_people_at_doors has been ON since 08-18. Registry resolution of all five egress cameras is CORRECT, including the ...
   - `THE_REAL_SHAPE_FACE_RECOGNITION_WORKS_ON_THE_WRONG_CAMERAS`: Named-face events over 7.6 days: INTERIOR cameras — master_hallway 68, playroom 30, upstairs_hall 18, staircase/stairs_top 20. EGRESS cameras — garage_a 10, front_door_aerial 5, madrone_g6_entry 3, doorbell_lite 3, garage_b 1. Frigate fa...

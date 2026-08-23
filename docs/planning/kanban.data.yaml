@@ -7065,6 +7065,47 @@ cards:
   - KITCHEN-OCCUPANCY-DEAD-1
   - CHATTER-RATE-VS-BURST-GAP-1
 - id: EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1
+  FRIGATE2_STORAGE_OUTAGE_INVALIDATES_PART_OF_THE_RULING_2026_08_23: 'OPERATOR: "Frigate 2 was storage
+    bound and swallowing detections since at least the 20th or so. Fixed now." That window overlaps
+    the measurements this card''s NO-GO rests on. Probe run 2026-08-23 12:30 CDT
+    (scripts/probes/frigate_health_probe.py, piped over ssh — /config is read-only so it lives in the
+    repo, not on the host).
+    WHAT IS INVALIDATED, and what is NOT — the distinction matters and was nearly lost:
+      NOT invalidated: person_id = 0 of 6,875 rows ALL TIME. A 3-day storage outage cannot explain
+      five and a half months of zeros. The producer-emits-nothing finding STANDS.
+      INVALIDATED / in question: the post-ship coverage numbers ("112 crossings, ZERO with a face in
+      the 60s window", the ~2% ceiling over 7.6 days, "only 8 crossings in 4 days post-Frigate-2").
+      All were taken inside or overlapping the outage.
+    MEASURED STEP-DOWN CONFIRMS THE OPERATOR''S DATING: named-face recognitions per day —
+      08-16: 91 | 08-17: 80 | 08-18: 131 | 08-19: 118 | 08-20: 47 | 08-21: 72 | 08-22: 69
+    A clear drop at 08-20 against an 80-131 baseline. Person detections did NOT collapse in the same
+    window (665-2264/day throughout), so the outage suppressed FACE events specifically, not all
+    ingest — which is why the ratio was the right discriminator to ask for.
+    THE FINDING THAT REFRAMES THE WHOLE CARD — EGRESS CAMERAS DO PRODUCE FACES:
+      garage_a 29 named-face recognitions in 8 days, doorbell_lite 22, front_door_aerial 22,
+      madrone_g6_entry 22, g5_bullet 21, family_room 21.
+    The superseding memo claimed "face recognition works on INTERIOR cams, fails on door/garage
+    geometry". THAT IS REFUTED. Garage A and the door cameras recognise faces regularly.
+    CONSEQUENCE: the producer is NOT starved of faces. Faces exist on the egress cameras AND
+    crossings happen daily (11-114/day) AND person_id is still never populated. That moves the
+    suspect from AVAILABILITY (geometry — candidate b) to the JOIN (window/ordering — candidate a),
+    which this card''s own `next` already named as the cheap-fix branch.
+    CAVEAT BOUNDING ALL OF THE ABOVE: recorder `states` reaches back only to 2026-08-16. Nothing
+    before that date is measurable this way, so the outage may predate the 20th — "at least the 20th"
+    is a floor, not a bound. The 24h rerun partly addresses this by measuring clean post-fix days.'
+  RERUN_SCHEDULE_2026_08_23: 'Operator directed a rerun "this evening and in 24 hours" to measure
+    recovery on clean post-fix data. Probe: scripts/probes/frigate_health_probe.py.
+    RUN 1 (this evening) — establishes the first clean partial day post-fix.
+    RUN 2 (+24h) — the first FULL clean day; this is the one that matters.
+    WHAT WOULD CHANGE THE RULING: if post-fix named-face rates on garage_a / doorbell_lite /
+    front_door_aerial return to or exceed the 08-18/08-19 baseline (131/118 house-wide) AND person_id
+    is STILL 0 across a full clean day of crossings, then face availability is definitively NOT the
+    blocker and the join logic is. That reopens the eight consumer cards as gated on a FIXABLE
+    producer rather than closing them as NO-GO.
+    WHAT WOULD CONFIRM THE EXISTING RULING: face rates recover but egress-camera faces specifically
+    stay near zero while interior cameras recover — that would restore the geometry hypothesis.
+    These two predictions are DISCRIMINATING and are written down BEFORE the runs so the data
+    chooses, not the reader.'
   title: person_id has NEVER been populated — 0 of 6,763 rows across 5.5 months. The eight identity-consumer cards are blocked
     on a producer that emits nothing, not a sparse one. NO-GO.
   thread: presence
