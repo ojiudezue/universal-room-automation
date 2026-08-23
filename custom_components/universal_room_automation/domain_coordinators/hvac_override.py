@@ -5651,14 +5651,19 @@ class OverrideArrester:
             writes, no lockout engagement).
           - Daily cap + global min-interval gates inside the escalation.
 
-        Note on triggered_by traceability: the existing
-        `_perform_hard_reset_escalation` hard-codes `"auto"` at the
-        `_track_zone_action` and `log_ac_ramp_event` call sites
-        (hvac_override.py L1591). Adding a `triggered_by="manual"`
-        parameter changes the signature for one caller — explicitly
-        out-of-scope per planning §6 (D1 Spec correction). The resulting
-        `ac_ramp_events` row will carry `auto` for force-reset presses;
-        this is an accepted limitation for v4.7.9 hygiene-scale.
+        Note on triggered_by traceability (A2 fix-up 2026-08-22
+        supersedes the v4.7.9 §D1 out-of-scope decision):
+        `_perform_hard_reset_escalation` now accepts `triggered_by` per
+        AC-RAMP-PIPELINE-HARDENING-1 D-ESC-SIG. We pass
+        `triggered_by="manual"` here so the ac_ramp_events ledger
+        distinguishes operator-invoked resets from automatic escalation.
+        The AC-RAMP-NO-RECURRENCE-ESCALATION-1 probe fires manual
+        resets and compares them against organic ones; without a
+        distinct value the probe cannot separate its own interventions
+        from the automatic ladder. The v4.7.9 guard is deliberately
+        superseded (see test_v479_hygiene_bundle
+        test_triggered_by_manual_on_force_reset for the recorded
+        supersession rationale).
 
         kwh_rate_now=0.0 is passed because a manual button press is not
         reacting to a live overshoot reading — the user has decided the
@@ -5716,7 +5721,12 @@ class OverrideArrester:
         )
         # kwh_rate_now=0.0: manual presses don't react to a reading; the
         # signature requires a float; downstream code treats 0.0 cleanly.
-        await self._perform_hard_reset_escalation(zone, 0.0)
+        # A2 fix-up: triggered_by="manual" threads into the started row
+        # so the AC-RAMP-NO-RECURRENCE-ESCALATION-1 probe can filter
+        # out its own interventions from the automatic ladder.
+        await self._perform_hard_reset_escalation(
+            zone, 0.0, triggered_by="manual",
+        )
 
     async def clear_zone_lockout(self, zone_id: str) -> None:
         """Reset today's counters + clear lockout for one zone (D9 button)."""

@@ -215,9 +215,10 @@ class TestD1ForceAcResetArresterMethod:
         )
 
     def test_master_switch_gate(self, override_src):
-        # Locate the method body.
-        idx = override_src.find("async def force_ac_reset(")
-        body = override_src[idx:idx + 2000]
+        # A2 fix-up: use the shared _force_ac_reset_body helper (bounds
+        # on next-method) so a longer docstring cannot push the
+        # master-switch code past a fixed slice length.
+        body = self._force_ac_reset_body(override_src)
         assert "_ramp_master_enabled" in body, (
             "D1: master switch (kill-switch contract) must be checked"
         )
@@ -252,19 +253,38 @@ class TestD1ForceAcResetArresterMethod:
     def test_passes_zero_kwh_rate(self, override_src):
         # Per plan §D1 spec: manual press isn't reacting to a reading;
         # kwh_rate_now=0.0 is the explicit choice.
+        # A2 fix-up: allow additional kwargs after the two positional
+        # args (the call now includes triggered_by="manual").
         body = self._force_ac_reset_body(override_src)
         assert re.search(
-            r"_perform_hard_reset_escalation\(\s*zone\s*,\s*0\.0\s*\)",
+            r"_perform_hard_reset_escalation\(\s*zone\s*,\s*0\.0"
+            r"(\s*,[^)]*)?\)",
             body,
+            re.DOTALL,
         ), (
-            "D1: must call _perform_hard_reset_escalation(zone, 0.0) — "
+            "D1: must call _perform_hard_reset_escalation(zone, 0.0, ...) — "
             "kwh_rate_now=0.0 for manual press (not reacting to a reading)"
         )
 
-    def test_no_triggered_by_parameter_added(self, override_src):
-        # Plan §D1 out-of-scope decision: do NOT change
-        # _perform_hard_reset_escalation signature.
-        # Match across the multi-line signature (typed params).
+    def test_triggered_by_parameter_now_required(self, override_src):
+        """A2 fix-up (2026-08-22) — SUPERSESSION of the v4.7.9 §D1
+        guard, recorded here rather than silently deleted.
+
+        v4.7.9 §D1 deliberately decided NOT to add `triggered_by` to
+        `_perform_hard_reset_escalation` on the grounds that the only
+        caller at the time (force_ac_reset, which we exist to test)
+        did not need the discrimination. AC-RAMP-PIPELINE-HARDENING-1
+        D-ESC-SIG added the parameter for its D-ESC-CONSUME caller
+        (subsequently dropped). Post-fix-up the parameter is
+        LOAD-BEARING for the AC-RAMP-NO-RECURRENCE-ESCALATION-1
+        probe, which fires manual resets and needs to filter its own
+        interventions out of the automatic ladder — impossible if
+        every hard_reset_started row carries `triggered_by="auto"`.
+
+        force_ac_reset now passes `triggered_by="manual"`. The v4.7.9
+        guard is superseded; this test asserts the new contract so
+        the parameter cannot be silently reverted.
+        """
         m = re.search(
             r"async def _perform_hard_reset_escalation\((.*?)\)\s*->",
             override_src,
@@ -275,9 +295,30 @@ class TestD1ForceAcResetArresterMethod:
             "return annotation"
         )
         sig = m.group(1)
-        assert "triggered_by" not in sig, (
-            "D1: planning §D1 explicitly says do NOT add triggered_by "
-            "to _perform_hard_reset_escalation"
+        assert "triggered_by" in sig, (
+            "A2 fix-up: _perform_hard_reset_escalation MUST accept a "
+            "triggered_by parameter — required by the "
+            "AC-RAMP-NO-RECURRENCE-ESCALATION-1 probe to distinguish "
+            "manual from automatic escalations."
+        )
+
+    def test_triggered_by_manual_on_force_reset(self, override_src):
+        """A2 fix-up (2026-08-22): force_ac_reset must thread
+        triggered_by='manual' into _perform_hard_reset_escalation so
+        the ledger row carries 'manual' for operator-invoked resets."""
+        idx = override_src.find("async def force_ac_reset(")
+        assert idx > 0, "force_ac_reset must exist"
+        # Search only the method body — bound to the next top-level
+        # async def to avoid crossing method boundaries.
+        end = override_src.find("\n    async def ", idx + 1)
+        body = override_src[idx:end if end > 0 else idx + 5000]
+        # Match across multi-line call.
+        assert re.search(
+            r"_perform_hard_reset_escalation\(\s*zone\s*,\s*0\.0\s*,\s*triggered_by\s*=\s*[\'\"]manual[\'\"]",
+            body,
+        ), (
+            "force_ac_reset must call _perform_hard_reset_escalation "
+            "with triggered_by='manual' — the probe filter depends on it"
         )
 
 

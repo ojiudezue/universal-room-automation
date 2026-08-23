@@ -169,6 +169,43 @@ def _mk_hass_with_state(entity_id, kw_value, unit=None,
     return hass
 
 
+# ---------------------------------------------------------------------------
+# 2026-08-22 fix-up round 5d: cross-file pollution isolation.
+#
+# The full suite loads sibling test files that replace either
+#   (a) homeassistant.helpers.event.async_call_later — module-shared
+#       MagicMock swapped for a plain function that has no .reset_mock,
+#       breaking every test here that inspects scheduler calls, OR
+#   (b) homeassistant.util.dt.now — swapped for real HA impl returning
+#       an aware datetime, breaking arithmetic against naive
+#       datetime.now() anchors in the durability tests.
+#
+# Rather than order-mark or reorder, we install per-test replacements
+# on the PRODUCTION MODULE'S bindings via an autouse fixture. Any test
+# in this file gets a fresh MagicMock async_call_later and a naive
+# datetime.now for dt_util.now, regardless of what any sibling did.
+# Restore on teardown so we don't leak outward either.
+# ---------------------------------------------------------------------------
+
+_HVAC_OVERRIDE_MOD = hvac_override  # already loaded via _load above
+
+
+@pytest.fixture(autouse=True)
+def _isolate_hvac_override_pollution():
+    _orig_acl = getattr(_HVAC_OVERRIDE_MOD, "async_call_later", None)
+    _orig_now = getattr(_HVAC_OVERRIDE_MOD.dt_util, "now", None)
+    _fresh_acl = MagicMock(return_value=lambda: None)
+    _HVAC_OVERRIDE_MOD.async_call_later = _fresh_acl
+    _HVAC_OVERRIDE_MOD.dt_util.now = lambda: datetime.now()
+    try:
+        yield
+    finally:
+        if _orig_acl is not None:
+            _HVAC_OVERRIDE_MOD.async_call_later = _orig_acl
+        if _orig_now is not None:
+            _HVAC_OVERRIDE_MOD.dt_util.now = _orig_now
+
+
 def _mk_arrester(hass=None, zone=None):
     z = zone or _mk_zone()
     z.ac_load_sensor = "sensor.zone_a_kw"
@@ -936,8 +973,7 @@ class TestT6OffDurationConsumption:
         hass = a.hass
         hass.services.async_call = AsyncMock()
         hass.states.get = MagicMock(return_value=None)
-        from homeassistant.helpers.event import async_call_later
-        async_call_later.reset_mock()
+        async_call_later = _HVAC_OVERRIDE_MOD.async_call_later
         a._supports_heat_cool = MagicMock(return_value=False)
         await a._perform_ac_reset(z)
         assert async_call_later.call_count >= 1
@@ -1180,12 +1216,11 @@ class TestT4KwSettleScheduler:
         a._reset_outcome_pending[z.zone_id] = {
             "event_id": 77, "target_high": 74.0,
         }
-        from homeassistant.helpers.event import async_call_later
         from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
             AC_RESET_OUTCOME_SETTLE_S,
             AC_RESET_OUTCOME_KWH_SETTLE_S,
         )
-        async_call_later.reset_mock()
+        async_call_later = _HVAC_OVERRIDE_MOD.async_call_later
         a._schedule_reset_outcome(z, completed_event_id=77)
         assert async_call_later.call_count == 2, (
             "expected two schedules (temp @ 60s + kW @ kw-settle)"
@@ -1362,8 +1397,7 @@ class TestT4KwSettleDaoBind:
             scheduled.append(coro)
             return MagicMock()
         a.hass.async_create_task = MagicMock(side_effect=_capture_task)
-        from homeassistant.helpers.event import async_call_later
-        async_call_later.reset_mock()
+        async_call_later = _HVAC_OVERRIDE_MOD.async_call_later
         a._schedule_reset_outcome(z, completed_event_id=88)
         # Two schedules land — take the LAST (kW) and invoke it.
         assert async_call_later.call_count == 2
@@ -1383,3 +1417,52 @@ class TestT4KwSettleDaoBind:
         assert call is not None
         assert call.args[0] == 88
         assert call.kwargs.get("kwh_rate_settle") == 0.42
+
+
+# ============================================================================
+# A2 (2026-08-22): behavioural bind for force_ac_reset -> triggered_by="manual"
+# The v4.7.9 guard test (test_no_triggered_by_parameter_added) was flipped to
+# assert the parameter IS present (see test_v479_hygiene_bundle
+# test_triggered_by_manual_on_force_reset). The behavioural bind below drives
+# force_ac_reset and asserts the ledger row carries 'manual', not 'auto'.
+# ============================================================================
+
+
+class TestA2ForceResetTriggeredByManual:
+    @pytest.mark.asyncio
+    async def test_force_ac_reset_writes_manual_on_started_row(self):
+        a, z = _mk_arrester()
+        a._ac_reset_enabled = True
+        a._ramp_master_enabled = True
+        a._hard_reset_daily_limit = 5
+        z.target_temp_high = 74.0
+        z.target_temp_low = 70.0
+        z.current_temperature = 74.0
+        a._db = MagicMock()
+        a._db.get_ac_reset_state = AsyncMock(return_value={
+            "zone_id": z.zone_id, "date": "2026-08-22",
+            "day_reset_count": 0, "night_reset_count": 0,
+            "hard_reset_count": 0, "night_session_date": None,
+        })
+        a._db.get_global_last_hard_reset_ts = AsyncMock(return_value=None)
+        a._db.log_ac_ramp_event = AsyncMock(return_value=101)
+        a._db.save_ac_reset_state = AsyncMock()
+        a._db.update_ac_night_counter = AsyncMock()
+        a._db.clear_ac_in_flight_nudge = AsyncMock()
+        a._corrective_writes_suppressed = MagicMock(return_value=False)
+        a._perform_ac_reset = AsyncMock()
+        # Cancel-any-in-flight-nudge branch:
+        a._nudge_restore_timers = {}
+        a._nudge_eval_timers = {}
+        await a.force_ac_reset(z.zone_id)
+        started = [
+            c for c in a._db.log_ac_ramp_event.call_args_list
+            if c.kwargs.get("event_type") == "hard_reset_started"
+        ]
+        assert len(started) == 1, (
+            f"expected exactly one hard_reset_started row, got {len(started)}"
+        )
+        assert started[0].kwargs.get("triggered_by") == "manual", (
+            "A2: force_ac_reset must thread triggered_by='manual' so the "
+            "escalation probe can filter manual from auto"
+        )

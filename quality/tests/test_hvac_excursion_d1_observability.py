@@ -539,18 +539,46 @@ class TestSettledSampleWireIn:
             "teardown must clear the settled-timer dict"
         )
 
-    def test_settled_callback_uses_cached_states_get_no_service_calls(
+    def test_settled_callback_writes_null_reason_no_service_calls(
         self, hvac_override_src,
     ):
+        """AC-RAMP fix-up round 2 (2026-08-22, F8 option-c revision):
+        the settled sample was found to be structurally unmeasurable
+        through hass.states on this deployment — the ha_carrier
+        integration does not write the entity state on preset writes,
+        the 30-min poll is the only refresh, and the measured 25-min
+        inter-nudge cadence guarantees no delay value can BOTH be past
+        the poll AND before the next nudge. The callback now DOES NOT
+        READ the state; it writes restore_ok=None with an explicit
+        settled_reason naming the blocker.
+
+        This test replaces the pre-fix assertion that required a
+        cached hass.states.get read. The NO-SERVICE-CALLS half of the
+        original invariant is PRESERVED unchanged — the callback still
+        must not perturb the race by writing anything to the
+        thermostat.
+        """
         idx = hvac_override_src.find("async def _write_settled(")
         assert idx > 0, "settled-write inner coroutine must exist"
         body = hvac_override_src[idx: idx + 3000]
-        # Passive read only.
-        assert "self.hass.states.get(" in body, (
-            "settled read must be via cached hass.states.get"
+        # New contract (F8 option-c): write NULL + reason.
+        assert "restore_ok=None," in body, (
+            "F8 option-c: settled callback must write restore_ok=None "
+            "(the sample is structurally unmeasurable through the "
+            "stale-polled integration)"
         )
-        # No thermostat writes / service calls / suppression flips
-        # inside the settled callback (perturbation-free by construction).
+        assert "AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON" in body, (
+            "settled_reason must be populated from the named reason "
+            "constant so consumers can discriminate 'intentionally "
+            "skipped' from 'measurement lost'"
+        )
+        # PRESERVED invariant (unchanged from pre-fix contract):
+        # no thermostat writes / service calls / suppression flips
+        # inside the settled callback. The whole reason F8 chose the
+        # NULL-plus-reason path over a "force a refresh" path is
+        # exactly that this callback must NOT perturb the running
+        # cycle. CARRIER-STALE-POLL-REFRESH-1 tracks the out-of-scope
+        # path to a working instrument.
         for banned in (
             "async_call_service",
             "hass.services.async_call",
