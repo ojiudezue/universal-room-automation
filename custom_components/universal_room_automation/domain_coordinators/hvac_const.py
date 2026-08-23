@@ -640,6 +640,82 @@ AC_RAMP_EVENT_MANUAL_OVERRIDE: Final = "manual_override"
 AC_RAMP_EVENT_CANCEL_INVOKED: Final = "cancel_invoked"
 AC_RAMP_EVENT_STARTUP_RESTORE: Final = "startup_restore"
 
+# AC-RAMP-PIPELINE-HARDENING-1 (this cycle)
+# Additional ac_ramp_events event_type strings for the observability
+# ledger. All are edge-triggered (see D8) — never per-tick.
+AC_RAMP_EVENT_GATE4_DIVERGENCE_SHADOW: Final = "gate4_divergence_shadow"
+AC_RAMP_EVENT_HARD_RESET_DECLINED: Final = "hard_reset_declined"
+
+# D-GATE4 — draw-based Gate 4 predicate primitives (module const rung 1).
+# Changing either should require code review; both are safety-adjacent
+# (a wrong low value permits spurious cooling nudges during heating
+# cycles; a wrong high value silently disables the predicate).
+AC_ACTIVELY_COOLING_KW_MIN: Final = 0.5
+AC_ACTIVELY_COOLING_BLOWER_RPM_MIN: Final = 100
+# Invariant P bound (display-only fraction, 0.0-1.0).
+GATE4_MAX_BLIND_FRACTION: Final = 0.01
+
+# D-GATE4 predicate mode Select values + default.
+HVAC_AC_GATE4_MODE_LEGACY: Final = "legacy"
+HVAC_AC_GATE4_MODE_SHADOW: Final = "shadow"
+HVAC_AC_GATE4_MODE_LIVE: Final = "live"
+HVAC_AC_GATE4_MODES: Final = (
+    HVAC_AC_GATE4_MODE_LEGACY,
+    HVAC_AC_GATE4_MODE_SHADOW,
+    HVAC_AC_GATE4_MODE_LIVE,
+)
+CONF_HVAC_AC_GATE4_PREDICATE_MODE: Final = "hvac_ac_gate4_predicate_mode"
+DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE: Final = HVAC_AC_GATE4_MODE_SHADOW
+
+# D-SCORE — durability window (options rung 2). The delayed classifier
+# passively re-reads kW at nudge-eval-time + this window and writes
+# durable/durable_minutes onto the nudge_evaluated row.
+CONF_HVAC_AC_DURABILITY_WINDOW: Final = "hvac_ac_durability_window"
+DEFAULT_HVAC_AC_DURABILITY_WINDOW: Final = 30  # minutes
+
+# D3 — soft-nudge daily runaway guard (Number rung 3). Manual force_nudge
+# bypasses this cap by design.
+CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = "hvac_ac_soft_nudge_daily_limit"
+DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = 50
+
+# D2 — partitioned day/night reset budgets (Numbers rung 3, operator ruled
+# 2/2 2026-08-22). Wall-clock window (options rung 2).
+CONF_HVAC_AC_RESET_DAY_BUDGET: Final = "hvac_ac_reset_day_budget"
+DEFAULT_HVAC_AC_RESET_DAY_BUDGET: Final = 2
+CONF_HVAC_AC_RESET_NIGHT_BUDGET: Final = "hvac_ac_reset_night_budget"
+DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET: Final = 2
+CONF_HVAC_AC_NIGHT_START_HHMM: Final = "hvac_ac_night_start_hhmm"
+DEFAULT_HVAC_AC_NIGHT_START_HHMM: Final = "22:00"
+CONF_HVAC_AC_NIGHT_END_HHMM: Final = "hvac_ac_night_end_hhmm"
+DEFAULT_HVAC_AC_NIGHT_END_HHMM: Final = "06:00"
+
+# D7 — promote AC_RESET_OFF_DURATION_SECONDS to a live Number (rung 3).
+# The module const above stays as the first-boot seed value.
+CONF_HVAC_AC_RESET_OFF_DURATION: Final = "hvac_ac_reset_off_duration"
+DEFAULT_HVAC_AC_RESET_OFF_DURATION: Final = AC_RESET_OFF_DURATION_SECONDS
+
+# D6 — reset-outcome settle window (module const rung 1, sibling of
+# AC_NUDGE_RESTORE_SETTLE_DELAY_S). Passive re-read only.
+AC_RESET_OUTCOME_SETTLE_S: Final = 60
+
+# D6 outcome classification strings.
+AC_RESET_OUTCOME_JUSTIFIED_RAMP: Final = "justified_ramp"
+AC_RESET_OUTCOME_FLOOR_SURVIVED: Final = "floor_survived"
+AC_RESET_OUTCOME_INCONCLUSIVE: Final = "inconclusive"
+
+# D8 — declined-reason codes (edge-triggered writes; see coordinator
+# `_maybe_write_declined`).
+AC_RESET_DECLINED_DAY_BUDGET: Final = "day_budget_exhausted"
+AC_RESET_DECLINED_NIGHT_BUDGET: Final = "night_budget_exhausted"
+AC_RESET_DECLINED_GLOBAL_MIN_INTERVAL: Final = "global_min_interval"
+AC_RESET_DECLINED_FEATURE_DISABLED: Final = "feature_disabled"
+AC_RESET_DECLINED_MASTER_OFF: Final = "master_off"
+AC_RESET_DECLINED_COMFORT_DEFERRED: Final = "comfort_deferred"
+
+# Edge-triggered declined-row floor (seconds; same reason cannot re-log
+# within this window per zone).
+AC_RESET_DECLINED_MIN_INTERVAL_S: Final = 900  # 15 min
+
 # Fan speed scaling (above cooling setpoint)
 FAN_SPEED_LOW_PCT: Final = 33
 FAN_SPEED_MED_PCT: Final = 66

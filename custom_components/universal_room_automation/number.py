@@ -2372,6 +2372,15 @@ def _build_hvac_v4511_numbers():
         DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
         CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL,
         DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+        # AC-RAMP-PIPELINE-HARDENING-1 knobs.
+        CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT as _CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+        DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT as _DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+        CONF_HVAC_AC_RESET_DAY_BUDGET as _CONF_HVAC_AC_RESET_DAY_BUDGET,
+        DEFAULT_HVAC_AC_RESET_DAY_BUDGET as _DEFAULT_HVAC_AC_RESET_DAY_BUDGET,
+        CONF_HVAC_AC_RESET_NIGHT_BUDGET as _CONF_HVAC_AC_RESET_NIGHT_BUDGET,
+        DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET as _DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
+        CONF_HVAC_AC_RESET_OFF_DURATION as _CONF_HVAC_AC_RESET_OFF_DURATION,
+        DEFAULT_HVAC_AC_RESET_OFF_DURATION as _DEFAULT_HVAC_AC_RESET_OFF_DURATION,
     )
     return [
         _hvac_tunable_number_factory(
@@ -2451,6 +2460,55 @@ def _build_hvac_v4511_numbers():
             conf_key=CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL,
             default=DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
             min_value=30, max_value=360, step=30, unit="min",
+            integer=True,
+        ),
+        # AC-RAMP-PIPELINE-HARDENING-1 knobs on the HVAC Coordinator device.
+        # All push directly into the OverrideArrester runtime fields via
+        # the shared `_hvac_tunable_number_factory` (setattr on
+        # `runtime_field`). Range guards live on the coordinator setters
+        # for the two safety-adjacent ones (reset budgets, off-duration).
+        _hvac_tunable_number_factory(
+            suffix="ac_soft_nudge_daily_limit",
+            name="77 · AC Soft Nudge Daily Limit",
+            icon="mdi:counter",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_soft_nudge_daily_limit",
+            conf_key=_CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+            default=_DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+            min_value=0, max_value=200, step=1, unit=None,
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_reset_day_budget",
+            name="78 · AC Reset Day Budget",
+            icon="mdi:weather-sunny",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_reset_day_budget",
+            conf_key=_CONF_HVAC_AC_RESET_DAY_BUDGET,
+            default=_DEFAULT_HVAC_AC_RESET_DAY_BUDGET,
+            min_value=0, max_value=4, step=1, unit=None,
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_reset_night_budget",
+            name="79 · AC Reset Night Budget",
+            icon="mdi:weather-night",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_reset_night_budget",
+            conf_key=_CONF_HVAC_AC_RESET_NIGHT_BUDGET,
+            default=_DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
+            min_value=0, max_value=4, step=1, unit=None,
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_reset_off_duration",
+            name="80 · AC Reset Off Duration",
+            icon="mdi:timer-outline",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_ac_reset_off_duration_s",
+            conf_key=_CONF_HVAC_AC_RESET_OFF_DURATION,
+            default=_DEFAULT_HVAC_AC_RESET_OFF_DURATION,
+            min_value=30, max_value=300, step=15, unit="s",
             integer=True,
         ),
     ]

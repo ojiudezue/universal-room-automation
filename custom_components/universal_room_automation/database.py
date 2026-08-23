@@ -1703,6 +1703,20 @@ class UniversalRoomDatabase:
                         # hvac_excursion_events (non-nudge). Nullable — rows
                         # written before the primitive migration are NULL.
                         ("excursion_id", "TEXT"),
+                        # AC-RAMP-PIPELINE-HARDENING-1:
+                        # D-SCORE: delayed durability classifier writes onto
+                        # the nudge_evaluated row via event_id UPDATE.
+                        ("durable", "INTEGER"),
+                        ("durable_minutes", "INTEGER"),
+                        # D6: reset-outcome drift discriminator (justified_ramp
+                        # / floor_survived / inconclusive).
+                        ("reset_outcome", "TEXT"),
+                        # D6 (bounded add): kW draw captured at the SAME
+                        # settle moment as `reset_outcome`. Answers "did
+                        # the unit come back at a lower output stage."
+                        # NULL when the settle read fails; row still
+                        # writes and `reset_outcome` is unaffected.
+                        ("kwh_rate_settle", "REAL"),
                     ):
                         if _col not in are_columns:
                             await db.execute(
@@ -1711,6 +1725,29 @@ class UniversalRoomDatabase:
                     await db.commit()
                 except Exception as e:
                     _LOGGER.warning("ac_ramp_events migration failed: %s", e)
+
+                # AC-RAMP-PIPELINE-HARDENING-1 D-PARTITION + D-SCORE:
+                # partition counters + night-session date-key +
+                # in-flight durable started ts on ac_reset_state.
+                # Guarded ALTER modelled on the ac_ramp_events block above.
+                try:
+                    cursor = await db.execute(
+                        "PRAGMA table_info(ac_reset_state)"
+                    )
+                    ars_columns = {row[1] for row in await cursor.fetchall()}
+                    for _col, _decl in (
+                        ("day_reset_count", "INTEGER NOT NULL DEFAULT 0"),
+                        ("night_reset_count", "INTEGER NOT NULL DEFAULT 0"),
+                        ("night_session_date", "TEXT"),
+                        ("in_flight_durable_started_ts", "TEXT"),
+                    ):
+                        if _col not in ars_columns:
+                            await db.execute(
+                                f"ALTER TABLE ac_reset_state ADD COLUMN {_col} {_decl}"
+                            )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning("ac_reset_state migration failed: %s", e)
 
                 # v3.5.2: Add columns to room_transitions if absent
                 try:
@@ -7284,6 +7321,11 @@ class UniversalRoomDatabase:
             "in_flight_nudge_started_ts": None,
             "in_flight_nudge_duration_s": None,
             "lockout_flag": 0,
+            # AC-RAMP-PIPELINE-HARDENING-1 D-PARTITION + D-SCORE
+            "day_reset_count": 0,
+            "night_reset_count": 0,
+            "night_session_date": None,
+            "in_flight_durable_started_ts": None,
         }
         try:
             async with self._db_read() as db:
@@ -7318,8 +7360,11 @@ class UniversalRoomDatabase:
                         in_flight_nudge_original_target,
                         in_flight_nudge_started_ts,
                         in_flight_nudge_duration_s,
-                        lockout_flag
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        lockout_flag,
+                        day_reset_count, night_reset_count,
+                        night_session_date,
+                        in_flight_durable_started_ts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         state["zone_id"],
                         state["date"],
@@ -7332,6 +7377,16 @@ class UniversalRoomDatabase:
                         state.get("in_flight_nudge_started_ts"),
                         state.get("in_flight_nudge_duration_s"),
                         1 if state.get("lockout_flag") else 0,
+                        # AC-RAMP-PIPELINE-HARDENING-1 D-PARTITION + D-SCORE:
+                        # extend the INSERT-OR-REPLACE tuple. Missing this is
+                        # the "highest-probability silent failure" per the
+                        # superseded plan §12-5 — every save would reset the
+                        # partition counters to 0 and the budget would never
+                        # deny.
+                        int(state.get("day_reset_count", 0)),
+                        int(state.get("night_reset_count", 0)),
+                        state.get("night_session_date"),
+                        state.get("in_flight_durable_started_ts"),
                     ),
                 )
                 await db.commit()
@@ -7490,8 +7545,15 @@ class UniversalRoomDatabase:
         restore_ok: bool | None = None,
         restore_ok_immediate: bool | None = None,
         excursion_id: str | None = None,
-    ) -> None:
+    ) -> int | None:
         """Append an event row to the ramp-down log.
+
+        AC-RAMP-PIPELINE-HARDENING-1: returns ``cursor.lastrowid`` (the
+        new event_id) so delayed-write callers (D-SCORE `_write_durable`,
+        D5 `_verify_restore` back-fill, D6 `_write_reset_outcome`) can
+        UPDATE precisely the row they wrote — no "UPDATE latest row"
+        race. Returns ``None`` on write failure (existing callers all
+        discard the return value; new callers guard on None).
 
         v4.7.17.1: `effective` column added — set by _evaluate_nudge_outcome:
             True  -> compressor released (counts toward kWh-avoided + NOT FP)
@@ -7502,7 +7564,7 @@ class UniversalRoomDatabase:
         """
         try:
             async with self._db() as db:
-                await db.execute(
+                cursor = await db.execute(
                     """INSERT INTO ac_ramp_events (
                         zone_id, timestamp, event_type, triggered_by,
                         current_temp, target_high,
@@ -7539,10 +7601,73 @@ class UniversalRoomDatabase:
                     ),
                 )
                 await db.commit()
+                try:
+                    return int(cursor.lastrowid) if cursor.lastrowid else None
+                except Exception:  # noqa: BLE001 — defensive
+                    return None
         except Exception as err:
             _LOGGER.warning(
                 "ac_ramp_events log failed for %s/%s: %s",
                 zone_id, event_type, err,
+            )
+            return None
+
+    # AC-RAMP-PIPELINE-HARDENING-1 (B-M1): update_ac_ramp_event_fields
+    # DAO. Back-fills columns on a specific event_id row from delayed
+    # callbacks (D-SCORE, D5 restore_ok, D6 reset_outcome). Whitelist-
+    # driven so callers can't scribble arbitrary columns.
+    _AC_RAMP_EVENT_UPDATABLE_FIELDS: tuple = (
+        "durable",
+        "durable_minutes",
+        "reset_outcome",
+        "restore_ok",
+        "preset_after",
+        "mode_after",
+        "current_temp",
+        "kwh_rate_settle",
+    )
+
+    async def update_ac_ramp_event_fields(
+        self, event_id: int, **fields,
+    ) -> None:
+        """UPDATE named columns on the ac_ramp_events row with matching
+        ``event_id``. Silent no-op if the row is gone (retention) or the
+        DAO can't write.
+
+        Values are passed through as-is except for the bool ``restore_ok``
+        (SQLite has no native BOOL — pack 0/1/None to match the INSERT
+        path). Callers own type discipline for INTEGER/TEXT columns.
+        """
+        if event_id is None:
+            return
+        clean: dict = {}
+        for k, v in fields.items():
+            if k not in self._AC_RAMP_EVENT_UPDATABLE_FIELDS:
+                _LOGGER.debug(
+                    "update_ac_ramp_event_fields: rejecting unknown field %s",
+                    k,
+                )
+                continue
+            if k == "restore_ok":
+                clean[k] = None if v is None else (1 if v else 0)
+            else:
+                clean[k] = v
+        if not clean:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in clean)
+        params = list(clean.values()) + [int(event_id)]
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    f"UPDATE ac_ramp_events SET {set_clause} "
+                    f"WHERE event_id = ?",
+                    tuple(params),
+                )
+                await db.commit()
+        except Exception as err:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "update_ac_ramp_event_fields failed for %s (%s): %s",
+                event_id, list(clean.keys()), err,
             )
 
     async def update_ac_ramp_restore_settled(
