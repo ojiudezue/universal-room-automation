@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-22'
+  last_reconciled: '2026-08-23'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -2133,7 +2133,8 @@ cards:
   title: "Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a
     power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW."
   thread: hvac
-  status: investigating
+  status: shipped_organic
+  shipped_version: v5.89.0
   created: '2026-08-22 14:05'
   updated: '2026-08-22 14:05'
   refinement_status: initial
@@ -2514,7 +2515,8 @@ cards:
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight
     while the house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.89.0
   updated: '2026-08-21 09:30'
   approval: needs_operator
   tags:
