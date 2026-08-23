@@ -1196,3 +1196,190 @@ class TestT4KwSettleScheduler:
         # for the actuation-lag envelope; must be >= 150s).
         assert async_call_later.call_args_list[1].args[1] == AC_RESET_OUTCOME_KWH_SETTLE_S
         assert AC_RESET_OUTCOME_KWH_SETTLE_S >= 150
+
+
+# ============================================================================
+# T5 ENCLOSING-METHOD binding (2026-08-22 orchestrator verification fix-up)
+# ----------------------------------------------------------------------------
+# The prior TestT5BackfillRestoreOkWireIn drills the HELPER; commenting out
+# EITHER call site (the success branch at :3871 or the failure branch at
+# :3804) leaves the suite green. The tests below drive `_restore_after_reset`
+# end-to-end so a bypass at either call site fails a SPECIFIC named test.
+# ============================================================================
+
+
+class TestT5VerifyRestoreCallSites:
+    """Drives _restore_after_reset -> _verify_restore closure and asserts
+    _backfill_restore_ok is invoked from both terminal branches."""
+
+    async def _drive_verify_restore(
+        self, arrester, zone, *,
+        target_mode="heat_cool", original_preset="home",
+        state_state_returns=None,
+    ):
+        """Call _restore_after_reset, extract the _verify_restore
+        coroutine from the mocked hass.async_create_task, and await it
+        with asyncio.sleep patched to a no-op.
+
+        `state_state_returns` is a list of successive `state.state`
+        values that hass.states.get(entity).state returns on each read
+        (one per _verify_restore attempt). Success = one 'heat_cool';
+        failure = ['cool','cool','cool'] (3 unmatched reads over 3
+        attempts including the initial retry chain).
+        """
+        import asyncio as _asyncio
+        # Track the coroutines create_task is asked to schedule; we
+        # await them manually.
+        scheduled = []
+        def _capture_task(coro):
+            scheduled.append(coro)
+            return MagicMock()
+        arrester.hass.async_create_task = MagicMock(side_effect=_capture_task)
+        arrester.hass.services.async_call = AsyncMock()
+        # hass.states.get MUST return an object whose .state is the
+        # current "actual mode". We rotate through state_state_returns.
+        state_values = list(state_state_returns or [target_mode])
+        def _states_get(_eid):
+            st = MagicMock()
+            st.state = state_values.pop(0) if state_values else target_mode
+            st.attributes = {}
+            return st
+        arrester.hass.states.get = MagicMock(side_effect=_states_get)
+        # Skip the D6 outcome scheduler + telemetry pieces that would
+        # otherwise touch the mocked DB in ways irrelevant to this test.
+        arrester._schedule_reset_outcome = MagicMock()
+        arrester._track_zone_action = MagicMock()
+        arrester._send_nm_alert = AsyncMock()
+        arrester._supports_heat_cool = MagicMock(return_value=True)
+        arrester.suppress = MagicMock()
+        # Patch emit_set_preset_mode inside the hvac_override module.
+        import custom_components.universal_room_automation.domain_coordinators.hvac_override as _mod
+        _orig_emit = getattr(_mod, "emit_set_preset_mode", None)
+        _mod.emit_set_preset_mode = AsyncMock()
+        # Patch asyncio.sleep to a no-op inside the module namespace.
+        _orig_sleep = _mod.asyncio.sleep
+        async def _no_sleep(_s):
+            return None
+        _mod.asyncio.sleep = _no_sleep
+        try:
+            await arrester._restore_after_reset(
+                zone, "heat_cool", original_preset=original_preset,
+            )
+            # _restore_after_reset scheduled the initial _verify_restore()
+            # coroutine via hass.async_create_task. Drain the scheduled
+            # queue — each _verify_restore attempt schedules the next
+            # one via the same mock.
+            while scheduled:
+                coro = scheduled.pop(0)
+                await coro
+        finally:
+            _mod.asyncio.sleep = _orig_sleep
+            if _orig_emit is not None:
+                _mod.emit_set_preset_mode = _orig_emit
+        return _mod.emit_set_preset_mode
+
+    @pytest.mark.asyncio
+    async def test_success_branch_calls_backfill_with_combined_true(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.log_ac_ramp_event = AsyncMock(return_value=1)
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._backfill_restore_ok = AsyncMock()
+        z.target_temp_high = 74.0
+        z.current_temperature = 74.0
+        await self._drive_verify_restore(
+            a, z,
+            target_mode="heat_cool",
+            original_preset="home",
+            state_state_returns=["heat_cool"],  # success on first check
+        )
+        assert a._backfill_restore_ok.await_count >= 1, (
+            "success branch must invoke _backfill_restore_ok"
+        )
+        # F9: combined restore_ok=True AND preset_ok=True on the success
+        # branch when the preset write did not raise.
+        call = a._backfill_restore_ok.await_args
+        assert call.args[0] == z.zone_id
+        assert call.args[1] is True
+        assert call.kwargs.get("preset_ok") is True
+
+    @pytest.mark.asyncio
+    async def test_failure_branch_calls_backfill_with_false(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.log_ac_ramp_event = AsyncMock(return_value=1)
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        a._backfill_restore_ok = AsyncMock()
+        z.target_temp_high = 74.0
+        z.current_temperature = 74.0
+        # 3 unmatched reads over 3 attempts (1 initial + 2 retries) —
+        # after the 2nd retry (attempt=3) the failure branch fires.
+        await self._drive_verify_restore(
+            a, z,
+            target_mode="heat_cool",
+            original_preset="home",
+            # Many "cool" so all _restore_after_reset pre/enrich reads AND
+            # all 3 _verify_restore attempts see "cool" — attempt 3
+            # then falls into the failure branch. Extra values are
+            # harmless (the state_values list just drains).
+            state_state_returns=["cool"] * 20,
+        )
+        assert a._backfill_restore_ok.await_count >= 1, (
+            "failure branch must invoke _backfill_restore_ok"
+        )
+        # The failure-branch call passes (zone_id, False) with NO
+        # preset_ok kwarg (it is the mode-verify-failed branch).
+        call = a._backfill_restore_ok.await_args
+        assert call.args[0] == z.zone_id
+        assert call.args[1] is False
+
+
+# ============================================================================
+# T4 DAO-call level binding (2026-08-22 orchestrator verification fix-up)
+# ----------------------------------------------------------------------------
+# The prior TestT4KwSettleScheduler binds at scheduler-count level.
+# The test below extracts the closure the mocked async_call_later
+# captured and drives it, so the DAO write shape (kwh_rate_settle
+# populated for the specific event_id) is what the assertion fires on.
+# ============================================================================
+
+
+class TestT4KwSettleDaoBind:
+    @pytest.mark.asyncio
+    async def test_kw_callback_writes_kwh_rate_settle_on_completed_row(self):
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        z.ac_load_sensor = "sensor.zone_a_kw"
+        a._read_kwh_rate = MagicMock(return_value=0.42)
+        a._reset_outcome_pending[z.zone_id] = {
+            "event_id": 88, "target_high": 74.0,
+        }
+        # Capture the coroutine that hass.async_create_task is asked
+        # to schedule from the kW @callback wrapper.
+        scheduled = []
+        def _capture_task(coro):
+            scheduled.append(coro)
+            return MagicMock()
+        a.hass.async_create_task = MagicMock(side_effect=_capture_task)
+        from homeassistant.helpers.event import async_call_later
+        async_call_later.reset_mock()
+        a._schedule_reset_outcome(z, completed_event_id=88)
+        # Two schedules land — take the LAST (kW) and invoke it.
+        assert async_call_later.call_count == 2
+        kw_cb = async_call_later.call_args_list[-1].args[2]
+        # @callback wrapper — invoke synchronously. It schedules the
+        # async body via hass.async_create_task (captured above).
+        kw_cb(None)
+        assert len(scheduled) >= 1, (
+            "kW callback should have scheduled _write_outcome_kw coroutine"
+        )
+        # Drain scheduled coroutines (there may be one, or more if a
+        # cascade). Await each so the DAO call actually lands.
+        while scheduled:
+            await scheduled.pop(0)
+        # Assert the DAO write shape.
+        call = a._db.update_ac_ramp_event_fields.call_args
+        assert call is not None
+        assert call.args[0] == 88
+        assert call.kwargs.get("kwh_rate_settle") == 0.42
