@@ -1068,22 +1068,22 @@ cards:
   updated: 2026-08-18 16:10
   program: sensor-trust-exclusion
 - id: SENSOR-CAPABILITY-1
-  RESOLVED_2026_08_23_mislabel_cleared: 'OPERATOR RULING: "Move sensor capabilities and to motion
-    then." APPLIED and verified. The Garage Hallway declaration tagging the Zigbee RGBW motion sensor
-    as kind camera_presence is GONE.
-    HOW: driven through the real options flow (ha_set_integration -> sensors step), NOT by editing
-    .storage — a direct file edit would have been clobbered by HA''s in-memory entry state.
-    WHY THE DECLARATION DISAPPEARED RATHER THAN CHANGING VALUE, and this is the correct outcome:
-    the entity is wired into motion_sensors, so `motion` IS its CONF-derived default kind. Per
+  RESOLVED_2026_08_23_mislabel_cleared: 'OPERATOR RULING APPLIED — "Move sensor capabilities and to
+    motion then." The Garage Hallway declaration tagging the Zigbee RGBW motion sensor as kind
+    camera_presence is GONE, verified in the live config entry.
+    HOW: driven through the real options flow (sensors step), NOT by editing .storage — a direct file
+    edit would have been clobbered by HA in-memory entry state.
+    WHY THE DECLARATION DISAPPEARED RATHER THAN CHANGING VALUE, and this is the correct outcome: the
+    entity is wired into motion_sensors, so motion IS its CONF-derived default kind. Per
     config_flow.py:9677 a selection equal to the default is a NO-OP and the override is dropped. The
-    sensor now derives as motion from its wiring, with no stored declaration that can drift away from
-    it — which is precisely the capability-vs-role separation this card exists to enforce.
+    sensor now derives as motion from its wiring, with no stored declaration that can drift from it —
+    exactly the capability-vs-role separation this card exists to enforce.
     VERIFIED SURGICAL: full options backup taken first (39 lines); post-change diff shows exactly one
-    removed block (sensor_capabilities) and NOTHING else — 28 keys -> 27, sensor lists byte-identical.
-    NOTE: the flow warned it ignored `mmwave_sensors` as not declared in the sensors step schema. It
-    was None before and after, so no harm, but that field is not settable through this step.
-    ORIGINAL FINDING, retained for the record:
-  SUPERSEDED_INSTANCE_2026_08_23_live_mislabel_garage_hallway: 'A LIVE CAPABILITY MISLABEL, still present in the
+    removed block and nothing else. 28 option keys -> 27, sensor lists byte-identical.
+    CAVEAT WORTH KEEPING: the flow warned it IGNORED mmwave_sensors as not declared in the sensors
+    step schema. It was None before and after so no harm here, but that field is not settable through
+    this step — relevant to any future room-wiring change.'
+  INSTANCE_2026_08_23_live_mislabel_garage_hallway: 'A LIVE CAPABILITY MISLABEL, still present in the
     running config as of 2026-08-23. Carried here deliberately because SENSCAP-ORPHAN-1 (where it was
     first noted as an unactioned aside) has now CLOSED, and closing it would have taken this with it.
     Garage Hallway sensor_capabilities declares:
@@ -1245,7 +1245,7 @@ cards:
     Shared primitive = D1; chatter detector can land independently; stuck detector sequences after capability work. Do NOT
     build parallel exclusions. Members: SENSOR-HEALTH-SURFACING-1 (chatter), STUCK-SENSOR-1 (stuck/flapping mmWave), SENSOR-CAPABILITY-1
     (capability/role -> corroborator selection).'
-  updated: '2026-08-23 12:05'
+  updated: '2026-08-23 11:50'
   program: sensor-trust-exclusion
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T11:51:30-05:00_ - _Data commit: `85b88d2de924`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:11:54-05:00_ - _Data commit: `701b1ac2e3dd`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -733,7 +733,8 @@ _updated 2026-08-23 11:50 · refined ×3_
 - **Sibling of:** SIGNAL-TRUST-LEDGER (build-gated)
 - **Parsimony:** [BUILD] hardware wiring pins analytic role, so the best available corroborator in a room cannot be used as one
 - **Refs:** docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md (Finding 6 — root cause); docs/planning/PLANNING_mmwave_corroboration_tier3.md (Amendment 4); docs/planning/PLANNING_signal_trust_ledger_abstraction.md (Addendum 2026-08-09 — ledger assumed this layer); custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py:81; custom_components/universal_room_automation/const.py:335,342
-- **Forensic keys (19):**
+- **Forensic keys (20):**
+  - `RESOLVED_2026_08_23_mislabel_cleared`: OPERATOR RULING APPLIED — "Move sensor capabilities and to motion then." The Garage Hallway declaration tagging the Zigbee RGBW motion sensor as kind camera_presence is GONE, verified in the live config entry. HOW: driven through the rea...
   - `INSTANCE_2026_08_23_live_mislabel_garage_hallway`: A LIVE CAPABILITY MISLABEL, still present in the running config as of 2026-08-23. Carried here deliberately because SENSCAP-ORPHAN-1 (where it was first noted as an unactioned aside) has now CLOSED, and closing it would have taken this w...
   - `root_cause_of`: Master Bedroom: the ideal discriminator (bed presence) is JUDGED instead of CONSULTED.
   - `unlocks_without_new_hardware`: Master Bedroom already HAS an ideal corroborator: the bed — independent failure mode, physically unspoofable — the moment role stops being pinned to the motion bucket.
