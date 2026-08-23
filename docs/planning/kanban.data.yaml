@@ -8336,6 +8336,33 @@ cards:
   - Carrier 504 getInfinityEnergy 12:14:15 2026-08-20
   - sensor.ura_hvac_coordinator_override_arrester (live attrs)
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault: 'MEASURED over a live 7.7h window
+    (05:17-12:58): 16,854 raw log lines, 1,505 distinct issues, 73 components.
+    THE LARGEST FEEDER IS NOT URA:
+      pywattbox.http               2,747 occurrences / 7 issues    ~8,500/day
+      custom_components.wattbox      913 occurrences / 3 issues    ~2,800/day
+      homeassistant.components.mqtt  558 occurrences / 2 issues    ~1,700/day
+      custom_components.universal_room_automation 1,016 across 289 DISTINCT issues
+    URA is chatty in VARIETY, not repetition — a different and far cheaper shape than 913 copies of
+    one line. The wattbox pair alone is ~11,300 lines/day.
+    SUPPRESSING BLINDLY WOULD HAVE HIDDEN A REAL FAULT — checked before acting. There are TWO
+    WattBoxes and only one is healthy: wattbox2 (media room) has a full live outlet set
+    (balun/denon/emotiva/fan/switch all on); wattbox (main rack) has NO outlet entities at all, only
+    auto_reboot_enabled and ups_connected. So "No outlets available in client" is literally TRUE for
+    the main-rack unit, repeating every poll. The flood is a genuine integration failure, not noise.
+    ACTION TAKEN (runtime, reversible): pywattbox.http and custom_components.wattbox.api_wrapper
+    raised to ERROR via logger.set_level — removes ~11,300 repeated WARNING lines/day while leaving
+    real ERRORs visible. Matters against this card''s 31GB/7days on flash at 51% life.
+    NOT DURABLE, AND THIS IS THE IMPORTANT CAVEAT: logger.set_level is runtime-only and is LOST ON
+    RESTART. The permanent fix is a `logger:` block in configuration.yaml, which cannot be written
+    from this session (/config is read-only over ssh; only /tmp is writable). The flood WILL return on
+    the next HA restart unless the operator adds it.
+    THE UNDERLYING DEFECT REMAINS UNFIXED: the main-rack WattBox returns no outlets. That is a
+    device/integration problem and suppressing its log does not address it.
+    SECOND FEEDER, also a real defect rather than noise: MQTT logs "Invalid value for
+    number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power_on_time_l1/l2: 0
+    (range 0.5 - 3599.5)" 279x each per 8h. A device publishes 0 into a number entity whose schema
+    forbids it — a Sonoff config fix, not a logging fix.'
   ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22: 'NEW MEASURED SOURCE, found incidentally while checking a Garage Hallway sensor
     swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE
     churn: binary_sensor.garage_hallway_occupied     4,638 rows/24h ->   52 real flips = 89.2x binary_sensor.kitchen_hallway_occupied    2,952
@@ -8361,7 +8388,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.87.0
   created: 2026-08-20 14:15
-  updated: 2026-08-20 14:15
+  updated: '2026-08-23 15:45'
   refinement_status: initial
   approval: unreviewed
   tags:
