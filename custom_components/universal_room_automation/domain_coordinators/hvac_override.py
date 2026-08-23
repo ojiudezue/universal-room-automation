@@ -1153,6 +1153,76 @@ class OverrideArrester:
                 exc_info=True,
             )
 
+    async def _high_draw_time_s_7d(
+        self, zone, now: datetime,
+    ) -> float | None:
+        """Correction 3 (2026-08-22 fix-up): return the number of seconds
+        the zone's ac_load_sensor read at or above
+        AC_ACTIVELY_COOLING_KW_MIN over the trailing 7 days.
+
+        Returns None if:
+          - zone is missing or has no ac_load_sensor;
+          - recorder query errors;
+          - no samples returned (sensor never reported in window).
+        A None flows through to `gate4_blind_fraction_high_draw_7d = None`
+        rather than falsely zero — an honest UNBOUND per operator ruling.
+
+        Bounded once per 5-min cache refresh per zone. Loop-body work is
+        O(n) over 7 days of state changes on one sensor; empirically a
+        few thousand rows per zone for a Span-reported kW entity.
+        """
+        if zone is None or not getattr(zone, "ac_load_sensor", None):
+            return None
+        entity_id = zone.ac_load_sensor
+        start_dt = now - timedelta(days=7)
+        try:
+            instance = recorder_get_instance(self.hass)
+            states_dict = await instance.async_add_executor_job(
+                get_significant_states, self.hass,
+                start_dt, now, [entity_id],
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        states = states_dict.get(entity_id) if states_dict else None
+        if not states:
+            return None
+        total_high_s = 0.0
+        prev_ts = None
+        prev_high = False
+        for st in states:
+            raw = getattr(st, "state", None)
+            if raw in (None, "unknown", "unavailable", ""):
+                is_high = False
+            else:
+                try:
+                    value = float(raw)
+                except (ValueError, TypeError):
+                    is_high = False
+                else:
+                    attrs = getattr(st, "attributes", None) or {}
+                    unit = (attrs.get("unit_of_measurement") or "").lower()
+                    if unit in ("w", "watt", "watts"):
+                        value = value / 1000.0
+                    elif unit in ("kwh", "wh", "watt hour", "watt-hour"):
+                        # Cumulative counter — meaningless as instant kW.
+                        is_high = False
+                    is_high = value >= AC_ACTIVELY_COOLING_KW_MIN
+            ts = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
+            if ts is None:
+                continue
+            try:
+                ts_local = dt_util.as_local(ts)
+            except Exception:  # noqa: BLE001
+                ts_local = ts
+            if prev_ts is not None and prev_high:
+                total_high_s += (ts_local - prev_ts).total_seconds()
+            prev_ts = ts_local
+            prev_high = is_high
+        # Trailing interval from the last transition to `now`.
+        if prev_ts is not None and prev_high:
+            total_high_s += (now - prev_ts).total_seconds()
+        return total_high_s
+
     async def _refresh_a1_cache(self) -> None:
         """A1 fix-up: refresh the per-zone diagnostic cache read by
         the five A1 sensors. Runs once per decision cycle.
@@ -1222,6 +1292,26 @@ class OverrideArrester:
                 if _window_s > 0 else 0.0
             )
             _entry["gate4_diverge_count_7d"] = diverge_count
+            _entry["gate4_diverge_time_s_7d"] = int(diverge_time_s)
+            # Correction 3 (2026-08-22 fix-up ruling): also expose a
+            # HIGH-DRAW-DENOMINATED blind fraction so the sensor is
+            # comparable to the pre-fix baseline that the operator
+            # measured externally (zone_1 12.2%, zone_2 7.1%,
+            # zone_3 12.9%). "High draw" = time the ac_load_sensor
+            # was at or above AC_ACTIVELY_COOLING_KW_MIN over the same
+            # 7-day window. Bounded per-zone recorder query, once per
+            # 5-min cycle. Absent recorder / absent sensor -> None
+            # (honest UNBOUND rather than a misleading zero).
+            _high_draw_s = await self._high_draw_time_s_7d(
+                self._zone_manager.zones.get(zone_id), now,
+            )
+            _entry["gate4_high_draw_time_s_7d"] = _high_draw_s
+            if _high_draw_s and _high_draw_s > 0:
+                _entry["gate4_blind_fraction_high_draw_7d"] = round(
+                    diverge_time_s / _high_draw_s, 6,
+                )
+            else:
+                _entry["gate4_blind_fraction_high_draw_7d"] = None
 
             # 2. Reset counts — read persistent state (today + session).
             try:
@@ -5013,10 +5103,16 @@ class OverrideArrester:
             else:
                 durable_val = 0 if kw_now >= float(_thresh) else 1
         try:
+            # F5 ruling (2026-08-22 fix-up): write the explicit
+            # `truncated` flag alongside `durable` so the display
+            # sensor no longer has to infer branch from durable_minutes
+            # (a proxy that misclassifies whenever the operator sweeps
+            # the F17.a window near the 5-min floor).
             await self._db.update_ac_ramp_event_fields(
                 pending["event_id"],
                 durable=durable_val,
                 durable_minutes=durable_minutes,
+                truncated=1 if truncated else 0,
             )
         except Exception as _e:  # noqa: BLE001
             _LOGGER.debug(

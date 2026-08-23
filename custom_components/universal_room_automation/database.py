@@ -1738,6 +1738,13 @@ class UniversalRoomDatabase:
                         # actually was. New columns preserve both.
                         ("preset_settled", "TEXT"),
                         ("mode_settled", "TEXT"),
+                        # F5 fix-up ruling (2026-08-22): explicit
+                        # truncated flag replaces the durable_minutes
+                        # >= 15 min proxy. Set in _write_durable at
+                        # the point the branch is already known.
+                        # NULL for pre-migration rows; sensor excludes
+                        # NULLs from both durability rates.
+                        ("truncated", "INTEGER"),
                         # F8 (revised): populated by the settled-restore
                         # callback under option (c) — a NULL restore_ok
                         # with an explicit reason. Named blocker today:
@@ -7620,24 +7627,27 @@ class UniversalRoomDatabase:
         self, zone_id: str, since_iso: str,
     ) -> tuple[int, int, int, int]:
         """Return (full_ok, full_total, trunc_ok, trunc_total) counts
-        of nudge_evaluated rows in the window with `durable` NOT NULL.
+        of nudge_evaluated rows in the window.
 
-        Full = durable_minutes >= durability window (assumed via a
-        loose >=15min proxy since the runtime knob isn't in the DB);
-        callers may use the split. Trunc = the complement.
+        Split by the explicit `truncated` column (F5 fix-up ruling,
+        2026-08-22): rows with `truncated=0` count toward full;
+        `truncated=1` count toward truncated; `truncated IS NULL`
+        (pre-migration rows) are EXCLUDED from both rates per the
+        operator ruling — "an honest UNBOUND is more useful than a
+        green count".
 
-        Not a hot query — bounded by retention. Reads the honest
-        column `durable` written under the corrected Gate-7 threshold
-        (F5 fix-up); no re-computation here.
+        `durable IS NULL` rows also excluded (unknown breaks the
+        streak). Not a hot query — bounded by retention.
         """
         try:
             async with self._db_read() as db:
                 cursor = await db.execute(
-                    """SELECT durable, durable_minutes
+                    """SELECT durable, truncated
                        FROM ac_ramp_events
                        WHERE zone_id = ?
                          AND event_type = 'nudge_evaluated'
                          AND durable IS NOT NULL
+                         AND truncated IS NOT NULL
                          AND timestamp >= ?""",
                     (zone_id, since_iso),
                 )
@@ -7647,21 +7657,15 @@ class UniversalRoomDatabase:
                           zone_id, err)
             return (0, 0, 0, 0)
         full_ok = full_total = trunc_ok = trunc_total = 0
-        # 15-min proxy for "full window" — the smallest legal window
-        # in the F17.a Number entity is 5 min, but a run under 15 min
-        # is almost certainly a truncated re-nudge. This split lets the
-        # sensor honour the F5 truncated-vs-full distinction rather
-        # than flattening it into one rate.
-        for durable_val, dm in rows:
-            _is_full = (dm or 0) >= 15
-            if _is_full:
-                full_total += 1
-                if durable_val == 1:
-                    full_ok += 1
-            else:
+        for durable_val, truncated_val in rows:
+            if truncated_val == 1:
                 trunc_total += 1
                 if durable_val == 1:
                     trunc_ok += 1
+            else:
+                full_total += 1
+                if durable_val == 1:
+                    full_ok += 1
         return (full_ok, full_total, trunc_ok, trunc_total)
 
     # A3 fix-up (2026-08-22): bounded restart resumption of
@@ -7971,6 +7975,9 @@ class UniversalRoomDatabase:
         "current_temp_settle",
         # F9 fix-up.
         "preset_restore_ok",
+        # F5 ruling (2026-08-22 fix-up): the truncated flag is
+        # written by _write_durable via the SAME UPDATE as durable.
+        "truncated",
     )
 
     async def update_ac_ramp_event_fields(

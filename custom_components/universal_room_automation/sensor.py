@@ -16987,15 +16987,30 @@ class _A1CacheSensorMixin(_ACRampZoneSensorMixin):
 
 
 class HVACACGate4BlindFraction7dSensor(_A1CacheSensorMixin, SensorEntity):
-    """A1 — fraction of the last 7 days the Gate-4 SHADOW predicate
-    disagreed with cloud-reported hvac_action (time-weighted).
+    """A1 — Gate-4 SHADOW disagreement fraction over the last 7 days.
 
-    Acceptance oracle for the cycle's headline invariant
-    (GATE4_MAX_BLIND_FRACTION = 0.01). If this drifts above 1% for a
-    zone it indicates the SPAN draw signal is systematically dark
-    while the vendor cloud claims cooling — the invariant that
-    justified promoting SHADOW to LIVE has broken and the operator
-    should investigate before flipping the mode.
+    Two denominators, both exposed:
+
+    - ``native_value`` = diverge time / 7 wall-clock days.
+      Comparable across zones and against the
+      GATE4_MAX_BLIND_FRACTION = 0.01 invariant bound.
+
+    - ``blind_fraction_high_draw_7d`` attribute = diverge time /
+      time the SPAN kW sensor read at or above
+      AC_ACTIVELY_COOLING_KW_MIN over the same window. This is the
+      denominator the operator measured externally when calibrating
+      the pre-fix baseline; keep it visible so the post-flip fix
+      is directly comparable to that baseline.
+      Pre-fix baseline (measured externally, 2026-08):
+        zone_1: 12.2%   zone_2: 7.1%   zone_3: 12.9%
+      A post-flip value materially below the zone's baseline is
+      evidence the fix worked. NULL when high-draw time is
+      unavailable (missing sensor / recorder gap) — an honest
+      UNBOUND rather than a misleading zero.
+
+    Both denominators intentionally exposed: silently picking one
+    hides comparability with the baseline OR the invariant bound,
+    depending on the choice.
     """
 
     _attr_has_entity_name = True
@@ -17032,8 +17047,22 @@ class HVACACGate4BlindFraction7dSensor(_A1CacheSensorMixin, SensorEntity):
             "diverge_transition_count_7d": a1.get(
                 "gate4_diverge_count_7d", 0,
             ),
+            "diverge_time_s_7d": a1.get(
+                "gate4_diverge_time_s_7d", 0,
+            ),
             "invariant_upper_bound": GATE4_MAX_BLIND_FRACTION,
             "window_days": 7,
+            "denominator_native": "7d_wall_clock",
+            # Correction 3 (2026-08-22 fix-up): baseline-comparable
+            # denominator. Baselines (measured externally,
+            # 2026-08): z1=0.122 z2=0.071 z3=0.129. See
+            # docstring.
+            "blind_fraction_high_draw_7d": a1.get(
+                "gate4_blind_fraction_high_draw_7d",
+            ),
+            "high_draw_time_s_7d": a1.get(
+                "gate4_high_draw_time_s_7d",
+            ),
         }
 
 
@@ -17176,4 +17205,5 @@ class HVACACRampDurabilityRateSensor(_A1CacheSensorMixin, SensorEntity):
             "truncated_sample_size": a1.get("durability_trunc_sample_size", 0),
             "window_days": 7,
             "threshold_source": "Gate-7 zone.kwh_rate_threshold (F5)",
+            "truncated_source": "explicit `truncated` column (F5 fix-up)",
         }
