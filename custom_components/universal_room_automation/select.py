@@ -1003,14 +1003,57 @@ class HVACGate4PredicateModeSelect(SelectEntity):
         hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
         return getattr(hvac, "_override_arrester", None) if hvac else None
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
+    def _push_to_arrester(self) -> bool:
+        """Push the current option into the arrester; return True iff
+        the arrester was reachable AND the setter did not raise."""
         arrester = self._get_arrester()
-        if arrester is not None:
-            try:
-                arrester.set_gate4_predicate_mode(self.current_option)
-            except Exception as e:  # noqa: BLE001
-                _LOGGER.debug("gate4 mode seed push failed: %s", e)
+        if arrester is None:
+            return False
+        try:
+            arrester.set_gate4_predicate_mode(self.current_option)
+            return True
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("gate4 mode seed push failed: %s", e)
+            return False
+
+    async def async_added_to_hass(self) -> None:
+        # F14 fix-up (2026-08-22): the pre-fix single-shot push
+        # swallowed a None arrester and could leave the persisted
+        # `live` option running as SHADOW while the entity display
+        # said `live` — a silent seed-race. Adopt the sibling prior
+        # art from `_hvac_tunable_number_factory` (number.py:2186):
+        # if the first push fails, retry on
+        # SIGNAL_HVAC_ENTITIES_UPDATE with a one-shot unsub guard.
+        await super().async_added_to_hass()
+        if self._push_to_arrester():
+            return
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import (
+            SIGNAL_HVAC_ENTITIES_UPDATE,
+        )
+        unsub_holder: list = []
+        unsubbed = [False]
+
+        def _safe_unsub() -> None:
+            if unsubbed[0]:
+                return
+            if unsub_holder:
+                unsubbed[0] = True
+                unsub_holder[0]()
+
+        @callback
+        def _on_hvac_tick(*_a, **_kw):
+            if self._push_to_arrester() and unsub_holder and not unsubbed[0]:
+                _safe_unsub()
+
+        unsub_holder.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_ENTITIES_UPDATE,
+                _on_hvac_tick,
+            )
+        )
+        self.async_on_remove(_safe_unsub)
 
     async def async_select_option(self, option: str) -> None:
         if option not in self._attr_options:

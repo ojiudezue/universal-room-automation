@@ -2092,6 +2092,7 @@ def _hvac_tunable_number_factory(
     step: float,
     unit: str | None,
     integer: bool = False,
+    setter_method: str | None = None,
 ):
     """Build a Number entity class for an HVAC sub-controller tunable.
 
@@ -2175,8 +2176,28 @@ def _hvac_tunable_number_factory(
             sub = self._get_sub_controller()
             if sub is None:
                 return False
+            # F16 fix-up (2026-08-22): when the tunable declares a
+            # `setter_method`, route the push through it so any range
+            # / type / kill-switch guards on the sub-controller are
+            # actually invoked. Pre-fix, every Number bypassed its
+            # setter via bare setattr — the guards were dead code and
+            # a value arriving via `conf_key` (options form) skipped
+            # them the same way. Fall back to setattr if the declared
+            # setter is missing (defensive).
             try:
-                setattr(sub, runtime_field, cast(self._value))
+                if setter_method:
+                    _setter = getattr(sub, setter_method, None)
+                    if _setter is None:
+                        _LOGGER.warning(
+                            "HVAC tunable %s: declared setter_method=%s "
+                            "missing on sub-controller; falling back to "
+                            "setattr", suffix, setter_method,
+                        )
+                        setattr(sub, runtime_field, cast(self._value))
+                    else:
+                        _setter(cast(self._value))
+                else:
+                    setattr(sub, runtime_field, cast(self._value))
                 return True
             except Exception as e:
                 _LOGGER.error(
@@ -2450,6 +2471,9 @@ def _build_hvac_v4511_numbers():
             default=DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
             min_value=0, max_value=5, step=1, unit=None,
             integer=True,
+            # F3/F16: revived knob routes through its setter for
+            # symmetry with the other AC-RAMP tunables.
+            setter_method="set_hard_reset_daily_limit",
         ),
         _hvac_tunable_number_factory(
             suffix="ac_hard_reset_min_interval",
@@ -2467,6 +2491,10 @@ def _build_hvac_v4511_numbers():
         # the shared `_hvac_tunable_number_factory` (setattr on
         # `runtime_field`). Range guards live on the coordinator setters
         # for the two safety-adjacent ones (reset budgets, off-duration).
+        # F16 fix-up (2026-08-22): route through the setters so their
+        # guards apply. Pre-fix these Number entities called setattr
+        # directly and bypassed the coordinator setters entirely — the
+        # range guards were dead code.
         _hvac_tunable_number_factory(
             suffix="ac_soft_nudge_daily_limit",
             name="77 · AC Soft Nudge Daily Limit",
@@ -2477,6 +2505,7 @@ def _build_hvac_v4511_numbers():
             default=_DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
             min_value=0, max_value=200, step=1, unit=None,
             integer=True,
+            setter_method="set_soft_nudge_daily_limit",
         ),
         _hvac_tunable_number_factory(
             suffix="ac_reset_day_budget",
@@ -2488,6 +2517,7 @@ def _build_hvac_v4511_numbers():
             default=_DEFAULT_HVAC_AC_RESET_DAY_BUDGET,
             min_value=0, max_value=4, step=1, unit=None,
             integer=True,
+            setter_method="set_reset_day_budget",
         ),
         _hvac_tunable_number_factory(
             suffix="ac_reset_night_budget",
@@ -2499,6 +2529,7 @@ def _build_hvac_v4511_numbers():
             default=_DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
             min_value=0, max_value=4, step=1, unit=None,
             integer=True,
+            setter_method="set_reset_night_budget",
         ),
         _hvac_tunable_number_factory(
             suffix="ac_reset_off_duration",
@@ -2510,6 +2541,7 @@ def _build_hvac_v4511_numbers():
             default=_DEFAULT_HVAC_AC_RESET_OFF_DURATION,
             min_value=30, max_value=300, step=15, unit="s",
             integer=True,
+            setter_method="set_ac_reset_off_duration",
         ),
     ]
 
