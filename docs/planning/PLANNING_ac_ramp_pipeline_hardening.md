@@ -380,12 +380,23 @@ per B-H7).
 Carry forward per §1 map (superseded §3-D4). Do not re-litigate. One
 Rev-2 correction (B-M3): the SUPERSEDED plan is internally inconsistent
 about truncated-`durable` semantics (§3-D4 conditional on kW; AC4
-unconditional 0). **Ruling for this cycle:** `_write_durable` on early
-fire due to re-nudge sets `durable = 0 if kW at fire-time is above
-threshold else 1`; `durable_minutes = elapsed`. This is the §3-D4 rule;
-AC4 is superseded by AC-S in §8 which restates it correctly. The AC-4
-row in the superseded plan is retired for this cycle. Note: even under
-this ruling, D-ESC-CONSUME (below) IGNORES truncated rows for its count.
+unconditional 0). **Ruling for this cycle (revised 2026-08-22 fix-up):**
+`_write_durable` on early fire due to re-nudge sets `durable` from an
+INTERVAL check: `0` iff the running-max kW observed over the elapsed
+window (sampled at the 5-min decision-tick cadence) was at or above the
+Gate-7 zone threshold, else `1`. `durable_minutes = elapsed`. The
+instantaneous rule considered in earlier drafts (`kW-at-fire above
+threshold else 1`) is REJECTED here because a truncation occurs BECAUSE
+Gate 7 fired a re-nudge on high kW — so kW-at-fire is above threshold
+essentially by construction and every truncated row would score `0`
+regardless of whether the nudge held during the interval. That is a
+metric that cannot distinguish success from failure on the truncated
+branch. The running-max INTERVAL check is the corrected shipped rule
+and matches the sensor semantics; NULL when no tick fired during the
+window (unknown breaks the streak per B-H6). AC4 is superseded by AC-S
+in §8 which restates the corrected rule. The AC-4 row in the superseded
+plan is retired for this cycle. Note: even under this ruling,
+D-ESC-CONSUME (below) IGNORES truncated rows for its count.
 
 ### D-PARTITION — Partition-aware Gate A that does NOT engage lockout on partition-only denial (**status on ship: LIVE; carries the D2 ruling**)
 
@@ -966,9 +977,15 @@ correct and incorrect implementation is decoration and must be replaced.
 ### AC-S (Invariant S — D-SCORE)
 
 Reuse superseded AC4's full-window and cancel-on-teardown cases with the
-Rev-2 clarification (D-SCORE §3 above): truncated rows have `durable = 0
-if kW-at-fire above threshold else 1`. Retire the superseded AC4 clause
-that says truncated is unconditionally 0 (B-M3).
+corrected D-SCORE §3 rule (revised 2026-08-22 fix-up): truncated rows
+carry `durable = 0` iff the running-max kW observed over the elapsed
+window (sampled at 5-min decision-tick cadence) was at or above the
+Gate-7 zone threshold, else `durable = 1`; NULL if no tick fired
+during the window. Retire the superseded AC4 clause that says
+truncated is unconditionally 0 (B-M3). The earlier `kW-at-fire`
+instantaneous rule is REJECTED because a truncation implies
+above-threshold kW by construction — see the §3 body for the full
+rejection rationale.
 
 ### AC-E (Invariant E — D-ESC-CONSUME)
 

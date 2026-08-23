@@ -1342,6 +1342,11 @@ class HVACCoordinator(BaseCoordinator):
             # (R1 mitigation). Runs after override audit so suppression flags
             # are settled.
             await self._override_arrester.async_startup_ramp_audit()
+            # A3 fix-up (2026-08-22): bounded restart resumption of
+            # in-flight durability windows. Sibling of the nudge
+            # ramp audit; runs after it so any zone whose nudge got
+            # restored can also have its durability window resumed.
+            await self._override_arrester.async_startup_durable_audit()
 
         now_utc = dt_util.utcnow()
 

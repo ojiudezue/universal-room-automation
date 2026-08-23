@@ -2092,6 +2092,7 @@ def _hvac_tunable_number_factory(
     step: float,
     unit: str | None,
     integer: bool = False,
+    setter_method: str | None = None,
 ):
     """Build a Number entity class for an HVAC sub-controller tunable.
 
@@ -2175,8 +2176,28 @@ def _hvac_tunable_number_factory(
             sub = self._get_sub_controller()
             if sub is None:
                 return False
+            # F16 fix-up (2026-08-22): when the tunable declares a
+            # `setter_method`, route the push through it so any range
+            # / type / kill-switch guards on the sub-controller are
+            # actually invoked. Pre-fix, every Number bypassed its
+            # setter via bare setattr — the guards were dead code and
+            # a value arriving via `conf_key` (options form) skipped
+            # them the same way. Fall back to setattr if the declared
+            # setter is missing (defensive).
             try:
-                setattr(sub, runtime_field, cast(self._value))
+                if setter_method:
+                    _setter = getattr(sub, setter_method, None)
+                    if _setter is None:
+                        _LOGGER.warning(
+                            "HVAC tunable %s: declared setter_method=%s "
+                            "missing on sub-controller; falling back to "
+                            "setattr", suffix, setter_method,
+                        )
+                        setattr(sub, runtime_field, cast(self._value))
+                    else:
+                        _setter(cast(self._value))
+                else:
+                    setattr(sub, runtime_field, cast(self._value))
                 return True
             except Exception as e:
                 _LOGGER.error(
@@ -2372,6 +2393,17 @@ def _build_hvac_v4511_numbers():
         DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
         CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL,
         DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+        # AC-RAMP-PIPELINE-HARDENING-1 knobs.
+        CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT as _CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+        DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT as _DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+        CONF_HVAC_AC_RESET_DAY_BUDGET as _CONF_HVAC_AC_RESET_DAY_BUDGET,
+        DEFAULT_HVAC_AC_RESET_DAY_BUDGET as _DEFAULT_HVAC_AC_RESET_DAY_BUDGET,
+        CONF_HVAC_AC_RESET_NIGHT_BUDGET as _CONF_HVAC_AC_RESET_NIGHT_BUDGET,
+        DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET as _DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
+        CONF_HVAC_AC_RESET_OFF_DURATION as _CONF_HVAC_AC_RESET_OFF_DURATION,
+        DEFAULT_HVAC_AC_RESET_OFF_DURATION as _DEFAULT_HVAC_AC_RESET_OFF_DURATION,
+        CONF_HVAC_AC_DURABILITY_WINDOW as _CONF_HVAC_AC_DURABILITY_WINDOW,
+        DEFAULT_HVAC_AC_DURABILITY_WINDOW as _DEFAULT_HVAC_AC_DURABILITY_WINDOW,
     )
     return [
         _hvac_tunable_number_factory(
@@ -2441,6 +2473,9 @@ def _build_hvac_v4511_numbers():
             default=DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
             min_value=0, max_value=5, step=1, unit=None,
             integer=True,
+            # F3/F16: revived knob routes through its setter for
+            # symmetry with the other AC-RAMP tunables.
+            setter_method="set_hard_reset_daily_limit",
         ),
         _hvac_tunable_number_factory(
             suffix="ac_hard_reset_min_interval",
@@ -2452,6 +2487,85 @@ def _build_hvac_v4511_numbers():
             default=DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
             min_value=30, max_value=360, step=30, unit="min",
             integer=True,
+        ),
+        # AC-RAMP-PIPELINE-HARDENING-1 knobs on the HVAC Coordinator device.
+        # All push directly into the OverrideArrester runtime fields via
+        # the shared `_hvac_tunable_number_factory` (setattr on
+        # `runtime_field`). Range guards live on the coordinator setters
+        # for the two safety-adjacent ones (reset budgets, off-duration).
+        # F16 fix-up (2026-08-22): route through the setters so their
+        # guards apply. Pre-fix these Number entities called setattr
+        # directly and bypassed the coordinator setters entirely — the
+        # range guards were dead code.
+        _hvac_tunable_number_factory(
+            suffix="ac_soft_nudge_daily_limit",
+            # 2026-08-23 fix-up: label reflects "backstop" semantics
+            # (safety guard, NOT a policy cap). Nudges buy ~19 min of
+            # compressor-off each; suppressing them costs savings.
+            # Default 40 sits above the max observed daily count (36,
+            # zone_1) so it never touches a normal night.
+            name="77 · AC Soft Nudge Daily Backstop",
+            icon="mdi:counter",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_soft_nudge_daily_limit",
+            conf_key=_CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+            default=_DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+            min_value=0, max_value=200, step=1, unit=None,
+            integer=True,
+            setter_method="set_soft_nudge_daily_limit",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_reset_day_budget",
+            name="78 · AC Reset Day Budget",
+            icon="mdi:weather-sunny",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_reset_day_budget",
+            conf_key=_CONF_HVAC_AC_RESET_DAY_BUDGET,
+            default=_DEFAULT_HVAC_AC_RESET_DAY_BUDGET,
+            min_value=0, max_value=4, step=1, unit=None,
+            integer=True,
+            setter_method="set_reset_day_budget",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_reset_night_budget",
+            name="79 · AC Reset Night Budget",
+            icon="mdi:weather-night",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_reset_night_budget",
+            conf_key=_CONF_HVAC_AC_RESET_NIGHT_BUDGET,
+            default=_DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
+            min_value=0, max_value=4, step=1, unit=None,
+            integer=True,
+            setter_method="set_reset_night_budget",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_reset_off_duration",
+            name="80 · AC Reset Off Duration",
+            icon="mdi:timer-outline",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_ac_reset_off_duration_s",
+            conf_key=_CONF_HVAC_AC_RESET_OFF_DURATION,
+            default=_DEFAULT_HVAC_AC_RESET_OFF_DURATION,
+            min_value=30, max_value=300, step=15, unit="s",
+            integer=True,
+            setter_method="set_ac_reset_off_duration",
+        ),
+        # F17.a fix-up (2026-08-22): DURABILITY_WINDOW is the exact
+        # parameter the AC-RAMP-NO-RECURRENCE-ESCALATION-1 investigation
+        # needs to sweep by observation — four probes have already
+        # turned it. Live-tunable rung-3 Number, wired through the
+        # setter per F16.
+        _hvac_tunable_number_factory(
+            suffix="ac_durability_window",
+            name="81 · AC Durability Window",
+            icon="mdi:timer-sand",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_durability_window_min",
+            conf_key=_CONF_HVAC_AC_DURABILITY_WINDOW,
+            default=_DEFAULT_HVAC_AC_DURABILITY_WINDOW,
+            min_value=5, max_value=180, step=5, unit="min",
+            integer=True,
+            setter_method="set_durability_window",
         ),
     ]
 

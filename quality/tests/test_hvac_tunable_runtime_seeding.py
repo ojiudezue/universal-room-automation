@@ -86,9 +86,40 @@ def _load_seed_helper():
             )
         elif (
             isinstance(node, ast.FunctionDef)
-            and node.name == "_seed_hvac_runtime_tunables_from_options"
+            and node.name in (
+                "_seed_hvac_runtime_tunables_from_options",
+                # A3/A4 fix-up (2026-08-22): the seed helper now
+                # routes through _hvac_tunable_apply so range/type/
+                # kill-switch guards on the coordinator setters run
+                # (F16 fix). The extracted helper must pull this
+                # sibling into its namespace or every push silently
+                # NameErrors under the try/except and no runtime
+                # field gets written. Production is fine — same-file
+                # module scope. Extraction stub needs to mirror it.
+                "_hvac_tunable_apply",
+            )
         ):
             kept.append(node)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "_HVAC_TUNABLE_SETTER_METHOD"
+        ) or (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and t.id == "_HVAC_TUNABLE_SETTER_METHOD"
+                for t in node.targets
+            )
+        ):
+            # A3/A4 fix-up: _hvac_tunable_apply consults this map;
+            # inject an empty dict so the stubbed sub-controllers
+            # (which do not declare any set_* methods) fall through
+            # to the setattr fallback — byte-identical to the pre-F16
+            # behaviour on stubs, so the byte-for-byte contract of
+            # these tests is preserved.
+            kept.append(
+                ast.parse("_HVAC_TUNABLE_SETTER_METHOD = {}").body[0]
+            )
     assert kept, "expected _seed_hvac_runtime_tunables_from_options in __init__.py"
     module = ast.Module(body=kept, type_ignores=[])
     ns: dict = {"_LOGGER": types.SimpleNamespace(

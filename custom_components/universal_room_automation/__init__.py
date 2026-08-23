@@ -5760,6 +5760,70 @@ _HVAC_TUNABLE_DISPATCH: dict[str, tuple[str, str, type]] = {
     _CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL:  ("_override_arrester",  "_hard_reset_min_interval_min", int),
 }
 
+# F16 + A2 fix-up (2026-08-22): AC-RAMP-PIPELINE-HARDENING-1 knobs added
+# to the dispatch. The dispatch drives BOTH the CM-options in-place
+# apply AND the init-time seeding via
+# `_seed_hvac_runtime_tunables_from_options`, so this single addition
+# covers F16 (options-flow path bypassed setters) AND A2 (init-time
+# seeding of the new knobs from CM options). Every push routes through
+# the setter method named in `_HVAC_TUNABLE_SETTER_METHOD` below when
+# present, so the setter's range/type/kill-switch guards are actually
+# invoked.
+from .domain_coordinators.hvac_const import (
+    CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT as _CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+    CONF_HVAC_AC_RESET_DAY_BUDGET as _CONF_HVAC_AC_RESET_DAY_BUDGET,
+    CONF_HVAC_AC_RESET_NIGHT_BUDGET as _CONF_HVAC_AC_RESET_NIGHT_BUDGET,
+    CONF_HVAC_AC_RESET_OFF_DURATION as _CONF_HVAC_AC_RESET_OFF_DURATION,
+    CONF_HVAC_AC_DURABILITY_WINDOW as _CONF_HVAC_AC_DURABILITY_WINDOW,
+    CONF_HVAC_AC_NIGHT_START_HHMM as _CONF_HVAC_AC_NIGHT_START_HHMM,
+    CONF_HVAC_AC_NIGHT_END_HHMM as _CONF_HVAC_AC_NIGHT_END_HHMM,
+    CONF_HVAC_AC_GATE4_PREDICATE_MODE as _CONF_HVAC_AC_GATE4_PREDICATE_MODE,
+)
+_HVAC_TUNABLE_DISPATCH.update({
+    _CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: ("_override_arrester", "_soft_nudge_daily_limit", int),
+    _CONF_HVAC_AC_RESET_DAY_BUDGET:       ("_override_arrester", "_reset_day_budget",       int),
+    _CONF_HVAC_AC_RESET_NIGHT_BUDGET:     ("_override_arrester", "_reset_night_budget",     int),
+    _CONF_HVAC_AC_RESET_OFF_DURATION:     ("_override_arrester", "_ac_reset_off_duration_s", int),
+    _CONF_HVAC_AC_DURABILITY_WINDOW:      ("_override_arrester", "_durability_window_min",  int),
+    _CONF_HVAC_AC_NIGHT_START_HHMM:       ("_override_arrester", "_night_start_hhmm",       str),
+    _CONF_HVAC_AC_NIGHT_END_HHMM:         ("_override_arrester", "_night_end_hhmm",         str),
+    _CONF_HVAC_AC_GATE4_PREDICATE_MODE:   ("_override_arrester", "_gate4_predicate_mode",   str),
+})
+
+# F16: side table of setter methods, keyed by CONF_. When present, the
+# in-place apply + init-time seed call `getattr(sub, setter)(cast(value))`
+# instead of bare setattr so range/kill-switch guards run. When absent
+# (or the sub-controller doesn't declare the setter), fall back to
+# setattr (defensive; matches pre-fix behaviour for keys that don't
+# have a setter).
+_HVAC_TUNABLE_SETTER_METHOD: dict[str, str] = {
+    _CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT:   "set_hard_reset_daily_limit",
+    _CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT:   "set_soft_nudge_daily_limit",
+    _CONF_HVAC_AC_RESET_DAY_BUDGET:         "set_reset_day_budget",
+    _CONF_HVAC_AC_RESET_NIGHT_BUDGET:       "set_reset_night_budget",
+    _CONF_HVAC_AC_RESET_OFF_DURATION:       "set_ac_reset_off_duration",
+    _CONF_HVAC_AC_DURABILITY_WINDOW:        "set_durability_window",
+    _CONF_HVAC_AC_NIGHT_START_HHMM:         "set_night_start_hhmm",
+    _CONF_HVAC_AC_NIGHT_END_HHMM:           "set_night_end_hhmm",
+    _CONF_HVAC_AC_GATE4_PREDICATE_MODE:     "set_gate4_predicate_mode",
+}
+
+
+def _hvac_tunable_apply(sub, conf_key: str, runtime_field: str,
+                        value, cast_fn) -> None:
+    """Route a single tunable push through its setter if declared,
+    else bare setattr. Callers pass the raw (uncast) value; cast_fn
+    is applied here so the setter sees the same type the entity would
+    have sent."""
+    _setter_name = _HVAC_TUNABLE_SETTER_METHOD.get(conf_key)
+    _casted = cast_fn(value)
+    if _setter_name is not None:
+        _setter = getattr(sub, _setter_name, None)
+        if _setter is not None:
+            _setter(_casted)
+            return
+    setattr(sub, runtime_field, _casted)
+
 
 def _seed_hvac_runtime_tunables_from_options(hvac, cm_config: dict) -> None:
     """Seed the 14 HVAC factory-tunable runtime fields from CM options.
@@ -5783,7 +5847,11 @@ def _seed_hvac_runtime_tunables_from_options(hvac, cm_config: dict) -> None:
         if conf_key not in cm_config:
             continue
         try:
-            setattr(sub, runtime_field, cast_fn(cm_config[conf_key]))
+            # F16: route through the setter when the tunable declares
+            # one so range/kill-switch guards are actually invoked at
+            # seed time (not just entity time).
+            _hvac_tunable_apply(sub, conf_key, runtime_field,
+                                cm_config[conf_key], cast_fn)
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "HVAC tunable seed failed for %s -> %s.%s",
@@ -6508,7 +6576,9 @@ def _apply_in_place(
                     sub_attr, key,
                 )
                 continue
-            setattr(sub, runtime_field, cast_fn(new_options[key]))
+            # F16: setter-aware push (see `_hvac_tunable_apply`).
+            _hvac_tunable_apply(sub, key, runtime_field,
+                                new_options[key], cast_fn)
             applied.add(key)
         except (AttributeError, KeyError, ValueError, TypeError) as err:
             _LOGGER.warning(

@@ -576,8 +576,46 @@ AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluat
 # Rung: module constant (numbers-get-knobs ladder rung 1). This is a
 # measurement window, not an operator-tunable policy — changing it should
 # require code review.
-AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12    # seconds after restore = re-read settled preset/mode
-
+# AC_NUDGE_RESTORE_SETTLE_DELAY_S — settled preset-restore verdict delay.
+#
+# 2026-08-23 fix-up (F8 REVERSED after operator measurement):
+# The 2026-08-22 option-(c) ruling that disabled this sample was built
+# on an unmeasured number. I took `DEFAULT_UPDATE_INTERVAL_MINUTES = 30`
+# from ha_carrier/const.py:46 and treated it as the real refresh
+# cadence. The recorder shows the climate entities actually update
+# every 42-79 s median (p90 167-323 s) — not every 30 min. There is
+# no unsatisfiable window; option (c) was wrong.
+#
+# Worse, disabling the verdict would have blinded us to a REAL,
+# PRE-EXISTING defect. Measured cross-tab of 47 paired nudges
+# (2026-08-22, T+1/2/5/10/20/30 min after restore):
+#   intent == "manual" (restore is a no-op):
+#     97% match at T+1m — trivially true.
+#   intent is a REAL preset (away / home / sleep):
+#     0/10 at T+1m and T+2m; 1/10 (10%) from T+5m onward.
+# When there is a real preset to restore, the restore does NOT take,
+# at any delay out to 30 min. More time does not help — time was
+# never the variable. This is a genuine defect the sample must
+# measure, not an instrument artifact, and it likely explains the
+# per-zone dwell in `manual` (62/46/26%). Owned by card
+# HVAC-MANUAL-PRESET-CONTRACT-1.
+#
+# Chosen delay: **180 s (3 min)** — comfortably past the 42-79 s
+# entity-refresh envelope, far inside the 25-min inter-nudge cadence,
+# and orders of magnitude below the actuation-lag risk that would
+# have justified anything longer.
+#
+# **VERDICTS RECORDED BEFORE THIS RELEASE ARE INADMISSIBLE** — they
+# were taken at 12 s under the pre-fix-up delay. That statement is
+# still true; only the reasoning behind it has changed.
+AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 180
+# Structured reason strings written into `settled_reason` when the
+# settled verdict is deliberately NOT a True/False. Genuinely
+# unreadable-at-settle cases only — the pre-fix
+# "poll_interval_30min_exceeds_nudge_cadence_25min" claim was based
+# on the unmeasured 30-min figure and is retired.
+AC_NUDGE_SETTLED_REASON_ENTITY_MISSING: Final = "entity_missing_at_settle"
+AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE: Final = "cancelled_by_renudge"
 
 # v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
 # If trailing-window min kW during [restore, restore + eval_delay] is
@@ -639,6 +677,113 @@ AC_RAMP_EVENT_LOCKOUT_ENGAGED: Final = "lockout_engaged"
 AC_RAMP_EVENT_MANUAL_OVERRIDE: Final = "manual_override"
 AC_RAMP_EVENT_CANCEL_INVOKED: Final = "cancel_invoked"
 AC_RAMP_EVENT_STARTUP_RESTORE: Final = "startup_restore"
+
+# AC-RAMP-PIPELINE-HARDENING-1 (this cycle)
+# Additional ac_ramp_events event_type strings for the observability
+# ledger. All are edge-triggered (see D8) — never per-tick.
+AC_RAMP_EVENT_GATE4_DIVERGENCE_SHADOW: Final = "gate4_divergence_shadow"
+AC_RAMP_EVENT_HARD_RESET_DECLINED: Final = "hard_reset_declined"
+
+# D-GATE4 — draw-based Gate 4 predicate primitives (module const rung 1).
+# Changing either should require code review; both are safety-adjacent
+# (a wrong low value permits spurious cooling nudges during heating
+# cycles; a wrong high value silently disables the predicate).
+AC_ACTIVELY_COOLING_KW_MIN: Final = 0.5
+AC_ACTIVELY_COOLING_BLOWER_RPM_MIN: Final = 100
+# Invariant P bound (display-only fraction, 0.0-1.0).
+GATE4_MAX_BLIND_FRACTION: Final = 0.01
+
+# D-GATE4 predicate mode Select values + default.
+HVAC_AC_GATE4_MODE_LEGACY: Final = "legacy"
+HVAC_AC_GATE4_MODE_SHADOW: Final = "shadow"
+HVAC_AC_GATE4_MODE_LIVE: Final = "live"
+HVAC_AC_GATE4_MODES: Final = (
+    HVAC_AC_GATE4_MODE_LEGACY,
+    HVAC_AC_GATE4_MODE_SHADOW,
+    HVAC_AC_GATE4_MODE_LIVE,
+)
+CONF_HVAC_AC_GATE4_PREDICATE_MODE: Final = "hvac_ac_gate4_predicate_mode"
+# 2026-08-23 fix-up: default flipped SHADOW -> LIVE. Operator: "I don't
+# have time for shadows. It works or not and we can fix or rip."
+# Rollback path is flipping the Select to `legacy` — which restores
+# the pre-cycle cloud-reported hvac_action predicate verbatim; that
+# path is tested to work on a cold boot with no persisted state.
+DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE: Final = HVAC_AC_GATE4_MODE_LIVE
+
+# D-SCORE — durability window (options rung 2). The delayed classifier
+# passively re-reads kW at nudge-eval-time + this window and writes
+# durable/durable_minutes onto the nudge_evaluated row.
+CONF_HVAC_AC_DURABILITY_WINDOW: Final = "hvac_ac_durability_window"
+DEFAULT_HVAC_AC_DURABILITY_WINDOW: Final = 30  # minutes
+
+# D3 — soft-nudge daily runaway BACKSTOP (Number rung 3). Manual
+# force_nudge bypasses this cap by design.
+# 2026-08-23 fix-up: default 50 -> 40. Rationale: max daily nudges
+# ever observed is 36 (zone_1). 40 sits above the observed envelope
+# so it never touches a normal night, but low enough to actually
+# trip a genuine runaway. At 50 it was unreachable in all recorded
+# history — a guard that could never fire. This is a safety BACKSTOP
+# and NOT a policy cap: each nudge is measured to buy ~19 min of
+# compressor-off, so suppressing them costs savings; the value
+# should stay above the operating envelope.
+CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = "hvac_ac_soft_nudge_daily_limit"
+DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = 40
+
+# D2 — partitioned day/night reset budgets (Numbers rung 3, operator ruled
+# 2/2 2026-08-22). Wall-clock window (options rung 2).
+CONF_HVAC_AC_RESET_DAY_BUDGET: Final = "hvac_ac_reset_day_budget"
+DEFAULT_HVAC_AC_RESET_DAY_BUDGET: Final = 2
+CONF_HVAC_AC_RESET_NIGHT_BUDGET: Final = "hvac_ac_reset_night_budget"
+DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET: Final = 2
+CONF_HVAC_AC_NIGHT_START_HHMM: Final = "hvac_ac_night_start_hhmm"
+DEFAULT_HVAC_AC_NIGHT_START_HHMM: Final = "22:00"
+CONF_HVAC_AC_NIGHT_END_HHMM: Final = "hvac_ac_night_end_hhmm"
+DEFAULT_HVAC_AC_NIGHT_END_HHMM: Final = "06:00"
+
+# D7 — promote AC_RESET_OFF_DURATION_SECONDS to a live Number (rung 3).
+# The module const above stays as the first-boot seed value.
+CONF_HVAC_AC_RESET_OFF_DURATION: Final = "hvac_ac_reset_off_duration"
+DEFAULT_HVAC_AC_RESET_OFF_DURATION: Final = AC_RESET_OFF_DURATION_SECONDS
+
+# D6 — reset-outcome settle window (module const rung 1, sibling of
+# AC_NUDGE_RESTORE_SETTLE_DELAY_S). Passive re-read only.
+AC_RESET_OUTCOME_SETTLE_S: Final = 60
+
+# F6 fix-up (2026-08-22): the temp LEVEL classification is defensible at
+# 60s (see AC_RESET_OUTCOME_SETTLE_S), but the measured
+# command-to-physical-response lag for zone kW is p50 72-101s across the
+# three zones — a 60s kW read samples INSIDE the actuation lag and
+# systematically returns ~0.0, which reads as evidence the reset worked
+# even when it didn't. The kW capture uses its own longer settle so the
+# reading lands AFTER the compressor has had a chance to respond.
+# Reserved: verdicts taken before this change may be inadmissible for
+# real durability analysis — see fix-up note on
+# AC_NUDGE_RESTORE_SETTLE_DELAY_S below (F8).
+AC_RESET_OUTCOME_KWH_SETTLE_S: Final = 150
+
+# D6 outcome classification strings.
+AC_RESET_OUTCOME_JUSTIFIED_RAMP: Final = "justified_ramp"
+AC_RESET_OUTCOME_FLOOR_SURVIVED: Final = "floor_survived"
+AC_RESET_OUTCOME_INCONCLUSIVE: Final = "inconclusive"
+
+# D8 — declined-reason codes (edge-triggered writes; see coordinator
+# `_maybe_write_declined`).
+AC_RESET_DECLINED_DAY_BUDGET: Final = "day_budget_exhausted"
+AC_RESET_DECLINED_NIGHT_BUDGET: Final = "night_budget_exhausted"
+AC_RESET_DECLINED_GLOBAL_MIN_INTERVAL: Final = "global_min_interval"
+AC_RESET_DECLINED_FEATURE_DISABLED: Final = "feature_disabled"
+AC_RESET_DECLINED_MASTER_OFF: Final = "master_off"
+AC_RESET_DECLINED_COMFORT_DEFERRED: Final = "comfort_deferred"
+# F4 fix-up: distinct reason for true total-cap exhaustion via the
+# decline path (`engage_lockout_on_cap=False`). Distinct from the
+# per-partition reasons so operators can tell "one bucket full" (rare,
+# expected) from "both buckets full but caller chose no-lockout" (rare,
+# non-auto).
+AC_RESET_DECLINED_TRUE_CAP_EXHAUSTED: Final = "true_cap_exhausted"
+
+# Edge-triggered declined-row floor (seconds; same reason cannot re-log
+# within this window per zone).
+AC_RESET_DECLINED_MIN_INTERVAL_S: Final = 900  # 15 min
 
 # Fan speed scaling (above cooling setpoint)
 FAN_SPEED_LOW_PCT: Final = 33
