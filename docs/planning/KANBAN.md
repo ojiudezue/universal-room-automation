@@ -14,7 +14,7 @@ _Generated: 2026-08-23T16:09:30-05:00_ - _Data commit: `48097153b159`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 10 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 42 |
@@ -478,7 +478,7 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
@@ -550,6 +550,19 @@ _created 2026-08-18 02:00 · updated 2026-08-18 02:35 · refined_
 - **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
 - **Forensic keys (1):**
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
+
+### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed
+thread: **quality** - status: **planned** - approval: **explicit**
+_created 2026-08-23 18:20 · initial_
+- **Problem / Solution:**
+  - Problem: the test suite runs on Apple system Python 3.9.6 with no Home Assistant installed, so 230 of 429 test files hand-build fake HA modules. That scaffolding is the direct cause of most of the suite's recurring breakage. A working en...
+- **Next:** D1 (one file): add a pytest config pinning asyncio_mode and either disabling the phcc plugin or overriding enable_event_loop_debug, then re-run the full suite under .venv-ha and record the real failure count. That number — NOT the 9,733 ...
+- **Tags:** measure-before-build, institutional-context
+- **Forensic keys (4):**
+  - `PRIOR_ART_RESPECTED`: Nobody was wrong, and this card does NOT override earlier work. * `.venv-ha` was built 2026-07-06 with real HA and never wired in. * `_HA_REAL` exists in 3 files as a SKIP-WHEN-ABSENT gate — real HA was designed as an OPTIONAL enhancemen...
+  - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
+  - `PROPOSED_SHAPE`: Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in requirements_test.txt + run instructions so nobody silently runs 3.9 again. 2) New tests import real HA; no new file adds sys.modules stubs. 3) Existing files migr...
+  - `links`: related: TEST-STRATEGY-REARCH-1
 
 ### `AC-RAMP-SAVINGS-OVERSTATED-1` - AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc correction (magnitude is NOT a defect; the figure is explicitly not billing-grade)
 thread: **energy** - status: **planned** - approval: **unreviewed**

@@ -6976,6 +6976,73 @@ cards:
   - '2026-08-23 watch-pass: fix shipped v5.84.0; acceptance criteria O1-O6 require a fan-ghost episode (sensor.ROOM_fan_recheck_state
     reaching ARMED+vacate). Pre-deploy last eval_count=1 and never vacated per README. Awaiting organic fan-ghost episode.
     H1 PENDING.'
+- id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  title: Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the
+    "large infrastructure project" every review doc assumed
+  thread: quality
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-08-23 ("We need to make this our default test harness and strategy")'
+  created: '2026-08-23 18:20'
+  updated: '2026-08-23 18:20'
+  refinement_status: initial
+  tags: [measure-before-build, institutional-context]
+  problem_solution:
+  - 'Problem: the test suite runs on Apple system Python 3.9.6 with no Home Assistant installed, so
+     230 of 429 test files hand-build fake HA modules. That scaffolding is the direct cause of most
+     of the suite''s recurring breakage. A working environment with real HA has existed since
+     2026-07-06 and nothing points at it.
+     Solution: point the suite at the existing environment and let new tests import the real thing,
+     migrating old files only when a cycle already touches them.'
+  PRIOR_ART_RESPECTED: 'Nobody was wrong, and this card does NOT override earlier work.
+    * `.venv-ha` was built 2026-07-06 with real HA and never wired in.
+    * `_HA_REAL` exists in 3 files as a SKIP-WHEN-ABSENT gate — real HA was designed as an OPTIONAL
+      enhancement for a few behavioural tests, never as the default. A coherent choice.
+    * SUITE-HYGIENE-1 censused ~155 files / 98 sys.modules keys and built snapshot-restore, but
+      DELIBERATELY excluded `homeassistant.*` on MEASURED grounds recorded in conftest.py:
+      "measured: 7 fixed flakes vs 7 new regressions = net zero, when included". A collection-time
+      hook was prototyped and rejected: "broke 27 collection imports".
+    Those measurements remain VALID — they describe the stub architecture, which keeps existing
+    during migration. That work made stub-sharing safer; this card removes the need for stubs.'
+  THE_BLOCKER_NAMED_2026_08_23: 'Every review doc calls this "a large infrastructure project" because
+    switching appeared to break everything: the full suite under the real-HA venv gives
+    1 passed / 26 skipped / 9,733 ERRORS.
+    IT IS NOT THE TESTS. Individually they pass under real HA:
+      test_energy_battery.py            166/166 alone
+      + test_notification_manager.py    274/274 together
+      + a known stub-donor, both orders 174/174
+    THE ACTUAL BLOCKER IS ONE FIXTURE:
+      pytest_homeassistant_custom_component/plugins.py:342, autouse `enable_event_loop_debug`,
+      calls `asyncio.get_event_loop().set_debug(True)`. Under Python 3.13 with HA''s
+      HassEventLoopPolicy that raises, so EVERY test errors at SETUP.
+    PROOF: `-p no:homeassistant` -> test_notification_manager.py 108/108 passed (was 108 errors).
+    NOTE THE NAME. phcc registers under the pytest11 entry-point name `homeassistant`, NOT its
+    package name. I first tried `-p no:pytest_homeassistant_custom_component`, got a byte-identical
+    9,733-error result, and briefly concluded the phcc hypothesis was REFUTED. It was a false
+    negative from disabling a plugin that does not exist under that name. Recorded because the same
+    mistake would cost the next person the same hour.
+    ALSO MISSING, and a real gap either way: there is NO pytest config in the repo — no pytest.ini,
+    setup.cfg, tox.ini, or [tool.pytest]. So plugins autoload uncontrolled and asyncio_mode is unset.
+    That is why the two environments diverge at all: under 3.9 phcc is not installed, so its autouse
+    fixture never runs.'
+  next: 'D1 (one file): add a pytest config pinning asyncio_mode and either disabling the phcc plugin
+    or overriding enable_event_loop_debug, then re-run the full suite under .venv-ha and record the
+    real failure count. That number — NOT the 9,733 — is the true cost of switching, and it decides
+    everything downstream. Do not scope the migration before it exists.'
+  PROPOSED_SHAPE: 'Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in
+    requirements_test.txt + run instructions so nobody silently runs 3.9 again. 2) New tests import
+    real HA; no new file adds sys.modules stubs. 3) Existing files migrate ONLY when a cycle already
+    touches them. 4) Track BOTH numbers (stub-suite, real-suite) until parity.
+    EVIDENCE THIS PAYS: requirements_test.txt records the same pattern twice — installing real
+    pytest-asyncio dissolved ~180 phantom failures, and real aiosqlite ~30 more, because
+    `sys.modules.setdefault("aiosqlite", MagicMock())` made db.initialize() appear to succeed while
+    writing nothing. Its own words: "dev env drift hiding real failures behind mock no-ops."'
+  links:
+    related: [TEST-STRATEGY-REARCH-1]
+    context: 'TEST-STRATEGY-REARCH-1 measured the STUB suite (158 -> 76 failing IDs, hollow-anchor
+      rate 62%). This card removes the architecture those measurements describe. Its remaining 76
+      failures should be re-counted under the real harness BEFORE being worked individually — some
+      will dissolve, exactly as the pytest-asyncio and aiosqlite installs did.'
 - id: TEST-STRATEGY-REARCH-1
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries)
   status: inbox
