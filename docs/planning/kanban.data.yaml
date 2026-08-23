@@ -2218,79 +2218,6 @@ cards:
   - hvac_override.py:2684 (check_ac_reset gate ladder)
   - hvac_override.py:2779 (Gate 4)
 
-- id: PRESET-RESTORE-DOES-NOT-TAKE-1
-  title: Restoring a REAL preset after a nudge fails ~90% of the time — measured 0/10; every
-    restore site repeats its own setpoint-then-preset write and the borrow does not centralise it
-  thread: hvac
-  status: planned
-  approval: approved
-  priority: immediate-next
-  updated: '2026-08-23 09:55'
-  tags:
-  - operator-directive
-  - measure-before-build
-  - fast-follow
-  origin:
-    date: '2026-08-23'
-    gist: 'Operator, on being shown the measurement: "Isn''t this a problem? How do we solve it? My
-      whole directive is exit via preset if possible. I assume it works some of the time? The app
-      seems to work." Then: "this is a fast follow to test and fix. Not cool with unnecessary feature
-      debt. Card properly and set for one of the immediate next things."'
-  measured: 'Sampled the live climate entities at T+1/2/5/10/20/30 min after each nudge_restored,
-    across 47 paired nudges (recorder, 2026-08-23):
-      intent == "manual" (restore is a NO-OP, writes manual over manual): 97% match at T+1m
-      intent is a REAL preset (away/home/sleep):  0/10 at T+1m AND T+2m; 1/10 (10%) from T+5m on
-    MORE SETTLE TIME DOES NOT HELP — 77% aggregate at T+1m vs 72% at T+30m, flat-to-declining. The
-    aggregate looked healthy ONLY because 37 of 47 intents were manual-over-manual no-ops.
-    THE MECHANISM IS NOT BROKEN GENERALLY: on zone_1 over the same window, presets held `away` 43.8h
-    and `home` 22.8h across 381 preset changes. The house-state preset writer (hvac.py:2063) writes
-    presets successfully. Both paths go through the SAME emit_set_preset_mode chokepoint
-    (hvac_setpoint.py) and the nudge path passes no gate that could drop the write. So this is NOT a
-    dead integration and NOT a dead helper — it is specific to restoring right after a nudge.'
-  SCOPE_ANSWER_ONE_OR_MANY: 'OPERATOR ASKED: "Is the restore via a borrow or its own mechanism? Just
-    want to understand if we fix one thing or many."
-    ANSWER: MANY. The borrow/excursion primitive is BOOKKEEPING ONLY. hvac_excursion.py:710 states it
-    verbatim: "each site performs its own (a) set_temperature -> (b) set_preset_mode". return_excursion
-    clears the lease and increments counters; it issues NO thermostat write.
-    So the setpoint-then-preset sequence is duplicated at every restore site rather than living in one
-    place. Sites in hvac_override.py: _revert_override, _restore_after_reset, _restore_after_nudge,
-    cancel_nudge — plus the house-state writer in hvac.py which is the one that demonstrably WORKS.
-    CONSEQUENCE FOR THE FIX: this is the Bug Class #53 shape (one missed site). Fixing only the nudge
-    path leaves the reset path, the cancel path and the revert path with the same sequence. The
-    STRONG candidate is to move the (a)->(b) sequence INTO return_excursion so there is exactly one
-    implementation and the borrow becomes the chokepoint it already looks like. Scope the cycle as
-    centralisation + fix, NOT as a one-site patch. Enumerate the sites independently before building —
-    the list above is from one grep and is a hypothesis.'
-  HYPOTHESIS_NOT_MEASURED: 'READ FROM ha_carrier SOURCE, NOT YET TESTED. Label kept explicit because
-    four mechanisms asserted on 2026-08-22/23 were subsequently refuted by measurement.
-    (1) `async_set_preset_mode` (climate.py:381) for a NAMED preset calls `set_config_hold(activity_type,
-        hold_until)` — it PINS A HOLD on that activity. It also applies that activity''s OWN setpoints
-        (`selected_activity.cool_set_point` / `heat_set_point`), then optimistically writes local state.
-    (2) Therefore the separate set_temperature write in the restore sequence may be REDUNDANT — the
-        activity carries its setpoints — and may be the very thing causing the failure: two writes to
-        the same zone seconds apart, where the setpoint write is what puts the zone into `manual`.
-        Hypothesis: the setpoint write''s manual hold wins at the cloud.
-    (3) The optimistic local write means the entity shows the new preset briefly; the next real
-        coordinator refresh (measured 42-79s median) overwrites it with the cloud truth. This is why
-        T+1m already reads `manual` and why waiting longer changes nothing.
-    (4) SEPARATE SEMANTIC QUESTION FOR THE OPERATOR: the integration exposes a special `"resume"`
-        preset that calls `resume_schedule` and CLEARS the hold. Restoring `home` pins a hold on the
-        home activity; `resume` returns the zone to its programmed schedule. These are NOT the same
-        action and today we do the first. Which one does "exit via preset" mean? Answer before building.'
-  next: 'CANARY FIRST, one night, one zone: restore via PRESET ONLY (skip the set_temperature write)
-    and sample the preset at T+1/2/5 min against the measured 0/10 baseline. If it takes, the fix is
-    DELETING a write, not adding machinery. Cheap, reversible, and it discriminates: preset-only
-    succeeding while setpoint+preset fails would confirm the collision hypothesis and refute
-    "Carrier rejects activity holds". THEN scope the centralisation into return_excursion.'
-  DO_NOT: 'Do NOT patch only _restore_after_nudge — three sibling sites carry the same sequence.
-    Do NOT add settle-delay machinery; time is measured NOT to be the variable.
-    Do NOT change the restore path without the canary; this is the exact code four Tier-3 reviewers
-    just cleared, and the hypothesis above is unmeasured.'
-  RELATED: 'Likely the MECHANISM behind HVAC-MANUAL-PRESET-CONTRACT-1 (zone_1 measured at 62% dwell in
-    `manual`, zone_2 46%, zone_3 26%) — every nudge flips the zone to manual and the restore does not
-    bring it back. If so, fixing this closes that card''s root cause rather than its symptom.
-    v5.89.0 does NOT fix this. It makes it VISIBLE: the settled restore verdict was re-enabled at 180s
-    and will now record restore_ok=False on these, which is the truth.'
 - id: BORROW-BANKING-LEASE-NOT-RELEASED-1
   title: A banking borrow sat 2h past its lease expiry without release — nudge borrows return
     cleanly, banking did not
@@ -3452,6 +3379,13 @@ cards:
     tick guarantees single-tick round trips. Blocks nothing, but any HVAC-PRESET-FLAP-1 tuning or
     rate-limit work should land the constant first so the reviewer can see the quantum.'
 - id: HVAC-PRESET-FLAP-1
+  PRECONDITION_ASSUMPTION_REFUTED_2026_08_23: 'THIS CARD''S `next` SAYS: "v5.88.0 shipped the borrow
+    restore so URA-induced manual is largely addressed". THAT IS NOW REFUTED BY MEASUREMENT. The
+    borrow restores the SETPOINT (912/914) but NOT the preset: 0/10 restores of a real preset take,
+    at any delay out to 30 minutes. URA-induced manual is NOT addressed — see
+    HVAC-MANUAL-PRESET-CONTRACT-1 ANSWERED_BY_MEASUREMENT_2026_08_23. Gate (1) of this card''s
+    ordered preconditions is therefore still OPEN, not largely closed. Do not unpark on the strength
+    of the v5.88.0 assumption.'
   STATUS_CORRECTED_TWICE_2026_08_22: 'CORRECTED, and my FIRST correction was also wrong. I moved this
     review -> waiting_operator on the strength of the stale `next` line WITHOUT reading the ruling
     fields already on this card. Operator: "Preset flap. I thought I ruled already." THEY DID, three
@@ -8705,6 +8639,77 @@ cards:
   - HVAC-GOVERNED-EXCURSION-1
 
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  DEDUPE_2026_08_23: 'RULING: DUPLICATE — a card `PRESET-RESTORE-DOES-NOT-TAKE-1` was created on
+    2026-08-23 and has been DELETED; its content is folded into this card as the INSTANCE block
+    below plus SCOPE_ONE_OR_MANY / CARRIER_MECHANISM_HYPOTHESIS / CANARY_BEFORE_BUILD.
+    WHY IT MERGED: this card''s own TITLE already asks the question the new card claimed to raise —
+    "do the sanctioned excursions return?" — and its existing `next` already scopes the exact work
+    (enumerate every set_temperature site + whether it has a restore-to-preset path). Same problem,
+    same fix surface. Per the skill: a newly-MEASURED occurrence of an already-carded defect is an
+    INSTANCE, not a card.
+    SWEPT AGAINST (four surfaces): board — HVAC-PRESET-RESTORE-MISS-1 (inbox; itself already flagged
+    as a duplicate of this card by AUDIT_card_merit_review_2026_08_20), AC-RESET-PRESET-ASSERT-DROPPED-1
+    (shipped v5.88.1, reset-path only), HVAC-PRESET-FLAP-1 (parked, blocked on THIS card — its stale
+    assumption now refuted on that card). Code — hvac_override.py preset-restore sites,
+    hvac_excursion.py:710, hvac_setpoint.py emit_set_preset_mode. Vendor — ha_carrier climate.py.
+    Docs — AUDIT_card_merit_review_2026_08_20, README_v5.89.0.
+    PROCESS NOTE, recorded because the failure is the reusable part: the duplicate was created by
+    hand-editing kanban.data.yaml directly instead of invoking the ura-kanban skill. The skill''s
+    SECOND RULE is the adjacency sweep before any new card is accepted, and it names this exact case
+    (INSTANCE vs card). The skill was correct; it was bypassed. The operator caught the duplicate,
+    then caught that the skill should have. Board writes go through the skill.'
+  INSTANCE_2026_08_23_do_the_excursions_return: 'THIS CARD ASKS "do the sanctioned excursions return?" IN ITS
+    OWN TITLE. MEASURED ANSWER: NO. Sampled the live climate entities at T+1/2/5/10/20/30 min after
+    every nudge_restored, 47 paired nudges, from the recorder:
+      intent == "manual" (restore writes manual OVER manual — a NO-OP):  97% "match" at T+1m
+      intent is a REAL preset (away/home/sleep):  0/10 at T+1m AND T+2m; 1/10 (10%) from T+5m onward
+    MORE SETTLE TIME DOES NOT HELP: 77% aggregate at T+1m vs 72% at T+30m, flat-to-declining. The
+    aggregate only ever looked healthy because 37 of the 47 intents were manual-over-manual no-ops.
+    So the excursion RETURNS ITS SETPOINT (912/914 nudges pair with a restore) but DOES NOT RETURN
+    ITS PRESET when there is a real preset to return to. That is the precondition this card names,
+    now quantified rather than inferred.
+    NOT A DEAD MECHANISM: over the same window zone_1 held `away` 43.8h and `home` 22.8h across 381
+    preset changes. The house-state writer (hvac.py:2063) writes presets successfully, through the
+    SAME emit_set_preset_mode chokepoint, and the nudge path passes no gate that could drop the
+    write. The failure is specific to restoring immediately after a nudge.
+    LIKELY THE MECHANISM BEHIND THIS CARD''S OWN HEADLINE NUMBER — duration-weighted dwell in
+    `manual`: zone_1 62.1% (114.3h), zone_2 46.3%, zone_3 26.1%; `sleep` holds only 1.7% / 2.1% /
+    8.9%. Every nudge flips the zone to manual and the restore does not bring it back.'
+  SCOPE_ONE_OR_MANY_2026_08_23: 'OPERATOR ASKED: "Is the restore via a borrow or its own mechanism?
+    Just want to understand if we fix one thing or many." ANSWER: MANY.
+    The borrow/excursion primitive is BOOKKEEPING ONLY. hvac_excursion.py:710 says it verbatim:
+    "each site performs its own (a) set_temperature -> (b) set_preset_mode". return_excursion clears
+    the lease and increments counters; it issues NO thermostat write.
+    So the setpoint-then-preset sequence is duplicated at every restore site — this card''s existing
+    `next` (enumerate every set_temperature site + whether it has a restore-to-preset path) is
+    exactly the right scope and should be run as written. Sites seen in one grep of hvac_override.py:
+    _revert_override, _restore_after_reset, _restore_after_nudge, cancel_nudge, plus the house-state
+    writer in hvac.py which is the one that WORKS. TREAT THAT LIST AS A HYPOTHESIS and re-enumerate
+    independently — Bug Class #53 is the "one missed site" shape and a partial fix is the failure mode.
+    STRONG CANDIDATE: move the (a)->(b) sequence INTO return_excursion so there is one implementation
+    and the borrow becomes the chokepoint it already appears to be from outside.'
+  CARRIER_MECHANISM_HYPOTHESIS_UNMEASURED_2026_08_23: 'READ FROM ha_carrier SOURCE, NOT TESTED.
+    Labelled explicitly because four mechanisms asserted on 2026-08-22/23 were later refuted by
+    measurement — do not build on this without the canary below.
+    (1) `async_set_preset_mode` (climate.py:381) for a NAMED preset calls `set_config_hold(activity_type,
+        hold_until)` — it PINS A HOLD on that activity, and applies that activity''s OWN setpoints
+        (`selected_activity.cool_set_point` / `heat_set_point`), then optimistically writes local state.
+    (2) THEREFORE the separate set_temperature write in the restore sequence may be REDUNDANT — the
+        activity carries its setpoints — and may itself be the cause: two writes to the same zone
+        seconds apart, where the setpoint write is what creates the manual hold.
+    (3) The optimistic local write explains why T+1m already reads `manual`: the next real coordinator
+        refresh (MEASURED 42-79s median, NOT the 30-min DEFAULT_UPDATE_INTERVAL_MINUTES constant —
+        that misreading caused a wrong ruling this cycle) overwrites it with cloud truth.
+    (4) OPERATOR DECISION NEEDED BEFORE BUILD: the integration exposes a special `"resume"` preset
+        calling `resume_schedule`, which CLEARS the hold and returns the zone to its programmed
+        schedule. Restoring `home` PINS A HOLD on the home activity. These are different actions and
+        today we do the first. Operator directive is "exit via preset if possible" — which one?'
+  CANARY_BEFORE_BUILD_2026_08_23: 'One night, one zone: restore via PRESET ONLY (skip the
+    set_temperature write) and sample preset at T+1/2/5 min against the measured 0/10 baseline.
+    DISCRIMINATING: preset-only succeeding while setpoint+preset fails CONFIRMS the collision
+    hypothesis and REFUTES "Carrier rejects activity holds". If it takes, the fix is DELETING a write,
+    not adding machinery. Cheap and reversible. Do NOT add settle-delay machinery — time is measured
+    NOT to be the variable. Do NOT patch a single site.'
   title: Design spec says control the thermostats via PRESETS, never raw manual setpoints
     — reality is zones sitting in manual for hours; do the sanctioned excursions return?
   thread: hvac
@@ -9233,6 +9238,12 @@ cards:
   - climate.up_hallway_zone_2 last_reported (live 2026-08-20)
   - CLAUDE.md troubleshooting — actuator-visibility gap
 - id: HVAC-PRESET-RESTORE-MISS-1
+  DUPLICATE_OF_2026_08_23: 'AUDIT_card_merit_review_2026_08_20 already flagged this as "substantially
+    the same defect as HVAC-MANUAL-PRESET-CONTRACT-1 — two cards, one bug. Merge into the contract
+    card as its founding case." That recommendation stands and is reinforced: the 2026-08-23
+    measurement (0/10 real-preset restores take) lives on the contract card and explains THIS card''s
+    founding observation (zone 1 held in manual through six hours of home_day). Keep as the founding
+    CASE; do not scope separately.'
   title: Zone 1 sat in a held manual setpoint through six hours of home_day — the
     house-state transition never wrote it back
   thread: hvac
