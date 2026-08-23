@@ -487,9 +487,17 @@ class TestSettledSampleConstant:
         )
         with open(path) as f:
             src = f.read()
-        assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12" in src, (
-            "settled-sample delay must be a Final module constant"
-        )
+        # Bug Class #62 fix-up (2026-08-23): this assertion originally
+        # hard-coded the literal value 12, which conflated the RUNG
+        # (module constant, requires code review to change) with the
+        # VALUE. v5.89.0 changed the value 12 -> 180 through exactly the
+        # reviewed-code-change path this test exists to require, and the
+        # test failed anyway. Assert the DECLARATION SHAPE, not the value.
+        import re as _re
+        assert _re.search(
+            r"^AC_NUDGE_RESTORE_SETTLE_DELAY_S:\s*Final\s*=\s*\d+",
+            src, _re.MULTILINE,
+        ), "settled-sample delay must be a Final module constant"
 
 
 class TestSettledSampleWireIn:
