@@ -25,6 +25,52 @@ meta:
     finish-out: MEMORY-WRITERS-1. Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EVSE-SOLAR-FOLLOW-AMPS-1
+  MEASUREMENT_DESIGN_2026_08_23: 'SIGNAL DESIGN SETTLED — Envoy primary, Emporia mains as veto.
+    SPAN is EXCLUDED (operator: "Span is unreliable"). Not ranked lower; excluded.
+    WHAT EACH MEASURES — established, not assumed. I got this wrong twice before the operator
+    corrected me, so it is written down plainly:
+      * Envoy `balanced_net_power_consumption` — signed, net at the ENVOY SYSTEM boundary. Sees
+        production AND battery. Live at time of writing: -0.351 kW (exporting).
+      * Emporia `mains_vue_3_power_minute_average` — GRID DRAW ONLY. Signed (measured range
+        -12,947 W .. +29,233 W across 7,598 samples; negative = exporting). BLIND TO THE ENVOY
+        SYSTEM — it reads the mains CTs. Live: +126 W.
+      * SPAN `span_panel_current_power` — panel-level. Excluded.
+    MY EARLIER "ORDER OF MAGNITUDE DISAGREEMENT" WAS WRONG and is retracted. 5.843 kW / 126 W /
+    3,122 W are three DIFFERENT BOUNDARIES, all correct simultaneously. I compared quantities before
+    establishing what they measured — the same infer-before-verify error as the SPAN-breaker
+    actuation claim earlier the same day.
+    WHY THIS PAIRING, AND WHY IT IS NOT ARBITRARY REDUNDANCY:
+      Envoy is the better SIZING signal — one signed figure covering production, consumption and
+      battery, so the amp target can be computed directly from it.
+      Emporia answers the one question Envoy STRUCTURALLY CANNOT: did surplus actually LEAVE THE
+      PROPERTY? A battery discharge does not cross the meter, so it cannot present as solar surplus
+      there. Envoy `balanced_net` CAN read as export while the battery drains — which is precisely
+      the yo-yo this card exists to remove.
+      OPERATOR''S DECISIVE POINT: Emporia mains is what the EMPORIA EVSE''S OWN excess-solar control
+      used. So it is not a generic second sensor — it is the measurement the feature being replicated
+      was built on. Matching Emporia''s behaviour means matching Emporia''s boundary; sizing on a
+      different boundary would give systematically different answers on any afternoon the battery is
+      moving, which is most of them.
+    RULE: size on Envoy; charge ONLY while Emporia mains confirms export. Disagreement between them
+    IS the battery-masquerade signal — treat it as a stop, not as a sensor fault. Fails safe.
+    NOT USABLE: sensor.mainw_vue_balance_power_minute_average has ZERO recorded samples and reads
+    unavailable. Entity name is `mainw`, not `mains` — likely typo/dead. Do not design around it.'
+  SCOPE_FENCE_2026_08_23: 'OPERATOR: "Hopefully solar follow never touches the drain target. It
+    should be unopinionated and run when the EVSE starts during the day while the sun is out."
+    HARD FENCE: modulate AMPS ONLY, inside a session the existing excess-solar trigger already
+    opened. Never start a charge, never stop one on TOU grounds, never read or write the DP drain
+    target, never coordinate with DP.
+    UNAVOIDABLE ARITHMETIC COUPLING — documented, NOT managed:
+      DP gate 6 (energy_drain_precedence.py:652): charger_rate_kw <= l1_rate_threshold_kw ->
+      DP_REASON_L1_ONLY. DP_L1_RATE_THRESHOLD_KW = 3.0 (energy_const.py:1359).
+      Solar-follow range at 240V: 6A = 1.44 kW .. 48A = 11.5 kW. CROSSOVER ~12.5A.
+      Any solar-follow setting below ~12.5A makes DP see a sub-threshold charger and decline to
+      drain. The controller does not touch the drain target; charger_rate_kw is simply a DP INPUT
+      that throttling changes.
+      ACCEPTED, NOT COORDINATED — a trickle-charging car is arguably not a drain opportunity. It is
+      written down because gate 6 is the SAME gate that masked the drain-target defect on 2026-08-20.
+      Once solar-follow runs by day it will fire more often, and the next person diagnosing "why did
+      DP not drain" will hit L1_ONLY and risk mis-attributing it a second time.'
   OPERATOR_ANSWERS_AND_VERIFIED_FACTS_2026_08_23: 'All four questions answered; each verified against
     the live system rather than accepted, and two of my own claims corrected.
     Q1 CURRENT FLOOR — MEASURED, and it is NOT 2A. The Emporia number entity reports
