@@ -13,7 +13,7 @@ _Generated: 2026-08-23T13:00:10-05:00_ - _Data commit: `9486a7164022`_ - _last_r
 |---|---:|
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 5 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 10 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
@@ -369,8 +369,23 @@ _created 2026-08-21 11:40 · initial_
   - `THE_REAL_QUESTION_NOW`: The question is NOT "does zone 3 save?" but "DOES ZONE 3 SAVE WHEN THE HOUSE IS ENTERTAINING?" Those are the nudges that carry actual comfort cost and the only ones worth tuning for. A null pooled across mostly-empty hours may be WASHING...
   - `SUPERSEDED_HYPOTHESIS_UNTESTED`: LOWER PRIORITY than the occupancy split above; retained as the alternative if both halves come back null. Original: Zone 3 covers kitchen + hallways — high internal gain, high infiltration, likely poor thermal mass. A nudged-off compress...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (10)
 _idea being decomposed_
+
+### `EVSE-SOLAR-FOLLOW-AMPS-1` - Charge current is binary (48A or off) so solar charging yo-yos the house battery: add excess-following current modulation on the two L2 EVSEs
+thread: **energy** - status: **pre_planning** - approval: **explicit**
+_created 2026-08-23 16:10 · initial_
+- **Problem / Solution:**
+  - Problem: the operator turned OFF Emporia's own excess-solar control on the Garage A charger (it was never on for Garage B) so that URA is the single controller. That removed a feature URA does not have: Emporia was continuously varying t...
+- **Origin:** 2026-08-23 - Operator: "I turned off excess solar control for the emporia garage A charger... What it does is (a) turn on the charger when it detects the battery is full so it can empty into the car first, (b) modulates the charge curren...
+- **Next:** OPERATOR QUESTIONS FIRST (see OPEN_QUESTIONS) — three of them change the design, not just the tuning. Then a measure-first probe: log spare-solar vs charger draw at 30s for one sunny afternoon BEFORE building the controller, to size the ...
+- **Tags:** measure-before-build, numbers-get-knobs, institutional-context
+- **Forensic keys (5):**
+  - `INSTITUTIONAL_CONTEXT_VERIFIED_2026_08_23`: Checked before proposing anything. WHAT ALREADY EXISTS AND IS REUSED: * Trigger (a) is ALREADY URA's and is BETTER than Emporia's. `determine_excess_solar_actions` (energy_pool.py:1318) gates on SOC >= threshold AND remaining-forecast >=...
+  - `OPEN_QUESTIONS_FOR_OPERATOR`: Asked rather than assumed — each changes the design. Q1 CURRENT FLOOR AND WHAT "OFF" MEANS. You said Emporia modulates 2A-48A, but the HA number entity reports no min/max/step attributes, and Emporia L2 hardware is usually 6A minimum (J1...
+  - `PROPOSED_SHAPE_SIMPLEST_VERSION`: Deliberately the SIMPLEST thing that removes the yo-yo, per the marginal-benefit rule. Not a design commitment until the questions above are answered. 1. A small solar-follow controller that runs ONLY while an EVSE is already excess-sola...
+  - `RISKS`: Stated up front because this is a new WRITER on a live actuator. * NEW WRITE PATH TO A DEVICE URA HAS NEVER WRITTEN TO. Everything URA does to the EVSEs today is breaker on/off. Writing amps is a new class of command, on a cloud-backed i...
+  - `links`: related: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**

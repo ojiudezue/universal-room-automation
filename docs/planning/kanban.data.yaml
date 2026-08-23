@@ -24,6 +24,128 @@ meta:
     / GUEST-IDENTITY-PHONE-LEFT-BEHIND-1 (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic
     finish-out: MEMORY-WRITERS-1. Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: EVSE-SOLAR-FOLLOW-AMPS-1
+  title: 'Charge current is binary (48A or off) so solar charging yo-yos the house battery: add
+    excess-following current modulation on the two L2 EVSEs'
+  thread: energy
+  status: pre_planning
+  approval: explicit
+  approved_by: 'operator 2026-08-23 (asked for the card + a simple plan + surgical insertion point)'
+  created: '2026-08-23 16:10'
+  updated: '2026-08-23 16:10'
+  refinement_status: initial
+  tags:
+  - measure-before-build
+  - numbers-get-knobs
+  - institutional-context
+  problem_solution:
+  - 'Problem: the operator turned OFF Emporia''s own excess-solar control on the Garage A charger
+     (it was never on for Garage B) so that URA is the single controller. That removed a feature
+     URA does not have: Emporia was continuously varying the charge current to match whatever solar
+     was spare. URA can only switch the charger fully on or fully off. So when URA starts a solar
+     charge it pulls the full 48A regardless of how much sun is actually spare, the shortfall comes
+     out of the house battery, the battery falls to its EV-drain floor, the charge stops, the sun
+     refills the battery, and the whole thing starts again — a yo-yo that cycles the house battery
+     for no benefit.
+     Solution: have URA set the charger''s current limit to match the measured spare solar, instead
+     of leaving it at maximum. Charge fast when there is a lot of sun, slowly when there is little,
+     and stop cleanly rather than oscillating.'
+  origin:
+    date: '2026-08-23'
+    gist: 'Operator: "I turned off excess solar control for the emporia garage A charger... What it
+      does is (a) turn on the charger when it detects the battery is full so it can empty into the
+      car first, (b) modulates the charge current from 2A to 48A based on the amount of excess it
+      sees. By turning it off, only URA is in control. And I lose (b). Can we build a function that
+      will do b under excess solar conditions?"'
+  INSTITUTIONAL_CONTEXT_VERIFIED_2026_08_23: 'Checked before proposing anything.
+    WHAT ALREADY EXISTS AND IS REUSED:
+      * Trigger (a) is ALREADY URA''s and is BETTER than Emporia''s. `determine_excess_solar_actions`
+        (energy_pool.py:1318) gates on SOC >= threshold AND remaining-forecast >= kWh threshold, and
+        only off-peak/mid-peak, never peak. Live knobs: excess_solar_soc default 95, excess_solar_kwh
+        default 5.0. The operator is right that a forecast beats Emporia''s instantaneous delta.
+        NOTHING in this card touches (a).
+      * A live production signal exists: `solar_production_w()` (energy_battery.py:1586).
+      * The DP sticky-yield interaction is already designed and documented
+        (PLANNING_dp_sticky_yields_to_excess_solar.md, INV-YIELD-1/2). Any new writer MUST respect it.
+    WHAT DOES NOT EXIST — this is the whole gap:
+      * URA has NO current/amp control of any kind. Repo-wide grep of
+        custom_components/ for charging_amps|current_limit|set_charge_rate|max_charging|charger_current
+        returns ZERO hits in source. URA drives the EVSEs only through the SPAN breaker switches
+        (switch.span_panel_garage_a_evse_breaker / _b_), which are binary.
+    THE KNOB IS ALREADY THERE, UNUSED — the write target exists as a plain HA number entity:
+      number.garage_a_evse_emporia_wifi_garagea_current_limit = 48.0
+      number.garage_b_evse_emporia_wifi_garageb_current_limit = 48.0
+    LIVE SNAPSHOT while writing this card (shows the headroom is real):
+      solar production 13,988 W | house draw 9,317 W | battery 97% | ev_battery_drain_soc knob = 80
+      => roughly 4.7 kW spare, while the charger would pull ~11.5 kW at 48A/240V. That gap IS the
+      yo-yo: about 6.8 kW would come from the house battery.'
+  next: 'OPERATOR QUESTIONS FIRST (see OPEN_QUESTIONS) — three of them change the design, not just
+    the tuning. Then a measure-first probe: log spare-solar vs charger draw at 30s for one sunny
+    afternoon BEFORE building the controller, to size the deadband and confirm the Emporia entity
+    accepts and holds writes at that cadence.'
+  OPEN_QUESTIONS_FOR_OPERATOR: 'Asked rather than assumed — each changes the design.
+    Q1 CURRENT FLOOR AND WHAT "OFF" MEANS. You said Emporia modulates 2A-48A, but the HA number
+      entity reports no min/max/step attributes, and Emporia L2 hardware is usually 6A minimum
+      (J1772 pilot floor). What is the true minimum this entity accepts, and does writing below it
+      error, clamp silently, or stop the charge? This matters because the controller needs a
+      defined "as low as possible without stopping" state — otherwise low-sun conditions become the
+      new yo-yo, just at the bottom of the range instead of the top.
+    Q2 IS THE HOUSE BATTERY ALLOWED TO CONTRIBUTE AT ALL? Two different products:
+      (i) STRICT follow — amps sized so battery net flow is ~zero; battery never discharges to the
+          car; the drain floor is never reached and the yo-yo cannot occur by construction.
+      (ii) SOFT follow — allow some battery contribution down to the ev_battery_drain_soc floor
+          (currently 80), trading battery cycles for faster charging.
+      I would build (i) first: it is strictly simpler, it removes the failure you described rather
+      than damping it, and (ii) can be added later as a knob. But it charges slower on marginal
+      days, so it is your call.
+    Q3 WHAT HAPPENS WHEN SPARE SOLAR RUNS OUT? Hold at minimum amps, or open the breaker? Holding
+      keeps the session alive and avoids EVSE handshake churn but draws a little from the house;
+      opening is cleaner but risks re-triggering the on/off cycle at dusk. Related: is there a
+      minimum-on-time you want respected so a passing cloud cannot bounce the charger?
+    Q4 GARAGE A IS CURRENTLY OFFLINE — `switch.span_panel_garage_a_evse_breaker` and
+      `sensor.span_panel_garage_a_evse_power` both read `unavailable`, while Garage B is on and
+      drawing 51.5 W idle. Is A decommissioned, unplugged, or is this the fault behind card
+      EV-GARAGE-A-NOCHARGE-1? A controller that writes to an offline charger needs to fail quietly,
+      and I want to know whether A is a live target before designing for two.'
+  PROPOSED_SHAPE_SIMPLEST_VERSION: 'Deliberately the SIMPLEST thing that removes the yo-yo, per the
+    marginal-benefit rule. Not a design commitment until the questions above are answered.
+      1. A small solar-follow controller that runs ONLY while an EVSE is already excess-solar-active
+         (i.e. entirely downstream of the existing trigger — it never decides to start or stop a
+         charge, so it cannot perturb the TOU/DP precedence logic that took several cycles to get
+         right).
+      2. Every tick: spare = solar_production_w - house_load_excluding_evse. Convert to amps at the
+         measured service voltage. Clamp to [min_amps, 48]. Apply a deadband and a step limit so it
+         does not chatter. Write the number entity only when the target differs from the current
+         value by more than the deadband — a no-op write every 30s for hours is its own problem.
+      3. Never write while the EVSE is not excess-solar-active. Never write during peak. Never write
+         to an unavailable entity.
+      4. Restore to 48 when the solar session ends, so no other consumer inherits a throttled charger.
+         This is load-bearing: leaving the limit at 8A would silently cripple a later scheduled charge.
+    CADENCE: the operator asks for 30-60s against the EC 5-minute tick. Do NOT change the EC tick —
+    that is a shared primitive feeding TOU, DP, arbitrage and load-shed, and speeding it up would
+    multiply every write path in the coordinator. Use a separate lightweight timer scoped to this
+    controller only, active ONLY during a solar-follow session. That keeps the blast radius to the
+    session and leaves the coordinator cadence untouched.
+    SCOPE: the two L2 EVSEs ONLY. Explicitly NOT the L1 chargers (operator).'
+  RISKS: 'Stated up front because this is a new WRITER on a live actuator.
+    * NEW WRITE PATH TO A DEVICE URA HAS NEVER WRITTEN TO. Everything URA does to the EVSEs today is
+      breaker on/off. Writing amps is a new class of command, on a cloud-backed integration, at
+      30-60s cadence. Write-verify (energy_write_verify.py) exists and should be reused rather than
+      reinvented.
+    * WRITE VOLUME. At 30s that is up to 2,880 writes/day per charger if unguarded. The deadband and
+      step limit are not polish, they are the containment. URA has a prior incident here — the
+      optimizer DB write-flood that forced a rollback to v4.7.33.
+    * PRECEDENCE. The DP sticky-yield rules (INV-YIELD-1/2) and the TOU peak veto must both still
+      hold. Confining the controller to already-active sessions is what keeps it out of those paths.
+    * A THROTTLED CHARGER LEFT BEHIND is the quiet failure mode: if the restore-to-48 step is missed
+      or a restart lands mid-session, the next charge silently runs at a fraction of its rate and
+      nobody notices for days.'
+  links:
+    related: [EVSE-DRAIN-PRECEDENCE-KNOB-80-1, EV-GARAGE-A-NOCHARGE-1]
+    context: 'EVSE-DRAIN-PRECEDENCE-KNOB-80-1 owns the ev_battery_drain_soc floor (live value 80)
+      that this yo-yo bounces off — if strict-follow (Q2 option i) is chosen, that floor stops being
+      reachable during solar charging at all. EV-GARAGE-A-NOCHARGE-1 may explain why Garage A reads
+      unavailable, which decides whether this controller has one live target or two.'
 - id: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
   thread: energy
   status: planned
