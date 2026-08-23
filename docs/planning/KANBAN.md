@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T12:11:54-05:00_ - _Data commit: `701b1ac2e3dd`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:12:29-05:00_ - _Data commit: `c8406a45b475`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1117,7 +1117,8 @@ _updated 2026-08-23 11:35_
 - **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
 - **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
 - **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `CORRECTION_2026_08_23_tier_warning_is_a_BOOT_RACE_not_a_mismatch`: THE INSTANCE BELOW IS WRONG AND THIS CORRECTS IT. I recorded that Living Room and Study A are "configured for HVAC-tier fan management but actually managed by the room tier", on the strength of a boot warning. That reading is REFUTED. TH...
   - `INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback`: MEASURED FROM THE LIVE BOOT LOG after the v5.89.0 restart (2026-08-23). Two related observations on this card's own surface. (A) TIER-OWNERSHIP MISMATCH — URA emits this about ITSELF, so it is self-reported, not inferred: 11:11:59 WARNIN...
   - `links`: related: FAN-MANUAL-1
 

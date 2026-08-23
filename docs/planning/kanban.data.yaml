@@ -4967,6 +4967,31 @@ cards:
     expired must_start_by shown) + garage-A network fix (homelab).'
   refs: switch.garage_a + evse status recorder history 2026-08-11; energy.py:4403 night-window gate; energy_drain_precedence.py
 - id: FAN-LAYER-2
+  CORRECTION_2026_08_23_tier_warning_is_a_BOOT_RACE_not_a_mismatch: 'THE INSTANCE BELOW IS WRONG AND
+    THIS CORRECTS IT. I recorded that Living Room and Study A are "configured for HVAC-tier fan
+    management but actually managed by the room tier", on the strength of a boot warning. That reading
+    is REFUTED.
+    THE WARNING NEVER VERIFIES WHAT IT REPORTS. automation.py:1892 does `if hvac_manages: return`, so
+    the warning at :1922 is only reachable when `_is_hvac_managing_fans()` is False — but that helper
+    (automation.py:2858-2866) returns False for FOUR different reasons: no coordinator manager, no
+    hvac coordinator or hvac not enabled, no fan_controller, OR the room genuinely absent from
+    `_room_fans`. Only the last is a config gap. The warning names only the last and instructs the
+    reader to "Check Zone Manager zone_rooms wiring".
+    IT FIRED 2 SECONDS AFTER BOOT (11:11:59), when the HVAC coordinator is very unlikely to be wired
+    yet — i.e. almost certainly one of the first three reasons. It then latches
+    `_fan_hvac_mismatch_warned = True` and NEVER re-evaluates or retracts.
+    THE DISCRIMINATING EVIDENCE: at 11:42:13 hvac_fans logged "Living Room turned on during cooldown"
+    — and that branch executes ONLY inside `for room_name, room_fan in self._room_fans.items()`.
+    So Living Room IS in `_room_fans`. The warning was false by 11:42 and probably false when emitted.
+    CONSEQUENCE: a diagnostic that reports a config defect it never tested, latched once per restart,
+    sending its reader to fix wiring that is not broken. That is worse than no diagnostic. It cost
+    this session two wrong mechanisms — mine and a planner''s — before being caught.
+    THE REAL DEFECT HERE IS THE WARNING ITSELF: it must either test `_room_fans` membership
+    specifically (distinguishing it from not-ready), or defer until the coordinator is up, or say
+    "HVAC fan management not available (reason: X)" instead of asserting a wiring gap.
+    The FanPolicyOracle fallback lines from the same boot are a SEPARATE observation and are NOT
+    corrected — those name their own condition ("oracle unavailable ... check CoordinatorManager
+    lifecycle") and remain valid for this card.'
   updated: '2026-08-23 11:35'
   INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback: 'MEASURED FROM THE LIVE BOOT LOG
     after the v5.89.0 restart (2026-08-23). Two related observations on this card''s own surface.
