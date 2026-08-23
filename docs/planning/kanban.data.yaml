@@ -3230,6 +3230,30 @@ cards:
   organic_evidence: 'shipwatch 2026-08-11: L2 strongly positive — 22h/~28 Master Bathroom cycles, ZERO ble-source occupancy
     post-deploy; last strobe was 3min PRE-deploy. Confirm at 48h.'
 - id: FAN-MANUAL-1
+  FIX_APPLIED_2026_08_23_config_not_code: 'OPERATOR RULING: "Remove the fan from manual switches. Old
+    workaround." APPLIED — config-only, no code cycle needed.
+    The managed fan is removed from manual_switches in all THREE affected rooms, so the vacancy exit
+    sweep (automation.py:1265-1290) no longer has a handle on a fan the HVAC tier owns:
+      Living Room     [fan.towerfan_dreopilotmaxs_wifi_livingroom] -> []
+      Jaya Bedroom    [fan.fanswitch_treat_wifi_jayabedroom]       -> []
+      Master Bedroom  removed fan.polyfan_508s_wifi_masterbedroom ONLY; PRESERVED
+                      fan.ceilingfan_fanimaton_rf304_25_masterbedroom and light.switch_mmwave_inovelli,
+                      which are genuinely manual-only (not in that room''s `fans` list).
+    Verified: zero rooms now have any entity in BOTH `fans` and `manual_switches`.
+    APPLIED VIA THE REAL OPTIONS FLOW (devices step), not a .storage edit — a direct file write is
+    clobbered by HA in-memory entry state.
+    SURGICAL CHECK, and one honest wrinkle: Living Room 53->53 keys and Jaya 68->68 keys, ONLY
+    manual_switches changed. Master Bedroom went 63->67 because I omitted four optional fields and the
+    form materialised its defaults: adjacent_rooms None->[], fan_recheck_l2_allowed None->True,
+    room_fan_recheck_enabled None->True, fan_recheck_trust_sensors_ok None->True. VERIFIED HARMLESS —
+    const.py:629/636/644 all define those defaults as True, so an absent field already resolved to
+    True; the values are now explicit rather than implied. adjacent_rooms [] and absent are equivalent.
+    No behaviour changed, but the entry is no longer minimal, which is worth knowing if anyone diffs it.
+    LESSON for future options-flow writes: pass EVERY field in the step, not just the one being
+    changed, or unpassed optionals will materialise at their schema defaults.
+    ORGANIC PROOF STILL OWED: the discriminating observation is a vacancy exit occurring while the fan
+    is manually ON — the fan must now SURVIVE it. That is exactly the sequence that killed it at
+    11:27:16 today (776ms after the occupancy edge). Until that is observed, this is applied-but-unproven.'
   WRITER_IDENTIFIED_2026_08_23_manual_switches_exit_sweep: 'MECHANISM PINNED. It is NOT the HVAC fan
     logic at all, and BOTH earlier hypotheses on this card (mine: missing branch; then: tier ownership)
     are superseded by this one, which has millisecond evidence.
@@ -3372,7 +3396,7 @@ cards:
     would have found it and neither plan, build, nor dispatch brief ran it. C-H2: the discharge-(b) test asserted None==None
     (its hold was never opened). C-H1+A-MED-2: recheck extension unanchored AND buggy (mid-pause expiry clears the hold, losing
     the extension). MED-B2: room-tier restart re-adoption claim is provably aspirational.'
-  next: 'OPERATOR RULING NEEDED FIRST: is a managed fan belonging in manual_switches deliberate or leftover? Three rooms are configured that way (Living Room, Master Bedroom, Jaya Bedroom). If DELIBERATE -> _control_manual_switches_off (automation.py:1265-1290) must consult the manual-ON hold before sweeping, and that is a code cycle. If LEFTOVER -> remove the fan from manual_switches in those three rooms and the HVAC tier owns it cleanly, which is config-only. The code fix is wrong if the answer is config, and vice versa.'
+  next: 'Config fix APPLIED 2026-08-23 (fan removed from manual_switches in 3 rooms). Awaiting the discriminating organic observation: a room vacancy exit while the fan is manually ON, with the fan SURVIVING it. Until then applied-but-unproven. No code change needed unless that observation fails.'
   organic_evidence: 'shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic
     1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).'
   organic_evidence_2: 'OPERATOR CONFIRMED 2026-08-11: "Living room fan is working afaik" — manual fan use no longer self-cancels.
