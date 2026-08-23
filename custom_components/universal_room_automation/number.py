@@ -2499,7 +2499,12 @@ def _build_hvac_v4511_numbers():
         # range guards were dead code.
         _hvac_tunable_number_factory(
             suffix="ac_soft_nudge_daily_limit",
-            name="77 · AC Soft Nudge Daily Limit",
+            # 2026-08-23 fix-up: label reflects "backstop" semantics
+            # (safety guard, NOT a policy cap). Nudges buy ~19 min of
+            # compressor-off each; suppressing them costs savings.
+            # Default 40 sits above the max observed daily count (36,
+            # zone_1) so it never touches a normal night.
+            name="77 · AC Soft Nudge Daily Backstop",
             icon="mdi:counter",
             sub_controller_attr="_override_arrester",
             runtime_field="_soft_nudge_daily_limit",

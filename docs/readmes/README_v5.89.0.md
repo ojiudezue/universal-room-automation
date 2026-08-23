@@ -4,8 +4,11 @@
 two orchestrator-run independent mutation drills, one serial full-suite name-diff.
 Branch `feature/ac-ramp-pipeline-hardening`, 8 commits, 64 cycle tests.
 
-**Ships in SHADOW.** The headline change (Gate 4) does not alter behaviour until the
-operator flips a Select. See "Rollout" below.
+**Ships LIVE.** The headline change (Gate 4) uses the new draw-based predicate
+from first boot. Rollback path is the Select's `legacy` value (documented
+under Rollout / Rollback). 2026-08-23 operator decision: shadow-then-flip
+was rejected — "I don't have time for shadows. It works or not and we can
+fix or rip."
 
 ---
 
@@ -29,10 +32,10 @@ Blindness was sustained (91-95% of it inside episodes >10 min), not sampling noi
 
 | # | Deliverable | Status on ship |
 |---|---|---|
-| D-GATE4 | Draw-based cooling predicate replacing the stale cloud veto | **SHADOW** (operator flips to LIVE) |
+| D-GATE4 | Draw-based cooling predicate replacing the stale cloud veto | **LIVE** (rollback: Select -> `legacy`) |
 | D-SCORE | `durable` / `durable_minutes` / `truncated` per-nudge durability | LIVE, telemetry only — no trust consumer |
 | D2 | Day/night partitioned reset budgets (2 day / 2 night) | LIVE |
-| D3 | Soft-nudge daily cap | LIVE |
+| D3 | Soft-nudge daily BACKSTOP (default 40, was 50) | LIVE |
 | D-PARTITION | Partition denial no longer engages lockout | LIVE |
 | D-ESC-SIG | `triggered_by` on hard-reset escalation | LIVE — force-button writes `"manual"` |
 | D5 | Hard-reset row enrichment + `preset_restore_ok` | LIVE |
@@ -57,24 +60,48 @@ Blindness was sustained (91-95% of it inside episodes >10 min), not sampling noi
 - **D10 (actuation-lag columns) — DEFERRED.** The probe ran and did NOT cancel it:
   measured command→physical-response is p50 72/83/101s (zones 1/2/3), p90 ~130-160s,
   against a plan cancel-threshold of p50 < 2s. Worth building; not tonight.
-- **The nudge settled-restore verdict is DISABLED, deliberately.** `ha_carrier`'s
-  `async_set_preset_mode` writes no HA state and requests no refresh
-  (`climate.py:381`), and the coordinator polls every 30 min (`const.py:46`). A verdict
-  must therefore sample >30 min after the write, but the measured inter-nudge cadence
-  is 25 min — the window is unsatisfiable. `restore_ok` is now written as NULL with
-  `settled_reason = "poll_interval_30min_exceeds_nudge_cadence_25min"`.
-  **Every settled restore verdict recorded before this release is inadmissible and must
-  not be cited as evidence that preset restore failed.**
+- **The nudge settled-restore verdict is ENABLED (F8 REVERSED 2026-08-23).**
+  The 2026-08-22 decision that disabled this sample was built on an unmeasured
+  number — `DEFAULT_UPDATE_INTERVAL_MINUTES = 30` from `ha_carrier/const.py:46`
+  was read as the actual refresh cadence. The recorder shows the climate
+  entities update every 42-79 s median (p90 167-323 s). The sample now fires
+  at 3 min — past the refresh envelope, inside the 25-min inter-nudge cadence.
+  A re-nudge before the sample fires cancels it and back-fills `settled_reason
+  = cancelled_by_renudge`; a missing entity at settle writes
+  `entity_missing_at_settle`. Otherwise `restore_ok` carries a real True/False.
+
+  **Measured defect the instrument now exposes:** across 47 paired nudges
+  (2026-08-22) with `intent` set to a real preset (away/home/sleep), the
+  restore matched at T+1m in 0/10 cases and 1/10 (10%) from T+5m onward.
+  When there is a real preset to restore, the restore does NOT take at any
+  delay out to 30 min. More time does not help — time was never the
+  variable. This is pre-existing and very likely explains the per-zone
+  dwell in `manual` (62/46/26%). Owned by `HVAC-MANUAL-PRESET-CONTRACT-1`;
+  out of scope for this release.
+
+  **Every settled restore verdict recorded before this release is inadmissible
+  and must not be cited as evidence that preset restore failed** — they
+  were taken at 12 s under the pre-fix-up delay.
 
 ## Rollout
 
-Default is `shadow`: legacy Gate 4 still decides; the new predicate is computed and a
-latched `gate4_divergence_shadow` row is written on disagreement.
+Default is `live` (2026-08-23 flip): the new draw-based predicate decides
+Gate 4 from first boot. Gate 4 previously vetoed 7-13% of high-draw time
+(measured; zone_1 12.2%, zone_2 7.1%, zone_3 12.9%), so post-flip nudge/reset
+counts should RISE relative to the historical envelope. A flat count would
+mean the new predicate is not firing.
 
-1. Boot. Confirm mode is `shadow` and divergence rows appear.
-2. Let `sensor.ac_gate4_blind_fraction_7d_<zone>` accumulate.
-3. Flip the Select to `live` when the divergence data looks right.
-4. Kill switch: set the Select to `legacy` — the new predicate is never called.
+1. Boot. Confirm the AC Gate 4 Predicate Mode Select reads `live` and
+   `sensor.ac_ramp_state_<zone>` cycles through DETECTING / NUDGING as
+   normal.
+2. Watch nudge / reset counts across the first 24 h — a rise vs the prior
+   week's envelope confirms the predicate is working.
+3. `sensor.ac_gate4_blind_fraction_7d_<zone>` (both wall-clock and
+   high-draw denominators) should trend well below `GATE4_MAX_BLIND_FRACTION
+   = 0.01` after 7 days.
+4. Kill switch: set the Select to `legacy` — the pre-cycle cloud-reported
+   `hvac_action` decides Gate 4 verbatim. Cold-boot legacy path is tested
+   (see `TestGate4DefaultLive::test_legacy_mode_still_kills_new_predicate_cold_boot`).
 
 ## Rollback
 
@@ -96,9 +123,13 @@ Per the standing rule, this section is rewritten post-restart with a
 
 - **L1 — boot clean.** No URA ERROR entries referencing `hvac_override` or
   `ac_ramp` within 15 min of restart.
-- **L2 — shadow is inert.** Predicate Select reads `shadow`. Nudge/reset counts for
-  the first full day are within the historical envelope (zone_1 ~14/night). A step
-  change in shadow would falsify the shadow contract.
+- **L2 — live predicate is firing.** Predicate Select reads `live`. Nudge/reset
+  counts across the first 24 h are ABOVE the historical envelope (zone_1 ~14/night
+  pre-flip). A flat count means the new predicate is silently rejecting where the
+  cloud used to say cool — the shadow measurement showed 7-13% blind time per zone
+  during pre-fix operation, so a real rise is the discriminating observation.
+  L2-negative: flat/lower counts under `live` are a fail (rip candidate — flip to
+  `legacy` for the rollback).
 - **L3 — divergence rows are LATCHED, not per-tick.** `gate4_divergence_shadow` rows
   appear at transitions only. Dozens per zone per day = the per-tick bug.
 - **L4 — day/night partition is real.** After the first overnight,

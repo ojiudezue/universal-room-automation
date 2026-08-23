@@ -32,7 +32,8 @@ from .hvac_const import (
     AC_NUDGE_EVAL_MIN_DROP_FRAC,
     AC_NUDGE_EVALUATION_DELAY_S,
     AC_NUDGE_RESTORE_SETTLE_DELAY_S,
-    AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON,
+    AC_NUDGE_SETTLED_REASON_ENTITY_MISSING,
+    AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
@@ -4206,6 +4207,35 @@ class OverrideArrester:
                 "_maybe_fire_durable_early failed for %s: %s", zone_id, _e,
             )
 
+        # 2026-08-23 fix-up (F8 REVERSED): cancel any pending settled-
+        # sample timer for this zone from a PRIOR nudge, and back-fill
+        # its `nudge_restored` row with restore_ok=NULL + reason
+        # cancelled_by_renudge so the sample cannot read state that
+        # belongs to the next nudge. Operator directive: without this
+        # the settle reads the +°F setpoint + `manual` preset that the
+        # next nudge just installed, which is not the previous nudge's
+        # restore outcome.
+        _pending_settle = self._nudge_settled_timers.pop(zone_id, None)
+        if _pending_settle is not None:
+            try:
+                _pending_settle()
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+            if self._db is not None:
+                try:
+                    await self._db.update_ac_ramp_restore_settled(
+                        zone_id=zone_id,
+                        preset_settled=None,
+                        mode_settled=None,
+                        restore_ok=None,
+                        settled_reason=AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE,
+                    )
+                except Exception as _e:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "settled cancel-write failed on %s: %s",
+                        zone_id, _e,
+                    )
+
         self._nudge_in_flight.add(zone_id)
         zone.ramp_state = AC_RAMP_STATE_NUDGING
         zone.nudge_kwh_rate_before = kwh_rate_before
@@ -4428,38 +4458,57 @@ class OverrideArrester:
             async def _write_settled(_now, _zid=zone_id,
                                      _entity=zone.climate_entity,
                                      _intent=_intent_preset) -> None:
-                # F8 fix-up (2026-08-22, revised): the settled verdict
-                # is structurally unmeasurable through hass.states on
-                # this deployment. ha_carrier does not write the
-                # entity state on `async_set_preset_mode`; the state
-                # only refreshes on its 30-min coordinator poll.
-                # Median inter-nudge cadence is 25 min, so any settle
-                # sample either lands INSIDE the poll interval
-                # (reading stale state) or AFTER the next nudge starts
-                # (reading a subsequent nudge's state). Neither is
-                # honest evidence.
+                # F8 REVERSED (2026-08-23 fix-up): re-enabled real
+                # measurement after operator re-measured the vendor
+                # cadence. Climate entities actually refresh every
+                # 42-79 s (median) — not every 30 min. The 3-min
+                # AC_NUDGE_RESTORE_SETTLE_DELAY_S sample lands past
+                # the refresh envelope and inside the 25-min nudge
+                # cadence.
                 #
-                # This callback therefore fires but does NOT read the
-                # state object. It writes restore_ok=NULL with a
-                # reason string so consumers of `nudge_restored` rows
-                # know the sample was intentionally skipped. The
-                # IMMEDIATE sample (restore_ok_immediate, written
-                # outside this callback) is preserved as an honest
-                # read of possibly-stale state.
-                #
-                # See CARRIER-STALE-POLL-REFRESH-1 for the out-of-
-                # scope path to a working instrument.
+                # Passive re-read + UPDATE only. Issues no service
+                # call, touches no thermostat, adds no await into
+                # the restore path. Verdict rules mirror the
+                # immediate sample (three-valued):
+                #   intent empty            -> NULL (no intent).
+                #   entity missing / attrs  -> NULL + reason
+                #                              entity_missing_at_settle.
+                #   preset_settled == intent -> True.
+                #   preset_settled != intent -> False (the defect
+                #     this exists to measure: real-preset restore
+                #     did not take).
+                # Cancellation on re-nudge writes NULL + reason
+                # cancelled_by_renudge (see _perform_soft_nudge).
                 self._nudge_settled_timers.pop(_zid, None)
+                try:
+                    _cs_settled = self.hass.states.get(_entity)
+                except Exception:  # noqa: BLE001 — defensive
+                    _cs_settled = None
+                _preset_settled: str | None = None
+                _mode_settled: str | None = None
+                _reason: str | None = None
+                if _cs_settled is None:
+                    _reason = AC_NUDGE_SETTLED_REASON_ENTITY_MISSING
+                else:
+                    _preset_settled = (
+                        _cs_settled.attributes.get("preset_mode", "") or ""
+                    )
+                    _mode_settled = _cs_settled.state
+                # Same verdict rules as the immediate sample.
+                if not _intent:
+                    _settled_ok: bool | None = None
+                elif _preset_settled is None:
+                    _settled_ok = None
+                else:
+                    _settled_ok = (_preset_settled == _intent)
                 if self._db is not None:
                     try:
                         await self._db.update_ac_ramp_restore_settled(
                             zone_id=_zid,
-                            preset_settled=None,
-                            mode_settled=None,
-                            restore_ok=None,
-                            settled_reason=(
-                                AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON
-                            ),
+                            preset_settled=_preset_settled,
+                            mode_settled=_mode_settled,
+                            restore_ok=_settled_ok,
+                            settled_reason=_reason,
                         )
                     except Exception as _e:  # noqa: BLE001 — defensive
                         _LOGGER.debug(

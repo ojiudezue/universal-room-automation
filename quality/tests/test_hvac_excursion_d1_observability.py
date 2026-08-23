@@ -539,46 +539,59 @@ class TestSettledSampleWireIn:
             "teardown must clear the settled-timer dict"
         )
 
-    def test_settled_callback_writes_null_reason_no_service_calls(
+    def test_settled_callback_reads_state_and_writes_verdict_no_service_calls(
         self, hvac_override_src,
     ):
-        """AC-RAMP fix-up round 2 (2026-08-22, F8 option-c revision):
-        the settled sample was found to be structurally unmeasurable
-        through hass.states on this deployment — the ha_carrier
-        integration does not write the entity state on preset writes,
-        the 30-min poll is the only refresh, and the measured 25-min
-        inter-nudge cadence guarantees no delay value can BOTH be past
-        the poll AND before the next nudge. The callback now DOES NOT
-        READ the state; it writes restore_ok=None with an explicit
-        settled_reason naming the blocker.
+        """2026-08-23 fix-up (F8 REVERSED after operator re-measurement):
+        the 2026-08-22 option-c ruling that disabled this sample was
+        built on an unmeasured number (`DEFAULT_UPDATE_INTERVAL_MINUTES
+        = 30` read as the real refresh cadence). The recorder shows
+        the climate entities actually refresh every 42-79 s median.
+        The settled sample now fires at 3 min (past the refresh
+        envelope, inside the 25-min nudge cadence), reads state,
+        writes a real True/False/None verdict, and populates
+        settled_reason ONLY for genuinely-unreadable / cancelled
+        cases.
 
-        This test replaces the pre-fix assertion that required a
-        cached hass.states.get read. The NO-SERVICE-CALLS half of the
-        original invariant is PRESERVED unchanged — the callback still
-        must not perturb the race by writing anything to the
-        thermostat.
+        This test asserts the RESTORED contract:
+          - passive `hass.states.get(` read;
+          - writes restore_ok via `update_ac_ramp_restore_settled`;
+          - populates settled_reason only when the entity is missing
+            (via AC_NUDGE_SETTLED_REASON_ENTITY_MISSING); a
+            cancelled-by-renudge case is handled OUTSIDE this
+            closure (see _perform_soft_nudge).
+
+        The NO-SERVICE-CALLS half of the original invariant is
+        PRESERVED VERBATIM — that guarantee is what enforces
+        perturbation-free measurement.
         """
         idx = hvac_override_src.find("async def _write_settled(")
         assert idx > 0, "settled-write inner coroutine must exist"
-        body = hvac_override_src[idx: idx + 3000]
-        # New contract (F8 option-c): write NULL + reason.
-        assert "restore_ok=None," in body, (
-            "F8 option-c: settled callback must write restore_ok=None "
-            "(the sample is structurally unmeasurable through the "
-            "stale-polled integration)"
+        body = hvac_override_src[idx: idx + 3500]
+        # Restored contract: real read + verdict.
+        assert "self.hass.states.get(" in body, (
+            "F8 reversed: settled callback must re-read state to compute "
+            "a real True/False verdict"
         )
-        assert "AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON" in body, (
-            "settled_reason must be populated from the named reason "
-            "constant so consumers can discriminate 'intentionally "
-            "skipped' from 'measurement lost'"
+        assert "update_ac_ramp_restore_settled(" in body, (
+            "verdict must be UPDATE-ed onto the immediate row's "
+            "existing slot, not INSERT-ed as a new row"
+        )
+        assert "AC_NUDGE_SETTLED_REASON_ENTITY_MISSING" in body, (
+            "genuinely-unreadable case (entity missing at settle) must "
+            "populate settled_reason via the named constant"
+        )
+        # The old unmeasurable-reason claim is retired — it was built
+        # on the unmeasured 30-min figure.
+        assert "AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON" not in body, (
+            "the 'poll_interval_30min_exceeds_nudge_cadence_25min' claim "
+            "was built on an unmeasured cadence and has been retired"
         )
         # PRESERVED invariant (unchanged from pre-fix contract):
         # no thermostat writes / service calls / suppression flips
-        # inside the settled callback. The whole reason F8 chose the
-        # NULL-plus-reason path over a "force a refresh" path is
-        # exactly that this callback must NOT perturb the running
-        # cycle. CARRIER-STALE-POLL-REFRESH-1 tracks the out-of-scope
-        # path to a working instrument.
+        # inside the settled callback. Whatever the verdict rule
+        # becomes, perturbation-free measurement is what makes the
+        # observation admissible.
         for banned in (
             "async_call_service",
             "hass.services.async_call",

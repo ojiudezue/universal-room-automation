@@ -576,70 +576,46 @@ AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluat
 # Rung: module constant (numbers-get-knobs ladder rung 1). This is a
 # measurement window, not an operator-tunable policy — changing it should
 # require code review.
-# F8 fix-up (2026-08-22, revised after operator correction):
-# THE SETTLED-RESTORE VERDICT IS STRUCTURALLY UNMEASURABLE THROUGH THE
-# HA STATE OBJECT ON THIS DEPLOYMENT.
+# AC_NUDGE_RESTORE_SETTLE_DELAY_S — settled preset-restore verdict delay.
 #
-# Vendor source verified on the live host
-# (/config/custom_components/ha_carrier/climate.py:381 async_set_preset_mode
-# + const.py:46 DEFAULT_UPDATE_INTERVAL_MINUTES = 30):
-#   - async_set_preset_mode calls the service but does NOT invoke
-#     async_write_ha_state() and does NOT request a coordinator refresh.
-#   - _attr_preset_mode is only assigned at :230 inside the coordinator-
-#     update handler, which runs on the 30-minute poll.
+# 2026-08-23 fix-up (F8 REVERSED after operator measurement):
+# The 2026-08-22 option-(c) ruling that disabled this sample was built
+# on an unmeasured number. I took `DEFAULT_UPDATE_INTERVAL_MINUTES = 30`
+# from ha_carrier/const.py:46 and treated it as the real refresh
+# cadence. The recorder shows the climate entities actually update
+# every 42-79 s median (p90 167-323 s) — not every 30 min. There is
+# no unsatisfiable window; option (c) was wrong.
 #
-# Consequence: after `emit_set_preset_mode(..., blocking=True)`, HA's
-# state object for the climate entity keeps the OLD preset until the
-# next scheduled ha_carrier poll — up to 30 minutes later. Reading
-# `hass.states.get(entity).attributes["preset_mode"]` at ANY delay
-# less than the poll interval cannot observe the write; the previous
-# value at 12s and any raise up to sub-poll fail the same way.
+# Worse, disabling the verdict would have blinded us to a REAL,
+# PRE-EXISTING defect. Measured cross-tab of 47 paired nudges
+# (2026-08-22, T+1/2/5/10/20/30 min after restore):
+#   intent == "manual" (restore is a no-op):
+#     97% match at T+1m — trivially true.
+#   intent is a REAL preset (away / home / sleep):
+#     0/10 at T+1m and T+2m; 1/10 (10%) from T+5m onward.
+# When there is a real preset to restore, the restore does NOT take,
+# at any delay out to 30 min. More time does not help — time was
+# never the variable. This is a genuine defect the sample must
+# measure, not an instrument artifact, and it likely explains the
+# per-zone dwell in `manual` (62/46/26%). Owned by card
+# HVAC-MANUAL-PRESET-CONTRACT-1.
 #
-# Simply raising this constant DOES NOT FIX the instrument. Options
-# considered:
-#   (a) Force a targeted refresh — same mechanism as the withdrawn D9
-#       / `homeassistant.update_entity` path, unproven and rejected
-#       earlier in this cycle. See card CARRIER-STALE-POLL-REFRESH-1.
-#   (b) Read ha_carrier's own DataUpdateCoordinator data instead of
-#       the HA state object — requires reaching into vendor internals
-#       and is not in scope here.
-#   (c) Disable the settled sample and write restore_ok=NULL with a
-#       reason string. Chosen — an honest NULL is worse than nothing
-#       but better than a False that is always False (which is what
-#       every prior 12s verdict actually is).
+# Chosen delay: **180 s (3 min)** — comfortably past the 42-79 s
+# entity-refresh envelope, far inside the 25-min inter-nudge cadence,
+# and orders of magnitude below the actuation-lag risk that would
+# have justified anything longer.
 #
-# The `_write_settled` callback therefore does NOT read the state
-# object under option (c). It fires anyway (so the observability row
-# UPDATE lands promptly), writes restore_ok=None, and populates a
-# `settled_reason` column naming the blocker. The delay is kept at a
-# small value so the reason lands quickly — its numeric magnitude no
-# longer matters.
-#
-# **VERDICTS RECORDED BEFORE THIS CHANGE ARE INADMISSIBLE** as evidence
-# of preset-restore failure — they are artifacts of reading a stale
-# entity, not measurements of an actual failure. Any dashboard /
-# analytics consumer of `restore_ok` from `nudge_restored` rows must
-# scope reads to event_ids created after this constant's fix-up.
-#
-# ADDITIONAL CONSTRAINT (measured, added by operator ruling 2026-08-22):
-# median inter-nudge cadence on this deployment is 25 minutes
-# (n=445+, stable since week 31). The settled sample must exceed the
-# 30-min poll interval AND fall inside the 25-min nudge cycle — no
-# such number exists. The instrument cannot be built through the state
-# object under the current ha_carrier integration. See
-# CARRIER-STALE-POLL-REFRESH-1 for the out-of-scope path to a working
-# instrument.
-#
-# The delay value below is now decorative: the callback fires promptly
-# to land the NULL-with-reason UPDATE and does not read the state.
-AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12    # decorative; see comment above
-# Reason string written into `settled_reason` when the settled verdict
-# is intentionally not attempted. Names BOTH numbers per the operator's
-# ruling ("poll interval 30 min exceeds nudge cadence 25 min").
-AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON: Final = (
-    "poll_interval_30min_exceeds_nudge_cadence_25min"
-)
-
+# **VERDICTS RECORDED BEFORE THIS RELEASE ARE INADMISSIBLE** — they
+# were taken at 12 s under the pre-fix-up delay. That statement is
+# still true; only the reasoning behind it has changed.
+AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 180
+# Structured reason strings written into `settled_reason` when the
+# settled verdict is deliberately NOT a True/False. Genuinely
+# unreadable-at-settle cases only — the pre-fix
+# "poll_interval_30min_exceeds_nudge_cadence_25min" claim was based
+# on the unmeasured 30-min figure and is retired.
+AC_NUDGE_SETTLED_REASON_ENTITY_MISSING: Final = "entity_missing_at_settle"
+AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE: Final = "cancelled_by_renudge"
 
 # v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
 # If trailing-window min kW during [restore, restore + eval_delay] is
@@ -727,7 +703,12 @@ HVAC_AC_GATE4_MODES: Final = (
     HVAC_AC_GATE4_MODE_LIVE,
 )
 CONF_HVAC_AC_GATE4_PREDICATE_MODE: Final = "hvac_ac_gate4_predicate_mode"
-DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE: Final = HVAC_AC_GATE4_MODE_SHADOW
+# 2026-08-23 fix-up: default flipped SHADOW -> LIVE. Operator: "I don't
+# have time for shadows. It works or not and we can fix or rip."
+# Rollback path is flipping the Select to `legacy` — which restores
+# the pre-cycle cloud-reported hvac_action predicate verbatim; that
+# path is tested to work on a cold boot with no persisted state.
+DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE: Final = HVAC_AC_GATE4_MODE_LIVE
 
 # D-SCORE — durability window (options rung 2). The delayed classifier
 # passively re-reads kW at nudge-eval-time + this window and writes
@@ -735,10 +716,18 @@ DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE: Final = HVAC_AC_GATE4_MODE_SHADOW
 CONF_HVAC_AC_DURABILITY_WINDOW: Final = "hvac_ac_durability_window"
 DEFAULT_HVAC_AC_DURABILITY_WINDOW: Final = 30  # minutes
 
-# D3 — soft-nudge daily runaway guard (Number rung 3). Manual force_nudge
-# bypasses this cap by design.
+# D3 — soft-nudge daily runaway BACKSTOP (Number rung 3). Manual
+# force_nudge bypasses this cap by design.
+# 2026-08-23 fix-up: default 50 -> 40. Rationale: max daily nudges
+# ever observed is 36 (zone_1). 40 sits above the observed envelope
+# so it never touches a normal night, but low enough to actually
+# trip a genuine runaway. At 50 it was unreachable in all recorded
+# history — a guard that could never fire. This is a safety BACKSTOP
+# and NOT a policy cap: each nudge is measured to buy ~19 min of
+# compressor-off, so suppressing them costs savings; the value
+# should stay above the operating envelope.
 CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = "hvac_ac_soft_nudge_daily_limit"
-DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = 50
+DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT: Final = 40
 
 # D2 — partitioned day/night reset budgets (Numbers rung 3, operator ruled
 # 2/2 2026-08-22). Wall-clock window (options rung 2).
