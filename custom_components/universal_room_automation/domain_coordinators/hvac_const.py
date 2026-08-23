@@ -576,7 +576,16 @@ AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluat
 # Rung: module constant (numbers-get-knobs ladder rung 1). This is a
 # measurement window, not an operator-tunable policy — changing it should
 # require code review.
-AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12    # seconds after restore = re-read settled preset/mode
+# F8 fix-up (2026-08-22): raised from 12s. The prior 12s was far below
+# both the 30-min ha_carrier cloud poll interval AND the measured
+# command-to-physical-response lag (72-101s p50). Every settled restore
+# verdict produced at 12s is INADMISSIBLE as evidence — the sampled
+# preset/mode reflects the immediately-post-write cache, not the
+# cloud-refreshed post-clobber state we exist to measure. Raised to 1860s
+# (31 min) so a settled read lands after the next cloud poll cycle
+# completes. Verdicts from rows written before this constant changed
+# must not be used as evidence for the clobber-detection metric.
+AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 1860  # 31 min — above the 30-min ha_carrier poll
 
 
 # v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
@@ -698,6 +707,18 @@ DEFAULT_HVAC_AC_RESET_OFF_DURATION: Final = AC_RESET_OFF_DURATION_SECONDS
 # AC_NUDGE_RESTORE_SETTLE_DELAY_S). Passive re-read only.
 AC_RESET_OUTCOME_SETTLE_S: Final = 60
 
+# F6 fix-up (2026-08-22): the temp LEVEL classification is defensible at
+# 60s (see AC_RESET_OUTCOME_SETTLE_S), but the measured
+# command-to-physical-response lag for zone kW is p50 72-101s across the
+# three zones — a 60s kW read samples INSIDE the actuation lag and
+# systematically returns ~0.0, which reads as evidence the reset worked
+# even when it didn't. The kW capture uses its own longer settle so the
+# reading lands AFTER the compressor has had a chance to respond.
+# Reserved: verdicts taken before this change may be inadmissible for
+# real durability analysis — see fix-up note on
+# AC_NUDGE_RESTORE_SETTLE_DELAY_S below (F8).
+AC_RESET_OUTCOME_KWH_SETTLE_S: Final = 150
+
 # D6 outcome classification strings.
 AC_RESET_OUTCOME_JUSTIFIED_RAMP: Final = "justified_ramp"
 AC_RESET_OUTCOME_FLOOR_SURVIVED: Final = "floor_survived"
@@ -711,6 +732,12 @@ AC_RESET_DECLINED_GLOBAL_MIN_INTERVAL: Final = "global_min_interval"
 AC_RESET_DECLINED_FEATURE_DISABLED: Final = "feature_disabled"
 AC_RESET_DECLINED_MASTER_OFF: Final = "master_off"
 AC_RESET_DECLINED_COMFORT_DEFERRED: Final = "comfort_deferred"
+# F4 fix-up: distinct reason for true total-cap exhaustion via the
+# decline path (`engage_lockout_on_cap=False`). Distinct from the
+# per-partition reasons so operators can tell "one bucket full" (rare,
+# expected) from "both buckets full but caller chose no-lockout" (rare,
+# non-auto).
+AC_RESET_DECLINED_TRUE_CAP_EXHAUSTED: Final = "true_cap_exhausted"
 
 # Edge-triggered declined-row floor (seconds; same reason cannot re-log
 # within this window per zone).

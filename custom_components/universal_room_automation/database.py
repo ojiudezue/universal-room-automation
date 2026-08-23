@@ -1717,6 +1717,27 @@ class UniversalRoomDatabase:
                         # NULL when the settle read fails; row still
                         # writes and `reset_outcome` is unaffected.
                         ("kwh_rate_settle", "REAL"),
+                        # F13 fix-up (2026-08-22): dedicated column for
+                        # the D6 settle-time temperature so it stops
+                        # overwriting `current_temp` (the completion-
+                        # time reading). Pre-fix, an unreadable settle
+                        # entity would write NULL over a real value.
+                        ("current_temp_settle", "REAL"),
+                        # F9 fix-up: distinct preset-restore verdict so
+                        # a swallowed preset failure in the
+                        # hard_reset_completed success branch does not
+                        # get conflated with combined restore_ok.
+                        ("preset_restore_ok", "INTEGER"),
+                        # F19 fix-up (2026-08-22): the settled-restore
+                        # verdict was previously written on top of
+                        # `preset_after`/`mode_after` — that destroyed
+                        # the immediate-sample value, so the
+                        # (immediate=1, settled=0) signature (the
+                        # load-bearing clobber signature) could never
+                        # be inspected for what the immediate preset
+                        # actually was. New columns preserve both.
+                        ("preset_settled", "TEXT"),
+                        ("mode_settled", "TEXT"),
                     ):
                         if _col not in are_columns:
                             await db.execute(
@@ -1735,6 +1756,7 @@ class UniversalRoomDatabase:
                         "PRAGMA table_info(ac_reset_state)"
                     )
                     ars_columns = {row[1] for row in await cursor.fetchall()}
+                    _added_partition_cols = False
                     for _col, _decl in (
                         ("day_reset_count", "INTEGER NOT NULL DEFAULT 0"),
                         ("night_reset_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -1745,6 +1767,27 @@ class UniversalRoomDatabase:
                             await db.execute(
                                 f"ALTER TABLE ac_reset_state ADD COLUMN {_col} {_decl}"
                             )
+                            if _col == "day_reset_count":
+                                _added_partition_cols = True
+                    # AC-RAMP-PIPELINE-HARDENING-1 fix-up F2: migration-day
+                    # inflation seed. Existing rows carry a `hard_reset_count`
+                    # accumulated under the pre-partition regime; without
+                    # this seed a zone that already spent 2 resets today
+                    # would get a fresh 2+2 partition budget on top of it
+                    # for the rest of upgrade day. Seed day_reset_count from
+                    # the existing hard_reset_count on rows written today so
+                    # upgrade-day cumulative budget matches pre-migration
+                    # intent. Night stays at 0 (a night session that starts
+                    # after migration is a fresh bucket by definition).
+                    if _added_partition_cols:
+                        await db.execute(
+                            """UPDATE ac_reset_state
+                               SET day_reset_count = hard_reset_count
+                               WHERE day_reset_count = 0
+                                 AND hard_reset_count > 0
+                                 AND date = ?""",
+                            (dt_util.now().date().isoformat(),),
+                        )
                     await db.commit()
                 except Exception as e:
                     _LOGGER.warning("ac_reset_state migration failed: %s", e)
@@ -7503,6 +7546,62 @@ class UniversalRoomDatabase:
         state["lockout_flag"] = 1 if locked else 0
         await self.save_ac_reset_state(state)
 
+    # AC-RAMP-PIPELINE-HARDENING-1 fix-up F1: night bucket storage.
+    # The night counter lives in the row keyed by (zone_id, session_date)
+    # so a night session that crosses midnight (e.g. 22:00 D → 06:00 D+1)
+    # addresses the SAME row on both sides. When session_date == today,
+    # the night counter naturally co-exists with the day columns in one
+    # row; when session_date < today (post-midnight), the night row is
+    # a distinct row and this DAO writes ONLY its night columns so it
+    # cannot clobber the day row's separate state.
+    async def update_ac_night_counter(
+        self, zone_id: str, session_date: str, night_reset_count: int,
+    ) -> None:
+        """Upsert the (zone_id, session_date) row's night counter fields
+        WITHOUT touching any day/session-shared columns on that row.
+
+        Uses INSERT + ON CONFLICT UPDATE so an existing row's other
+        columns (soft_nudge_count, day_reset_count, hard_reset_count,
+        last_hard_reset_ts, lockout_flag, in-flight nudge state) are
+        preserved. On INSERT for a new session_date row, all other
+        columns take their schema defaults (all 0 / NULL) — correct,
+        because that row exists solely to carry night_reset_count for
+        the crossed-midnight session.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO ac_reset_state (
+                        zone_id, date,
+                        soft_nudge_count, hard_reset_count,
+                        last_soft_nudge_ts, last_hard_reset_ts,
+                        last_overshoot_ts,
+                        in_flight_nudge_original_target,
+                        in_flight_nudge_started_ts,
+                        in_flight_nudge_duration_s,
+                        lockout_flag,
+                        day_reset_count, night_reset_count,
+                        night_session_date,
+                        in_flight_durable_started_ts
+                    ) VALUES (?, ?, 0, 0, NULL, NULL, NULL,
+                              NULL, NULL, NULL,
+                              0, 0, ?, ?, NULL)
+                    ON CONFLICT(zone_id, date) DO UPDATE SET
+                        night_reset_count = excluded.night_reset_count,
+                        night_session_date = excluded.night_session_date""",
+                    (
+                        zone_id, session_date,
+                        int(night_reset_count),
+                        session_date,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state night-counter upsert failed for %s/%s: %s",
+                zone_id, session_date, err,
+            )
+
     async def clear_ac_zone_today(self, zone_id: str) -> None:
         """Reset today's counters + lockout for a zone (clear_lockout button)."""
         date_key = self._today_key()
@@ -7625,6 +7724,10 @@ class UniversalRoomDatabase:
         "mode_after",
         "current_temp",
         "kwh_rate_settle",
+        # F13 fix-up: settle-time temp goes here, NOT current_temp.
+        "current_temp_settle",
+        # F9 fix-up.
+        "preset_restore_ok",
     )
 
     async def update_ac_ramp_event_fields(
@@ -7648,7 +7751,7 @@ class UniversalRoomDatabase:
                     k,
                 )
                 continue
-            if k == "restore_ok":
+            if k in ("restore_ok", "preset_restore_ok"):
                 clean[k] = None if v is None else (1 if v else 0)
             else:
                 clean[k] = v
@@ -7694,9 +7797,11 @@ class UniversalRoomDatabase:
         try:
             async with self._db() as db:
                 await db.execute(
+                    # F19 fix-up: settled values write to distinct
+                    # columns so the immediate sample survives.
                     """UPDATE ac_ramp_events
-                       SET preset_after = ?,
-                           mode_after = ?,
+                       SET preset_settled = ?,
+                           mode_settled = ?,
                            restore_ok = ?
                        WHERE event_id = (
                            SELECT event_id FROM ac_ramp_events
