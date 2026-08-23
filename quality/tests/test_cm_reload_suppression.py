@@ -150,6 +150,11 @@ def _load_init_listener_helpers():
         "_NM_A2_KEYS",
         # NM Cycle C (2026-07-20) — matrix/DND-bypass/mute-duration.
         "_NM_C_KEYS",
+        # F16 (2026-08-22, v5.89.0). This loader uses ONE `keep` set for both
+        # names and function defs (the FunctionDef branch checks the same set),
+        # so the helper and the dict it reads both belong here.
+        "_hvac_tunable_apply",
+        "_HVAC_TUNABLE_SETTER_METHOD",
     }
     body = []
     for node in tree.body:
@@ -170,6 +175,25 @@ def _load_init_listener_helpers():
     ns: dict = {
         "_LOGGER": MagicMock(),
         "DOMAIN": "universal_room_automation",
+        # STEP chatter cycle (2026-08-19, v5.85.0) + F16/A2 (2026-08-22,
+        # v5.89.0). These are ALIASED IMPORTS (`CONF_X as _CONF_X`) and a
+        # module-level def, so a keep_names set that only matches
+        # ast.Assign / ast.AnnAssign structurally cannot reach them.
+        # Values mirror const.py:3859/3860/3877 exactly.
+        "_CONF_CHATTER_BURST_K": "chatter_burst_k",
+        "_CONF_CHATTER_T_FLOOR_S": "chatter_t_floor_s",
+        "_CONF_CHATTER_MODE": "chatter_mode",
+        # AC-RAMP-PIPELINE-HARDENING-1 A2 (2026-08-22, v5.89.0): the AC-ramp
+        # knobs joined _HVAC_TUNABLE_DISPATCH. Aliased imports, so keep-sets
+        # cannot reach them; values mirror hvac_const.py exactly.
+        "_CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT": "hvac_ac_soft_nudge_daily_limit",
+        "_CONF_HVAC_AC_RESET_DAY_BUDGET": "hvac_ac_reset_day_budget",
+        "_CONF_HVAC_AC_RESET_NIGHT_BUDGET": "hvac_ac_reset_night_budget",
+        "_CONF_HVAC_AC_RESET_OFF_DURATION": "hvac_ac_reset_off_duration",
+        "_CONF_HVAC_AC_DURABILITY_WINDOW": "hvac_ac_durability_window",
+        "_CONF_HVAC_AC_NIGHT_START_HHMM": "hvac_ac_night_start_hhmm",
+        "_CONF_HVAC_AC_NIGHT_END_HHMM": "hvac_ac_night_end_hhmm",
+        "_CONF_HVAC_AC_GATE4_PREDICATE_MODE": "hvac_ac_gate4_predicate_mode",
         "CONF_ENTRY_TYPE": "entry_type",
         "ENTRY_TYPE_COORDINATOR_MANAGER": "coordinator_manager",
         # RELOAD-WATCHDOG-HAZARD (2026-08-15): the listener now has an
