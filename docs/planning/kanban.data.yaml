@@ -1068,6 +1068,21 @@ cards:
   updated: 2026-08-18 16:10
   program: sensor-trust-exclusion
 - id: SENSOR-CAPABILITY-1
+  INSTANCE_2026_08_23_live_mislabel_garage_hallway: 'A LIVE CAPABILITY MISLABEL, still present in the
+    running config as of 2026-08-23. Carried here deliberately because SENSCAP-ORPHAN-1 (where it was
+    first noted as an unactioned aside) has now CLOSED, and closing it would have taken this with it.
+    Garage Hallway sensor_capabilities declares:
+      binary_sensor.rgbw_motion_lux_3rdr_zigbee_garagehallway_occupancy_2 -> kind "camera_presence"
+    That entity is a ZIGBEE RGBW motion/lux sensor. It is not a camera. This is exactly the
+    capability-vs-role confusion this card exists to separate — the kind field is being used as a
+    config bucket rather than as a statement about the hardware.
+    NOT FIXED UNILATERALLY, and that is deliberate: changing a capability kind changes how the sensor
+    is weighted in presence fusion, and the operator has twice corrected my sensor-classification
+    assumptions (most recently "It is a pir class mmWave. It is correct."). A silent reclassification
+    of a live presence input is not a config tidy-up. NEEDS AN OPERATOR RULING on the correct kind.
+    WHY IT IS NOT URGENT: camera_presence is not in _NON_CORROBORATOR_KINDS, so the D-MEDIUM-1 rule
+    does not currently exclude it — the mislabel is not silently dropping the sensor from fusion today.
+    It is wrong, not broken.'
   title: Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
   thread: presence
   status: shipped_organic
@@ -1215,7 +1230,7 @@ cards:
     Shared primitive = D1; chatter detector can land independently; stuck detector sequences after capability work. Do NOT
     build parallel exclusions. Members: SENSOR-HEALTH-SURFACING-1 (chatter), STUCK-SENSOR-1 (stuck/flapping mmWave), SENSOR-CAPABILITY-1
     (capability/role -> corroborator selection).'
-  updated: 2026-08-18 16:10
+  updated: '2026-08-23 11:50'
   program: sensor-trust-exclusion
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
@@ -1600,12 +1615,21 @@ cards:
     just the three camera lists. This class is "stored config naming an entity that no longer exists", and cameras are unlikely
     to be the only place a rename or retirement left one behind. Report the count even if zero.'
 - id: SENSCAP-ORPHAN-1
+  organic_evidence: '2026-08-23 CONFIRMED — founding case discharged. Live config entry for Garage
+    Hallway now reads occupancy_sensors = [] : the camera person sensor
+    (binary_sensor.staircase_person_occupancy) has been REMOVED and the form SAVED. Pre-fix this was
+    impossible — the stale per-entity dropdown re-injected an orphan declaration and wedged the save
+    permanently with sensor_capabilities_invalid. The removal completing IS the acceptance criterion.
+    Verified by reading .storage/core.config_entries directly, not by asking the operator — the
+    operator correctly pointed out this was checkable from device/entry properties all along.
+    Also confirms the (a) half of the card''s open questions: the mmWave the operator asked to ADD,
+    binary_sensor.mmwave_temp_hum_lux_garagehallway_presence, IS present in motion_sensors.'
   title: A room sensor can never be removed once capabilities are in play — the stale per-entity dropdown re-injects an orphan
     declaration and wedges the form permanently
   thread: config
-  status: shipped_organic
+  status: done
   shipped_version: v5.85.1
-  updated: 2026-08-20 21:20
+  updated: '2026-08-23 11:50'
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: "please fix the fact that I cannot clear the camera person sensor. This error shows
     not matter what I do.")'
@@ -3023,6 +3047,20 @@ cards:
     real knob). RETIRE the switch when L3 (occupied-coast founding case) AND L4 (arrester echo flat) organically validate:
     Tier-1 removal (single-user no-backcompat) or demote to rung-1 constant. This closes the card fully when it fires.'
 - id: ARREST-COMFORT-1
+  STATUS_CONTRADICTION_RESOLVED_2026_08_23: 'This card carried an internal contradiction: status
+    shipped_organic at v5.69.0, while review_state recorded three DO-NOT-SHIP verdicts and `next` said
+    the Cycle A build had not started. RESOLVED FROM EVIDENCE, not from a guess about which field to
+    trust — the STATUS was right and the NEXT was stale.
+    Evidence: merge commit fad88439b "Merge ARREST-COMFORT-1 Cycle A: comfort-delay grace
+    (occupancy-live predicate, S1-S13 write-site gates, rung-3 knobs, AI-rules climate block) + 4x
+    Tier-3 reviews + 19-finding fix-up + anchor pass" — i.e. the three DO-NOT-SHIP verdicts were
+    DISCHARGED by the 19-finding fix-up and the cycle then shipped. Release commit ad00fd4aa
+    "v5.69.0: Comfort-delay grace". README_v5.69.0.md exists and documents it. `comfort_delay` appears
+    37 times in master hvac_override.py. Both rung-3 knobs are LIVE:
+    number.ura_hvac_coordinator_comfort_delay_grace_minutes and ..._comfort_delay_soc_floor.
+    LESSON, same class as a miss earlier in this session but inverted: a status was once changed off a
+    stale `next` line; here the `next` line was stale while the status was correct. Neither field is
+    authoritative on its own — the ship evidence (merge + release + README + live entities) is.'
   title: Override arrester reverts occupant manual cooling requests with no comfort exemption
   thread: hvac
   status: shipped_organic
@@ -3083,11 +3121,7 @@ cards:
     min). OPERATOR CALL: pull D4 graduated concession in-cycle, or keep staged? ORCHESTRATOR RECOMMENDATION: KEEP STAGED —
     the trigger being met justifies Cycle B NEXT, not simultaneous; bundling doubles a Tier-3 review surface, and Cycle A''s
     flat grace already covers the 44/wk common case. Cycle B dispatches immediately after A''s live validation.'
-  next: Cycle A build after FAN-LAYER build slots clear (both touch hvac.py — SERIALIZE the builds; plan work done in parallel
-    per operator mandate).
-  DEDUPE_2026_08_09: 'Sweep: ARREST-SUNSET-1 (shipped) is about WHEN the override sunsets; OVERRIDE-NOTIFY-1 is about warning
-    before expiry. Neither touches whether the arrester should fire against an occupant comfort request in the first place.
-    HVAC-PRESET-FLAP-1 is the sibling defect from the same trace but independent — fixing one would not fix the other. NEW.'
+  next: 'NOTHING TO BUILD — the stale next that used to sit here ("Cycle A build after FAN-LAYER build slots clear") was PRE-BUILD TEXT never updated after the cycle shipped. Remaining work is organic proof only: awaiting a genuine occupant manual cooling request. Deliberately NOT simulated — a synthetic setpoint change is exactly what the comfort predicate must distinguish from a real one, so passing a fake proves nothing.'
   organic_evidence: 'shipwatch 2026-08-11: L3 pending — zero comfort_delay ledger entries in 14h (no qualifying manual yet);
     founding-case proof awaits next kid-thermostat event. Cycle B stays staged on it.'
 - id: BLE-WARM-CREATE-1
