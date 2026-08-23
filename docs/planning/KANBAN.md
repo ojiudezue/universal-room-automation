@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T11:30:19-05:00_ - _Data commit: `abca197cd3f2`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T11:47:05-05:00_ - _Data commit: `d09bb26bd1b5`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -940,9 +940,10 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
 - **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
-- **Next:** OPERATOR-OWED MANUAL TEST IS DISCHARGED — Claude ran it 2026-08-23 (see INSTANCE block); it did not require the operator. Result ADVERSE: manual-ON held ~4 min then reverted with should_run=off. NOT scored violated because attribution is...
+- **Next:** CONFIRMING TEST, cheap: after 12:42 (manual hold expiry) and with NO cooldown active, switch the Living Room fan on externally and watch for an hvac_fans log line. No line + a revert = the cold-start path is confirmed unhandled, and the ...
 - **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `MECHANISM_FOUND_2026_08_23_cooldown_gated_detection`: ATTRIBUTION RESOLVED by re-running the test with URA at debug. The earlier PENDING-WITH-ADVERSE-EVIDENCE instance is now EXPLAINED, and the feature is PARTIALLY WORKING rather than broken. THE DECISIVE LOG LINE (test 2, fan switched on e...
   - `INSTANCE_2026_08_23_operator_owed_manual_test_RUN`: THE OPERATOR-OWED MANUAL TEST HAS NOW BEEN RUN BY CLAUDE — it did not need the operator. Result is ADVERSE but attribution is INCOMPLETE, so this is recorded as PENDING-WITH-ADVERSE-EVIDENCE, deliberately NOT `violated`. NON-VACUITY CHEC...
   - `INSTANCE_2026_08_23_fans_on_reads_zero_while_fan_runs`: SECOND FINDING from the same test, folded here rather than carded — adjacency sweep found NO existing card mentioning `fans_on`, and this may share a mechanism with the revert above (see FAN-LAYER-2 instance of the same date). sensor.liv...
   - `links`: related: FAN-LAYER-2

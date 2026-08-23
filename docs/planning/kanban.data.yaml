@@ -3215,6 +3215,34 @@ cards:
   organic_evidence: 'shipwatch 2026-08-11: L2 strongly positive — 22h/~28 Master Bathroom cycles, ZERO ble-source occupancy
     post-deploy; last strobe was 3min PRE-deploy. Confirm at 48h.'
 - id: FAN-MANUAL-1
+  MECHANISM_FOUND_2026_08_23_cooldown_gated_detection: 'ATTRIBUTION RESOLVED by re-running the test
+    with URA at debug. The earlier PENDING-WITH-ADVERSE-EVIDENCE instance is now EXPLAINED, and the
+    feature is PARTIALLY WORKING rather than broken.
+    THE DECISIVE LOG LINE (test 2, fan switched on externally at 11:38:52):
+      11:42:13 INFO [universal_room_automation.domain_coordinators.hvac_fans]
+      "HVAC Fans: Living Room turned on during cooldown — cooldown cleared,
+       manual_on_hold_until=2026-08-23T12:42:13-05:00"
+    URA DETECTED the external turn-on and granted a ONE-HOUR manual hold. The fan then held for the
+    remainder of the observation at 78-79F, i.e. BELOW the 80F fan_temp_threshold — exactly the
+    condition that reverted it in test 1. So the manual-ON hold demonstrably works on that path.
+    THE DEFECT IS THE GATE, AND THE LOG NAMES IT: the ONLY hvac_fans line in the entire log is the
+    one above, and its own wording is "turned on DURING COOLDOWN". Test 1 (11:23:21 on -> 11:27:16
+    off, temp 78F throughout) produced NO hvac_fans line at all — the fan had been off since the
+    11:11:57 boot, so no cooldown was active, the external ON was never registered as manual, no hold
+    was set, and it was reverted ~4 minutes later.
+    CONCLUSION: manual-ON is detected when the fan is switched on while a cooldown is running, and
+    apparently NOT when it is switched on from a cold/idle state. That is a one-missed-path defect
+    (Bug Class #53 shape), not a dead feature — which is why the card must NOT be closed as confirmed
+    NOR scored as a flat violation.
+    STRENGTH OF EVIDENCE, stated honestly: one observation each way, plus a log line whose own text
+    names the gating condition. That is suggestive and mechanism-consistent, not proven. The
+    CONFIRMING TEST is cheap and precise: wait until no cooldown is active and the manual hold has
+    expired (after 12:42), verify no cooldown is running, then switch the fan on externally again. If
+    it reverts with no hvac_fans line, the cold-start path is confirmed unhandled.
+    ALSO CORRECTS AN EARLIER READING ON THIS CARD: the boot warning "Living Room ... is not in HVAC
+    fan_controller._room_fans — room-tier is owning fans" led me to suspect the HVAC tier was not
+    involved at all. It IS — the detection above comes from domain_coordinators.hvac_fans. The tier
+    warning is still real and still worth chasing (see FAN-LAYER-2), but it is NOT the mechanism here.'
   INSTANCE_2026_08_23_operator_owed_manual_test_RUN: 'THE OPERATOR-OWED MANUAL TEST HAS NOW BEEN RUN
     BY CLAUDE — it did not need the operator. Result is ADVERSE but attribution is INCOMPLETE, so this
     is recorded as PENDING-WITH-ADVERSE-EVIDENCE, deliberately NOT `violated`.
@@ -3293,7 +3321,7 @@ cards:
     would have found it and neither plan, build, nor dispatch brief ran it. C-H2: the discharge-(b) test asserted None==None
     (its hold was never opened). C-H1+A-MED-2: recheck extension unanchored AND buggy (mid-pause expiry clears the hold, losing
     the extension). MED-B2: room-tier restart re-adoption claim is provably aspirational.'
-  next: 'OPERATOR-OWED MANUAL TEST IS DISCHARGED — Claude ran it 2026-08-23 (see INSTANCE block); it did not require the operator. Result ADVERSE: manual-ON held ~4 min then reverted with should_run=off. NOT scored violated because attribution is incomplete. NEXT ACTION IS A CONTROL RUN, cheap and decisive: repeat the manual-ON test with fan_control_enabled=False on Living Room. If the fan HOLDS, URA is the writer and this card is VIOLATED; if it still reverts, the writer is the Dreo device/cloud and this card is unaffected. Do the control BEFORE scoping any fix.'
+  next: 'CONFIRMING TEST, cheap: after 12:42 (manual hold expiry) and with NO cooldown active, switch the Living Room fan on externally and watch for an hvac_fans log line. No line + a revert = the cold-start path is confirmed unhandled, and the fix is extending manual-ON detection beyond the during-cooldown branch. Do this BEFORE scoping any fix — the current evidence is one observation each way plus a self-describing log line.'
   organic_evidence: 'shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic
     1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).'
   organic_evidence_2: 'OPERATOR CONFIRMED 2026-08-11: "Living room fan is working afaik" — manual fan use no longer self-cancels.
