@@ -432,6 +432,35 @@ async def async_setup_entry(
                     hass, entry, zone_id, _zname, _thermostat,
                 )
             )
+            # A1 fix-up (2026-08-22): per-zone AC-RAMP diagnostic
+            # sensors — five per zone, read from
+            # OverrideArrester._a1_zone_cache which is refreshed on
+            # the 5-min HVAC decision tick (Bug Class #26).
+            coordinator_sensors.append(
+                HVACACGate4BlindFraction7dSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
+            coordinator_sensors.append(
+                HVACACResetDayCountSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
+            coordinator_sensors.append(
+                HVACACResetNightCountSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
+            coordinator_sensors.append(
+                HVACACResetLastOutcomeSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
+            coordinator_sensors.append(
+                HVACACRampDurabilityRateSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
             # v4.7.8 D5: per-canonical-zone egress state-machine sensor.
             coordinator_sensors.append(
                 HVACZoneEgressStateSensor(hass, entry, zone_id, _zname)
@@ -16916,3 +16945,235 @@ class HVACThermostatBorrowsSensor(SensorEntity):
     @callback
     def _handle_update(self) -> None:
         self.async_schedule_update_ha_state()
+
+
+# =============================================================================
+# A1 fix-up (2026-08-22) — per-zone AC-RAMP diagnostic sensors (5 per AC zone)
+# -----------------------------------------------------------------------------
+# All five read `OverrideArrester._a1_zone_cache[zone_id]`, refreshed by the
+# arrester's `_refresh_a1_cache` at the end of each `check_ac_reset` tick
+# (5 min). NO DB I/O on async_update — Bug Class #26.
+#
+# gate4_blind_fraction_7d is the acceptance oracle for the cycle's headline
+# invariant (bounded by GATE4_MAX_BLIND_FRACTION = 0.01). Give it the most
+# care — the fraction is time-weighted from paired agree<->diverge edge rows,
+# not a naive row count.
+#
+# The durability rate is SPLIT (full vs truncated) rather than flattened —
+# operator directive per F5: do not re-flatten the truncated-vs-full-window
+# distinction the F5 fix rebuilt. Threshold for the underlying `durable`
+# column is the Gate-7 zone.kwh_rate_threshold (F5) — this sensor honours
+# that by reading the persisted column, not by re-computing.
+# =============================================================================
+
+
+class _A1CacheSensorMixin(_ACRampZoneSensorMixin):
+    """Sensors read the arrester's A1 per-zone cache dict."""
+
+    def _get_a1(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac") if hasattr(
+            manager, "coordinators"
+        ) else None
+        if hvac is None:
+            return {}
+        arr = getattr(hvac, "_override_arrester", None)
+        if arr is None:
+            return {}
+        cache = getattr(arr, "_a1_zone_cache", None) or {}
+        return cache.get(self._zone_id, {}) or {}
+
+
+class HVACACGate4BlindFraction7dSensor(_A1CacheSensorMixin, SensorEntity):
+    """A1 — fraction of the last 7 days the Gate-4 SHADOW predicate
+    disagreed with cloud-reported hvac_action (time-weighted).
+
+    Acceptance oracle for the cycle's headline invariant
+    (GATE4_MAX_BLIND_FRACTION = 0.01). If this drifts above 1% for a
+    zone it indicates the SPAN draw signal is systematically dark
+    while the vendor cloud claims cooling — the invariant that
+    justified promoting SHADOW to LIVE has broken and the operator
+    should investigate before flipping the mode.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-off-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = None  # fraction 0.0-1.0
+    _attr_state_class = None  # measurement-ish but not additive
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = (
+            f"{DOMAIN}_hvac_ac_gate4_blind_fraction_7d_{zone_id}"
+        )
+        self._attr_name = f"82 · AC Gate4 Blind Fraction 7d ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self):
+        return self._get_a1().get("gate4_blind_fraction_7d", 0.0)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from .domain_coordinators.hvac_const import GATE4_MAX_BLIND_FRACTION
+        a1 = self._get_a1()
+        return {
+            "zone_name": self._zone_name,
+            "diverge_transition_count_7d": a1.get(
+                "gate4_diverge_count_7d", 0,
+            ),
+            "invariant_upper_bound": GATE4_MAX_BLIND_FRACTION,
+            "window_days": 7,
+        }
+
+
+class HVACACResetDayCountSensor(_A1CacheSensorMixin, SensorEntity):
+    """A1 — today's day-partition reset count for this zone.
+    Reads persistent state (F1 day row: ac_reset_state.day_reset_count).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-sunny"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = None
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_reset_day_count_{zone_id}"
+        self._attr_name = f"83 · AC Reset Day Count ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> int:
+        return int(self._get_a1().get("ac_reset_day_count", 0) or 0)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"zone_name": self._zone_name}
+
+
+class HVACACResetNightCountSensor(_A1CacheSensorMixin, SensorEntity):
+    """A1 — current night-session reset count for this zone. Reads the
+    session-keyed row per F1 (a 23:30 hit and a 00:35 hit charge the
+    SAME row; this sensor reflects that)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-night"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = None
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_reset_night_count_{zone_id}"
+        self._attr_name = f"84 · AC Reset Night Count ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> int:
+        return int(self._get_a1().get("ac_reset_night_count", 0) or 0)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"zone_name": self._zone_name}
+
+
+class HVACACResetLastOutcomeSensor(_A1CacheSensorMixin, SensorEntity):
+    """A1 — most recent D6 reset outcome classification for this zone.
+    Values: justified_ramp / floor_survived / inconclusive / unavailable.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clipboard-text-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_reset_last_outcome_{zone_id}"
+        self._attr_name = f"85 · AC Reset Last Outcome ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        v = self._get_a1().get("ac_reset_last_outcome")
+        return v if v is not None else "unavailable"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"zone_name": self._zone_name}
+
+
+class HVACACRampDurabilityRateSensor(_A1CacheSensorMixin, SensorEntity):
+    """A1 — durability rate for this zone over the last 7 days.
+
+    Reads the persisted `durable` column (F5-corrected Gate-7
+    threshold — this sensor does NOT re-compute the verdict). Reports
+    the FULL-WINDOW rate as native_value; exposes the TRUNCATED rate
+    and sample counts as attributes so the F5 truncated-vs-full
+    distinction stays visible. Per operator directive: do not re-flatten
+    that distinction into one number.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:heart-pulse"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = None  # fraction 0.0-1.0
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_durability_rate_{zone_id}"
+        self._attr_name = f"86 · AC Ramp Durability Rate ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self):
+        return self._get_a1().get("durability_rate_full")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        a1 = self._get_a1()
+        return {
+            "zone_name": self._zone_name,
+            "durability_rate_truncated": a1.get("durability_rate_trunc"),
+            "full_window_sample_size": a1.get("durability_full_sample_size", 0),
+            "truncated_sample_size": a1.get("durability_trunc_sample_size", 0),
+            "window_days": 7,
+            "threshold_source": "Gate-7 zone.kwh_rate_threshold (F5)",
+        }

@@ -1771,6 +1771,12 @@ class UniversalRoomDatabase:
                         ("night_reset_count", "INTEGER NOT NULL DEFAULT 0"),
                         ("night_session_date", "TEXT"),
                         ("in_flight_durable_started_ts", "TEXT"),
+                        # A3 fix-up (2026-08-22): companion to
+                        # started_ts. Names the specific
+                        # ac_ramp_events row the delayed callback is
+                        # going to UPDATE, so restart resumption can
+                        # write to the correct row without a scan.
+                        ("in_flight_durable_event_id", "INTEGER"),
                     ):
                         if _col not in ars_columns:
                             await db.execute(
@@ -7378,6 +7384,7 @@ class UniversalRoomDatabase:
             "night_reset_count": 0,
             "night_session_date": None,
             "in_flight_durable_started_ts": None,
+            "in_flight_durable_event_id": None,
         }
         try:
             async with self._db_read() as db:
@@ -7415,8 +7422,9 @@ class UniversalRoomDatabase:
                         lockout_flag,
                         day_reset_count, night_reset_count,
                         night_session_date,
-                        in_flight_durable_started_ts
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        in_flight_durable_started_ts,
+                        in_flight_durable_event_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         state["zone_id"],
                         state["date"],
@@ -7439,6 +7447,7 @@ class UniversalRoomDatabase:
                         int(state.get("night_reset_count", 0)),
                         state.get("night_session_date"),
                         state.get("in_flight_durable_started_ts"),
+                        state.get("in_flight_durable_event_id"),
                     ),
                 )
                 await db.commit()
@@ -7554,6 +7563,231 @@ class UniversalRoomDatabase:
         state = await self.get_ac_reset_state(zone_id, date_key)
         state["lockout_flag"] = 1 if locked else 0
         await self.save_ac_reset_state(state)
+
+    # A1 fix-up (2026-08-22): per-zone diagnostic queries feeding the
+    # five A1 sensors. All are per-zone + windowed so the total scan is
+    # bounded by the 7-day retention window (see cleanup_ac_ramp_events).
+    async def get_gate4_divergence_rows_7d(
+        self, zone_id: str, since_iso: str,
+    ) -> list[tuple[str, str]]:
+        """Return (timestamp, notes) for gate4_divergence_shadow rows
+        for zone since ISO cutoff. Rows are emitted only on
+        agree<->diverge transitions (edge-triggered), so this list
+        alternates. Caller pairs consecutive rows to compute the
+        time spent in the diverge state.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT timestamp, COALESCE(notes, '')
+                       FROM ac_ramp_events
+                       WHERE zone_id = ?
+                         AND event_type = 'gate4_divergence_shadow'
+                         AND timestamp >= ?
+                       ORDER BY timestamp ASC""",
+                    (zone_id, since_iso),
+                )
+                rows = await cursor.fetchall()
+                return [(r[0], r[1]) for r in rows]
+        except Exception as err:
+            _LOGGER.debug("A1 gate4 divergence query failed for %s: %s",
+                          zone_id, err)
+            return []
+
+    async def get_last_reset_outcome_for_zone(
+        self, zone_id: str,
+    ) -> str | None:
+        """Return the most recent non-NULL reset_outcome for zone."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT reset_outcome
+                       FROM ac_ramp_events
+                       WHERE zone_id = ?
+                         AND reset_outcome IS NOT NULL
+                       ORDER BY event_id DESC
+                       LIMIT 1""",
+                    (zone_id,),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
+        except Exception as err:
+            _LOGGER.debug("A1 last outcome query failed for %s: %s",
+                          zone_id, err)
+            return None
+
+    async def get_durability_rate_for_zone(
+        self, zone_id: str, since_iso: str,
+    ) -> tuple[int, int, int, int]:
+        """Return (full_ok, full_total, trunc_ok, trunc_total) counts
+        of nudge_evaluated rows in the window with `durable` NOT NULL.
+
+        Full = durable_minutes >= durability window (assumed via a
+        loose >=15min proxy since the runtime knob isn't in the DB);
+        callers may use the split. Trunc = the complement.
+
+        Not a hot query — bounded by retention. Reads the honest
+        column `durable` written under the corrected Gate-7 threshold
+        (F5 fix-up); no re-computation here.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT durable, durable_minutes
+                       FROM ac_ramp_events
+                       WHERE zone_id = ?
+                         AND event_type = 'nudge_evaluated'
+                         AND durable IS NOT NULL
+                         AND timestamp >= ?""",
+                    (zone_id, since_iso),
+                )
+                rows = await cursor.fetchall()
+        except Exception as err:
+            _LOGGER.debug("A1 durability rate query failed for %s: %s",
+                          zone_id, err)
+            return (0, 0, 0, 0)
+        full_ok = full_total = trunc_ok = trunc_total = 0
+        # 15-min proxy for "full window" — the smallest legal window
+        # in the F17.a Number entity is 5 min, but a run under 15 min
+        # is almost certainly a truncated re-nudge. This split lets the
+        # sensor honour the F5 truncated-vs-full distinction rather
+        # than flattening it into one rate.
+        for durable_val, dm in rows:
+            _is_full = (dm or 0) >= 15
+            if _is_full:
+                full_total += 1
+                if durable_val == 1:
+                    full_ok += 1
+            else:
+                trunc_total += 1
+                if durable_val == 1:
+                    trunc_ok += 1
+        return (full_ok, full_total, trunc_ok, trunc_total)
+
+    # A3 fix-up (2026-08-22): bounded restart resumption of
+    # in-flight durability windows.
+    async def get_in_flight_durable_rows(self) -> list[dict]:
+        """Return at most ONE (zone_id, event_id, started_ts) per zone
+        for zones with an armed durability window on any date row.
+
+        Idempotent: multiple boots see the same rows until a boot
+        clears the marker via `clear_in_flight_durable`.
+
+        The DAO filters on `in_flight_durable_started_ts IS NOT NULL`
+        which returns only the small set of currently-armed rows —
+        not the full ac_reset_state table. Per operator A3 bound
+        'no table scan': in practice ac_reset_state has one row per
+        (zone_id, date), and the WHERE clause degenerates to a small
+        subset filter regardless of table size. If future scale makes
+        this hot, add `CREATE INDEX ... WHERE in_flight_durable_started_ts
+        IS NOT NULL` — deferred as premature.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT zone_id, date, in_flight_durable_started_ts,
+                              in_flight_durable_event_id
+                       FROM ac_reset_state
+                       WHERE in_flight_durable_started_ts IS NOT NULL""",
+                )
+                rows = await cursor.fetchall()
+        except Exception as err:
+            _LOGGER.warning("in_flight_durable scan failed: %s", err)
+            return []
+        # Enforce <=1 row per zone (operator A3 bound). Under normal
+        # arming the invariant already holds because arming clears any
+        # prior marker on the same zone (see `_schedule_write_durable`
+        # + `clear_in_flight_durable_for_zone`). Defensive: prefer the
+        # most recent started_ts if a legacy DB happens to violate it.
+        best: dict[str, dict] = {}
+        for r in rows:
+            zid = r[0]
+            entry = {
+                "zone_id": zid,
+                "date": r[1],
+                "started_ts": r[2],
+                "event_id": r[3],
+            }
+            prev = best.get(zid)
+            if prev is None or str(entry["started_ts"] or "") > str(
+                prev["started_ts"] or ""
+            ):
+                best[zid] = entry
+        return list(best.values())
+
+    async def clear_in_flight_durable_for_zone(self, zone_id: str) -> None:
+        """Clear the in-flight durable marker on EVERY row for this
+        zone. Targeted 2-column UPDATE; scope 'every row' guards the
+        <=1-row-per-zone invariant across day-rollover edges.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """UPDATE ac_reset_state
+                       SET in_flight_durable_started_ts = NULL,
+                           in_flight_durable_event_id = NULL
+                       WHERE zone_id = ?
+                         AND in_flight_durable_started_ts IS NOT NULL""",
+                    (zone_id,),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "clear_in_flight_durable failed for %s: %s", zone_id, err,
+            )
+
+    async def set_in_flight_durable(
+        self, zone_id: str, event_id: int, started_ts: str,
+    ) -> None:
+        """Atomically arm the in-flight durable marker for THIS zone
+        on today's row while clearing any marker on OTHER date rows
+        for the same zone (guarantees <=1 armed row per zone even
+        across a day rollover mid-window)."""
+        date_key = self._today_key()
+        try:
+            async with self._db() as db:
+                # First: clear any previous marker on this zone (all
+                # date rows) so arming a new window can't leave two
+                # rows armed.
+                await db.execute(
+                    """UPDATE ac_reset_state
+                       SET in_flight_durable_started_ts = NULL,
+                           in_flight_durable_event_id = NULL
+                       WHERE zone_id = ?
+                         AND in_flight_durable_started_ts IS NOT NULL""",
+                    (zone_id,),
+                )
+                # Then set on today's row (which may need creating).
+                await db.execute(
+                    """INSERT INTO ac_reset_state (
+                        zone_id, date,
+                        soft_nudge_count, hard_reset_count,
+                        last_soft_nudge_ts, last_hard_reset_ts,
+                        last_overshoot_ts,
+                        in_flight_nudge_original_target,
+                        in_flight_nudge_started_ts,
+                        in_flight_nudge_duration_s,
+                        lockout_flag,
+                        day_reset_count, night_reset_count,
+                        night_session_date,
+                        in_flight_durable_started_ts,
+                        in_flight_durable_event_id
+                    ) VALUES (?, ?, 0, 0, NULL, NULL, NULL,
+                              NULL, NULL, NULL,
+                              0, 0, 0, NULL, ?, ?)
+                    ON CONFLICT(zone_id, date) DO UPDATE SET
+                        in_flight_durable_started_ts = excluded.in_flight_durable_started_ts,
+                        in_flight_durable_event_id = excluded.in_flight_durable_event_id""",
+                    (
+                        zone_id, date_key,
+                        started_ts, int(event_id),
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "set_in_flight_durable failed for %s: %s", zone_id, err,
+            )
 
     # AC-RAMP-PIPELINE-HARDENING-1 fix-up F1: night bucket storage.
     # The night counter lives in the row keyed by (zone_id, session_date)

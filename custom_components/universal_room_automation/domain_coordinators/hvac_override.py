@@ -332,6 +332,14 @@ class OverrideArrester:
         # 5-minute sampling granularity is stated on the `durable`
         # column so nobody later mistakes it for continuous.
         self._nudge_running_max_kw: dict[str, float] = {}
+        # A1 fix-up (2026-08-22): per-zone diagnostic cache for the
+        # five A1 sensors. Refreshed by _refresh_a1_cache once per
+        # decision cycle (5 min). Sensors read this dict sync. Keys
+        # per zone: gate4_blind_fraction_7d, gate4_diverge_count_7d,
+        # ac_reset_day_count, ac_reset_night_count,
+        # ac_reset_last_outcome, durability_rate_full,
+        # durability_rate_trunc, durability_sample_count.
+        self._a1_zone_cache: dict[str, dict] = {}
         # Track today's date so we can detect day-rollover and prune events.
         self._last_rollover_date: str = ""
 
@@ -1144,6 +1152,127 @@ class OverrideArrester:
                 "Temp Arrester Override: deferred-sunset discharge raised",
                 exc_info=True,
             )
+
+    async def _refresh_a1_cache(self) -> None:
+        """A1 fix-up: refresh the per-zone diagnostic cache read by
+        the five A1 sensors. Runs once per decision cycle.
+
+        Bounded work per call:
+          - 3 SQL queries per zone (gate4 divergence rows, last
+            outcome, durability rate).
+          - Each query is per-zone + windowed to 7 days.
+          - No thermostat / no service call reads.
+
+        Values written per zone into `_a1_zone_cache`:
+          - gate4_blind_fraction_7d, gate4_diverge_count_7d
+          - ac_reset_day_count, ac_reset_night_count
+          - ac_reset_last_outcome
+          - durability_rate_full, durability_rate_trunc, sample counts.
+        """
+        if self._db is None:
+            return
+        now = dt_util.now()
+        _7d_ago = (now - timedelta(days=7)).isoformat()
+        _window_s = 7 * 24 * 3600.0
+        today = now.date().isoformat()
+        session_date = self._night_session_date(now)
+        for zone_id in list(self._zone_manager.zones.keys()):
+            _entry: dict = {}
+            # 1. Gate 4 divergence — pair edge-triggered rows to sum
+            #    time in diverge state, divide by 7-day window.
+            try:
+                rows = await self._db.get_gate4_divergence_rows_7d(
+                    zone_id, _7d_ago,
+                )
+            except Exception:  # noqa: BLE001
+                rows = []
+            diverge_time_s = 0.0
+            diverge_count = 0
+            _cur_diverge_start: datetime | None = None
+            for ts_iso, notes in rows:
+                _is_diverge = "direction=legacy" in (notes or "") and "diverge" not in (
+                    notes or ""
+                ) or "direction=legacy_" in (notes or "")
+                # A "diverge" transition row has notes containing
+                # `direction=legacy_veto_new_proceed` or
+                # `direction=legacy_proceed_new_veto`; the "agree"
+                # transition has `direction=agree`. Parse honestly.
+                _is_diverge = (
+                    "direction=legacy_veto_new_proceed" in (notes or "")
+                    or "direction=legacy_proceed_new_veto" in (notes or "")
+                )
+                try:
+                    _ts = datetime.fromisoformat(ts_iso)
+                except (ValueError, TypeError):
+                    continue
+                if _is_diverge:
+                    if _cur_diverge_start is None:
+                        _cur_diverge_start = _ts
+                        diverge_count += 1
+                else:
+                    # agree transition — closes an open diverge span
+                    if _cur_diverge_start is not None:
+                        diverge_time_s += (_ts - _cur_diverge_start).total_seconds()
+                        _cur_diverge_start = None
+            # If we ended in a diverge state, count time up to now.
+            if _cur_diverge_start is not None:
+                diverge_time_s += (now - _cur_diverge_start).total_seconds()
+            _entry["gate4_blind_fraction_7d"] = (
+                round(diverge_time_s / _window_s, 6)
+                if _window_s > 0 else 0.0
+            )
+            _entry["gate4_diverge_count_7d"] = diverge_count
+
+            # 2. Reset counts — read persistent state (today + session).
+            try:
+                _st_today = await self._db.get_ac_reset_state(zone_id, today)
+                _entry["ac_reset_day_count"] = int(
+                    _st_today.get("day_reset_count", 0) or 0
+                )
+                if session_date == today:
+                    _entry["ac_reset_night_count"] = int(
+                        _st_today.get("night_reset_count", 0) or 0
+                    )
+                else:
+                    _st_sess = await self._db.get_ac_reset_state(
+                        zone_id, session_date,
+                    )
+                    _entry["ac_reset_night_count"] = int(
+                        _st_sess.get("night_reset_count", 0) or 0
+                    )
+            except Exception:  # noqa: BLE001
+                _entry["ac_reset_day_count"] = 0
+                _entry["ac_reset_night_count"] = 0
+
+            # 3. Last outcome.
+            try:
+                _entry["ac_reset_last_outcome"] = (
+                    await self._db.get_last_reset_outcome_for_zone(zone_id)
+                )
+            except Exception:  # noqa: BLE001
+                _entry["ac_reset_last_outcome"] = None
+
+            # 4. Durability rate — full and truncated kept SEPARATE
+            #    per operator directive (do not re-flatten F5's
+            #    truncated-vs-full distinction).
+            try:
+                _fo, _ft, _to, _tt = (
+                    await self._db.get_durability_rate_for_zone(
+                        zone_id, _7d_ago,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                _fo = _ft = _to = _tt = 0
+            _entry["durability_rate_full"] = (
+                round(_fo / _ft, 4) if _ft > 0 else None
+            )
+            _entry["durability_rate_trunc"] = (
+                round(_to / _tt, 4) if _tt > 0 else None
+            )
+            _entry["durability_full_sample_size"] = _ft
+            _entry["durability_trunc_sample_size"] = _tt
+
+            self._a1_zone_cache[zone_id] = _entry
 
     async def _refresh_impact_cache(self) -> None:
         """v4.5.12 D8: pull house-wide aggregates from DB once per
@@ -3360,6 +3489,10 @@ class OverrideArrester:
         # the zone-iteration so any actions that fired this tick are
         # reflected in the next sensor read.
         await self._refresh_impact_cache()
+        # A1 fix-up (2026-08-22): per-zone diagnostic refresh alongside
+        # the house-wide impact refresh. Same cadence (5 min), same
+        # Bug Class #26 compliance (sensors read the cache sync).
+        await self._refresh_a1_cache()
 
     async def _perform_ac_reset(self, zone: ZoneState) -> None:
         """Perform AC reset: off -> wait -> restore mode."""
@@ -4760,15 +4893,27 @@ class OverrideArrester:
         # removed. The kW verdict is computed from a live re-read at
         # fire time (see `_write_durable`), and elapsed is measured
         # from `started_ts`.
+        _started_now = dt_util.now()
         self._durable_pending[zone_id] = {
             "event_id": int(event_id),
-            "started_ts": dt_util.now(),
+            "started_ts": _started_now,
         }
         # F5 (revised): reset the per-zone running-max kW so this new
         # window starts from a clean slate. `check_ac_reset` ticks (or
         # any other kW observer) will grow this monotonically until the
         # window fires and consumes it.
         self._nudge_running_max_kw[zone_id] = 0.0
+        # A3 fix-up (2026-08-22): arm the persistent marker so a boot
+        # inside this window can resume. Fire-and-forget — the
+        # in-memory pending state above is authoritative for the
+        # normal (no-crash) path; the persistent marker exists solely
+        # for restart resumption.
+        if self._db is not None:
+            self.hass.async_create_task(
+                self._db.set_in_flight_durable(
+                    zone_id, int(event_id), _started_now.isoformat(),
+                )
+            )
         window_s = int(self._durability_window_min) * 60
 
         @callback
@@ -4877,6 +5022,19 @@ class OverrideArrester:
             _LOGGER.debug(
                 "_write_durable UPDATE failed for zone=%s event_id=%s: %s",
                 zone_id, pending.get("event_id"), _e,
+            )
+        # A3 fix-up (2026-08-22): clear the persistent marker AFTER
+        # the durable UPDATE lands. Ordering: a crash between the
+        # UPDATE and this clear leaves the marker armed; next boot
+        # sees started_ts > window_min ago and writes NULL over the
+        # already-written value — idempotent no-op (byte-identical
+        # for the durable row; the marker just gets cleared then).
+        try:
+            await self._db.clear_in_flight_durable_for_zone(zone_id)
+        except Exception as _e:  # noqa: BLE001
+            _LOGGER.debug(
+                "clear_in_flight_durable failed for zone=%s: %s",
+                zone_id, _e,
             )
 
     async def _perform_hard_reset_escalation(
@@ -5654,6 +5812,147 @@ class OverrideArrester:
                     "Startup audit: resuming nudge on %s, %.0fs remaining",
                     zone.zone_name, remaining_s,
                 )
+
+    # =========================================================================
+    # A3 — bounded restart resumption of in-flight durability windows
+    # =========================================================================
+    # Staleness cutoff: 6h. Rationale — the durability window is capped
+    # at 180 min (F17.a Number entity max), so 6h is 2x the maximum
+    # legitimate window. A marker older than that came from a crash long
+    # enough ago that any reading would not represent the compressor's
+    # behaviour during the intended window. Anything within 6h either
+    # (a) already elapsed the window during downtime → immediate write
+    # with a restart note, or (b) has a genuine remainder → re-arm.
+    A3_STALENESS_CUTOFF_S: int = 6 * 3600
+
+    async def async_startup_durable_audit(self) -> None:
+        """Resume in-flight durability windows across HA restart.
+
+        Bounds (per operator A3):
+          - <=1 row per zone (DAO enforces; arming clears any prior).
+          - No table scan (DAO WHERE-filters on the marker).
+          - Immediate write from persisted data when window already
+            elapsed; durable = NULL with restart note (we cannot
+            retroactively sample kW; a NULL that says why is honest).
+          - Re-arm only for a genuine remainder (elapsed < window).
+          - Staleness cutoff at A3_STALENESS_CUTOFF_S.
+          - Idempotent across rapid reboots (marker cleared same
+            audit; re-boot before clear writes NULL over NULL = no-op).
+          - Marker cleared last, AFTER the durable UPDATE lands (same
+            ordering as `_write_durable` normal path).
+
+        Called from HVAC coordinator first-decision-cycle after the
+        zone manager is populated (sibling of async_startup_ramp_audit).
+        """
+        if self._db is None:
+            return
+        rows = await self._db.get_in_flight_durable_rows()
+        if not rows:
+            return
+        now = dt_util.now()
+        window_min = int(self._durability_window_min)
+        for row in rows:
+            zone_id = row["zone_id"]
+            event_id = row.get("event_id")
+            started_iso = row.get("started_ts")
+            if event_id is None or started_iso is None:
+                # Corrupted marker — clear defensively.
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            try:
+                started_dt = datetime.fromisoformat(started_iso)
+            except (ValueError, TypeError):
+                _LOGGER.warning(
+                    "A3 audit: unparseable started_ts=%r for %s; clearing",
+                    started_iso, zone_id,
+                )
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            elapsed_s = (now - started_dt).total_seconds()
+            elapsed_min = int(elapsed_s / 60)
+            # Staleness gate.
+            if elapsed_s > self.A3_STALENESS_CUTOFF_S:
+                _LOGGER.info(
+                    "A3 audit: stale marker for %s (elapsed=%dmin > cutoff);"
+                    " writing NULL and clearing",
+                    zone_id, elapsed_min,
+                )
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        int(event_id),
+                        durable=None,
+                        durable_minutes=elapsed_min,
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "A3 stale write failed zone=%s event_id=%s: %s",
+                        zone_id, event_id, _e,
+                    )
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            # Elapsed >= window → immediate write, no re-arm.
+            if elapsed_min >= window_min:
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        int(event_id),
+                        durable=None,
+                        durable_minutes=elapsed_min,
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "A3 elapsed write failed zone=%s event_id=%s: %s",
+                        zone_id, event_id, _e,
+                    )
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                _LOGGER.info(
+                    "A3 audit: window elapsed during downtime for %s "
+                    "(elapsed=%dmin, window=%dmin); durable=NULL written",
+                    zone_id, elapsed_min, window_min,
+                )
+                continue
+            # Genuine remainder → re-arm the in-memory pending state
+            # and schedule a callback for (window - elapsed). Do NOT
+            # clear the persistent marker yet; `_write_durable` clears
+            # it when the callback fires (same normal-path ordering).
+            zone = self._zone_manager.zones.get(zone_id)
+            if zone is None:
+                # No live ZoneState for this zone (config changed
+                # during downtime). Best-effort: clear the marker and
+                # write NULL for the elapsed portion.
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        int(event_id),
+                        durable=None,
+                        durable_minutes=elapsed_min,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            self._durable_pending[zone_id] = {
+                "event_id": int(event_id),
+                "started_ts": started_dt,
+            }
+            # No historical running_max — start fresh from here. The
+            # verdict at fire time will reflect the remainder-of-window
+            # behaviour only, which is the best we can honestly claim.
+            self._nudge_running_max_kw[zone_id] = 0.0
+            remaining_s = int(max(1, (window_min * 60) - elapsed_s))
+
+            @callback
+            def _on_durable_fire(_now, _zid=zone_id):
+                self.hass.async_create_task(
+                    self._write_durable(_zid, truncated=False)
+                )
+
+            self._durable_timers[zone_id] = async_call_later(
+                self.hass, remaining_s, _on_durable_fire,
+            )
+            _LOGGER.info(
+                "A3 audit: re-armed durability window for %s "
+                "(elapsed=%dmin, remaining=%ds, window=%dmin)",
+                zone_id, elapsed_min, remaining_s, window_min,
+            )
 
     # =========================================================================
     # Helpers

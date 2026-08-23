@@ -2402,6 +2402,8 @@ def _build_hvac_v4511_numbers():
         DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET as _DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
         CONF_HVAC_AC_RESET_OFF_DURATION as _CONF_HVAC_AC_RESET_OFF_DURATION,
         DEFAULT_HVAC_AC_RESET_OFF_DURATION as _DEFAULT_HVAC_AC_RESET_OFF_DURATION,
+        CONF_HVAC_AC_DURABILITY_WINDOW as _CONF_HVAC_AC_DURABILITY_WINDOW,
+        DEFAULT_HVAC_AC_DURABILITY_WINDOW as _DEFAULT_HVAC_AC_DURABILITY_WINDOW,
     )
     return [
         _hvac_tunable_number_factory(
@@ -2542,6 +2544,23 @@ def _build_hvac_v4511_numbers():
             min_value=30, max_value=300, step=15, unit="s",
             integer=True,
             setter_method="set_ac_reset_off_duration",
+        ),
+        # F17.a fix-up (2026-08-22): DURABILITY_WINDOW is the exact
+        # parameter the AC-RAMP-NO-RECURRENCE-ESCALATION-1 investigation
+        # needs to sweep by observation — four probes have already
+        # turned it. Live-tunable rung-3 Number, wired through the
+        # setter per F16.
+        _hvac_tunable_number_factory(
+            suffix="ac_durability_window",
+            name="81 · AC Durability Window",
+            icon="mdi:timer-sand",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_durability_window_min",
+            conf_key=_CONF_HVAC_AC_DURABILITY_WINDOW,
+            default=_DEFAULT_HVAC_AC_DURABILITY_WINDOW,
+            min_value=5, max_value=180, step=5, unit="min",
+            integer=True,
+            setter_method="set_durability_window",
         ),
     ]
 
