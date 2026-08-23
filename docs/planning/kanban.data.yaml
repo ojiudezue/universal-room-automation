@@ -2217,6 +2217,67 @@ cards:
   - hvac_override.py:2684 (check_ac_reset gate ladder)
   - hvac_override.py:2779 (Gate 4)
 
+- id: BORROW-BANKING-LEASE-NOT-RELEASED-1
+  title: A banking borrow sat 2h past its lease expiry without release — nudge borrows return
+    cleanly, banking did not
+  thread: hvac
+  status: planned
+  approval: needs_operator
+  updated: '2026-08-22 20:50'
+  tags:
+  - operator-observed
+  - live-instance
+  origin:
+    date: '2026-08-22'
+    gist: 'Operator asked the direct question "So are borrows working or not?" during the AC-ramp
+      pipeline-hardening cycle. Checking the borrow ledger (NOT the stale climate entity) answered
+      yes for nudge and surfaced this as a live exception.'
+  measured: 'From sensor.ura_hvac_coordinator_governed_thermostat_borrows state history, read at
+    2026-08-22 20:46 CDT.
+    NUDGE BORROWS — HEALTHY, two independent oracles agreeing:
+      02:08 state 1 active_borrows[nudge zone_1] -> 02:10 state 0 started{nudge:1} returned{nudge:1}
+      03:02 state 1 active_borrows[nudge zone_1] -> 03:04 state 0 started{nudge:2} returned{nudge:2}
+      restore_failed_today {} empty in both. Month-scale from ac_ramp_events: 912 of 914
+      nudge_started rows paired with a nudge_restored inside 30 min; only 2 unmatched since 07-23.
+    THE EXCEPTION — one banking borrow open past expiry:
+      kind=banking, site=S12_pre_cool, zone_2 (climate.up_hallway_zone_2)
+      excursion_id banking:zone_2:1787435377461
+      started  2026-08-22T21:49:37Z (16:49 CDT)
+      expires_at 2026-08-22T23:49:37Z (18:49 CDT)  -- a 2h lease
+      still active at 20:46 CDT = ~4h open, ~2h PAST EXPIRY
+      returned_today {} empty; no sensor state row written since 16:49.
+    So whatever is meant to release an EXPIRED lease did not fire. This is the first banking-kind
+    borrow visible anywhere in the ledger.'
+  finding: 'TWO CANDIDATE MECHANISMS, NOT YET DISTINGUISHED — they need different fixes, so do not
+    scope until one is ruled out:
+    (a) LEDGER-ONLY LEAK. The thermostat was actually restored but return_excursion failed to clear
+        the record, so the sensor shows a phantom active borrow. Evidence FOR: zone_2 target_temp_high
+        currently reads 76, which is EXACTLY the pre_target_high captured in the borrow snapshot. If
+        the pre-cool had lowered the target and never returned it, 76 is not what we would expect.
+    (b) GENUINELY OPEN. The borrow is live and something else wrote 76 independently.
+    DISCRIMINATOR: read the excursion primitive persistence (the lease row) directly rather than the
+    sensor, and check whether an auto_release / lease-expiry path exists for kind=banking at all —
+    the nudge path returns via its own explicit return_excursion at the end of _restore_after_nudge,
+    which banking (S12_pre_cool) does not share. A plausible shape is that banking relies ENTIRELY on
+    lease expiry while nudge never needs it, so an expiry bug would be invisible on the nudge path
+    and total on the banking path. VERIFY THIS, do not assume it — it is a hypothesis from reading
+    the call sites, not a measurement.
+    NOTE on preset snapshot: pre_preset was away and the zone now reads home. That is NOT evidence of
+    a restore failure — the house state can legitimately have moved away->home in four hours. Do not
+    score it either way.'
+  next: 'Read the persisted lease/excursion rows directly; establish whether kind=banking has any
+    auto-release path; then distinguish (a) from (b) before scoping a fix.'
+  WEAK_EVIDENCE_WARNING: 'restore_failed_today is NOT a reliable all-day signal. The daily counters
+    were observed resetting mid-day: started_today went {nudge:2} at 03:04 -> {} at 13:27, which
+    looks like they do not survive a restart. So an empty restore_failed_today only covers the period
+    since the last restart, not the day. The nudge health conclusion above rests on the month of
+    ac_ramp_events rows, which DO persist — not on this field.'
+  NOT_THE_PRESET_QUESTION: 'Distinct from the preset-landing question, which is UNRESOLVED for a
+    different reason: ha_carrier does not write HA state after a preset service call
+    (climate.py:381 has no async_write_ha_state / async_request_refresh; DEFAULT_UPDATE_INTERVAL_MINUTES
+    = 30), so preset restore cannot be verified through the HA state object at any delay under the
+    poll interval. See CARRIER-STALE-POLL-REFRESH-1. Every preset-restore FAIL verdict recorded before
+    the pipeline-hardening cycle is inadmissible and must not be cited as evidence against the borrow.'
 - id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
   RESET_MECHANISM_EVIDENCE_2026_08_22_PM: 'ORCHESTRATOR ERROR CORRECTED FIRST, because it was argued
     to the operator and must not be inherited: I argued escalation was pointless on the grounds that
