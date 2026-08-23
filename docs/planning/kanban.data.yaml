@@ -3181,6 +3181,38 @@ cards:
   organic_evidence: 'shipwatch 2026-08-11: L2 strongly positive — 22h/~28 Master Bathroom cycles, ZERO ble-source occupancy
     post-deploy; last strobe was 3min PRE-deploy. Confirm at 48h.'
 - id: FAN-MANUAL-1
+  INSTANCE_2026_08_23_operator_owed_manual_test_RUN: 'THE OPERATOR-OWED MANUAL TEST HAS NOW BEEN RUN
+    BY CLAUDE — it did not need the operator. Result is ADVERSE but attribution is INCOMPLETE, so this
+    is recorded as PENDING-WITH-ADVERSE-EVIDENCE, deliberately NOT `violated`.
+    NON-VACUITY CHECKED FIRST (this nearly went unchecked and would have made the result meaningless):
+    Living Room config carries fans=[fan.towerfan_dreopilotmaxs_wifi_livingroom],
+    fan_control_enabled=True, fan_temp_threshold=80.0 — the fan IS URA-managed and CAN be reverted.
+    A "stayed on" result would have proved nothing if URA did not own the fan.
+    FOUNDING CONDITION REPRODUCED EXACTLY: binary_sensor.living_room_fan_should_run = off since
+    11:11:59, i.e. URA believed the fan should NOT run, and an external actor switched it on anyway.
+    SEQUENCE (2026-08-23 CDT): 11:23:21 fan -> on, via an external service call carrying NO
+    context_user_id — indistinguishable from a physical button press, which is the right fidelity for
+    this test. 11:27:16 fan -> off. Held ~4 minutes across at least one decision tick, then reverted,
+    with should_run still off.
+    WHY THIS IS NOT SCORED AS VIOLATED: no log line names URA as the writer of the OFF; the logbook
+    entry is unattributed; the Dreo device/cloud could also have issued it. Consistent-with is not
+    proof-of, and this session has had four asserted mechanisms refuted by later measurement.
+    WHAT WOULD SETTLE IT: a debug-level URA log attributing the OFF write, OR a repeat of the same
+    test with fan_control_enabled=False as a control — if the fan then HOLDS, URA is the writer.'
+  INSTANCE_2026_08_23_fans_on_reads_zero_while_fan_runs: 'SECOND FINDING from the same test, folded
+    here rather than carded — adjacency sweep found NO existing card mentioning `fans_on`, and this
+    may share a mechanism with the revert above (see FAN-LAYER-2 instance of the same date).
+    sensor.living_room_fans_on read 0 for the ENTIRE period the fan was physically ON (11:23-11:27),
+    spanning at least one decision tick, and never moved off 0 (last_changed stuck at the 11:11:57
+    boot). A fans-on counter reading zero while a managed fan runs is a value that disagrees with
+    physical reality, and anything downstream that trusts it inherits the error.
+    NOT YET DISCRIMINATED: tick latency vs the sensor being fed by a path that cannot see this fan.
+    The second is more likely given the tier-ownership warning recorded on FAN-LAYER-2.'
+  links:
+    related: [FAN-LAYER-2]
+    context: 'FAN-LAYER-2 carries the 2026-08-23 tier-ownership warning (Living Room configured for
+      HVAC-tier fan management but actually owned by the room tier) plus FanPolicyOracle fallbacks —
+      the leading hypothesis for BOTH the manual-ON revert and the fans_on=0 reading on this card.'
   title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
   thread: hvac
   status: shipped_organic
@@ -3227,14 +3259,7 @@ cards:
     would have found it and neither plan, build, nor dispatch brief ran it. C-H2: the discharge-(b) test asserted None==None
     (its hold was never opened). C-H1+A-MED-2: recheck extension unanchored AND buggy (mid-pause expiry clears the hold, losing
     the extension). MED-B2: room-tier restart re-adoption claim is provably aspirational.'
-  next: 'CONSOLIDATED FIX-UP IN FLIGHT: chokepoint behavioral test (no fixture zeroing) + zone-sweep/ pre-arrival guards +
-    reconciler defer+marker (mark_fan_on_issued helper for ALL URA ON sites) + ONE coherent boot-seed policy (tick-1 ON →
-    hold opens, conservative toward the human; restart docs corrected to match) + recheck extension anchored + mid-pause expiry
-    fixed + discharge-(b) test rewritten + MEDs. Gate: C''s drills 1/4/5 + A''s boot-edge re-run to RED. Then re-review the
-    fix-up surface, merge AFTER v5.67.0 (develop moved), ship as v5.68.0.'
-  DEDUPE_2026_08_10: 'Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) — linked not merged; fan-recheck
-    cards/plans are about mmWave truth not manual intent; humidity-fan backlog (PowerView memo) is spike detection; B-2026-08-03-8
-    flash opt-out unrelated. NEW.'
+  next: 'OPERATOR-OWED MANUAL TEST IS DISCHARGED — Claude ran it 2026-08-23 (see INSTANCE block); it did not require the operator. Result ADVERSE: manual-ON held ~4 min then reverted with should_run=off. NOT scored violated because attribution is incomplete. NEXT ACTION IS A CONTROL RUN, cheap and decisive: repeat the manual-ON test with fan_control_enabled=False on Living Room. If the fan HOLDS, URA is the writer and this card is VIOLATED; if it still reverts, the writer is the Dreo device/cloud and this card is unaffected. Do the control BEFORE scoping any fix.'
   organic_evidence: 'shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic
     1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).'
   organic_evidence_2: 'OPERATOR CONFIRMED 2026-08-11: "Living room fan is working afaik" — manual fan use no longer self-cancels.
@@ -4865,6 +4890,39 @@ cards:
     expired must_start_by shown) + garage-A network fix (homelab).'
   refs: switch.garage_a + evse status recorder history 2026-08-11; energy.py:4403 night-window gate; energy_drain_precedence.py
 - id: FAN-LAYER-2
+  updated: '2026-08-23 11:35'
+  INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback: 'MEASURED FROM THE LIVE BOOT LOG
+    after the v5.89.0 restart (2026-08-23). Two related observations on this card''s own surface.
+    (A) TIER-OWNERSHIP MISMATCH — URA emits this about ITSELF, so it is self-reported, not inferred:
+      11:11:59 WARNING [universal_room_automation.automation] "Room Living Room expects HVAC fan
+      management (hvac_coordination_enabled=True, climate_entity=climate.thermostat_bryant_wifi_studyb_zone_1)
+      but is not in HVAC fan_controller._room_fans — room-tier is owning fans. Check Zone Manager
+      zone_rooms wiring."
+      The IDENTICAL warning fires for Room Study A at 11:12:07. So at least TWO rooms are configured
+      for HVAC-tier fan management while actually being managed by the room tier.
+    (B) FanPolicyOracle FALLBACKS at the same boot:
+      11:10:05 "FanPolicyOracle fallback: write_on served from RoomAutomation __dict__ (oracle
+      unavailable) for room=room:Upstairs Hallway — check CoordinatorManager lifecycle"
+      Same for write_off, and again for room:Master Bath Toilet. The oracle this card exists to
+      complete is not available at boot for at least two rooms and is being served from a fallback.
+    WHY IT MATTERS BEYOND HYGIENE — HYPOTHESIS, NOT ESTABLISHED MECHANISM: if the manual-ON hold
+    shipped in FAN-MANUAL-1 (v5.68.0) lives at one tier while the fan is actually owned by the other,
+    that would explain BOTH the manual-ON revert measured on 2026-08-23 AND the fans_on sensor reading
+    0 while the fan ran. Both are recorded as instances on FAN-MANUAL-1.
+    DO NOT TREAT THIS AS PROVEN. Four mechanisms asserted during the 2026-08-22/23 session were later
+    refuted by measurement. The discriminating test is cheap: re-run the manual-ON test with
+    fan_control_enabled=False as a control, and check whether the rooms named in the warning behave
+    differently from a room that IS in fan_controller._room_fans.
+    ADJACENCY SWEEP RUN before writing this (per skill rule 2): board grep for `_room_fans`,
+    `zone_rooms`, `fan_controller`, `room-tier is owning`, `fans_on` -> ZERO existing cards.
+    docs/BACKLOG.md fan entries are the fan-noise mmwave mitigation design, unrelated.
+    PLANNING_fan_actuation_shared_layer_v2.md is THIS card''s own parent doc. Verdict: ADJACENT to
+    FAN-LAYER-2 (same primitive, same actuation layer) -> folded here as an instance, NOT a new card.'
+  links:
+    related: [FAN-MANUAL-1, FAN-LAYER-1]
+    context: 'FAN-MANUAL-1 carries the two adverse live measurements (manual-ON reverted, fans_on=0)
+      that this tier-ownership mismatch is the leading hypothesis for. FAN-LAYER-1 is the shipped
+      shared-layer increment this card completes.'
   title: FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
   thread: fans
   status: shipped_organic

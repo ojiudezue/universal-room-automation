@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T10:44:59-05:00_ - _Data commit: `8b11f39b7710`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T11:05:32-05:00_ - _Data commit: `44747767720c`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -951,14 +951,16 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-10 - "I cant seem to turn on the living room fan manually without it turning off by itself."
 - **Why:** EVIDENCE (ura_activity_log): Living Room fan turn-offs are [room/fan_off] "Fans off (below threshold, 77F)" — the room-tier temperature comfort controller reconciles fan state to its own verdict and does not recognise a manual ON. v5.31....
-- **Next:** CONSOLIDATED FIX-UP IN FLIGHT: chokepoint behavioral test (no fixture zeroing) + zone-sweep/ pre-arrival guards + reconciler defer+marker (mark_fan_on_issued helper for ALL URA ON sites) + ONE coherent boot-seed policy (tick-1 ON → hold ...
+- **Next:** OPERATOR-OWED MANUAL TEST IS DISCHARGED — Claude ran it 2026-08-23 (see INSTANCE block); it did not require the operator. Result ADVERSE: manual-ON held ~4 min then reverted with should_run=off. NOT scored violated because attribution is...
 - **Tags:** context-wide-scoping, institutional-context, numbers-get-knobs
-- **Forensic keys (7):**
+- **Forensic keys (9):**
+  - `INSTANCE_2026_08_23_operator_owed_manual_test_RUN`: THE OPERATOR-OWED MANUAL TEST HAS NOW BEEN RUN BY CLAUDE — it did not need the operator. Result is ADVERSE but attribution is INCOMPLETE, so this is recorded as PENDING-WITH-ADVERSE-EVIDENCE, deliberately NOT `violated`. NON-VACUITY CHEC...
+  - `INSTANCE_2026_08_23_fans_on_reads_zero_while_fan_runs`: SECOND FINDING from the same test, folded here rather than carded — adjacency sweep found NO existing card mentioning `fans_on`, and this may share a mechanism with the revert above (see FAN-LAYER-2 instance of the same date). sensor.liv...
+  - `links`: related: FAN-LAYER-2
   - `scope_note`: Operator mandate: context-wide. Fan touchpoints to inventory before design: room comfort fan control (handle_temperature_based_fan_control + the below-threshold revert), v5.31.0 manual-off cooldown (the precedent + its knob), fan_recheck...
   - `PLAN_2026_08_10`: docs/planning/PLANNING_fan_manual_on_override.md. Shape: plain timed manual-ON hold symmetric to the v5.31.0 manual-OFF cooldown — graduated-concession REJECTED for fans (binary comfort, no setpoint to negotiate; margin ~0). Detection RE...
   - `OPERATOR_RULINGS_2026_08_10`: Both as recommended: (1) FRESHEST WINS — a manual-ON newer than the sleep transition survives it; (2) fan-recheck OFF is ALLOWLISTED via trigger_path, hold remaining-time preserved across the pause. Build fully approved (build-implies-sh...
   - `REVIEW_ROUND_2026_08_11`: ALL THREE DO-NOT-SHIP — 1 CRIT + 6 HIGH, disjoint framings, zero overlap. C-CRIT-1: the HVAC chokepoint gate (the plan's headline enforcement) had ZERO coverage — deleting it left 8,564 tests green, because every _set_fan_state-reaching ...
-  - `DEDUPE_2026_08_10`: Sweep: ARREST-COMFORT-1 is the SIBLING (thermostat side of the same class) — linked not merged; fan-recheck cards/plans are about mmWave truth not manual intent; humidity-fan backlog (PowerView memo) is spike detection; B-2026-08-03-8 fl...
   - `organic_evidence`: shipwatch 2026-08-11: L2 PENDING ON OPERATOR — manual Living Room fan-ON test still owed; no organic 1h+ manual hold observed yet (both v5.68.0 hold + v5.70.0 delegation ride this one test).
   - `organic_evidence_2`: OPERATOR CONFIRMED 2026-08-11: "Living room fan is working afaik" — manual fan use no longer self-cancels. Closes v5.68.0 L2 + v5.70.0 L3 + v5.72.0 L4 (the one shared operator test).
 
@@ -1120,9 +1122,13 @@ thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
 
 ### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
 thread: **fans** - status: **shipped_organic** - approval: **unreviewed**
+_updated 2026-08-23 11:35_
 - **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
 - **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
 - **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
+- **Forensic keys (2):**
+  - `INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback`: MEASURED FROM THE LIVE BOOT LOG after the v5.89.0 restart (2026-08-23). Two related observations on this card's own surface. (A) TIER-OWNERSHIP MISMATCH — URA emits this about ITSELF, so it is self-reported, not inferred: 11:11:59 WARNIN...
+  - `links`: related: FAN-MANUAL-1
 
 ### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0
 thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
