@@ -32,6 +32,7 @@ from .hvac_const import (
     AC_NUDGE_EVAL_MIN_DROP_FRAC,
     AC_NUDGE_EVALUATION_DELAY_S,
     AC_NUDGE_RESTORE_SETTLE_DELAY_S,
+    AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
@@ -319,6 +320,18 @@ class OverrideArrester:
         self._nudge_post_restore_ts: dict[str, str] = {}
         # Track which zones are currently mid-nudge for sensor exposure.
         self._nudge_in_flight: set[str] = set()
+        # F5 fix-up (2026-08-22, revised): per-zone running MAX kW
+        # observed since the current durability window started. Updated
+        # on the existing 5-min decision tick (`check_ac_reset`, which
+        # already reads kW). The truncated durability verdict reads
+        # THIS INTERVAL check rather than an instantaneous fire-time
+        # read — a truncation happens because Gate 7 detected high kW,
+        # so an instantaneous read at that moment is above threshold
+        # by construction and would score every truncated row as
+        # durable=0. Set to `None` when no durability window is armed.
+        # 5-minute sampling granularity is stated on the `durable`
+        # column so nobody later mistakes it for continuous.
+        self._nudge_running_max_kw: dict[str, float] = {}
         # Track today's date so we can detect day-rollover and prune events.
         self._last_rollover_date: str = ""
 
@@ -1856,6 +1869,11 @@ class OverrideArrester:
                 pass
         self._durable_timers.clear()
         self._durable_pending.clear()
+        # F5 (revised): clear the running-max tracker on teardown so a
+        # torn-down arrester doesn't leak stale window state on next
+        # setup.
+        if hasattr(self, "_nudge_running_max_kw"):
+            self._nudge_running_max_kw.clear()
         for cancel in self._reset_outcome_timers.values():
             try:
                 cancel()
@@ -3285,6 +3303,17 @@ class OverrideArrester:
             zone.last_kwh_rate = kwh_rate
             zone.last_kwh_rate_ts = now.isoformat()
 
+            # F5 (revised): if a durability window is armed for this
+            # zone, grow the running max. Sampled at the 5-min tick
+            # cadence — the truncated verdict is an INTERVAL check
+            # (did it hold across the elapsed period), not an
+            # instantaneous point. Full-window fire still uses the
+            # instantaneous read at fire time.
+            if zone_id in self._durable_pending:
+                _prev_max = self._nudge_running_max_kw.get(zone_id, 0.0) or 0.0
+                if kwh_rate > _prev_max:
+                    self._nudge_running_max_kw[zone_id] = float(kwh_rate)
+
             # Gate 7: debounce — N consecutive samples > zone-specific threshold
             if kwh_rate > zone.kwh_rate_threshold:
                 zone.kwh_samples_above_threshold += 1
@@ -4176,36 +4205,38 @@ class OverrideArrester:
             async def _write_settled(_now, _zid=zone_id,
                                      _entity=zone.climate_entity,
                                      _intent=_intent_preset) -> None:
-                # Passive re-read + UPDATE only. Issues no service call,
-                # touches no thermostat, adds no await into the restore
-                # path — it runs after the setpoint/preset race has fully
-                # resolved (or not).
+                # F8 fix-up (2026-08-22, revised): the settled verdict
+                # is structurally unmeasurable through hass.states on
+                # this deployment. ha_carrier does not write the
+                # entity state on `async_set_preset_mode`; the state
+                # only refreshes on its 30-min coordinator poll.
+                # Median inter-nudge cadence is 25 min, so any settle
+                # sample either lands INSIDE the poll interval
+                # (reading stale state) or AFTER the next nudge starts
+                # (reading a subsequent nudge's state). Neither is
+                # honest evidence.
+                #
+                # This callback therefore fires but does NOT read the
+                # state object. It writes restore_ok=NULL with a
+                # reason string so consumers of `nudge_restored` rows
+                # know the sample was intentionally skipped. The
+                # IMMEDIATE sample (restore_ok_immediate, written
+                # outside this callback) is preserved as an honest
+                # read of possibly-stale state.
+                #
+                # See CARRIER-STALE-POLL-REFRESH-1 for the out-of-
+                # scope path to a working instrument.
                 self._nudge_settled_timers.pop(_zid, None)
-                try:
-                    _cs_settled = self.hass.states.get(_entity)
-                except Exception:  # noqa: BLE001 — defensive
-                    _cs_settled = None
-                _preset_settled: str | None = None
-                _mode_settled: str | None = None
-                if _cs_settled is not None:
-                    _preset_settled = (
-                        _cs_settled.attributes.get("preset_mode", "") or ""
-                    )
-                    _mode_settled = _cs_settled.state
-                # Same verdict rules as the immediate sample.
-                if not _intent:
-                    _settled_ok: bool | None = None
-                elif _preset_settled is None:
-                    _settled_ok = None
-                else:
-                    _settled_ok = (_preset_settled == _intent)
                 if self._db is not None:
                     try:
                         await self._db.update_ac_ramp_restore_settled(
                             zone_id=_zid,
-                            preset_settled=_preset_settled,
-                            mode_settled=_mode_settled,
-                            restore_ok=_settled_ok,
+                            preset_settled=None,
+                            mode_settled=None,
+                            restore_ok=None,
+                            settled_reason=(
+                                AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON
+                            ),
                         )
                     except Exception as _e:  # noqa: BLE001 — defensive
                         _LOGGER.debug(
@@ -4733,6 +4764,11 @@ class OverrideArrester:
             "event_id": int(event_id),
             "started_ts": dt_util.now(),
         }
+        # F5 (revised): reset the per-zone running-max kW so this new
+        # window starts from a clean slate. `check_ac_reset` ticks (or
+        # any other kW observer) will grow this monotonically until the
+        # window fires and consumes it.
+        self._nudge_running_max_kw[zone_id] = 0.0
         window_s = int(self._durability_window_min) * 60
 
         @callback
@@ -4767,67 +4803,70 @@ class OverrideArrester:
         """UPDATE the `durable` + `durable_minutes` columns onto the
         specific nudge_evaluated row this callback closed over.
 
-        F5 fix-up (2026-08-22): threshold sourced from the Gate-7
-        zone-specific kW threshold (`zone.kwh_rate_threshold`, default
-        0.8, ~1.0 on the 4-ton zone), NOT the `AC_ACTIVELY_COOLING_KW_MIN`
-        floor (0.5) — the plan's Invariant S / Rev-2 B-M4 requires a
-        DURABILITY verdict use the same threshold as the emission rule.
-        Reading the floor systematically depressed every durability
-        rate; this number is the operator's input for deciding whether
-        to build the escalation feature at all, so a biased value is
-        worse than no value.
+        F5 fix-up (2026-08-22, revised after operator ruling):
+        the two branches DO differ semantically. Uncollapsed.
+
+        - TRUNCATED (re-nudge before D):
+              Interval check. `durable = 1` iff the running MAX kW
+              observed over the elapsed window (sampled at the 5-min
+              decision-tick cadence) stayed below the Gate-7 zone
+              threshold. Instantaneous read at truncation time is
+              guaranteed above threshold (a truncation happens BECAUSE
+              Gate 7 fired a re-nudge), so an instantaneous rule
+              scores every truncated row 0.
+        - FULL-WINDOW (D reached, no re-nudge):
+              Instantaneous read at fire time. `durable = 1` iff kW
+              below Gate-7 threshold.
+
+        Both branches use Gate-7 `zone.kwh_rate_threshold` (Invariant
+        S) — NOT `AC_ACTIVELY_COOLING_KW_MIN` (0.5) — per plan
+        Rev-2 B-M4.
 
         F15 fix-up: `durable_minutes` records the interval ACTUALLY
-        measured (elapsed since restore) for both the truncated and the
-        full-window branch. A knob change between arm and fire would
-        otherwise mis-record the elapsed time as the *current* window
-        value.
+        measured (elapsed since restore) for both branches. A knob
+        change between arm and fire would otherwise mis-record.
 
-        F5 fix-up: the pre-cycle code had two branches with byte-
-        identical bodies (`0 if above else 1` in both). Collapsed — the
-        durable rule is the same in both cases (fire-time kW below the
-        Gate-7 threshold = a durable hold). The only per-branch
-        difference is meta: `truncated=True` means the measurement was
-        cut short by a re-nudge; the verdict semantics are unchanged.
-        The elapsed-time column already carries the distinction (a
-        short elapsed under `truncated=True` is the flag).
-
-        On unreadable kW at fire time: durable stays NULL (unknown
-        breaks the streak per plan B-H6). durable_minutes still records
-        the elapsed window.
+        On unreadable kW at fire time (full-window) OR no running-max
+        samples (truncated): `durable` stays NULL.
         """
         pending = self._durable_pending.pop(zone_id, None)
+        # F5: pop running_max regardless of DB availability so a NULL
+        # DB doesn't leak the tracker dict.
+        _running_max = self._nudge_running_max_kw.pop(zone_id, None)
         if pending is None or self._db is None:
             return
         now = dt_util.now()
         elapsed_min = int(
             (now - pending["started_ts"]).total_seconds() / 60
         )
-        # F15: elapsed_min for both branches (was window_min in the
-        # full-window branch — mis-recorded the knob value on knob
-        # change between arm and fire).
+        # F15: elapsed_min for both branches.
         durable_minutes = elapsed_min
-        # Passive kW read at fire time.
         zone = self._zone_manager.zones.get(zone_id)
-        kw_now: float | None = None
-        try:
-            if zone is not None:
-                kw_now = self._read_kwh_rate(zone, now)
-        except Exception:  # noqa: BLE001
-            kw_now = None
-        if kw_now is None:
-            durable_val: int | None = None
+        _thresh = getattr(
+            zone, "kwh_rate_threshold", AC_ACTIVELY_COOLING_KW_MIN,
+        ) if zone is not None else AC_ACTIVELY_COOLING_KW_MIN
+        durable_val: int | None
+        if truncated:
+            # INTERVAL check via running max. A tracker of 0.0 means
+            # we never saw a kW sample in this window (rare — no tick
+            # fired). Treat as NULL so we don't score a hold we can't
+            # attest to.
+            if _running_max is None or _running_max <= 0.0:
+                durable_val = None
+            else:
+                durable_val = 0 if _running_max >= float(_thresh) else 1
         else:
-            # F5: Gate-7 zone-specific threshold (Invariant S). Guard
-            # against a missing/misconfigured attribute — fall back to
-            # the module floor rather than raising.
-            _thresh = getattr(
-                zone, "kwh_rate_threshold", AC_ACTIVELY_COOLING_KW_MIN,
-            ) if zone is not None else AC_ACTIVELY_COOLING_KW_MIN
-            above = kw_now >= float(_thresh)
-            # Same rule for both branches (verdict semantics identical;
-            # elapsed_min carries the truncated-vs-full distinction).
-            durable_val = 0 if above else 1
+            # INSTANTANEOUS read at fire time.
+            kw_now: float | None = None
+            try:
+                if zone is not None:
+                    kw_now = self._read_kwh_rate(zone, now)
+            except Exception:  # noqa: BLE001
+                kw_now = None
+            if kw_now is None:
+                durable_val = None
+            else:
+                durable_val = 0 if kw_now >= float(_thresh) else 1
         try:
             await self._db.update_ac_ramp_event_fields(
                 pending["event_id"],

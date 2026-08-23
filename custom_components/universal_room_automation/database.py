@@ -1738,6 +1738,15 @@ class UniversalRoomDatabase:
                         # actually was. New columns preserve both.
                         ("preset_settled", "TEXT"),
                         ("mode_settled", "TEXT"),
+                        # F8 (revised): populated by the settled-restore
+                        # callback under option (c) — a NULL restore_ok
+                        # with an explicit reason. Named blocker today:
+                        # `stale_polled_integration` (ha_carrier's
+                        # 30-min poll means hass.states cannot observe
+                        # the preset write). See hvac_const.py
+                        # AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON
+                        # and the CARRIER-STALE-POLL-REFRESH-1 card.
+                        ("settled_reason", "TEXT"),
                     ):
                         if _col not in are_columns:
                             await db.execute(
@@ -7779,6 +7788,7 @@ class UniversalRoomDatabase:
         preset_settled: str | None,
         mode_settled: str | None,
         restore_ok: bool | None,
+        settled_reason: str | None = None,
     ) -> None:
         """Write the SETTLED restore verdict onto the most-recent
         nudge_restored row for ``zone_id``.
@@ -7799,10 +7809,13 @@ class UniversalRoomDatabase:
                 await db.execute(
                     # F19 fix-up: settled values write to distinct
                     # columns so the immediate sample survives.
+                    # F8 fix-up: settled_reason threads through so an
+                    # intentionally-skipped sample explains itself.
                     """UPDATE ac_ramp_events
                        SET preset_settled = ?,
                            mode_settled = ?,
-                           restore_ok = ?
+                           restore_ok = ?,
+                           settled_reason = ?
                        WHERE event_id = (
                            SELECT event_id FROM ac_ramp_events
                            WHERE zone_id = ?
@@ -7815,6 +7828,7 @@ class UniversalRoomDatabase:
                         preset_settled,
                         mode_settled,
                         None if restore_ok is None else (1 if restore_ok else 0),
+                        settled_reason,
                         zone_id,
                     ),
                 )

@@ -451,21 +451,51 @@ class TestDurableClassifier:
 
     @pytest.mark.asyncio
     async def test_truncated_records_elapsed_not_window(self):
+        # F5 (revised): truncated verdict is now an INTERVAL check via
+        # the running-max tracker (updated on 5-min ticks), NOT an
+        # instantaneous read at fire time. Instantaneous-at-truncation
+        # is above-threshold by construction (a truncation happens
+        # because Gate 7 fired a re-nudge) and would score every
+        # truncated row 0. The zone default kwh_rate_threshold from
+        # ZoneState is not exercised here; set explicitly.
         a, z = _mk_arrester()
         a._db = MagicMock()
         a._db.update_ac_ramp_event_fields = AsyncMock()
+        # The instantaneous read helper is NOT called on the truncated
+        # branch under the revised rule.
         a._read_kwh_rate = MagicMock(return_value=1.5)
+        z.kwh_rate_threshold = 0.8
         a._durable_pending["zone_a"] = {
             "event_id": 44,
             "started_ts": datetime.now() - timedelta(minutes=10),
-            "kwh_rate_before": 1.0,
-            "restore_dt": datetime.now() - timedelta(minutes=10),
         }
+        # Running max observed during the window: above the Gate-7
+        # threshold => did NOT hold => durable=0.
+        a._nudge_running_max_kw["zone_a"] = 1.5
         await a._write_durable("zone_a", truncated=True)
         _, kwargs = a._db.update_ac_ramp_event_fields.call_args
         # 10 minutes elapsed, not the 30-minute full window.
         assert 9 <= kwargs["durable_minutes"] <= 11
-        assert kwargs["durable"] == 0  # kW above floor at fire
+        assert kwargs["durable"] == 0
+
+    @pytest.mark.asyncio
+    async def test_truncated_running_max_below_threshold_marks_durable_1(self):
+        # F5 (revised) positive control: if the running-max sample was
+        # below the Gate-7 threshold across the whole (short) window,
+        # the truncated verdict is 1 — the nudge DID hold during the
+        # interval, we just cut the measurement short.
+        a, z = _mk_arrester()
+        a._db = MagicMock()
+        a._db.update_ac_ramp_event_fields = AsyncMock()
+        z.kwh_rate_threshold = 0.8
+        a._durable_pending["zone_a"] = {
+            "event_id": 46,
+            "started_ts": datetime.now() - timedelta(minutes=10),
+        }
+        a._nudge_running_max_kw["zone_a"] = 0.3
+        await a._write_durable("zone_a", truncated=True)
+        _, kwargs = a._db.update_ac_ramp_event_fields.call_args
+        assert kwargs["durable"] == 1
 
     @pytest.mark.asyncio
     async def test_null_when_kw_unreadable(self):

@@ -576,16 +576,69 @@ AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluat
 # Rung: module constant (numbers-get-knobs ladder rung 1). This is a
 # measurement window, not an operator-tunable policy — changing it should
 # require code review.
-# F8 fix-up (2026-08-22): raised from 12s. The prior 12s was far below
-# both the 30-min ha_carrier cloud poll interval AND the measured
-# command-to-physical-response lag (72-101s p50). Every settled restore
-# verdict produced at 12s is INADMISSIBLE as evidence — the sampled
-# preset/mode reflects the immediately-post-write cache, not the
-# cloud-refreshed post-clobber state we exist to measure. Raised to 1860s
-# (31 min) so a settled read lands after the next cloud poll cycle
-# completes. Verdicts from rows written before this constant changed
-# must not be used as evidence for the clobber-detection metric.
-AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 1860  # 31 min — above the 30-min ha_carrier poll
+# F8 fix-up (2026-08-22, revised after operator correction):
+# THE SETTLED-RESTORE VERDICT IS STRUCTURALLY UNMEASURABLE THROUGH THE
+# HA STATE OBJECT ON THIS DEPLOYMENT.
+#
+# Vendor source verified on the live host
+# (/config/custom_components/ha_carrier/climate.py:381 async_set_preset_mode
+# + const.py:46 DEFAULT_UPDATE_INTERVAL_MINUTES = 30):
+#   - async_set_preset_mode calls the service but does NOT invoke
+#     async_write_ha_state() and does NOT request a coordinator refresh.
+#   - _attr_preset_mode is only assigned at :230 inside the coordinator-
+#     update handler, which runs on the 30-minute poll.
+#
+# Consequence: after `emit_set_preset_mode(..., blocking=True)`, HA's
+# state object for the climate entity keeps the OLD preset until the
+# next scheduled ha_carrier poll — up to 30 minutes later. Reading
+# `hass.states.get(entity).attributes["preset_mode"]` at ANY delay
+# less than the poll interval cannot observe the write; the previous
+# value at 12s and any raise up to sub-poll fail the same way.
+#
+# Simply raising this constant DOES NOT FIX the instrument. Options
+# considered:
+#   (a) Force a targeted refresh — same mechanism as the withdrawn D9
+#       / `homeassistant.update_entity` path, unproven and rejected
+#       earlier in this cycle. See card CARRIER-STALE-POLL-REFRESH-1.
+#   (b) Read ha_carrier's own DataUpdateCoordinator data instead of
+#       the HA state object — requires reaching into vendor internals
+#       and is not in scope here.
+#   (c) Disable the settled sample and write restore_ok=NULL with a
+#       reason string. Chosen — an honest NULL is worse than nothing
+#       but better than a False that is always False (which is what
+#       every prior 12s verdict actually is).
+#
+# The `_write_settled` callback therefore does NOT read the state
+# object under option (c). It fires anyway (so the observability row
+# UPDATE lands promptly), writes restore_ok=None, and populates a
+# `settled_reason` column naming the blocker. The delay is kept at a
+# small value so the reason lands quickly — its numeric magnitude no
+# longer matters.
+#
+# **VERDICTS RECORDED BEFORE THIS CHANGE ARE INADMISSIBLE** as evidence
+# of preset-restore failure — they are artifacts of reading a stale
+# entity, not measurements of an actual failure. Any dashboard /
+# analytics consumer of `restore_ok` from `nudge_restored` rows must
+# scope reads to event_ids created after this constant's fix-up.
+#
+# ADDITIONAL CONSTRAINT (measured, added by operator ruling 2026-08-22):
+# median inter-nudge cadence on this deployment is 25 minutes
+# (n=445+, stable since week 31). The settled sample must exceed the
+# 30-min poll interval AND fall inside the 25-min nudge cycle — no
+# such number exists. The instrument cannot be built through the state
+# object under the current ha_carrier integration. See
+# CARRIER-STALE-POLL-REFRESH-1 for the out-of-scope path to a working
+# instrument.
+#
+# The delay value below is now decorative: the callback fires promptly
+# to land the NULL-with-reason UPDATE and does not read the state.
+AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 12    # decorative; see comment above
+# Reason string written into `settled_reason` when the settled verdict
+# is intentionally not attempted. Names BOTH numbers per the operator's
+# ruling ("poll interval 30 min exceeds nudge cadence 25 min").
+AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON: Final = (
+    "poll_interval_30min_exceeds_nudge_cadence_25min"
+)
 
 
 # v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
