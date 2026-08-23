@@ -8000,9 +8000,66 @@ cards:
     as hypotheses with citations, not conclusions. DISCRIMINATING CHECK if you need to settle it in one step: if baselines-reset
     were the cause, sample_count would be non-zero shortly after a restart and reset later; if wiring is the cause, sample_count
     is zero at ALL times regardless of uptime. Read sample_count on the three dead metrics at >1h uptime.'
+  DIAGNOSIS_VERIFIED_2026_08_23: 'BUILD-READY. Read-only investigation, code + live entity + URA DB + HA recorder. VERDICT
+    ON THE PRIOR ROOT CAUSE: the restart-reset / baselines-lost mechanism is REFUTED — definitively, and now by a second
+    disjoint line of evidence beyond the 5.55h-median cadence arithmetic already on this card. The URA DB table metric_baselines
+    HOLDS PERSISTED HVAC ROWS: (hvac, zone_call_frequency, house, mean 1.342, sample_count 2497) and (hvac, override_frequency,
+    house, mean 1.241, sample_count 2493), both last_updated 2026-08-21T16:19Z. Baselines therefore survive restarts for
+    this coordinator (hvac.py:1189 load_baselines on setup, hvac.py:3951 save_baselines on teardown — the save leg safety.py
+    and manager.py lack). The same table carries (hvac, short_cycle_rate, 0.0, sample_count 0), (hvac, comfort_deviation_hours,
+    sample_count 0) and (hvac, egress_pause_frequency, sample_count 0). A reset story cannot produce 2497 on one metric and
+    a durable 0 on another in the same dict with the same save path. The card DISCRIMINATING CHECK is also satisfied: live
+    sensor.ura_hvac_coordinator_hvac_anomaly read at 2026-08-23 12:52 CDT, uptime well over 1h, shows sample_count 0 on all
+    three at ALL times — flat zero, never climbing. OLD ROOT CAUSE = WRONG. Delete it from the mental model; it is retained
+    on this card only as the record of the refutation.'
+  MECHANISM_CONFIRMED_2026_08_23: 'THE THREE BLIND METRICS ARE NEVER SAMPLED — a producer-absent wiring gap, not a NULL
+    dependency, not a computed-then-discarded value, not Bug Class 53 (computed-but-not-consumed). The whole HVAC coordinator
+    contains exactly TWO record_observation call sites: hvac.py:3660 zone_call_frequency (fed by a live sum over
+    zone_manager.zones hvac_action in cooling/heating) and hvac.py:3704 override_frequency (per-cycle delta of
+    zone.override_count_today). A repo-wide grep for record_observation returns zero further hits in hvac.py. The five
+    metric slots are declared at hvac_const.py:971-979 HVAC_METRICS. There is no producer at all for short_cycle_rate,
+    comfort_deviation_hours or egress_pause_frequency — no call, no computation, no discarded value. The code already SAYS
+    this in two places (hvac.py:3635-3640 and hvac_const.py:994-1003, the latter deferring egress_pause_frequency to a
+    follow-up cycle that never came). So the fix is a PRODUCER fix in the decision cycle, and it is cheap: the loop the
+    short_cycle_rate producer needs is already open at hvac.py:3657 reading z.hvac_action per zone.'
+  NOMINAL_IS_ACTIVELY_MISLEADING_2026_08_23: 'QUANTIFIED, and it is worse than 2-of-5. Two independent facts. (1) The
+    aggregate label launders the blindness: get_learning_status (coordinator_diagnostics.py:1031) reports ACTIVE when
+    floor(n/2) metrics have a full baseline — for n=5 that is 2, which the two wired metrics satisfy — so
+    get_anomaly_status (hvac.py:3764) falls straight through the insufficient_data/learning guard into get_worst_severity
+    and prints a bare nominal. The v4.5.13 relaxation was deliberate and its docstring even names never-wired call sites
+    as the reason; the consequence is that the ONLY surface carrying the truth is the metrics_silent attribute, which no
+    consumer gates on. (2) The severity surface is narrower still: get_worst_severity filters through
+    _persisted_active_anomalies (coordinator_diagnostics.py:934), which drops every metric in
+    HVAC_SUPPRESSED_FROM_PERSISTENCE — and that frozenset (hvac_const.py:1004) holds FOUR of the five, including the wired
+    zone_call_frequency. So the sensor state can be moved by exactly ONE metric of five: override_frequency. Effective
+    coverage is 1/5, not 2/5. HOW OFTEN IT HAS SAID NOMINAL, AND WHETHER IT EVER FIRED: anomaly_log in the URA DB holds
+    28,239 rows spanning 2026-05-15 to 2026-08-23 across nine coordinators (energy 18,019; transit 5,512; compliance 2,799;
+    notification 755; stuck_signal 384; presence 363; bayesian 357; coordinator_manager 44; safety 6). Rows with
+    coordinator_id hvac: ZERO. Rows for any of the five HVAC metric names: ZERO. The HVAC detector has never written an
+    anomaly in the entire 100-day life of the table. HA recorder over its retained 7.4-day window: 2,310 state writes of
+    the sensor, all nominal, plus 11 not_configured, 9 not_initialized and 1 unavailable boot transients — never once
+    advisory, alert or critical. Absence beyond that window is unobservable in the recorder, but anomaly_log is the durable
+    oracle and it is empty for hvac across the full span.'
+  HIGHEST_LEVERAGE_FIX_2026_08_23: 'WIRE short_cycle_rate FIRST, and give sample_count 0 a visible fault state. The number
+    that supports it, measured from the HA recorder over the last 7 days by counting hvac_action TRANSITIONS (not state
+    rows — the climate entities write 3,572-8,247 state rows per zone per week, which would badly overstate activity):
+    zone_1 352 action transitions / 174 compressor on-cycles / median on-time 20.2 min / 6 cycles under 10 min; zone_2 218
+    / 103 / 25.2 min / 9 under 10 min; zone_3 259 / 128 / 22.7 min / 11 under 10 min. That is 405 real compressor cycles in
+    seven days with 26 of them under ten minutes — a live, well-shaped, continuously-varying signal, exactly the
+    distribution shape the v4.6.5 cardinality doctrine asks for and exactly what zone_call_frequency was rejected for
+    lacking. The detector observed zero of those 405 cycles. The producer needs no new data source: hvac.py:3657 already
+    iterates the zones reading hvac_action every decision tick; short_cycle_rate is a per-zone on-cycle duration or
+    cycles-per-hour derived from that same read. Because it is tick-driven at 5 minutes and reaches
+    HVAC_ANOMALY_MIN_SAMPLES=336 in about 28 hours against a measured 5.55h median restart interval, it needs the
+    persisted baseline that HVAC already has — which is why wiring it works today and would not have worked in a
+    coordinator lacking the save leg. Second, smaller: metrics_silent is non-empty and get_anomaly_status ignores it —
+    a metric with sample_count 0 should surface as degraded rather than be laundered into nominal by the floor(n/2) gate.
+    NOT RECOMMENDED IN THIS PASS: comfort_deviation_hours and egress_pause_frequency are both event-driven accumulators
+    over rare events, which per RESTART-SAFETY-DOCTRINE-1 is the hazard class that stays structurally inert; wire them
+    only with an explicit statement of expected samples-per-day, or leave them declared-and-suppressed.'
   status: planned
   created: 2026-08-20 14:15
-  updated: 2026-08-20 14:15
+  updated: 2026-08-23 13:10
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'
@@ -8041,10 +8098,10 @@ cards:
   title: URA's own planted tripwire is firing ~4x/min saying the guest-arming logic was re-composed — 3300+ hits since boot,
     nobody notified
   thread: presence
-  status: planned
+  status: done
   tier: 1
   created: 2026-08-20 14:15
-  updated: 2026-08-20 14:15
+  updated: 2026-08-23 13:10
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the canary if it has outlasted its use.'')'
@@ -8097,6 +8154,65 @@ cards:
   refs:
   - presence.py:5766
   - memory feedback_cross_investigation_synthesis (census double-count into GUEST)
+  VERIFIED_AND_CLOSED_2026_08_23: |-
+    Independent re-verification of the 08-20 triage. It holds, and the fix has ALREADY SHIPPED —
+    this card is closed, not open work.
+
+    WHAT THE CANARY ASSERTED: presence.py, the _d5_guest_confidence if/elif/else. Invariant claimed:
+    "the census-only (else) branch is unreachable because guest_armed depends on the room gate only".
+    CONFIRMED STALE, NOT A LIVE DEFECT. The assertion about the ARMING PREDICATE is true; the GUARD
+    PREMISE was false. Re-read at presence.py:5730 / :5738 / :5742 — guest_armed is exactly
+    guest_room_gate_armed or False in all three branches, zero census term. But the confidence chain
+    ran UNCONDITIONALLY every inference tick (no enclosing `if guest_armed:` block ever existed), so
+    every normal no-guest tick fell into the else and logged. That is the whole ~4x/min.
+
+    BLAST RADIUS: NIL, re-verified by grep. _d5_guest_confidence has exactly ONE consumer,
+    presence.py:6306, gated `if new_state == HouseState.GUEST and guest_room_gate_armed:`. When that
+    gate is True the value is 0.9 or 0.95 by construction — the 0.8 census-only value is structurally
+    UNREADABLE. It never armed GUEST, never altered confidence, never touched the census.
+
+    PRODUCER/CONSUMER (per CLAUDE.md): producer of the guarded value is the 3-branch chain above, one
+    derivation, no competing additive/subtractive pair. self._census_confidence feeds ONLY
+    unid_gate_armed, which D2 deliberately removed from arming. NOT the census double-count family —
+    that was a producer defect with real behavioural reach; this has none.
+
+    ALREADY FIXED AND SHIPPED: commit e2e747469 (2026-08-21 13:53) applied option (b) exactly —
+    re-guarded to `if guest_armed and not guest_room_gate_armed:` (the check the author intended),
+    demoted WARNING to debug, and corrected the misleading phantom-outer-block comment. Contained in
+    tags v5.88.0 and v5.88.1; live manifest is v5.89.0. Tripwire KEPT, flood killed.
+
+    CURRENT RATE: ZERO. Re-measured 2026-08-23 over the live 8h window 04:57:54-12:55:59 (17,163 raw
+    lines, 1,518 distinct issues, 73 components). Zero 'D2 canary' lines. Control for the
+    absence-is-not-evidence trap: the same window shows URA itself at 1,146 occurrences / 301 distinct
+    issues, so URA logging is alive and the window is real; at the old rate this canary would have been
+    the single largest issue in the log (~2,000 lines) and is instead absent. Down from 2,525-in-5h.
+
+    LIVE GUEST STATE CORRECT: three independent house-state sensors all read 'away'
+    (sensor.universal_room_automation_house_state, sensor.ura_coordinator_manager_house_state,
+    sensor.ura_presence_coordinator_presence_house_state); people-home census = 0. House is NOT in
+    GUEST and is not being armed wrongly. Note 'away' is precisely the condition that drove the old
+    else-branch every tick, so silence now is the discriminating observation, not a lucky quiet house.
+
+    FRIGATE-2 CONTAMINATION: not applicable. The predicate is guest_room_gate_armed (sustained room
+    occupancy), not a camera/face input, so the 08-20..08-23 Frigate storage stall could not have
+    driven the rate. The rate change is explained by the 08-21 code fix, which lands between them.
+
+    LOG-FLOOD CONTRIBUTION (quantified, now eliminated): ~4/min = ~5,760 WARNING lines/day, and it was
+    one of the three per-tick floods that commit e2e747469 edge-triggered together. Material to
+    RECORDER-BLOAT-LOGFLOOD-1 (31GB/7d on flash at 51% life); that card is already shipped_organic.
+    Its remaining un-fixed feeders are visible in today's window and are NOT URA: pywattbox at 2,852
+    occurrences/8h (~8,500/day, the single largest source) and the Sonoff mqtt number-range ERROR at
+    598/8h. Recommend the recorder-bloat re-measure be taken against pywattbox, not URA.
+
+    FRAMING CORRECTION (card title is now misleading and is superseded by this block): the tripwire is
+    NOT firing, the guest-arming logic was NEVER mis-composed, and the '3300+ hits' condition ended
+    2026-08-21. Any future session reading the title alone would chase a defect that does not exist.
+
+    RESIDUAL: none blocking. The card's original 'make a firing tripwire reach a human' idea is NOT
+    addressed by this fix (the canary is now debug-level, so a real violation would be even quieter).
+    That is a separate observability question, deliberately not scoped here — a genuine violation of
+    this particular invariant has nil behavioural reach, so it does not justify a notification path.
+    READ-ONLY investigation; no production code changed by this session.
 - id: HVAC-STALE-ACTUATOR-FRESHNESS-1
   title: A thermostat can go stale-but-"available" and URA keeps deciding on 90-minute-old data with nothing flagging it
   thread: hvac

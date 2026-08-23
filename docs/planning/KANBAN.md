@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T12:50:14-05:00_ - _Data commit: `9bdaa7546133`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:54:38-05:00_ - _Data commit: `ae3084587e37`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,14 +14,14 @@ _Generated: 2026-08-23T12:50:14-05:00_ - _Data commit: `9bdaa7546133`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 9 |
-| 📝 Planned | 10 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 42 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
-| ✅ Done | 42 |
+| ✅ Done | 43 |
 
 ## 📥 Inbox (26)
 _raw capture_
@@ -463,7 +463,7 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
@@ -614,22 +614,6 @@ _created 2026-08-20 14:15 · initial_
 - **Forensic keys (2):**
   - `ROOT_CAUSE_CORRECTED_2026_08_21`: ⚠️ READ THIS BEFORE ACTING ON THIS CARD. The root cause recorded here previously — inherited from docs/BACKLOG.md (v4.6.10 Tier-2 review) — is "AnomalyDetector._baselines is an in-memory dict that resets to {} every restart, so minimum_s...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md + planning docs. NOT NEW as a root cause — docs/BACKLOG.md carries a CRITICAL item "D3 anomaly detection persistence + dispatch" (from the v4.6.10 Tier-2 review) stating AnomalyDetector._baselines is an IN-MEMORY...
-
-### `D2-CANARY-GUEST-PREDICATE-1` - URA's own planted tripwire is firing ~4x/min saying the guest-arming logic was re-composed — 3300+ hits since boot, nobody notified
-thread: **presence** - status: **planned** - approval: **explicit**
-_created 2026-08-20 14:15 · initial_
-- **Problem / Solution:**
-  - Problem: a warning we deliberately planted in the code to detect a specific kind of mistake has been going off continuously since the last restart — thousands of times — and it says the logic that decides whether the house treats someone...
-- **Why:** Live log scan 2026-08-20: presence.py:5766 WARNING "D2 canary: _d5_guest_confidence census-only branch reached (should be unreachable — guest_armed depends on room only). A recent change may have re-composed the arming predicate." Count ...
-- **Next:** Tier 1 fix, two options: (a) delete the _LOGGER.warning, keep = 0.8 as the shape default; or (b) if the invariant is still worth watching, demote to debug AND re-guard so it fires only on real violation (`if guest_armed and not guest_roo...
-- **Tags:** no-fabrication-verify, institutional-context
-- **Refs:** presence.py:5766; memory feedback_cross_investigation_synthesis (census double-count into GUEST)
-- **Forensic keys (5):**
-  - `tier`: 1
-  - `ADJACENCY_SWEEP_2026_08_20`: Swept board (all guest/census cards), BACKLOG.md, planning docs. Related but NOT duplicate: CENSUS-GHOST-DEDUP-1 (shipped_organic), CENSUS-ACCURACY-1, GUEST-IDENTITY-PHONE-LEFT-BEHIND-1, GUEST-ROOM-LOCATION-MATCH-1, CENSUS-G6-RAW-PERSIST...
-  - `TRIAGE_VERDICT_2026_08_20`: OUTCOME (2) — THE CANARY IS STALE, NOT THE CODE. Operator called it: "fix the canary if it has outlasted its use." It has. NO REGRESSION: guest_armed is still exactly guest_room_gate_armed (presence.py:5730, :5738) or False (:5742) in al...
-  - `BEHAVIOURAL_REACH_NONE`: _d5_guest_confidence has exactly ONE consumer (presence.py:6302) and it is itself gated on guest_room_gate_armed — the same term whose falsity produces the 0.8. So the census-only value is NEVER READ. Does not arm GUEST, does not alter c...
-  - `NOT_THE_CENSUS_DOUBLECOUNT_FAMILY`: Explicitly checked and REFUTED. That incident was a PRODUCER defect (additive census derivation overwriting a subtractive one with dedup inert, feeding a real GUEST arm). This is the opposite — D2 removed census from arming precisely to ...
 
 ## 🔨 In progress (0)
 _being built_
@@ -1535,7 +1519,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-## ✅ Done (42)
+## ✅ Done (43)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -2027,6 +2011,23 @@ _created 2026-08-22 02:10 · updated 2026-08-23 14:30 · initial_
   - `OPTIONS_PRESENTED`: A (recommended): sensor "Thermostat Borrows" / config toggle "Restore thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold and Restore" / "Hold and restore thermostats". RECOMMENDATION REASONI...
   - `links`: related: AC-RESET-PRESET-ASSERT-DROPPED-1
   - `organic_evidence`: 2026-08-23 watch-pass: friendly_name = "URA: HVAC Coordinator Temporary Thermostat Changes" confirmed live; validation table PASS 2026-08-22 in README_v5.88.1. H1 confirmed.
+
+### `D2-CANARY-GUEST-PREDICATE-1` - URA's own planted tripwire is firing ~4x/min saying the guest-arming logic was re-composed — 3300+ hits since boot, nobody notified
+thread: **presence** - status: **done** - approval: **explicit**
+_created 2026-08-20 14:15 · updated 2026-08-23 13:10 · initial_
+- **Problem / Solution:**
+  - Problem: a warning we deliberately planted in the code to detect a specific kind of mistake has been going off continuously since the last restart — thousands of times — and it says the logic that decides whether the house treats someone...
+- **Why:** Live log scan 2026-08-20: presence.py:5766 WARNING "D2 canary: _d5_guest_confidence census-only branch reached (should be unreachable — guest_armed depends on room only). A recent change may have re-composed the arming predicate." Count ...
+- **Next:** Tier 1 fix, two options: (a) delete the _LOGGER.warning, keep = 0.8 as the shape default; or (b) if the invariant is still worth watching, demote to debug AND re-guard so it fires only on real violation (`if guest_armed and not guest_roo...
+- **Tags:** no-fabrication-verify, institutional-context
+- **Refs:** presence.py:5766; memory feedback_cross_investigation_synthesis (census double-count into GUEST)
+- **Forensic keys (6):**
+  - `tier`: 1
+  - `ADJACENCY_SWEEP_2026_08_20`: Swept board (all guest/census cards), BACKLOG.md, planning docs. Related but NOT duplicate: CENSUS-GHOST-DEDUP-1 (shipped_organic), CENSUS-ACCURACY-1, GUEST-IDENTITY-PHONE-LEFT-BEHIND-1, GUEST-ROOM-LOCATION-MATCH-1, CENSUS-G6-RAW-PERSIST...
+  - `TRIAGE_VERDICT_2026_08_20`: OUTCOME (2) — THE CANARY IS STALE, NOT THE CODE. Operator called it: "fix the canary if it has outlasted its use." It has. NO REGRESSION: guest_armed is still exactly guest_room_gate_armed (presence.py:5730, :5738) or False (:5742) in al...
+  - `BEHAVIOURAL_REACH_NONE`: _d5_guest_confidence has exactly ONE consumer (presence.py:6302) and it is itself gated on guest_room_gate_armed — the same term whose falsity produces the 0.8. So the census-only value is NEVER READ. Does not arm GUEST, does not alter c...
+  - `NOT_THE_CENSUS_DOUBLECOUNT_FAMILY`: Explicitly checked and REFUTED. That incident was a PRODUCER defect (additive census derivation overwriting a subtractive one with dedup inert, feeding a real GUEST arm). This is the opposite — D2 removed census from arming precisely to ...
+  - `VERIFIED_AND_CLOSED_2026_08_23`: Independent re-verification of the 08-20 triage. It holds, and the fix has ALREADY SHIPPED —
 
 ### `HVAC-STALE-ACTUATOR-FRESHNESS-1` - A thermostat can go stale-but-"available" and URA keeps deciding on 90-minute-old data with nothing flagging it
 thread: **hvac** - status: **done** - approval: **explicit**
