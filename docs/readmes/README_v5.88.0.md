@@ -50,7 +50,7 @@ wait). A full revert is a rollback to v5.87.0.
 
 ## Observability
 
-**`sensor.ura_hvac_coordinator_thermostat_borrows`** (diagnostic). State = active borrow count.
+**`sensor.ura_hvac_coordinator_governed_thermostat_borrows`** (diagnostic). State = active borrow count.
 Attributes carry per-borrow `zone`, `kind`, **`site`**, `entity_id`, `started`, `expires_at`,
 the snapshot it will restore to, and `excursion_id` as the join key into
 `hvac_excursion_events` / `ac_ramp_events`.
@@ -81,7 +81,7 @@ None` does not discharge.
 
 ## Acceptance criteria
 
-- **Verify:** `sensor.ura_hvac_coordinator_thermostat_borrows` exists, state `0` at idle.
+- **Verify:** `sensor.ura_hvac_coordinator_governed_thermostat_borrows` exists, state `0` at idle.
 - **Verify:** the config-flow field appears in HVAC Coordinator settings, default ON.
 - **Verify:** `switch.ura_hvac_coordinator_excursion_primitive_enabled` is GONE.
 - **Test:** 82 cycle tests pass; full-suite name-diff empty both directions vs develop
@@ -96,7 +96,32 @@ None` does not discharge.
 - **Live (negative):** no `[GOVERNED BORROW RESTORE FAILED]` lines in the log under normal
   operation.
 
-## Live validation
+## Live validation — Validated 2026-08-22 (post-restart, partial)
 
-*To be written back post-restart. This README is not done until it carries the observed
-results table.*
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loads, all 42 entries | **PASS** | all entries progressed past `setup_in_progress`; `sensor.ura_hvac_coordinator_zone_1_status` back with `hvac_action: cooling` |
+| Diagnostic sensor exists | **PASS** | `sensor.ura_hvac_coordinator_governed_thermostat_borrows` = `0` |
+| Sensor shape correct at idle | **PASS** | `active_borrows: []`, `started_today: {}`, `returned_today: {}`, `restore_failed_today: {}`, `last_return: null` |
+| **Config-flow value reaches the runtime** | **PASS** | `primitive_enabled: true` on the live sensor — proves the demoted knob seeds through end-to-end, which is the round-trip the switch removal put at risk |
+| Old switch entity gone | **PASS** | `switch.ura_hvac_coordinator_excursion_primitive_enabled` → 404 |
+| No URA / excursion ERROR at boot | **PASS** | zero matching ERROR/CRITICAL lines in 15 min post-restart |
+| No restore failures | **PASS (vacuously)** | zero `[GOVERNED BORROW RESTORE FAILED]` lines — but no borrow has yet occurred, so this is an absence of failures, NOT evidence the restore path works |
+| **Live restore after a natural nudge** | **PENDING** | requires a real nudge: `last_return.restore_ok == true` AND the zone's `preset_mode` NOT `manual` |
+| **Reconciliation** `started_today.nudge` == `ac_nudges_today` | **PENDING** | needs at least one nudge |
+| **Restart mid-nudge** | **PENDING** | the founding defect; the single most important check |
+
+**Deployment note — deploy.sh failed twice and both were repaired manually:**
+1. Step 6/7 (merge PR to master) failed on conflicts because develop had never absorbed the
+   v5.87.0 release merge commit. Merged master into develop, pushed, merged PR #524.
+2. Because the script exited at step 6, **step 7/7 never ran** — no tag, no GitHub release, so
+   HACS saw nothing to install. Created the release manually.
+3. Separately the `--why` gate collected reasoning but `vibememo_ship.py` exited 2 on a
+   malformed argument; deploy.sh logged a WARNING and continued, so the release nearly shipped
+   with no decision trail. Written manually.
+
+**A documentation defect caught during validation:** this README and the rollback card both
+originally named `sensor.ura_hvac_coordinator_thermostat_borrows`. The real entity_id is
+`...governed_thermostat_borrows` — HA derived it from the friendly label. Corrected in both.
+
+The three PENDING rows are organic-wait items. This README is not closed until they are filled.

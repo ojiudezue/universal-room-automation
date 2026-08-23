@@ -3266,6 +3266,23 @@ class OverrideArrester:
         original_mode = zone.hvac_mode
         original_action = zone.hvac_action
         zone_id = zone.zone_id
+        # 2026-08-22: snapshot the pre-reset preset so the SUCCESS branch
+        # of _verify_restore can put it back. A raw setpoint/mode write on
+        # Carrier/Bryant leaves preset_mode=manual, which then locks the
+        # zone out of governed preset changes (should_change_preset in
+        # hvac_preset.py refuses to act on 'manual'). Same defect the
+        # v5.88.0 borrow cycle eliminated everywhere else; explicitly
+        # excluded here per PLANNING_hvac_governed_excursion.md
+        # (hard_reset_preset_assert is NOT a primitive-managed kind).
+        try:
+            _pre_state = self.hass.states.get(zone.climate_entity)
+            original_preset = (
+                _pre_state.attributes.get("preset_mode", "") or ""
+                if _pre_state is not None
+                else ""
+            )
+        except Exception:  # noqa: BLE001
+            original_preset = ""
         # v4.7.32 (Review C MED-1): the restore now targets heat_cool when the
         # thermostat supports it (see _restore_after_reset). Report that in the
         # alert so the NM message doesn't claim it's restoring the pre-reset mode.
@@ -3291,7 +3308,7 @@ class OverrideArrester:
         @callback
         def _on_reset_fire(_now):
             self.hass.async_create_task(
-                self._restore_after_reset(zone, original_mode)
+                self._restore_after_reset(zone, original_mode, original_preset)
             )
 
         # D7: use the runtime knob instead of the module constant so
@@ -3353,7 +3370,7 @@ class OverrideArrester:
         )
 
     async def _restore_after_reset(
-        self, zone: ZoneState, original_mode: str,
+        self, zone: ZoneState, original_mode: str, original_preset: str = "",
     ) -> None:
         """Restore HVAC mode after AC reset off period.
 
@@ -3461,6 +3478,40 @@ class OverrideArrester:
                     zone_name, actual_mode,
                 )
                 self._verify_tasks.pop(zone_id, None)
+                # 2026-08-22: SUCCESS branch — restore the pre-reset preset.
+                # A raw set_hvac_mode/set_temperature write on Carrier/Bryant
+                # leaves preset_mode=manual, and hvac_preset.should_change_preset
+                # refuses to act on 'manual' — so a hard-reset zone is locked
+                # out of preset governance until this is put back. Mirror the
+                # cancel_nudge preset-restore pattern (blocking=True, suppress
+                # kind="preset" so the induced settle doesn't self-count).
+                # Unopinionated: restore what was FOUND, including 'manual'.
+                # Fail-soft: a failure here MUST NOT break the mode/setpoint
+                # restore that already succeeded.
+                if original_preset:
+                    self.suppress(climate_entity, kind="preset")
+                    try:
+                        await emit_set_preset_mode(
+                            self.hass,
+                            climate_entity,
+                            original_preset,
+                            blocking=True,
+                            gate=None,
+                            site="ac_reset_verify_preset_restore",
+                            zone_id=zone_id,
+                            reason="ac_reset_preset_restore",
+                        )
+                        _LOGGER.info(
+                            "HVAC AC Reset: Zone %s preset restored -> %s",
+                            zone_name, original_preset,
+                        )
+                    except Exception as _pexc:  # noqa: BLE001
+                        _LOGGER.error(
+                            "HVAC AC Reset: preset restore failed for "
+                            "zone %s (preset=%s): %s — mode/setpoint "
+                            "restore succeeded, preset left as-is",
+                            zone_name, original_preset, _pexc,
+                        )
                 # D5-B: back-fill restore_ok=1 on the completed row.
                 await self._backfill_restore_ok(zone_id, True)
 

@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "068",
+  "author": "ojiudezue",
+  "session_id": "claude_20260822_063739_ship_v5_88_0",
+  "timestamp": "2026-08-22T06:37:39Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.88.0 shipped: Governed thermostat borrows \u2014 one primitive for all five temporary-change kinds, with restore that survives restart",
+  "summary": "DECISION: strip the lease gate before shipping. All four framing-disjoint reviews independently found it created a suppression with no reliable discharge \u2014 leases leaked on early-exit paths, rehydrated leases were orphaned by construction (no owner could release them after a restart), the expiry sweep ran only on a path most ticks never reach, and the kill switch could not discharge a stuck one. Same bug class as the manual-lockout it was insuring against. ALTERNATIVE WEIGHED: fix the lifecycle properly (RAII release, unconditional expiry sweep, boot-audit ownership handback). REJECTED on marginal-benefit \u2014 the lease only has value once HVAC-MANUAL-PRESET-CONTRACT-1 removes today's accidental manual-based protection, which has not landed, so we would have paid measured risk before any benefit existed. Parked for RE-DERIVATION against that cycle's eventual shape, explicitly not for resumption. WHAT REVIEW CAUGHT: a restart mid-nudge reproduced the cycle's own founding defect (zone left in manual) hidden behind a code comment asserting the case was handled, which was false; reviews B and D found the orphaned-lease defect independently from disjoint framings; review C caught MY error \u2014 a two-dot diff range that excluded the cycle's first commit containing the primitive and the whole test harness. WHAT THE GATE CAUGHT THAT REVIEW DID NOT: 13 regressions invisible to cycle tests, including two new zone-keyed tables never wired into async_delete_zone_data \u2014 deleting a zone would have left orphan rows the boot audit then rehydrates into phantom borrows. Four reviewers and I missed it; a guard test caught it because none of us asked what happens when a ZONE is deleted. AND the gate itself was unrunnable: a pre-existing collection error aborted the whole 9600-test suite on develop, so the pre-deploy name-diff had been silently unavailable for EVERY cycle. Fixed first, then used. OPERATOR RULINGS: kill switch moved to config flow and labelled a PARTIAL back-out, because a partial lever presented as a kill switch invites trust in the one moment it should not be trusted; observability required before ship because 'post-deploy monitoring is good' was the condition for deploying with people in the house; NM made per-episode via discharge-on-success following the documented chatter-latch precedent rather than the no-discharge sibling. restore_ok is three-valued and that distinction proved load-bearing three separate times.",
+  "refs": {
+    "cards": [
+      "HVAC-GOVERNED-EXCURSION-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.88.0.md"
+    ],
+    "release_notes": "13 setpoint-write sites, 9 of which never restored a preset, replaced by one shared snapshot/change/restore primitive persisted across restarts. Adds a diagnostic sensor reconcilable against ac_nudges_today, an unconditional restore-failure log line, and a governed per-episode NM alert. Kill switch demoted to the HVAC Coordinator config flow, labelled as a PARTIAL back-out."
+  }
+}

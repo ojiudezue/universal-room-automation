@@ -945,6 +945,74 @@ class TestHardResetEscalation:
 
 
 # ===========================================================================
+# D5b — AC reset preset restore (2026-08-22)
+# ===========================================================================
+
+
+def _method_slice(src: str, header: str) -> str:
+    idx = src.find(header)
+    assert idx != -1, f"could not locate {header!r} in source"
+    _nxt_async = src.find("\n    async def ", idx + 1)
+    _nxt_sync = src.find("\n    def ", idx + 1)
+    ends = [n for n in (_nxt_async, _nxt_sync) if n != -1]
+    end = min(ends) if ends else len(src)
+    return src[idx:end]
+
+
+class TestAcResetPresetRestore:
+    """Enclosing-method anchors on the hard-reset restore path.
+
+    Guards the 2026-08-22 fix: the reset path snapshots preset_mode at
+    reset start and re-emits it in the SUCCESS branch of _verify_restore.
+    Without this, a Carrier/Bryant thermostat lands in preset_mode=manual
+    after the mode/setpoint restore and hvac_preset.should_change_preset
+    refuses to act on 'manual' — locking the zone out of preset governance.
+    """
+
+    def test_perform_ac_reset_captures_original_preset(self, hvac_override_src):
+        body = _method_slice(hvac_override_src, "async def _perform_ac_reset(")
+        assert "original_preset" in body, (
+            "_perform_ac_reset must snapshot the pre-reset preset so "
+            "_verify_restore can put it back"
+        )
+        assert 'attributes.get("preset_mode"' in body, (
+            "preset snapshot must read climate entity preset_mode attribute"
+        )
+        assert "_restore_after_reset(zone, original_mode, original_preset)" in body
+
+    def test_restore_after_reset_signature_carries_preset(self, hvac_override_src):
+        assert (
+            "async def _restore_after_reset(\n"
+            "        self, zone: ZoneState, original_mode: str, original_preset: str = \"\","
+            in hvac_override_src
+        )
+
+    def test_restore_after_reset_success_branch_emits_preset(
+        self, hvac_override_src,
+    ):
+        body = _method_slice(
+            hvac_override_src, "async def _restore_after_reset(",
+        )
+        # Preset emit must land in _verify_restore (inner) and use the
+        # snapshot + blocking path, mirroring the cancel_nudge restore.
+        assert "if original_preset:" in body, (
+            "SUCCESS branch must gate on the snapshot being present"
+        )
+        assert "emit_set_preset_mode(" in body, (
+            "SUCCESS branch must call emit_set_preset_mode to restore preset"
+        )
+        assert 'site="ac_reset_verify_preset_restore"' in body, (
+            "preset emit must be tagged with the ac_reset site"
+        )
+        assert "blocking=True" in body, (
+            "preset restore emit must be blocking, matching cancel_nudge"
+        )
+        assert 'self.suppress(climate_entity, kind="preset")' in body, (
+            "settle event from set_preset_mode must be suppressed as kind='preset'"
+        )
+
+
+# ===========================================================================
 # D6 — Lockout + notification
 # ===========================================================================
 
