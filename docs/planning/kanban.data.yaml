@@ -199,6 +199,33 @@ cards:
       reachable during solar charging at all. EV-GARAGE-A-NOCHARGE-1 may explain why Garage A reads
       unavailable, which decides whether this controller has one live target or two.'
 - id: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
+  RE_VERIFIED_2026_08_23_card_stands_memory_was_stale: 'I told the operator today that this card
+    "carries a root cause memory records as REFUTED" and warned it would mislead a builder. THAT
+    WARNING WAS WRONG and is retracted. The card was already correct and already more current than
+    the memory I was citing.
+    WHAT HAPPENED: a memory file carries "EVSE drain root cause REFUTED (l1_only fired first...)".
+    I relayed it without checking that THIS CARD had already reconciled exactly that point — see
+    HOLD_DEMOTION_REFRAMED / the reconciliation block above, which explains that gate 6 (l1_only,
+    energy_drain_precedence.py:652) short-circuits ABOVE gate 7 (already_below_target, :656), so the
+    refutation described WHICH GATE WAS BINDING on a given night, not whether the defect exists.
+    RE-VERIFIED INDEPENDENTLY IN CODE 2026-08-23, not from memory and not from the card:
+      energy_drain_precedence.py:652  gate 6 l1_only      -> returns before gate 7
+      energy_drain_precedence.py:656  gate 7 already_below_target
+      energy.py:4271  drain_target_soc=int(self._ev_battery_drain_soc)
+      energy.py:4456  drain_target_soc=int(self._ev_battery_drain_soc)
+    BOTH construction sites source the STATIC MANUAL knob. Live values today:
+      number.ura_energy_coordinator_ev_battery_drain_soc = 80   (what DP actually drains toward)
+      forecast-based off-peak target                     = 10   (what the design intends)
+    So the mis-sourcing is real, present at TWO sites, and unchanged. The gate-ordering finding
+    explains why it was MASKED on a particular night; it does not refute it.
+    LIVE MEASUREMENT ATTEMPTED AND HONESTLY BOUNDED: sensor.ura_energy_coordinator_ev_charging_plan
+    attributes are empty right now (no vehicle connected — both EVSEs report "Charger is not
+    connected to a vehicle"), so the runtime drain_target could NOT be read today. Code is the
+    available oracle and it is unambiguous; a runtime confirmation is still owed the next time a car
+    is plugged in during an eval window.
+    OPERATOR RULING THAT PROMPTED THIS: "Memory is not fully trusted. Code and measurement is. And
+    triangulation of latest findings. Not just memory." Applied here: memory was the least current
+    of the three sources, and the card body plus the code both outrank it.'
   thread: energy
   status: planned
   approval: explicit
