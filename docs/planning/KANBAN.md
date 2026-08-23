@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T12:31:05-05:00_ - _Data commit: `ce9371ec5f8d`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T12:36:04-05:00_ - _Data commit: `5e4bcbac1634`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,8 +16,8 @@ _Generated: 2026-08-23T12:31:05-05:00_ - _Data commit: `ce9371ec5f8d`_ - _last_r
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 2 |
-| 🚀 Shipped (organic open) | 41 |
+| 🔍 Review | 1 |
+| 🚀 Shipped (organic open) | 42 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
@@ -636,19 +636,8 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (1)
 _under review_
-
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
-thread: **notifications** - status: **review** - approval: **approved**
-_updated 2026-08-23 14:30_
-- **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
-- **Why:** Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.
-- **Next:** VIOLATED 2026-08-23: iMessage attachment FAIL in README_v5.73.1 validation. Fix iMessage transport path; re-deploy and re-validate both channels. Fold into next NM build.
-- **Forensic keys (3):**
-  - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
-  - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
-  - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**
@@ -672,7 +661,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (41)
+## 🚀 Shipped (organic open) (42)
 _live, awaiting proof_
 
 ### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
@@ -966,6 +955,18 @@ _updated 2026-08-23 14:30_
 - **Forensic keys (2):**
   - `shipped_note`: Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator dispo...
   - `organic_evidence`: 2026-08-23 watch-pass: disposition buttons + drag-between-states JS micro-API not yet shipped (next field says "Build: webhost micro-API"). shipped_version recovered as board-tooling-not-yet-shipped. No HA oracle. UN-WATCHABLE until buil...
+
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
+thread: **notifications** - status: **shipped_organic** - approval: **approved**
+_updated 2026-08-23 14:50_
+- **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
+- **Why:** Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.
+- **Next:** MEASURE, do not fix — nothing is known to be broken. Determine whether iMessage re-pages actually carry the attachment: inspect an outbound BlueBubbles payload at re-page time (log the transport kwargs at debug on the next unack CRITICAL...
+- **Forensic keys (4):**
+  - `VIOLATION_RETRACTED_2026_08_23`: THE VIOLATION RECORDED EARLIER TODAY IS WITHDRAWN — it was not supported by evidence, and I relayed it to the operator as "live-broken shipped work, silent for nine days". That was wrong. WHAT THE README ACTUALLY SAYS: README_v5.73.1 L3 ...
+  - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
+  - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
+  - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
 thread: **notifications** - status: **shipped_organic** - approval: **operator_proposed**

@@ -3448,9 +3448,33 @@ cards:
     swap -> zero-ghost soak -> integration disable -> physical off -> hardware decomm, with zero detection-threshold code
     written.'
 - id: NM-REPAGE-IMG-1
+  VIOLATION_RETRACTED_2026_08_23: 'THE VIOLATION RECORDED EARLIER TODAY IS WITHDRAWN — it was not
+    supported by evidence, and I relayed it to the operator as "live-broken shipped work, silent for
+    nine days". That was wrong.
+    WHAT THE README ACTUALLY SAYS: README_v5.73.1 L3 reads "PASS on WhatsApp (organic 2026-08-14);
+    FAIL on iMessage" — but its EVIDENCE COLUMN contains NO observation of an iMessage failure. It
+    restates the prospective criterion ("Next unacknowledged CRITICAL — 5-min re-pages must carry the
+    original photo"). The Context note directly beneath says: "criterion stays open until one occurs."
+    So L3 was OPEN on the iMessage side, not FAILED. The word FAIL was doing the job of "not yet
+    observed", and a watch pass read it as a violation and moved the card shipped_organic -> review.
+    THE OPPORTUNITY DID EXIST, so "no chance to observe" is NOT the explanation either. Since
+    2026-08-12: 249 CRITICAL notifications on the imessage channel, 221 of them UNACKNOWLEDGED — and
+    an unacknowledged CRITICAL is precisely the 5-min re-page trigger. So iMessage re-pages have
+    fired in volume.
+    WHAT REMAINS GENUINELY UNKNOWN: whether those re-pages carried the attachment. `notification_log`
+    records channel/severity/ack but NOT attachment presence, so this table cannot answer it either
+    way. The in-suite wire-in IS mutation-anchored (transport-kwarg neuter -> 1 named test red,
+    restored green), which is evidence the code path exists — not that the image lands at BlueBubbles.
+    CORRECT STATUS: back to shipped_organic with L3-iMessage OPEN and UNMEASURED. Not violated, not
+    confirmed.
+    THE REUSABLE DEFECT IS THE README CONVENTION: a validation table wrote PASS/FAIL into a verdict
+    cell with nothing in its evidence cell. That verdict then propagated into a card status change and
+    into a report to the operator, unchallenged, because "FAIL" reads as an observation. Validation
+    tables must carry OPEN / NOT-OBSERVED as first-class verdicts, and a PASS/FAIL with an empty
+    evidence cell should be treated as malformed.'
   title: Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
   thread: notifications
-  status: review
+  status: shipped_organic
   shipped_version: v5.73.1
   approval: approved
   origin:
@@ -3461,9 +3485,8 @@ cards:
     is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.'
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment
     keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).'
-  next: 'VIOLATED 2026-08-23: iMessage attachment FAIL in README_v5.73.1 validation. Fix iMessage transport path; re-deploy
-    and re-validate both channels. Fold into next NM build.'
-  updated: 2026-08-23 14:30
+  next: 'MEASURE, do not fix — nothing is known to be broken. Determine whether iMessage re-pages actually carry the attachment: inspect an outbound BlueBubbles payload at re-page time (log the transport kwargs at debug on the next unack CRITICAL, or check BB-side message records for an attachment). 221 unacknowledged CRITICALs on the imessage channel since 08-12 means opportunities are plentiful. Only if the attachment is genuinely absent does this become a fix.'
+  updated: '2026-08-23 14:50'
   sharp_problem:
   - '2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page
     attachment path did not land. Fix owed before card can close.'
