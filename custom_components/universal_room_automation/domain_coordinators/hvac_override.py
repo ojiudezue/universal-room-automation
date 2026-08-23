@@ -32,6 +32,8 @@ from .hvac_const import (
     AC_NUDGE_EVAL_MIN_DROP_FRAC,
     AC_NUDGE_EVALUATION_DELAY_S,
     AC_NUDGE_RESTORE_SETTLE_DELAY_S,
+    AC_NUDGE_SETTLED_REASON_ENTITY_MISSING,
+    AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
@@ -65,6 +67,36 @@ from .hvac_const import (
     AC_RESET_MAX_PER_DAY,
     AC_RESET_OFF_DURATION_SECONDS,
     AC_RESET_STUCK_MINUTES,
+    # AC-RAMP-PIPELINE-HARDENING-1
+    AC_ACTIVELY_COOLING_BLOWER_RPM_MIN,
+    AC_ACTIVELY_COOLING_KW_MIN,
+    AC_KWH_SENSOR_STALENESS_S,
+    AC_RAMP_EVENT_GATE4_DIVERGENCE_SHADOW,
+    AC_RAMP_EVENT_HARD_RESET_DECLINED,
+    AC_RESET_DECLINED_COMFORT_DEFERRED,
+    AC_RESET_DECLINED_DAY_BUDGET,
+    AC_RESET_DECLINED_FEATURE_DISABLED,
+    AC_RESET_DECLINED_GLOBAL_MIN_INTERVAL,
+    AC_RESET_DECLINED_MASTER_OFF,
+    AC_RESET_DECLINED_MIN_INTERVAL_S,
+    AC_RESET_DECLINED_NIGHT_BUDGET,
+    AC_RESET_DECLINED_TRUE_CAP_EXHAUSTED,
+    AC_RESET_OUTCOME_FLOOR_SURVIVED,
+    AC_RESET_OUTCOME_INCONCLUSIVE,
+    AC_RESET_OUTCOME_JUSTIFIED_RAMP,
+    AC_RESET_OUTCOME_SETTLE_S,
+    AC_RESET_OUTCOME_KWH_SETTLE_S,
+    DEFAULT_HVAC_AC_DURABILITY_WINDOW,
+    DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE,
+    DEFAULT_HVAC_AC_NIGHT_END_HHMM,
+    DEFAULT_HVAC_AC_NIGHT_START_HHMM,
+    DEFAULT_HVAC_AC_RESET_DAY_BUDGET,
+    DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET,
+    DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT,
+    HVAC_AC_GATE4_MODE_LEGACY,
+    HVAC_AC_GATE4_MODE_LIVE,
+    HVAC_AC_GATE4_MODE_SHADOW,
+    HVAC_AC_GATE4_MODES,
     DEFAULT_COMPROMISE_MINUTES,
     DEFAULT_HVAC_AC_DETECTION_TIME_GATE,
     DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
@@ -227,6 +259,49 @@ class OverrideArrester:
         self._detection_time_gate_min: int = DEFAULT_HVAC_AC_DETECTION_TIME_GATE
         self._hard_reset_daily_limit: int = DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT
         self._hard_reset_min_interval_min: int = DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL
+        # AC-RAMP-PIPELINE-HARDENING-1: new live-tunable state.
+        # D-GATE4: predicate mode Select — legacy | shadow (default) | live.
+        # Kill-switch = "legacy" (restores pre-cycle Gate 4 body verbatim).
+        self._gate4_predicate_mode: str = DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE
+        # LATCHED per-zone divergence writer state (REBUILD across restart).
+        # Values: None (never seen) | "agree" | "diverge". Prevents
+        # per-tick write flood — one row on agree→diverge, one on
+        # diverge→agree.
+        self._gate4_divergence_state: dict[str, str] = {}
+        # D-SCORE: durability classifier window (options rung 2 mins).
+        self._durability_window_min: int = DEFAULT_HVAC_AC_DURABILITY_WINDOW
+        # Per-zone cancel handles for the delayed `_write_durable` callback.
+        # Registry shape mirrors `_nudge_settled_timers`. Cancelled on
+        # teardown; fired-early with truncated=True on re-nudge.
+        self._durable_timers: dict[str, CALLBACK_TYPE] = {}
+        # Per-zone {event_id, started_ts, kwh_rate_before, restore_dt}
+        # closure state so the callback can UPDATE the correct row.
+        self._durable_pending: dict[str, dict] = {}
+        # D3: runaway guard on the auto soft-nudge path only. Manual
+        # force_nudge bypasses (operator intent beats runaway guard).
+        self._soft_nudge_daily_limit: int = DEFAULT_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT
+        # D2 / D-PARTITION: partitioned reset budgets (operator 2/2).
+        self._reset_day_budget: int = DEFAULT_HVAC_AC_RESET_DAY_BUDGET
+        self._reset_night_budget: int = DEFAULT_HVAC_AC_RESET_NIGHT_BUDGET
+        self._night_start_hhmm: str = DEFAULT_HVAC_AC_NIGHT_START_HHMM
+        self._night_end_hhmm: str = DEFAULT_HVAC_AC_NIGHT_END_HHMM
+        # D7: promote AC_RESET_OFF_DURATION_SECONDS to a live knob.
+        # Seeded from the module const for first-boot behaviour.
+        self._ac_reset_off_duration_s: int = int(
+            AC_RESET_OFF_DURATION_SECONDS
+        )
+        # D6: per-zone reset-outcome delayed-callback registry (60s).
+        # Short-lived timer — REBUILD on restart is acceptable per plan.
+        self._reset_outcome_timers: dict[str, CALLBACK_TYPE] = {}
+        self._reset_outcome_pending: dict[str, dict] = {}
+        # F6 fix-up: second delayed-callback registry for the kW capture
+        # at AC_RESET_OUTCOME_KWH_SETTLE_S (150s vs the temp's 60s).
+        # See `_schedule_reset_outcome`.
+        self._reset_outcome_kw_timers: dict[str, CALLBACK_TYPE] = {}
+        # D8: edge-triggered declined-row latch. Key = zone_id,
+        # value = (reason, wall_clock_ts). Same reason cannot re-log
+        # within AC_RESET_DECLINED_MIN_INTERVAL_S. REBUILD across restart.
+        self._last_declined: dict[str, tuple[str, datetime]] = {}
         # Per-zone timers — separate from _reset_timers (existing hard-reset
         # restore timers) so a soft nudge in flight doesn't get cancelled
         # by an unrelated hard-reset path on the same zone.
@@ -246,6 +321,26 @@ class OverrideArrester:
         self._nudge_post_restore_ts: dict[str, str] = {}
         # Track which zones are currently mid-nudge for sensor exposure.
         self._nudge_in_flight: set[str] = set()
+        # F5 fix-up (2026-08-22, revised): per-zone running MAX kW
+        # observed since the current durability window started. Updated
+        # on the existing 5-min decision tick (`check_ac_reset`, which
+        # already reads kW). The truncated durability verdict reads
+        # THIS INTERVAL check rather than an instantaneous fire-time
+        # read — a truncation happens because Gate 7 detected high kW,
+        # so an instantaneous read at that moment is above threshold
+        # by construction and would score every truncated row as
+        # durable=0. Set to `None` when no durability window is armed.
+        # 5-minute sampling granularity is stated on the `durable`
+        # column so nobody later mistakes it for continuous.
+        self._nudge_running_max_kw: dict[str, float] = {}
+        # A1 fix-up (2026-08-22): per-zone diagnostic cache for the
+        # five A1 sensors. Refreshed by _refresh_a1_cache once per
+        # decision cycle (5 min). Sensors read this dict sync. Keys
+        # per zone: gate4_blind_fraction_7d, gate4_diverge_count_7d,
+        # ac_reset_day_count, ac_reset_night_count,
+        # ac_reset_last_outcome, durability_rate_full,
+        # durability_rate_trunc, durability_sample_count.
+        self._a1_zone_cache: dict[str, dict] = {}
         # Track today's date so we can detect day-rollover and prune events.
         self._last_rollover_date: str = ""
 
@@ -1059,6 +1154,217 @@ class OverrideArrester:
                 exc_info=True,
             )
 
+    async def _high_draw_time_s_7d(
+        self, zone, now: datetime,
+    ) -> float | None:
+        """Correction 3 (2026-08-22 fix-up): return the number of seconds
+        the zone's ac_load_sensor read at or above
+        AC_ACTIVELY_COOLING_KW_MIN over the trailing 7 days.
+
+        Returns None if:
+          - zone is missing or has no ac_load_sensor;
+          - recorder query errors;
+          - no samples returned (sensor never reported in window).
+        A None flows through to `gate4_blind_fraction_high_draw_7d = None`
+        rather than falsely zero — an honest UNBOUND per operator ruling.
+
+        Bounded once per 5-min cache refresh per zone. Loop-body work is
+        O(n) over 7 days of state changes on one sensor; empirically a
+        few thousand rows per zone for a Span-reported kW entity.
+        """
+        if zone is None or not getattr(zone, "ac_load_sensor", None):
+            return None
+        entity_id = zone.ac_load_sensor
+        start_dt = now - timedelta(days=7)
+        try:
+            instance = recorder_get_instance(self.hass)
+            states_dict = await instance.async_add_executor_job(
+                get_significant_states, self.hass,
+                start_dt, now, [entity_id],
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        states = states_dict.get(entity_id) if states_dict else None
+        if not states:
+            return None
+        total_high_s = 0.0
+        prev_ts = None
+        prev_high = False
+        for st in states:
+            raw = getattr(st, "state", None)
+            if raw in (None, "unknown", "unavailable", ""):
+                is_high = False
+            else:
+                try:
+                    value = float(raw)
+                except (ValueError, TypeError):
+                    is_high = False
+                else:
+                    attrs = getattr(st, "attributes", None) or {}
+                    unit = (attrs.get("unit_of_measurement") or "").lower()
+                    if unit in ("w", "watt", "watts"):
+                        value = value / 1000.0
+                    elif unit in ("kwh", "wh", "watt hour", "watt-hour"):
+                        # Cumulative counter — meaningless as instant kW.
+                        is_high = False
+                    is_high = value >= AC_ACTIVELY_COOLING_KW_MIN
+            ts = getattr(st, "last_updated", None) or getattr(st, "last_changed", None)
+            if ts is None:
+                continue
+            try:
+                ts_local = dt_util.as_local(ts)
+            except Exception:  # noqa: BLE001
+                ts_local = ts
+            if prev_ts is not None and prev_high:
+                total_high_s += (ts_local - prev_ts).total_seconds()
+            prev_ts = ts_local
+            prev_high = is_high
+        # Trailing interval from the last transition to `now`.
+        if prev_ts is not None and prev_high:
+            total_high_s += (now - prev_ts).total_seconds()
+        return total_high_s
+
+    async def _refresh_a1_cache(self) -> None:
+        """A1 fix-up: refresh the per-zone diagnostic cache read by
+        the five A1 sensors. Runs once per decision cycle.
+
+        Bounded work per call:
+          - 3 SQL queries per zone (gate4 divergence rows, last
+            outcome, durability rate).
+          - Each query is per-zone + windowed to 7 days.
+          - No thermostat / no service call reads.
+
+        Values written per zone into `_a1_zone_cache`:
+          - gate4_blind_fraction_7d, gate4_diverge_count_7d
+          - ac_reset_day_count, ac_reset_night_count
+          - ac_reset_last_outcome
+          - durability_rate_full, durability_rate_trunc, sample counts.
+        """
+        if self._db is None:
+            return
+        now = dt_util.now()
+        _7d_ago = (now - timedelta(days=7)).isoformat()
+        _window_s = 7 * 24 * 3600.0
+        today = now.date().isoformat()
+        session_date = self._night_session_date(now)
+        for zone_id in list(self._zone_manager.zones.keys()):
+            _entry: dict = {}
+            # 1. Gate 4 divergence — pair edge-triggered rows to sum
+            #    time in diverge state, divide by 7-day window.
+            try:
+                rows = await self._db.get_gate4_divergence_rows_7d(
+                    zone_id, _7d_ago,
+                )
+            except Exception:  # noqa: BLE001
+                rows = []
+            diverge_time_s = 0.0
+            diverge_count = 0
+            _cur_diverge_start: datetime | None = None
+            for ts_iso, notes in rows:
+                _is_diverge = "direction=legacy" in (notes or "") and "diverge" not in (
+                    notes or ""
+                ) or "direction=legacy_" in (notes or "")
+                # A "diverge" transition row has notes containing
+                # `direction=legacy_veto_new_proceed` or
+                # `direction=legacy_proceed_new_veto`; the "agree"
+                # transition has `direction=agree`. Parse honestly.
+                _is_diverge = (
+                    "direction=legacy_veto_new_proceed" in (notes or "")
+                    or "direction=legacy_proceed_new_veto" in (notes or "")
+                )
+                try:
+                    _ts = datetime.fromisoformat(ts_iso)
+                except (ValueError, TypeError):
+                    continue
+                if _is_diverge:
+                    if _cur_diverge_start is None:
+                        _cur_diverge_start = _ts
+                        diverge_count += 1
+                else:
+                    # agree transition — closes an open diverge span
+                    if _cur_diverge_start is not None:
+                        diverge_time_s += (_ts - _cur_diverge_start).total_seconds()
+                        _cur_diverge_start = None
+            # If we ended in a diverge state, count time up to now.
+            if _cur_diverge_start is not None:
+                diverge_time_s += (now - _cur_diverge_start).total_seconds()
+            _entry["gate4_blind_fraction_7d"] = (
+                round(diverge_time_s / _window_s, 6)
+                if _window_s > 0 else 0.0
+            )
+            _entry["gate4_diverge_count_7d"] = diverge_count
+            _entry["gate4_diverge_time_s_7d"] = int(diverge_time_s)
+            # Correction 3 (2026-08-22 fix-up ruling): also expose a
+            # HIGH-DRAW-DENOMINATED blind fraction so the sensor is
+            # comparable to the pre-fix baseline that the operator
+            # measured externally (zone_1 12.2%, zone_2 7.1%,
+            # zone_3 12.9%). "High draw" = time the ac_load_sensor
+            # was at or above AC_ACTIVELY_COOLING_KW_MIN over the same
+            # 7-day window. Bounded per-zone recorder query, once per
+            # 5-min cycle. Absent recorder / absent sensor -> None
+            # (honest UNBOUND rather than a misleading zero).
+            _high_draw_s = await self._high_draw_time_s_7d(
+                self._zone_manager.zones.get(zone_id), now,
+            )
+            _entry["gate4_high_draw_time_s_7d"] = _high_draw_s
+            if _high_draw_s and _high_draw_s > 0:
+                _entry["gate4_blind_fraction_high_draw_7d"] = round(
+                    diverge_time_s / _high_draw_s, 6,
+                )
+            else:
+                _entry["gate4_blind_fraction_high_draw_7d"] = None
+
+            # 2. Reset counts — read persistent state (today + session).
+            try:
+                _st_today = await self._db.get_ac_reset_state(zone_id, today)
+                _entry["ac_reset_day_count"] = int(
+                    _st_today.get("day_reset_count", 0) or 0
+                )
+                if session_date == today:
+                    _entry["ac_reset_night_count"] = int(
+                        _st_today.get("night_reset_count", 0) or 0
+                    )
+                else:
+                    _st_sess = await self._db.get_ac_reset_state(
+                        zone_id, session_date,
+                    )
+                    _entry["ac_reset_night_count"] = int(
+                        _st_sess.get("night_reset_count", 0) or 0
+                    )
+            except Exception:  # noqa: BLE001
+                _entry["ac_reset_day_count"] = 0
+                _entry["ac_reset_night_count"] = 0
+
+            # 3. Last outcome.
+            try:
+                _entry["ac_reset_last_outcome"] = (
+                    await self._db.get_last_reset_outcome_for_zone(zone_id)
+                )
+            except Exception:  # noqa: BLE001
+                _entry["ac_reset_last_outcome"] = None
+
+            # 4. Durability rate — full and truncated kept SEPARATE
+            #    per operator directive (do not re-flatten F5's
+            #    truncated-vs-full distinction).
+            try:
+                _fo, _ft, _to, _tt = (
+                    await self._db.get_durability_rate_for_zone(
+                        zone_id, _7d_ago,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                _fo = _ft = _to = _tt = 0
+            _entry["durability_rate_full"] = (
+                round(_fo / _ft, 4) if _ft > 0 else None
+            )
+            _entry["durability_rate_trunc"] = (
+                round(_to / _tt, 4) if _tt > 0 else None
+            )
+            _entry["durability_full_sample_size"] = _ft
+            _entry["durability_trunc_sample_size"] = _tt
+
+            self._a1_zone_cache[zone_id] = _entry
+
     async def _refresh_impact_cache(self) -> None:
         """v4.5.12 D8: pull house-wide aggregates from DB once per
         decision cycle. Sensors read the cache sync.
@@ -1279,6 +1585,320 @@ class OverrideArrester:
     def set_hard_reset_min_interval(self, value: int) -> None:
         self._hard_reset_min_interval_min = int(value)
 
+    # =========================================================================
+    # AC-RAMP-PIPELINE-HARDENING-1 — new live-tunable setters
+    # Called by Number/Select entities on operator change AND by the CM
+    # options-flow listener on options-flow save (form-path). All are
+    # write-through-only — no side effects on in-flight nudges.
+    # =========================================================================
+
+    def set_gate4_predicate_mode(self, value: str) -> None:
+        """Select values: legacy | shadow | live. Kill-switch = legacy."""
+        v = str(value).lower()
+        if v not in HVAC_AC_GATE4_MODES:
+            _LOGGER.warning("Rejecting invalid gate4_predicate_mode: %r", v)
+            return
+        self._gate4_predicate_mode = v
+        _LOGGER.info("Gate4 predicate mode -> %s", v)
+
+    def set_durability_window(self, value: int) -> None:
+        self._durability_window_min = max(1, int(value))
+
+    def set_soft_nudge_daily_limit(self, value: int) -> None:
+        self._soft_nudge_daily_limit = max(0, int(value))
+
+    def set_reset_day_budget(self, value: int) -> None:
+        self._reset_day_budget = max(0, int(value))
+
+    def set_reset_night_budget(self, value: int) -> None:
+        self._reset_night_budget = max(0, int(value))
+
+    def set_night_start_hhmm(self, value: str) -> None:
+        self._night_start_hhmm = str(value)
+
+    def set_night_end_hhmm(self, value: str) -> None:
+        self._night_end_hhmm = str(value)
+
+    def set_ac_reset_off_duration(self, value: int) -> None:
+        # Range guard mirrors the Number entity (30-300).
+        v = int(value)
+        if v < 30 or v > 300:
+            _LOGGER.warning("Rejecting out-of-range ac_reset_off_duration=%s", v)
+            return
+        self._ac_reset_off_duration_s = v
+
+    # -------------------------------------------------------------------------
+    # D-GATE4 — draw-based Gate 4 predicate + shadow divergence latch
+    # -------------------------------------------------------------------------
+
+    def _zone_is_actively_cooling(self, zone, now: datetime) -> bool:
+        """Return True iff the zone is *actually* cooling right now.
+
+        Trust ladder (see plan §3-D-GATE4):
+          1. CONFIG guard on `zone.hvac_mode` — must be a cooling-capable
+             config. Frozen `""` (pre-first-poll) and stale `unavailable`
+             are fail-closed. Basis: `hvac_mode` is the same-poll sibling
+             of `hvac_action` but its underlying value only changes on
+             seasonal operator action, so a frozen last-known value is
+             overwhelmingly likely to be correct; `hvac_action` changes
+             tick-to-tick and its frozen value is a lie about now.
+          2. SPAN draw via `_read_kwh_rate` — inherits its 10-min
+             staleness gate and W→kW unit-normalisation. Fail-closed on
+             None (stale, unknown, unavailable, unparseable).
+          3. Optional blower_rpm CORROBORATION (not a veto). If step 2
+             passes, corroboration is not required. If step 2 fails,
+             blower cannot rescue.
+
+        NOTE (safety): safe under `heat_cool` in this deployment because
+        heating is gas-fired; the AC circuit draw cannot rise during a
+        heating cycle (measured 2026-01-10 → 2026-01-25: zero
+        simultaneous furnace-draw + AC-draw hours across 360 h). A
+        future change to heat-pump heating REOPENS this concern.
+        """
+        # Step 1: hvac_mode config guard (frozen-tolerant, fail-closed).
+        mode = (
+            (zone.hvac_mode or "") if isinstance(zone.hvac_mode, str)
+            else ""
+        )
+        if mode not in ("cool", "heat_cool", "auto"):
+            return False
+
+        # Step 2: SPAN draw (fail-closed on None — stale = not trusted).
+        # F10 fix-up (2026-08-22): pass warn=False so the shadow-mode
+        # per-tick predicate does not consume the 6-hour stale-warning
+        # rate-limit token on ticks the legacy Gate 4 would have
+        # skipped (legacy uses cloud hvac_action, never touches the
+        # SPAN sensor). Without this, shadow suppresses the real
+        # Gate-7 stale-SPAN warning for 6h whenever the SPAN sensor
+        # goes stale.
+        try:
+            kw = self._read_kwh_rate(zone, now, warn=False)
+        except Exception:  # noqa: BLE001 — defensive
+            return False
+        if kw is None:
+            return False
+        if kw < AC_ACTIVELY_COOLING_KW_MIN:
+            return False
+        return True
+
+    def _gate4_legacy_predicate(self, zone) -> bool:
+        """Original cloud-reported Gate 4 body (kept live under legacy /
+        shadow modes)."""
+        return zone.hvac_action == "cooling"
+
+    def _maybe_write_gate4_divergence(
+        self, zone_id: str, legacy_ok: bool, new_ok: bool,
+    ) -> None:
+        """LATCHED writer: one row per agree↔diverge transition per
+        zone. See plan B-H7 — a per-tick writer would burn 50-100
+        rows/day of blind-episode noise into ac_ramp_events.
+        """
+        prev = self._gate4_divergence_state.get(zone_id)
+        current = "agree" if legacy_ok == new_ok else "diverge"
+        if prev == current:
+            return
+        # First observation (None -> agree|diverge) establishes the
+        # latch WITHOUT writing — otherwise every boot burns a row per
+        # zone. Transitions AFTER establishment write one row.
+        self._gate4_divergence_state[zone_id] = current
+        if prev is None:
+            return
+        if self._db is None:
+            return
+        if current == "diverge":
+            direction = (
+                "legacy_veto_new_proceed" if (not legacy_ok and new_ok)
+                else "legacy_proceed_new_veto"
+            )
+            notes = f"direction={direction};legacy={int(legacy_ok)};new={int(new_ok)}"
+        else:
+            notes = "direction=agree"
+        # F20 fix-up (2026-08-22): track this background task so it
+        # doesn't dangle if teardown fires before it completes, and so
+        # a runaway can be observed rather than silently swallowed.
+        _task = self.hass.async_create_task(
+            self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_GATE4_DIVERGENCE_SHADOW,
+                notes=notes,
+            )
+        )
+        if not hasattr(self, "_gate4_divergence_tasks"):
+            self._gate4_divergence_tasks = set()
+        self._gate4_divergence_tasks.add(_task)
+        _task.add_done_callback(self._gate4_divergence_tasks.discard)
+
+    def _gate4_is_ok(self, zone, now: datetime) -> bool:
+        """Return the Gate-4 verdict per the currently-selected mode.
+
+        - legacy: cloud-reported hvac_action ONLY.
+        - shadow: cloud-reported decides; new predicate computed and
+          logged on transition (byte-identical decision to legacy).
+        - live: new predicate decides.
+        """
+        mode = self._gate4_predicate_mode
+        legacy_ok = self._gate4_legacy_predicate(zone)
+        if mode == HVAC_AC_GATE4_MODE_LEGACY:
+            return legacy_ok
+        # Compute new predicate for both shadow and live.
+        new_ok = self._zone_is_actively_cooling(zone, now)
+        if mode == HVAC_AC_GATE4_MODE_SHADOW:
+            self._maybe_write_gate4_divergence(
+                zone.zone_id, legacy_ok, new_ok,
+            )
+            return legacy_ok
+        # live
+        return new_ok
+
+    # -------------------------------------------------------------------------
+    # D-PARTITION — day/night helpers + partition check + declined writer
+    # -------------------------------------------------------------------------
+
+    def _parse_hhmm(self, raw: str) -> tuple[int, int] | None:
+        try:
+            hh, mm = str(raw).split(":", 1)
+            h, m = int(hh), int(mm)
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                return None
+            return h, m
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _is_night_now(self, now: datetime) -> bool:
+        """Wrap-around wall-clock helper. Fail-CLOSED to day on garbage
+        (day is the smaller budget in the operator's ruling)."""
+        start = self._parse_hhmm(self._night_start_hhmm)
+        end = self._parse_hhmm(self._night_end_hhmm)
+        if start is None or end is None:
+            return False
+        start_min = start[0] * 60 + start[1]
+        end_min = end[0] * 60 + end[1]
+        now_min = now.hour * 60 + now.minute
+        if start_min == end_min:
+            return False
+        if start_min > end_min:
+            # Wrap-around (e.g. 22:00 -> 06:00)
+            return now_min >= start_min or now_min < end_min
+        return start_min <= now_min < end_min
+
+    def _night_session_date(self, now: datetime) -> str:
+        """The night bucket key. A reset at 23:30 (D) and 00:30 (D+1)
+        must charge the SAME night row — otherwise `night_budget=1`
+        fires twice around midnight because the second reset reads a
+        fresh row. Rule: night session = `now.date()` if
+        `now.time() >= night_end` else `now.date() - 1`.
+        """
+        end = self._parse_hhmm(self._night_end_hhmm)
+        if end is None:
+            return now.date().isoformat()
+        end_min = end[0] * 60 + end[1]
+        now_min = now.hour * 60 + now.minute
+        if now_min >= end_min:
+            return now.date().isoformat()
+        return (now.date() - timedelta(days=1)).isoformat()
+
+    async def _maybe_write_declined(
+        self, zone_id: str, reason: str, now: datetime,
+    ) -> None:
+        """D8: edge-triggered `hard_reset_declined` row writer. Same
+        (zone_id, reason) cannot re-log within
+        AC_RESET_DECLINED_MIN_INTERVAL_S — the v4.7.33 write-flood
+        incident forbids level-triggered ledger writes."""
+        if self._db is None:
+            return
+        prev = self._last_declined.get(zone_id)
+        if prev is not None:
+            prev_reason, prev_ts = prev
+            if prev_reason == reason:
+                try:
+                    age = (now - prev_ts).total_seconds()
+                except Exception:  # noqa: BLE001
+                    age = AC_RESET_DECLINED_MIN_INTERVAL_S + 1
+                if age < AC_RESET_DECLINED_MIN_INTERVAL_S:
+                    return
+        self._last_declined[zone_id] = (reason, now)
+        try:
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_HARD_RESET_DECLINED,
+                notes=f"reason={reason}",
+            )
+        except Exception as _e:  # noqa: BLE001 — defensive
+            _LOGGER.debug("declined-row write failed for %s: %s",
+                          zone_id, _e)
+
+    def _gate_partition_check(
+        self, zone_id: str, now: datetime, state: dict,
+        night_state: dict | None = None,
+    ) -> tuple[bool, str, str]:
+        """A-C2 fix. Runs BEFORE Gate A inside
+        `_perform_hard_reset_escalation`. Returns
+        `(ok, partition_name, reason)`. On denial the caller writes a
+        `hard_reset_declined` row and returns WITHOUT engaging lockout —
+        lockout is reserved for the ineffective-nudge classifier verdict
+        AND the true-cap fallback, never for a partition-only denial.
+
+        F1 (fix-up 2026-08-22): night counters live in a row keyed by
+        SESSION-DATE, not calendar date. `state` is the row keyed by
+        today; `night_state` is the row keyed by the current night's
+        session_date (which equals today for the pre-midnight leg of a
+        session). When `night_state` is None (legacy caller / day-only
+        decision) we fall back to reading night columns from `state` —
+        which yields the pre-fix behaviour but only during the
+        pre-midnight leg. Post-midnight, the correct night counter now
+        addresses the prior-day's session row via `night_state`, so a
+        reset at 22:10 and again at 00:35 charge the SAME night bucket.
+        """
+        is_night = self._is_night_now(now)
+        partition = "night" if is_night else "day"
+        if partition == "night":
+            session_date = self._night_session_date(now)
+            night_row = night_state if night_state is not None else state
+            # Auto-reconcile the persisted `night_session_date` on the
+            # night row (guards a fresh row that just came back with 0).
+            if night_row.get("night_session_date") != session_date:
+                night_row["night_session_date"] = session_date
+                night_row["night_reset_count"] = 0
+            budget = int(self._reset_night_budget)
+            used = int(night_row.get("night_reset_count", 0) or 0)
+            reason = AC_RESET_DECLINED_NIGHT_BUDGET
+        else:
+            # Day bucket keys on `state["date"]` (today). If the row is
+            # from a prior day, the day counter should read 0 (the
+            # today-only read guarantees that).
+            budget = int(self._reset_day_budget)
+            used = int(state.get("day_reset_count", 0) or 0)
+            reason = AC_RESET_DECLINED_DAY_BUDGET
+        if used >= budget:
+            return False, partition, reason
+        return True, partition, ""
+
+    def _increment_partition_counter(
+        self, state: dict, now: datetime,
+        night_state: dict | None = None,
+    ) -> str:
+        """Increment the partition counter matching `now` and return the
+        partition name. Called BEFORE `_perform_ac_reset` so a failed
+        off-call still charges budget (fail-closed compressor
+        protection).
+
+        F1 (fix-up): if `night_state` is provided, the night counter is
+        incremented on that (session-keyed) row rather than `state`.
+        Caller is responsible for persisting whichever row(s) it
+        actually modified (see `_perform_hard_reset_escalation`).
+        """
+        is_night = self._is_night_now(now)
+        if is_night:
+            session_date = self._night_session_date(now)
+            night_row = night_state if night_state is not None else state
+            night_row["night_session_date"] = session_date
+            night_row["night_reset_count"] = (
+                int(night_row.get("night_reset_count", 0) or 0) + 1
+            )
+            return "night"
+        state["day_reset_count"] = int(state.get("day_reset_count", 0) or 0) + 1
+        return "day"
+
     def has_active_ac_reset(self, zone_id: str) -> bool:
         """Check if a zone is mid-AC-reset (intentionally off)."""
         return zone_id in self._reset_timers
@@ -1457,7 +2077,54 @@ class OverrideArrester:
         for cancel in self._nudge_settled_timers.values():
             cancel()
         self._nudge_settled_timers.clear()
+        # AC-RAMP-PIPELINE-HARDENING-1: cancel-safe teardown for the
+        # D-SCORE durability timers and the D6 reset-outcome timers.
+        # In-flight callbacks are DROPPED (no write) — the row lives on
+        # disk with the column NULL, correctly attributed as "measurement
+        # lost across restart" per plan §9.
+        for cancel in self._durable_timers.values():
+            try:
+                cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._durable_timers.clear()
+        self._durable_pending.clear()
+        # F5 (revised): clear the running-max tracker on teardown so a
+        # torn-down arrester doesn't leak stale window state on next
+        # setup.
+        if hasattr(self, "_nudge_running_max_kw"):
+            self._nudge_running_max_kw.clear()
+        for cancel in self._reset_outcome_timers.values():
+            try:
+                cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._reset_outcome_timers.clear()
+        # F6 fix-up: teardown for the second (kW) settle timer registry.
+        if hasattr(self, "_reset_outcome_kw_timers"):
+            for cancel in self._reset_outcome_kw_timers.values():
+                try:
+                    cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._reset_outcome_kw_timers.clear()
+        self._reset_outcome_pending.clear()
         self._nudge_in_flight.clear()
+
+        # F12 fix-up (2026-08-22): clear the hard-reset completed event
+        # id stash — every other new dict is cleared on teardown, this
+        # one was missed.
+        if hasattr(self, "_hard_reset_completed_event_ids"):
+            self._hard_reset_completed_event_ids.clear()
+        # F20 fix-up: cancel any in-flight background divergence-log
+        # tasks so a torn-down arrester doesn't leak them.
+        if hasattr(self, "_gate4_divergence_tasks"):
+            for _t in list(self._gate4_divergence_tasks):
+                try:
+                    _t.cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._gate4_divergence_tasks.clear()
 
         # F5 (2026-08-07 fix-up cycle-4): cancel any pending deferred-
         # sunset async_call_later so a late-fire cannot land on a torn-
@@ -2775,8 +3442,16 @@ class OverrideArrester:
                 zone.ramp_state = AC_RAMP_STATE_DISABLED
                 continue
 
-            # Gate 4: cooling action + valid temps
-            if zone.hvac_action != "cooling":
+            # Gate 4 (AC-RAMP-PIPELINE-HARDENING-1 D-GATE4): draw-based
+            # predicate replaces the cloud-reported hvac_action veto.
+            # Under `legacy` the pre-cycle body is restored verbatim;
+            # under `shadow` (default on first boot) the legacy verdict
+            # decides but divergence is LATCHED-logged; under `live` the
+            # new predicate decides. The three state-clearing statements
+            # MUST stay in the False branch — removing them collapses
+            # Gate 7's consecutive-sample counter and Gate 8's
+            # sustained-time guard on the next cooling cycle (B-H1).
+            if not self._gate4_is_ok(zone, now):
                 zone.last_overshoot_started = ""
                 zone.kwh_samples_above_threshold = 0
                 if zone_id not in self._nudge_in_flight:
@@ -2790,6 +3465,33 @@ class OverrideArrester:
                 state = await self._db.get_ac_reset_state(zone_id)
                 if state.get("lockout_flag"):
                     zone.ramp_state = AC_RAMP_STATE_LOCKED_OUT
+                    continue
+
+                # Gate 5b (AC-RAMP-PIPELINE-HARDENING-1 D3): soft-nudge
+                # daily cap runaway guard. Applies to the AUTO path only
+                # (this is the AUTO entry); the manual `force_nudge`
+                # button bypasses by design. Kill-switch semantics:
+                # limit=0 disables the check.
+                if (
+                    self._soft_nudge_daily_limit > 0
+                    and int(state.get("soft_nudge_count", 0) or 0)
+                    >= self._soft_nudge_daily_limit
+                ):
+                    # F11 fix-up (2026-08-22): a partition/budget denial
+                    # is NOT a lockout; report IDLE and write a
+                    # declined-row entry (edge-triggered). Also guard
+                    # with the sibling in-flight check every other Gate
+                    # carries — otherwise this branch would stomp
+                    # in-flight nudge sensor state.
+                    if zone_id not in self._nudge_in_flight:
+                        zone.ramp_state = AC_RAMP_STATE_IDLE
+                    _LOGGER.info(
+                        "soft_nudge_daily_limit_reached zone=%s count=%d",
+                        zone_id, int(state.get("soft_nudge_count", 0) or 0),
+                    )
+                    await self._maybe_write_declined(
+                        zone_id, "soft_nudge_daily_limit", now,
+                    )
                     continue
 
             # Gate 6: overshoot — current at-or-below target setpoint.
@@ -2820,6 +3522,17 @@ class OverrideArrester:
             # Update live attrs for D7 sensor exposure
             zone.last_kwh_rate = kwh_rate
             zone.last_kwh_rate_ts = now.isoformat()
+
+            # F5 (revised): if a durability window is armed for this
+            # zone, grow the running max. Sampled at the 5-min tick
+            # cadence — the truncated verdict is an INTERVAL check
+            # (did it hold across the elapsed period), not an
+            # instantaneous point. Full-window fire still uses the
+            # instantaneous read at fire time.
+            if zone_id in self._durable_pending:
+                _prev_max = self._nudge_running_max_kw.get(zone_id, 0.0) or 0.0
+                if kwh_rate > _prev_max:
+                    self._nudge_running_max_kw[zone_id] = float(kwh_rate)
 
             # Gate 7: debounce — N consecutive samples > zone-specific threshold
             if kwh_rate > zone.kwh_rate_threshold:
@@ -2867,6 +3580,10 @@ class OverrideArrester:
         # the zone-iteration so any actions that fired this tick are
         # reflected in the next sensor read.
         await self._refresh_impact_cache()
+        # A1 fix-up (2026-08-22): per-zone diagnostic refresh alongside
+        # the house-wide impact refresh. Same cadence (5 min), same
+        # Bug Class #26 compliance (sensors read the cache sync).
+        await self._refresh_a1_cache()
 
     async def _perform_ac_reset(self, zone: ZoneState) -> None:
         """Perform AC reset: off -> wait -> restore mode."""
@@ -2918,19 +3635,70 @@ class OverrideArrester:
                 self._restore_after_reset(zone, original_mode, original_preset)
             )
 
+        # D7: use the runtime knob instead of the module constant so
+        # operator-tuned off-durations take effect without redeploy.
+        _off_duration_s = int(self._ac_reset_off_duration_s)
         self._reset_timers[zone_id] = async_call_later(
             self.hass,
-            AC_RESET_OFF_DURATION_SECONDS,
+            _off_duration_s,
             _on_reset_fire,
         )
 
-        # NM alert
+        # D8 NM alert repair: partition-aware wording. The old string
+        # said "#N/2 today" — misleading under partitioned budgets
+        # because it hid the day/night split. New shape names the
+        # partition and the partition budget, plus the day+night total
+        # + total budget.
+        _now_local = dt_util.now()
+        _partition = "night" if self._is_night_now(_now_local) else "day"
+        if _partition == "night":
+            _used = 0
+            _budget = int(self._reset_night_budget)
+        else:
+            _used = 0
+            _budget = int(self._reset_day_budget)
+        if self._db is not None:
+            try:
+                _state_for_msg = await self._db.get_ac_reset_state(zone_id)
+                # F1 fix-up: night count lives in the session-keyed row
+                # when the night session crossed midnight; fetch it
+                # explicitly rather than reading whatever happens to be
+                # on today's row.
+                _sess = self._night_session_date(_now_local)
+                _today = _state_for_msg.get("date") or _now_local.date().isoformat()
+                if _sess != _today:
+                    _night_for_msg = await self._db.get_ac_reset_state(
+                        zone_id, _sess,
+                    )
+                    _night = int(
+                        _night_for_msg.get("night_reset_count", 0) or 0
+                    )
+                else:
+                    _night = int(
+                        _state_for_msg.get("night_reset_count", 0) or 0
+                    )
+                _day = int(_state_for_msg.get("day_reset_count", 0) or 0)
+                if _partition == "night":
+                    _used = _night
+                else:
+                    _used = _day
+            except Exception:  # noqa: BLE001 — defensive
+                _day = 0
+                _night = 0
+        else:
+            _day = 0
+            _night = 0
+        _total_budget = (
+            int(self._reset_day_budget) + int(self._reset_night_budget)
+        )
         await self._send_nm_alert(
             title=f"AC Reset: {zone.zone_name}",
             message=(
                 f"Stuck {original_action} cycle detected — "
-                f"cycling off for {AC_RESET_OFF_DURATION_SECONDS}s then restoring "
-                f"{restore_target}. Reset #{zone.ac_reset_count_today}/{AC_RESET_MAX_PER_DAY} today."
+                f"cycling off for {_off_duration_s}s then restoring "
+                f"{restore_target}. Reset #{_used}/{_budget} ({_partition}). "
+                f"Total today: {_day + _night} across {_total_budget} "
+                f"({_day}/day + {_night}/night)."
             ),
             severity="high",
         )
@@ -3015,6 +3783,13 @@ class OverrideArrester:
                     )
                     # Don't schedule next retry after a failed service call
                     self._verify_tasks.pop(zone_id, None)
+                    # F12 fix-up (2026-08-22): pop the stashed event_id
+                    # here too. Without this, a LATER reset would
+                    # inherit the previous reset's completed event_id
+                    # and its restore_ok back-fill would land on the
+                    # wrong row.
+                    if hasattr(self, "_hard_reset_completed_event_ids"):
+                        self._hard_reset_completed_event_ids.pop(zone_id, None)
                     return
                 # Schedule next verification
                 next_task = self.hass.async_create_task(_verify_restore(attempt + 1))
@@ -3026,6 +3801,8 @@ class OverrideArrester:
                     zone_name, target_mode, actual_mode,
                 )
                 self._verify_tasks.pop(zone_id, None)
+                # D5-B: back-fill restore_ok=0 on the completed row.
+                await self._backfill_restore_ok(zone_id, False)
                 # Send NM critical alert for failed restore
                 await self._send_nm_alert(
                     title=f"AC Reset FAILED: {zone_name}",
@@ -3052,6 +3829,16 @@ class OverrideArrester:
                 # Unopinionated: restore what was FOUND, including 'manual'.
                 # Fail-soft: a failure here MUST NOT break the mode/setpoint
                 # restore that already succeeded.
+                #
+                # F9 fix-up (2026-08-22): track preset-restore success
+                # SEPARATELY from mode-restore. Pre-fix, a swallowed
+                # preset failure fell through to unconditional
+                # `_backfill_restore_ok(True)` — misreporting a lockout-
+                # condition failure (the v5.88.1 defect this cycle
+                # exists to fix) as a full success. combined restore_ok
+                # is now mode_ok AND preset_ok.
+                _mode_ok = True  # branch is the success branch of mode verify
+                _preset_ok: bool = True
                 if original_preset:
                     self.suppress(climate_entity, kind="preset")
                     try:
@@ -3076,6 +3863,15 @@ class OverrideArrester:
                             "restore succeeded, preset left as-is",
                             zone_name, original_preset, _pexc,
                         )
+                        _preset_ok = False
+                # D5-B: back-fill restore_ok on the completed row.
+                # F9: combined restore_ok reflects the AND of mode-ok
+                # AND preset-ok. Also record preset_restore_ok as its
+                # own signal so downstream analytics can discriminate.
+                _combined_ok = bool(_mode_ok and _preset_ok)
+                await self._backfill_restore_ok(
+                    zone_id, _combined_ok, preset_ok=_preset_ok,
+                )
 
         # Cancel any existing verify task for this zone before starting a new one
         existing_task = self._verify_tasks.get(zone_id)
@@ -3098,12 +3894,40 @@ class OverrideArrester:
                 zone_for_track, AC_RAMP_EVENT_HARD_RESET_COMPLETED, "auto",
             )
         if self._db is not None:
-            await self._db.log_ac_ramp_event(
+            # D5-B: enrich `hard_reset_completed` telemetry with post-
+            # restore preset/mode + current temp. `restore_ok` starts
+            # NULL — the delayed `_verify_restore` back-fills it via
+            # `update_ac_ramp_event_fields` on its terminal branches.
+            _post_preset: str | None = None
+            _post_mode: str | None = None
+            try:
+                _cs_post = self.hass.states.get(climate_entity)
+                if _cs_post is not None:
+                    _post_preset = _cs_post.attributes.get(
+                        "preset_mode", "",
+                    ) or ""
+                    _post_mode = _cs_post.state
+            except Exception:  # noqa: BLE001
+                pass
+            completed_event_id = await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_HARD_RESET_COMPLETED,
                 target_high=zone.target_temp_high,
+                current_temp=zone.current_temperature,
+                preset_after=_post_preset,
+                mode_after=_post_mode,
+                restore_ok=None,
                 action_taken=f"restored_mode={target_mode}",
             )
+            # Bridge `_verify_restore` -> completed row: stash the
+            # event_id on the coordinator so its terminal branches can
+            # back-fill `restore_ok` via update_ac_ramp_event_fields.
+            if not hasattr(self, "_hard_reset_completed_event_ids"):
+                self._hard_reset_completed_event_ids = {}
+            if completed_event_id is not None:
+                self._hard_reset_completed_event_ids[zone_id] = completed_event_id
+            # D6: schedule the reset-outcome delayed callback.
+            self._schedule_reset_outcome(zone, completed_event_id)
         zone.ramp_state = AC_RAMP_STATE_IDLE
 
     # =========================================================================
@@ -3111,7 +3935,7 @@ class OverrideArrester:
     # =========================================================================
 
     def _read_kwh_rate(
-        self, zone: ZoneState, now: datetime,
+        self, zone: ZoneState, now: datetime, *, warn: bool = True,
     ) -> float | None:
         """Read kW from configured ac_load_sensor with staleness check.
 
@@ -3136,7 +3960,11 @@ class OverrideArrester:
             except (TypeError, ValueError):
                 age_s = 0.0
             if age_s > AC_KWH_SENSOR_STALENESS_S:
-                self._maybe_warn_stale(zone, age_s, now)
+                # F10 fix-up: warn=False callers (shadow Gate 4) skip
+                # the rate-limit token consumption so the real Gate-7
+                # stale warning is not suppressed for 6h.
+                if warn:
+                    self._maybe_warn_stale(zone, age_s, now)
                 return None
         raw = state.state
         if raw in (None, "unknown", "unavailable", ""):
@@ -3146,6 +3974,15 @@ class OverrideArrester:
         except (ValueError, TypeError):
             return None
         unit = (state.attributes.get("unit_of_measurement") or "").lower()
+        # F7 fix-up (2026-08-22): reject cumulative kWh sensors. config_flow
+        # advertises the field as "kW or kWh", so a monotonic counter
+        # is a legal configuration; without this check the counter would
+        # cross the 0.5 kW floor exactly once and never return, making
+        # Gate 4 a permanent no-op under LIVE mode. Plan §3-D-GATE4
+        # step 3 requires fail-CLOSED (return None) so the predicate
+        # denies rather than misdecides.
+        if unit in ("kwh", "kw h", "kw-h", "kw·h", "wh", "watt-hour", "watt hour"):
+            return None
         if unit in ("w", "watt", "watts"):
             value = value / 1000.0
         return value
@@ -3223,6 +4060,13 @@ class OverrideArrester:
         zone_id = zone.zone_id
         if zone.target_temp_high is None:
             return
+        # F21 fix-up (2026-08-22): the D-SCORE re-nudge early-fire was
+        # previously invoked here at method ENTRY, before the wire
+        # write could abort. A failed emit_set_temperature that early-
+        # exits would then have truncated the PREVIOUS nudge's
+        # durability record even though no re-nudge actually happened.
+        # Moved past the wire-write success point below (search for
+        # "F21: fire truncated durable HERE").
         original_target = float(zone.target_temp_high)
         new_target = original_target + self._nudge_size_f
         duration_s = self._nudge_duration_min * 60
@@ -3349,6 +4193,48 @@ class OverrideArrester:
             # eventually land via re-emit. Preserving that; CM will
             # auto-release the excursion since mark_committed was
             # skipped, so the row does not linger.
+
+        # F21: fire truncated durable HERE — the wire write above has
+        # either landed OR set legacy behaviour (comfort-grace defer
+        # is expected to eventually land via re-emit, so we still
+        # legitimately count this as a re-nudge for the prior cycle).
+        # A hard emit failure returned early above, so we won't reach
+        # this point in that case.
+        try:
+            self._maybe_fire_durable_early(zone_id)
+        except Exception as _e:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "_maybe_fire_durable_early failed for %s: %s", zone_id, _e,
+            )
+
+        # 2026-08-23 fix-up (F8 REVERSED): cancel any pending settled-
+        # sample timer for this zone from a PRIOR nudge, and back-fill
+        # its `nudge_restored` row with restore_ok=NULL + reason
+        # cancelled_by_renudge so the sample cannot read state that
+        # belongs to the next nudge. Operator directive: without this
+        # the settle reads the +°F setpoint + `manual` preset that the
+        # next nudge just installed, which is not the previous nudge's
+        # restore outcome.
+        _pending_settle = self._nudge_settled_timers.pop(zone_id, None)
+        if _pending_settle is not None:
+            try:
+                _pending_settle()
+            except Exception:  # noqa: BLE001 — defensive
+                pass
+            if self._db is not None:
+                try:
+                    await self._db.update_ac_ramp_restore_settled(
+                        zone_id=zone_id,
+                        preset_settled=None,
+                        mode_settled=None,
+                        restore_ok=None,
+                        settled_reason=AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE,
+                    )
+                except Exception as _e:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "settled cancel-write failed on %s: %s",
+                        zone_id, _e,
+                    )
 
         self._nudge_in_flight.add(zone_id)
         zone.ramp_state = AC_RAMP_STATE_NUDGING
@@ -3572,10 +4458,27 @@ class OverrideArrester:
             async def _write_settled(_now, _zid=zone_id,
                                      _entity=zone.climate_entity,
                                      _intent=_intent_preset) -> None:
-                # Passive re-read + UPDATE only. Issues no service call,
-                # touches no thermostat, adds no await into the restore
-                # path — it runs after the setpoint/preset race has fully
-                # resolved (or not).
+                # F8 REVERSED (2026-08-23 fix-up): re-enabled real
+                # measurement after operator re-measured the vendor
+                # cadence. Climate entities actually refresh every
+                # 42-79 s (median) — not every 30 min. The 3-min
+                # AC_NUDGE_RESTORE_SETTLE_DELAY_S sample lands past
+                # the refresh envelope and inside the 25-min nudge
+                # cadence.
+                #
+                # Passive re-read + UPDATE only. Issues no service
+                # call, touches no thermostat, adds no await into
+                # the restore path. Verdict rules mirror the
+                # immediate sample (three-valued):
+                #   intent empty            -> NULL (no intent).
+                #   entity missing / attrs  -> NULL + reason
+                #                              entity_missing_at_settle.
+                #   preset_settled == intent -> True.
+                #   preset_settled != intent -> False (the defect
+                #     this exists to measure: real-preset restore
+                #     did not take).
+                # Cancellation on re-nudge writes NULL + reason
+                # cancelled_by_renudge (see _perform_soft_nudge).
                 self._nudge_settled_timers.pop(_zid, None)
                 try:
                     _cs_settled = self.hass.states.get(_entity)
@@ -3583,7 +4486,10 @@ class OverrideArrester:
                     _cs_settled = None
                 _preset_settled: str | None = None
                 _mode_settled: str | None = None
-                if _cs_settled is not None:
+                _reason: str | None = None
+                if _cs_settled is None:
+                    _reason = AC_NUDGE_SETTLED_REASON_ENTITY_MISSING
+                else:
                     _preset_settled = (
                         _cs_settled.attributes.get("preset_mode", "") or ""
                     )
@@ -3602,6 +4508,7 @@ class OverrideArrester:
                             preset_settled=_preset_settled,
                             mode_settled=_mode_settled,
                             restore_ok=_settled_ok,
+                            settled_reason=_reason,
                         )
                     except Exception as _e:  # noqa: BLE001 — defensive
                         _LOGGER.debug(
@@ -3877,7 +4784,7 @@ class OverrideArrester:
                 f"post_mean={'NA' if post_mean is None else f'{post_mean:.2f}'}"
                 f"{rate_field}"
             )
-            await self._db.log_ac_ramp_event(
+            eval_event_id = await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_EVALUATED,
                 current_temp=zone.current_temperature,
@@ -3887,6 +4794,23 @@ class OverrideArrester:
                 effective=effective,
                 notes=notes,
             )
+            # D-SCORE: schedule the delayed durability classifier.
+            # Fires `_durability_window_min` minutes from now and
+            # UPDATEs `durable` / `durable_minutes` onto THIS event_id
+            # (no "UPDATE latest row" race). Truncated early on re-
+            # nudge of the same zone.
+            try:
+                self._schedule_write_durable(
+                    zone=zone,
+                    event_id=eval_event_id,
+                    kwh_rate_before=kwh_rate_before,
+                    restore_dt=now,
+                )
+            except Exception as _e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "_schedule_write_durable failed for %s: %s",
+                    zone_id, _e,
+                )
 
         if escalate:
             zone.ramp_state = AC_RAMP_STATE_ESCALATING
@@ -3900,6 +4824,7 @@ class OverrideArrester:
             )
             await self._perform_hard_reset_escalation(
                 zone, post_min if post_min is not None else 0.0,
+                triggered_by="auto",
             )
         else:
             zone.ramp_state = AC_RAMP_STATE_IDLE
@@ -3922,8 +4847,348 @@ class OverrideArrester:
                     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
                 )
 
+    # -------------------------------------------------------------------------
+    # AC-RAMP-PIPELINE-HARDENING-1 D5-B / D6 back-fill helpers
+    # -------------------------------------------------------------------------
+
+    async def _backfill_restore_ok(
+        self, zone_id: str, ok: bool, *, preset_ok: bool | None = None,
+    ) -> None:
+        """D5-B: back-fill `restore_ok` onto the hard_reset_completed
+        row identified by its stashed event_id.
+
+        F9 fix-up (2026-08-22): optional `preset_ok` records the
+        preset-restore verdict as a distinct column so a swallowed
+        preset failure is not conflated with a full success. `ok`
+        remains the combined (mode AND preset) verdict for backward-
+        compatible readers.
+        """
+        event_id = None
+        if hasattr(self, "_hard_reset_completed_event_ids"):
+            event_id = self._hard_reset_completed_event_ids.pop(zone_id, None)
+        if event_id is None or self._db is None:
+            return
+        _fields: dict = {"restore_ok": ok}
+        if preset_ok is not None:
+            _fields["preset_restore_ok"] = preset_ok
+        try:
+            await self._db.update_ac_ramp_event_fields(
+                event_id, **_fields,
+            )
+        except Exception as _e:  # noqa: BLE001
+            _LOGGER.debug(
+                "backfill_restore_ok failed for zone=%s event_id=%s: %s",
+                zone_id, event_id, _e,
+            )
+
+    def _schedule_reset_outcome(
+        self, zone: ZoneState, completed_event_id: int | None,
+    ) -> None:
+        """D6: schedule the reset-outcome passive re-read
+        `AC_RESET_OUTCOME_SETTLE_S` seconds after
+        `_restore_after_reset` returns. Silent no-op if there is no
+        pending started-row context (aborts / setter-driven restore)."""
+        zone_id = zone.zone_id
+        pending = self._reset_outcome_pending.pop(zone_id, None)
+        if pending is None or completed_event_id is None:
+            return
+
+        # Cancel any prior in-flight outcome timer for this zone.
+        prev = self._reset_outcome_timers.pop(zone_id, None)
+        if prev is not None:
+            try:
+                prev()
+            except Exception:  # noqa: BLE001
+                pass
+
+        _target_high = pending.get("target_high")
+        # F22 fix-up: `temp_start` was stored on the pending payload
+        # but never read here — removed. If a future use-case needs
+        # start-vs-settle delta it can be re-added deliberately.
+
+        # F6 fix-up (2026-08-22): split the D6 delayed callback into
+        # TWO timers so the temp LEVEL classification stays at 60s
+        # (defensible per the plan) while the kW capture waits for the
+        # measured p50 72-101s command-to-physical-response lag to
+        # elapse before sampling. A 60s kW read sampled INSIDE the
+        # actuation lag and systematically returned ~0.0, which reads
+        # as evidence the reset worked even when it didn't.
+        async def _write_outcome_temp(_now, _zid=zone_id,
+                                 _entity=zone.climate_entity,
+                                 _target=_target_high,
+                                 _completed_id=completed_event_id) -> None:
+            self._reset_outcome_timers.pop(_zid, None)
+            _settle_temp: float | None = None
+            try:
+                _cs = self.hass.states.get(_entity)
+                if _cs is not None:
+                    _raw = _cs.attributes.get("current_temperature")
+                    if _raw is not None:
+                        try:
+                            _settle_temp = float(_raw)
+                        except (ValueError, TypeError):
+                            _settle_temp = None
+            except Exception:  # noqa: BLE001
+                _settle_temp = None
+            if _settle_temp is None or _target is None:
+                _outcome = AC_RESET_OUTCOME_INCONCLUSIVE
+            elif _settle_temp > float(_target):
+                _outcome = AC_RESET_OUTCOME_JUSTIFIED_RAMP
+            else:
+                _outcome = AC_RESET_OUTCOME_FLOOR_SURVIVED
+            if self._db is not None:
+                try:
+                    # F13: write settle temp to `current_temp_settle`.
+                    await self._db.update_ac_ramp_event_fields(
+                        _completed_id,
+                        reset_outcome=_outcome,
+                        current_temp_settle=_settle_temp,
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "write_reset_outcome failed zone=%s event_id=%s: %s",
+                        _zid, _completed_id, _e,
+                    )
+
+        async def _write_outcome_kw(_now, _zid=zone_id,
+                                    _completed_id=completed_event_id) -> None:
+            # Fires at AC_RESET_OUTCOME_KWH_SETTLE_S. Reads the kW
+            # sensor AFTER the actuation-lag envelope and updates only
+            # kwh_rate_settle on the same completed row.
+            self._reset_outcome_kw_timers.pop(_zid, None)
+            _settle_kw: float | None = None
+            try:
+                _z = self._zone_manager.zones.get(_zid)
+                if _z is not None:
+                    _settle_kw = self._read_kwh_rate(_z, dt_util.now())
+            except Exception:  # noqa: BLE001
+                _settle_kw = None
+            if self._db is not None:
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        _completed_id, kwh_rate_settle=_settle_kw,
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "write_reset_kw_settle failed zone=%s event_id=%s: %s",
+                        _zid, _completed_id, _e,
+                    )
+
+        @callback
+        def _on_outcome_fire(_now):
+            self.hass.async_create_task(_write_outcome_temp(_now))
+
+        @callback
+        def _on_kw_fire(_now):
+            self.hass.async_create_task(_write_outcome_kw(_now))
+
+        self._reset_outcome_timers[zone_id] = async_call_later(
+            self.hass, AC_RESET_OUTCOME_SETTLE_S, _on_outcome_fire,
+        )
+        # Second timer for the kW capture at the longer settle. Live in
+        # its own registry so teardown can cancel independently and a
+        # rapid re-reset cancels both.
+        if not hasattr(self, "_reset_outcome_kw_timers"):
+            self._reset_outcome_kw_timers = {}
+        _prev_kw = self._reset_outcome_kw_timers.pop(zone_id, None)
+        if _prev_kw is not None:
+            try:
+                _prev_kw()
+            except Exception:  # noqa: BLE001
+                pass
+        self._reset_outcome_kw_timers[zone_id] = async_call_later(
+            self.hass, AC_RESET_OUTCOME_KWH_SETTLE_S, _on_kw_fire,
+        )
+
+    # -------------------------------------------------------------------------
+    # D-SCORE — delayed durability classifier
+    # -------------------------------------------------------------------------
+
+    def _schedule_write_durable(
+        self,
+        zone: ZoneState,
+        event_id: int | None,
+        kwh_rate_before: float | None,
+        restore_dt: datetime,
+    ) -> None:
+        """Register a `_write_durable` callback to fire
+        `_durability_window_min` minutes after the nudge_evaluated
+        row is written. Cancelled + fired-early on re-nudge (see
+        `_maybe_fire_durable_early`).
+        """
+        if event_id is None:
+            return
+        zone_id = zone.zone_id
+        # Cancel any prior pending timer for this zone (defensive; the
+        # re-nudge early-fire path should have already cleared it).
+        prev = self._durable_timers.pop(zone_id, None)
+        if prev is not None:
+            try:
+                prev()
+            except Exception:  # noqa: BLE001
+                pass
+        # F22 fix-up: `kwh_rate_before` + `restore_dt` were stored on
+        # the pending payload but never read by `_write_durable` —
+        # removed. The kW verdict is computed from a live re-read at
+        # fire time (see `_write_durable`), and elapsed is measured
+        # from `started_ts`.
+        _started_now = dt_util.now()
+        self._durable_pending[zone_id] = {
+            "event_id": int(event_id),
+            "started_ts": _started_now,
+        }
+        # F5 (revised): reset the per-zone running-max kW so this new
+        # window starts from a clean slate. `check_ac_reset` ticks (or
+        # any other kW observer) will grow this monotonically until the
+        # window fires and consumes it.
+        self._nudge_running_max_kw[zone_id] = 0.0
+        # A3 fix-up (2026-08-22): arm the persistent marker so a boot
+        # inside this window can resume. Fire-and-forget — the
+        # in-memory pending state above is authoritative for the
+        # normal (no-crash) path; the persistent marker exists solely
+        # for restart resumption.
+        if self._db is not None:
+            self.hass.async_create_task(
+                self._db.set_in_flight_durable(
+                    zone_id, int(event_id), _started_now.isoformat(),
+                )
+            )
+        window_s = int(self._durability_window_min) * 60
+
+        @callback
+        def _on_durable_fire(_now, _zid=zone_id):
+            self.hass.async_create_task(
+                self._write_durable(_zid, truncated=False)
+            )
+
+        self._durable_timers[zone_id] = async_call_later(
+            self.hass, window_s, _on_durable_fire,
+        )
+
+    def _maybe_fire_durable_early(self, zone_id: str) -> None:
+        """Called from `_perform_soft_nudge` on entry. If a prior
+        durability timer is pending on this zone, cancel it AND fire
+        immediately with truncated=True — captures whatever the
+        compressor was doing at re-nudge time."""
+        cancel = self._durable_timers.pop(zone_id, None)
+        if cancel is None:
+            return
+        try:
+            cancel()
+        except Exception:  # noqa: BLE001
+            pass
+        self.hass.async_create_task(
+            self._write_durable(zone_id, truncated=True)
+        )
+
+    async def _write_durable(
+        self, zone_id: str, *, truncated: bool,
+    ) -> None:
+        """UPDATE the `durable` + `durable_minutes` columns onto the
+        specific nudge_evaluated row this callback closed over.
+
+        F5 fix-up (2026-08-22, revised after operator ruling):
+        the two branches DO differ semantically. Uncollapsed.
+
+        - TRUNCATED (re-nudge before D):
+              Interval check. `durable = 1` iff the running MAX kW
+              observed over the elapsed window (sampled at the 5-min
+              decision-tick cadence) stayed below the Gate-7 zone
+              threshold. Instantaneous read at truncation time is
+              guaranteed above threshold (a truncation happens BECAUSE
+              Gate 7 fired a re-nudge), so an instantaneous rule
+              scores every truncated row 0.
+        - FULL-WINDOW (D reached, no re-nudge):
+              Instantaneous read at fire time. `durable = 1` iff kW
+              below Gate-7 threshold.
+
+        Both branches use Gate-7 `zone.kwh_rate_threshold` (Invariant
+        S) — NOT `AC_ACTIVELY_COOLING_KW_MIN` (0.5) — per plan
+        Rev-2 B-M4.
+
+        F15 fix-up: `durable_minutes` records the interval ACTUALLY
+        measured (elapsed since restore) for both branches. A knob
+        change between arm and fire would otherwise mis-record.
+
+        On unreadable kW at fire time (full-window) OR no running-max
+        samples (truncated): `durable` stays NULL.
+        """
+        pending = self._durable_pending.pop(zone_id, None)
+        # F5: pop running_max regardless of DB availability so a NULL
+        # DB doesn't leak the tracker dict.
+        _running_max = self._nudge_running_max_kw.pop(zone_id, None)
+        if pending is None or self._db is None:
+            return
+        now = dt_util.now()
+        elapsed_min = int(
+            (now - pending["started_ts"]).total_seconds() / 60
+        )
+        # F15: elapsed_min for both branches.
+        durable_minutes = elapsed_min
+        zone = self._zone_manager.zones.get(zone_id)
+        _thresh = getattr(
+            zone, "kwh_rate_threshold", AC_ACTIVELY_COOLING_KW_MIN,
+        ) if zone is not None else AC_ACTIVELY_COOLING_KW_MIN
+        durable_val: int | None
+        if truncated:
+            # INTERVAL check via running max. A tracker of 0.0 means
+            # we never saw a kW sample in this window (rare — no tick
+            # fired). Treat as NULL so we don't score a hold we can't
+            # attest to.
+            if _running_max is None or _running_max <= 0.0:
+                durable_val = None
+            else:
+                durable_val = 0 if _running_max >= float(_thresh) else 1
+        else:
+            # INSTANTANEOUS read at fire time.
+            kw_now: float | None = None
+            try:
+                if zone is not None:
+                    kw_now = self._read_kwh_rate(zone, now)
+            except Exception:  # noqa: BLE001
+                kw_now = None
+            if kw_now is None:
+                durable_val = None
+            else:
+                durable_val = 0 if kw_now >= float(_thresh) else 1
+        try:
+            # F5 ruling (2026-08-22 fix-up): write the explicit
+            # `truncated` flag alongside `durable` so the display
+            # sensor no longer has to infer branch from durable_minutes
+            # (a proxy that misclassifies whenever the operator sweeps
+            # the F17.a window near the 5-min floor).
+            await self._db.update_ac_ramp_event_fields(
+                pending["event_id"],
+                durable=durable_val,
+                durable_minutes=durable_minutes,
+                truncated=1 if truncated else 0,
+            )
+        except Exception as _e:  # noqa: BLE001
+            _LOGGER.debug(
+                "_write_durable UPDATE failed for zone=%s event_id=%s: %s",
+                zone_id, pending.get("event_id"), _e,
+            )
+        # A3 fix-up (2026-08-22): clear the persistent marker AFTER
+        # the durable UPDATE lands. Ordering: a crash between the
+        # UPDATE and this clear leaves the marker armed; next boot
+        # sees started_ts > window_min ago and writes NULL over the
+        # already-written value — idempotent no-op (byte-identical
+        # for the durable row; the marker just gets cleared then).
+        try:
+            await self._db.clear_in_flight_durable_for_zone(zone_id)
+        except Exception as _e:  # noqa: BLE001
+            _LOGGER.debug(
+                "clear_in_flight_durable failed for zone=%s: %s",
+                zone_id, _e,
+            )
+
     async def _perform_hard_reset_escalation(
-        self, zone: ZoneState, kwh_rate_now: float,
+        self,
+        zone: ZoneState,
+        kwh_rate_now: float,
+        *,
+        triggered_by: str = "auto",
+        engage_lockout_on_cap: bool = True,
     ) -> None:
         """Gated hard reset (compressor protection).
 
@@ -3966,6 +5231,9 @@ class OverrideArrester:
                 "(soft-nudge ran but escalation is decoupled-off)",
                 zone.zone_name,
             )
+            await self._maybe_write_declined(
+                zone_id, AC_RESET_DECLINED_FEATURE_DISABLED, now,
+            )
             return
 
         # Arrester Operator-Immunity: hard reset is a corrective write
@@ -3977,6 +5245,9 @@ class OverrideArrester:
             self._log_shave_skipped(
                 zone.zone_name, zone_id, "hard_reset_escalation",
             )
+            await self._maybe_write_declined(
+                zone_id, AC_RESET_DECLINED_COMFORT_DEFERRED, now,
+            )
             return
 
         if self._db is None:
@@ -3984,10 +5255,75 @@ class OverrideArrester:
             return
 
         state = await self._db.get_ac_reset_state(zone_id)
+        # F1 fix-up: night counter lives in the row keyed by the
+        # current night's session_date. When session_date == today,
+        # the night row IS the day row (single fetch). Post-midnight
+        # they differ and the night row is fetched separately so the
+        # 23:30/00:35 pair charge the SAME night bucket.
+        session_date = self._night_session_date(now)
+        today_date = state.get("date") or now.date().isoformat()
+        if session_date != today_date:
+            night_state = await self._db.get_ac_reset_state(
+                zone_id, session_date,
+            )
+        else:
+            night_state = state  # same row aliased
 
-        # Gate A: daily cap
-        if int(state.get("hard_reset_count", 0)) >= self._hard_reset_daily_limit:
-            await self._engage_lockout(zone, state)
+        # F4 fix-up: reorder — Gate A (true total-cap exhaustion) runs
+        # BEFORE the partition check. In the pre-fix ordering the
+        # partition check denied first whenever ANY partition was full,
+        # and `total_used >= total_cap` (which requires BOTH partitions
+        # full) could never be reached — `_engage_lockout` was dead
+        # code and Gate 5's `lockout_flag` read (:3167) was unreachable.
+        # Running Gate A first restores the semantic contract: partition
+        # denial when only one bucket is full (no lockout), lockout only
+        # when the compressor has truly exhausted every budget.
+        #
+        # F3 fix-up: apply `_hard_reset_daily_limit` as a ceiling on the
+        # total cap (`=0` remains an explicit kill-switch that denies
+        # every reset). This is the load-bearing dashboard knob that
+        # was previously dead — no decision path read it.
+        total_cap = int(self._reset_day_budget) + int(self._reset_night_budget)
+        _limit = int(self._hard_reset_daily_limit)
+        if _limit == 0:
+            # Kill-switch semantics preserved verbatim: reset feature
+            # disabled entirely via this knob. Report as decline (no
+            # lockout latch — the operator can just re-arm the knob).
+            await self._maybe_write_declined(
+                zone_id, AC_RESET_DECLINED_FEATURE_DISABLED, now,
+            )
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            return
+        if _limit > 0:
+            total_cap = min(total_cap, _limit)
+        # Total-used counts BOTH partition rows (state["day_reset_count"]
+        # on today + night_state["night_reset_count"] on the session row).
+        # `hard_reset_count` is preserved as a legacy per-day tally on
+        # today's row for backward-compatible sensor exposure.
+        total_used = (
+            int(state.get("day_reset_count", 0) or 0)
+            + int(night_state.get("night_reset_count", 0) or 0)
+        )
+        if total_used >= total_cap:
+            if engage_lockout_on_cap:
+                await self._engage_lockout(zone, state)
+            else:
+                await self._maybe_write_declined(
+                    zone_id, AC_RESET_DECLINED_TRUE_CAP_EXHAUSTED, now,
+                )
+                zone.ramp_state = AC_RAMP_STATE_IDLE
+            return
+
+        # D-PARTITION (A-C2 fix): partition-aware check runs AFTER
+        # Gate A. On partition-only denial we write a `hard_reset_declined`
+        # row and RETURN — `_engage_lockout` is NOT called. The night
+        # reserve stays reachable when the day is exhausted.
+        partition_ok, partition, part_reason = self._gate_partition_check(
+            zone_id, now, state, night_state=night_state,
+        )
+        if not partition_ok:
+            await self._maybe_write_declined(zone_id, part_reason, now)
+            zone.ramp_state = AC_RAMP_STATE_IDLE
             return
 
         # Gate B: global min-interval (R2 — across day-rollover)
@@ -4004,25 +5340,79 @@ class OverrideArrester:
                     "(last=%.0fmin ago, gate=%dmin)",
                     zone.zone_name, age_min, self._hard_reset_min_interval_min,
                 )
+                await self._maybe_write_declined(
+                    zone_id, AC_RESET_DECLINED_GLOBAL_MIN_INTERVAL, now,
+                )
                 zone.ramp_state = AC_RAMP_STATE_IDLE
                 return
 
         # Both gates passed
+        # D-PARTITION: charge the correct partition counter BEFORE
+        # actuation (fail-closed compressor protection — a failed
+        # off-call still consumes budget).
+        # F1 fix-up: pass night_state so a night reset charges the
+        # session-keyed row rather than today's row. When state and
+        # night_state are the same object, one save covers both.
+        partition_charged = self._increment_partition_counter(
+            state, now, night_state=night_state,
+        )
         state["hard_reset_count"] = int(state.get("hard_reset_count", 0)) + 1
         state["last_hard_reset_ts"] = now.isoformat()
         await self._db.save_ac_reset_state(state)
+        # F1 fix-up: if the night row is a DIFFERENT row than today's
+        # (post-midnight leg of a night session), persist ONLY the night
+        # counter fields on that row via the targeted DAO. This avoids
+        # clobbering any other state on the session-date row and works
+        # even if that row does not yet exist (INSERT ... ON CONFLICT).
+        if night_state is not state and partition_charged == "night":
+            await self._db.update_ac_night_counter(
+                zone_id,
+                session_date,
+                int(night_state.get("night_reset_count", 0) or 0),
+            )
         self._track_zone_action(
-            zone, AC_RAMP_EVENT_HARD_RESET_STARTED, "auto",
+            zone, AC_RAMP_EVENT_HARD_RESET_STARTED, triggered_by,
             kwh_before=kwh_rate_now,
         )
-        await self._db.log_ac_ramp_event(
+        # D5-A: enriched hard_reset_started row (telemetry only). Read
+        # HA state ONCE and extract preset/mode. Silent on read failure.
+        _hr_preset_before: str | None = None
+        _hr_mode_before: str | None = None
+        try:
+            _cs = self.hass.states.get(zone.climate_entity)
+            if _cs is not None:
+                _hr_preset_before = _cs.attributes.get("preset_mode", "") or ""
+                _hr_mode_before = _cs.state
+        except Exception:  # noqa: BLE001 — defensive
+            pass
+        started_event_id = await self._db.log_ac_ramp_event(
             zone_id=zone_id,
             event_type=AC_RAMP_EVENT_HARD_RESET_STARTED,
+            triggered_by=triggered_by,
             kwh_rate_before=kwh_rate_now,
             hard_reset_count_today=int(state["hard_reset_count"]),
+            current_temp=zone.current_temperature,
+            target_high=zone.target_temp_high,
+            preset_before=_hr_preset_before,
+            mode_before=_hr_mode_before,
+            notes=(
+                f"partition={partition_charged};"
+                f"day={int(state.get('day_reset_count', 0) or 0)};"
+                f"night={int(state.get('night_reset_count', 0) or 0)}"
+            ),
         )
         # Keep ZoneState counter in sync for legacy sensor exposure
         zone.ac_reset_count_today = int(state["hard_reset_count"])
+
+        # Stash the started event_id for D6 outcome back-fill (60s
+        # settle callback UPDATEs onto this row).
+        # F22 fix-up: `temp_start` removed — never read on the settle
+        # side. If start-vs-settle delta is added later, re-add
+        # deliberately and wire the reader.
+        self._reset_outcome_pending[zone_id] = {
+            "event_id": started_event_id,
+            "target_high": zone.target_temp_high,
+        }
 
         # Reuse existing _perform_ac_reset (off -> wait -> restore w/ verify)
         await self._perform_ac_reset(zone)
@@ -4207,6 +5597,46 @@ class OverrideArrester:
                     if original_target is not None else None
                 ),
             )
+            # F18 fix-up (2026-08-22): also emit a `nudge_restored` row
+            # so cancel-ended nudges show up in the restore-verdict
+            # family (settled reader looks for the most recent
+            # nudge_restored with restore_ok IS NULL). Pre-fix, a
+            # cancel-ended nudge was invisible to the entire family
+            # — analytics could not distinguish "no restore verdict
+            # because cancel" from "no restore verdict because clobber
+            # measurement lost".
+            _cancel_preset_after: str | None = None
+            _cancel_mode_after: str | None = None
+            try:
+                _cs_cancel = self.hass.states.get(zone.climate_entity)
+            except Exception:  # noqa: BLE001
+                _cs_cancel = None
+            if _cs_cancel is not None:
+                _cancel_preset_after = (
+                    _cs_cancel.attributes.get("preset_mode", "") or ""
+                )
+                _cancel_mode_after = _cs_cancel.state
+            if _cancel_snapshot_preset:
+                if _cancel_preset_after is None:
+                    _cancel_ok: bool | None = None
+                else:
+                    _cancel_ok = (_cancel_preset_after == _cancel_snapshot_preset)
+            else:
+                _cancel_ok = None
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
+                triggered_by=triggered_by,
+                target_high=(
+                    float(original_target)
+                    if original_target is not None else None
+                ),
+                preset_after=_cancel_preset_after,
+                mode_after=_cancel_mode_after,
+                restore_ok=None,
+                restore_ok_immediate=_cancel_ok,
+                notes="triggered_by_cancel",
+            )
 
         zone.ramp_state = AC_RAMP_STATE_IDLE
         _LOGGER.info(
@@ -4270,14 +5700,19 @@ class OverrideArrester:
             writes, no lockout engagement).
           - Daily cap + global min-interval gates inside the escalation.
 
-        Note on triggered_by traceability: the existing
-        `_perform_hard_reset_escalation` hard-codes `"auto"` at the
-        `_track_zone_action` and `log_ac_ramp_event` call sites
-        (hvac_override.py L1591). Adding a `triggered_by="manual"`
-        parameter changes the signature for one caller — explicitly
-        out-of-scope per planning §6 (D1 Spec correction). The resulting
-        `ac_ramp_events` row will carry `auto` for force-reset presses;
-        this is an accepted limitation for v4.7.9 hygiene-scale.
+        Note on triggered_by traceability (A2 fix-up 2026-08-22
+        supersedes the v4.7.9 §D1 out-of-scope decision):
+        `_perform_hard_reset_escalation` now accepts `triggered_by` per
+        AC-RAMP-PIPELINE-HARDENING-1 D-ESC-SIG. We pass
+        `triggered_by="manual"` here so the ac_ramp_events ledger
+        distinguishes operator-invoked resets from automatic escalation.
+        The AC-RAMP-NO-RECURRENCE-ESCALATION-1 probe fires manual
+        resets and compares them against organic ones; without a
+        distinct value the probe cannot separate its own interventions
+        from the automatic ladder. The v4.7.9 guard is deliberately
+        superseded (see test_v479_hygiene_bundle
+        test_triggered_by_manual_on_force_reset for the recorded
+        supersession rationale).
 
         kwh_rate_now=0.0 is passed because a manual button press is not
         reacting to a live overshoot reading — the user has decided the
@@ -4335,7 +5770,12 @@ class OverrideArrester:
         )
         # kwh_rate_now=0.0: manual presses don't react to a reading; the
         # signature requires a float; downstream code treats 0.0 cleanly.
-        await self._perform_hard_reset_escalation(zone, 0.0)
+        # A2 fix-up: triggered_by="manual" threads into the started row
+        # so the AC-RAMP-NO-RECURRENCE-ESCALATION-1 probe can filter
+        # out its own interventions from the automatic ladder.
+        await self._perform_hard_reset_escalation(
+            zone, 0.0, triggered_by="manual",
+        )
 
     async def clear_zone_lockout(self, zone_id: str) -> None:
         """Reset today's counters + clear lockout for one zone (D9 button)."""
@@ -4527,6 +5967,147 @@ class OverrideArrester:
                     "Startup audit: resuming nudge on %s, %.0fs remaining",
                     zone.zone_name, remaining_s,
                 )
+
+    # =========================================================================
+    # A3 — bounded restart resumption of in-flight durability windows
+    # =========================================================================
+    # Staleness cutoff: 6h. Rationale — the durability window is capped
+    # at 180 min (F17.a Number entity max), so 6h is 2x the maximum
+    # legitimate window. A marker older than that came from a crash long
+    # enough ago that any reading would not represent the compressor's
+    # behaviour during the intended window. Anything within 6h either
+    # (a) already elapsed the window during downtime → immediate write
+    # with a restart note, or (b) has a genuine remainder → re-arm.
+    A3_STALENESS_CUTOFF_S: int = 6 * 3600
+
+    async def async_startup_durable_audit(self) -> None:
+        """Resume in-flight durability windows across HA restart.
+
+        Bounds (per operator A3):
+          - <=1 row per zone (DAO enforces; arming clears any prior).
+          - No table scan (DAO WHERE-filters on the marker).
+          - Immediate write from persisted data when window already
+            elapsed; durable = NULL with restart note (we cannot
+            retroactively sample kW; a NULL that says why is honest).
+          - Re-arm only for a genuine remainder (elapsed < window).
+          - Staleness cutoff at A3_STALENESS_CUTOFF_S.
+          - Idempotent across rapid reboots (marker cleared same
+            audit; re-boot before clear writes NULL over NULL = no-op).
+          - Marker cleared last, AFTER the durable UPDATE lands (same
+            ordering as `_write_durable` normal path).
+
+        Called from HVAC coordinator first-decision-cycle after the
+        zone manager is populated (sibling of async_startup_ramp_audit).
+        """
+        if self._db is None:
+            return
+        rows = await self._db.get_in_flight_durable_rows()
+        if not rows:
+            return
+        now = dt_util.now()
+        window_min = int(self._durability_window_min)
+        for row in rows:
+            zone_id = row["zone_id"]
+            event_id = row.get("event_id")
+            started_iso = row.get("started_ts")
+            if event_id is None or started_iso is None:
+                # Corrupted marker — clear defensively.
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            try:
+                started_dt = datetime.fromisoformat(started_iso)
+            except (ValueError, TypeError):
+                _LOGGER.warning(
+                    "A3 audit: unparseable started_ts=%r for %s; clearing",
+                    started_iso, zone_id,
+                )
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            elapsed_s = (now - started_dt).total_seconds()
+            elapsed_min = int(elapsed_s / 60)
+            # Staleness gate.
+            if elapsed_s > self.A3_STALENESS_CUTOFF_S:
+                _LOGGER.info(
+                    "A3 audit: stale marker for %s (elapsed=%dmin > cutoff);"
+                    " writing NULL and clearing",
+                    zone_id, elapsed_min,
+                )
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        int(event_id),
+                        durable=None,
+                        durable_minutes=elapsed_min,
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "A3 stale write failed zone=%s event_id=%s: %s",
+                        zone_id, event_id, _e,
+                    )
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            # Elapsed >= window → immediate write, no re-arm.
+            if elapsed_min >= window_min:
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        int(event_id),
+                        durable=None,
+                        durable_minutes=elapsed_min,
+                    )
+                except Exception as _e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "A3 elapsed write failed zone=%s event_id=%s: %s",
+                        zone_id, event_id, _e,
+                    )
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                _LOGGER.info(
+                    "A3 audit: window elapsed during downtime for %s "
+                    "(elapsed=%dmin, window=%dmin); durable=NULL written",
+                    zone_id, elapsed_min, window_min,
+                )
+                continue
+            # Genuine remainder → re-arm the in-memory pending state
+            # and schedule a callback for (window - elapsed). Do NOT
+            # clear the persistent marker yet; `_write_durable` clears
+            # it when the callback fires (same normal-path ordering).
+            zone = self._zone_manager.zones.get(zone_id)
+            if zone is None:
+                # No live ZoneState for this zone (config changed
+                # during downtime). Best-effort: clear the marker and
+                # write NULL for the elapsed portion.
+                try:
+                    await self._db.update_ac_ramp_event_fields(
+                        int(event_id),
+                        durable=None,
+                        durable_minutes=elapsed_min,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                await self._db.clear_in_flight_durable_for_zone(zone_id)
+                continue
+            self._durable_pending[zone_id] = {
+                "event_id": int(event_id),
+                "started_ts": started_dt,
+            }
+            # No historical running_max — start fresh from here. The
+            # verdict at fire time will reflect the remainder-of-window
+            # behaviour only, which is the best we can honestly claim.
+            self._nudge_running_max_kw[zone_id] = 0.0
+            remaining_s = int(max(1, (window_min * 60) - elapsed_s))
+
+            @callback
+            def _on_durable_fire(_now, _zid=zone_id):
+                self.hass.async_create_task(
+                    self._write_durable(_zid, truncated=False)
+                )
+
+            self._durable_timers[zone_id] = async_call_later(
+                self.hass, remaining_s, _on_durable_fire,
+            )
+            _LOGGER.info(
+                "A3 audit: re-armed durability window for %s "
+                "(elapsed=%dmin, remaining=%ds, window=%dmin)",
+                zone_id, elapsed_min, remaining_s, window_min,
+            )
 
     # =========================================================================
     # Helpers

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-22T02:41:33-05:00_ - _Data commit: `dcd60e9fc4c4`_ - _last_reconciled: 2026-08-22_
+_Generated: 2026-08-22T15:17:45-05:00_ - _Data commit: `7d57c1a0bf40`_ - _last_reconciled: 2026-08-22_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,12 +12,12 @@ _Generated: 2026-08-22T02:41:33-05:00_ - _Data commit: `dcd60e9fc4c4`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 26 |
-| 🔬 Investigating | 4 |
+| 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 9 |
-| 📝 Planned | 12 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 46 |
+| 🚀 Shipped (organic open) | 48 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
@@ -289,8 +289,38 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-## 🔬 Investigating (4)
+## 🔬 Investigating (6)
 _measuring; truth not yet known_
+
+### `CARRIER-STALE-POLL-REFRESH-1` - ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
+thread: **hvac** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-22 15:30 · initial_
+- **Next:** Wait for Probe C (detector running). Then decide among: (a) periodic update_entity if it works; (b) periodic reload with the blast-radius cost explicitly accepted; (c) upstream bug report to ha_carrier with the measured evidence; (d) acc...
+- **Tags:** third-party-defect, operator-requested, probe-pending
+- **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
+- **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
+- **Forensic keys (6):**
+  - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
+  - `THE_DEFECT_MEASURED`: ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an independent implementation: 12.2% / 7.1% / 12.9% of high-draw time ...
+  - `WHY_update_entity_IS_UNLIKELY_TO_WORK`: The mechanism EXISTS — ha_carrier entities are CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() -> coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and DEFAULT_UPDATE_...
+  - `PROBE_C_STILL_WORTH_RUNNING`: A blind-episode detector is running (polls all three zones every 40s, requires 3 consecutive blind reads). When it fires: capture state, call homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE ep...
+  - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
+  - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+
+### `RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1` - Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW.
+thread: **hvac** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-22 14:05 · initial_
+- **Next:** Await the sizing probe: per zone, what share of time-above-threshold is vetoed by hvac_action != cooling; what share of THAT is also at-or-below setpoint (the costly subset, i.e. the exact modulation-floor case); and whether blind episod...
+- **Tags:** measured-not-inferred, lever-leak, operator-instinct-confirmed
+- **Parsimony:** [INVESTIGATE] a cloud-reported momentary claim can silently veto the entire power-based ramp feature
+- **Refs:** hvac_override.py:2684 (check_ac_reset gate ladder); hvac_override.py:2779 (Gate 4)
+- **Forensic keys (6):**
+  - `OPERATOR_CAUGHT_THIS`: Operator, on being told detection gates on hvac_action: "Hmm I thought it was draw and target attainment. Is that a third thing. Does feel like we should change it. Maybe we should model that carrier Bryant actuation a bit more. It might...
+  - `THE_GATE_VERIFIED`: Read from source, not relayed. `check_ac_reset` (hvac_override.py:2684) gate ladder, from its own docstring plus the code: Gate 4  ->  if zone.hvac_action != "cooling": continue        (~hvac_override.py:2779) Gate 6  ->  overshoot / tar...
+  - `MEASURED_INSTANCE`: Zone 1, 2026-08-22 13:29-13:47 CDT, from the HA recorder: 13:29  hvac_action=idle       11 W 13:30  hvac_action=idle    2,105 W 13:32  hvac_action=idle    3,265 W 13:37  hvac_action=idle    3,947 W 13:42  hvac_action=idle    4,181 W 13:4...
+  - `THE_STRUCTURAL_ARGUMENT`: Independent of how large the effect turns out to be, the DESIGN is inverted. `hvac_action` is a MOMENTARY, CLOUD-REPORTED CLAIM from a Carrier/Bryant cloud this repo already knows is unreliable (it 504s and drops all three zones together...
+  - `WHY_THIS_MAY_REDIRECT_THE_WHOLE_CYCLE`: AC-RAMP-NO-RECURRENCE-ESCALATION-1 assumes the pipeline is DETECT -> NUDGE -> (never escalates). Operator framing of the problem was: "either nudges did not work, we did not escalate to resets, or something is off." The probe work of 202...
+  - `links`: related: AC-RAMP-NO-RECURRENCE-ESCALATION-1
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
 thread: **presence** - status: **investigating** - approval: **operator_directed**
@@ -445,7 +475,7 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
-## 📝 Planned (12)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
@@ -545,30 +575,6 @@ _created 2026-08-21 11:40 · initial_
   - `CONSUMER_IMPACT_CONTEXT_ONLY`: RETIRED AS A DEFECT per the operator ruling above — retained as context, NOT as work. sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=...
   - `METHOD_CAVEAT_BE_HONEST`: The measurement controls for regression-to-the-mean via the -90/-45 window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min comparison window sits later in the day than the control. That confound c...
   - `OPERATOR_RULING_2026_08_21_NOT_A_DEFECT`: OPERATOR PUSHBACK, ACCEPTED: "Saving is approximate. It is marked not billing grade explicitly. It needs to be directionally accurate not forensically." CORRECT, and this card was OVER-ESCALATED — the orchestrator relayed a measurement a...
-
-### `AC-RESET-PRESET-ASSERT-DROPPED-1` - AC hard reset never restores a preset — the plan specified a one-liner, it was dropped without accounting, and it is the last path that can still strand a zone in manual
-thread: **hvac** - status: **planned** - approval: **unreviewed**
-_created 2026-08-22 02:10 · initial_
-- **Next:** Add the preset assert to `_verify_restore` success branch per the plan scope decision. Needs a snapshot source — check whether the reset path already captures a pre-reset preset, and if not capture one at reset start (NOT by making it a ...
-- **Tags:** dropped-deliverable, measured-not-inferred
-- **Parsimony:** [BUILD] the hard-reset path can still strand a zone in manual, the exact defect the cycle shipped to remove
-- **Refs:** hvac_override.py:2968-3062 (_verify_restore); PLANNING_hvac_governed_excursion.md (scope decisions)
-- **Forensic keys (3):**
-  - `THE_GAP_VERIFIED`: MEASURED 2026-08-22 on shipped v5.88.0: `_verify_restore` in hvac_override.py spans lines 2968-3062 and contains ZERO preset references — no emit_set_preset_mode, no pre_preset, nothing. The hard-reset ladder writes set_hvac_mode off/on ...
-  - `IT_WAS_SPECIFIED_AND_DROPPED`: This is NOT a newly discovered defect — the plan called for it and it went missing. PLANNING_hvac_governed_excursion.md scope decisions: hard_reset_preset_assert is deliberately NOT a primitive-managed kind (EXCURSION_KIND_hard_reset_pre...
-  - `links`: related: HVAC-GOVERNED-EXCURSION-1
-
-### `BORROW-FRIENDLY-NAME-RENAME-1` - Rename user-facing "Governed thermostat borrows" labels — ship with next batch
-thread: **hvac** - status: **planned** - approval: **operator_decided**
-_created 2026-08-22 02:10 · initial_
-- **Next:** DECIDED (see OPERATOR_DECIDED_2026_08_22). Update the sensor friendly name to "Temporary Thermostat Changes" and the config toggle label to "Restore thermostats after temporary changes". strings.json + translations/en.json MUST be update...
-- **Parsimony:** [BUILD] user-facing labels use internal jargon
-- **Forensic keys (5):**
-  - `OPERATOR_DIRECTION`: Operator 2026-08-22: "I think we should rename the friendly names. Ship with next batch." Scope is USER-FACING TEXT ONLY — code, module names, table names, column names, log messages and comments all STAY as `excursion` per the earlier r...
-  - `IMPORTANT_ENTITY_IDS_WILL_NOT_MOVE`: Renaming a friendly name does NOT change an already-registered entity_id. The sensor is registered as sensor.ura_hvac_coordinator_governed_thermostat_borrows (HA derived it from the label at first registration) and it will KEEP that id a...
-  - `OPERATOR_DECIDED_2026_08_22`: DECIDED. Operator: "B for the label. I like the verb version. Everything else leave as is." FINAL STRINGS: - SENSOR friendly name  -> "Temporary Thermostat Changes"   (option B noun) - CONFIG TOGGLE label   -> "Restore thermostats after ...
-  - `OPTIONS_PRESENTED`: A (recommended): sensor "Thermostat Borrows" / config toggle "Restore thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold and Restore" / "Hold and restore thermostats". RECOMMENDATION REASONI...
-  - `links`: related: AC-RESET-PRESET-ASSERT-DROPPED-1
 
 ### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
 thread: **hvac** - status: **planned** - approval: **operator_decided**
@@ -676,7 +682,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (46)
+## 🚀 Shipped (organic open) (48)
 _live, awaiting proof_
 
 ### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition
@@ -1275,6 +1281,30 @@ _created 2026-08-19 05:15 · updated 2026-08-19 10:33 · refined_
   - `phase_2026_08_19`: IN PROGRESS: planning the D2<->recheck precedence reconciliation (Tier 2-DB, folds in sleep-veto)
   - `staged_ready_2026_08_19`: STAGED + SHIP-READY, DEPLOY HELD for non-hostile timing. Merged to develop; 3 Tier-2-DB reviews ALL SHIP (A correctness, B deadlock-break PROVEN + no inverse deadlock, C SHIP-with-live-validation); F-C-2 hollow D3 test fixed (extracted h...
   - `shipped_2026_08_19`: SHIPPED v5.84.0 -> HOTFIX v5.84.1 (v5.84.0 shipped a presence-startup UnboundLocalError: D3 refactor moved a CONF_ENTRY_TYPE ref past a pre-existing shadowing function-local import; L1 caught it; root-caused + sibling-scanned + one-line ...
+
+### `AC-RESET-PRESET-ASSERT-DROPPED-1` - AC hard reset never restores a preset — the plan specified a one-liner, it was dropped without accounting, and it is the last path that can still strand a zone in manual
+thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-22 02:10 · initial_
+- **Next:** Add the preset assert to `_verify_restore` success branch per the plan scope decision. Needs a snapshot source — check whether the reset path already captures a pre-reset preset, and if not capture one at reset start (NOT by making it a ...
+- **Tags:** dropped-deliverable, measured-not-inferred
+- **Parsimony:** [BUILD] the hard-reset path can still strand a zone in manual, the exact defect the cycle shipped to remove
+- **Refs:** hvac_override.py:2968-3062 (_verify_restore); PLANNING_hvac_governed_excursion.md (scope decisions)
+- **Forensic keys (3):**
+  - `THE_GAP_VERIFIED`: MEASURED 2026-08-22 on shipped v5.88.0: `_verify_restore` in hvac_override.py spans lines 2968-3062 and contains ZERO preset references — no emit_set_preset_mode, no pre_preset, nothing. The hard-reset ladder writes set_hvac_mode off/on ...
+  - `IT_WAS_SPECIFIED_AND_DROPPED`: This is NOT a newly discovered defect — the plan called for it and it went missing. PLANNING_hvac_governed_excursion.md scope decisions: hard_reset_preset_assert is deliberately NOT a primitive-managed kind (EXCURSION_KIND_hard_reset_pre...
+  - `links`: related: HVAC-GOVERNED-EXCURSION-1
+
+### `BORROW-FRIENDLY-NAME-RENAME-1` - Rename user-facing "Governed thermostat borrows" labels — ship with next batch
+thread: **hvac** - status: **shipped_organic** - approval: **operator_decided**
+_created 2026-08-22 02:10 · initial_
+- **Next:** DECIDED (see OPERATOR_DECIDED_2026_08_22). Update the sensor friendly name to "Temporary Thermostat Changes" and the config toggle label to "Restore thermostats after temporary changes". strings.json + translations/en.json MUST be update...
+- **Parsimony:** [BUILD] user-facing labels use internal jargon
+- **Forensic keys (5):**
+  - `OPERATOR_DIRECTION`: Operator 2026-08-22: "I think we should rename the friendly names. Ship with next batch." Scope is USER-FACING TEXT ONLY — code, module names, table names, column names, log messages and comments all STAY as `excursion` per the earlier r...
+  - `IMPORTANT_ENTITY_IDS_WILL_NOT_MOVE`: Renaming a friendly name does NOT change an already-registered entity_id. The sensor is registered as sensor.ura_hvac_coordinator_governed_thermostat_borrows (HA derived it from the label at first registration) and it will KEEP that id a...
+  - `OPERATOR_DECIDED_2026_08_22`: DECIDED. Operator: "B for the label. I like the verb version. Everything else leave as is." FINAL STRINGS: - SENSOR friendly name  -> "Temporary Thermostat Changes"   (option B noun) - CONFIG TOGGLE label   -> "Restore thermostats after ...
+  - `OPTIONS_PRESENTED`: A (recommended): sensor "Thermostat Borrows" / config toggle "Restore thermostats after temporary changes". B: "Temporary Thermostat Changes" both. C: "Thermostat Hold and Restore" / "Hold and restore thermostats". RECOMMENDATION REASONI...
+  - `links`: related: AC-RESET-PRESET-ASSERT-DROPPED-1
 
 ### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods
 thread: **platform** - status: **shipped_organic** - approval: **unreviewed**

@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.88.1
+# Universal Room Automation vv5.89.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1703,6 +1703,57 @@ class UniversalRoomDatabase:
                         # hvac_excursion_events (non-nudge). Nullable — rows
                         # written before the primitive migration are NULL.
                         ("excursion_id", "TEXT"),
+                        # AC-RAMP-PIPELINE-HARDENING-1:
+                        # D-SCORE: delayed durability classifier writes onto
+                        # the nudge_evaluated row via event_id UPDATE.
+                        ("durable", "INTEGER"),
+                        ("durable_minutes", "INTEGER"),
+                        # D6: reset-outcome drift discriminator (justified_ramp
+                        # / floor_survived / inconclusive).
+                        ("reset_outcome", "TEXT"),
+                        # D6 (bounded add): kW draw captured at the SAME
+                        # settle moment as `reset_outcome`. Answers "did
+                        # the unit come back at a lower output stage."
+                        # NULL when the settle read fails; row still
+                        # writes and `reset_outcome` is unaffected.
+                        ("kwh_rate_settle", "REAL"),
+                        # F13 fix-up (2026-08-22): dedicated column for
+                        # the D6 settle-time temperature so it stops
+                        # overwriting `current_temp` (the completion-
+                        # time reading). Pre-fix, an unreadable settle
+                        # entity would write NULL over a real value.
+                        ("current_temp_settle", "REAL"),
+                        # F9 fix-up: distinct preset-restore verdict so
+                        # a swallowed preset failure in the
+                        # hard_reset_completed success branch does not
+                        # get conflated with combined restore_ok.
+                        ("preset_restore_ok", "INTEGER"),
+                        # F19 fix-up (2026-08-22): the settled-restore
+                        # verdict was previously written on top of
+                        # `preset_after`/`mode_after` — that destroyed
+                        # the immediate-sample value, so the
+                        # (immediate=1, settled=0) signature (the
+                        # load-bearing clobber signature) could never
+                        # be inspected for what the immediate preset
+                        # actually was. New columns preserve both.
+                        ("preset_settled", "TEXT"),
+                        ("mode_settled", "TEXT"),
+                        # F5 fix-up ruling (2026-08-22): explicit
+                        # truncated flag replaces the durable_minutes
+                        # >= 15 min proxy. Set in _write_durable at
+                        # the point the branch is already known.
+                        # NULL for pre-migration rows; sensor excludes
+                        # NULLs from both durability rates.
+                        ("truncated", "INTEGER"),
+                        # F8 (revised): populated by the settled-restore
+                        # callback under option (c) — a NULL restore_ok
+                        # with an explicit reason. Named blocker today:
+                        # `stale_polled_integration` (ha_carrier's
+                        # 30-min poll means hass.states cannot observe
+                        # the preset write). See hvac_const.py
+                        # AC_NUDGE_RESTORE_SETTLED_UNMEASURABLE_REASON
+                        # and the CARRIER-STALE-POLL-REFRESH-1 card.
+                        ("settled_reason", "TEXT"),
                     ):
                         if _col not in are_columns:
                             await db.execute(
@@ -1711,6 +1762,57 @@ class UniversalRoomDatabase:
                     await db.commit()
                 except Exception as e:
                     _LOGGER.warning("ac_ramp_events migration failed: %s", e)
+
+                # AC-RAMP-PIPELINE-HARDENING-1 D-PARTITION + D-SCORE:
+                # partition counters + night-session date-key +
+                # in-flight durable started ts on ac_reset_state.
+                # Guarded ALTER modelled on the ac_ramp_events block above.
+                try:
+                    cursor = await db.execute(
+                        "PRAGMA table_info(ac_reset_state)"
+                    )
+                    ars_columns = {row[1] for row in await cursor.fetchall()}
+                    _added_partition_cols = False
+                    for _col, _decl in (
+                        ("day_reset_count", "INTEGER NOT NULL DEFAULT 0"),
+                        ("night_reset_count", "INTEGER NOT NULL DEFAULT 0"),
+                        ("night_session_date", "TEXT"),
+                        ("in_flight_durable_started_ts", "TEXT"),
+                        # A3 fix-up (2026-08-22): companion to
+                        # started_ts. Names the specific
+                        # ac_ramp_events row the delayed callback is
+                        # going to UPDATE, so restart resumption can
+                        # write to the correct row without a scan.
+                        ("in_flight_durable_event_id", "INTEGER"),
+                    ):
+                        if _col not in ars_columns:
+                            await db.execute(
+                                f"ALTER TABLE ac_reset_state ADD COLUMN {_col} {_decl}"
+                            )
+                            if _col == "day_reset_count":
+                                _added_partition_cols = True
+                    # AC-RAMP-PIPELINE-HARDENING-1 fix-up F2: migration-day
+                    # inflation seed. Existing rows carry a `hard_reset_count`
+                    # accumulated under the pre-partition regime; without
+                    # this seed a zone that already spent 2 resets today
+                    # would get a fresh 2+2 partition budget on top of it
+                    # for the rest of upgrade day. Seed day_reset_count from
+                    # the existing hard_reset_count on rows written today so
+                    # upgrade-day cumulative budget matches pre-migration
+                    # intent. Night stays at 0 (a night session that starts
+                    # after migration is a fresh bucket by definition).
+                    if _added_partition_cols:
+                        await db.execute(
+                            """UPDATE ac_reset_state
+                               SET day_reset_count = hard_reset_count
+                               WHERE day_reset_count = 0
+                                 AND hard_reset_count > 0
+                                 AND date = ?""",
+                            (dt_util.now().date().isoformat(),),
+                        )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning("ac_reset_state migration failed: %s", e)
 
                 # v3.5.2: Add columns to room_transitions if absent
                 try:
@@ -7284,6 +7386,12 @@ class UniversalRoomDatabase:
             "in_flight_nudge_started_ts": None,
             "in_flight_nudge_duration_s": None,
             "lockout_flag": 0,
+            # AC-RAMP-PIPELINE-HARDENING-1 D-PARTITION + D-SCORE
+            "day_reset_count": 0,
+            "night_reset_count": 0,
+            "night_session_date": None,
+            "in_flight_durable_started_ts": None,
+            "in_flight_durable_event_id": None,
         }
         try:
             async with self._db_read() as db:
@@ -7318,8 +7426,12 @@ class UniversalRoomDatabase:
                         in_flight_nudge_original_target,
                         in_flight_nudge_started_ts,
                         in_flight_nudge_duration_s,
-                        lockout_flag
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        lockout_flag,
+                        day_reset_count, night_reset_count,
+                        night_session_date,
+                        in_flight_durable_started_ts,
+                        in_flight_durable_event_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         state["zone_id"],
                         state["date"],
@@ -7332,6 +7444,17 @@ class UniversalRoomDatabase:
                         state.get("in_flight_nudge_started_ts"),
                         state.get("in_flight_nudge_duration_s"),
                         1 if state.get("lockout_flag") else 0,
+                        # AC-RAMP-PIPELINE-HARDENING-1 D-PARTITION + D-SCORE:
+                        # extend the INSERT-OR-REPLACE tuple. Missing this is
+                        # the "highest-probability silent failure" per the
+                        # superseded plan §12-5 — every save would reset the
+                        # partition counters to 0 and the budget would never
+                        # deny.
+                        int(state.get("day_reset_count", 0)),
+                        int(state.get("night_reset_count", 0)),
+                        state.get("night_session_date"),
+                        state.get("in_flight_durable_started_ts"),
+                        state.get("in_flight_durable_event_id"),
                     ),
                 )
                 await db.commit()
@@ -7448,6 +7571,284 @@ class UniversalRoomDatabase:
         state["lockout_flag"] = 1 if locked else 0
         await self.save_ac_reset_state(state)
 
+    # A1 fix-up (2026-08-22): per-zone diagnostic queries feeding the
+    # five A1 sensors. All are per-zone + windowed so the total scan is
+    # bounded by the 7-day retention window (see cleanup_ac_ramp_events).
+    async def get_gate4_divergence_rows_7d(
+        self, zone_id: str, since_iso: str,
+    ) -> list[tuple[str, str]]:
+        """Return (timestamp, notes) for gate4_divergence_shadow rows
+        for zone since ISO cutoff. Rows are emitted only on
+        agree<->diverge transitions (edge-triggered), so this list
+        alternates. Caller pairs consecutive rows to compute the
+        time spent in the diverge state.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT timestamp, COALESCE(notes, '')
+                       FROM ac_ramp_events
+                       WHERE zone_id = ?
+                         AND event_type = 'gate4_divergence_shadow'
+                         AND timestamp >= ?
+                       ORDER BY timestamp ASC""",
+                    (zone_id, since_iso),
+                )
+                rows = await cursor.fetchall()
+                return [(r[0], r[1]) for r in rows]
+        except Exception as err:
+            _LOGGER.debug("A1 gate4 divergence query failed for %s: %s",
+                          zone_id, err)
+            return []
+
+    async def get_last_reset_outcome_for_zone(
+        self, zone_id: str,
+    ) -> str | None:
+        """Return the most recent non-NULL reset_outcome for zone."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT reset_outcome
+                       FROM ac_ramp_events
+                       WHERE zone_id = ?
+                         AND reset_outcome IS NOT NULL
+                       ORDER BY event_id DESC
+                       LIMIT 1""",
+                    (zone_id,),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
+        except Exception as err:
+            _LOGGER.debug("A1 last outcome query failed for %s: %s",
+                          zone_id, err)
+            return None
+
+    async def get_durability_rate_for_zone(
+        self, zone_id: str, since_iso: str,
+    ) -> tuple[int, int, int, int]:
+        """Return (full_ok, full_total, trunc_ok, trunc_total) counts
+        of nudge_evaluated rows in the window.
+
+        Split by the explicit `truncated` column (F5 fix-up ruling,
+        2026-08-22): rows with `truncated=0` count toward full;
+        `truncated=1` count toward truncated; `truncated IS NULL`
+        (pre-migration rows) are EXCLUDED from both rates per the
+        operator ruling — "an honest UNBOUND is more useful than a
+        green count".
+
+        `durable IS NULL` rows also excluded (unknown breaks the
+        streak). Not a hot query — bounded by retention.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT durable, truncated
+                       FROM ac_ramp_events
+                       WHERE zone_id = ?
+                         AND event_type = 'nudge_evaluated'
+                         AND durable IS NOT NULL
+                         AND truncated IS NOT NULL
+                         AND timestamp >= ?""",
+                    (zone_id, since_iso),
+                )
+                rows = await cursor.fetchall()
+        except Exception as err:
+            _LOGGER.debug("A1 durability rate query failed for %s: %s",
+                          zone_id, err)
+            return (0, 0, 0, 0)
+        full_ok = full_total = trunc_ok = trunc_total = 0
+        for durable_val, truncated_val in rows:
+            if truncated_val == 1:
+                trunc_total += 1
+                if durable_val == 1:
+                    trunc_ok += 1
+            else:
+                full_total += 1
+                if durable_val == 1:
+                    full_ok += 1
+        return (full_ok, full_total, trunc_ok, trunc_total)
+
+    # A3 fix-up (2026-08-22): bounded restart resumption of
+    # in-flight durability windows.
+    async def get_in_flight_durable_rows(self) -> list[dict]:
+        """Return at most ONE (zone_id, event_id, started_ts) per zone
+        for zones with an armed durability window on any date row.
+
+        Idempotent: multiple boots see the same rows until a boot
+        clears the marker via `clear_in_flight_durable`.
+
+        The DAO filters on `in_flight_durable_started_ts IS NOT NULL`
+        which returns only the small set of currently-armed rows —
+        not the full ac_reset_state table. Per operator A3 bound
+        'no table scan': in practice ac_reset_state has one row per
+        (zone_id, date), and the WHERE clause degenerates to a small
+        subset filter regardless of table size. If future scale makes
+        this hot, add `CREATE INDEX ... WHERE in_flight_durable_started_ts
+        IS NOT NULL` — deferred as premature.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT zone_id, date, in_flight_durable_started_ts,
+                              in_flight_durable_event_id
+                       FROM ac_reset_state
+                       WHERE in_flight_durable_started_ts IS NOT NULL""",
+                )
+                rows = await cursor.fetchall()
+        except Exception as err:
+            _LOGGER.warning("in_flight_durable scan failed: %s", err)
+            return []
+        # Enforce <=1 row per zone (operator A3 bound). Under normal
+        # arming the invariant already holds because arming clears any
+        # prior marker on the same zone (see `_schedule_write_durable`
+        # + `clear_in_flight_durable_for_zone`). Defensive: prefer the
+        # most recent started_ts if a legacy DB happens to violate it.
+        best: dict[str, dict] = {}
+        for r in rows:
+            zid = r[0]
+            entry = {
+                "zone_id": zid,
+                "date": r[1],
+                "started_ts": r[2],
+                "event_id": r[3],
+            }
+            prev = best.get(zid)
+            if prev is None or str(entry["started_ts"] or "") > str(
+                prev["started_ts"] or ""
+            ):
+                best[zid] = entry
+        return list(best.values())
+
+    async def clear_in_flight_durable_for_zone(self, zone_id: str) -> None:
+        """Clear the in-flight durable marker on EVERY row for this
+        zone. Targeted 2-column UPDATE; scope 'every row' guards the
+        <=1-row-per-zone invariant across day-rollover edges.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """UPDATE ac_reset_state
+                       SET in_flight_durable_started_ts = NULL,
+                           in_flight_durable_event_id = NULL
+                       WHERE zone_id = ?
+                         AND in_flight_durable_started_ts IS NOT NULL""",
+                    (zone_id,),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "clear_in_flight_durable failed for %s: %s", zone_id, err,
+            )
+
+    async def set_in_flight_durable(
+        self, zone_id: str, event_id: int, started_ts: str,
+    ) -> None:
+        """Atomically arm the in-flight durable marker for THIS zone
+        on today's row while clearing any marker on OTHER date rows
+        for the same zone (guarantees <=1 armed row per zone even
+        across a day rollover mid-window)."""
+        date_key = self._today_key()
+        try:
+            async with self._db() as db:
+                # First: clear any previous marker on this zone (all
+                # date rows) so arming a new window can't leave two
+                # rows armed.
+                await db.execute(
+                    """UPDATE ac_reset_state
+                       SET in_flight_durable_started_ts = NULL,
+                           in_flight_durable_event_id = NULL
+                       WHERE zone_id = ?
+                         AND in_flight_durable_started_ts IS NOT NULL""",
+                    (zone_id,),
+                )
+                # Then set on today's row (which may need creating).
+                await db.execute(
+                    """INSERT INTO ac_reset_state (
+                        zone_id, date,
+                        soft_nudge_count, hard_reset_count,
+                        last_soft_nudge_ts, last_hard_reset_ts,
+                        last_overshoot_ts,
+                        in_flight_nudge_original_target,
+                        in_flight_nudge_started_ts,
+                        in_flight_nudge_duration_s,
+                        lockout_flag,
+                        day_reset_count, night_reset_count,
+                        night_session_date,
+                        in_flight_durable_started_ts,
+                        in_flight_durable_event_id
+                    ) VALUES (?, ?, 0, 0, NULL, NULL, NULL,
+                              NULL, NULL, NULL,
+                              0, 0, 0, NULL, ?, ?)
+                    ON CONFLICT(zone_id, date) DO UPDATE SET
+                        in_flight_durable_started_ts = excluded.in_flight_durable_started_ts,
+                        in_flight_durable_event_id = excluded.in_flight_durable_event_id""",
+                    (
+                        zone_id, date_key,
+                        started_ts, int(event_id),
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "set_in_flight_durable failed for %s: %s", zone_id, err,
+            )
+
+    # AC-RAMP-PIPELINE-HARDENING-1 fix-up F1: night bucket storage.
+    # The night counter lives in the row keyed by (zone_id, session_date)
+    # so a night session that crosses midnight (e.g. 22:00 D → 06:00 D+1)
+    # addresses the SAME row on both sides. When session_date == today,
+    # the night counter naturally co-exists with the day columns in one
+    # row; when session_date < today (post-midnight), the night row is
+    # a distinct row and this DAO writes ONLY its night columns so it
+    # cannot clobber the day row's separate state.
+    async def update_ac_night_counter(
+        self, zone_id: str, session_date: str, night_reset_count: int,
+    ) -> None:
+        """Upsert the (zone_id, session_date) row's night counter fields
+        WITHOUT touching any day/session-shared columns on that row.
+
+        Uses INSERT + ON CONFLICT UPDATE so an existing row's other
+        columns (soft_nudge_count, day_reset_count, hard_reset_count,
+        last_hard_reset_ts, lockout_flag, in-flight nudge state) are
+        preserved. On INSERT for a new session_date row, all other
+        columns take their schema defaults (all 0 / NULL) — correct,
+        because that row exists solely to carry night_reset_count for
+        the crossed-midnight session.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO ac_reset_state (
+                        zone_id, date,
+                        soft_nudge_count, hard_reset_count,
+                        last_soft_nudge_ts, last_hard_reset_ts,
+                        last_overshoot_ts,
+                        in_flight_nudge_original_target,
+                        in_flight_nudge_started_ts,
+                        in_flight_nudge_duration_s,
+                        lockout_flag,
+                        day_reset_count, night_reset_count,
+                        night_session_date,
+                        in_flight_durable_started_ts
+                    ) VALUES (?, ?, 0, 0, NULL, NULL, NULL,
+                              NULL, NULL, NULL,
+                              0, 0, ?, ?, NULL)
+                    ON CONFLICT(zone_id, date) DO UPDATE SET
+                        night_reset_count = excluded.night_reset_count,
+                        night_session_date = excluded.night_session_date""",
+                    (
+                        zone_id, session_date,
+                        int(night_reset_count),
+                        session_date,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state night-counter upsert failed for %s/%s: %s",
+                zone_id, session_date, err,
+            )
+
     async def clear_ac_zone_today(self, zone_id: str) -> None:
         """Reset today's counters + lockout for a zone (clear_lockout button)."""
         date_key = self._today_key()
@@ -7490,8 +7891,15 @@ class UniversalRoomDatabase:
         restore_ok: bool | None = None,
         restore_ok_immediate: bool | None = None,
         excursion_id: str | None = None,
-    ) -> None:
+    ) -> int | None:
         """Append an event row to the ramp-down log.
+
+        AC-RAMP-PIPELINE-HARDENING-1: returns ``cursor.lastrowid`` (the
+        new event_id) so delayed-write callers (D-SCORE `_write_durable`,
+        D5 `_verify_restore` back-fill, D6 `_write_reset_outcome`) can
+        UPDATE precisely the row they wrote — no "UPDATE latest row"
+        race. Returns ``None`` on write failure (existing callers all
+        discard the return value; new callers guard on None).
 
         v4.7.17.1: `effective` column added — set by _evaluate_nudge_outcome:
             True  -> compressor released (counts toward kWh-avoided + NOT FP)
@@ -7502,7 +7910,7 @@ class UniversalRoomDatabase:
         """
         try:
             async with self._db() as db:
-                await db.execute(
+                cursor = await db.execute(
                     """INSERT INTO ac_ramp_events (
                         zone_id, timestamp, event_type, triggered_by,
                         current_temp, target_high,
@@ -7539,10 +7947,80 @@ class UniversalRoomDatabase:
                     ),
                 )
                 await db.commit()
+                try:
+                    return int(cursor.lastrowid) if cursor.lastrowid else None
+                except Exception:  # noqa: BLE001 — defensive
+                    return None
         except Exception as err:
             _LOGGER.warning(
                 "ac_ramp_events log failed for %s/%s: %s",
                 zone_id, event_type, err,
+            )
+            return None
+
+    # AC-RAMP-PIPELINE-HARDENING-1 (B-M1): update_ac_ramp_event_fields
+    # DAO. Back-fills columns on a specific event_id row from delayed
+    # callbacks (D-SCORE, D5 restore_ok, D6 reset_outcome). Whitelist-
+    # driven so callers can't scribble arbitrary columns.
+    _AC_RAMP_EVENT_UPDATABLE_FIELDS: tuple = (
+        "durable",
+        "durable_minutes",
+        "reset_outcome",
+        "restore_ok",
+        "preset_after",
+        "mode_after",
+        "current_temp",
+        "kwh_rate_settle",
+        # F13 fix-up: settle-time temp goes here, NOT current_temp.
+        "current_temp_settle",
+        # F9 fix-up.
+        "preset_restore_ok",
+        # F5 ruling (2026-08-22 fix-up): the truncated flag is
+        # written by _write_durable via the SAME UPDATE as durable.
+        "truncated",
+    )
+
+    async def update_ac_ramp_event_fields(
+        self, event_id: int, **fields,
+    ) -> None:
+        """UPDATE named columns on the ac_ramp_events row with matching
+        ``event_id``. Silent no-op if the row is gone (retention) or the
+        DAO can't write.
+
+        Values are passed through as-is except for the bool ``restore_ok``
+        (SQLite has no native BOOL — pack 0/1/None to match the INSERT
+        path). Callers own type discipline for INTEGER/TEXT columns.
+        """
+        if event_id is None:
+            return
+        clean: dict = {}
+        for k, v in fields.items():
+            if k not in self._AC_RAMP_EVENT_UPDATABLE_FIELDS:
+                _LOGGER.debug(
+                    "update_ac_ramp_event_fields: rejecting unknown field %s",
+                    k,
+                )
+                continue
+            if k in ("restore_ok", "preset_restore_ok"):
+                clean[k] = None if v is None else (1 if v else 0)
+            else:
+                clean[k] = v
+        if not clean:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in clean)
+        params = list(clean.values()) + [int(event_id)]
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    f"UPDATE ac_ramp_events SET {set_clause} "
+                    f"WHERE event_id = ?",
+                    tuple(params),
+                )
+                await db.commit()
+        except Exception as err:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "update_ac_ramp_event_fields failed for %s (%s): %s",
+                event_id, list(clean.keys()), err,
             )
 
     async def update_ac_ramp_restore_settled(
@@ -7551,6 +8029,7 @@ class UniversalRoomDatabase:
         preset_settled: str | None,
         mode_settled: str | None,
         restore_ok: bool | None,
+        settled_reason: str | None = None,
     ) -> None:
         """Write the SETTLED restore verdict onto the most-recent
         nudge_restored row for ``zone_id``.
@@ -7569,10 +8048,15 @@ class UniversalRoomDatabase:
         try:
             async with self._db() as db:
                 await db.execute(
+                    # F19 fix-up: settled values write to distinct
+                    # columns so the immediate sample survives.
+                    # F8 fix-up: settled_reason threads through so an
+                    # intentionally-skipped sample explains itself.
                     """UPDATE ac_ramp_events
-                       SET preset_after = ?,
-                           mode_after = ?,
-                           restore_ok = ?
+                       SET preset_settled = ?,
+                           mode_settled = ?,
+                           restore_ok = ?,
+                           settled_reason = ?
                        WHERE event_id = (
                            SELECT event_id FROM ac_ramp_events
                            WHERE zone_id = ?
@@ -7585,6 +8069,7 @@ class UniversalRoomDatabase:
                         preset_settled,
                         mode_settled,
                         None if restore_ok is None else (1 if restore_ok else 0),
+                        settled_reason,
                         zone_id,
                     ),
                 )

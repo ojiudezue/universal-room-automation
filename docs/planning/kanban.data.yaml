@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-22'
+  last_reconciled: '2026-08-23'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -2055,7 +2055,393 @@ cards:
     (b) is true there is nothing to fix and the card closes.
     ALSO NOTE FOR THE RECORD: the zone recovered without intervention at 22:15. Whatever else is
     true, this was not a stuck state.'
+- id: CARRIER-STALE-POLL-REFRESH-1
+  title: "ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a
+    periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped"
+  thread: hvac
+  status: investigating
+  created: '2026-08-22 15:30'
+  updated: '2026-08-22 15:30'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - third-party-defect
+  - operator-requested
+  - probe-pending
+  OPERATOR_REQUEST: 'Operator 2026-08-22: "I just found that reloading the carrier integration made
+    it show reality. Not required for nudging but definitely probably required for hvac ops. Else we
+    will lose responsiveness. Thinking of adding a periodic integration refresh to our operations."
+    THE REQUEST IS NOT REFUSED — it is SEPARATED. It was cut from
+    PLANNING_ac_ramp_pipeline_hardening as D9 so the cycle does not carry a near-zero-prior
+    deliverable across six sections, NOT because it lacks merit. Carded so it survives the cut.'
+  THE_DEFECT_MEASURED: 'ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor
+    draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an
+    independent implementation: 12.2% / 7.1% / 12.9% of high-draw time per zone. SUSTAINED, not lag —
+    91-95% of blind TIME is in episodes over 10 minutes, max 96/108/68 min, across 8 distinct days
+    and all three zones. >99% of blind time reports `idle`, not unknown/None.
+    CONFIRMED NOT A CLOUD PROBLEM: the Carrier APP showed "Cooling" for zones 1 and 3 at the same
+    moment the integration showed "Idle" (operator screenshots, 14:53). The cloud HAS the right
+    answer. ha_carrier derives hvac_action solely from `status_zone.conditioning`
+    (/config/custom_components/ha_carrier/climate.py:190-195).
+    RULED OUT: the post-write intercept guard — its own docstring says volatile status (temperature,
+    humidity, CONDITIONING, blower) is "deliberately excluded".'
+  WHY_update_entity_IS_UNLIKELY_TO_WORK: 'The mechanism EXISTS — ha_carrier entities are
+    CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() ->
+    coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and
+    DEFAULT_UPDATE_INTERVAL_MINUTES = 30 (const.py:46). Blind episodes ran 96, 108 and 68 minutes —
+    roughly THREE scheduled polls inside one blind window without clearing it. Polling sooner cannot
+    fix a value that survived three polls.
+    RELOAD does clear it (operator-observed). Reload tears down and rebuilds the carrier_api client
+    and its session; refresh reuses them. That points at a STALE CLIENT/SESSION object — a fault
+    class update_entity does not touch.'
+  PROBE_C_STILL_WORTH_RUNNING: 'A blind-episode detector is running (polls all three zones every 40s,
+    requires 3 consecutive blind reads). When it fires: capture state, call
+    homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE
+    episode settles it. Blind episodes occurred on 8 of 8 observed days, so the wait is short.
+    THE RESULT MATTERS EVEN THOUGH D9 IS CUT: if update_entity works, this card becomes a cheap
+    periodic task. If only reload works, the card becomes a harder cost/benefit call (reload has
+    lifecycle blast radius — see feedback_parent_reload_watchdog_hazard) or an upstream bug report.
+    DO NOT SHIP A REFRESH THAT DOES NOT REFRESH.'
+  SCOPE_NOTE_WHY_IT_IS_SEPARABLE: 'The pipeline-hardening cycle does NOT need this. Its Gate-4 fix
+    routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything
+    ha_carrier reports. That independence is a stated non-goal in that plan and is mutation-drilled.
+    What this card serves is the OPERATOR-STATED separate concern: HVAC ops responsiveness generally
+    — preset application, dwell/vacancy resolution and anything else that reads climate state may
+    still be acting on a stale picture for up to 1.8 hours. That is a real cost and it is NOT
+    addressed by the ramp fix.'
+  parsimony:
+    problem: a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
+    verdict: INVESTIGATE
+    note: probe first; the fix may be upstream rather than ours. Do not build a periodic no-op.
+  next: 'Wait for Probe C (detector running). Then decide among: (a) periodic update_entity if it
+    works; (b) periodic reload with the blast-radius cost explicitly accepted; (c) upstream bug report
+    to ha_carrier with the measured evidence; (d) accept and design around it as the ramp fix already
+    does. Also worth checking whether OTHER URA consumers of climate state (preset application, dwell,
+    vacancy) are materially degraded during blind episodes — that sizing has not been done.'
+  links:
+    related:
+    - RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+    context: 'Same root defect. That card covers URA no longer DEPENDING on the bad signal for ramp
+      detection; this card covers making the signal itself fresher for everything else that reads it.
+      Fixing either does not fix the other.'
+  refs:
+  - /config/custom_components/ha_carrier/climate.py:190-195
+  - /config/custom_components/ha_carrier/const.py:46
+  - carrier_entity.py:17
+
+- id: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+  title: "Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a
+    power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW."
+  thread: hvac
+  status: shipped_organic
+  shipped_version: v5.89.0
+  created: '2026-08-22 14:05'
+  updated: '2026-08-22 14:05'
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measured-not-inferred
+  - lever-leak
+  - operator-instinct-confirmed
+  OPERATOR_CAUGHT_THIS: 'Operator, on being told detection gates on hvac_action: "Hmm I thought it
+    was draw and target attainment. Is that a third thing. Does feel like we should change it. Maybe
+    we should model that carrier Bryant actuation a bit more. It might be a lever leak."
+    THEY WERE RIGHT ON ALL THREE COUNTS. Draw and target attainment ARE gates — but there is a THIRD
+    gate AHEAD of both, it is a hard veto, and "lever leak" is the precise description.'
+  THE_GATE_VERIFIED: 'Read from source, not relayed. `check_ac_reset` (hvac_override.py:2684) gate
+    ladder, from its own docstring plus the code:
+      Gate 4  ->  if zone.hvac_action != "cooling": continue        (~hvac_override.py:2779)
+      Gate 6  ->  overshoot / target attainment
+      Gate 7  ->  kwh_rate > zone threshold for N consecutive samples
+    Gate 4 RUNS FIRST. Detection can never reach the draw test unless the thermostat CLAIMS to be
+    cooling. The ramp is not deciding not to act — it is never asked.'
+  MEASURED_INSTANCE: 'Zone 1, 2026-08-22 13:29-13:47 CDT, from the HA recorder:
+      13:29  hvac_action=idle       11 W
+      13:30  hvac_action=idle    2,105 W
+      13:32  hvac_action=idle    3,265 W
+      13:37  hvac_action=idle    3,947 W
+      13:42  hvac_action=idle    4,181 W
+      13:47  hvac_action=idle    4,236 W
+    8 of 10 climate state-writes showed idle while above 1.5 kW. Room was 80F against a 76F target,
+    blower_rpm ~1000, `conditioning: idle` on the thermostat too. A blower alone is a few hundred
+    watts; 4.2 kW is compressor-scale. So the compressor ran for ~18 minutes while the thermostat
+    reported idle, and Gate 4 vetoed detection throughout.
+    CAVEATS, stated because the sample is small: the climate entity only writes on CHANGE, so this
+    is 10 samples clustered in one cycle-start. It may be CLOUD LAG that resolves in minutes rather
+    than a sustained misreport. And in THIS instance nothing was lost — the room was 4F ABOVE target,
+    so the ramp correctly should not fire anyway. The blindness only costs something when the same
+    misreport happens AT setpoint, which is when the ramp is supposed to act. Note also that 914
+    nudges fired in 30 days, so detection plainly works much of the time.'
+  THE_STRUCTURAL_ARGUMENT: 'Independent of how large the effect turns out to be, the DESIGN is
+    inverted. `hvac_action` is a MOMENTARY, CLOUD-REPORTED CLAIM from a Carrier/Bryant cloud this
+    repo already knows is unreliable (it 504s and drops all three zones together — see
+    ARRESTER-CLOUDFLAP-FALSEPOS-1). POWER DRAW IS GROUND TRUTH: the compressor either is or is not
+    consuming kilowatts. Gating a POWER-BASED feature on a cloud claim about power is the coupling
+    that fails silently.
+    PROPOSED TRUST ORDER (direction, not a spec — do not build before the sizing probe returns):
+      - DRAW = ground truth that the compressor is running.
+      - hvac_mode / state (heat_cool vs heat) = which direction the system is working in. Stable
+        CONFIG rather than momentary state, so it is safe to gate on — and it is what actually
+        prevents a cooling-nudge being applied during heating, which is the real job Gate 4 was
+        doing.
+      - hvac_action = CORROBORATION AT MOST, never a veto. It is the only input that is both
+        momentary AND cloud-reported.
+    Operator framing to preserve: "model that carrier Bryant actuation a bit more" — the fix is to
+    represent what the equipment is actually doing, not to trust what the cloud says it is doing.'
+  WHY_THIS_MAY_REDIRECT_THE_WHOLE_CYCLE: 'AC-RAMP-NO-RECURRENCE-ESCALATION-1 assumes the pipeline is
+    DETECT -> NUDGE -> (never escalates). Operator framing of the problem was: "either nudges did not
+    work, we did not escalate to resets, or something is off." The probe work of 2026-08-22 has now
+    REJECTED the count-based escalation trigger (see that card §7.1) and found no discriminating
+    signal for the incident night. If Gate 4 vetoes a material share of genuine high-draw time, then
+    the answer is the THIRD option — something is off — and the hardening direction is DETECTION
+    RELIABILITY, not escalation. Every hour spent on recurrence triggers would have been aimed at
+    the wrong stage of the pipeline.'
+  parsimony:
+    problem: a cloud-reported momentary claim can silently veto the entire power-based ramp feature
+    verdict: INVESTIGATE
+    note: sizing probe running; do NOT change the gate before it returns. A negative result (Gate 4
+      vetoes very little) is a valid outcome and would close this.
+  next: 'Await the sizing probe: per zone, what share of time-above-threshold is vetoed by
+    hvac_action != cooling; what share of THAT is also at-or-below setpoint (the costly subset, i.e.
+    the exact modulation-floor case); and whether blind episodes look like short cloud lag or
+    sustained misreport. THEN decide. If the effect is small, close this card. If large, the fix is
+    the trust-order inversion above and it likely precedes any escalation work.'
+  links:
+    related:
+    - AC-RAMP-NO-RECURRENCE-ESCALATION-1
+    - ARRESTER-CLOUDFLAP-FALSEPOS-1
+    context: 'The escalation card is currently blocked because its count-based trigger was rejected
+      by data; this card may explain WHY the pipeline underperforms and would take precedence over
+      it. ARRESTER-CLOUDFLAP-FALSEPOS-1 documents the same Carrier/Bryant cloud being unreliable,
+      which is the reason hvac_action should not hold a veto.'
+  refs:
+  - hvac_override.py:2684 (check_ac_reset gate ladder)
+  - hvac_override.py:2779 (Gate 4)
+
+- id: PRESET-RESTORE-DOES-NOT-TAKE-1
+  title: Restoring a REAL preset after a nudge fails ~90% of the time — measured 0/10; every
+    restore site repeats its own setpoint-then-preset write and the borrow does not centralise it
+  thread: hvac
+  status: planned
+  approval: approved
+  priority: immediate-next
+  updated: '2026-08-23 09:55'
+  tags:
+  - operator-directive
+  - measure-before-build
+  - fast-follow
+  origin:
+    date: '2026-08-23'
+    gist: 'Operator, on being shown the measurement: "Isn''t this a problem? How do we solve it? My
+      whole directive is exit via preset if possible. I assume it works some of the time? The app
+      seems to work." Then: "this is a fast follow to test and fix. Not cool with unnecessary feature
+      debt. Card properly and set for one of the immediate next things."'
+  measured: 'Sampled the live climate entities at T+1/2/5/10/20/30 min after each nudge_restored,
+    across 47 paired nudges (recorder, 2026-08-23):
+      intent == "manual" (restore is a NO-OP, writes manual over manual): 97% match at T+1m
+      intent is a REAL preset (away/home/sleep):  0/10 at T+1m AND T+2m; 1/10 (10%) from T+5m on
+    MORE SETTLE TIME DOES NOT HELP — 77% aggregate at T+1m vs 72% at T+30m, flat-to-declining. The
+    aggregate looked healthy ONLY because 37 of 47 intents were manual-over-manual no-ops.
+    THE MECHANISM IS NOT BROKEN GENERALLY: on zone_1 over the same window, presets held `away` 43.8h
+    and `home` 22.8h across 381 preset changes. The house-state preset writer (hvac.py:2063) writes
+    presets successfully. Both paths go through the SAME emit_set_preset_mode chokepoint
+    (hvac_setpoint.py) and the nudge path passes no gate that could drop the write. So this is NOT a
+    dead integration and NOT a dead helper — it is specific to restoring right after a nudge.'
+  SCOPE_ANSWER_ONE_OR_MANY: 'OPERATOR ASKED: "Is the restore via a borrow or its own mechanism? Just
+    want to understand if we fix one thing or many."
+    ANSWER: MANY. The borrow/excursion primitive is BOOKKEEPING ONLY. hvac_excursion.py:710 states it
+    verbatim: "each site performs its own (a) set_temperature -> (b) set_preset_mode". return_excursion
+    clears the lease and increments counters; it issues NO thermostat write.
+    So the setpoint-then-preset sequence is duplicated at every restore site rather than living in one
+    place. Sites in hvac_override.py: _revert_override, _restore_after_reset, _restore_after_nudge,
+    cancel_nudge — plus the house-state writer in hvac.py which is the one that demonstrably WORKS.
+    CONSEQUENCE FOR THE FIX: this is the Bug Class #53 shape (one missed site). Fixing only the nudge
+    path leaves the reset path, the cancel path and the revert path with the same sequence. The
+    STRONG candidate is to move the (a)->(b) sequence INTO return_excursion so there is exactly one
+    implementation and the borrow becomes the chokepoint it already looks like. Scope the cycle as
+    centralisation + fix, NOT as a one-site patch. Enumerate the sites independently before building —
+    the list above is from one grep and is a hypothesis.'
+  HYPOTHESIS_NOT_MEASURED: 'READ FROM ha_carrier SOURCE, NOT YET TESTED. Label kept explicit because
+    four mechanisms asserted on 2026-08-22/23 were subsequently refuted by measurement.
+    (1) `async_set_preset_mode` (climate.py:381) for a NAMED preset calls `set_config_hold(activity_type,
+        hold_until)` — it PINS A HOLD on that activity. It also applies that activity''s OWN setpoints
+        (`selected_activity.cool_set_point` / `heat_set_point`), then optimistically writes local state.
+    (2) Therefore the separate set_temperature write in the restore sequence may be REDUNDANT — the
+        activity carries its setpoints — and may be the very thing causing the failure: two writes to
+        the same zone seconds apart, where the setpoint write is what puts the zone into `manual`.
+        Hypothesis: the setpoint write''s manual hold wins at the cloud.
+    (3) The optimistic local write means the entity shows the new preset briefly; the next real
+        coordinator refresh (measured 42-79s median) overwrites it with the cloud truth. This is why
+        T+1m already reads `manual` and why waiting longer changes nothing.
+    (4) SEPARATE SEMANTIC QUESTION FOR THE OPERATOR: the integration exposes a special `"resume"`
+        preset that calls `resume_schedule` and CLEARS the hold. Restoring `home` pins a hold on the
+        home activity; `resume` returns the zone to its programmed schedule. These are NOT the same
+        action and today we do the first. Which one does "exit via preset" mean? Answer before building.'
+  next: 'CANARY FIRST, one night, one zone: restore via PRESET ONLY (skip the set_temperature write)
+    and sample the preset at T+1/2/5 min against the measured 0/10 baseline. If it takes, the fix is
+    DELETING a write, not adding machinery. Cheap, reversible, and it discriminates: preset-only
+    succeeding while setpoint+preset fails would confirm the collision hypothesis and refute
+    "Carrier rejects activity holds". THEN scope the centralisation into return_excursion.'
+  DO_NOT: 'Do NOT patch only _restore_after_nudge — three sibling sites carry the same sequence.
+    Do NOT add settle-delay machinery; time is measured NOT to be the variable.
+    Do NOT change the restore path without the canary; this is the exact code four Tier-3 reviewers
+    just cleared, and the hypothesis above is unmeasured.'
+  RELATED: 'Likely the MECHANISM behind HVAC-MANUAL-PRESET-CONTRACT-1 (zone_1 measured at 62% dwell in
+    `manual`, zone_2 46%, zone_3 26%) — every nudge flips the zone to manual and the restore does not
+    bring it back. If so, fixing this closes that card''s root cause rather than its symptom.
+    v5.89.0 does NOT fix this. It makes it VISIBLE: the settled restore verdict was re-enabled at 180s
+    and will now record restore_ok=False on these, which is the truth.'
+- id: BORROW-BANKING-LEASE-NOT-RELEASED-1
+  title: A banking borrow sat 2h past its lease expiry without release — nudge borrows return
+    cleanly, banking did not
+  thread: hvac
+  status: planned
+  approval: needs_operator
+  updated: '2026-08-22 20:50'
+  tags:
+  - operator-observed
+  - live-instance
+  origin:
+    date: '2026-08-22'
+    gist: 'Operator asked the direct question "So are borrows working or not?" during the AC-ramp
+      pipeline-hardening cycle. Checking the borrow ledger (NOT the stale climate entity) answered
+      yes for nudge and surfaced this as a live exception.'
+  measured: 'From sensor.ura_hvac_coordinator_governed_thermostat_borrows state history, read at
+    2026-08-22 20:46 CDT.
+    NUDGE BORROWS — HEALTHY, two independent oracles agreeing:
+      02:08 state 1 active_borrows[nudge zone_1] -> 02:10 state 0 started{nudge:1} returned{nudge:1}
+      03:02 state 1 active_borrows[nudge zone_1] -> 03:04 state 0 started{nudge:2} returned{nudge:2}
+      restore_failed_today {} empty in both. Month-scale from ac_ramp_events: 912 of 914
+      nudge_started rows paired with a nudge_restored inside 30 min; only 2 unmatched since 07-23.
+    THE EXCEPTION — one banking borrow open past expiry:
+      kind=banking, site=S12_pre_cool, zone_2 (climate.up_hallway_zone_2)
+      excursion_id banking:zone_2:1787435377461
+      started  2026-08-22T21:49:37Z (16:49 CDT)
+      expires_at 2026-08-22T23:49:37Z (18:49 CDT)  -- a 2h lease
+      still active at 20:46 CDT = ~4h open, ~2h PAST EXPIRY
+      returned_today {} empty; no sensor state row written since 16:49.
+    So whatever is meant to release an EXPIRED lease did not fire. This is the first banking-kind
+    borrow visible anywhere in the ledger.'
+  finding: 'TWO CANDIDATE MECHANISMS, NOT YET DISTINGUISHED — they need different fixes, so do not
+    scope until one is ruled out:
+    (a) LEDGER-ONLY LEAK. The thermostat was actually restored but return_excursion failed to clear
+        the record, so the sensor shows a phantom active borrow. Evidence FOR: zone_2 target_temp_high
+        currently reads 76, which is EXACTLY the pre_target_high captured in the borrow snapshot. If
+        the pre-cool had lowered the target and never returned it, 76 is not what we would expect.
+    (b) GENUINELY OPEN. The borrow is live and something else wrote 76 independently.
+    DISCRIMINATOR: read the excursion primitive persistence (the lease row) directly rather than the
+    sensor, and check whether an auto_release / lease-expiry path exists for kind=banking at all —
+    the nudge path returns via its own explicit return_excursion at the end of _restore_after_nudge,
+    which banking (S12_pre_cool) does not share. A plausible shape is that banking relies ENTIRELY on
+    lease expiry while nudge never needs it, so an expiry bug would be invisible on the nudge path
+    and total on the banking path. VERIFY THIS, do not assume it — it is a hypothesis from reading
+    the call sites, not a measurement.
+    NOTE on preset snapshot: pre_preset was away and the zone now reads home. That is NOT evidence of
+    a restore failure — the house state can legitimately have moved away->home in four hours. Do not
+    score it either way.'
+  next: 'Read the persisted lease/excursion rows directly; establish whether kind=banking has any
+    auto-release path; then distinguish (a) from (b) before scoping a fix.'
+  WEAK_EVIDENCE_WARNING: 'restore_failed_today is NOT a reliable all-day signal. The daily counters
+    were observed resetting mid-day: started_today went {nudge:2} at 03:04 -> {} at 13:27, which
+    looks like they do not survive a restart. So an empty restore_failed_today only covers the period
+    since the last restart, not the day. The nudge health conclusion above rests on the month of
+    ac_ramp_events rows, which DO persist — not on this field.'
+  NOT_THE_PRESET_QUESTION: 'Distinct from the preset-landing question, which is UNRESOLVED for a
+    different reason: ha_carrier does not write HA state after a preset service call
+    (climate.py:381 has no async_write_ha_state / async_request_refresh; DEFAULT_UPDATE_INTERVAL_MINUTES
+    = 30), so preset restore cannot be verified through the HA state object at any delay under the
+    poll interval. See CARRIER-STALE-POLL-REFRESH-1. Every preset-restore FAIL verdict recorded before
+    the pipeline-hardening cycle is inadmissible and must not be cited as evidence against the borrow.'
 - id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
+  RESET_MECHANISM_EVIDENCE_2026_08_22_PM: 'ORCHESTRATOR ERROR CORRECTED FIRST, because it was argued
+    to the operator and must not be inherited: I argued escalation was pointless on the grounds that
+    a hard reset turns the AC off for 60s while a nudge already buys ~19 min of off-time. That is the
+    WRONG AXIS and the operator rejected it correctly -- "it is tunable" and "it creates total ramp
+    down and re-evaluation of setpoint maintenance energy. The turning off is not the point." The
+    value of a reset is CONTROL-STATE CLEARING (modulation-floor release), not off-duration. The
+    duration argument is withdrawn. It should never be cited against this card again.
+    NEW EVIDENCE FOR THE CARD MECHANISM (SPAN per-zone circuits, 7-day recorder window, n=290 nudges):
+    post-recovery draw compared against pre-nudge draw, tight windows (t-12..t-1 min vs t+25..t+45 min,
+    on-samples only):
+      zone_1 n=148 before 2657W after 2444W ratio 0.965 | LOWER(<0.9) 28% SAME(0.9-1.1) 52% HIGHER 20%
+      zone_2 n= 83 before 2323W after 2260W ratio 0.983 | LOWER 25% SAME 61% HIGHER 13%
+      zone_3 n= 59 before 2652W after 2562W ratio 0.977 | LOWER 29% SAME 58% HIGHER 14%
+    READ: the nudge does NOT clear control state. The unit comes back at the SAME output stage the
+    majority of the time; median improvement ~3%, inside noise. This is a DIRECT power-side
+    confirmation of the card mechanism ("the nudge never clears the state that is holding the floor"),
+    previously argued only from return-TIME (median 365s to 50% of baseline). Two independent
+    framings now agree.
+    WHETHER A RESET DOES BETTER IS STILL UNTESTED -- and this is the honest bound:
+      * Only ONE of the 9 hard resets falls inside the 7-day fine-grained recorder window. n=1.
+      * Falling back to hourly statistics (which DO reach back to 2025-03) gives: HARD RESET n=9
+        median after/before 0.68; NUDGE n=884 median 0.86; NO-INTERVENTION CONTROL n=6122 median 0.87.
+      * Reset LOOKS better. It is NOT significant. The nine reset values are
+        0.13 1.83 0.64 0.77 1.04 0.57 0.38 0.68 1.51 -- spread entirely inside the control IQR
+        (0.59-1.16) at n=9.
+      * THE METHOD-KILLER, and the reason no conclusion may be drawn from that table: the hourly
+        method scores NUDGES at 0.86 against a control of 0.87 -- i.e. NO EFFECT -- when the
+        fine-grained data proves nudges take draw to ~0.006 kW for 19 minutes every single time. A
+        method with no power to detect an effect it is known to be looking at cannot be trusted about
+        resets either. DO NOT use hourly statistics for this question. Fine-grained states only.
+    NEW AND MATERIAL -- THE 60s OFF-WINDOW MAY BE BELOW THE ACTUATION FLOOR: measured command-to-
+    physical-response lag (nudge command -> AC circuit draw falls below 30% of baseline, SPAN,
+    fine-grained): zone_1 p50 72s p90 131s | zone_2 p50 83s p90 142s | zone_3 p50 101s p90 159s.
+    AC_RESET_OFF_DURATION_SECONDS is 60. THE OFF-WINDOW IS SHORTER THAN THE MEDIAN TIME THE UNIT
+    TAKES TO RESPOND TO A COMMAND AT ALL. If that lag applies symmetrically to the off command, a
+    60s reset may be partially or wholly absorbed by the response deadband -- which would mean the
+    historical resets never delivered the mechanism this card is built on, and their weak/noisy
+    signal is EXPECTED rather than evidence against the mechanism. CAVEAT, stated so it is not
+    over-read: this lag bundles cloud round-trip WITH compressor response and does not separate them;
+    D10 (deferred) is the deliverable that would. But it is a strong prior that the rung-3 knob
+    default must be RAISED off 60s, and it reframes the 9 historical resets as probably-underpowered.
+    SERIES BOUNDARY FOR ANY FUTURE ANALYSIS: the nudge knobs changed once. started->evaluated gap by
+    ISO week: W30 = 8.00 min, W31 onward = 6.00 min (duration 2 min + eval delay 240s). Any analysis
+    spanning 2026-07-28 must treat W30 (168 nudges) as a separate series. 738 of 914 nudges are on
+    the current setting.'
+  ESCALATION_PROBE_SPEC_2026_08_22: 'WHAT WOULD SETTLE IT -- operator already proposed the shape
+    ("can we reset manually like the nudge button and learn something"). This is a PROBE, not a
+    cycle, and it is the go/no-go gate on building any escalation trigger. Per measure-before-build.
+    DESIGN: fire N hard resets deliberately via the manual path, each matched against nudge controls
+    in the same zone under similar conditions, and measure with FINE-GRAINED SPAN states (not hourly):
+      (a) post-recovery draw ratio, same windows as the n=290 nudge measurement above, so the numbers
+          are directly comparable to the table in the block above;
+      (b) reset_outcome (floor_survived vs justified_ramp) from the D6 temp discriminator;
+      (c) kwh_rate_settle (the draw-side companion, see CURRENT_CYCLE_ARMOR below);
+      (d) sweep the off-duration knob across at least 60s / 120s / 180s, because the actuation-lag
+          finding above says 60s may be below the floor. A probe that only tests 60s risks concluding
+          "resets do not work" when the real answer is "60s does not work".
+    TARGET n: 10-15 resets with matched controls. Days, not weeks. Respect the existing per-day and
+    min-interval caps -- do NOT disable compressor protection to run the probe; goal 3 of v4.5.11
+    ("rapid compressor cycling is the worst possible failure mode") still binds.
+    DECISION RULE, stated in advance so it cannot be retrofitted: build the escalation trigger ONLY
+    IF reset post-recovery ratio is materially below the nudge ratio (0.97) at a duration that is
+    operationally acceptable. If resets match nudges at every duration tested, the modulation-floor-
+    clearing mechanism is refuted and this card closes NO-BUILD.
+    DO NOT build a trigger before this probe returns. Four separate probes have now proposed
+    escalation triggers on mechanisms that did not survive contact with data; the failure has always
+    been building the trigger before establishing that the thing being escalated TO actually works.'
+  CURRENT_CYCLE_ARMOR_2026_08_22: 'WHAT THE IN-FLIGHT PIPELINE-HARDENING CYCLE CONTRIBUTES TO THIS
+    CARD. This card is DELIBERATELY NOT in that cycle -- no escalation trigger is being built -- but
+    the cycle lays every prerequisite, so the probe above becomes runnable the moment it ships:
+      * D6 -- room temp at reset-start and at restore+AC_RESET_OUTCOME_SETTLE_S, producing
+        reset_outcome (floor_survived / justified_ramp / inconclusive). THE drift discriminator this
+        card names as a PREREQUISITE. Without it a survived-floor is indistinguishable from a
+        justified ramp and the probe cannot score anything.
+      * kwh_rate_settle -- NEW, requested mid-build 2026-08-22. Draw captured at the SAME settle
+        moment as D6 temp, same read path, same UPDATE, no new timer. Rationale: D6 temp answers "was
+        the subsequent ramp justified"; it does NOT answer "did the unit come back at a LOWER STAGE",
+        which is the actual reset mechanism. Without this, reset rows stay unanalysable on the power
+        axis exactly as the 9 historical resets are today.
+      * D7 -- AC_RESET_OFF_DURATION_SECONDS promoted from rung-1 module constant to a rung-3 Number
+        entity. This is what makes the duration SWEEP in the probe possible with zero code. Given the
+        actuation-lag finding, this is now load-bearing for the probe, not merely hygiene.
+      * D5 -- hard-reset row enrichment (preset/mode/restore_ok on the reset path). Reset rows today
+        carry almost nothing, which is part of why n=9 was so thin.
+      * D3 -- soft-nudge daily cap. Bounds the runaway (31/day observed against a specced 6) while
+        the escalation question stays open, so the open card is not costing energy meanwhile.
+      * D-GATE4 -- draw-based cooling predicate. Removes the stale-cloud blind window (12.2/7.1/12.9%
+        of high-draw time) that would otherwise corrupt the probe sample.
+    NET: after this cycle, the probe is a measurement exercise. Before it, the probe is unbuildable.'
   RESET_DRIFT_CONSTRAINT_2026_08_22: 'OPERATOR REFINEMENT, and it changes how reset success must be
     MEASURED: "If the temp delta is high it can come back with the temp already elevated above
     setpoint. At which case it will make its own decision - justifiably."
@@ -2129,7 +2515,8 @@ cards:
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight
     while the house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.89.0
   updated: '2026-08-21 09:30'
   approval: needs_operator
   tags:

@@ -4909,6 +4909,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_HVAC_PREHEAT_FORECAST_LOW,
             DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
             COVER_HYSTERESIS_MIN_GAP,
+            # F17.b fix-up (2026-08-22): AC-RAMP night-window HH:MM
+            # pair. Rung 2 (per-deployment structure, changed rarely,
+            # reshapes which budget every overnight reset charges).
+            # NOTE: as of 2026-08-22 this is the FIRST AC-RAMP tunable
+            # exposed on this form — the 14+ AC-RAMP Number-entity
+            # knobs deliberately live on the URA: HVAC Coordinator
+            # device (rung 3). These two knobs are on the form because
+            # HH:MM is not a Number shape AND night-hours are per-
+            # deployment structure the operator sets once.
+            CONF_HVAC_AC_NIGHT_START_HHMM,
+            DEFAULT_HVAC_AC_NIGHT_START_HHMM,
+            CONF_HVAC_AC_NIGHT_END_HHMM,
+            DEFAULT_HVAC_AC_NIGHT_END_HHMM,
         )
         from .const import (  # noqa: PLC0415
             CONF_SLEEP_FAN_ON_TEMP_F,
@@ -4959,6 +4972,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ))
             if grace_constrained > grace:
                 error_keys.append("vacancy_grace_constrained_exceeds_normal")
+
+            # F17.b fix-up: HH:MM form-boundary validation for the
+            # AC-RAMP night-window pair. Reject malformed input HERE
+            # rather than relying on the runtime `_is_night_now`
+            # fail-closed path as the only guard (which silently
+            # collapses the night window to always-day). Equal
+            # start/end is valid per the runtime contract and means
+            # "no night window (always day)" — see the field
+            # description in strings.json.
+            import re as _re_hhmm  # noqa: PLC0415
+            _hhmm_re = _re_hhmm.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+            for _fld in (CONF_HVAC_AC_NIGHT_START_HHMM,
+                         CONF_HVAC_AC_NIGHT_END_HHMM):
+                _val = str(user_input.get(_fld, "") or "").strip()
+                if _val and not _hhmm_re.match(_val):
+                    errors[_fld] = "invalid_hhmm"
 
             if error_keys:
                 # A-MED-2 (Review A): the combined message names BOTH the
@@ -5266,6 +5295,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_HVAC_AC_RESET_ENABLED,
                 default=self._get_current(CONF_HVAC_AC_RESET_ENABLED, DEFAULT_AC_RESET_ENABLED),
             ): selector.BooleanSelector(),
+            # F17.b fix-up (2026-08-22): AC-RAMP night window HH:MM
+            # pair. Rung 2 — per-deployment structure. Wraps at
+            # midnight (start > end means the window crosses over).
+            # Equal start/end = "no night window" (always day). Text
+            # box rather than a time selector: the runtime helper
+            # `_is_night_now` parses HH:MM strings; a time-picker
+            # would add a round-trip conversion for no functional
+            # gain. Validated at the form boundary above
+            # (`_hhmm_re.match`); the setter (`set_night_start_hhmm`)
+            # is also called on the CM options-apply path via
+            # `_HVAC_TUNABLE_SETTER_METHOD` per F16.
+            vol.Optional(
+                CONF_HVAC_AC_NIGHT_START_HHMM,
+                default=self._get_current(
+                    CONF_HVAC_AC_NIGHT_START_HHMM,
+                    DEFAULT_HVAC_AC_NIGHT_START_HHMM,
+                ),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.TEXT,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_AC_NIGHT_END_HHMM,
+                default=self._get_current(
+                    CONF_HVAC_AC_NIGHT_END_HHMM,
+                    DEFAULT_HVAC_AC_NIGHT_END_HHMM,
+                ),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.TEXT,
+                )
+            ),
             # HVAC-GOVERNED-EXCURSION-1 fix-up r5 (2026-08-21): Governed
             # Thermostat Borrows kill switch. Sibling of the two toggles
             # above (Override Arrester + AC Reset). BEGIN-ONLY: OFF

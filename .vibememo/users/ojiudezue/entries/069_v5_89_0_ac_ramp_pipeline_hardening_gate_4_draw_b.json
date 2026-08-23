@@ -1,0 +1,21 @@
+{
+  "format_version": "2.1",
+  "entry_id": "069",
+  "author": "ojiudezue",
+  "session_id": "claude_20260823_153839_ship_v5_89_0",
+  "timestamp": "2026-08-23T15:38:39Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.89.0 shipped: AC ramp pipeline hardening \u2014 Gate 4 draw-based predicate LIVE, day/night reset budgets, durability telemetry",
+  "summary": "Gate 4 vetoed the whole ramp pipeline on a cloud hvac_action flag that goes stale for 96-108 min; measured 12.2/7.1/12.9 pct of high-draw time blind with ZERO nudges fired in it. Operator chose LIVE over the planned SHADOW default ('I dont have time for shadows. It works or not and we can fix or rip') \u2014 legacy Select is the rip cord, verified by mutation that four tests catch its removal.\n\nWHAT REVIEW ACTUALLY CAUGHT, and why four framings were worth it: the CRITICAL (night reset budget resetting at midnight -> 4 resets/night against a budget of 2, on stock defaults) was found INDEPENDENTLY by three reviewers via three different routes. Reviewer B, asked to verify a fallback the plan ASSERTED was safe, found the opposite: the true-cap lockout had become unreachable and the pathology latch was silently deleted. The operators own dashboard knob (hard reset daily limit, including its =0 kill switch) was dead \u2014 read by no decision path \u2014 while the cap had silently doubled 2->4.\n\nMY OWN ERRORS, recorded because they were the expensive part: three separate window-vs-phenomenon mistakes \u2014 measuring nudge durability over 30 min against a 25-min cycle, specifying kwh_rate_settle at 60s inside a measured 72-101s actuation lag, then ordering a 31-min preset settle inside a 25-min nudge cadence. I also asserted a 30-min Carrier poll from a DEFAULT CONSTANT without measuring; the real cadence is 42-79s. That wrong number made me DISABLE the settled restore verdict as 'unmeasurable'. The operator pushed back ('is 20m not enough time?'), measurement showed time was never the variable, and the verdict is now ON at 180s \u2014 reporting a real pre-existing defect (0/10 real-preset restores take) that disabling it would have hidden. Four mechanisms I asserted this cycle were later refuted by measurement; every one was refuted by going and measuring rather than by more reasoning.\n\nTIER-3 ORCHESTRATOR VERIFICATION EARNED ITS KEEP: my own mutation drill found a wire-in the builders drill could not see \u2014 _backfill_restore_ok was deletable at the CALL SITE with 60/60 green, because the builder had drilled the helper body. Helper tested, call untested: fourth cycle running with that class.\n\nDEFERRED DELIBERATELY: automatic escalation dropped on a negative control (deleting its central measurement changed its behaviour by 1-2 events \u2014 it was a nudge-SPACING detector). D9 cut (update_entity uses the same fetch path as the failing poll). D10 deferred though its probe says BUILD (p50 72-101s vs a 2s cancel threshold). Preset-restore defect carded as PRESET-RESTORE-DOES-NOT-TAKE-1 for immediate fast-follow \u2014 the borrow is bookkeeping only, so every restore site repeats its own setpoint-then-preset write and the fix is centralisation, not a one-site patch.",
+  "refs": {
+    "cards": [
+      "RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1",
+      "AC-RAMP-NO-RECURRENCE-ESCALATION-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.89.0.md"
+    ],
+    "release_notes": "Tier 3: four framing-disjoint reviews (1 CRITICAL + 9 HIGH found and fixed), 11 mutation drills, serial suite name-diff clean. Gate 4 replaces the stale cloud hvac_action veto with a draw-based predicate, recovering 12.2/7.1/12.9 percent of high-draw time that was blind; ships LIVE with a legacy kill switch. Day/night reset budgets 2+2 ceilinged by the revived hard-reset daily limit knob. Soft-nudge backstop 40. Durability, reset-outcome and restore telemetry with five new sensors. Settled restore verdict re-enabled at 180s and now reports a real pre-existing preset-restore defect tracked as PRESET-RESTORE-DOES-NOT-TAKE-1."
+  }
+}

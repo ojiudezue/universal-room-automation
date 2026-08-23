@@ -45,6 +45,25 @@ not just the review findings against what was fixed.
   not land; a hard reset that leaves the PRE-RESET preset means it worked. Those differ, so the
   observation discriminates.
 
-## Live validation
+## Live validation — Validated 2026-08-22 (post-restart)
 
-*To be written back post-restart.*
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loads | **PASS** | zone status sensors back; `hvac_action: cooling` on z1 and z3 |
+| Version live | **PASS** | manifest on the HA host reads `v5.88.1` |
+| Sensor label renamed | **PASS** | friendly_name = `URA: HVAC Coordinator Temporary Thermostat Changes` |
+| Config-flow value reaches runtime | **PASS** | `primitive_enabled: true` on the live sensor |
+| Borrow sensor healthy at idle | **PASS** | `active_borrows: []`, counters empty, `last_return: null` (fresh boot) |
+| No URA / excursion ERRORs | **PASS** | zero matching ERROR/CRITICAL lines post-restart |
+| No restore failures | **PASS (vacuously)** | zero `[GOVERNED BORROW RESTORE FAILED]` — but no borrow has occurred since boot, so this is an absence of failures, NOT evidence the path works |
+| Preset assert present in shipped code | **PASS** | `_verify_restore` on the HA host contains 1 `emit_set_preset_mode` |
+| **Hard reset leaves a non-`manual` preset** | **PENDING** | requires an actual hard reset. Resets fire roughly never today (11 ever, 0 in six days) because escalation is gated on nudge-ineffective and nudges essentially never fail — so this may not be observable until AC-RAMP-NO-RECURRENCE-ESCALATION-1 makes resets reachable. That is the honest position: **this fix is verified in code and by mutation drill, not yet in the field.** |
+
+**Note on zone_3 `preset_mode: manual`:** this is the operator's own manual reset at ~02:00
+(they turn the AC off and back to auto when they see high draw at setpoint). A human at the
+thermostat, not a URA-induced manual — and precisely the manual labour the escalation cycle exists
+to remove.
+
+**Deploy note:** clean run through all 7 deploy steps, unlike v5.88.0 which failed at step 6 (the
+develop->master PR conflict) and therefore never ran step 7. Develop now carries master's merge
+commit, so that failure mode is closed.

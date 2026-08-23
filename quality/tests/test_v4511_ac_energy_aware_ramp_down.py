@@ -242,10 +242,18 @@ class TestSchemaCriticalProperties:
 
     def test_retention_uses_batched_delete(self, database_src):
         """30-day retention prune must be batched (not a single huge DELETE)
-        to avoid blocking the write worker."""
-        # BOUNDED BY STRUCTURE (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21): bare method name.
-        idx = database_src.find("cleanup_ac_ramp_events")
-        assert idx != -1, "could not locate cleanup_ac_ramp_events in database_src"
+        to avoid blocking the write worker.
+
+        A1 fix-up (2026-08-22): anchor on the METHOD DEFINITION so an
+        unrelated comment mentioning the name (e.g. the F5 fix-up
+        migration comment at database.py:7576 added in this cycle)
+        cannot poison the scan. Source-text tests are Bug Class #62 —
+        structurally re-anchored here.
+        """
+        idx = database_src.find("async def cleanup_ac_ramp_events")
+        assert idx != -1, (
+            "could not locate `async def cleanup_ac_ramp_events` in database_src"
+        )
         _nxt_async = database_src.find("\n    async def ", idx + 1)
         _nxt_sync = database_src.find("\n    def ", idx + 1)
         _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]

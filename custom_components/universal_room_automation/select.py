@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.88.1
+# Universal Room Automation vv5.89.0
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -65,6 +65,11 @@ async def async_setup_entry(
             EnergyPreCoolScopeSelect(hass, entry),
             # Session B1 — EVSE drain-precedence house-load source select.
             DrainPrecedenceHouseLoadSourceSelect(hass, entry),
+            # AC-RAMP-PIPELINE-HARDENING-1 D-GATE4: predicate-mode Select
+            # on the HVAC Coordinator device. Default `shadow` on first
+            # boot; operator flips to `live` after 24h of shadow
+            # divergence rows. `legacy` is the kill-switch.
+            HVACGate4PredicateModeSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -931,3 +936,138 @@ class ChatterModeSelect(SelectEntity):
             "ChatterModeSelect: %s -> %s (entry=%s)",
             old, option, self._entry.entry_id,
         )
+
+
+
+class HVACGate4PredicateModeSelect(SelectEntity):
+    """AC-RAMP-PIPELINE-HARDENING-1 D-GATE4 predicate-mode Select.
+
+    Entity: select.ura_hvac_ac_gate4_predicate_mode
+    Device: URA: HVAC Coordinator
+
+    Options:
+      legacy - kill-switch. Cloud-reported `hvac_action != "cooling"`
+               body restored verbatim.
+      shadow - DEFAULT. Legacy decides Gate 4; the draw-based predicate
+               is computed and, on transition, ONE `gate4_divergence_shadow`
+               row is written per direction (agree->diverge, diverge->agree).
+               Byte-identical Gate 4 decision.
+      live   - Draw-based predicate decides.
+
+    Persists via CM entry.options (the same source-of-truth pattern used
+    by the other CM Selects). Setter pushes into
+    ``OverrideArrester._gate4_predicate_mode`` LIVE - no reload required.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-check-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.entity import EntityCategory
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_AC_GATE4_PREDICATE_MODE,
+            DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE,
+            HVAC_AC_GATE4_MODES,
+        )
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._entry = entry
+        self._conf_key = CONF_HVAC_AC_GATE4_PREDICATE_MODE
+        self._default = DEFAULT_HVAC_AC_GATE4_PREDICATE_MODE
+        self._attr_options = list(HVAC_AC_GATE4_MODES)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_gate4_predicate_mode"
+        self._attr_name = "AC Gate 4 Predicate Mode"
+        self.entity_id = "select.ura_hvac_ac_gate4_predicate_mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def current_option(self) -> str:
+        merged = {**self._entry.data, **self._entry.options}
+        val = merged.get(self._conf_key, self._default)
+        if isinstance(val, str) and val in self._attr_options:
+            return val
+        return self._default
+
+    def _get_arrester(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+        return getattr(hvac, "_override_arrester", None) if hvac else None
+
+    def _push_to_arrester(self) -> bool:
+        """Push the current option into the arrester; return True iff
+        the arrester was reachable AND the setter did not raise."""
+        arrester = self._get_arrester()
+        if arrester is None:
+            return False
+        try:
+            arrester.set_gate4_predicate_mode(self.current_option)
+            return True
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("gate4 mode seed push failed: %s", e)
+            return False
+
+    async def async_added_to_hass(self) -> None:
+        # F14 fix-up (2026-08-22): the pre-fix single-shot push
+        # swallowed a None arrester and could leave the persisted
+        # `live` option running as SHADOW while the entity display
+        # said `live` — a silent seed-race. Adopt the sibling prior
+        # art from `_hvac_tunable_number_factory` (number.py:2186):
+        # if the first push fails, retry on
+        # SIGNAL_HVAC_ENTITIES_UPDATE with a one-shot unsub guard.
+        await super().async_added_to_hass()
+        if self._push_to_arrester():
+            return
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import (
+            SIGNAL_HVAC_ENTITIES_UPDATE,
+        )
+        unsub_holder: list = []
+        unsubbed = [False]
+
+        def _safe_unsub() -> None:
+            if unsubbed[0]:
+                return
+            if unsub_holder:
+                unsubbed[0] = True
+                unsub_holder[0]()
+
+        @callback
+        def _on_hvac_tick(*_a, **_kw):
+            if self._push_to_arrester() and unsub_holder and not unsubbed[0]:
+                _safe_unsub()
+
+        unsub_holder.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_ENTITIES_UPDATE,
+                _on_hvac_tick,
+            )
+        )
+        self.async_on_remove(_safe_unsub)
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self._attr_options:
+            _LOGGER.warning("Invalid gate4 predicate mode: %s", option)
+            return
+        arrester = self._get_arrester()
+        if arrester is not None:
+            try:
+                arrester.set_gate4_predicate_mode(option)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning("gate4 mode live push failed: %s", e)
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._conf_key: option},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info("HVACGate4PredicateModeSelect -> %s", option)
