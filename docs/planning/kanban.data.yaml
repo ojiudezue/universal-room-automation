@@ -25,6 +25,58 @@ meta:
     finish-out: MEMORY-WRITERS-1. Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EVSE-SOLAR-FOLLOW-AMPS-1
+  OPERATOR_ANSWERS_AND_VERIFIED_FACTS_2026_08_23: 'All four questions answered; each verified against
+    the live system rather than accepted, and two of my own claims corrected.
+    Q1 CURRENT FLOOR — MEASURED, and it is NOT 2A. The Emporia number entity reports
+      min=6 max=48 step=1 unit=A. At 240V that is a HARD FLOOR OF ~1.44 kW. There is no
+      throttle-to-nothing option: below 1.44 kW the only choices are STOP or draw from the battery.
+      This kills the "hold at minimum amps" variant outright — it would simply move the yo-yo to the
+      bottom of the range. Entity also exposes `status` (Standby/Charging) and `charging_rate`,
+      both useful to the controller. Both chargers currently read "Charger is not connected to a
+      vehicle."
+    Q2 BATTERY CONTRIBUTION — USE THE EXISTING MECHANISM (operator). It is FILL-PRIORITY, in
+      energy_pool.py, and it is TIME-anchored by TOU phase, never inferred from instantaneous PV:
+        peak -> release (TOU pause is canonical there)
+        off_peak -> release (fixed cheap-grid window; its comment calls this "cloud-proof")
+        mid_peak + peak_ahead -> HOLD  (the pre-peak fill window)
+        mid_peak + no peak ahead -> release
+      The solar-follow controller DEFERS to this rather than inventing a battery-contribution rule.
+      NOTE: fill_priority_soc and ev_battery_drain_soc are BOTH live at 80 today — same number, two
+      different mechanisms; do not conflate them.
+    Q3 STOP CONDITIONS — VERIFIED. Peak already stops it: determine_excess_solar_actions says
+      "Only during off-peak or mid-peak (never peak — battery needed)", so the operator prediction
+      that peak may stop it before solar runs out is ALREADY TRUE IN CODE.
+      Solcast surfaces exist and are the right stop signal:
+        sensor.solcast_pv_forecast_forecast_next_hour       (1306 W at time of writing)
+        sensor.solcast_pv_forecast_forecast_next_x_hours    (6606 W)
+        sensor.solcast_pv_forecast_forecast_remaining_today (8.17 kWh)
+      Stop on BOTH: multi-tick hysteresis on measured excess AND next-hour forecast below the floor.
+    Q4 GARAGE A — MY CLAIM WAS WRONG, CORRECTED BY THE OPERATOR. I said URA actuates through the SPAN
+      breaker and therefore could not control Garage A. Untrue. energy_pool.py:170/177 hard-codes
+      "switch": "switch.garage_a" / "switch.garage_b" — the EMPORIA switches. The SPAN breaker is not
+      in the control path; energy_evse_{a,b}_entity are power SENSORS
+      (sensor.garage_{a,b}_power_minute_average) and the EVSE has its own measurement. So the
+      unavailable SPAN breaker is an observability gap on another card, NOT a blocker here.
+      BOTH EVSEs are actuatable. I asserted the control path from entity NAMES instead of reading the
+      config — the same infer-rather-than-verify error this session has hit repeatedly.'
+  EXCESS_SIGNAL_AND_SELF_VALIDATION_2026_08_23: 'What to size the draw against, and how to know the
+    reading is trustworthy without depending on a second sensor that is currently dead.
+    PRIMARY: sensor.envoy_482543015950_balanced_net_power_consumption — NEGATIVE means exporting.
+    This is the spare-solar figure directly, already net of the whole house, with no subtraction for
+    the controller to get wrong.
+    REJECTED AS CROSS-CHECK: sensor.span_panel_mains_emporia_vue_power reads 0.0 and is not
+    reporting. Gating on Envoy-vs-Emporia agreement would stop charging ALWAYS until that is fixed.
+    OPERATOR DIRECTION — validate by battery state and arithmetic instead. Both identities VERIFIED
+    live:
+      consumption 5.843 - production 6.194 = -0.351  ==  balanced_net -0.351   (exact)
+      available 37,350 Wh / capacity 40,000 Wh = 93.4%  ==  battery 93%        (consistent)
+    So the controller can self-check: if balanced_net diverges from (consumption - production), a
+    sensor is stale and it should fail safe (stop), with no second meter required.
+    THE BATTERY GATE IS THE REAL DISCRIMINATOR, and the live snapshot proves why: the house was
+    EXPORTING 351 W while the battery sat at 93% and FALLING (97% at midday, discharge -0.612 kW).
+    Export alone is NOT evidence of true surplus — the battery should absorb it first. A controller
+    that sized on export alone would have started charging the car out of a draining house battery,
+    which is the exact failure this card exists to remove.'
   title: 'Charge current is binary (48A or off) so solar charging yo-yos the house battery: add
     excess-following current modulation on the two L2 EVSEs'
   thread: energy
