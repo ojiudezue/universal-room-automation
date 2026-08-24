@@ -188,10 +188,11 @@ leaving the feature silently dormant.
 
 ```python
 class SolarFollowController:
-    def __init__(self, hass, ev: EVChargerController, db,
+    def __init__(self, hass, coord, ev: EVChargerController, db,
                  grid_primary_entity: str | None,
                  grid_fallback_entity: str | None) -> None:
         self.hass = hass
+        self._coord = coord            # EnergyCoordinator; passed as `self` at construction
         self._ev = ev
         self._db = db                                  # for D1.7 persistence
         self._grid_primary = grid_primary_entity
@@ -226,6 +227,10 @@ so it cannot outlive the entry. `cancel_all()` (D1.8) is called from the EC tear
 * `_write_amps(entity, amps) -> None` — `await hass.services.async_call("number", "set_value",
   {"entity_id": entity, "value": float(int(amps))}, blocking=False)`. Amps are integers on the
   wire; `int()` before `float()` so a `//` result never sends a fraction.
+* `clamp(v, lo, hi)` is `max(lo, min(hi, v))` written inline — Python has no builtin; do not
+  import one.
+* `_restore_pass()` — specified at the end of 5.2. `_persist()` — 5.7. `_tick(now)` — the
+  coroutine registered with `async_track_time_interval`; its body is 5.2.
 * `_budget_allows(evse_id) -> bool` — prunes `self._writes[evse_id]` of stamps older than
   3600 s, returns `len(stamps) < SOLAR_FOLLOW_MAX_WRITES_PER_HOUR`. Rolling window, RAM-only.
 
@@ -233,7 +238,8 @@ so it cannot outlive the entry. `cancel_all()` (D1.8) is called from the EC tear
 
 ```python
 # 0. GATING (INV-SF-9) and SELF-PRUNE.
-enabled = coord._excess_solar_enabled and not coord._observation_mode   # noqa: SLF001
+enabled = (self._coord._excess_solar_enabled                 # noqa: SLF001
+           and not self._coord._observation_mode)           # noqa: SLF001
 if not enabled:
     if self._was_enabled:
         await self._restore_pass()          # un-throttle once on the disable edge
@@ -256,10 +262,17 @@ await self._restore_pass()
 
 # 2. GRID READ (D1.3). If blind: handle staleness and return.
 
-# 3. ELIGIBLE and DRAWING per INV-SF-4 — dict subscripting, numeric witness, freshness gate.
+# 3. Build THREE sets per INV-SF-4 — dict subscripting, numeric witness, freshness gate.
+#    ELIGIBLE     : passes the peer, DP, power_source and numeric-witness clauses.
+#    DRAWING      : ELIGIBLE and charging and power reading fresh.
+#    STALE_POWER  : ELIGIBLE and charging but power reading OLDER than SOLAR_POWER_FRESH_S.
+#                   Excluded from the add-back AND from re-targeting (step 6 holds them).
 
 # 4. S_eligible = -grid_W + Σ_{DRAWING} power
-#    if S_eligible > nameplate_w * 1.15: WARNING; treat as blind; return.
+#    nameplate_w = self._coord entity-config value of CONF_ENERGY_SOLAR_NAMEPLATE_W
+#      (live 19400; falls back to DEFAULT_ENERGY_SOLAR_NAMEPLATE_W when unset).
+#    if nameplate_w and S_eligible > nameplate_w * 1.15:
+#        WARNING; treat as blind (5.4); return.   # an impossible surplus is a signal fault
 
 # 5. ALLOCATE — net the parked floor out FIRST (INV-SF-4).
 parked_w      = (len(ELIGIBLE) - len(DRAWING)) * SOLAR_FOLLOW_MIN_AMPS * 240
