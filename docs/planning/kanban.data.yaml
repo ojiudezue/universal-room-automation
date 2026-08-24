@@ -203,11 +203,11 @@ cards:
   title: 'Charge current is binary (48A or off) so solar charging yo-yos the house battery: add
     excess-following current modulation on the two L2 EVSEs'
   thread: energy
-  status: pre_planning
+  status: 'planned'
   approval: explicit
   approved_by: 'operator 2026-08-23 (asked for the card + a simple plan + surgical insertion point)'
   created: '2026-08-23 16:10'
-  updated: '2026-08-23 16:10'
+  updated: '2026-08-24 18:00'
   refinement_status: initial
   tags:
   - measure-before-build
@@ -254,10 +254,8 @@ cards:
       solar production 13,988 W | house draw 9,317 W | battery 97% | ev_battery_drain_soc knob = 80
       => roughly 4.7 kW spare, while the charger would pull ~11.5 kW at 48A/240V. That gap IS the
       yo-yo: about 6.8 kW would come from the house battery.'
-  next: 'OPERATOR QUESTIONS FIRST (see OPEN_QUESTIONS) — three of them change the design, not just
-    the tuning. Then a measure-first probe: log spare-solar vs charger draw at 30s for one sunny
-    afternoon BEFORE building the controller, to size the deadband and confirm the Emporia entity
-    accepts and holds writes at that cadence.'
+  REWRITTEN_REV20_2026_08_24: 'Two framing-disjoint plan reviews returned 39 findings, 5 CRITICAL. Root cause was PROCESS, not design: revisions 4-19 layered "authoritative" sections onto an unedited body until the document argued with itself -- a live 2x arithmetic fork on the allocation denominator, 11 pointers standing in for spec text that existed nowhere, and 16 test names plus 20 mutation drills defined nowhere. Rewritten as ONE coherent document rather than patched. CRITICAL findings closed: (B1) _get_evse_state returns a DICT and the invariant used attribute access -- guaranteed AttributeError on the first tick; now subscripted everywhere. (B2) D2 was sited in the release leg, which is inside else: and runs only when conditions_met is FALSE -- the idle stop must fire while it is TRUE, so the whole deliverable was dead on arrival; now a per-EVSE stop sweep sited BEFORE conditions_met, leaving claim and release legs byte-identical. (B3) conditions_met is ONE boolean serving both legs, so the SOC band could not be expressed as an edit to it without moving the start gate to 80; now a separate continue_ok with a defensive min() because number.py:1670 states the ordering invariant is NOT enforced. (B4) the claim that widening mains_export_active had "no live consumers" was FALSE -- two exist at energy_pool.py:633 and :1422, inert only while the field is unset and this cycle requires wiring it; the function is now left untouched and D1 reads its own signed value. (B10) persistence needed an unmentioned ALTER TABLE and offered the builder a choice; now the existing KV path, no schema change, no choice. Also closed: current_charging_load_w excluded (fleet total that launders the 7600 W fabrication), foreign-writer STOP dropped (would fire on the Emporia cloud echo and kill every session), all stop thresholds expressed as DURATIONS against last_changed rather than tick counts (status p90 is 1104 s, so tick-counting counted our own polling), ledger moved to EVChargerController where its write points already are and extended to the peak-clear and blind-window-drop paths.'
+  next: 'PLAN REWRITTEN AND BUILD-READY 2026-08-24. docs/planning/PLANNING_evse_solar_follow_amps.md Rev-20, 658 lines (was 1371). Ships AFTER the DP fix. Tier 3: four framing-disjoint code reviews + orchestrator drill verification + operator checkpoint before deploy. Awaiting operator go to build.'
   OPEN_QUESTIONS_FOR_OPERATOR: 'Asked rather than assumed — each changes the design.
     Q1 CURRENT FLOOR AND WHAT "OFF" MEANS. You said Emporia modulates 2A-48A, but the HA number
       entity reports no min/max/step attributes, and Emporia L2 hardware is usually 6A minimum
@@ -350,7 +348,7 @@ cards:
     triangulation of latest findings. Not just memory." Applied here: memory was the least current
     of the three sources, and the card body plus the code both outrank it.'
   thread: energy
-  status: planned
+  status: 'planned'
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Card and fix. Approved.'')'
   created: 2026-08-20 00:20
@@ -409,11 +407,8 @@ cards:
     the corollary the last misdiagnosis violated): under the fix, the first DP transition stamps _dp_decision_soc = 10 and
     battery SOC falls below 80 overnight; under the unfixed build it stamps 80 and SOC floors at 80. The two are distinguishable
     in one read of the DP snapshot, and 80-vs-10 is not producible by any other candidate mechanism.'
-  next: 'OPERATOR CALL: (STOPGAP) authorize setting number.ura_energy_coordinator_ev_battery_drain_soc=10 to restore drain
-    behavior tonight; AND (REAL FIX) scope a cycle to source the DP drain target from current_offpeak_drain_target (forecast-based),
-    deciding whether _ev_battery_drain_soc survives as a separate protective/charge-above floor (the two-threshold design
-    the operator described). Producer+Consumer check on the DP drain target. Tier 2-DB/3 (DP state machine + cost + cross-coupling
-    to evse_battery_hold + reserve).'
+  PLAN_FINALISED_2026_08_24: 'Plan review returned 11 findings, ALL in the test/drill/acceptance sections written the same day; all applied. Confirmed sound by review and NOT to be re-litigated: the five R2 sites (independent grep), the compose_release_floor helper signature, INV-DP-DRAIN-4 (live-apply chain traced number.py -> energy.set_offpeak_drain -> energy.py:8651), and that all five R2 sites sit inside the off-peak gate so the non-off-peak branch is unreachable. Fixes applied: (1) per-site drills C6-C10 added -- the old set anchored only 3 of 5 R2 sites while claiming "all five must bite"; (2) T3 and T4 de-hollowed -- both folded their own mutation into their assertion, so T3 could not fail and T4 was self-contradictory; (3) T4b added, closing INV-DP-DRAIN-3 which had NO anchor at energy_pool.py:954/:1435; (4) the helper static-reserve fallback DELETED as unreachable (floor-is-None implies static-reserve-is-None, so the fallback read the same None) and T3b deleted with it since its fixture was a state production cannot produce; (5) the :4555 containment hazard specified -- a bare call there propagates to the OUTER handler and kills the MUST_START_FORCED safety revert; (6) the Live criterion made PAIRED, since "reserve floor does not exceed SOC" reads PASS both under the fix and under DP never transitioning at all; (7) very_poor drain target recorded as unable to live-apply (energy.py:8647 validates only four qualities) -- pre-existing but this cycle makes it load-bearing.'
+  next: 'PLAN FINALISED AND PARKED 2026-08-24. docs/planning/PLANNING_dp_drain_target_mis_sourcing.md is build-ready: 5 R2 sites independently re-verified by review, helper typechecked, INV-DP-DRAIN-4 resolved by code read, T1-T5 + T4b specified with a binding fixture contract, 10 per-site mutation drills (C1-C10), acceptance criteria with a PAIRED discriminating Live check. Ships FIRST, before solar-follow. Awaiting operator go to build.'
   refinement_status: refined
   SCOPING_2026_08_20_ONE_NUMBER_THREE_ROLES: 'THE REAL FINDING — _ev_battery_drain_soc serves THREE INCOMPATIBLE SEMANTIC
     ROLES, two of which point in OPPOSITE DIRECTIONS. R1 PAUSE CEILING (energy.py:5842 EV, :5977 plugs -> energy_pool.py:3224
