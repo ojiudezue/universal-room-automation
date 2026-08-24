@@ -690,43 +690,93 @@ state each tick; the module constant is the default the Number overrides.
 Behavioural, mutation-anchored. `PYTHONDONTWRITEBYTECODE=1`, cleared `__pycache__`.
 **No test contains its own mutation** — mutations live in §12.
 
-**Fixture contract:** `_get_evse_state` is a dict; fixtures return dicts. Every fixture pins
-`power_source` explicitly. Fleet fixtures pin `charging` for BOTH bays.
+**Fixture contract.** `_get_evse_state` returns a dict; fixtures return dicts. Every fixture
+pins `power_source` explicitly. Fleet fixtures pin `charging` for both bays **and** the age of
+each power reading. **Fixtures MUST be able to express a grid reading and a per-EVSE power
+reading that DISAGREE** — an earlier contract required them to be consistent, which made the
+add-back staleness failure untestable by construction.
 
-* **T-DICT-1** every D1 read of `_get_evse_state` subscripts. Fixture returns a plain dict with
-  no attribute access support, so attribute access raises.
+**Allocation and eligibility**
+* **T-DICT-1** every D1 read of `_get_evse_state` subscripts. The fixture returns a plain dict
+  with no attribute support, so attribute access raises.
 * **T-ELIG-1** a bay with `power_source="switch_status"` (7600 W fabricated) is excluded from
-  ELIGIBLE and contributes 0 to `S_eligible`. Under the bug: `S` inflated 7.6 kW.
-* **T-ALLOC-1** one drawing bay, one idle bay, 7 kW surplus → drawing bay 29 A, idle bay 6 A.
-  Under the `len(ELIGIBLE)` bug: 14 A. Discriminating.
-* **T-ALLOC-2** both bays drawing, 7 kW → 14 A each.
+  ELIGIBLE and contributes 0 to the add-back. Under the bug: `S` inflated 7.6 kW.
+* **T-ELIG-2** a bay whose power sensor is responsive but publishes a non-numeric state has
+  `power_source == "sensor"` and `power == 0.0` (`energy_pool.py:668-681` assigns the source
+  before the parse and swallows the exception). Assert it is EXCLUDED from ELIGIBLE by the
+  numeric-witness clause. Under the bug it is admitted, reads as 0 W, and drags every other
+  bay to MIN while `solar_follow_surplus_kw` shows a plausible small number.
+* **T-STALE-POWER-1** grid reads 0 W; `garage_a` reports `charging=True, power=11500` with a
+  power reading 200 s old (`SOLAR_POWER_FRESH_S = 180`). Assert `garage_a ∉ DRAWING`,
+  `S_eligible == 0`, and the commanded value is MIN — not 47 A. **This is the founding test for
+  the freshness gate**; without it the add-back is an unbounded headroom term.
+* **T-ALLOC-1** one drawing bay, one idle bay, 7 kW surplus → drawing 29 A, idle 6 A.
+  Under `len(ELIGIBLE)` as denominator: 14 A. Discriminating.
+* **T-ALLOC-2** both drawing, 7 kW → 14 A each.
 * **T-ALLOC-3** `N_drawing = 0` → no divide-by-zero; all ELIGIBLE get 6 A.
-* **T-PEER-1** peer-held bay receives no write and no capture across 5 ticks.
+* **T-UPSTREAK-1** first up-step of a fresh session does not raise. Under a bare
+  `self._up_streak[evse_id] += 1`: `KeyError`.
+* **T-AMPS-NONE-1** the limit entity is `unavailable`: the bay is skipped, no write, no capture,
+  streak reset. Under the bug: `TypeError` comparing `a_target > None`.
+
+**Peer subordination**
+* **T-PEER-1** peer-held bay receives no write and no capture across 5 ticks, including the
+  restore pass.
 * **T-PEER-2** mid-session peer add: `_original_amps` retained AND zero writes on tick 2, with
   the surplus moved DOWN 14 A between ticks so the deadband cannot mask the result.
-* **T-STOPSWEEP-1** idle bay stops while `conditions_met` is TRUE. Under the release-leg siting:
-  never stops. **This is the founding test for D2.1.**
-* **T-BAND-1** session started at SOC 96 survives a dip to 85 for 6 ticks. Under the
-  single-threshold bug: stops.
-* **T-BAND-2** SOC 79 sustained → stops with `surplus_gone`.
-* **T-BAND-3** inverted config (`fill_priority_soc=95`, `start=90`) → `stop_soc` clamps to 90,
-  one WARNING, a session started at 91 does not immediately stop.
-* **T-DISC-1** status `Disconnected` for 300 s → stop `car_disconnected`; at 290 s → no stop.
+* **T-PEERSTOP-1** a peer holds a bay whose status reads disconnected for 400 s → **no stop**,
+  and both stop stamps are cleared. On peer release the duration restarts from zero, so no stop
+  fires for a further `SOLAR_STOP_DISCONNECTED_S`. Under the bug: an immediate false
+  `car_disconnected` the moment the peer releases. (INV-STOP-2)
+
+**Stop conditions**
+* **T-STOPSWEEP-1** an idle bay stops while `conditions_met` is TRUE. Under a sweep sited in the
+  release leg: never stops. **Founding test for D2.1's placement.**
+* **T-DISC-1** the switch has been `on` for 6 h; `status` reads disconnected for the FIRST time
+  this tick. Assert **no stop** — the stamp was just created. Assert a stop only after
+  `SOLAR_STOP_DISCONNECTED_S` of continuous disconnected observations. **Under a `last_changed`
+  implementation this test fails at the first assertion**, because the switch's `last_changed`
+  is 6 h old and the threshold is instantly satisfied.
+* **T-DISC-2** a single disconnected sample followed by a reconnected sample clears the stamp;
+  no stop.
 * **T-IDLE-1** not charging for 1200 s → stop `car_idle`; a 10-minute mid-charge pause that
   resumes → NO stop.
-* **T-PEERSTOP-1** peer holds a bay whose status reads `Disconnected` for 400 s → **no stop**,
-  timers cleared. Under the bug: stops with a false `car_disconnected`. (INV-STOP-2)
-* **T-BLIND-1** both sources unavailable: no writes at 300 s, stop request at 900 s, D2 stops on
-  its next tick with `signal_lost`. Session survives 299 s.
+* **T-STATUS-UNKNOWN-1** `status == "unknown"` (the sentinel `_get_evse_state` actually returns
+  when the switch state or attributes are missing) clears both stamps and advances nothing.
+* **T-STREAK-1** `continue_ok` False for 300 s → no release; for 600 s → release with
+  `surplus_gone`. Under a missing streak: releases on the first tick below the band.
+* **T-BAND-1** a session started at SOC 96 survives a dip to 85 for 6 ticks.
+* **T-BAND-2** SOC 79 sustained past the streak → stop `surplus_gone`.
+* **T-BAND-3** inverted config (`fill_priority_soc=95`, `soc_threshold=90`) → `stop_soc` clamps
+  to 90, one WARNING, a session started at 91 does not immediately stop.
+* **T-BAND-4** dead band, no session: SOC 85 with `conditions_met` False and `continue_ok` True
+  → the claim leg does not run and the release leg does not run; an unclaimed bay is untouched.
+
+**Blind state**
+* **T-BLIND-1** both grid sources unavailable: no writes at 300 s, `_stop_requests` populated at
+  900 s, D2 stops on its next sweep with `signal_lost`. Session survives 299 s.
 * **T-BLIND-2** while blind, the disconnected and idle stops still function.
+* **T-BLIND-SWEEP-1** the EC blind-window guard is ENGAGED and the CONTINUE leg returns early;
+  a `signal_lost` request is outstanding. Assert the sweep still runs and the stop fires.
+  **Under a sweep sited after the blind-window block this never fires** and the bay holds up to
+  48 A for the whole outage. Founding test for the placement's second reason.
+* **T-BLIND-RECOVER-1** a `signal_lost` request is raised, then the primary recovers before D2's
+  next tick. Assert the request is discarded and NO stop occurs. Under a non-clearing
+  implementation: a healthy session is stopped minutes later with a misattributed cause.
+
+**Persistence and lifecycle**
+* **T-RESTORE-1** restart mid-session: `_original_amps` restored via
+  `db.restore_energy_state_with_age("solar_follow_original_amps_v1", max_age_hours=10)` and the
+  first tick restores the limit.
+* **T-RESTORE-2** a blob older than 10 h is DISCARDED; `_original_amps` is re-captured fresh with
+  the sanity floor, not laminated from the current throttled value.
+* **T-PRUNE-1** an EVSE removed from `self._ev._evse` has every D1 dict entry dropped on the next
+  tick. Under reliance on `_prune_removed_evses`: entries persist, because that method resolves
+  attributes on `EVChargerController` and runs from its `__init__` before D1 exists.
 * **T-LEDGER-1** every removal path writes a reason: sweep, release leg, peak-clear (`:1369`),
   blind-window drop (`:1564`). Assert non-null for all four.
-* **T-RESTORE-1** restart mid-session restores `_original_amps` from the KV blob and the first
-  tick restores the limit.
-* **T-RESTORE-2** KV blob older than 10 h is DISCARDED; `_original_amps` is re-captured fresh
-  with the sanity floor, not laminated from the current throttled value.
-* **T-ENTITY-1** an `evse_config`-supplied deployment with no `current_limit` key logs a WARNING
-  and skips the bay — it does not silently no-op.
+* **T-ENTITY-1** an EVSE with no `current_limit` key logs a WARNING once and is skipped — no
+  write, no capture, no exception.
 * **T-UNIT-1** a fallback reading in kW is ×1000; an entity with an unexpected unit is treated as
   unavailable, not admitted.
 
@@ -738,17 +788,16 @@ Behavioural, mutation-anchored. `PYTHONDONTWRITEBYTECODE=1`, cleared `__pycache_
 |---|---|---|
 | `_stronger_peer_holds` + inline `_paused_by_dp` | REUSE | `energy_pool.py:383-412` |
 | `_get_evse_state` (subscripted) | REUSE | `:650-707` |
-| `DEFAULT_EVSE_ENTITIES` + `evse_config` override | REUSE | `:167-183`, `:193-198` |
-| `determine_excess_solar_actions` claim/release legs | REUSE UNCHANGED | `:1581-1700` |
-| `_prune_removed_evses` | REUSE | `:213-216` |
-| KV persistence + `_KNOWN_HOOKS` | REUSE | `energy.py:1603-1612` |
+| `DEFAULT_EVSE_ENTITIES` (+ `current_limit` key) | REUSE | `:167-183` |
+| claim leg / release-leg body | REUSE UNCHANGED | `:1581-1700` |
+| `db.save_energy_state` / `restore_energy_state_with_age` | REUSE | `database.py:4868`, `:4898`; precedent `energy.py:1673-1684` |
 | `sensor...ev_charging_status` | REUSE (extend) | 23 existing attributes |
 | `switch...evse_solar_aware_charging` | REUSE | existing master enable |
 | `resume_ev_at_battery_soc`, `fill_priority_soc` | REUSE | existing Numbers |
-| `CONF_ENERGY_GRID_IMPORT_ENTITY` | REUSE as fallback | already configured |
 | `mains_export_active` | REUSE UNCHANGED (not called) | two live consumers |
+| Number-setter push pattern | REUSE | `energy.py:8645` `set_offpeak_drain` |
 | `SolarFollowController` | NEW | no 60 s modulation loop exists |
-| `CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY` | NEW | no config field for the Emporia mains POWER entity |
+| `CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY` / `_FALLBACK_ENTITY` | NEW | existing grid fields carry other contracts |
 | `CONF_SOLCAST_NEXT_HOUR_ENTITY` | NEW | existing Solcast fields are today/tomorrow/remaining/day3 |
 | `number...excess_solar_confirm` | NEW | one control |
 
@@ -760,18 +809,23 @@ Real per-site source mutation, ONE at a time, restore after each.
 
 * **C1** attribute access instead of subscripting in ELIGIBLE → **T-DICT-1** fails.
 * **C2** drop the `power_source == "sensor"` gate → **T-ELIG-1** fails.
-* **C3** `N_denom = len(ELIGIBLE)` → **T-ALLOC-1** fails.
-* **C4** remove `max(1, ...)` → **T-ALLOC-3** fails (crash).
-* **C5** remove the peer guard from the D1 write path → **T-PEER-1** fails.
-* **C6** remove the peer guard from the D2 stop sweep → **T-PEERSTOP-1** fails.
-* **C7** move the stop sweep into the `else:` release leg → **T-STOPSWEEP-1** fails.
-* **C8** revert the release leg to `if not conditions_met:` → **T-BAND-1** fails.
-* **C9** drop the `min()` in `stop_soc` → **T-BAND-3** fails.
-* **C10** count ticks instead of duration for disconnected → **T-DISC-1** fails at the boundary.
-* **C11** remove the blind exit stop request → **T-BLIND-1** fails.
-* **C12** skip the ledger write on the peak-clear path → **T-LEDGER-1** fails.
-* **C13** ignore the 10 h KV staleness gate → **T-RESTORE-2** fails.
-* **C14** fall back to `DEFAULT_EVSE_ENTITIES` only → **T-ENTITY-1** fails.
+* **C3** drop the numeric-witness clause → **T-ELIG-2** fails.
+* **C4** drop the `SOLAR_POWER_FRESH_S` gate on DRAWING → **T-STALE-POWER-1** fails.
+* **C5** `N_denom = len(ELIGIBLE)` → **T-ALLOC-1** fails.
+* **C6** remove `max(1, ...)` → **T-ALLOC-3** fails (crash).
+* **C7** bare `self._up_streak[evse_id] += 1` → **T-UPSTREAK-1** fails.
+* **C8** remove the peer guard from the D1 write path → **T-PEER-1** fails.
+* **C9** remove the stamp-clearing from the sweep's peer branch → **T-PEERSTOP-1** fails.
+* **C10** move the sweep into the `elif` release leg → **T-STOPSWEEP-1** fails.
+* **C11** move the sweep BELOW the blind-window block → **T-BLIND-SWEEP-1** fails.
+* **C12** bind `car_disconnected` to `switch.last_changed` instead of the stamp →
+  **T-DISC-1** fails.
+* **C13** never clear `_stop_requests` on grid recovery → **T-BLIND-RECOVER-1** fails.
+* **C14** remove the `SOLAR_STOP_MIN_S` streak from the release leg → **T-STREAK-1** fails.
+* **C15** drop the `min()` in `stop_soc` → **T-BAND-3** fails.
+* **C16** restore the KV blob without the 10 h age gate → **T-RESTORE-2** fails.
+* **C17** delegate D1 dict pruning to `_prune_removed_evses` → **T-PRUNE-1** fails.
+* **C18** skip the ledger write on the peak-clear path → **T-LEDGER-1** fails.
 
 Every drill must bite. A site whose bypass leaves the suite green is untested.
 
