@@ -419,6 +419,62 @@ status sensor.
 `_blind_window_liveness_ride` are each accounted for in §5; none is a peer-hold member and none
 blocks a solar-follow write.
 
+
+**D1.10 — session ledger: WHY it started, WHY it stopped (Rev-14 — specified here for the
+first time; prior revisions declared `_last_cessation_reason` without a vocabulary or write
+points, which made the field unimplementable).**
+
+Three fields on `SolarFollowController`, all per-EVSE:
+
+```python
+self._last_start_reason: dict[str, str] = {}
+self._last_cessation_reason: dict[str, str] = {}
+self._last_cessation_at: dict[str, datetime] = {}
+```
+
+**Start vocabulary (closed set)** — written when an EVSE enters `_excess_solar_active`:
+* `solar_surplus` — the normal path: `conditions_met` True (battery SOC above the resume
+  threshold AND remaining forecast above the kWh threshold) and the bay was claimed.
+* `dp_yield` — claimed from a deferred DP hold (`_dp_yield_ok`, carrier state HOLD_ONLY).
+* `tou_claim` — claimed from a TOU pause (`_paused_by_us` discarded on claim).
+
+**Cessation vocabulary (closed set)** — written on every path that removes an EVSE from
+`_excess_solar_active`, alongside `_last_cessation_at`:
+* `surplus_gone` — INV-RELEASE-1 fired on `not conditions_met` (house-side: SOC fell below
+  the resume threshold, or remaining forecast fell below the kWh threshold).
+* `forecast_poor` — INV-RELEASE-1 fired on `solcast_next_hour_w < SOLAR_FOLLOW_NEXTHOUR_FLOOR_W`.
+* `car_disconnected` — INV-RELEASE-2 disconnected path; EVSE status read `Disconnected` for
+  `SOLAR_FOLLOW_DISCONNECTED_RELEASE_TICKS`. The car left.
+* `car_idle` — INV-RELEASE-2 idle path; status `Connected` but not drawing for
+  `SOLAR_FOLLOW_IDLE_RELEASE_TICKS`. Car finished, or is refusing the pilot. **These two are
+  NOT distinguishable further** — see the honesty note below.
+* `peer_hold` — a stronger peer claimed the bay (INV-SF-7). Records WHICH owner in
+  `_last_cessation_detail[evse_id]` from `iter_peer_holds()` plus the inline `_paused_by_dp`
+  check, so `battery_drain` / `grid_cap` / `arbitrage` / `load_shed` / `fill_priority` /
+  `blind_window` / `dp` are separable after the fact.
+* `evse_unavailable` — status `unavailable` (the EVSE unit is offline, NOT a statement about
+  the car). Neither streak counter advances in this state; release is deferred to the normal
+  machinery, and this value is written only if some other path then releases.
+* `stale_signal` — D1.3 self-consistency stop or the D1.2 nameplate sanity assertion; the
+  controller stopped because it stopped trusting its own inputs.
+
+**Surfaced on the D1 status sensor** as `last_start_reason`, `last_cessation_reason`,
+`last_cessation_detail` and `last_cessation_at` (per-EVSE maps). Restart behaviour: RAM-only,
+not persisted — a lost ledger entry after a restart is a lost diagnostic, never a lost
+safety property, and persisting it would add a write path for a purely observational field.
+
+**Honesty note on what the ledger CANNOT distinguish.** URA has no J1772 state-of-charge leg
+— the Emporia is a relay plus a power meter — so `car_idle` conflates *car reached its own
+charge target*, *car reached a target set in its own app*, and *car refused the handshake*.
+All three present identically as `Connected` + not drawing. Do not add a knob or a heuristic
+that pretends to separate them; a future cycle wanting that needs J1772 SoC decoding, which is
+a hardware-capability question and is listed in §4 non-goals.
+
+**Acceptance:** after a week of live running, every session end in the ledger carries a
+non-null reason, and the distribution across reasons is inspectable without reading logs. A
+reason that never appears is either dead code or an unexercised path — both worth knowing.
+
+
 **Constants (D1 knob ladder):**
 
 | Name | Rung | Value | Why this rung / derivation |
