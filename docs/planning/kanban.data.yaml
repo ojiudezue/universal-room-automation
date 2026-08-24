@@ -5141,6 +5141,29 @@ cards:
     four as before, all four measured, so the finding is UNCHANGED: exactly one latches (Upstairs
     Guestroom). All five units tested (incl. unwired Exercise) are confirmed in-class. Scope remains one
     per-unit declaration, one room.'
+  PLACEMENT_EXPLAINS_THE_RESULT_2026_08_23: 'Operator: the Living Room unit is UNDER THE COUCH,
+    deliberately, to catch traffic and movement in the core couch area.
+    ** THIS UPGRADES THE NO-LATCH RESULT FROM CORRELATION TO MECHANISM. ** Under a couch, the units cone
+    is aimed at floor traffic and the couch area and is physically shielded from the room volume where the
+    tower fan stands. So the Living Room negative is not luck and not a quieter fan -- it is geometry, and
+    it is the SAME variable that explains the positives. The per-unit (not per-class) conclusion now has a
+    causal account, not just a 2-of-5 tally: what determines latching is whether moving fan blades fall
+    inside the units cone. That also retires my refuted fan-type hypothesis properly -- fan TYPE was never
+    the variable, fan-within-cone is.
+    ** AND IT EXPLAINS THE 1.2% ON-TIME I FLAGGED AS POSSIBLE UNDER-SENSITIVITY. ** Not a fault. A
+    still-blind 10GHz doppler, aimed at traffic, in a room whose primary use is SITTING STILL, will read
+    off most of the time by design. Withdrawn as a sensitivity concern.
+    ** BUT IT SURFACES A REAL CONSEQUENCE, verified in the live room config. ** Living Room
+    motion_sensors = [this one unit]; occupancy_sensors = []; no camera-person sensor and no BLE wired.
+    So the rooms ONLY occupancy input is a still-blind sensor positioned for movement. A seated,
+    still occupant (watching TV -- the rooms main use) is invisible to URA once movement stops, and the
+    room manages lights (2) AND the tower fan. That is the classic lights-and-fan-off-on-a-seated-person
+    shape. NOT a defect of the placement, which is doing its job for traffic; a COVERAGE GAP created by
+    the room having exactly one input of this modality. Needs its own card -- corroboration for the
+    seated case (camera person, BLE, media-player veto, or a still-capable 24GHz unit of which this house
+    already has six on other rooms).
+    ** SCOPE OF THIS CARD IS UNCHANGED: ** Upstairs Guestroom remains the single latching wired unit and
+    the single declaration needed.'
   next: 'Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent their own modality.'
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
