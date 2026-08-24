@@ -236,18 +236,23 @@ reload; INV-DP-DRAIN-4 enforces whichever choice).
 - **Verify:** R1 sites (`:5842`, `:5977`) still receive the STATIC knob — the drain-protection
   pause ceiling is unchanged by this cycle.
 - **Verify:** R3 sites (`:3752`, `energy_pool.py:954`, `:1435`) unchanged.
-- **Verify:** when `compose_release_floor` returns `None` and static reserve is available, the
-  helper returns the **static reserve** and logs a WARNING — never `_ev_battery_drain_soc`.
+- **Verify:** when `compose_release_floor` returns `None` the helper RAISES (skipping the tick)
+  and logs a WARNING. There is no static-reserve fallback — see §3, the branch was unreachable.
 - **Test:** T1, T1b, T1c, T1d, T2, T3, T3b, T4, T5, each mutation-anchored per C1-C5.
 - **Live:** after restart, with an EV plugged during off-peak, the DP snapshot sensor
   (`energy.py:3871` payload) shows `drain_target_soc` equal to the composed off-peak target
   for the current forecast class, NOT the static knob value. Record the observed number and
   the forecast class in the README validation table.
-- **Live (discriminating):** the commanded reserve floor does not exceed live battery SOC
-  following a DP transition. Under the bug it exceeds SOC; under the fix it does not. This is
-  the observation that separates the fix from a plausible different failure.
-- **Live:** scan logs for the two helper WARNINGs. Neither should appear in normal operation;
-  either appearing means a dependency is unhealthy and the fallback engaged.
+- **Live (discriminating) — PAIRED, both halves required.** (a) a DP transition ACTUALLY
+  OCCURRED: carrier state reads `TRANSITIONED` AND `_dp_decision_soc` is non-`None` on that
+  tick; AND (b) the commanded reserve floor does not exceed live battery SOC on that same
+  tick. **Half (b) alone is NOT discriminating** — under the documented pre-fix status quo
+  (DP has never fired a transition) `_dp_decision_soc` is never stamped, the `max()` folds at
+  `energy.py:4733-4742`/`:4829-4832` skip the DP contributor, and (b) reads PASS for a
+  feature that did nothing. Recording (b) alone would enter a false PASS in the README table.
+- **Live:** scan logs for the helper's single WARNING. It should not appear in normal
+  operation; its appearance means reserve_soc and the park floor are both unset (Envoy boot) and
+  DP skipped that tick.
 
 ---
 
@@ -272,6 +277,13 @@ reload; INV-DP-DRAIN-4 enforces whichever choice).
 `evse_battery_hold` pins reserve to live SOC, INV-YIELD-1/2 independence).
 
 ---
+
+* **`very_poor` drain target cannot be live-updated (pre-existing, now load-bearing).**
+  `energy.py:8647` validates `quality` against `{excellent, good, moderate, poor}`, but
+  `_drain_targets` carries `very_poor` (`energy_battery.py:466`) and `classify_tomorrow_solar`
+  can return it. On a very-poor night the DP target comes from a value no Number entity can
+  change. Out of scope for this cycle, but THIS cycle is what makes that target load-bearing
+  for DP, so it is recorded here and needs a card.
 
 ## 6. Docs drift to fix in-cycle
 
@@ -446,7 +458,7 @@ must answer with live data.
 * [ ] Four framing-disjoint reviews A/B/C/D returned; CRITICAL/HIGH fixed.
 * [ ] Orchestrator pre-deploy: re-grep every `drain_target_soc =` and
       `_ev_battery_drain_soc` read; confirm five R2 sites are the helper and R1/R3
-      sites unchanged; run source-mutation drills C1-C7; record numeric value of
+      sites unchanged; run source-mutation drills C1-C10; record numeric value of
       `DEFAULT_OFFPEAK_DRAIN_UNKNOWN`.
 * [ ] Operator checkpoint before deploy.
 * [ ] `README_v<version>.md` with prospective Live criteria.
