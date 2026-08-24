@@ -106,6 +106,10 @@ release fires when EITHER:
 - **Idle path:** `_idle_streak_ticks[evse_id] ≥ SOLAR_FOLLOW_IDLE_RELEASE_TICKS`
   (=4, 20 min at D2's 5-min cadence).
 - **`unavailable` status:** neither counter advances.
+- **Peer-held (Rev-14 fix):** while `_stronger_peer_holds(evse_id)` OR
+  `evse_id ∈ _paused_by_dp`, **neither counter advances, and both are RESET to 0 on the
+  first tick of the hold.** Both counters are assertions about the CAR; while a stronger
+  owner has opened the switch, the charger's not-drawing state says nothing about the car.
 
 Independent of INV-RELEASE-1. See §D2 for status-taxonomy state machine.
 
@@ -420,6 +424,24 @@ status sensor.
 blocks a solar-follow write.
 
 
+**Rev-14 defect found and fixed — peer holds were silently converting into stops.**
+Before this fix the streak observation ran over every `evse_id ∈ _excess_solar_active` with
+only an `unavailable` exclusion. A peer hold does NOT drop the claim (INV-SF-7 excludes the
+bay from ELIGIBLE; it does not release it), so a peer-paused bay stayed in the session while
+its charger stopped drawing. Consequences, both reachable on ordinary config:
+1. **False cessation reason.** Drain protection or the grid cap pauses the bay; status reads
+   `Disconnected` or `Connected`-not-drawing; the streak matures and the session is released
+   as `car_disconnected` (10 min) or `car_idle` (20 min). The ledger would attribute a
+   safety-gate pause to the car leaving or finishing — and `peer_hold` would almost never
+   appear, because the streak paths would win the race. The ledger is the artifact the
+   operator asked for; recording the wrong reason is worse than recording none.
+2. **Premature termination.** A transient peer hold — a 10-minute drain-protection pause on
+   a passing cloud — would permanently end the solar session rather than suspending it. On
+   peer release the controller would have to re-acquire through the full start gate
+   (`conditions_met` + forecast), which may not be satisfiable until the next day.
+The fix keeps the model the operator settled on — solar-follow starts and stops, it never
+pauses itself — while ensuring a PEER's pause is not mistaken for a STOP.
+
 **D1.10 — session ledger: WHY it started, WHY it stopped (Rev-14 — specified here for the
 first time; prior revisions declared `_last_cessation_reason` without a vocabulary or write
 points, which made the field unimplementable).**
@@ -536,7 +558,11 @@ strong peer per INV-SF-7; byte-identical).
    for `evse_id` at session entry (when `_excess_solar_active.add` fires, alongside the
    `_excess_solar_started_at` stamp). Clear on session end (any release path).
 6. **Idle-streak observation.** On each D2 tick, for each `evse_id ∈
-   _excess_solar_active`, read `_get_evse_state(evse_id).charging`:
+   _excess_solar_active`, FIRST check peer ownership (Rev-14):
+   - `_stronger_peer_holds(evse_id) or evse_id in self._ev._paused_by_dp` → set BOTH
+     `_idle_streak_ticks[evse_id] = 0` and `_disconnected_streak_ticks[evse_id] = 0`,
+     then `continue` — do not read status, do not advance either counter.
+   Otherwise read `_get_evse_state(evse_id).charging`:
    - `charging is True` → `_idle_streak_ticks[evse_id] = 0`
    - `charging is False` → `_idle_streak_ticks[evse_id] += 1`
    Applies uniformly regardless of whether the bay has ever drawn this session (see
