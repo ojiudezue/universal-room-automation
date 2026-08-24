@@ -5164,6 +5164,32 @@ cards:
     already has six on other rooms).
     ** SCOPE OF THIS CARD IS UNCHANGED: ** Upstairs Guestroom remains the single latching wired unit and
     the single declaration needed.'
+  RETRACTION_LIVING_ROOM_COVERAGE_GAP_2026_08_23: 'I claimed the Living Room has ONE occupancy input,
+    a still-blind 10GHz unit, and that a seated occupant would be invisible. FALSE. Retracted in full --
+    do NOT card the "seated-occupant coverage gap"; there is no gap.
+    THE ROOM IS PROPERLY LAYERED, as the operator described it: presence_sensors =
+    [binary_sensor.screek_human_sensor_l13_2412s_presence] -- a Screek L13 2412S, ESP/ESPHome 24GHz
+    mmWave with TRUE STILL-PRESENCE detection. That is the MAIN sensor. The Hobeian 10GHz unit in
+    motion_sensors is the BACKUP. Plus room_media_player = media_player.living_room_2 (veto path),
+    room_cameras = [camera.family_room], scanner_areas = [living_room, entry_way, dining_room] (BLE), and
+    illuminance from the same Screek device. A seated TV-watcher is covered by the Screek, by the media
+    player, and by BLE.
+    ** MY ERROR, AND IT IS THE THIRD OF THE SAME SHAPE TODAY. ** I queried a HAND-PICKED LIST of key names
+    (motion_sensors, mmwave_sensors, occupancy_sensors, camera_person_sensors, ble_trackers, ...) and read
+    the absence of a hit as absence in reality. The actual key is `presence_sensors`, which I never asked
+    for. Same class as (a) the head -50 truncation that made me declare the Living Room mmWave unit
+    non-existent, and (b) the earlier head -30 / sed-range misses. In every case I bounded the observation
+    myself and then treated the boundary as the world.
+    ** STANDING RULE, adopt it for config checks: ** to answer "is X configured", DUMP ALL KEYS on the
+    entry and search the VALUES. Never enumerate the key names you expect -- the schema has more fields
+    than any of us holds in memory, and a guessed key list cannot distinguish "not configured" from
+    "configured under a name I did not guess".
+    ** WHAT THIS DOES NOT CHANGE. ** The Hobeian unit IS still wired as motion_sensors here, so a fan
+    latch would still have polluted the room even as a backup input -- the no-latch measurement remains
+    worth having, and the under-couch placement explanation still upgrades it from correlation to
+    mechanism. The 1.2% on-time is fully explained (still-blind doppler, aimed at traffic, backup role)
+    and is correct behaviour, not under-sensitivity.
+    ** SCOPE UNCHANGED: ** Upstairs Guestroom remains the single latching wired unit needing a declaration.'
   next: 'Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent their own modality.'
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
