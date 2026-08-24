@@ -24,6 +24,88 @@ meta:
     / GUEST-IDENTITY-PHONE-LEFT-BEHIND-1 (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic
     finish-out: MEMORY-WRITERS-1. Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: EVSE-SOLAR-STOP-CONDITIONS-1
+  title: Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged
+    car holds its claim until the fleet conditions end
+  thread: energy
+  status: pre_planning
+  created: '2026-08-24 22:30'
+  updated: '2026-08-24 22:30'
+  refinement_status: refined
+  approval: unreviewed
+  tags: [tier-3, split-from-cycle, oscillator-hazard, design-blocked]
+  problem_solution:
+  - 'Problem: an excess-solar charging session ends only when the whole-house conditions end —
+    the battery drops below its threshold or the day''s remaining solar forecast runs out. If the
+    car finishes charging at 2pm on a sunny day, or someone unplugs it and drives off, the session
+    keeps running for hours: the charger stays claimed, and nothing notices there is nothing to
+    charge. Solution: give a session per-car reasons to end — the car is unplugged, or the car has
+    stopped drawing for long enough that it is finished — and record WHY each session ended so the
+    behaviour can be tuned from evidence instead of guesswork.'
+  origin:
+    date: '2026-08-24'
+    gist: split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every
+      design-level critical in this half and none in amp modulation
+  why: 'Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is.
+    The start/stop rework is where all the risk turned out to be. Keeping them together meant a
+    ready deliverable waited behind an unready one.'
+  FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR: 'Any per-EVSE stop must fire while the fleet conditions
+    are still GOOD — that is the entire point (a finished car on a sunny afternoon). But
+    determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the
+    claim leg runs BELOW any point where such a stop could be evaluated. So: stop at tick N,
+    re-claim at tick N+1, every timer re-arms, repeat until dusk. Each cycle also re-runs the amp
+    capture and burns write budget. This is not a detail to be discovered during the build — it is
+    the problem the cycle has to solve first. Candidate resolutions, none costless: (a) a re-claim
+    cooldown keyed off a last-stop timestamp, consulted IN the claim leg — which breaks the
+    byte-identical claim-leg guarantee several other things rely on; (b) keep membership and mark
+    the bay suppressed rather than removing it — but then the switch is off while membership says
+    active, which is incoherent for every other consumer of that set; (c) decide per-EVSE stops are
+    not worth it — an idle or unplugged bay draws nothing, so the only real costs are a held claim
+    and a periodic 6 A safe-park write. (c) deserves an honest hearing before (a) or (b) are built.'
+  REVIEW_FINDINGS_INHERITED: 'Carried forward from the three Rev-20/21 plan reviews so they are not
+    re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched
+    pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-window DROP leg
+    (:1532-1564) both remove EVSEs without consulting _stronger_peer_holds or _paused_by_dp. Any
+    invariant of that shape must be scoped to new stop paths only, or the cycle fails its own
+    review. (2) There are FIVE sites that discard from _excess_solar_active, not four — the fifth is
+    the _prune_removed_evses set-pass (:787-791), reachable because excess_solar carries
+    prune_participant=True (energy_pool_owners.py:245-252). (3) There are FOUR add sites, not three
+    — the fourth is the DB restore at energy.py:1366, which writes no start reason and stamps no
+    session age. (4) A stop condition keyed on the EVSE status ATTRIBUTE cannot use last_changed:
+    status lives on the switch entity attributes (energy_pool.py:685-688) and HA bumps last_changed
+    only on STATE change, so a switch on for 6 h satisfies any threshold on the first disconnected
+    sample. Stamped first-observation dicts are the only correct mechanism. (5) A missing
+    session-age stamp must read as age 0, never as infinitely old, or a bay claimed via a site that
+    forgot to stamp becomes permanently immune to every stop. (6) energy_pool_owners.py is
+    BEHAVIOR-FROZEN against quality/tests/golden/owner_registry_v1.jsonl.gz — adding
+    OwnerDeclaration rows for new per-EVSE dicts changes iter_all enumeration and fails the golden.'
+  constraints:
+  - Ships AFTER EVSE-SOLAR-FOLLOW-AMPS-1 and after the DP drain-target fix.
+  - Must not regress the amp-modulation cycle's byte-identical guarantees without restating them.
+  - Tier 3 — cost-and-safety impacting, touches session semantics consumed by TOU, DP and the peer
+    hierarchy.
+  parked_alts:
+  - 'A SOC hysteresis band (start at resume_ev_at_battery_soc 95, stop at fill_priority_soc 80)
+    using the two knobs number.py:1670 already documents as an asymmetric pair. Designed and
+    reviewed but NOT built — it belongs with the stop work, not with modulation. Note number.py
+    states the ordering invariant fill_priority_soc < excess_solar_soc is NOT enforced, so any
+    implementation needs a defensive min() and a warning.'
+  - 'A cessation ledger (per-EVSE last start/stop reason and timestamp, closed vocabulary,
+    surfaced on the existing ev_charging_status sensor). The operator explicitly asked for this —
+    "whether it will know and record why its doing which" — so it is a requirement of this cycle,
+    not an optional extra.'
+  knobs:
+  - SOLAR_STOP_DISCONNECTED_S (rung 1) — unambiguous signal, act fast
+  - SOLAR_STOP_IDLE_S (rung 1) — ambiguous signal (thermal throttle, cell balancing run 5-15 min),
+    act slow
+  - SOLAR_MIN_ON_S (rung 1) — minimum session age before any stop
+  next: 'Decide the oscillator resolution FIRST — (a) claim-leg cooldown, (b) suppressed-membership,
+    or (c) no per-EVSE stops at all — before any further design. Then re-plan from the inherited
+    findings above.'
+  refs:
+  - docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from)
+  - energy_pool.py:1318-1702 (determine_excess_solar_actions)
+  - energy_pool_owners.py:245-252 (excess_solar owner declaration)
 - id: EVSE-SOLAR-FOLLOW-AMPS-1
   SENSOR_DELTA_MEASURED_2026_08_23: 'MEASURED, not estimated. Emporia mains vs Envoy net-consumption
     CT, 7,090 aligned pairs over ~7 days of recorder (probe: scratchpad/delta_probe.py).
@@ -255,6 +337,7 @@ cards:
       => roughly 4.7 kW spare, while the charger would pull ~11.5 kW at 48A/240V. That gap IS the
       yo-yo: about 6.8 kW would come from the house battery.'
   REWRITTEN_REV20_2026_08_24: 'Two framing-disjoint plan reviews returned 39 findings, 5 CRITICAL. Root cause was PROCESS, not design: revisions 4-19 layered "authoritative" sections onto an unedited body until the document argued with itself -- a live 2x arithmetic fork on the allocation denominator, 11 pointers standing in for spec text that existed nowhere, and 16 test names plus 20 mutation drills defined nowhere. Rewritten as ONE coherent document rather than patched. CRITICAL findings closed: (B1) _get_evse_state returns a DICT and the invariant used attribute access -- guaranteed AttributeError on the first tick; now subscripted everywhere. (B2) D2 was sited in the release leg, which is inside else: and runs only when conditions_met is FALSE -- the idle stop must fire while it is TRUE, so the whole deliverable was dead on arrival; now a per-EVSE stop sweep sited BEFORE conditions_met, leaving claim and release legs byte-identical. (B3) conditions_met is ONE boolean serving both legs, so the SOC band could not be expressed as an edit to it without moving the start gate to 80; now a separate continue_ok with a defensive min() because number.py:1670 states the ordering invariant is NOT enforced. (B4) the claim that widening mains_export_active had "no live consumers" was FALSE -- two exist at energy_pool.py:633 and :1422, inert only while the field is unset and this cycle requires wiring it; the function is now left untouched and D1 reads its own signed value. (B10) persistence needed an unmentioned ALTER TABLE and offered the builder a choice; now the existing KV path, no schema change, no choice. Also closed: current_charging_load_w excluded (fleet total that launders the 7600 W fabrication), foreign-writer STOP dropped (would fire on the Emporia cloud echo and kill every session), all stop thresholds expressed as DURATIONS against last_changed rather than tick counts (status p90 is 1104 s, so tick-counting counted our own polling), ledger moved to EVChargerController where its write points already are and extended to the peak-clear and blind-window-drop paths.'
+  SPLIT_2026_08_24: 'Reduced to D1 amp modulation ONLY. Three framing-disjoint plan reviews on the combined Rev-20/21 returned 10 CRITICALs, and every DESIGN-level one was in the start/stop half — including a stop/restart oscillator (a per-EVSE stop sited above the claim leg is re-claimed on the next tick, forever). The test-authority reviewer, the most positive on the design, wrote that the modulation sections hold up and its objections were about whether the verification layer could SEE the design. So modulation ships alone and the start/stop work is carded as EVSE-SOLAR-STOP-CONDITIONS-1 with the oscillator as its founding problem. D1-side findings all applied: SOLAR_FOLLOW_PHASES named (was an unbound symbol in load-bearing arithmetic, 2x blast radius); the allocator now NETS the parked 6 A floor before dividing (without it the plan''s own T-ALLOC-1 falsified INV-SF-4 — 8400 W commanded against 7000 W of surplus); INV-SF-9 added so D1 honours _observation_mode and _excess_solar_enabled (previously the master switch did not disable the feature and observation mode did not contain it, Bug Class #23); a boot reconciliation un-throttles a bay stranded at 6 A after a >10 h restart (previously no code path back); a stale power reading now HOLDS the bay instead of re-targeting it to MIN; the peer guard is re-checked across the write await; and the 48 A clamp — the cycle''s headline safety derivation — finally has a test and a drill, having had neither.'
   next: 'PLAN REWRITTEN AND BUILD-READY 2026-08-24. docs/planning/PLANNING_evse_solar_follow_amps.md Rev-20, 658 lines (was 1371). Ships AFTER the DP fix. Tier 3: four framing-disjoint code reviews + orchestrator drill verification + operator checkpoint before deploy. Awaiting operator go to build.'
   OPEN_QUESTIONS_FOR_OPERATOR: 'Asked rather than assumed — each changes the design.
     Q1 CURRENT FLOOR AND WHAT "OFF" MEANS. You said Emporia modulates 2A-48A, but the HA number
