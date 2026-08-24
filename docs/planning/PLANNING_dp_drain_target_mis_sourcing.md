@@ -130,10 +130,6 @@ Paths under `custom_components/universal_room_automation/domain_coordinators/`:
 
 ## 3. Deliverable
 
-(Unchanged from prior revision — R2 site table, `_dp_drain_target_soc` helper,
-Producer/Consumer check, INV-DP-DRAIN-4 blocker resolution, hold-demotion out of scope,
-activation risk framing, acceptance criteria T1..T5, files changed. See prior text.)
-
 ### Full R2 emission-site table
 
 | Site | Where | Class | Change |
@@ -188,7 +184,7 @@ reload; INV-DP-DRAIN-4 enforces whichever choice).
 
 **Activation risk framing** unchanged.
 
-**D3 acceptance criteria** T1, T1b, T1c, T1d, T2, T3, T3b, T4, T5 as prior spec.
+**D3 acceptance criteria:** see §3b (Verify / Test / Live) and §7 for the T1..T5 fixtures.
 
 **Files changed** — unchanged.
 

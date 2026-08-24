@@ -412,7 +412,9 @@ status sensor.
 * `active`, `eligible_evses`, `drawing_evses`, `safe_parked_evses`, `s_eligible_kw`,
   `deferred_restore_evses` (gauge), `capture_rejected_low` (monotone),
   `drain_trips_during_follow` (monotone), `writes_per_hour_per_evse`, `current_amps`,
-  `original_amps`, `stale_ticks`, `excluded_switch_status_evses` — unchanged Rev-8.
+  `original_amps`, `stale_ticks`, `excluded_switch_status_evses` (each a per-EVSE map on the
+  D1 status sensor; `stale_ticks` and `excluded_switch_status_evses` are the observability for
+  the D1.2 `power_source` gate and D1.3 stale path).
 * **`idle_streak_ticks: dict[str, int]` (Rev-10 add)** — per-EVSE current idle-streak
   value; observability aid for T-IDLE-3's mid-charge-pause-not-released oracle.
 * **`idle_released_this_session: int` (Rev-10 add)** — monotone counter, incremented
@@ -620,7 +622,7 @@ full rationale.
 **D2 acceptance:**
 
 * `test_release_streak_gated` — SOC 95→94→95→94; no turn-off (hysteresis path,
-  unchanged Rev-8).
+  as specified in D1.8).
 * `test_release_min_on_time` — session starts, SOC drops at 30 s; no turn-off until
   300 s (hysteresis path).
 * `test_release_streak_persists_min_on_time_across_restart` (hysteresis path).
