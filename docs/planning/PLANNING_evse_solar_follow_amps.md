@@ -624,6 +624,9 @@ full rationale.
 * `test_release_min_on_time` — session starts, SOC drops at 30 s; no turn-off until
   300 s (hysteresis path).
 * `test_release_streak_persists_min_on_time_across_restart` (hysteresis path).
+* **C25 (Rev-14)**: delete the peer-ownership `continue` from the D2 streak observation
+  (so peer-held bays advance their counters again) → **T-PEERIDLE-1 must fail**.
+
 * **T-IDLE-1** (Rev-10 add) `test_idle_release_after_finished_car`. Fixture: garage_a
   in `_excess_solar_active`, `charging=True, power=5000` for ticks 1-5 (draws through
   MIN_ON_S floor), then `charging=False, power=0` for ticks 6-9. At tick 6:
@@ -656,6 +659,16 @@ full rationale.
   `_idle_streak_ticks[garage_a]` cleared. Then simulate a NEW session on garage_a next
   day; assert streak starts at 0, not from where the prior session left off.
 
+* **T-PEERIDLE-1 (Rev-14)** `test_peer_hold_does_not_advance_idle_or_disconnected_streak`.
+  Bay active and drawing; drain protection claims it and dispatches `switch.turn_off`;
+  status then reads `Disconnected`. Run 6 ticks (30 min — past BOTH the 10-min disconnected
+  threshold and the 20-min idle threshold). Assert: still in `_excess_solar_active`, both
+  counters 0, no release dispatched, no cessation reason written. **Under the bug: released
+  at tick 2 with `car_disconnected`.** Different observation, so the test discriminates.
+* **T-PEERIDLE-2 (Rev-14)** `test_streaks_resume_from_zero_after_peer_release`. Continue
+  T-PEERIDLE-1; peer releases at tick 7 with the car still not drawing. Assert the idle
+  streak restarts at 0 and release fires at tick 11, not tick 8 — a hold must not bank
+  credit toward a later idle release.
 * **Live:** on first cloudy transition day, hysteresis release survives single-SOC-
   point dips of < 180 s. **Rev-10:** if a car finishes charging and enters idle,
   observe idle-release fires ~20 min after last draw (attributes `idle_streak_ticks`
