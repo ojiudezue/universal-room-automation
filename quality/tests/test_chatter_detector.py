@@ -27,6 +27,20 @@ _URA = _ROOT / "custom_components" / "universal_room_automation"
 # ---------------------------------------------------------------------------
 
 
+def _fake_track_state_change_event(hass, entities, cb):
+    """THE tracker this file asserts against — module-scope on purpose.
+
+    Must be a single stable object we can bind by identity. Reading it back out
+    of `sys.modules["homeassistant.helpers.event"]` is NOT safe: other test
+    files replace that attribute (one installs a MagicMock), so a fixture that
+    copies from sys.modules can copy someone else's tracker and `hass._cb`
+    stays None.
+    """
+    hass._tracked = list(entities)
+    hass._cb = cb
+    return lambda: setattr(hass, "_cb", None)
+
+
 def _mod(name, **attrs):
     """Ensure a stub module exists and carries `attrs`.
 
@@ -80,12 +94,7 @@ def _install_ha_stubs():
     helpers = _mod("homeassistant.helpers")
     ev = _mod("homeassistant.helpers.event")
 
-    def async_track_state_change_event(hass, entities, cb):
-        hass._tracked = list(entities)
-        hass._cb = cb
-        return lambda: setattr(hass, "_cb", None)
-
-    ev.async_track_state_change_event = async_track_state_change_event
+    ev.async_track_state_change_event = _fake_track_state_change_event
 
     er = _mod("homeassistant.helpers.entity_registry")
 
@@ -113,6 +122,29 @@ def _install_ha_stubs():
 
 
 _install_ha_stubs()
+
+
+@pytest.fixture(autouse=True)
+def _stubs_win_at_run_time():
+    """Re-assert this file's HA stubs immediately before EVERY test.
+
+    SUITE-ORDER-POLLUTION fix 3 (2026-08-23). `_install_ha_stubs()` runs at
+    IMPORT time. Pytest imports every test module during COLLECTION, before any
+    test runs — so a module imported AFTER this one can overwrite shared
+    attributes on the same stub modules. The one that bit us is
+    `homeassistant.helpers.entity_registry.async_get`: production resolves it at
+    CALL time (`chatter_detector.py:292`, an in-function import), so whatever
+    was written LAST is what the detector sees. With a foreign `async_get`, the
+    provenance lookup returns nothing, the entity is never scored, and
+    `chattering_entities()` comes back empty — 9 tests asserting the entity IS
+    flagged.
+
+    Import-time installation cannot win a last-writer-wins race. Run-time
+    re-assertion can. `_mod()` is additive, so this only re-sets the attributes
+    THIS file owns and does not clobber other files' stubs.
+    """
+    _install_ha_stubs()
+    yield
 
 
 def _spec_load(name, path):
@@ -153,10 +185,27 @@ _install_ura_package()
 
 @pytest.fixture(scope="module")
 def chatter_mod():
-    return _spec_load(
+    mod = _spec_load(
         "test_ura_pkg.domain_coordinators.chatter_detector",
         str(_URA / "domain_coordinators" / "chatter_detector.py"),
     )
+    # SUITE-ORDER-POLLUTION fix 2 (2026-08-23). chatter_detector.py line 52 does
+    # `from homeassistant.helpers.event import async_track_state_change_event`
+    # at MODULE level, so the name is bound into the module namespace at FIRST
+    # import and never re-reads the source module afterwards.
+    #
+    # Pytest imports every test module during COLLECTION, before running any
+    # test. So whichever file first causes this module to load decides that
+    # binding — and patching `homeassistant.helpers.event` later (as the stub
+    # installer does) cannot rebind an already-imported name. Alone, our stub
+    # wins the race and all 18 pass; in the full suite another file wins and 15
+    # fail with `hass._cb is None`, because the detector registered its listener
+    # against someone else's tracker.
+    #
+    # Rebinding on the PRODUCTION MODULE OBJECT is order-independent: it is the
+    # namespace the detector actually calls through (line 398).
+    mod.async_track_state_change_event = _fake_track_state_change_event
+    return mod
 
 
 @pytest.fixture(scope="module")
