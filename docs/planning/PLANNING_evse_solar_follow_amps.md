@@ -32,81 +32,43 @@ Tier 3.
 
 ---
 
-## 0a. What this cycle actually is — REPLACEMENT, not addition (operator, Rev-17)
+## 0a. Relationship to Emporia's native mode (Rev-17, trimmed Rev-18)
 
-> *"We are trying to replace the emporia function. It's no longer fully compatible with URA."*
+**Operator intent:** *"We are trying to replace the emporia function. It's no longer fully
+compatible with URA."* Recorded as the cycle's purpose.
 
-This reframes the cycle and every revision before Rev-17 understated it. D1 is not "adding
-solar-following to URA." **There is an incumbent solar-follower — Emporia's native mode — and
-this cycle replaces it.** Consequences that follow, none of which the plan previously carried:
+**What is actually EVIDENCED — keep to this:**
 
-### Why the incumbent is incompatible
+* Emporia's native mode WAS managing `garage_a`. Measured: 85 transitions on
+  `number.garage_a_..._current_limit` across 6-48 A, including a ~60 s-cadence ramp on 08-20
+  13:26-13:42 (`30, 29, 27, 23, 32, 26, 24, 19, 15, 24, 23`) and a reset to 48 A at 18:16.
+  `garage_b` sat flat at 48 — never modulated.
+* **Operator has since turned it off.** Deployment PRECONDITION: it must stay off on any EVSE
+  URA modulates. Two controllers ramping the same limit at 60 s will chase each other.
+* URA's config recorded `self_modulates: False` for garage_a while this was running, so that
+  flag is not evidence of exclusivity.
+* Methodological note worth keeping: the plan asserted "no existing writer — zero hits
+  tree-wide." That grep covered the URA codebase and was correct; the writer was EXTERNAL.
+  **A code grep cannot establish that an entity has no writer** — use the entity's own state
+  history.
 
-Emporia's controller sees ONE input: its own mains CT. It is blind to everything URA arbitrates:
+**What is NOT established, and must not be asserted:** how Emporia's algorithm actually works.
+We have one 16-minute trace and the operator's description. That is not a characterisation.
+Earlier drafts of this section enumerated what Emporia "is blind to" and proposed a parity
+checklist against its behaviours — **both were inference presented as knowledge and have been
+removed.** Do not reconstruct them. The design justification for URA owning the limit stands on
+what URA CAN see (battery intent, tariff, DP, the peer hierarchy), not on claims about what
+Emporia cannot.
 
-* **Battery state and intent.** It cannot distinguish solar export from battery discharge with
-  any precision. It has some crude protection — the operator reports it stops on sustained
-  battery drawdown — but it does not know the drain target, the reserve floor, the off-peak
-  drain class, or whether the battery is deliberately being drained tonight for DP.
-* **Tariff.** No TOU period, no peak/off-peak, no seasonal rate structure.
-* **Drain precedence.** No knowledge of the DP state machine or a must-start-by deadline.
-* **The peer hierarchy.** No knowledge of arbitrage grid-charge, grid-import cap, load shed,
-  fill-priority or blind-window holds. It cannot yield to any of them (INV-SF-7).
+**The one behavioural divergence worth stating**, because it is deliberate and visible in the
+trace: the incumbent stepped UP hard (`23 → 32`, `15 → 24` — +9 A inside a minute). D1 gates
+up-steps behind "Excess Solar Confirm" and caps step size (INV-SF-5), on the measured grounds
+that appliance loads consume export surplus in multi-kilowatt steps. Down-steps are immediate
+in both. Stated as a divergence, not as a criticism of an algorithm we have not characterised.
 
-URA's controller is worse on latency and signal proximity — Emporia reads its own CT directly;
-we read a 60 s-averaged mains sensor over the network — and better on CONTEXT. That trade is the
-whole justification, and it should be stated plainly rather than implied.
-
-### Precondition, not an observation
-
-**Emporia native management MUST be OFF on every EVSE URA modulates.** Operator has turned it
-off for `garage_a`. This is a DEPLOYMENT PRECONDITION and belongs in the cycle README, not a
-footnote — with two controllers ramping the same limit at 60 s they will chase each other, and
-whichever writes last wins each round.
-
-The foreign-writer guard in §3d is the trip-wire for this precondition being violated later —
-by a deliberate change, an app update, or a factory reset. Its STOP-on-detection behaviour is
-correct precisely BECAUSE this is a replacement: if the incumbent comes back, the right move is
-to stand down loudly, not to fight for the entity.
-
-### The incumbent's recorded behaviour is an acceptance reference
-
-We have a trace of the thing we are replacing, at 60 s resolution, on
-`number.garage_a_..._current_limit` for 08-20 13:26-13:42:
-`30, 29, 27, 23, 32, 26, 24, 19, 15, 24, 23` A.
-
-Use it as a behavioural reference in review — not as a target to match, but to make DIVERGENCES
-deliberate and stated:
-
-* **Down-steps:** the incumbent steps down freely and so do we (uncapped, immediate). **Parity —
-  intentional.**
-* **Up-steps:** the incumbent jumps up hard — `23 → 32` is +9 A inside one minute, `15 → 24` is
-  +9 A. **We deliberately DIVERGE**: up-steps are streak-gated by "Excess Solar Confirm"
-  (default 3 min) and capped per step (INV-SF-5). Justification is measured and house-specific:
-  cooking, baking, laundry and dishwashing consume export surplus in multi-kilowatt STEPS, so a
-  fast-up controller chases each step and immediately reverses. The incumbent's ±9 A/min
-  oscillation is visible in its own trace and is the behaviour we are choosing not to reproduce.
-* **Session end:** the incumbent reset to 48 A at 18:16 and stopped. We restore `_original_amps`
-  and drop the claim. **Parity in spirit** — hand the charger back in a sane state.
-
-### Parity checklist — what we must not silently lose
-
-The incumbent works today. A replacement that regresses on any of these is a downgrade, and
-each must be answered explicitly in the cycle README before ship:
-
-1. **Stops when the battery is being drawn down.** Incumbent does this crudely. Ours: INV-SF-4
-   sizes draw to measured surplus so the case should not arise, AND drain protection remains a
-   strong peer (PB-1 REJECTED). **Covered, and by two independent mechanisms.**
-2. **Rides through brief cloud cover without stopping.** Ours: throttles toward MIN rather than
-   stopping, plus D2a's 15-point SOC band. **Covered, and improved.**
-3. **Returns the charger to a usable state when it finishes.** Ours: restore `_original_amps`.
-   **Covered.**
-4. **Does not need URA to be healthy.** The incumbent is autonomous; ours is not. **This is a
-   genuine REGRESSION and must be stated**: if URA is down or the grid signal is blind, no one
-   modulates. The blind exit (§3d) bounds the damage by handing the charger back after 15 min,
-   but the honest position is that we are trading autonomy for context. Say so in the README.
-
-Item 4 is the one a reviewer should push hardest on.
+**The honest regression:** the incumbent is autonomous; URA's is not. If URA is down or the
+grid signal is blind, nothing modulates. The blind exit bounds it to 15 minutes. This belongs
+in the cycle README as a stated trade — autonomy for context.
 
 ---
 
