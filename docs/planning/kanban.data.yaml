@@ -7102,6 +7102,22 @@ cards:
     reaching ARMED+vacate). Pre-deploy last eval_count=1 and never vacated per README. Awaiting organic fan-ghost episode.
     H1 PENDING.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  TRUE_COST_MEASURED_2026_08_23: 'THE REAL NUMBER, replacing the misleading 9,733. Full suite under
+    .venv-ha with the blocker disabled (`-p no:homeassistant`):
+      stub run (Python 3.9.6)   76 failing IDs   3:41
+      real-HA run (3.13.14)    273 failing IDs   7:01
+      fail ONLY under real HA  207
+      fail ONLY under stubs     10   <- real HA FIXES these
+    So a wholesale switch costs 207 new failures and fixes 10. That CONFIRMS the strangler migration
+    and RULES OUT a flag-day switch. The earlier reviews calling this "a large infrastructure
+    project" were directionally right about the MIGRATION even though they were wrong about the
+    BLOCKER (which is one plugin fixture, see THE_BLOCKER_NAMED).
+    Real-HA runtime is ~1.9x slower (7:01 vs 3:41) — real imports cost real time. Relevant to any
+    proposal that the whole suite runs on it by default.
+    Failing-ID list saved: docs/planning/artifacts/test_strategy/baseline_real_ha_273.txt
+    NOTE the 10 stub-only failures are the most interesting rows in the whole exercise: tests that
+    FAIL against fakes and PASS against the real thing. Those should be read before any of the 207 —
+    they are cases where the stub architecture was actively lying.'
   title: Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the
     "large infrastructure project" every review doc assumed
   thread: quality
