@@ -88,12 +88,22 @@ with the previously measured Emporia/Envoy skew (median ~259 W). D1.2's `S = -gr
 formula is therefore correct for BOTH sources, and the only per-source difference is the unit
 (Emporia W, Envoy kW → ×1000 on the fallback branch), which D1.2 already handles.
 
-**Incidental finding — `energy_envoy_entity` points at a STALE sensor.**
-`sensor.envoy_482543015950_current_power_production` last updated 23:18 the previous night and
-reads 0.0 kW while the house exports ~6 kW. It has been dead ~16.5 h. That entity is the
-configured `energy_envoy_entity`. **Not this cycle's scope** — D1.2 does not consume it (it uses
-net consumption, which is live) — but it is a live fault in EC's configured solar-production
-input and needs its own card.
+**Incidental finding — CORRECTED.** An earlier draft claimed `energy_envoy_entity` is "EC's
+configured solar-production input" and that its staleness was an EC fault. **That mechanism was
+wrong.** `CONF_ENERGY_ENVOY_ENTITY` is a **serial-discovery seed**: `__init__.py:3026` passes it
+to `extract_envoy_serial()`, then `derive_envoy_config(serial)` (`energy_const.py:950`)
+generates the other Envoy entity ids (`CONF_ENERGY_SOLAR_ENTITY`, `_GRID_ENTITY`,
+`_BATTERY_SOC_ENTITY`, `_NET_POWER_ENTITY`, …) and `setdefault`s them. Only the entity_id STRING
+is parsed; the entity's VALUE is not read on that path, so a stale reading does not break config
+derivation.
+
+What remains true and is worth a separate card: `sensor.envoy_482543015950_current_power_production`
+read 0.0 kW at 15:52 while the house exported ~6 kW, last updated 23:18 the previous night
+(~16.5 h stale). It is the entity `CONF_ENERGY_SOLAR_ENTITY` derives to. **Whether any EC
+decision path reads that derived value is an OPEN QUESTION this cycle did not chase** — the only
+non-derivation consumer found was the v3 frontend bundle, for display. Do not assert an EC
+impact without establishing a consumer. **Out of scope here either way:** D1.2 uses net
+consumption, which is live.
 
 ### The existing `CONF_ENERGY_MAINS_EXPORT_ENTITY` has an INVERTED contract — and is safe to fix
 
