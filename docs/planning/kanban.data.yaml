@@ -8710,7 +8710,7 @@ cards:
     only with an explicit statement of expected samples-per-day, or leave them declared-and-suppressed.'
   status: waiting_operator
   created: 2026-08-20 14:15
-  updated: '2026-08-23 22:50'
+  updated: '2026-08-24 01:10'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'
@@ -8813,7 +8813,41 @@ cards:
     house-wide low-integer count) and B2 (a duration accumulator has no empty-map boot edge to fabricate).
     (2) Ship D2 metrics_silent separately after the B3 five-line reorder -- it is sound and independent.
     (3) Keep the suppression-registry entry until the new distribution is measured against real baselines.'
-  next: 'OPERATOR GO/NO-GO on the CHEAP redesign — per-zone on-cycle duration on the existing 5-min tick, Tier 2. The event-driven option is WITHDRAWN on measured grounds (sub-5min is only 3.6% of cycles). D2 metrics_silent is shippable separately after the B3 five-line reorder.'
+  DURATION_ZSCORE_IS_ALSO_BLIND_2026_08_24: 'Operator gave the GO on the cheap redesign (per-zone
+    on-cycle duration on the existing 5-min tick). Before dispatching I measured whether a duration
+    z-score would actually FIRE. IT WOULD NOT. The spec I asked them to approve is falsified.
+    ** RAW DURATION IS BLIND ON THE LOW SIDE. ** The distribution is heavily right-skewed -- std is at or
+    above the mean in all three zones (z1 mean 41.8 std 48.8; z2 mean 59.1 std 87.7; z3 mean 46.4 std
+    65.0), because a long tail of multi-hour cycles inflates std. Consequence: a 3-MINUTE cycle -- severe
+    short cycling -- scores z = -0.79 / -0.64 / -0.67 against thresholds ADVISORY 2.0 / ALERT 3.0 /
+    CRITICAL 4.0. It can never fire. Nothing on the short side can reach 2 sigma when std exceeds the
+    mean and the variable is bounded below by zero. I would have shipped a SECOND dud, blind in the
+    opposite direction from the count version.
+    ** LOG-SPACE IS MARGINAL, NOT A FIX. ** log-duration z for a 3-min cycle: -2.38 / -2.03 / -2.09 --
+    barely crosses ADVISORY, never ALERT. And the detector uses an abs() z-score, so it would ALSO fire on
+    unusually LONG cycles, which are not this fault.
+    ** THE SHAPE THAT DOES WORK: per-zone COUNT OF SUB-THRESHOLD CYCLES OVER A 24h WINDOW. ** Measured
+    sub-10-min cycles per day: z1 [1,1,0,2,0,1,2,0] mean 0.88 std 0.78; z2 [3,0,0,2,0,3,3,1] mean 1.50 std
+    1.32; z3 [5,2,0,1,3,0,0,3] mean 1.75 std 1.71. A fault day with 8 short cycles scores z = 9.13 / 4.91
+    / 3.65; with 12, z = 14.25 / 7.94 / 5.98. Fires decisively. And the worst NORMAL day observed (5, z3)
+    scores 1.90 -- just under ADVISORY, so ordinary variation stays silent. Good separation both ways.
+    ** BUT IT COLLIDES WITH A MACHINERY CONSTRAINT -- this is the open design question. ** minimum_samples
+    is PER-DETECTOR (coordinator_diagnostics.py:879/906, self.minimum_samples), NOT per-metric, and is 336.
+    A once-per-day observation would need 336 DAYS to mature. Lowering it would lower it for
+    override_frequency and zone_call_frequency too -- unacceptable. Two candidate resolutions, neither
+    free: (a) observe the rolling-24h count EVERY TICK -- matures in ~28h like the others, but consecutive
+    observations are heavily autocorrelated so the learned std is artificially small and the metric could
+    become hair-trigger; (b) observe once per COMPLETED CYCLE using log-duration one-sided -- matures in
+    ~17 days at ~20 cycles/day/zone, and relies on repeated ADVISORY firings as the signal rather than one
+    decisive CRITICAL. Also needs per-metric minimum_samples or a one-sided z variant, neither of which
+    exists today.
+    ** RECOMMENDATION -- do NOT dispatch a build. ** This is now a real design question with a machinery
+    dependency, not a variable swap. Write a short plan carrying these measured distributions as its
+    acceptance fixture, decide (a) vs (b) on the autocorrelation-vs-maturity trade, and state whether
+    per-metric minimum_samples or one-sided detection is in scope. Two reviews already killed one producer
+    here; a third guess is not worth the round trip.
+    ** D2 metrics_silent is UNAFFECTED and still shippable after the B3 five-line reorder.'
+  next: 'Write a short plan for the short-cycle producer carrying the measured distributions as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log, and whether per-metric minimum_samples is in scope. D2 metrics_silent shippable separately.'
   refs:
   - docs/BACKLOG.md — CRITICAL "D3 anomaly detection persistence + dispatch"
   - sensor.ura_hvac_coordinator_hvac_anomaly (live attrs 2026-08-20)
