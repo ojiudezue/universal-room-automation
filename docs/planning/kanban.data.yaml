@@ -5190,6 +5190,39 @@ cards:
     mechanism. The 1.2% on-time is fully explained (still-blind doppler, aimed at traffic, backup role)
     and is correct behaviour, not under-sensitivity.
     ** SCOPE UNCHANGED: ** Upstairs Guestroom remains the single latching wired unit needing a declaration.'
+  SCREEK_LATCHES_2026_08_24_OPERATOR_HUNCH_CONFIRMED: 'Operator: "the screek is the one that latches
+    imo". MEASURED AND CONFIRMED, and it is the consequential one -- I had tested the BACKUP sensor and
+    reported the room fine.
+    SUBJECT: binary_sensor.screek_human_sensor_l13_2412s_presence (Screek L13 2412S, ESP 24GHz, TRUE
+    still-presence) vs fan.towerfan_dreopilotmaxs_wifi_livingroom. 7.7d.
+      P(presence=on | fan_on)  = 83.4%  (42.0h of 50.3h)
+      P(presence=on | fan_off) =  5.6%  (7.3h of 132.0h)   -- a 15x ratio
+      rising lags: 25 of 84 under 10s, tightest cluster 1.0-2.2s (machine-consistent)
+      falling lags: tight cluster 11.3-15.7s = the 2412S absence-delay
+    Both edges machine-timed, and the rising edges are FRESH transitions (presence read OFF when the fan
+    started), so the fan LEADS presence. Causation direction is the same argument as the Exercise case.
+    Corroborating: screek total on-time 49.3h vs fan total on-time 50.3h -- nearly identical.
+    ** WHY THIS MATTERS FAR MORE THAN THE HOBEIAN RESULT. ** The Screek is presence_sensors, the rooms
+    MAIN occupancy input; the Hobeian 10GHz is only the backup. And URA MANAGES this fan. So the feedback
+    path fan-on -> presence-on -> room occupied -> fan keeps running is structurally present.
+    ** BUT THE RUNAWAY LOOP IS NOT SUPPORTED BY THE DATA -- do not claim it. ** Overnight window
+    02:00-06:00 across 7.7d: fan ON 406 min, room_occupied only 179 min. If the fan reliably held the room
+    occupied, those would be close. Instead there are ~227 overnight minutes of fan-on-but-room-VACANT.
+    The room does vacate while the fan runs. The latch is partial (83.4%, not 100%) and the rooms
+    occupancy fusion has other inputs plus timeouts.
+    ** SO THE DEFECT IS POLLUTION, NOT RUNAWAY: ** the main presence input is substantially fan-driven,
+    which injects false occupancy during fan runs, distorts vacancy timing, and would corrupt any
+    trust/corroboration or chatter logic that treats this sensor as independent evidence. Note the Screek
+    also shows 619 sessions with a MEDIAN of 0.4 min (24s) -- extremely chattery for a sensor whose selling
+    point is stable still-presence, consistent with responding to fan-induced micro-motion.
+    ** CONSEQUENCE FOR THIS CARD: the fan-independence axis is NOT a 10GHz-class concern. ** It is a
+    per-unit, per-placement property that crosses hardware classes -- the 24GHz still-capable main sensor
+    latches while the 10GHz backup in the same room does not. Any capability declaration must therefore be
+    per-entity and must NOT be inferred from model or class. Strengthens the per-unit conclusion.
+    ** NEXT MEASUREMENT to size the pollution: ** find fan-on intervals where NO independent modality
+    (Hobeian backup, BLE scanner_areas, media_player.living_room_2, camera.family_room) indicates anyone
+    present, and measure how much of that time the Screek reads occupied. That is the false-occupancy
+    budget and it discriminates pollution-magnitude from coincidence.'
   next: 'Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent their own modality.'
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
