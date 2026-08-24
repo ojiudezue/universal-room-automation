@@ -155,25 +155,60 @@ Paths under `custom_components/universal_room_automation/domain_coordinators/`:
 from .energy_battery import compose_release_floor
 
 def _dp_drain_target_soc(self, tou_period: str) -> int:
+    """Composed off-peak drain target for the five R2 DP sites.
+
+    Rev-2 (review finding 6): the previous version carried a
+    "fall back to static reserve" branch that was UNREACHABLE. In the
+    off-peak branch `compose_release_floor` returns None ONLY at
+    `energy_battery.py:303`, which happens only when static_reserve is
+    None AND park is None — and the fallback then read
+    `battery.reserve_soc`, i.e. the same attribute already proven None.
+    floor-is-None therefore ALWAYS implied static-reserve-is-None. Dead
+    branch removed; raising is the correct and only behaviour.
+    """
     floor, _is_offpeak = compose_release_floor(self._battery, tou_period)
     if floor is None:
-        static_reserve = getattr(self._battery, "reserve_soc", None)
-        if static_reserve is None:
-            _LOGGER.warning(
-                "DP drain-target: compose_release_floor None AND static reserve None; "
-                "raising to skip this tick's DP evaluation."
-            )
-            raise ValueError("dp drain-target unavailable")
         _LOGGER.warning(
-            "DP drain-target: compose_release_floor returned None; falling back to "
-            "static reserve=%s (NOT _ev_battery_drain_soc)", static_reserve,
+            "DP drain-target unavailable (compose_release_floor returned None — "
+            "reserve_soc and park floor both unset, typically an Envoy boot "
+            "condition); skipping this tick's DP evaluation."
         )
-        return int(static_reserve)
+        raise ValueError("dp drain-target unavailable")
     return int(floor)
 ```
 
-Callers wrap `ValueError`; `:4271`/`:4456` skip DP that tick; `:4522`/`:4540` decline
-to actuate; `:4555` (revert) does NOT revert on unavailable value.
+**All five R2 sites sit inside the off-peak gate** (`energy.py:4416` raises `_DPSkip` when the
+period is not `off_peak`; the shadow returns early at `:4245`), so the helper is only ever
+invoked with `is_offpeak=True`. `compose_release_floor`'s non-off-peak branch
+(`energy_battery.py:290-291`) is unreachable from this cycle — no non-off-peak behaviour change.
+
+**ValueError containment — READ THIS BEFORE IMPLEMENTING `:4555`.** Containment already
+exists structurally: `energy.py:5628-5634` wraps `_dp_decision_tick` in `except _DPSkip` AND a
+broad `except Exception`, and the shadow call at `:4409-4414` has its own handler. So `:4271`
+and `:4456` skip the tick correctly with no new code, and `:4522`/`:4540` decline to actuate.
+
+**But `:4555` MUST NOT be written as a bare call.** A naive
+`_drain = self._dp_drain_target_soc(period)` at `:4555` propagates to the OUTER handler and
+aborts the entire remainder of `_dp_decision_tick` — which includes the
+`MUST_START_FORCED → _revert = True` branch (`:4558-4559`) and the "paused but nothing charging"
+branch (`:4560-4565`). The must-start-by revert is the safety path that unpauses the EV before
+its deadline.
+
+*Legal-config repro:* Envoy boot, `reserve_soc` unavailable → helper raises; carrier is in
+`MUST_START_FORCED`; the forced revert never runs and EVSEs stay stuck in `_paused_by_dp`.
+
+**Required shape at `:4555`:** compute the target defensively and skip ONLY the SOC-comparison
+branch, never the enclosing block —
+
+```python
+try:
+    _drain = self._dp_drain_target_soc(period)
+except ValueError:
+    _drain = None
+if _drain is not None and _soc <= _drain:
+    _revert = True
+# MUST_START_FORCED and paused-but-idle branches below MUST still run.
+```
 
 **Producer / Consumer + call-site check** unchanged from prior revision.
 
@@ -250,37 +285,53 @@ reload; INV-DP-DRAIN-4 enforces whichever choice).
 ## 7. Test plan summary
 
 Behavioural, MUTATION-VERIFIED. `PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__`.
-
 Fixtures MUST construct through the real production path (NOT `_mk_inputs`).
 
-* **T1 (real construction path, NOT `_mk_inputs`):** static knob 80, forecast 10, SOC 40,
-  off-peak. Drive real `_evaluate_battery` and assert
-  `TransitionInputs.drain_target_soc == 10`. Under bug at `:4456`, value is 80 and gate 7
-  fires.
-* **T1b (SHADOW path):** same fixture; assert shadow `:4271` also emits 10.
-* **T1c (`:4522` fresh actuation, A-CRIT-1 repro):** SOC 40, composed 10, fresh entry to
-  TRANSITIONED. Assert `_dp_decision_soc == 10` and reserve at `:4733/:4829` =
-  `max(existing, 10, hold_reserve)`. Under bug that missed `:4522`, `_dp_decision_soc == 80`,
-  reserve pinned 70 points above target.
-* **T1d (`:4540` rescan):** first EVSE plugged, TRANSITIONED, second plug-in triggers rescan;
-  assert `_dp_decision_soc` unchanged at 10 (idempotent). Under bug, second actuation stamps 80.
-* **T2 (revert consistency, A-CRIT-2 repro):** post-TRANSITIONED at SOC 40 with stamped
-  `_dp_decision_soc == 10`; assert revert predicate `:4555` does NOT fire (`40 <= 10 → False`).
-  Under bug, `:4555` compares against 80 and fires; test observes EVSE flap (turn_off followed
-  by turn_on within same tick).
-* **T3 (R1 unchanged, HIGHEST_PROBABILITY_BUILD_ERROR guard):** mutate
-  `_dp_drain_target_soc` to return `self._ev_battery_drain_soc`; T3 asserts
-  `determine_battery_drain_actions` STILL receives `soc_threshold=80` at `:5842` and `:5977`.
-* **T3b (helper None fallback, B-1):** stub `compose_release_floor` to return `(None, True)`;
-  assert `_dp_drain_target_soc` returns static reserve AND logs WARNING. Under B-1 bug
-  (fallback to `_ev_battery_drain_soc`), helper returns 80 silently.
-* **T4 (R3 unchanged):** mutate `energy.py:3752` to route through `_dp_drain_target_soc`; T4
-  asserts blind-hold envelope proof STILL uses the static knob.
-* **T5 (offpeak-drain live-apply):** mutate `energy_offpeak_drain_excellent` Number to 25;
-  assert `_drain_targets["excellent"] == 25` within one tick. Under reload-only branch, T5
-  is replaced by an assertion that the Number entity's help text or attribute contains
-  "requires reload".
-* **Live (D3 with plugged EV, off-peak, healthy Envoy):**
+**Fixture contract — binding on T1, T1b, T1c, T1d, T2.** The composed floor is
+`max(int(static_reserve), int(park))` (`energy_battery.py:299`). Every fixture asserting `== 10`
+MUST pin **`reserve_soc = 10` AND `park_floor = 10`** explicitly. `DEFAULT_RESERVE_SOC = 10`
+(`energy_const.py:181`) makes 10 achievable but no fixture may rely on the default — a fixture
+with any other reserve yields `max(reserve, 10)` and a builder will "fix" the assertion instead
+of the fixture.
+
+**Rule (Tier-3 framing C): a test NEVER contains its own mutation.** Tests assert unmutated
+production behaviour; mutations live only in §8. A test that applies a mutation and then asserts
+the mutated outcome cannot fail and proves nothing.
+
+* **T1 (real tick, `:4456`):** static knob 80, composed 10, SOC 40, off-peak. Drive real
+  `_evaluate_battery`; assert `TransitionInputs.drain_target_soc == 10`. Under bug: 80, and
+  gate 7 (`energy_drain_precedence.py:656`, `soc <= drain_target_soc`) fires.
+* **T1b (shadow, `:4271`):** same fixture; assert the shadow path emits 10.
+* **T1c (`:4522` fresh actuation — A-CRIT-1 repro):** SOC 40, composed 10, fresh entry to
+  TRANSITIONED. **Load-bearing assertion: `_dp_decision_soc == 10`.** Secondary: the folded
+  reserve at `:4733`/`:4829`. Note the secondary is NOT discriminating on its own — with
+  `evse_battery_hold` active (§5) the fold is live SOC 40 both under the fix and if DP never
+  stamps at all. Do not drop the `_dp_decision_soc` assertion as redundant.
+* **T1d (`:4540` rescan):** first EVSE plugged and TRANSITIONED; second plug-in triggers rescan.
+  Assert `_dp_decision_soc` unchanged at 10 (idempotent). Under bug: second actuation stamps 80.
+* **T2 (revert consistency — A-CRIT-2 repro):** post-TRANSITIONED at SOC 40 with
+  `_dp_decision_soc == 10`. **Load-bearing assertion: the `_revert` outcome / carrier state** —
+  `40 <= 10 → False` under the fix versus `40 <= 80 → True` under the bug. Unambiguous.
+  A same-tick `turn_off`/`turn_on` flap is a SECONDARY check only: `_apply_dp_reversion` has not
+  been verified to emit a same-tick `turn_on`, so do not anchor the test on it.
+* **T3 (R1 preserved — no mutation):** plain assertion on the unmutated tree that
+  `determine_battery_drain_actions` receives `soc_threshold` equal to
+  `coord._ev_battery_drain_soc` at `:5842` and `:5977`. Its anchor is **C2**, not itself.
+* **T4 (R3 preserved, `:3752` — no mutation):** plain assertion on the unmutated tree that the
+  blind-hold envelope proof reads the static knob. Its anchor is **C8**.
+* **T4b (R3 preserved, `energy_pool.py:954`/`:1435` — NEW, closes an unanchored invariant):**
+  assert both excess-solar / blind-window ride sites still pass the STATIC knob into
+  `_soc_envelope_admits_dp_transition`. Anchors: **C9**, **C10**. Without this, INV-DP-DRAIN-3
+  has no test at either site, and a domain-wide replace of `_ev_battery_drain_soc` in the DP
+  call graph would silently drop the ride floor from 80 to the composed 10 with a green suite.
+* **T5 (off-peak drain live-apply, end to end):** set `energy_offpeak_drain_excellent` to 25;
+  assert (a) `_drain_targets["excellent"] == 25` within one tick, AND (b) **the helper's output
+  moves** — `_dp_drain_target_soc(off_peak)` reflects 25 under an `excellent` forecast class.
+  (a) alone proves only the Number setter, not that the value reaches DP.
+
+**T3b is DELETED.** It stubbed `compose_release_floor` to `(None, True)` while leaving
+`reserve_soc` populated — a state the real function cannot produce (see §3, unreachable-branch
+note). A test whose fixture is impossible in production proves nothing.
 
 ---
 
@@ -294,15 +345,25 @@ checkpoint BEFORE deploy.
 Run with `PYTHONDONTWRITEBYTECODE=1` and a cleared `__pycache__` — stale bytecode has produced
 a false PASS on this exact drill class before.
 
+**Every R2 site gets its OWN drill.** C1 (neuter the helper) proves the helper is load-bearing
+*in aggregate*, which is precisely the global-monkeypatch failure mode Tier-3 framing C forbids.
+Aggregate coverage would let a builder convert three sites, leave two on the static knob, and
+still see every drill bite.
+
 - **C1:** neuter `_dp_drain_target_soc` to return `_ev_battery_drain_soc`
-  → **T1, T1b, T1c, T1d must fail.**
-- **C2:** swap the R1 site `energy.py:5842` argument to the composed value → **T3 must fail**
-  (proves R1 is protected, not incidentally passing).
+  → **T1, T1b, T1c, T1d must fail.** (Aggregate anchor only — not sufficient alone.)
+- **C2:** swap the R1 site `energy.py:5842` argument to the composed value → **T3 must fail.**
 - **C3:** revert `energy.py:4522` to `int(self._ev_battery_drain_soc)` → **T1c must fail.**
 - **C4:** revert `energy.py:4540` → **T1d must fail.**
 - **C5:** revert `energy.py:4555` (revert predicate) → **T2 must fail.**
+- **C6:** revert `energy.py:4271` (shadow) → **T1b must fail.**
+- **C7:** revert `energy.py:4456` (real tick) → **T1 must fail.**
+- **C8:** route `energy.py:3752` through `_dp_drain_target_soc` → **T4 must fail.**
+- **C9:** route `energy_pool.py:954` through the composed value → **T4b must fail.**
+- **C10:** route `energy_pool.py:1435` through the composed value → **T4b must fail.**
 
-A site whose bypass leaves the suite green is an untested site. All five must bite.
+A site whose bypass leaves the suite green is an untested site. **All ten must bite** — five R2
+conversions (C3-C7), one aggregate (C1), and four preservation guards (C2, C8, C9, C10).
 
 ---
 
