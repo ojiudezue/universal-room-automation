@@ -72,6 +72,88 @@ in the cycle README as a stated trade — autonomy for context.
 
 ---
 
+## 0b. Signal source — MEASURED sign check + siting decision (Rev-19)
+
+### Live sign check, 2026-08-24 15:52, sun up and exporting
+
+| Entity | Reading | Unit |
+|---|---|---|
+| `sensor.mains_vue_3_power_minute_average` (Emporia mains) | **-5924.0** | W |
+| `sensor.envoy_482543015950_current_net_power_consumption` (Envoy net) | **-6.177** | kW |
+| `sensor.envoy_482543015950_current_power_production` | 0.0 (stale, see below) | kW |
+| Battery SOC | 98 | % |
+
+**Both sensors use NEGATIVE = EXPORT. Conventions agree.** Magnitudes agree to 253 W, consistent
+with the previously measured Emporia/Envoy skew (median ~259 W). D1.2's `S = -grid_W + add_back`
+formula is therefore correct for BOTH sources, and the only per-source difference is the unit
+(Emporia W, Envoy kW → ×1000 on the fallback branch), which D1.2 already handles.
+
+**Incidental finding — `energy_envoy_entity` points at a STALE sensor.**
+`sensor.envoy_482543015950_current_power_production` last updated 23:18 the previous night and
+reads 0.0 kW while the house exports ~6 kW. It has been dead ~16.5 h. That entity is the
+configured `energy_envoy_entity`. **Not this cycle's scope** — D1.2 does not consume it (it uses
+net consumption, which is live) — but it is a live fault in EC's configured solar-production
+input and needs its own card.
+
+### The existing `CONF_ENERGY_MAINS_EXPORT_ENTITY` has an INVERTED contract — and is safe to fix
+
+`CONF_ENERGY_MAINS_EXPORT_ENTITY` (`energy_const.py:1492`) is rung-2, wired
+(`__init__.py:5586/6066/6163`), and consumed by `EnergyCoordinator.mains_export_active()`
+(`energy.py:4044`). Its documented contract: *"operator supplies an entity whose numeric state
+is > 0 when the house is exporting."* **Positive-export.**
+
+Our measured sensors are **negative-export**. So wiring `mains_vue_3_power_minute_average` into
+that field as it stands would invert the meaning: `mains_export_active()` computes `v > 100`,
+which is False (v = -5924) at the exact moment the house is exporting hardest. A silent, total
+inversion of the primary decision input.
+
+**It is safe to widen the contract, because the field is currently UNSET** (verified live on the
+Coordinator Manager entry) and `mains_export_active()` returns `None` when unwired, with all
+callers falling through. There are no live consumers to break.
+
+**Decision:** widen `mains_export_active()` to accept SIGNED NET power with `negative = export`,
+matching both real sensors and D1.2's formula; keep its existing unit contract (W / kW / refuse
+anything else, Bug Class #30) unchanged, since that part is sound and we would otherwise
+reinvent it. Update the constant's docstring. Add a test asserting a -5924 W reading is
+classified as exporting.
+
+### Priority order — operator ruling, NOT a defect to reconcile
+
+> *"Envoy is the EC main energy signal source. Does not mean that solar follow should not use
+> Emporia as its main source. The config flow hierarchy does not have to bind us because our
+> theory of confidence is real."*
+
+Recorded as a **ruling**, not a conflict. EC's global hierarchy (Envoy primary) and
+solar-follow's local hierarchy (Emporia primary, Envoy fallback) are allowed to differ, because
+they answer different questions with different accuracy requirements. Evidence for the local
+choice: the operator's accuracy judgement, the Envoy's own reliability history (which is why the
+codebase carries `envoy_available` machinery at all), and today's stale-production finding above.
+Earlier revisions treated the inversion as something to resolve; it is not. **Do not "fix" it.**
+
+### Siting — build on the existing solar-aware code where cadence allows
+
+> *"We should not do new things when old things are reliable... I def want to work from the
+> existing simple Solar Aware Code vs new if its plausible."*
+
+Agreed, and adopted with one cadence-driven exception. The incumbent site is
+`EVChargerController.determine_excess_solar_actions` (`energy_pool.py:1318-1702`, 385 lines),
+which already owns: the claim path, the stronger-peer guards, the DP sticky-yield (INV-YIELD),
+the TOU claim handoff, blind-window deferral, and the release leg.
+
+| Deliverable | Site | Why |
+|---|---|---|
+| **D2** — stop hysteresis, idle/disconnected stop, session ledger | **IN the existing function**, EC 5-min tick | It is already the START/STOP owner. Adding stop conditions here reuses the claim/release bookkeeping, the peer guards and the ownership handoffs rather than duplicating them. |
+| **D2a** — SOC band (start 95 / stop `fill_priority_soc`) | **IN the existing function** | It is a change to `conditions_met`, which lives there. |
+| **D1** — amp modulation | **Separate 60 s loop** | This is the ONE genuine exception, and the reason is CADENCE, not preference: the incumbent runs on the EC 5-minute tick, and amp modulation at 5-minute resolution cannot track surplus. The incumbent Emporia controller ran at ~60 s (measured), which is the proven cadence for this job. |
+
+**Constraint on D1, to honour the "don't rebuild what works" principle:** D1 stays THIN. It owns
+exactly one thing — computing a target amperage and writing it. It does **not** own session
+membership, claim/release, peer arbitration or start/stop; it READS `_excess_solar_active`,
+`_stronger_peer_holds` and `_paused_by_dp` from the incumbent and obeys them (INV-SF-7). Any
+proposal to move start/stop logic into D1 is a scope violation and should be rejected in review.
+
+---
+
 ## 1. Falsifiable invariants
 
 ### INV-SF-1 (non-perturbation)
