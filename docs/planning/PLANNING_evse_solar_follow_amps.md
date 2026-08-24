@@ -338,10 +338,23 @@ them in the release leg would make them dead code.
 **Insert a per-EVSE stop sweep immediately before `conditions_met` is computed (`:1572`),** after
 the blind-window handling:
 
-```
-for evse_id in list(self._excess_solar_active):
+```python
+# Locals available at :1572 are ONLY the parameters (soc, remaining_forecast_kwh,
+# tou_period, soc_threshold, kwh_threshold, dp_carrier_state, coord) and `actions`.
+# `switch_entity` is NOT in scope here — it is bound inside the loops at :1359,
+# :1549 and :1589. The sweep MUST resolve it per-EVSE or it raises NameError.
+# `now` must be WALL CLOCK (not monotonic) because the duration tests in D2.2
+# compare against entity `last_changed`, which is a datetime.
+from homeassistant.util import dt as dt_util          # noqa: PLC0415
+now = dt_util.utcnow()
+
+for evse_id in list(self._excess_solar_active):       # snapshot — loop discards
+    config = self._evse.get(evse_id, {})
+    switch_entity = config.get("switch", "")
+    if not switch_entity:
+        continue                                       # unresolvable; leave the claim alone
     if self._stronger_peer_holds(evse_id) or evse_id in self._paused_by_dp:
-        self._clear_stop_timers(evse_id)        # INV-STOP-2: reset, do not accrue
+        self._clear_stop_timers(evse_id)               # INV-STOP-2: reset, do not accrue
         continue
     reason = self._solar_stop_reason(evse_id, now)
     if reason:
@@ -357,6 +370,25 @@ sweep is additive.
 returns before the sweep — correct, nothing to sweep. The blind-window legs (`:1529`, `:1571`)
 return before the sweep, so **sessions persist through a blind window**; the blind-window guard
 owns that decision. Stated deliberately.
+
+### D2.1a — session-start stamp (required by `SOLAR_MIN_ON_S`)
+
+`SOLAR_MIN_ON_S` gates every stop on session age, and no field held it. Add
+`_excess_solar_started_at: dict[str, datetime]` on `EVChargerController`.
+
+* **Stamped** at every site that ADDS to `_excess_solar_active` — `energy_pool.py:1656`,
+  `:1671`, `:1679` (the plain claim, the DP-yield claim and the TOU claim).
+* **Cleared** at every site that discards — the sweep, the release leg `:1699`, the peak-clear
+  `:1369`, the blind-window drop `:1564`. Same four sites as the ledger (INV-STOP-1), so they
+  are maintained together or not at all.
+* **Pruned** by `_prune_removed_evses`.
+* **RAM-only, deliberately.** After a restart a running session's age resets, so the 300 s floor
+  re-arms and stops are delayed by up to 5 minutes. That errs toward NOT stopping, which is the
+  safe direction; persisting it would add a writer for a value whose only job is to suppress
+  premature stops. **A missing stamp is treated as age 0** (i.e. immune until 300 s elapse),
+  never as infinitely old — an unstamped bay must not be instantly stoppable.
+
+---
 
 ### D2.2 — stop conditions, all expressed as DURATIONS
 
