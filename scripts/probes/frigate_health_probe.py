@@ -48,7 +48,15 @@ for day in sorted(person):
 print("\n=== FACE recognitions per day ===")
 # CORRECTED: face signal is sensor.<cam>_last_recognized_face_2 — a STATE sensor
 # carrying a NAME, not a binary sensor. Count transitions INTO a real name.
-_JUNK = {"", "unknown", "unavailable", "none", "None", "unrecognized"}
+# 2026-08-23 FIX: the filter was CASE-SENSITIVE and the live state is "Unknown"
+# (capital U) — verified on sensor.master_hallway_last_recognized_face_2, which
+# on 08-22 carried ONLY {unavailable:3, Unknown:3} and zero real names, yet the
+# probe scored it 3 recognitions. Every unavailable->Unknown cycle (i.e. every HA
+# restart) was being counted as a face recognition, inflating post-outage days.
+_JUNK = {"", "unknown", "unavailable", "none", "unrecognized", "unknown person"}
+
+def _is_junk(v):
+    return v is None or str(v).strip().casefold() in _JUNK
 face = collections.Counter()
 face_by_cam = collections.defaultdict(collections.Counter)
 prevf = {}
@@ -59,7 +67,7 @@ for ent, state, ts in r.execute(
         "and s.last_updated_ts > strftime('%s','now')-?  order by m.entity_id, s.last_updated_ts",
         (14*86400,)):
     d = datetime.fromtimestamp(ts).strftime("%m-%d")
-    if state not in _JUNK and prevf.get(ent) != state:
+    if not _is_junk(state) and prevf.get(ent) != state:
         face[d] += 1
         face_by_cam[ent.split(".")[1].replace("_last_recognized_face_2","")][d] += 1
     prevf[ent] = state

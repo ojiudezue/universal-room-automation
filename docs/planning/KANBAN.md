@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T20:51:32-05:00_ - _Data commit: `e731faddfbc8`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T21:02:44-05:00_ - _Data commit: `3970e20ae165`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -330,7 +330,7 @@ _created 2026-08-21 19:10 · initial_
 - **Tags:** measured-not-inferred, measure-before-build, blocks-a-card-cluster
 - **Parsimony:** [INVESTIGATE] eight cards are queued against a value that has never once been produced
 - **Refs:** person_entry_exit_events (URA DB); const.py:2162 FACE_MATCH_WINDOW_S; switch.ura_name_people_at_doors
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `FRIGATE2_STORAGE_OUTAGE_INVALIDATES_PART_OF_THE_RULING_2026_08_23`: OPERATOR: "Frigate 2 was storage bound and swallowing detections since at least the 20th or so. Fixed now." That window overlaps the measurements this card's NO-GO rests on. Probe run 2026-08-23 12:30 CDT (scripts/probes/frigate_health_p...
   - `RERUN_SCHEDULE_2026_08_23`: Operator directed a rerun "this evening and in 24 hours" to measure recovery on clean post-fix data. Probe: scripts/probes/frigate_health_probe.py. RUN 1 (this evening) — establishes the first clean partial day post-fix. RUN 2 (+24h) — t...
   - `THE_MEASUREMENT_ORCHESTRATOR_VERIFIED`: MEASURED and INDEPENDENTLY RE-VERIFIED by the orchestrator (not relayed on the agent word): table person_entry_exit_events in the LIVE URA DB — rows = 6,763, person_id NOT NULL = 0, DISTINCT person_id = 0, span 2026-03-04T23:53 -> 2026-0...
@@ -340,6 +340,7 @@ _created 2026-08-21 19:10 · initial_
   - `PRODUCER_FIX_CANDIDATES_ALL_INFERRED`: NONE OF THESE ARE MEASURED — they are hypotheses for a producer cycle, and the cycle should start with a measurement of WHY faces miss (the face-event-vs-crossing LAG DISTRIBUTION), which needs debug logs, not the recorder. (a) FACE_MATC...
   - `SUPERSEDES_THE_7PCT_MEMORY`: This measurement SUPERSEDES memory reference_egress_face_coverage_7pct_not_a_ceiling. That memo said the 7% figure was measured on the WRONG camera (front door) and that the identity path was therefore VIABLE. The first half was right; t...
   - `links`: blocks: PERIMETER-ALERT-NAME-PERSON-1
+  - `FRIGATE2_RECOVERY_PROBE_RUN_1_OF_2_2026_08_23`: Run 1 (partial evening, first day post-midday-fix). NO VERDICT DRAWN -- run 2 is the decider, per the pre-registered protocol. ** PROBE DEFECT FOUND AND FIXED FIRST -- IT INVALIDATES THE STATED BASELINE. ** The face filter _JUNK was CASE...
 
 ### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
 thread: **presence** - status: **investigating** - approval: **unreviewed**

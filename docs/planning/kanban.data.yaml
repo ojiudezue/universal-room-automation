@@ -7756,6 +7756,41 @@ cards:
     problem: eight cards are queued against a value that has never once been produced
     verdict: INVESTIGATE
     note: the producer is the finding; consumers are moot until yield rises above a usable floor
+  FRIGATE2_RECOVERY_PROBE_RUN_1_OF_2_2026_08_23: 'Run 1 (partial evening, first day post-midday-fix).
+    NO VERDICT DRAWN -- run 2 is the decider, per the pre-registered protocol.
+    ** PROBE DEFECT FOUND AND FIXED FIRST -- IT INVALIDATES THE STATED BASELINE. ** The face filter
+    _JUNK was CASE-SENSITIVE and contained lowercase "unknown", but the live state is "Unknown" with a
+    capital U. So every transition into "Unknown" scored as a face recognition, and since the dominant
+    post-outage cycle is unavailable -> Unknown, EVERY HA RESTART counted as a recognition on EVERY
+    camera. Signature that exposed it: 12 different cameras each reporting exactly 3 on 08-21, 3 on
+    08-22, 1 on 08-23 -- uniform counts are not organic face traffic. Confirmed on
+    sensor.master_hallway_last_recognized_face_2, which on 08-22 carried ONLY {unavailable:3,
+    Unknown:3} and ZERO real names, yet scored 3. Fixed to a casefold comparison; probe committed.
+    ** CORRECTED SERIES (real named-face recognitions/day, house-wide) ** 08-16:68 08-17:57 08-18:16
+    08-19:26 08-20:24 08-21:3 08-22:0 08-23:2. The baseline quoted on this card and in the run brief
+    (08-18:131, 08-19:118) came from the buggy probe and is WRONG -- true values are 16 and 26. Egress
+    8-day totals also collapse on correction: garage_a 29->10, doorbell_lite 22->3, front_door_aerial
+    22->3.
+    ** BOTH PRE-REGISTERED PREDICTIONS: NOT TRIGGERED. ** P1 needed face rates at/above baseline with
+    person_id still 0 -- face rates did NOT recover (2 today vs 68 on 08-16). P2 needed recovery with
+    egress specifically flat while interior recovered -- nothing recovered, interior included
+    (master_hallway 1 today vs 19-29 on 08-16/17). Run 1 does not discriminate. As expected for a thin
+    partial evening.
+    ** NEW FINDING NEITHER PREDICTION ANTICIPATED, and it matters more than the run. ** Face recognition
+    is near-DEAD house-wide since 08-21 (3, 0, 2) and did NOT recover after the midday 08-23 storage
+    fix. Meanwhile PERSON detections are healthy (662 today, 1575 on 08-21, 1675 on 08-20). Per this
+    probe OWN discriminating logic, person-normal + face-zero means the FACE RECOGNITION SUBSYSTEM is
+    the problem, NOT storage/ingest -- a storage bound would have collapsed BOTH. So the 08-23 fix
+    addressed a real but DIFFERENT fault, and face recognition has a second, unfixed failure.
+    ** CONSEQUENCE FOR RUN 2. ** Run 2 may also fail to discriminate, because the probe is currently
+    measuring a DEAD PRODUCER -- and a dead producer cannot distinguish "join logic is broken" from
+    "no faces to join". Before treating run 2 as decisive, check whether real named recognitions have
+    resumed AT ALL; if the series is still ~0, run 2 answers nothing about the JOIN and the right next
+    step is diagnosing face recognition itself, not re-measuring the join.
+    ** UNCHANGED. ** person_id is 0 of 6,876 rows ALL TIME, including all 23 crossings today.
+    ** HORIZON CAVEAT RESPECTED. ** recorder states reach back only to 2026-08-16 04:12, so the outage
+    may predate 08-20; "at least the 20th" remains a floor, not a bound, and 08-16/08-17 are the
+    earliest observable days rather than known-good ones.'
   next: 'Do NOT scope the eight consumers. Instead run the producer probe: measure the SIGNED LAG between Frigate named-face
     events and egress crossings on the same stem (needs debug logs, not recorder). That single distribution discriminates
     candidate (a) window/ordering from (b) geometry. If lag is the problem it is a cheap fix; if geometry is, the interior-face
