@@ -8387,9 +8387,9 @@ cards:
     NOT RECOMMENDED IN THIS PASS: comfort_deviation_hours and egress_pause_frequency are both event-driven accumulators
     over rare events, which per RESTART-SAFETY-DOCTRINE-1 is the hazard class that stays structurally inert; wire them
     only with an explicit statement of expected samples-per-day, or leave them declared-and-suppressed.'
-  status: planned
+  status: in_progress
   created: 2026-08-20 14:15
-  updated: 2026-08-23 13:10
+  updated: '2026-08-23 19:20'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'

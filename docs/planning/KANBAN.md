@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-23T18:34:11-05:00_ - _Data commit: `43751cc73a44`_ - _last_reconciled: 2026-08-23_
+_Generated: 2026-08-23T19:11:51-05:00_ - _Data commit: `d0f31f8f30ab`_ - _last_reconciled: 2026-08-23_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,8 +14,8 @@ _Generated: 2026-08-23T18:34:11-05:00_ - _Data commit: `43751cc73a44`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 10 |
-| 📝 Planned | 10 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 9 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 42 |
 | ⏸️ Waiting on operator | 4 |
@@ -482,7 +482,7 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
@@ -636,9 +636,12 @@ _created 2026-08-20 14:40 · updated 2026-08-21 09:05 · reframed_architectural_
   - `SUPERSEDED_SUSPECTED_SELF_LOCKOUT`: Candidate mechanism worth confirming: a URA set_temperature flips Bryant/Carrier to preset manual as a SIDE EFFECT (hvac_override.py:186-195, :3070-3097). Separately hvac_preset.should_change_preset (~:212-217) deliberately SKIPS acting ...
   - `RELATIONSHIP_TO_SIBLINGS`: This is very likely the ROOT of HVAC-PRESET-RESTORE-MISS-1 (zone_1 stranded through the 06:01 home_day boundary) — that card may collapse into this one once the audit lands. It is the mirror image of HVAC-PRESET-FLAP-1: the flap is TOO M...
 
+## 🔨 In progress (1)
+_being built_
+
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap
-thread: **hvac** - status: **planned** - approval: **explicit**
-_created 2026-08-20 14:15 · updated 2026-08-23 13:10 · initial_
+thread: **hvac** - status: **in_progress** - approval: **explicit**
+_created 2026-08-20 14:15 · updated 2026-08-23 19:20 · initial_
 - **Problem / Solution:**
   - Problem: URA watches the heating/cooling system for unusual behaviour and reports "all normal" — but three of the five things it is supposed to watch have never received a single measurement, so "all normal" partly means "not looking". O...
 - **Why:** Live 2026-08-20: sensor.ura_hvac_coordinator_hvac_anomaly = nominal, 0 anomalies, but metrics_active_ratio "2/5" — short_cycle_rate, comfort_deviation_hours and egress_pause_frequency all sample_count 0 / active false. Only zone_call_fre...
@@ -652,11 +655,6 @@ _created 2026-08-20 14:15 · updated 2026-08-23 13:10 · initial_
   - `NOMINAL_IS_ACTIVELY_MISLEADING_2026_08_23`: QUANTIFIED, and it is worse than 2-of-5. Two independent facts. (1) The aggregate label launders the blindness: get_learning_status (coordinator_diagnostics.py:1031) reports ACTIVE when floor(n/2) metrics have a full baseline — for n=5 t...
   - `HIGHEST_LEVERAGE_FIX_2026_08_23`: WIRE short_cycle_rate FIRST, and give sample_count 0 a visible fault state. The number that supports it, measured from the HA recorder over the last 7 days by counting hvac_action TRANSITIONS (not state rows — the climate entities write ...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md + planning docs. NOT NEW as a root cause — docs/BACKLOG.md carries a CRITICAL item "D3 anomaly detection persistence + dispatch" (from the v4.6.10 Tier-2 review) stating AnomalyDetector._baselines is an IN-MEMORY...
-
-## 🔨 In progress (0)
-_being built_
-
-_(none)_
 
 ## 🔍 Review (1)
 _under review_
