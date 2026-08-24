@@ -8464,10 +8464,10 @@ cards:
     NOT RECOMMENDED IN THIS PASS: comfort_deviation_hours and egress_pause_frequency are both event-driven accumulators
     over rare events, which per RESTART-SAFETY-DOCTRINE-1 is the hazard class that stays structurally inert; wire them
     only with an explicit statement of expected samples-per-day, or leave them declared-and-suppressed.'
-  status: in_progress
+  status: waiting_operator
   created: 2026-08-20 14:15
-  updated: '2026-08-23 19:20'
-  refinement_status: initial
+  updated: '2026-08-23 09:45'
+  refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'
   tags:
@@ -8493,7 +8493,57 @@ cards:
     with the BACKLOG item as the producer-side fix.'
   sibling_of: WATCHDOG-INERT-1
   blocks: HVAC-PRESET-FLAP-1
-  next: Read the HVAC metric record_observation call sites — determine whether the 3 silent metrics are (a) never called,
+  REVIEW_A_DO_NOT_SHIP_2026_08_23: 'Build v1 reviewed DO-NOT-SHIP on two findings, both premises
+    orchestrator-verified. (A-1) Unsuppressing short_cycle_rate floods: simulated against production Welford
+    (abs z-score, _MIN_VARIANCE=0.01, minimum_samples=336, 3 zones, 5-min tick) the metric has NO advisory
+    band -- silent at new_starts=1, CRITICAL at new_starts=2. Two zones starting in one 5-min bucket is a
+    routine morning warm-up. Blast radius is permanent because clear_active_anomalies() has ZERO production
+    callers (verified: only test_coordinator_diagnostics.py:460) and get_worst_severity() is a max() over an
+    unpruned list -- so the first warm-up after baseline maturity pins BOTH sensor.ura_hvac_coordinator_anomaly
+    AND the house-wide system anomaly state to critical until restart. (A-2, the reframing one) The metric
+    STRUCTURALLY CANNOT DETECT SHORT CYCLING: hvac_action is a 5-minute point sample (hvac.py:1104 tick,
+    hvac_zones.py:444 single read), and short cycling is BY DEFINITION a sub-5-minute period -- exactly the
+    band aliasing destroys. A compressor cycling 5-on/5-off whose sample lands on the idle half reads
+    new_starts=0 forever while short-cycling 144x/day; the pathological case reads maximally nominal, and the
+    metrics_silent gate cannot catch it because sample_count keeps incrementing. CONSEQUENCE FOR THIS CARD:
+    the founding value claim -- "the metric that would have caught the zone-3 flap" -- is NOT delivered by a
+    poll-based producer. Correct producer is event-driven async_track_state_change_event on the climate
+    entities hvac_action, not a 5-min poll. This is a rethink of D1, not a fix-up. Also confirmed: A-4
+    hvac_action is stale-sticky (hvac_zones.py:440 early-returns on unavailable WITHOUT clearing the field).
+    D2 metrics_silent half is sound and shippable unchanged.'
+  REVIEW_B_AND_SYNTHESIS_2026_08_23: 'Review B (lifecycle/write-volume framing) independently reached
+    DO-NOT-SHIP, and CORRECTS Review A on one point: write volume is CLEAN. record_observation is pure
+    in-memory (coordinator_diagnostics.py:988); baselines persist only at teardown; anomaly rows are
+    hard-bounded at 288/day, ~16x below the suppressed census_count rate. So there is NO write-flood risk
+    and the persistence-gate case rests on distribution, not volume -- realistic steady state is ~5 CRITICAL
+    rows/day, all false. Do not repeat the flood framing.
+    B1 (decisive, and it is what A missed): the build observes a DIFFERENT RANDOM VARIABLE than the card
+    probe measured. The probe measured on-cycle counts+durations (405 cycles/7d, median on-time 20-25min)
+    and prescribed "per-zone on-cycle duration or cycles-per-hour". The build ships a HOUSE-WIDE INTEGER
+    COUNT per 5-min tick -- nobody measured that variable. Consequence: ONE zone short-cycling yields at most
+    new_starts=1 -> z=1.78 -> SILENT, and sustained flapping RAISES the baseline mean toward 1.0, so the
+    metric SELF-NORMALISES and the anomaly RECEDES as the fault worsens. It is anti-correlated with the fault
+    it was built to catch.
+    B2: the "336-sample baseline absorbs the boot transient" comment is a CATEGORY ERROR -- record_observation
+    evaluates the z-score BEFORE baseline.update(), so the transient FIRES. Baselines persist across reload
+    (metric_baselines live at sample_count 2497/2493) while the anchor resets to {} -- mature mean + empty
+    anchor is the worst pairing. At the measured 2.9 restarts/day this fabricates ~1 CRITICAL/day. Fix exists
+    5 lines above: mirror the previous_total-is-None first-observation skip used by override_frequency
+    (hvac.py:3785-3790). NO TEST COVERS IT -- every D1 test pre-seeds _prev_zone_hvac_action, so the only
+    path that runs in production after every reload is untested.
+    B3 (5-line): metrics_silent returns BEFORE get_worst_severity(), so a degraded-telemetry state MASKS a
+    concurrent CRITICAL. B4: HVAC save_baselines runs only in async_teardown -- watchdog kill discards
+    everything (pre-existing; card it). B6: tests use a _RecordingDetector, so no test touches real z-score
+    arithmetic -- B1 would have been caught by one test feeding 336 real observations at the measured mean.
+    SYNTHESIS (neither reviewer stated this alone; A-2 + B1 joined): A-2 says a 5-min POLL structurally
+    aliases sub-5-min cycling; B1 says the VARIABLE is wrong and prescribes duration/cycles-per-hour. Together
+    the correct producer is EVENT-DRIVEN -- async_track_state_change_event on the climate entities hvac_action,
+    accumulating real on-cycle DURATIONS. A polled cycles-per-hour metric still fails A-2. This is a producer
+    redesign with a new listener lifecycle surface, NOT a fix-up of the current build.
+    CLEAN per B: payload shape matches override_frequency byte-for-byte (no v4.6.3 sentinel repeat); exception
+    isolation correct; unload symmetry fine; the parametric guardrail meta-test was NOT weakened (B mutated
+    HVAC_METRICS and it failed correctly).'
+  next: OPERATOR DECISION -- D1 needs an event-driven producer redesign (scope growth beyond the approved wiring). D2 metrics_silent is shippable after the B3 reorder. Branch feature/hvac-anomaly-blind-1 held, not merged.
     (b) called but rejected by minimum_samples against a reset baseline (the BACKLOG defect), or (c) called with None. That
     discriminates a wiring fix from the DB-backed-baseline cycle. Then make sample_count 0 SURFACE as degraded rather than
     silently pass.
