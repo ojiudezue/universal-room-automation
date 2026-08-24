@@ -5085,7 +5085,38 @@ cards:
     classification could be automated rather than hand-declared. Hand-built fixture exists now (this table) --
     that is the acceptance fixture any automation must be diffed against. Revisit only if the fleet grows or
     units are relocated.'
-  next: Scope a PER-UNIT (not per-class) fan-independence declaration; only Upstairs Guestroom needs one today. Class-wide axis is refuted by measurement.
+  CENSUS_CORRECTED_BY_DEVICE_MODEL_2026_08_23: 'Operator supplied
+    binary_sensor.mmwave_temp_lux_hum_zigbee_livingroom_presence -- the Living Room unit I had reported as
+    NOT EXISTING. It exists, it is HOBEIAN "Millimeter wave motion detection", same model as the rest.
+    MY ERROR, TWO CAUSES, BOTH METHOD: (1) I searched entity-name substrings; this units entity_id contains
+    neither "hobeian" nor the room-prefix convention I assumed. (2) My %mmwave% search WOULD have caught it
+    but I piped the output through head -50 and the list was longer than 50 lines, so I read truncation as
+    absence. Same bounded-observation class as the earlier head -30 and sed-range errors.
+    ** THE FLEET IS 35 UNITS, NOT 17. ** Enumerated by DEVICE MODEL via core.device_registry
+    (manufacturer == HOBEIAN): 35 presence-ish binary_sensors. Only 17 carry "hobeian" in the entity_id;
+    18 do not and were invisible to every name-based search. STANDING RULE FOR THIS FLEET: enumerate by
+    device model, never by entity name.
+    ** WORSE, THE NAMES ACTIVELY MISLEAD ABOUT MODALITY. ** Three units are named binary_sensor.pir_zigbee_*
+    (exercisecloset, mediacloset, ojivanity) but are HOBEIAN 10GHz DOPPLER devices, not PIRs. Anyone
+    reasoning about which sensors are PIR vs mmWave from entity names -- a human, a future agent, or any
+    capability-declaration work on this card -- would classify them backwards.
+    ** CORRECTED BLAST RADIUS: 20 rooms wired (not 9), 4 fan-risk (not 3). ** The Living Room is the fourth,
+    and all four are now measured.
+    ** LIVING ROOM RESULT -- the cards original queued question -- NO LATCH. ** 7.7d window, tower fan ran
+    47.9h. P(presence=on | fan_on) = 3.0% vs P(presence=on | fan_off) = 0.5%; rising lags under 10s: 1 of 79.
+    Compare Exercise (LATCH): 99.9% vs 0.3%, 8 of 9 rising under 10s. The Living Room unit is
+    fan-INDEPENDENT despite a high-airflow tower fan in-room for 47.9 hours -- a strong negative test.
+    ** MY FAN-TYPE HYPOTHESIS IS REFUTED. ** I proposed that switch/tower fans latch while ceiling fans do
+    not. The Living Room TOWER fan does not latch. There is no clean fan-type predictor; it is per-unit
+    placement/geometry. Retracted.
+    ** FINAL TALLY, 5 units of one model: 2 LATCH (Exercise unwired, Upstairs Guestroom wired), 3 DO NOT
+    (Guest Bedroom 1, Breakfast Nook, Living Room). Of the FOUR WIRED fan-risk rooms, exactly ONE latches:
+    Upstairs Guestroom. ** The per-unit (not per-class) design conclusion is unchanged and now rests on a
+    COMPLETE census rather than a partial one. Scope remains one declaration, one room.
+    ** SEPARATE FINDING, not the latch question: ** the Living Room unit reads on for only ~2.1h of 178h
+    (1.2%) in a main living space. That is very quiet and may indicate under-sensitivity or placement issues.
+    Worth its own look; does not affect this cards conclusion.'
+  next: 'Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent their own modality.'
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
     name-dropped)
