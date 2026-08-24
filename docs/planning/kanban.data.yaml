@@ -7929,12 +7929,46 @@ cards:
     ** HORIZON CAVEAT RESPECTED. ** recorder states reach back only to 2026-08-16 04:12, so the outage
     may predate 08-20; "at least the 20th" remains a floor, not a bound, and 08-16/08-17 are the
     earliest observable days rather than known-good ones.'
-  next: 'Do NOT scope the eight consumers. Instead run the producer probe: measure the SIGNED LAG between Frigate named-face
-    events and egress crossings on the same stem (needs debug logs, not recorder). That single distribution discriminates
-    candidate (a) window/ordering from (b) geometry. If lag is the problem it is a cheap fix; if geometry is, the interior-face
-    fusion in (c) is the real cycle. Separately re-measure the GARAGE route on 2026-08-28 (only 8 crossings in 4 days post-Frigate-2;
-    too thin to characterise) — but do not hold the eight cards for it, the front-door route already has 104 post-ship crossings
-    with zero named.'
+  FRIGATE2_RECOVERY_PROBE_RUN_2_OF_2_DECIDING_2026_08_24: 'THE DECIDING RUN. First full clean day
+    post-fix. VERDICT, stated against the two pre-registered predictions without rewriting them,
+    ** NEITHER PREDICTION FIRES. BOTH WERE PREMISED ON FACE RECOGNITION RECOVERING. IT DID NOT. **
+    ** FIRST, THE BASELINE IN THE RUN BRIEF IS THE BUGGY PROBE RS OUTPUT. ** The brief quotes 08-18:131
+    and 08-19:118 house-wide and garage_a 29 over 8 days. Those came from the case-sensitive _JUNK filter
+    fixed on 08-23, which scored every unavailable -> "Unknown" transition (i.e. every HA restart) as a
+    face recognition. CORRECTED baseline is 08-18:16, 08-19:26, and garage_a 10. Predictions evaluated
+    against the CORRECTED numbers; the predictions themselves are unchanged.
+    ** RUN 2 RESULT (corrected probe). ** Named-face recognitions/day house-wide: 08-17:53 08-18:16
+    08-19:26 08-20:24 08-21:3 08-22:0 08-23:4 ** 08-24:2 **. The first full clean day post-fix produced
+    TWO face recognitions house-wide, against a working-period baseline of 53-68.
+    Egress cameras on 08-24: ** ZERO **. garage_a last produced 08-19 (1). doorbell_lite last 08-20 (1).
+    front_door_aerial last 08-17 (2). The only camera producing anything on 08-23/08-24 is master_hallway,
+    an INTERIOR camera, at 2/day against its own 22-27/day when healthy.
+    person_id: ** 0 of 6,883 rows ALL TIME **, including all 7 crossings on 08-24. No category change.
+    ** PREDICTION 1 (REOPEN) — NOT MET. ** It required face rates at or above baseline AND person_id still
+    zero. Face rates did not recover (2 vs 53-68). The join-window hypothesis is NOT tested by this data.
+    ** PREDICTION 2 (CONFIRM NO-GO via geometry) — NOT MET EITHER. ** It required house-wide recovery with
+    egress specifically flat. Nothing recovered anywhere, interior included. The geometry hypothesis is
+    NOT supported by this data, and was independently refuted on 08-23 (garage_a produced 10 corrected
+    named faces over 8 days when the subsystem worked — door/garage geometry is not the blocker).
+    ** THE ACTUAL STATE — a third case neither prediction anticipated, now confirmed on a full clean day
+    rather than a thin evening. ** Face recognition is BROKEN HOUSE-WIDE, interior cameras included, and
+    the 08-23 midday storage fix did NOT restore it. Person detections are healthy throughout (08-21:1575,
+    08-23:1004, 08-24:596 partial). Person-normal + face-zero is this probe OWN signature for "the face
+    recognition subsystem is the problem, not storage/ingest" — a storage bound collapses BOTH.
+    Collapse onset is ~08-21 (3, then 0), which PRECEDES the 08-23 fix and may be independent of the 08-20
+    storage event entirely.
+    ** DISPOSITION: NO-GO STANDS, BUT THE STATED REASON IN THE MEMORY IS WRONG. ** Not geometry, not a
+    coverage ceiling. The producer emits nothing because the producer is DOWN. That is a live fault, not a
+    design limit — and a fault is fixable, which a geometry limit is not.
+    ** THE EIGHT CONSUMER CARDS ARE NOT REOPENED. ** No hopeful reading. person_id is still zero, the
+    producer is still emitting nothing, and this run gives no evidence about the join window because the
+    upstream never produced anything to join. They stay gated. What CHANGES is what they are gated ON,
+    from "a producer that may be structurally incapable" to "a producer that is broken and needs
+    diagnosis". Re-run this probe only after face recognition is confirmed working.
+    ** HORIZON. ** Recorder now reaches back only to 08-17 04:12, so 08-16 has aged out of measurability
+    and 08-17 reads 53 (was 57 with a fuller day). The 5.5-month person_id zero is unaffected by any of
+    this — it comes from the URA DB, not the recorder.'
+  next: 'DIAGNOSE FACE RECOGNITION ITSELF — down house-wide since ~08-21 (3, 0, 4, 2 per day against a healthy 53-68) and the 08-23 storage fix did NOT restore it. Person detections stayed healthy throughout, which is this probe OWN signature for a face-subsystem fault rather than storage/ingest. The join-window question is UNTESTABLE until the producer emits — there is nothing to join. The eight consumer cards stay gated; what they are gated ON changes from a producer that may be structurally incapable to a producer that is broken. Re-run frigate_health_probe.py only after face recognition is confirmed working.'
   refs:
   - person_entry_exit_events (URA DB)
   - const.py:2162 FACE_MATCH_WINDOW_S
