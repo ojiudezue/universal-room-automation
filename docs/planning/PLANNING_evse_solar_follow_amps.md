@@ -536,6 +536,65 @@ T-IDLE-EMPTY-BAY-1, T-IDLE-UNAVAILABLE-1, T-CESSATION-1).
 * **C24** remove the nameplate sanity assertion in D1.2 → **T-NAMEPLATE-1 must
   fail** (30 kW impossible surplus not caught).
 
+### D2a — Value hysteresis on the excess-solar SOC gate (Rev-15, replaces reliance on time alone)
+
+**The defect this closes.** `conditions_met` tests `soc >= soc_threshold` for BOTH the start
+and the continue decision — one threshold, no band. A battery sitting near 95 can therefore
+cross down, stop the session, recover, and restart, repeatedly. Nothing today prevents that in
+VALUE; the only thing bounding it is hysteresis in TIME (the release streak plus min-on-time),
+which caps the flap frequency without eliminating the flap.
+
+**The fix uses a pair the operator has already configured, and adds NO knob.** The two SOC
+knobs are documented in-source as a designed asymmetric band — `number.py:1670-1675`:
+*"the natural ordering invariant `fill_priority_soc < excess_solar_soc` (pause-until below,
+resume-at above)"*. The excess-solar path simply never used the lower end. So:
+
+* **START** requires `soc >= excess_solar_soc` (live 95) — unchanged.
+* **STOP on the SOC term** requires `soc < fill_priority_soc` (live 80) — was `< 95`.
+* The forecast term (`remaining_forecast_kwh`) and the Solcast next-hour term are unchanged;
+  this changes only the SOC half of `conditions_met`.
+
+That yields a 15-point band on live config, and the band ends exactly where the next rule
+takes over: at `fill_priority_soc` the fill-priority pause engages by its own logic, and on
+this deployment drain protection sits at the same value. So the session cannot outlive the
+point where another owner would stop it anyway.
+
+**Consequence for the time gate — this is what makes shortening it safe.** With value
+hysteresis carrying the anti-flap burden, `SOLAR_RELEASE_MIN_TICKS` can drop from 3 EC ticks
+(15 min) to **2 (10 min)** for responsiveness. Note the direction of the trade, because it is
+counter-intuitive: shortening the time gate WITHOUT value hysteresis makes boundary churn
+WORSE, since the time gate is the only thing damping it today. The two changes must ship
+together, or neither.
+
+**Downsides, stated:**
+1. **A genuinely emptying battery keeps the EV on 15 points longer.** Mitigated because the EV
+   is modulated to surplus, so it is not the cause of the drain; and because drain protection
+   and fill-priority both engage at the lower end. But on a deployment where the two knobs were
+   set far apart, the band would be correspondingly wider — the behaviour is operator-tunable
+   by construction, which is the point.
+2. **`fill_priority_soc` is not currently threaded into `determine_excess_solar_actions`.** It
+   is referenced only in a comment (`energy_pool.py:286`) in a different function. Passing it in
+   is a small signature change but it is NOT free, and it is the one new coupling this creates.
+3. **The ordering invariant is unenforced.** `number.py:1670-1675` states plainly that
+   `fill_priority_soc < excess_solar_soc` is *"NOT enforced today in either entity-setter or
+   config_flow"*. If an operator inverts them, the stop threshold would sit ABOVE the start
+   threshold and the session would stop immediately on every start. D2a MUST therefore clamp
+   defensively: `stop_soc = min(fill_priority_soc, excess_solar_soc)`, and log a WARNING once
+   if they are inverted. This is the same unenforced-cross-field-invariant gap that parked item
+   P1 exists to fix; D2a does not fix P1, it defends against it locally.
+
+**Tests:**
+* **T-BAND-1** `test_session_survives_soc_dip_between_band_ends`: start at SOC 96; SOC falls to
+  85 for 6 ticks; assert NO release. Under the single-threshold bug: released after the streak.
+* **T-BAND-2** `test_session_stops_below_lower_band_end`: SOC falls to 79 sustained; assert
+  release fires with `surplus_gone`.
+* **T-BAND-3 (inverted config)** `test_inverted_band_clamps_and_warns`: `fill_priority_soc=95`,
+  `excess_solar_soc=90`; assert `stop_soc` clamps to 90, one WARNING, and a session started at
+  91 does not immediately stop.
+* **C26**: revert the stop term to `soc < excess_solar_soc` → **T-BAND-1 must fail.**
+
+---
+
 ### D2 — Release-gate hysteresis + idle-release exit for safe-parking
 
 **Where:** `EVChargerController.determine_excess_solar_actions:1685-1699` (release leg)
