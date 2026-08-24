@@ -1,10 +1,7 @@
 # PLANNING — EVSE solar-following amp modulation
 
-**Rev-20 — full rewrite.** Revisions 4-19 layered "authoritative" sections onto an unedited
-body until the document argued with itself: two plan reviews returned 39 findings, five
-CRITICAL, including a live 2× arithmetic fork and a siting decision that could not execute.
-This document replaces all of it. **There are no pointers to prior revisions.** Where a prior
-revision's decision survives, its text is here.
+**Status:** build-ready, awaiting operator go. Tier 3. Self-contained — every deliverable is
+specified in this file; there are no references to earlier drafts.
 
 **Companion:** the DP drain-target fix lives in `PLANNING_dp_drain_target_mis_sourcing.md` and
 ships FIRST. Solar-follow reads `_paused_by_dp` but has no code dependency on it; shipping DP
@@ -145,7 +142,7 @@ dispatches a `switch` service call, and never decides a START or a STOP. It comp
 current limits, and it may RAISE a stop REQUEST that D2 acts on. Violations are review-blocking.
 
 **INV-STOP-1 (stop requires a reason).** Every removal from `_excess_solar_active` writes a
-non-null cessation reason from the closed set in D2.4, including the peak-clear and
+non-null cessation reason from the closed set in D2.5, including the peak-clear and
 blind-window-drop paths.
 
 **INV-STOP-2 (a peer hold is never a stop).** While a stronger peer holds an EVSE, no stop
@@ -253,9 +250,8 @@ persistence (D1.5) before the timer's first fire, so step 1 can act on it.
 **D1 does NOT call `mains_export_active()` and does not change it.** That function returns
 `bool | None`, D1 needs the signed number, and it has two live consumers
 (`energy_pool.py:633`, `:1422`) plus a shim-and-drift-guard test. Widening it would put an
-inverted signal into blind-window ride permission the day the primary is wired. A prior revision
-proposed exactly that on the false premise of "no live consumers"; it is rejected here on
-evidence.
+inverted signal into blind-window ride permission the day the primary is wired. Widening it was considered and rejected: the premise that it has no live consumers is false,
+and the two that exist gate blind-window ride permission.
 
 **Why Emporia is PRIMARY when EC's global hierarchy prefers Envoy** — operator ruling: the two
 answer different questions. EC's is a global source-trust order; solar-follow needs the most
@@ -316,8 +312,8 @@ all per-EVSE and MUST be pruned by `_prune_removed_evses` (`energy_pool.py:213-2
 After each write, re-read the limit entity once after `SOLAR_FOLLOW_VERIFY_S`. If it differs
 from `_last_commanded[evse_id]`, log a WARNING and increment a counter. **No stop, no retry.**
 
-A prior revision proposed a "foreign writer" detector that STOPPED the session when the entity
-changed on a no-write tick. It is **rejected**: the Emporia cloud echoes writes with delay, so a
+A foreign-writer detector that STOPS the session when the entity changes on a no-write tick was
+considered and rejected: the Emporia cloud echoes writes with delay, so a
 delayed echo landing on a deadband-suppressed tick would trip it and kill the session with a
 misattributed cause. The precondition (Emporia native mode off) plus a warning counter is the
 proportionate control.
@@ -328,7 +324,7 @@ proportionate control.
 
 **Site:** `EVChargerController.determine_excess_solar_actions`, `energy_pool.py:1318-1702`.
 
-### D2.1 — the stop sweep (NEW placement, and the reason)
+### D2.1 — the per-EVSE stop sweep
 
 The existing release leg is inside `else:` at `:1685` and therefore runs ONLY when
 `conditions_met` is False. The idle, disconnected and signal-lost stops must fire while
@@ -343,7 +339,7 @@ the blind-window handling:
 # tou_period, soc_threshold, kwh_threshold, dp_carrier_state, coord) and `actions`.
 # `switch_entity` is NOT in scope here — it is bound inside the loops at :1359,
 # :1549 and :1589. The sweep MUST resolve it per-EVSE or it raises NameError.
-# `now` must be WALL CLOCK (not monotonic) because the duration tests in D2.2
+# `now` must be WALL CLOCK (not monotonic) because the duration tests in D2.3
 # compare against entity `last_changed`, which is a datetime.
 from homeassistant.util import dt as dt_util          # noqa: PLC0415
 now = dt_util.utcnow()
@@ -371,7 +367,7 @@ returns before the sweep — correct, nothing to sweep. The blind-window legs (`
 return before the sweep, so **sessions persist through a blind window**; the blind-window guard
 owns that decision. Stated deliberately.
 
-### D2.1a — session-start stamp (required by `SOLAR_MIN_ON_S`)
+### D2.2 — session-start stamp
 
 `SOLAR_MIN_ON_S` gates every stop on session age, and no field held it. Add
 `_excess_solar_started_at: dict[str, datetime]` on `EVChargerController`.
@@ -390,7 +386,7 @@ owns that decision. Stated deliberately.
 
 ---
 
-### D2.2 — stop conditions, all expressed as DURATIONS
+### D2.3 — stop conditions, expressed as durations
 
 **No tick counting for stop conditions.** The EVSE `status` entity refreshes at median 130 s and
 p90 1104 s, so counting controller ticks against it counts our own polling, not evidence.
@@ -416,7 +412,7 @@ fast costs nothing and acting slow holds a claim pointlessly. Idle is ambiguous:
 pause for thermal throttling or cell balancing runs 5-15 minutes, and stopping early costs a
 switch cycle and lost charging while stopping late costs one MIN-amp write.
 
-### D2.3 — the SOC band (value hysteresis)
+### D2.4 — the SOC band
 
 `conditions_met` at `:1572-1576` is ONE boolean serving both legs. Editing it in place would move
 the START gate. Instead:
@@ -445,7 +441,7 @@ the signature and pass it at `energy.py:5757-5762`; when None, `stop_soc = start
 threshold above the start threshold and kill every session on its first tick. Log a WARNING once
 when inverted.
 
-### D2.4 — cessation ledger
+### D2.5 — cessation ledger
 
 **Owner: `EVChargerController`**, because every write point is already there. Three per-EVSE
 dicts on it: `_last_stop_reason`, `_last_stop_at`, `_last_start_reason`. RAM-only — a lost
@@ -658,7 +654,7 @@ Every drill must bite. A site whose bypass leaves the suite green is untested.
 * **Live:** `solar_follow_last_stop_reason` is non-null for every session end observed, and the
   distribution across reasons is inspectable without reading logs.
 
-**D2.3 (band)**
+**D2.4 (band)**
 * **Verify:** a session started at 96 survives a dip to 85; a dip to 79 stops it.
 * **Test:** T-BAND-1/2/3.
 * **Live:** on a day with a mid-afternoon cloud, the session does NOT stop and the amp trace
