@@ -224,22 +224,41 @@ Callers wrap `ValueError`:
   `_dp_drain_target_soc`. INV-DP-DRAIN-2 and INV-DP-DRAIN-3 enforce this; each is
   mutation-tested.
 
-### INV-DP-DRAIN-4 blocker resolution — TWO branches, operator picks
+### INV-DP-DRAIN-4 — RESOLVED 2026-08-23 by code read. NOT a blocker, no operator decision.
 
-Builder task: trace whether `EnergyOffpeakDrainExcellentNumber.async_set_native_value` and
-its three siblings mutate `BatteryStrategy._drain_targets` live, or only entry.options
-requiring reload. `_drain_targets` is ctor-frozen at `energy_battery.py:464`;
-`__init__.py:5863-5867` lists them in the reload-suppress block, which SUGGESTS a
-live-apply path exists but does not confirm it. This must be traced before writing final
-acceptance criteria. Plan owns BOTH branches:
+Prior revisions carried this as an open blocker with two branches and an "operator picks at
+review time" note. It needed neither — one trace settled it. **The live-apply path already
+exists and is already correct.**
 
-* **If live-apply exists** — fix is complete as spec'd.
-* **If reload-only** — builder adds `BatteryStrategy.set_offpeak_drain_target(tier: str,
-  value: int)` mutating `_drain_targets[tier]`, called from the Number entity's setter.
-  Alternative accepted by the operator: document reload-required on each Number entity's
-  `attributes` (help text) AND on the README. Plan does NOT pick between "add live-apply"
-  and "document reload" — that is the operator's call at review time. INV-DP-DRAIN-4
-  enforces whichever choice is made.
+Chain, verified end to end:
+
+1. `number.py` — the off-peak drain Number's `async_set_native_value` calls
+   `energy.set_offpeak_drain(self._quality, int(value))` **BEFORE** the `entry.options`
+   writeback. The in-source comment states the intent explicitly: *"Live-attr push via EC
+   setter BEFORE async_update_entry so the next decision cycle picks up the new value even
+   if the listener is still in flight."*
+2. `energy.py:8645-8653` — `EnergyCoordinator.set_offpeak_drain(quality, value)` validates
+   `quality` against `{excellent, good, moderate, poor}`, then does
+   `self._battery._drain_targets[quality] = value`, logs at INFO, and calls
+   `_check_threshold_ladder()`.
+3. So `_drain_targets` — ctor-frozen at `energy_battery.py:464-465` — IS mutated live, and
+   the ladder validator runs on every change.
+
+Consequences for this cycle:
+
+* **No builder task.** Do not add `BatteryStrategy.set_offpeak_drain_target`; it would
+  duplicate `EnergyCoordinator.set_offpeak_drain`. Do not document reload-required — it is
+  not required and documenting it would be false.
+* **No operator decision.** Both branches are moot.
+* INV-DP-DRAIN-4 is retained as a REGRESSION GUARD, not an open question: the live-apply
+  chain must remain intact post-cycle. Anchor it with a mutation drill — neuter the
+  `energy.set_offpeak_drain(...)` call in the Number setter (leaving only the options
+  writeback) and assert a test fails, proving the live-apply leg is load-bearing rather
+  than incidentally passing because a reload happened to occur in the fixture.
+* The `__init__.py:5863-5867` reload-suppress listing was a correct hint, and the earlier
+  note that it "SUGGESTS a live-apply path exists but does not confirm it" was the right
+  posture — the confirmation is now recorded above with file:line so no future revision
+  re-derives it.
 
 Also: builder to READ and RECORD in README the numeric value of
 `DEFAULT_OFFPEAK_DRAIN_UNKNOWN` (Solcast-dead fallback).
