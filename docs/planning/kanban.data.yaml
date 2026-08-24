@@ -5041,7 +5041,40 @@ cards:
     a fan-independence flag.
     OPEN: who turns fan.fan_switch_3 on while the room reads vacant (schedule? manual? another sensor?) -- worth
     one grep, since it is the trigger that exposes the latch.'
-  next: Probe CONFIRMED the axis (2nd room, both edges). Ready to scope the fan-independence capability axis + declarations for the 10GHz fleet; no longer probe-gated.
+  FLEET_SCOPING_2026_08_23_CLASS_CLAIM_REFINED: 'Wiring census + per-unit edge-lag probe across the whole
+    10GHz fleet. THIS OVERTURNS THE CARD FRAMING -- read before scoping.
+    WIRING CENSUS (live core.config_entries): 9 URA rooms have a Hobeian 10GHz unit wired, ALL of them in
+    motion_sensors (none in occupancy_sensors or mmwave_sensors) -- so all 9 are corroborator-grade by list
+    derivation. Only THREE of the 9 also have fans, i.e. only three are exposed to the fan-demotion leg at all:
+    Upstairs Guestroom (fan.fan_switch_4), Guest Bedroom 1 (fan.guest_room_down_ceiling_fan), Breakfast Nook
+    (fan.151732606487193_fan). The other six (Dining, Laundry Closet, Patio, Receiving, Guest Bedroom 1 Closet,
+    Butler Pantry) have no fans -- zero blast radius today.
+    NOTE the Exercise room unit measured earlier is NOT WIRED into its room config at all (its motion_sensors is
+    the RGBW PIR). That is why it was a clean natural experiment: URA never acted on the Hobeian, so nothing
+    confounded the correlation. It also explains the "fan turned on while the room read vacant" observation --
+    the room was NOT vacant; the PIR saw the person and started the fan, and the still-blind 10GHz unit only lit
+    up once the blades moved. Direct confirmation of still-blindness, not just fan-coupling.
+    PER-UNIT EDGE-LAG RESULTS (rising = fan_on -> presence_on):
+      Upstairs Guestroom (founding case): 11/12 rising lags UNDER 10s (3.4-9.2s), falling 37-65s clear-delay.
+        LATCH CONFIRMED -- the 08-13 anecdote is now measured.
+      Guest Bedroom 1: 0/20 rising lags under 10s (100s to hours, uncorrelated), 570 presence transitions.
+        NO LATCH.
+      Breakfast Nook: 2/33 rising lags under 10s (8.0, 9.5 -- plausibly coincidence at n=33), 856 presence
+        transitions. NO LATCH.
+    CONCLUSION -- THE CLASS CLAIM IS TOO BROAD. Measured 2 of 4 units latch (Exercise, Upstairs Guestroom); 2 do
+    not (Guest Bedroom 1, Breakfast Nook). This matches the operator origin note verbatim ("Placement/sensitivity
+    may differ from Guestroom") -- that caveat turns out to be the headline, not a footnote. A CLASS-level
+    fan-independence declaration would WRONGLY DEMOTE two well-behaved sensors and lose real corroboration.
+    DESIGN CORRECTION: the vehicle must be PER-UNIT, not per-class. CONF_SENSOR_CAPABILITIES is already
+    per-entity, so it already supports this -- no new axis granularity needed. Likely physical mechanism worth
+    noting: the two non-latching rooms use CEILING fans (plausibly outside the sensor cone) while both latching
+    rooms use switch/tower fans; not proven, but it predicts which future installs are at risk.
+    SCOPE NOW: exactly ONE wired room needs a declaration today (Upstairs Guestroom). That is a very small fix.
+    PARKED IDEA (do not build yet, marginal-benefit rule): the edge-lag signature is computable, so per-unit
+    classification could be automated rather than hand-declared. Hand-built fixture exists now (this table) --
+    that is the acceptance fixture any automation must be diffed against. Revisit only if the fleet grows or
+    units are relocated.'
+  next: Scope a PER-UNIT (not per-class) fan-independence declaration; only Upstairs Guestroom needs one today. Class-wide axis is refuted by measurement.
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
     name-dropped)

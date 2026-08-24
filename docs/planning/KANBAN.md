@@ -542,10 +542,11 @@ _updated 2026-08-18 10:05_
 thread: **presence** - status: **planned** - approval: **explicit**
 - **Origin:** 2026-08-14 - operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz functional-PIRs (still-blind, long range). Registry confirms 3 Hobeian classes. But the Upstairs Guestroom unit of this EXACT mode...
 - **Why:** STUCK-SENSOR-1 (v5.75.0) role layer accepts list-derived motion kind as corroborator — correct for non-fan stuck pathology, fails-agree (=status quo, no regression) under fan latch. The deferred D5 role-migration should add fan-independe...
-- **Next:** Probe CONFIRMED the axis (2nd room, both edges). Ready to scope the fan-independence capability axis + declarations for the 10GHz fleet; no longer probe-gated.
-- **Forensic keys (2):**
+- **Next:** Scope a PER-UNIT (not per-class) fan-independence declaration; only Upstairs Guestroom needs one today. Class-wide axis is refuted by measurement.
+- **Forensic keys (3):**
   - `measurement_first`: Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run? (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.
   - `PROBE_RESULT_2026_08_23_CONFIRMED`: Probe ran. FIRST: the card premise entity does not exist -- there is NO Hobeian unit in the Living Room (the tower fan fan.towerfan_dreopilotmaxs_wifi_livingroom is there, but no 10GHz unit is registered for that room). So the queued "do...
+  - `FLEET_SCOPING_2026_08_23_CLASS_CLAIM_REFINED`: Wiring census + per-unit edge-lag probe across the whole 10GHz fleet. THIS OVERTURNS THE CARD FRAMING -- read before scoping. WIRING CENSUS (live core.config_entries): 9 URA rooms have a Hobeian 10GHz unit wired, ALL of them in motion_se...
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
 thread: **memory** - status: **planned**
