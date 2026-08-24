@@ -25,6 +25,56 @@ meta:
     finish-out: MEMORY-WRITERS-1. Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EVSE-SOLAR-FOLLOW-AMPS-1
+  SENSOR_DELTA_MEASURED_2026_08_23: 'MEASURED, not estimated. Emporia mains vs Envoy net-consumption
+    CT, 7,090 aligned pairs over ~7 days of recorder (probe: scratchpad/delta_probe.py).
+      mean +371 W (Emporia higher) | median +259 W | stdev 894 W
+      p10/p90 -158 / +1,014 W      | min/max -10,825 / +16,847 W
+      |delta| <=250W 41.3%  <=500W 64.8%  <=1000W 88.0%
+      sign agreement (both export or both import) 88.0%
+    Operator estimate was ~0.5 kW: right on central tendency, slightly optimistic on spread — only
+    65% of samples land within 500 W.
+    IT IS TIMING SKEW, NOT DISAGREEMENT — operator hypothesised this and it is CONFIRMED. Bucketing
+    |delta| by the slew rate of the fast signal (probe: scratchpad/skew_probe.py, 7,015 pairs):
+      slew 0-50 W/min    n=3274  median |delta|   241 W
+      slew 50-200        n=1692                   307 W
+      slew 200-500       n=1009                   384 W
+      slew 500-1500      n= 818                   619 W
+      slew 1500-5000     n= 173                 1,453 W
+      slew 5000+         n=  49                 2,024 W
+      quiet vs busy: 6.7x more divergence when load moves fast.
+    Monotone with rate of change = a 1-minute average compared against a ~19s sample. Genuine sensor
+    disagreement would be FLAT across those buckets. Note the MEAN holds ~320-365 W across the first
+    four buckets while the MEDIAN climbs: a small real offset (different clamp boundaries) sits under
+    a much larger timing component. Two effects; only the small one is real.
+    THIS KILLED THE AGREEMENT-GATE DESIGN I WAS DRAFTING. A cross-check veto would have fired mostly
+    on skew — vetoing charging precisely when solar was changing fastest, i.e. when following it
+    matters most — while LOOKING like a safety feature. Operator''s either-or design is correct.'
+  SIGNAL_DESIGN_FINAL_2026_08_23: 'EITHER-OR, NOT CROSS-CHECK. Emporia mains PRIMARY (operator: more
+    accurate CT, and it is what Emporia''s own excess-solar control used). Envoy net-consumption CT
+    as FALLBACK. Either alone is sufficient; NO agreement gate (see SENSOR_DELTA_MEASURED — a gate
+    would fire on skew).
+    The fallback must be genuine, not decorative: the local Envoy has a history of unreliability,
+    which is why URA already carries reliability machinery around it. That does NOT make Emporia
+    immune to its own failures — both legs need an availability check.
+    DESIGN CONSEQUENCE OF THE SKEW: Emporia is a 1-MINUTE AVERAGE and slower to react. The controller
+    must step amps CONSERVATIVELY DOWNWARD and CAUTIOUSLY UPWARD. Reacting fast to a stale-high
+    reading is how it overshoots into the battery — the exact harm this card exists to prevent.'
+  TWO_AUDIT_CLAIMS_I_RELAYED_WERE_WRONG_2026_08_23: 'Both corrected by the operator; recorded so the
+    audit version is not inherited.
+    (1) "Fill-priority goes inert Oct-Feb" — FALSE. Shoulder (Mar-May, Oct-Nov) and winter (Dec-Feb)
+        each define TWO periods, not zero: shoulder off_peak (0-17, 21-24) @0.043481 and mid_peak
+        (17-21) @0.086442; winter off_peak (0-5, 9-17, 21-24) and mid_peak (5-9, 17-21). So
+        `tou_period == "peak"` is simply never true, but the other arms still evaluate. Fill-priority
+        is ACTIVE during off-peak daylight — in shoulder that is 0-17h, precisely the hours this
+        controller runs. Mid-peak remains 2x off-peak, so the billing distinction it tracks is fully
+        live without a peak period existing. Only the LITERAL "never during peak" guard is dormant.
+    (2) "The standing fence forbids a separate timer" — I MIS-READ IT. The line
+        (PLANNING_v4.7.x_advanced_energy_management.md:219) sits in a REJECTED-ALTERNATIVES list
+        beside MILP-MPC, reinforcement learning and stochastic MPC: "EV-specific optimizer. EVs are
+        just controllable loads under existing EVSE switch coordination. No separate stack." It
+        rejects a parallel OPTIMISATION STACK, not a timer. An amp controller inside the existing
+        EVSE coordination is what that sentence endorses. I turned "no separate optimizer" into "no
+        separate timer" and handed the operator a manufactured question. Withdrawn; no ruling needed.'
   DESIGN_CLOSED_2026_08_23: 'CLOSED. Amp modulation IS the deliverable. Simple code, Tier-3 review.
     WHY THE MAGNITUDE MATTERS, not the oscillation — operator corrected my recommendation and was
     right. I had proposed shipping a deadband on the existing release gate instead, on the strength
