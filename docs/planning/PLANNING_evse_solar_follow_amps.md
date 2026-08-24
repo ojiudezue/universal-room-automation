@@ -885,6 +885,103 @@ charger behaviour; changing them should require review, not a slider.
 
 ---
 
+## 3d. Rev-16 corrections (operator-confirmed)
+
+### Emporia native solar mode WAS running on garage_a — and must stay off
+
+Measured on `number.garage_a_evse_emporia_wifi_garagea_current_limit`: 85 transitions across
+6-48 A, including a ~60 s-cadence ramp on 08-20 13:26-13:42 (30, 29, 27, 23, 32, 26, 24, 19,
+15, 24, 23) then a reset to 48 at 18:16. That is an automated solar-follower writing the exact
+entity D1 intends to own, at the exact cadence D1 intends to use. `garage_b` sits flat at 48 —
+never modulated, consistent with the unused bay.
+
+**Operator states Emporia's native management of garage_a has since been turned OFF.** That
+resolves the two-writer hazard, and it makes the field empty as the plan assumed. But note how
+close this came to shipping unseen:
+
+> The plan asserted "no existing writer to any current-limit entity — zero hits tree-wide."
+> That grep covered the URA CODEBASE and was correct. The writer was EXTERNAL (Emporia
+> cloud/app). **A code grep cannot establish that an entity has no writer.** Recorded as a
+> standing methodological caution: for any entity URA intends to OWN, establish exclusivity
+> from the entity's own STATE HISTORY, not from a source search.
+
+Also note URA's own config recorded `self_modulates: False` for garage_a while this was
+running — the flag did not reflect reality. Do not treat `self_modulates` as authoritative
+evidence of exclusivity.
+
+**D1 gains a foreign-writer guard, at near-zero cost, by extending machinery that already
+exists.** D1.6 already performs a bounded read-back after every write. Extend it: if
+`current_limit` is observed to CHANGE on a tick when D1 issued no write, that is a foreign
+writer. On detection — log a WARNING naming the observed value, increment
+`solar_follow_foreign_writes`, and STOP the session with reason `foreign_writer` rather than
+fighting for the entity. Rationale: two controllers ramping the same limit at 60 s will chase
+each other, and losing quietly is worse than stopping loudly. This is the trip-wire that
+catches Emporia's mode being re-enabled, whether deliberately or by an app update.
+
+### Write budget raised to match the tick (operator-agreed)
+
+`SOLAR_FOLLOW_MAX_WRITES_PER_HOUR_PER_EVSE` **30 → 60**. At 30 the budget capped writes to one
+per 2 minutes while the D1 loop runs every 60 s, so the budget bound before the tick did — the
+two contradicted each other. At 60 the tick is the binding constraint and the **deadband** does
+the suppression, which is the correct division of labour: suppress on "nothing changed enough
+to be worth a write", not on an arbitrary hourly ceiling. Empirical support that the entity
+tolerates this rate: Emporia's own ramp wrote it at ~60 s for sustained periods.
+
+### BLIND is blindness to the GRID signal only — scope corrected
+
+Rev-15 implied blind was a general degraded state. It is not, and the distinction matters:
+
+* **What we lose:** the surplus signal — Emporia mains (PRIMARY) and Envoy net (FALLBACK) both
+  unavailable. We cannot compute `S_eligible`, therefore we **cannot size the draw**.
+* **What we keep:** everything EVSE-side. `status` (Connected / Disconnected / Charging),
+  per-EVSE power, and the current-limit entity are on a different integration and are typically
+  still available. Battery SOC and the Solcast forecast are also unaffected.
+
+**Therefore, while blind, ALL other machinery continues to run:**
+* `conditions_met` still evaluates (battery SOC + remaining forecast — neither is the grid
+  sensor), so the ordinary STOP path still works.
+* The disconnected-duration STOP still works — it reads EVSE status.
+* The idle STOP still works — it reads EVSE power.
+* INV-SF-7 peer subordination is unaffected.
+
+**Only amp WRITES are suspended.** The residual harm — and the sole justification for the blind
+exit — is that the charger holds its **last commanded limit**, which may be far above the
+surplus that actually exists now, for as long as every other condition stays satisfied. That is
+the unbounded case the exit closes.
+
+**Blind timings, both on the D1 60 s clock, both measured from FIRST unavailability:**
+
+| Stage | Constant | D1 ticks | Wall |
+|---|---|---|---|
+| Declare blind, suspend writes, WARNING | `SOLAR_FOLLOW_STALE_MAX_D1TICKS` | **5** (was 2) | 5 min |
+| Exit: restore `_original_amps`, STOP `signal_lost` | `SOLAR_FOLLOW_BLIND_EXIT_D1TICKS` | **15** | 15 min |
+
+Not 5 + 15. The exit is at 15 minutes total. Raised from 2 to 5 so a brief sensor blip does not
+declare a fault or generate log noise; with no reading we cannot write a new target anyway, so
+the longer grace costs nothing in behaviour.
+
+### Control surface — final
+
+**One new control for the whole cycle.**
+
+* `number.ura_energy_coordinator_excess_solar_confirm` — **"Excess Solar Confirm"** (operator's
+  name), minutes, rung 3, default 3, range 1-10. Gates the RAMP-UP only: how many consecutive
+  minutes of higher measured surplus before the car's amps are increased. Down-steps are
+  uncapped and immediate and are NOT governed by this knob — that asymmetry is INV-SF-5.
+  *Builder note:* the help text must say "before INCREASING", because the name alone could be
+  read as confirming that excess solar exists at all, which is the start gate and a different
+  thing.
+* **No new switch.** `switch.ura_energy_coordinator_evse_solar_aware_charging` already exists
+  and is the master enable; D1/D2 ride it.
+* **No new SOC knobs.** D2a's band ends are already Numbers:
+  `number.ura_energy_coordinator_resume_ev_at_battery_soc` (95) and
+  `number.ura_energy_coordinator_fill_priority_soc` (80).
+
+Everything else stays rung 1 — protocol constants derived from measured sensor cadence and
+observed charger behaviour, which should require review to change rather than a slider.
+
+---
+
 ## 4. Non-goals (explicit)
 
 All Rev-8/10/11 non-goals preserved.
