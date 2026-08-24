@@ -8603,7 +8603,7 @@ cards:
     only with an explicit statement of expected samples-per-day, or leave them declared-and-suppressed.'
   status: waiting_operator
   created: 2026-08-20 14:15
-  updated: '2026-08-23 09:45'
+  updated: '2026-08-23 22:50'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'
@@ -8680,10 +8680,33 @@ cards:
     CLEAN per B: payload shape matches override_frequency byte-for-byte (no v4.6.3 sentinel repeat); exception
     isolation correct; unload symmetry fine; the parametric guardrail meta-test was NOT weakened (B mutated
     HVAC_METRICS and it failed correctly).'
-  next: OPERATOR DECISION -- D1 needs an event-driven producer redesign (scope growth beyond the approved wiring). D2 metrics_silent is shippable after the B3 reorder. Branch feature/hvac-anomaly-blind-1 held, not merged.
-    (b) called but rejected by minimum_samples against a reset baseline (the BACKLOG defect), or (c) called with None. That
-    discriminates a wiring fix from the DB-backed-baseline cycle. Then make sample_count 0 SURFACE as degraded rather than
-    silently pass.
+  CYCLE_DURATION_PROBE_2026_08_23_DECIDES_THE_REDESIGN: 'Measured the on-cycle duration distribution
+    from recorder hvac_action, because ONE number decides event-driven vs poll and nobody had it.
+    RESULT (7d, complete cycles): zone_1 187 cycles median 20.2m, sub-5min 5 (2.7%); zone_2 124 cycles
+    median 21.1m, sub-5min 6 (4.8%); zone_3 137 cycles median 22.5m, sub-5min 5 (3.6%). Across all three,
+    16 of 448 cycles (3.6%) fall in the sub-5-minute band a 5-minute poll cannot resolve.
+    ** THIS DOWNGRADES REVIEW A-2. ** A-2 said a 5-min poll "structurally cannot detect short cycling".
+    True in principle, but it applies to only ~3.6% of this house cycles. Short cycling here lives in the
+    5-20 minute band, which a 5-min poll CAN see.
+    ** AND A DURATION METRIC DEGRADES GRACEFULLY, which kills the objection in practice. ** A metric that
+    watches on-time SHRINK (20m -> 12m -> 8m -> 6m) raises the alarm well before the fault reaches the
+    aliased band, because it must pass through the visible band first. Detecting the sub-5min endpoint is
+    not required to catch the degradation.
+    ** DECISION COLLAPSES TO THE CHEAP OPTION. ** Option B (keep the existing 5-min tick, repoint the
+    producer to PER-ZONE ON-CYCLE DURATION, which is what the card OWN founding probe prescribed) captures
+    ~96% of cycles and the whole degradation path. Option A (event-driven async_track_state_change_event on
+    hvac_action) buys the remaining 3.6% plus exact durations, at the cost of a NEW LISTENER LIFECYCLE
+    SURFACE on a coordinator with a live restart/teardown history. Per the marginal-benefit rule, that
+    margin does not pay for that ingredient.
+    ** I WAS WRONG AND THE MEASUREMENT CORRECTED ME. ** I recommended the event-driven redesign to the
+    operator before measuring, reasoning from A-2 + B1 in the abstract. Measure-before-build existed exactly
+    for this; I skipped it and proposed the expensive option.
+    ** REVISED RECOMMENDATION. ** (1) Rebuild D1 as a per-zone on-cycle-duration metric on the existing tick
+    -- Tier 2, no new lifecycle surface. This ALSO fixes B1 self-normalisation (per-zone + continuous, not a
+    house-wide low-integer count) and B2 (a duration accumulator has no empty-map boot edge to fabricate).
+    (2) Ship D2 metrics_silent separately after the B3 five-line reorder -- it is sound and independent.
+    (3) Keep the suppression-registry entry until the new distribution is measured against real baselines.'
+  next: 'OPERATOR GO/NO-GO on the CHEAP redesign — per-zone on-cycle duration on the existing 5-min tick, Tier 2. The event-driven option is WITHDRAWN on measured grounds (sub-5min is only 3.6% of cycles). D2 metrics_silent is shippable separately after the B3 five-line reorder.'
   refs:
   - docs/BACKLOG.md — CRITICAL "D3 anomaly detection persistence + dispatch"
   - sensor.ura_hvac_coordinator_hvac_anomaly (live attrs 2026-08-20)
