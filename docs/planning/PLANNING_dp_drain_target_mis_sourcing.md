@@ -194,6 +194,32 @@ reload; INV-DP-DRAIN-4 enforces whichever choice).
 
 ---
 
+## 3b. Acceptance criteria
+
+- **Verify:** on a fresh DP transition with static knob 80, composed off-peak floor 10 and
+  SOC 40, `TransitionInputs.drain_target_soc` reads **10** at all five R2 sites, and the
+  stamped `_dp_decision_soc` reads **10**, not 80. Under the bug it reads 80 and the reserve
+  floor is commanded 70 points above SOC.
+- **Verify:** no same-tick actuate-then-revert. At SOC 40 with composed 10, a fresh
+  TRANSITIONED entry does NOT revert on the same tick (`:4555` sees 10, not 80).
+- **Verify:** R1 sites (`:5842`, `:5977`) still receive the STATIC knob — the drain-protection
+  pause ceiling is unchanged by this cycle.
+- **Verify:** R3 sites (`:3752`, `energy_pool.py:954`, `:1435`) unchanged.
+- **Verify:** when `compose_release_floor` returns `None` and static reserve is available, the
+  helper returns the **static reserve** and logs a WARNING — never `_ev_battery_drain_soc`.
+- **Test:** T1, T1b, T1c, T1d, T2, T3, T3b, T4, T5, each mutation-anchored per C1-C5.
+- **Live:** after restart, with an EV plugged during off-peak, the DP snapshot sensor
+  (`energy.py:3871` payload) shows `drain_target_soc` equal to the composed off-peak target
+  for the current forecast class, NOT the static knob value. Record the observed number and
+  the forecast class in the README validation table.
+- **Live (discriminating):** the commanded reserve floor does not exceed live battery SOC
+  following a DP transition. Under the bug it exceeds SOC; under the fix it does not. This is
+  the observation that separates the fix from a plausible different failure.
+- **Live:** scan logs for the two helper WARNINGs. Neither should appear in normal operation;
+  either appearing means a dependency is unhealthy and the fallback engaged.
+
+---
+
 ## 4. Non-goals
 
 * NOT demoting `evse_battery_hold` to backstop.
@@ -229,16 +255,58 @@ reload; INV-DP-DRAIN-4 enforces whichever choice).
 
 Behavioural, MUTATION-VERIFIED. `PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__`.
 
-Tests: T1, T1b, T1c, T1d, T2, T3, T3b, T4, T5 as prior spec. Fixtures MUST construct
-through the real production path.
+Fixtures MUST construct through the real production path (NOT `_mk_inputs`).
+
+* **T1 (real construction path, NOT `_mk_inputs`):** static knob 80, forecast 10, SOC 40,
+  off-peak. Drive real `_evaluate_battery` and assert
+  `TransitionInputs.drain_target_soc == 10`. Under bug at `:4456`, value is 80 and gate 7
+  fires.
+* **T1b (SHADOW path):** same fixture; assert shadow `:4271` also emits 10.
+* **T1c (`:4522` fresh actuation, A-CRIT-1 repro):** SOC 40, composed 10, fresh entry to
+  TRANSITIONED. Assert `_dp_decision_soc == 10` and reserve at `:4733/:4829` =
+  `max(existing, 10, hold_reserve)`. Under bug that missed `:4522`, `_dp_decision_soc == 80`,
+  reserve pinned 70 points above target.
+* **T1d (`:4540` rescan):** first EVSE plugged, TRANSITIONED, second plug-in triggers rescan;
+  assert `_dp_decision_soc` unchanged at 10 (idempotent). Under bug, second actuation stamps 80.
+* **T2 (revert consistency, A-CRIT-2 repro):** post-TRANSITIONED at SOC 40 with stamped
+  `_dp_decision_soc == 10`; assert revert predicate `:4555` does NOT fire (`40 <= 10 → False`).
+  Under bug, `:4555` compares against 80 and fires; test observes EVSE flap (turn_off followed
+  by turn_on within same tick).
+* **T3 (R1 unchanged, HIGHEST_PROBABILITY_BUILD_ERROR guard):** mutate
+  `_dp_drain_target_soc` to return `self._ev_battery_drain_soc`; T3 asserts
+  `determine_battery_drain_actions` STILL receives `soc_threshold=80` at `:5842` and `:5977`.
+* **T3b (helper None fallback, B-1):** stub `compose_release_floor` to return `(None, True)`;
+  assert `_dp_drain_target_soc` returns static reserve AND logs WARNING. Under B-1 bug
+  (fallback to `_ev_battery_drain_soc`), helper returns 80 silently.
+* **T4 (R3 unchanged):** mutate `energy.py:3752` to route through `_dp_drain_target_soc`; T4
+  asserts blind-hold envelope proof STILL uses the static knob.
+* **T5 (offpeak-drain live-apply):** mutate `energy_offpeak_drain_excellent` Number to 25;
+  assert `_drain_targets["excellent"] == 25` within one tick. Under reload-only branch, T5
+  is replaced by an assertion that the Number entity's help text or attribute contains
+  "requires reload".
+* **Live (D3 with plugged EV, off-peak, healthy Envoy):**
 
 ---
 
 ## 8. Review plan — Tier 3
 
-A/B/C/D framings and mutation drills C1-C7 as prior spec. Two plan reviews before build
-(completeness + adversarial build-prediction). Orchestrator pre-deploy verification
-mandatory. Operator checkpoint BEFORE deploy.
+A/B/C/D framings per the Tier-3 protocol. Two plan reviews before build (completeness +
+adversarial build-prediction). Orchestrator pre-deploy verification mandatory. Operator
+checkpoint BEFORE deploy.
+
+**Mutation drills — REAL per-site source mutation, ONE site at a time, restore after each.**
+Run with `PYTHONDONTWRITEBYTECODE=1` and a cleared `__pycache__` — stale bytecode has produced
+a false PASS on this exact drill class before.
+
+- **C1:** neuter `_dp_drain_target_soc` to return `_ev_battery_drain_soc`
+  → **T1, T1b, T1c, T1d must fail.**
+- **C2:** swap the R1 site `energy.py:5842` argument to the composed value → **T3 must fail**
+  (proves R1 is protected, not incidentally passing).
+- **C3:** revert `energy.py:4522` to `int(self._ev_battery_drain_soc)` → **T1c must fail.**
+- **C4:** revert `energy.py:4540` → **T1d must fail.**
+- **C5:** revert `energy.py:4555` (revert predicate) → **T2 must fail.**
+
+A site whose bypass leaves the suite green is an untested site. All five must bite.
 
 ---
 
