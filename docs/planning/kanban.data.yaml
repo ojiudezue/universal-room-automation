@@ -25,6 +25,33 @@ meta:
     finish-out: MEMORY-WRITERS-1. Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EVSE-SOLAR-FOLLOW-AMPS-1
+  DESIGN_CLOSED_2026_08_23: 'CLOSED. Amp modulation IS the deliverable. Simple code, Tier-3 review.
+    WHY THE MAGNITUDE MATTERS, not the oscillation — operator corrected my recommendation and was
+    right. I had proposed shipping a deadband on the existing release gate instead, on the strength
+    of an audit finding that the gate lacks hysteresis. That optimised the symptom I could measure
+    and ignored the harm:
+      house 10 kW, solar 15 kW          -> 5 kW genuine surplus
+      binary 48A adds 11.5 kW           -> 21.5 kW draw vs 15 kW solar -> 6.5 kW OUT OF THE BATTERY
+      matched ~21A adds 5 kW            -> 15.0 kW draw vs 15 kW solar -> net zero
+    A deadband stops the FLAPPING and leaves the house drawing 21 kW against 15 kW of solar. The
+    battery still empties, just smoothly. That is cosmetic on the real failure.
+    SERVICE-CAPACITY DIMENSION, which I missed entirely and which the operator raised: binary control
+    offers only NOTHING or EVERYTHING, and "everything" is chosen with no reference to what the
+    service can carry. Draw ceilings, demand overages, breaker trips. Matching solar keeps total draw
+    bounded by what is actually being produced. This is a safety argument, not only an energy one.
+    THE 6A FLOOR IS THE TRACKING LIMIT, NOT A LIMITATION: from 11.5 kW down to 1.44 kW the controller
+    follows solar as it declines through the afternoon. Below 1.44 kW it stops — a REAL stop, because
+    there genuinely is not enough surplus left, not a yo-yo.
+    NIGHT IS OUT OF SCOPE: after sundown car charging competes with DP, which is DP''s job and is
+    already built. This controller is a daytime, sun-is-out mechanism only.
+    THE RELEASE-GATE HYSTERESIS GAP IS REAL BUT SEPARATE (energy_pool.py:1685-1699, no hysteresis and
+    no minimum on-time, so SOC 95->94 drops every claimed EVSE; plus determine_battery_drain_actions
+    has no _excess_solar_active check and runs AFTER solar in the tick). Card it separately. It is
+    not a substitute for this and not a reason to defer this.
+    TIER 3 = REVIEW COST, NOT CODE COMPLEXITY (operator). The build is small: read surplus -> convert
+    to amps -> clamp [6,48] -> deadband -> write, inside an already-open session. The Tier-3 spend is
+    proving it cannot perturb TOU, DP, fill-priority, or the service ceiling. Keeping the code small
+    is what makes four framing-disjoint reviews affordable.'
   MEASUREMENT_DESIGN_2026_08_23: 'SIGNAL DESIGN SETTLED — Envoy primary, Emporia mains as veto.
     SPAN is EXCLUDED (operator: "Span is unreliable"). Not ranked lower; excluded.
     WHAT EACH MEASURES — established, not assumed. I got this wrong twice before the operator
