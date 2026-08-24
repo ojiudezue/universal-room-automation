@@ -199,6 +199,7 @@ class SolarFollowController:
         self._last_commanded: dict[str, float] = {}
         self._stop_requests: dict[str, str] = {}       # evse_id -> reason; D2 drains
         self._blind_since: float | None = None         # monotonic
+        self._pending_verify: dict[str, Callable[[], None]] = {}   # async_call_later handles
 ```
 
 **Cross-class convention:** bare `self.` for D1's own attributes; `self._ev.<attr>` with
@@ -222,7 +223,7 @@ empty-set fast path.
 # 0. SELF-PRUNE, then fast path.
 known = set(self._ev._evse)                                   # noqa: SLF001
 for d in (self._original_amps, self._up_streak, self._writes,
-          self._last_commanded, self._stop_requests):
+          self._last_commanded, self._stop_requests, self._pending_verify):
     for gone in [k for k in d if k not in known]:
         d.pop(gone, None)
 if not self._ev._excess_solar_active and not self._original_amps:   # noqa: SLF001
@@ -370,13 +371,48 @@ If the blob is older than 10 h, DISCARD it and do NOT capture the current value 
 
 ### D1.6 — bounded write verification
 
-After each write, re-read the limit entity once after `SOLAR_FOLLOW_VERIFY_S`. If it differs
-from `_last_commanded[evse_id]`, log a WARNING and increment a counter. **No stop, no retry.**
+**Mechanism: `async_call_later`, following `energy_write_verify.py`** — the mature precedent in
+this codebase (`domain_coordinators/energy_write_verify.py:572`), which already solves the three
+things a naive implementation gets wrong. Do NOT `await asyncio.sleep()` inside the tick: with
+two bays that would block the 60 s loop for `2 × SOLAR_FOLLOW_VERIFY_S`.
 
-A foreign-writer detector that STOPS the session when the entity changes on a no-write tick was
-considered and rejected: the Emporia cloud echoes writes with delay, so a delayed echo landing
-on a deadband-suppressed tick would trip it and kill the session with a misattributed cause.
-The precondition (Emporia native mode off) plus a warning counter is the proportionate control.
+After each write to `evse_id`:
+
+```python
+async def _delayed(_now):
+    self._pending_verify.pop(evse_id, None)      # clear own handle first
+    try:
+        observed = self._read_amps(entity)
+        if observed is not None and abs(observed - commanded) >= 1:
+            _LOGGER.warning(...)                  # counter++, no stop, no retry
+    except Exception:                             # noqa: BLE001
+        _LOGGER.debug("solar-follow verify raised (swallowed)", exc_info=True)
+
+prev = self._pending_verify.pop(evse_id, None)
+if prev is not None:
+    prev()                                        # SUPERSEDE: a newer write invalidates the old check
+self._pending_verify[evse_id] = async_call_later(
+    self.hass, SOLAR_FOLLOW_VERIFY_S, _delayed)
+```
+
+Three requirements, each mirroring the precedent:
+* **Supersession** — a second write to the same bay inside the verify window cancels the first
+  pending check. Without it the earlier callback compares a stale `commanded` and fires a
+  spurious warning on every ramp.
+* **Teardown cancellation** — `cancel_all()` on the controller, invoked from the EC teardown
+  path, calls every outstanding handle. Untracked `async_call_later` handles outliving the
+  coordinator is a known bug class in this repo (`energy_write_verify.py:1301-1303` exists
+  solely to close it).
+* **Swallow in the callback** — a raising verify must not surface as an unhandled task exception.
+
+`_pending_verify: dict[str, Callable[[], None]]` is declared in `__init__` and pruned with the
+other per-EVSE dicts.
+
+**No stop, no retry.** A foreign-writer detector that STOPS the session when the entity changes
+on a no-write tick was considered and rejected: the Emporia cloud echoes writes with delay, so a
+delayed echo landing on a deadband-suppressed tick would trip it and kill the session with a
+misattributed cause. The precondition (Emporia native mode off) plus a warning counter is the
+proportionate control.
 
 ### D1.7 — write budget
 
@@ -669,7 +705,7 @@ state each tick; the module constant is the default the Number overrides.
 | `SOLAR_FOLLOW_UP_STEP_A` | 1 | 4 | per-tick up cap |
 | `SOLAR_FOLLOW_UP_MIN_TICKS` | 3 | 3 | **the only tick-counting knob**; D1 60 s clock; surfaced as "Excess Solar Confirm" |
 | `SOLAR_FOLLOW_TICK_S` | 1 | 60 | D1 cadence |
-| `SOLAR_FOLLOW_VERIFY_S` | 1 | 8 | readback delay |
+| `SOLAR_FOLLOW_VERIFY_S` | 1 | 8 | readback delay, via `async_call_later` |
 | `SOLAR_FOLLOW_MAX_WRITES_PER_HOUR` | 1 | 60 | matches the tick; the deadband does suppression |
 | `SOLAR_FOLLOW_STALE_GRACE_S` | 1 | 300 | blind declared |
 | `SOLAR_FOLLOW_BLIND_EXIT_S` | 1 | 900 | stop request raised |
@@ -777,6 +813,11 @@ add-back staleness failure untestable by construction.
   blind-window drop (`:1564`). Assert non-null for all four.
 * **T-ENTITY-1** an EVSE with no `current_limit` key logs a WARNING once and is skipped — no
   write, no capture, no exception.
+* **T-VERIFY-1** two writes to the same bay inside `SOLAR_FOLLOW_VERIFY_S`: the first pending
+  check is cancelled and only one warning-eligible comparison runs, against the LATER commanded
+  value. Under a non-superseding implementation: a spurious warning on every ramp step.
+* **T-VERIFY-2** teardown with a verify outstanding cancels the handle; no callback fires after
+  shutdown. Under the bug: an `async_call_later` handle outlives the coordinator.
 * **T-UNIT-1** a fallback reading in kW is ×1000; an entity with an unexpected unit is treated as
   unavailable, not admitted.
 
@@ -796,6 +837,7 @@ add-back staleness failure untestable by construction.
 | `resume_ev_at_battery_soc`, `fill_priority_soc` | REUSE | existing Numbers |
 | `mains_export_active` | REUSE UNCHANGED (not called) | two live consumers |
 | Number-setter push pattern | REUSE | `energy.py:8645` `set_offpeak_drain` |
+| `async_call_later` verify pattern + supersession + `cancel_all` | REUSE | `energy_write_verify.py:572`, `:1301-1303` |
 | `SolarFollowController` | NEW | no 60 s modulation loop exists |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY` / `_FALLBACK_ENTITY` | NEW | existing grid fields carry other contracts |
 | `CONF_SOLCAST_NEXT_HOUR_ENTITY` | NEW | existing Solcast fields are today/tomorrow/remaining/day3 |
@@ -826,6 +868,8 @@ Real per-site source mutation, ONE at a time, restore after each.
 * **C16** restore the KV blob without the 10 h age gate → **T-RESTORE-2** fails.
 * **C17** delegate D1 dict pruning to `_prune_removed_evses` → **T-PRUNE-1** fails.
 * **C18** skip the ledger write on the peak-clear path → **T-LEDGER-1** fails.
+* **C19** remove the supersession cancel before scheduling a verify → **T-VERIFY-1** fails.
+* **C20** remove `cancel_all()` from teardown → **T-VERIFY-2** fails.
 
 Every drill must bite. A site whose bypass leaves the suite green is untested.
 
