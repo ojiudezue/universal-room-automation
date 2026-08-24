@@ -5116,6 +5116,31 @@ cards:
     ** SEPARATE FINDING, not the latch question: ** the Living Room unit reads on for only ~2.1h of 178h
     (1.2%) in a main living space. That is very quiet and may indicate under-sensitivity or placement issues.
     Worth its own look; does not affect this cards conclusion.'
+  RETRACTION_NAMES_ARE_RELIABLE_2026_08_23: 'OPERATOR CORRECTION, and they are right. I claimed three
+    units named pir_zigbee_* are 10GHz doppler devices misrepresenting their modality, and that the fleet
+    is 35 units. BOTH CLAIMS ARE FALSE. Retracted in full.
+    MY ERROR: I enumerated by MANUFACTURER (HOBEIAN) and treated the whole result as one sensor class.
+    Hobeian is a common manufacturer name shipping SEVERAL product lines. Breaking the same query down by
+    device MODEL settles it:
+      "Millimeter wave motion detection" -- 26 presence-ish binary_sensors. THIS is the 10GHz class this
+        card is about.
+      "24Ghz human presence sensor" -- 5 (mmwave_zigbee_gameroom / jayabedroom / mediaroom / studya /
+        ziribedroom). DIFFERENT CLASS: 24GHz true mmWave with still-detection, NOT the still-blind 10GHz
+        functional-PIR this card concerns. Must not be pooled with the 10GHz units.
+      "24Ghz millimeter wave and T&H sensor" -- 1 (masterbedroom). Also 24GHz, also out of class.
+      "Motion sensor" -- 3 (pir_zigbee_exercisecloset / mediacloset / ojivanity). GENUINE PIRs.
+    ** THE ENTITY NAMES ARE RELIABLE AFTER ALL. ** pir_zigbee_* really are PIR; mmwave_* really are mmWave.
+    The naming convention was never the problem -- my inference from manufacturer to modality was. Delete
+    any follow-up card premised on names misrepresenting modality; there is no such defect.
+    ** WHAT SURVIVES FROM THE EARLIER CENSUS NOTE. ** The genuinely useful half stands: entity-name
+    SUBSTRING search is unreliable for FINDING the fleet, because in-class units use several prefixes
+    (occupancy_lux_temp_humidity_hobeian_*, mmwave_temp_lux_hum_zigbee_*, mmwavemotion_*, and one raw
+    0xa4c1... IEEE address). Enumerate by device MODEL -- which is also what distinguishes the classes.
+    ** CORRECTED SCOPE, restricted to model == "Millimeter wave motion detection": ** 17 URA rooms wire a
+    10GHz unit; FOUR have fans -- Breakfast Nook, Guest Bedroom 1, Living Room, Upstairs Guestroom. Same
+    four as before, all four measured, so the finding is UNCHANGED: exactly one latches (Upstairs
+    Guestroom). All five units tested (incl. unwired Exercise) are confirmed in-class. Scope remains one
+    per-unit declaration, one room.'
   next: 'Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent their own modality.'
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
