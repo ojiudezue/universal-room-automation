@@ -4999,7 +4999,7 @@ cards:
   title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for
     fan-demotion
   thread: presence
-  status: pre_planning
+  status: planned
   approval: explicit
   approved_by: operator 2026-08-18 (board button)
   origin:
@@ -5014,7 +5014,34 @@ cards:
     axis.'
   measurement_first: 'Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run?
     (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.'
-  next: Fold into the STUCK-D2-DEMOTION-ROLE-MIGRATE-1 follow-up (D5); probe result first.
+  PROBE_RESULT_2026_08_23_CONFIRMED: 'Probe ran. FIRST: the card premise entity does not exist -- there is
+    NO Hobeian unit in the Living Room (the tower fan fan.towerfan_dreopilotmaxs_wifi_livingroom is there, but
+    no 10GHz unit is registered for that room). So the queued "does the NEW Living Room unit latch?" question is
+    unanswerable as written. Ran the fan-independence test instead on the pair the repo itself confirms
+    (PLANNING_fan_noise_mode2_ble_pause_recheck.md:61): hobeian_exercise_presence_2 + fan.fan_switch_3, 7.2d of
+    recorder history.
+    TIME-WEIGHTED: P(presence=on | fan_on) = 99.9% (9.3h/9.4h). P(presence=on | fan_off) = 0.3% (0.6h/163.3h).
+    Striking but CONFOUNDED on its own -- an occupancy-driven fan produces the same correlation, and an
+    observation shared by every candidate mechanism is not evidence. So a discriminating edge-lag measurement
+    was run, and it separates the mechanisms cleanly ON BOTH EDGES:
+      RISING: 8 of 9 fan OFF->ON events are followed by a FRESH presence OFF->ON transition at 1.8/2.0/2.2/2.2/
+      2.2/2.2/2.3/3.0 s (one outlier 5699s). Two facts kill the human explanation: (a) the fan LEADS presence by
+      a machine-consistent ~2s -- an occupancy-driven fan would have presence PRECEDE it; (b) a fresh rising edge
+      means presence read OFF at the moment the fan started, i.e. the fan was switched on while the room read
+      vacant, and the sensor then lit up.
+      FALLING: every one of 10 fan ON->OFF events is followed by presence ON->OFF at 60.5-74.2s -- the units
+      occupancy clear-delay after its doppler target disappears.
+    CONCLUSION: presence tracks the FAN, not the human, on both edges. This is a doppler latch, CONFIRMED, and
+    it is a SECOND ROOM independent of the Upstairs Guestroom founding case (which rested on 2 anecdotes from
+    08-13). The class-level claim is now measured, not inferred.
+    SHARPER THAN THE CARD ASSUMED: at 0.3% presence-on across 163h of fan-off, this unit contributes almost NO
+    genuine presence signal in this room -- nearly all of its on-time is fan-driven. The axis is not merely a
+    correctness nicety for fan-demotion legs; for this deployment the sensor is close to a pure fan detector.
+    That raises urgency and also argues the capability declaration should carry a still-blindness note, not only
+    a fan-independence flag.
+    OPEN: who turns fan.fan_switch_3 on while the room reads vacant (schedule? manual? another sensor?) -- worth
+    one grep, since it is the trigger that exposes the latch.'
+  next: Probe CONFIRMED the axis (2nd room, both edges). Ready to scope the fan-independence capability axis + declarations for the 10GHz fleet; no longer probe-gated.
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges
     name-dropped)
