@@ -743,6 +743,148 @@ hysteresis stops flap; D2's idle-release provides the missing exit for safe-park
 
 ---
 
+## 3c. Timing, clocks and observability — AUTHORITATIVE (Rev-15)
+
+This section supersedes every scattered `*_TICKS` value elsewhere in this document. Where an
+earlier section disagrees, this one governs.
+
+### The two clocks — and why the old names were a build defect
+
+There are two independent cadences, **5× apart**, and until Rev-15 every constant on both was
+suffixed `_TICKS` with no indication of which clock it counted:
+
+* **D1 clock — the SolarFollowController's own 60 s timer.** Modulation, surplus reads,
+  restore, safe-parking.
+* **D2 clock — the EnergyCoordinator 5-minute decision tick**, which is what calls
+  `determine_excess_solar_actions`. Session start and stop.
+
+A builder implementing `STALE_MAX_TICKS` in the D2 loop would turn a 2-minute grace into 10
+minutes; `UP_MIN_TICKS` on the wrong clock becomes 15 minutes instead of 3, which would make
+the up-ramp nearly useless. `UP_MIN_TICKS` is a rung-3 Number entity, so an operator could
+retune it live without ever seeing its unit.
+
+**Rule (binding on this cycle and any future one): no tick-counting constant may exist without
+its clock in the NAME.** Suffix `_D1TICKS` (60 s) or `_D2TICKS` (5 min). The knob table carries
+a Clock column. A bare `_TICKS` name is a review-blocking defect.
+
+| Rev-14 name | Rev-15 name | Clock | Value | Wall time |
+|---|---|---|---|---|
+| `SOLAR_FOLLOW_UP_MIN_TICKS` | `SOLAR_FOLLOW_UP_MIN_D1TICKS` | D1 60 s | 3 | 3 min |
+| `SOLAR_FOLLOW_STALE_MAX_TICKS` | `SOLAR_FOLLOW_STALE_MAX_D1TICKS` | D1 60 s | 2 | 2 min |
+| `SOLAR_RELEASE_MIN_TICKS` | `SOLAR_STOP_MIN_D2TICKS` | D2 5 min | **2** (was 3) | **10 min** |
+| `SOLAR_FOLLOW_IDLE_RELEASE_TICKS` | `SOLAR_STOP_IDLE_D1TICKS` | **D1 60 s** (moved) | 20 | 20 min |
+| `SOLAR_FOLLOW_DISCONNECTED_RELEASE_TICKS` | **DELETED** — replaced by a duration, see below | — | — | — |
+
+### Why the disconnected streak became a DURATION, not a tick count
+
+Measured refresh cadence of `sensor.garage_*_evse_emporia_wifi_garage*_status`, the signal the
+disconnected test depends on: **median 130 s, p90 1104 s (18 minutes).**
+
+Counting controller ticks against that signal is unsound at ANY N. At p90 the controller polls
+five times and reads the same unrefreshed value five times — that is one observation counted
+five times, not five observations. It counts our own polling, not evidence.
+
+**Replaced by:** `SOLAR_STOP_DISCONNECTED_S = 300` (5 min), evaluated against the status
+entity's own `last_changed` — *"status has read `Disconnected` continuously for ≥ 300 s."*
+Exact rather than quantised to our poll, immune to the 18-minute gaps, and twice as responsive
+as the 10 minutes it replaces. `unavailable` does not start or continue the duration.
+
+For contrast, the signals that ARE well-behaved and legitimately support fast tick-counting:
+Emporia mains median 61 s / p90 120 s; Envoy net median 70 s / p90 86 s; EVSE power median
+60 s / p90 250 s. The D1 60 s loop is properly matched to these. **The surplus half of the
+design is sound; only the status-derived tests needed rework.**
+
+### Why idle stays long while disconnected got shorter — cost asymmetry
+
+* **Disconnected is UNAMBIGUOUS**: there is no car. Acting fast costs nothing because there is
+  nothing to interrupt; acting slow holds a claim pointlessly. → **be fast, 5 min.**
+* **Idle is AMBIGUOUS**: finished car vs a mid-charge pause (thermal throttle, cell balancing,
+  typically 5-15 min). Acting early stops a car that was about to resume — a switch off/on
+  cycle plus lost charging. Acting late costs a held claim and one 6 A safe-park write, which
+  is cheap. → **be slow, keep 20 min.**
+
+Idle also moves to the **D1 60 s clock** because it keys off POWER (`charging`, derived from
+the 60 s power sensor), not the slow status entity. Same wall-clock duration, five times the
+observations behind it.
+
+### The blind state now has an exit (the gap Rev-14 left open)
+
+Rev-14's D1.3 suspended writes when both grid sources were unavailable, but **nothing ever
+ended that state.** The session persisted indefinitely with the charger held at its last
+commanded limit — 6 A (starving the car) or 48 A (drawing far past surplus, the exact harm this
+cycle exists to prevent), unbounded in time.
+
+* `SOLAR_FOLLOW_STALE_MAX_D1TICKS = 2` (2 min) — suspend writes, WARNING. Session persists.
+  This is a **write suspension, NOT a stop.** D1.3's old label "self-consistency stop" was
+  misleading and is renamed **"D1.3 — write suspension (blind state)."**
+* `SOLAR_FOLLOW_BLIND_EXIT_D1TICKS = 15` (15 min) — **NEW.** On reaching it: restore
+  `_original_amps`, drop the claim, STOP with reason `signal_lost`. Rationale: if we cannot
+  measure surplus we cannot size draw, and the honest move is to hand the charger back to rules
+  that do not depend on our sensor (TOU, DP). Given the grid sensors' p90 is 86-120 s, two
+  minutes of both-unavailable is already abnormal and fifteen is unmistakably a fault.
+* **Corrects Rev-14's ledger:** `signal_lost` IS a legitimate cessation reason — for this exit,
+  NOT for the 2-minute suspension. Rev-14 listed `stale_signal` as a cessation value that no
+  path could ever write. Renamed and given a real writer.
+
+**Four states, named:** not-in-session · in-session WRITING · in-session YIELDED (a stronger
+peer holds it; INV-SF-7) · in-session BLIND (writes suspended, exits at 15 min).
+
+**Terminology (binding).** "Release" is banned as a bare term — it was used for two opposite
+things. Use **START**, **STOP** (solar-follow ends the session), **YIELD** (a peer holds it;
+solar-follow writes nothing, session persists), **PEER-RELEASE** (the peer lets go).
+
+### Observability — REUSE, do not build a second sensor
+
+`sensor.ura_energy_coordinator_ev_charging_status` already carries 23 attributes covering most
+of what Rev-11's proposed D1 status sensor would have duplicated: `excess_solar_active`,
+`excess_solar_evses`, per-EVSE dicts (`is_on`, `power`, `status`, `charging`), every pause set
+(`paused_by_battery_drain`, `_grid_cap`, `_arbitrage`, `_fill_priority`, `_energy`,
+`proactive_offpeak_holds`), `pause_dispatch_state`, `pause_reason_human`,
+`fill_priority_target_soc`, `fill_priority_solar_ok`, `reasons_last_changed_at`.
+
+**Decision: solar-follow adds its attributes to that EXISTING sensor. No new entity.** A second
+EVSE sensor would fragment EVSE state across two entities and make correlation manual.
+
+**Already covered — do NOT add:**
+
+| Rev-11 proposal | Already available as |
+|---|---|
+| `eligible_evses` | `excess_solar_evses` minus the published pause sets |
+| `drawing_evses` | per-EVSE `charging` in the existing dicts |
+| peer-hold detail / which owner | **`pause_reason_human`** — already per-EVSE, already human-readable |
+| `drain_trips_during_follow` | observable from `paused_by_battery_drain` + `reasons_last_changed_at` |
+
+**Genuinely new — these are the only additions, five attributes:**
+
+1. `solar_follow_surplus_kw` — the computed `S_eligible`. THE decision input; nothing else
+   publishes it, and without it no one can tell a sizing bug from a sensor bug.
+2. `solar_follow_original_amps` — per-EVSE saved restore value. New state, invisible otherwise,
+   and the thing a stuck-throttle incident would need.
+3. `solar_follow_state` — per-EVSE, one of `writing` / `yielded` / `blind`. Collapses three
+   proposed booleans into one field and names the four-state machine above.
+4. `solar_follow_last_start_reason` / `solar_follow_last_stop_reason` — the session ledger
+   (per-EVSE, plus `_at` timestamps). This is the "why did it do that" artifact.
+5. `solar_follow_blind_since` — timestamp, null when not blind. Makes the 15-minute exit
+   observable and lets an operator see a developing fault before it fires.
+
+Dropped from the Rev-11 proposal as derivable or low-value: `safe_parked_evses`,
+`idle_streak_ticks`, `deferred_restore_evses`, `idle_released_this_session`,
+`capture_rejected_low`, `excluded_switch_status_evses`, `stale_ticks`, `s_eligible_kw` (renamed
+into #1), `eligible_evses`, `drawing_evses`, `drain_trips_during_follow`. **Twelve proposed
+attributes reduce to five.**
+
+### Control surface — parsimony
+
+No new control entities. The only operator-facing knob that should be live-tunable is
+`SOLAR_FOLLOW_UP_MIN_D1TICKS` (already rung 3, already a Number) — and it now carries its clock
+in the name so its unit is legible where it is turned. Everything else is rung 1: these are
+protocol constants tuned to hardware and sensor behaviour, not policy an operator turns weekly.
+`SOLAR_STOP_MIN_D2TICKS`, `SOLAR_STOP_IDLE_D1TICKS`, `SOLAR_STOP_DISCONNECTED_S` and
+`SOLAR_FOLLOW_BLIND_EXIT_D1TICKS` are all derived from measured sensor cadence and observed
+charger behaviour; changing them should require review, not a slider.
+
+---
+
 ## 4. Non-goals (explicit)
 
 All Rev-8/10/11 non-goals preserved.
