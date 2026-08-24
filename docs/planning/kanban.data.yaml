@@ -2155,10 +2155,20 @@ cards:
     problem: a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
     verdict: INVESTIGATE
     note: probe first; the fix may be upstream rather than ours. Do not build a periodic no-op.
-  next: 'Wait for Probe C (detector running). Then decide among: (a) periodic update_entity if it works; (b) periodic reload
-    with the blast-radius cost explicitly accepted; (c) upstream bug report to ha_carrier with the measured evidence; (d)
-    accept and design around it as the ramp fix already does. Also worth checking whether OTHER URA consumers of climate state
-    (preset application, dwell, vacancy) are materially degraded during blind episodes — that sizing has not been done.'
+  PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23: 'Card said "detector running" -- it was NOT. The 08-22
+    15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not
+    survive the session. So it expired ~15:57 on 08-22 having produced NO recorded result, and this card has
+    been parked on a probe that stopped existing 19 hours ago. Recording because the failure mode is generic:
+    a probe whose result lands only on stdout is indistinguishable, a day later, from a probe that found
+    nothing. Probe output must go to a FILE.
+    RELAUNCHED 2026-08-23 as blind_watch_v2.py: 6-hour horizon (was 55 min), unbuffered line-flushed emit to
+    a file, exits on FIRST confirmed episode so the harness re-invokes me and I can run the intervention
+    (update_entity -> re-read -> reload -> re-read) live via MCP while the episode is still open. Detection
+    criteria unchanged from the original: per-zone SPAN draw above threshold (1500W z1 / 2200W z2,z3) with
+    hvac_action != cooling, 3 consecutive 40s reads.
+    Base rates say the wait is short: blind episodes occurred on 8 of 8 observed days, 91-95% of blind time in
+    episodes over 10 minutes.'
+  next: 'Probe C RELAUNCHED 2026-08-23 (6h horizon, file-backed, fires on first episode). On fire, run update_entity then re-read, then reload then re-read, live while the episode is open. Then choose among (a) periodic update_entity if it works; (b) periodic reload with the blast-radius cost explicitly accepted; (c) upstream bug report to ha_carrier with the measured evidence; (d) accept and design around it as the ramp fix already does. Also still unsized, whether OTHER URA consumers of climate state (preset application, dwell, vacancy) are materially degraded during blind episodes.'
   links:
     related:
     - RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
