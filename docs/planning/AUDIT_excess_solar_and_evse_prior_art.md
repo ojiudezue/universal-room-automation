@@ -579,3 +579,433 @@ captured at hold entry, so the house battery does not discharge into the car."
 DP also issues **direct HA service calls that bypass the coordinator action queue**:
 `switch.turn_off` `energy.py:4931-4936`; `switch.turn_on` `energy.py:5036-5042`, `:5136-5142`
 (rationale at `energy.py:4926-4929` [COMMENT]).
+
+---
+
+## 7. THE INTERACTION MATRIX
+
+### 7.0 The single most important structural fact: **actuation precedence is EMERGENT**
+
+There is no arbitration function. Precedence is produced by two independent things:
+
+**(a) Call order inside one decision tick** — `EnergyCoordinator._run_decision_cycle`, all inside
+`if not self._observation_mode:` (`energy.py:5708`):
+
+| Order | Site | Mechanism |
+|---|---|---|
+| 1 | `energy.py:5628` | `_dp_decision_tick` (DP state machine + its own direct service calls) |
+| 2 | `energy.py:5603-5616` | `evse_battery_hold` overlay onto the battery decision |
+| 3 | `energy.py:5717` | `_execute_breaker_safe_dispatch` (battery actions) |
+| 4 | `energy.py:5726` | `_dispatch_post_decision_tou_and_arbitrage` → pool TOU + **EV TOU** + arbitrage |
+| 5 | `energy.py:5757` | **excess solar** |
+| 6 | `energy.py:5776` | grid cap |
+| 7 | `energy.py:5839` | **battery drain** |
+| 8 | `energy.py:5893` | **fill priority** |
+| 9 | `energy.py:5946` / `:5974` / `:5991` | plug TOU / drain / fill-priority |
+
+**(b) Per-site guard sets** — `_stronger_peer_holds` (`energy_pool.py:383-412`) plus hand-written
+inline checks at each site.
+
+Nothing reconciles the two. **The classifier ladder at `energy_pool.py:2622-2626` describes neither**
+— it is display-only (§2). This is a finding in its own right: the precedence a reader would infer
+from the sensor's `pause_reason_human` is not the precedence the code executes.
+
+### 7.1 Pair matrix
+
+Legend: **W** = who wins. **E** = precedence is emergent (call order / absent guard). **X** = explicit,
+guarded in code.
+
+| Pair | Can both want the EVSE at once? | Who wins | Arbitration site | Explicit or emergent | Shared state / clobber risk |
+|---|---|---|---|---|---|
+| **TOU ↔ SOLAR** | Yes — mid_peak with SOC ≥ 95 | **SOLAR** | `if evse_id in self._excess_solar_active: continue` (`energy_pool.py:906`); and solar claims from TOU by discarding `_paused_by_us` (`energy_pool.py:1633-1635`) | **X** | `_paused_by_us` is *transferred*, not shared. Both are `peer_holds_member=False` (`energy_pool_owners.py:238`, `:249`), so neither blocks the other via the peer guard. |
+| **TOU ↔ SOLAR (peak)** | Yes | **Neither charges** — solar's peak-clear turns off and drops the claim (`energy_pool.py:1354-1374`), then TOU's peak branch pauses | X | — |
+| **TOU ↔ DP** | Yes — off-peak ensure-on vs a DP hold | **DP, unconditionally** | `energy_pool.py:1180-1196` — flat `or evse_id in self._paused_by_dp`, carrier-state-blind | X, but **coarser than the solar path** | Widening this to the yield semantics is PARKED (`PLANNING_dp_sticky_yields_to_excess_solar.md:461-465`). |
+| **SOLAR ↔ DP** | Yes | **DP wins unless carrier is exactly `hold_only`** | `energy_pool.py:1621-1631` (INV-YIELD-1/2) | X — the only genuinely designed arbitration in the whole stack | `_paused_by_dp` is mutated by a non-DP owner (`energy_pool.py:1647`), with an atomic four-mutation handoff (`:1645-1656`) and a post-tick floor collapse (`energy.py:5150-5181`). Restart tears are healed at `energy.py:5183-5225`. |
+| **SOLAR ↔ FILL-PRIORITY** | Yes — but only in an inverted config | **SOLAR** | `energy_pool.py:2214-2219` — fill-priority defers when the EVSE is in `_excess_solar_active` | X (defence-in-depth; under sane config `soc ≥ 95` already makes `soc < 80` False) | The reverse guard is **MISSING**: the solar claim path checks `_stronger_peer_holds`, which *does* include fill_priority (`energy_pool_owners.py:311`), so this direction is covered. |
+| **SOLAR ↔ DRAIN** | **Yes — and this is the live yo-yo** | **DRAIN**, by call order | **None.** `determine_battery_drain_actions` (`energy_pool.py:1776-2049`) contains **no `_excess_solar_active` check**, and runs at `energy.py:5839`, *after* solar at `:5757` | **E — emergent, and the highest-consequence gap in this audit** | Both write `_pause_dispatch_ts` / `_observed_off_since_pause`, ref-counted via `_dispatch_owners` (`energy_pool.py:743-771`). Drain claims owner `"battery_drain"` (`energy_pool.py:1966`); solar releases `"dp"` only. |
+| **SOLAR ↔ GRID-CAP** | Yes | **GRID-CAP pauses** (runs at `energy.py:5776`, after solar); on resume it defers to six owners but **`_excess_solar_active` is not among them** (`energy_pool.py:1744-1755`) | E on the pause leg; on the resume leg grid-cap can turn ON an EVSE solar does not claim | E | `_paused_by_grid_cap` is `peer_holds_member=True` (`energy_pool_owners.py:258`), so solar cannot claim a grid-capped EVSE — the pause direction is guarded, the resume direction is not. |
+| **SOLAR ↔ ARBITRAGE** | Yes | **ARBITRAGE** — `_paused_by_arbitrage` is a peer hold (`energy_pool_owners.py:289`), blocking the solar claim at `energy_pool.py:1599` | X | `_arbitrage_pause_reason` side-map (`energy_pool.py:246`) distinguishes rung-1 `"redirect"` from rung-2 `"breaker"`. |
+| **SOLAR ↔ BLIND-WINDOW** | Yes | **BLIND-WINDOW**, with a CONTINUE carve-out | `energy_pool.py:1381-1572` | X | The liveness-ride latch (`_blind_window_liveness_ride`) is honoured by the DROP leg (`energy_pool.py:1541-1547`). |
+| **DP ↔ FILL-PRIORITY** | Yes | **Emergent.** Fill-priority's resume peer check (`energy_pool.py:2248-2256`) lists six owners and **does not include `_paused_by_dp`**; DP is also excluded from `_stronger_peer_holds` | E | A fill-priority resume can turn ON an EVSE that DP still holds. Adjacent parked item: `PLANNING_dp_sticky_yields_to_excess_solar.md:526-527` (D4 LOW — `_apply_dp_must_start_release` does not defer on `_paused_by_battery_drain`, INV-DP2 corner). |
+| **DP ↔ evse_battery_hold** | Always, whenever an EVSE charges | **Whichever is HIGHER** — `max(existing, hold_reserve, _dp_decision_soc)` (`energy.py:4733-4742`) | X (arithmetic) | Because `hold_reserve` is the live SOC at hold entry, a *lower* DP target is always swallowed. **Open operator decision** — `KANBAN.md:506`. |
+| **TOU ↔ FILL-PRIORITY** | Yes | **TOU phase gates fill-priority directly** — `fill_priority_inert` (`energy_pool.py:2133-2138`); and on resume fill-priority defers to `_paused_by_us` (`energy_pool.py:2251`) | X | — |
+| **TOU ↔ ARBITRAGE** | Yes | **ARBITRAGE** — off-peak ensure-on turns the EVSE OFF and claims it when `grid_charge_on` (`energy_pool.py:1208-1227`) | X | — |
+| **HC ↔ any of the above** | No | n/a — HC neither reads nor vetoes EVSE state (§3.2) | n/a | HC and the EVSE path are *unarbitrated co-claimants on surplus solar* via the SOC-95 coincidence (§3.3), not competitors for the EVSE. |
+
+### 7.2 Couplings a solar-follow (amp-modulating) writer would introduce
+
+The card names one. There are at least six.
+
+**INT-1 — DP gate 6 (the one the card knows).** `charger_rate_kw <= 3.0` →
+`DP_REASON_L1_ONLY` (`energy_drain_precedence.py:652`, threshold `energy_const.py:1359`). At 240 V
+the crossover is 12.5 A. Any solar-follow setting below ~12.5 A makes a throttled L2 indistinguishable
+from an L1 cord, and DP declines to transition. Confirmed against live evidence: the last recorded
+eval was `reason=l1_only` at `rate 1.42 kW` (`AUDIT_dp_live_behavior.md:21`, `:29`).
+
+**INT-2 — DP gate 8 charge-hours blow-up.** `charge_hours = needed_kwh / charger_rate_kw`
+(`energy_drain_precedence.py:666`). With the live `needed_kwh = 25.0`: at 11.5 kW ≈ 2.2 h; at
+1.44 kW ≈ 17.4 h. The fit test `total_hours <= hours_until_end_of_night` (`:709-712`, night ends at
+hour 6) fails outright. **Even if gate 6 were removed, gate 8 would still refuse.**
+
+**INT-3 — DP house-load reads HIGHER when the charger is throttled, biasing the *other* way.**
+`_dp_house_load_kw` subtracts `ev_load_w` from SPAN mains (`energy.py:4171`). Throttling from 11.5 kW
+to 1.44 kW leaves ~10 kW more attributed to the house, which shortens
+`drain_hours = drain_energy/house_load` (`energy_drain_precedence.py:665`) and biases the fit toward
+"fits". Two gates push one way and one pushes the other — **the net effect on DP is not monotone in
+the amp setting.** This is not in the card.
+
+**INT-4 — `EVSE_ESTIMATED_POWER_W = 7600` fabricates an un-throttled rate.** When the power sensor
+is unavailable, `_get_evse_state` sets `charging=True` and `power = 7600` (`energy_pool.py:694-698`,
+`energy_const.py:827`). A throttled charger whose Emporia sensor drops out therefore presents to DP
+as a **7.6 kW L2**, passing gate 6 on a phantom. Live risk is real: the Emporia integration has had
+an outage this month (`AUDIT_ev_sensor_surface.md:102-104`).
+
+**INT-5 — `evse_battery_hold` still engages at 6 A, and pins the reserve to the live SOC.**
+`charging` is `power > 100 W` (`energy_pool.py:692`); 1440 W clears it easily. So a throttled session
+still pins the battery reserve at the SOC captured on entry (`energy.py:5603-5613`,
+`energy.py:4733-4742`). A strict-follow controller that holds SOC flat would hold the *reserve* flat
+too, for the whole session — with `_dp_decision_soc` and inclement/arbitrage floors composing into
+the same `max()`. **This is the coupling most likely to surprise: the amp knob indirectly pins a
+battery-reserve write.**
+
+**INT-6 — a sub-tick writer creates a new clock seam.** Every owner-set decision in §7.0 is computed
+on the 5-minute EC tick (`energy_decision_interval = 5`). A 30-60 s amp writer would observe SOC,
+solar and export up to 4.5 minutes *fresher* than the mechanism that decides whether the session may
+continue at all. The card correctly refuses to speed up the EC tick (a shared primitive), but the
+residual seam is a genuine new ingredient — and the repo's own history flags exactly this class:
+"the two worst recent bug families (rung-gate seam, wall-clock-coupled tests) both lived at
+state-machine × time seams" (CLAUDE.md, Marginal-Benefit Decomposition).
+
+**INT-7 — write volume.** The card's own figure: up to 2,880 writes/day/charger at 30 s. The relevant
+precedent is the optimizer DB write-flood that forced a rollback to v4.7.33
+(`project_optimizer_db_write_flood_incident_2026_06_09.md`). Note the amp writes are HA
+service calls, not DB writes — but any decision-logging of them would be.
+
+---
+
+## 8. GRID / EXPORT / IMPORT MEASUREMENT — every read, with sign and unit
+
+### 8.1 Live configuration (verified from `/config/.storage/core.config_entries` via `ssh ha`, 2026-08-23)
+
+Two URA entries carry energy keys, and **this split is itself a trap**:
+
+* **Integration entry** `01KAYV8P69B381KCK3516YVM76` ("Universal Room Automation"):
+  * `solar_export_sensor = sensor.envoy_482543015950_lifetime_net_energy_production` — **SET**
+  * `grid_import_sensor = sensor.envoy_482543015950_lifetime_net_energy_consumption` — **SET**
+  * `grid_import_sensor_2 = sensor.mains_vue_3_mainsfromgrid_energy_today` — **SET** (Emporia)
+  * `solar_production_sensor = sensor.envoy_482543015950_current_power_production` — **SET**
+  * `export_reimbursement_rate = 0.08` — **SET**
+* **Coordinator-Manager entry** `01KJEC3FYPYAGBQKZWC94CR8GR` ("URA: Coordinator Manager", 226 option keys):
+  * `energy_mains_export_entity` — **ABSENT**
+  * `energy_grid_export_entity` — **ABSENT**
+  * `energy_grid_import_entity = sensor.envoy_482543015950_current_net_power_consumption` — **SET**
+  * `energy_envoy_entity = sensor.envoy_482543015950_current_power_production` — **SET**
+  * `energy_excess_solar_enabled = True`, `energy_excess_solar_soc = 95`, `energy_excess_solar_kwh = 5.0`
+  * `energy_ev_battery_drain_soc = 80`, `energy_fill_priority_soc = 80`
+  * `energy_grid_import_cap_enabled = True`, `energy_grid_import_cap_kw = 20.0`
+  * `energy_evse_a_entity = sensor.garage_a_power_minute_average`, `energy_evse_b_entity = sensor.garage_b_power_minute_average`
+  * `energy_dp_enable = True`, `energy_dp_house_load_source = 'max_span_r1'`, `energy_dp_needed_kwh_garage_{a,b} = 25.0`, `energy_dp_must_start_by_min = 180`, `energy_dp_eval_delay_min = 5`, `energy_dp_margin_min = 60`
+  * `energy_offpeak_drain_excellent = 10 / good = 15 / moderate = 20 / poor = 30`
+  * `energy_decision_interval = 5`
+
+**No key on either entry contains `emporia` or `mains` as a key name.** Emporia entities appear only
+as *values*.
+
+### 8.2 Every grid/export/import measurement URA reads
+
+| # | Where | Entity (live) | Unit handling | Sign convention | Used for |
+|---|---|---|---|---|---|
+| 1 | `EnergyBatteryStrategy.net_power_w` (`energy_battery.py:1614-1623`) via `_read_power_w("net_power")` (`:1559`) | `sensor.envoy_482543015950_current_net_power_consumption` (derived, `energy_const.py:965`) | **normalized to W** by `unit_of_measurement` | **positive = importing, negative = exporting** (`energy_battery.py:1616`) | grid-import-cap thresholding (`energy.py:5775`), peak-import accounting, billing |
+| 2 | `mains_export_active(threshold_w=100.0)` (`energy.py:4044-4097`) | `CONF_ENERGY_MAINS_EXPORT_ENTITY` — **UNSET → always returns `None`** | W-only contract; `kW`/`kw` ×1000; **any other unit → `None` fail-safe** (`energy.py:4079-4096`, Bug Class #30) | **positive = exporting** (`energy_const.py:1481-1483`) | blind-window excess-solar witness only (`energy_pool.py:1422`, `:633`) |
+| 3 | `grid_import_2` logging (`energy.py:3010-3024`) | `_grid_import_entity` = `energy_grid_import_entity` = the **Envoy net** sensor | defaults uom to `"W"` and divides by 1000 unless uom is exactly `"kW"` (`energy.py:3017-3022`) | `max(gi_val, 0)` — **export is clamped to zero** (`:3019`, `:3022`) | `db.log_energy_history` column `grid_import_2` |
+| 4 | `CostTracker` direct-grid path (`energy_billing.py:145-170`) | requires **both** `_grid_import_entity` and `_grid_export_entity`; export is UNSET → **path is inert**, falls through to the Envoy net entity | normalizes W→kW by import-side uom (`:164-167`) | `net = import − export`, positive = importing | billing accumulation |
+| 5 | `solar_production_w()` (`energy_battery.py:1586-1612`) | `sensor.envoy_482543015950_current_power_production` | W-normalized, LKG-stamped | positive only | excess-solar envelope admit, DP diagnostics |
+| 6 | `solar_production_w_envelope()` (`energy_battery.py:2215-…`) | derived from #5's LKG | W | — | blind-window CONTINUE admit (`energy_pool.py:1480-1502`) |
+| 7 | `battery_power_w` (`energy_battery.py:1533-1557`) | `sensor.envoy_482543015950_current_battery_discharge` (derived) | W-normalized | **sign is FLIPPED in code** (`value = -float(state.state)`, `:1551`) so that positive = charging, negative = discharging | drain gate `< -100` (`energy_pool.py:1912-1914`) |
+| 8 | `_dp_house_load_kw` (`energy.py:4151-4193`) | `sensor.span_panel_current_power` + `..._2` | W → kW | positive | DP gate 8 |
+| 9 | `current_charging_load_w()` (`energy_pool.py:2286-2312`) | `sensor.garage_{a,b}_power_minute_average` | W/kW normalized at `energy_pool.py:679-682` | positive | DP `charger_rate_kw`, arbitrage rung classifier |
+| 10 | Aggregation cost math (`aggregation.py:2229, 2263, 2309, 2356, 2423, 2490`) | `CONF_EXPORT_REIMBURSEMENT_RATE` | $/kWh | — | see §8.5 |
+
+**`sensor.envoy_..._balanced_net_power_consumption` is read NOWHERE in URA.** Repo-wide grep for
+`balanced_net` over `custom_components/**` returns **zero hits**; the only occurrences in the repo are
+in `docs/planning/KANBAN.md:387` (the card text itself) and `docs/readmes/README_v3.7.8.md:12`.
+**The coordinator's correction is confirmed: no code consumes `balanced_net`, so there is no
+"code reads a derived figure where it means the grid" defect to report — but equally, adopting
+`balanced_net` would be introducing a boundary URA has never used.** URA's existing grid boundary is
+`current_net_power_consumption` (#1), already signed, already normalized, already live.
+
+### 8.3 The sign-convention trap, stated plainly
+
+`mains_export_active` returns `v > threshold_w` after unit normalization (`energy.py:4097`), where
+the contract is **positive = exporting** (`energy_const.py:1481-1483`).
+
+The operator's actual Emporia sensor `sensor.mains_vue_3_power_minute_average` is signed the **other
+way** — negative = exporting (measured range −12,947 W .. +29,233 W; live reading at audit time
+**−109.98 W** while exporting). Wiring that entity into `energy_mains_export_entity` **as-is would
+invert the meaning**: the guard would report "exporting" whenever the house is *importing* more than
+100 W, and would report "not exporting" during genuine export. Under the blind-window CONTINUE leg
+(`energy_pool.py:1511-1513`) that means permitting an EVSE to keep charging during an import spike
+while Envoy is blind. **Do not wire it without either a sign flip in `mains_export_active` or a
+template sensor that negates.**
+
+### 8.4 Confusable pairs — the register
+
+| Pair | Difference | Why it matters |
+|---|---|---|
+| **`solar_export_sensor` (SET) vs `energy_mains_export_entity` (UNSET)** | `CONF_SOLAR_EXPORT_SENSOR` = `const.py:304`, integration entry, value `sensor.envoy_..._lifetime_net_energy_production` — a **lifetime kWh energy counter** (`strings.json:661`: "Energy sensor tracking kWh exported to grid"). `CONF_ENERGY_MAINS_EXPORT_ENTITY` = `energy_const.py:1492`, CM entry, **instantaneous export POWER in W** for the excess-solar blind-window gate. | The operator believed the second was configured. It is not; the first is. **They are on different config entries, measure different quantities in different units, and feed unrelated code paths.** |
+| **`solar_export_sensor`'s VALUE is itself questionable** | It is wired to `lifetime_net_energy_production`, i.e. Envoy's lifetime **production** counter, not an export counter. `derive_envoy_config` maps that same entity to `CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY` (`energy_const.py:971`). | Flagged, not adjudicated — **could not determine** whether Envoy's `lifetime_net_energy_production` is genuinely net-export or gross production. Settle by comparing it against `sensor.mains_vue_3_mainstogrid_energy_*` over a day. |
+| **`CONF_SOLAR_EXPORT_SENSOR` is DORMANT in code** | Imported at `aggregation.py:99` and `config_flow.py:86` but never referenced in any expression; declared dead at `config_flow.py:790-793` ("v4.2.0: Removed 6 dead fields … Constants kept for backward compat"). Strings still shipped (`strings.json:649`, `:661`). | The key is SET in live config **and consumed by nothing.** Same for `CONF_GRID_IMPORT_SENSOR` / `_2` (`const.py:305-306`). |
+| **`energy_grid_import_entity` vs `energy_net_power_entity` vs `energy_grid_entity`** | `GRID_ENTITY` = Envoy `current_power_consumption` (whole-house consumption, `energy_const.py:962`). `NET_POWER_ENTITY` = Envoy `current_net_power_consumption` (**the only signed one**, `energy_const.py:965`). `GRID_IMPORT_ENTITY` (`energy_const.py:906`) is a *separate* operator-supplied rail whose comment says "e.g. Emporia mains" (`energy_const.py:905`) — **but is live-wired to the Envoy net sensor.** | Three "grid" keys, three meanings. The one whose comment promises Emporia is configured with Envoy. |
+| **`energy_grid_export_entity` (UNSET) vs `energy_mains_export_entity` (UNSET)** | The former is the primary export rail threaded into the grid-import-cap constructor (`energy.py:487`, `:497`); the latter is the **Envoy-blind backup witness** (`energy_const.py:1476-1478`). Different trust tiers. | Because `_grid_export_entity` is unset, the `CostTracker` direct-grid path (`energy_billing.py:151-170`) is inert. |
+| **`fill_priority_soc` (80) vs `ev_battery_drain_soc` (80)** | Same live number, two mechanisms. Fill-priority = pause-until-battery-fills (`energy_pool.py:2150-2155`). Drain = pause-when-battery-is-draining-into-the-car (`energy_pool.py:1946`). | The card already flags this. Confirmed. |
+| **`excess_solar_soc` (95) vs `fill_priority_soc` (80)** | Resume-at vs pause-below. The clamp `fill_priority_soc < excess_solar_soc` is documented at `number.py:1672` but **is not enforced** — `BACKLOG_part2_cross_field_invariants_unenforced.md:15-27` (O3) records that neither `config_flow.py` nor the EC setters cross-check, and names the failure mode: inverted values flip the gate polarity in the middle band and "EVSE oscillates pause/resume at every SOC change". | Extending `validate_threshold_ladder` (`energy_const.py:980`) with exactly these cross-checks is **PARKED at `PLANNING_dp_sticky_yields_to_excess_solar.md:521-525` (D3 LOW / S5)** — and this cycle fires its trigger. |
+| **`self_modulates` (§2.2) vs this cycle's "modulation"** | The existing flag means "the *device* modulates itself"; the cycle means "URA modulates the device". Opposite subjects. | Do not reuse the word without qualification. |
+| **`EnergyEVChargeRate{A,B}Sensor`** | **Already removed** — `sensor.py:315` and `sensor.py:11176` carry removal markers dated 2026-08-16 (`EV-SENSOR-CLEANUP-1`). | Named here so nobody re-derives it as prior art for an amps sensor. |
+
+### 8.5 A live half-dead knob found in passing (not this cycle's problem, but real)
+
+`CONF_EXPORT_REIMBURSEMENT_RATE` (`const.py:321`, default `0.08` at `const.py:325`) is declared dead
+in the config-flow schema at `config_flow.py:791-792` yet is **actively read at six aggregation sites**
+(`aggregation.py:2229`, `:2263`, `:2309`, `:2356`, `:2423`, `:2490`). Because it is unreachable from
+the UI it can only ever return the hardcoded 0.08, while `TOURateEngine.get_export_rate()`
+(`energy_tou.py:186-192`) returns the real per-period credit (0.043481 – 0.161843). Export-credit
+cost math is therefore pinned to a wrong constant. **Recommend a card.**
+
+---
+
+## 9. AMP / CURRENT CONTROL — the card's central claim, verified
+
+**Verified TRUE: URA has no current or amperage control of any kind.** A whole-tree grep of
+`custom_components/**.py` for
+`charging_amps|current_limit|set_charge_rate|max_charging|charger_current|amperage|max_current|charge_rate`
+returns only unrelated hits: `_observed_net_charge_rate_per_hour` (`energy_battery.py:3361` and
+callers), `AVERAGE_CHARGE_RATE_KW = 3.5` (`energy_forecast.py:34`), and
+`current_charge_rate_kw` diagnostic keys (`energy_forecast.py:607`, `:623`, `:666`, `:698`, `:717`;
+`energy.py:9199`). All are about the **house battery's** charge rate, not the EVSE's.
+
+**But URA does write `number` entities.** Every `number.set_value` call site:
+
+| file:line | Target | Sets |
+|---|---|---|
+| `energy_pool.py:122` | pool VSF speed entity | `POOL_REDUCED_SPEED` (GPM), peak reduce |
+| `energy_pool.py:140` | pool VSF speed entity | `restore_speed` (GPM), off-peak restore |
+| `energy.py:4848` | reserve entity | `hold_reserve` — battery reserve % (EVSE-hold overlay) |
+| `energy.py:7223` | pool speed entity | load-shed activate |
+| `energy.py:7247` | pool speed entity | load-shed release |
+| `energy_battery.py:4774` | `reserve_soc_number` | reserve %, clamped `max(0, min(100, …))` |
+| `energy_battery.py:5449` | `reserve_soc_number` | `target_reserve`, deadband `abs(current−target) >= 2` |
+
+Dispatcher `_execute_service_action` (`energy.py:6455-6476`) is fully generic. **Write-verify is
+not** — `energy.py:7587-7591` returns early for any `number.set_value` whose target is not the
+configured reserve entity, so an amp write would be silently unverified until a new surface is
+registered.
+
+Two in-repo acknowledgements that rate control is absent and known-absent, both [COMMENT]:
+`energy_const.py:768` and `:777-781` ("…until v4.5.1 adds proper charge-rate control via
+barneyonline/ha-enphase-energy HACS… the real fix; this guard is the safety rail") — i.e. the
+**grid-import guard exists precisely because URA cannot modulate charge rate**; and
+`energy_battery.py:568` ("amps × 240 × 0.8 ÷ 1000"), a unit note only.
+
+**Live write target (verified via HA):** `number.garage_a_evse_emporia_wifi_garagea_current_limit`
+and `number.garage_b_evse_emporia_wifi_garageb_current_limit`, both `48.0`, `min=6 max=48 step=1
+unit=A mode=auto`, status `Standby` / `CarNotConnected`. The card's Q1 measurement is confirmed:
+**the floor is 6 A ≈ 1.44 kW at 240 V, not 2 A.**
+
+---
+
+## 10. PARKED / DEFERRED DELIVERABLES WHOSE TRIGGER THIS WORK FIRES
+
+Per the house rule, a parked plan with a fired trigger is READY work, not new work.
+
+| # | Parked item | Where | Trigger fired by this cycle? |
+|---|---|---|---|
+| P1 | **Extend `validate_threshold_ladder` with cross-checks for `fill_priority_soc < excess_solar_soc`, `ev_battery_drain_soc` vs `excess_solar_soc`, DP drain targets vs inclement floor** | `PLANNING_dp_sticky_yields_to_excess_solar.md:521-525` (D3 LOW / S5); underlying analysis `BACKLOG_part2_cross_field_invariants_unenforced.md:15-27` (O3) | **YES — directly.** This cycle turns the 80/95 band into an actively-modulated region. |
+| P2 | **Widen the DP yield to the off-peak ensure-on carry-over guard** (`energy_pool.py:1189`) | `PLANNING_dp_sticky_yields_to_excess_solar.md:461-465` | Partially — evidence trigger is "an EVSE stranded in `_paused_by_dp` at the off-peak boundary". Longer solar sessions make that shape more likely. |
+| P3 | **Force-charge does not release `_paused_by_dp` on a live TRANSITIONED carrier** | `PLANNING_dp_sticky_yields_to_excess_solar.md:517-520` (D2 MED) | Adjacent, not fired. |
+| P4 | **Fold the two DP-internals-leaking sites into `EVChargerController.can_yield_dp()`** | `PLANNING_dp_sticky_yields_to_excess_solar.md:528-529` (S1) | Would be cheap to do while touching this surface. |
+| P5 | **B4 cross-check sensor `sensor.ura_energy_source_divergence`** (`envoy_kwh`, `utility_kwh`, `emporia_kwh`, `divergence_envoy_utility`, `divergence_envoy_emporia`) | `PLANNING_UTILITY_METER_INTEGRATION.md:76-84` — explicitly "defer if scope grows"; **no such sensor exists in `custom_components/`** | **YES.** The operator's ruling (Emporia primary / Envoy confirms / ~1 kW agreement tolerance) is *exactly* this deliverable, one tier up (power not energy). Build P5's shape rather than inventing a new one. |
+| P6 | **Solar-EV-charging pattern study — `flashg1/SolarCharger` HACS**: deadline-driven scheduling, no-interference mode, anti-flap power-monitor duration thresholds, per-load weighting. "Adopt this pattern when adding deadline awareness." | `PLANNING_v4.7.x_APPLIANCE_SCHEDULER.md:41` | **YES — this is the closest prior design study to the card and it has not been read into the card.** |
+| P7 | **Charge-rate control via `barneyonline/ha-enphase-energy` HACS** — noted as obsoleting the entire D4 battery/EV mutual-exclusion design | `PLANNING_v4.5.0_battery_strategy_redesign.md:525`; also `energy_const.py:768`, `:777-781` [COMMENT] | Adjacent — that item is **battery** charge-rate, not EVSE. Named to prevent conflation. |
+| P8 | **DROPPED: "saw-tooth charge rate cap" (original D4)** | `PLANNING_v4.5.0_battery_strategy_redesign.md:362`, reasoning in `PLANNING_v4.5.0_TRANSITION_NOTES.md:50-60` | A *previously rejected* rate-modulation design. Read it before re-proposing modulation. |
+| P9 | **DECIDED-NO fences worth honouring:** "Tier 3 direct kW Enphase control — codicil prohibits" (`PLANNING_v4.7.x_advanced_energy_management.md:218`); "EV-specific optimizer … EVs are just controllable loads under existing EVSE switch coordination. No separate stack" (`:219`) | as cited | **P9's second fence is in tension with the card.** An amp controller with its own timer is arguably "a separate stack". Surface this to the operator explicitly. |
+| P10 | **Per-plug real power wiring + delete the caller-less `evse_garage_{a,b}_power` properties** | `AUDIT_ev_sensor_surface.md:32-40`, `:92-95` — "committed, not parked", next deploy | Adjacent; the measurement substrate this cycle depends on. |
+| P11 | **`decision_log.reason` is always None** (4,181 rows) — one-line fix | `AUDIT_dp_live_behavior.md:41`, `:54`; card `DP-REASON-NULL-1` | Any amp decision must log a real reason; fix the shape first. |
+| P12 | **Open question: "is solar production observable via a non-Envoy path (Emporia panel-level? Enphase cloud?)"** | `PLANNING_ec_blind_window_evse_guard.md:383-387` | **YES.** The operator's Emporia-primary ruling answers a question this plan left open. |
+| P13 | **T3 BATTERY_POWER pair: do not pair until the sign convention is proven with paired observations during a known charge AND a known discharge — "the drain-gate/EVSE input (D3), highest stakes pair in the map"**; and **D3 REJECTED by measurement**, net_power "NEVER ADMIT — p50 divergence of 2.7 kW" | `AUDIT_envoy_telemetry_pairing_manual.md:35`, `:107-110`, `:151-152`, `:158-164` | **YES, and it is a caution.** A prior measure-first probe already rejected a cloud-sourced EVSE-input feed on measured grounds. The same discipline applies here. |
+| P14 | **Arbitrage EVSE-coordination v1 is observe-only by explicit operator decision**; ATTAIN does not pause EVSE, enforced only by comments — "Fix (small): structural assertion" | `reviews/code-review/ec_hc_reboot_decision_pickup.md:67`, `:88-94`, `:226` | Adjacent fence. |
+| P15 | **Inclement: EV drain protection is NOT storm-tightened; any future storm-EV work MUST add a dedicated `_paused_by_storm` set and NEVER reuse an existing pause set** | `PLANNING_inclement_weather_reserve.md:623`, `:645` | Precedent for owner-set discipline if this cycle adds an owner. |
+| P16 | **`CONF_ENERGY_TOU_RATE_FILE` is dormant** (zero consumers; path hardcoded at `__init__.py:3256-3257`) | `energy_const.py:679` | Not fired; recorded so nobody assumes the TOU table is operator-overridable via options. |
+
+---
+
+## 11. RELATED CARDS (`docs/planning/kanban.data.yaml` — 157 cards, 24 threads, swept in full)
+
+**Directly on subject (thread `energy` unless noted):**
+
+| Card | Status | Relation |
+|---|---|---|
+| `EVSE-SOLAR-FOLLOW-AMPS-1` | pre_planning | The feature. |
+| `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` | planned | Sibling/precondition. Owns the drain-target defect (§6.3) and the `evse_battery_hold` demotion question (§6.5). **Activates a dormant state machine** — DP has never transitioned in production. |
+| `EV-GARAGE-A-NOCHARGE-1` | **done** (2026-08-20) | Highest-value prior art: quantified the charger pinned at ~6 A / 1.42 kW for 10 h, cross-verified Emporia CT vs SPAN CT to 1.5%. **Its closure is what removed Emporia's own excess-solar management** — i.e. this card exists because that one closed. Also the reason DP's `l1_only` gate was firing. |
+| `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` | inbox | Defines the reserve write path the amp controller must not fight; poses the operator policy question "do you WANT the battery to help power the EV". |
+| `EV-SENSOR-CLEANUP-1` | shipped_organic (v5.78.0) | Owns the Emporia measurement substrate the feedback loop depends on. |
+| `DP-OBSERVABILITY-1` | shipped_organic (v5.71.0) | Precedent: a stale eval snapshot presented as current misled two diagnoses in one day. A fast amp loop reads the same snapshot. |
+| `DP-REASON-NULL-1` | shipped_organic (v5.73.2) | Ledger-shape precedent (P11). |
+| `APPLIANCE-COST-DEFERRAL-1` | inbox | Competing consumer of the same surplus signal. |
+| `EVCARD-1` (`dashboarding`) | waiting_operator | The operator-facing surface a modulated-amps state would need a row in. |
+| `HVAC-MANUAL-PRESET-CONTRACT-1` (`hvac`) | planned | Names solar banking / pre-cool as the *other* sanctioned surplus consumers — see §3.3. |
+| `HVAC-GOVERNED-EXCURSION-1` (`hvac`) | shipped_organic | The leave-and-return governed-write primitive. An amp limit is exactly a leave-and-return excursion. |
+| `ARRESTER-CLOUDFLAP-FALSEPOS-1` (`hvac`) | inbox | Recommends batching **one cloud-flap-immunity primitive**; the amp controller would be a third consumer. |
+| `RESTART-SAFETY-DOCTRINE-1` (`platform`) | shipped_organic | Governs §5.3's restart hazard. |
+| `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` (`platform`) | inbox | Test-hygiene blocker naming `test_evse_drain_precedence_session_b2c3_fixup.py` and `test_blind_window_evse_guard.py`; flags itself as needing to land **ahead of** EVSE work. |
+| `S14-CEILING-NEEDS-AN-ENDING-1` (`hvac`) | planned | Sets the knob-rung precedent: tunable-by-observation values get a **Number entity, same rung as drain target / arbitrage lead time**. |
+
+**Gaps found in the board:**
+* No card exists for the dead `sensor.span_panel_mains_emporia_vue_power` (reads `0.0` live while the
+  Emporia sensor reads −110 W), even though the solar-follow card rejects it as a cross-check for
+  exactly that reason. **Uncarded blocker.**
+* Solcast is mentioned in only two cards, both of them this cycle's pair — the PV-forecast dependency
+  is otherwise uncarded.
+* "Fill priority" has no card of its own.
+* The `CONF_EXPORT_REIMBURSEMENT_RATE` finding (§8.5) is uncarded.
+
+---
+
+## 12. `enphase_envoy` vs `enphase_ev`, and what `envoy_status` actually measures
+
+### 12.1 The two integrations (from `/config/.storage/core.config_entries`)
+
+| domain | entry_id | title | enabled |
+|---|---|---|---|
+| `enphase_envoy` (local) | `01KNYRAGVP5XESS6N8PD6BVQP2` | `Envoy 482543015950` | yes (`disabled_by: null`) |
+| `enphase_ev` (cloud) | `01KR1YNV6PKXMSZSXY42PVGJ25` | `Site: 5700967` | yes |
+
+(`.storage/core.config_entries` does not persist a `state` field; loaded/setup state is runtime-only.)
+
+**How URA uses each:**
+* **`enphase_envoy` (local) is the READ tier.** One config field, `CONF_ENERGY_ENVOY_ENTITY`
+  (`energy_const.py:682`), from which the serial is extracted and **13 entity IDs are derived**
+  by `derive_envoy_config(serial)` (`energy_const.py:950-978`): production, consumption, battery SOC,
+  battery discharge, net power, capacity, four lifetime counters, two lifetime battery counters, and
+  consumption-today. Four of them are hard-required (`ENVOY_REQUIRED_DERIVED_KEYS`,
+  `energy_const.py:983-989`) and validated at config-flow time
+  (`validate_envoy_config`, `energy_const.py:1159-1189`).
+* **`enphase_ev` (cloud) is the WRITE + VERIFY tier.** Live config wires
+  `energy_cloud_reserve_oracle_entity = number.iq_battery_hacs_battery_reserve`,
+  `energy_cloud_charge_from_grid_oracle_entity = switch.iq_battery_hacs_charge_battery_from_grid`,
+  `energy_cloud_storage_mode_oracle_entity = select.iq_gateway_hacs_system_profile`, and
+  `energy_cloud_battery_soc_fallback_entity = sensor.iq_battery_hacs_battery_overall_charge`
+  (mapped at `energy.py:906-913`). Under cloud-first writes the reserve/charge-from-grid/storage-mode
+  commands route to these entities, and `WriteVerifier` reads them back.
+  **Naming trap: the `enphase_ev` domain has nothing to do with EVs** — it is the Enphase cloud
+  ("Enphase Energy") integration for the battery/gateway.
+
+### 12.2 `sensor.ura_energy_coordinator_envoy_status` — what makes it read `stale`
+
+* Sensor class `EnergyEnvoyStatusSensor` — `sensor.py:12926` (`native_value` from `:12956`,
+  attributes from `:13009`).
+* `native_value` precedence: `not_initialized` → `offline` (`_envoy_unavailable_count > 0`) →
+  **`stale`** → `initializing` → `online`.
+* **Two independent stale paths:**
+  1. **Anomaly path** (`sensor.py:12969-12981`): `_envoy_data_anomaly_at` is set and its age is
+     `< 3600 s` (hardcoded 1-hour window). That timestamp is stamped by `_crosscheck_consumption`
+     (`energy.py:2809`) at `energy.py:2866` when
+     `abs(envoy_today_kwh − our_delta_kwh) / max(envoy_today_kwh, our_delta_kwh, 0.1) * 100 > 15`,
+     and cleared at `energy.py:2884` only when divergence drops `< 5`, at most once per hour
+     (`_last_crosscheck_hour` gate, `energy.py:2819`).
+  2. **Freshness path** (`sensor.py:12991-13004`): `age = now − _envoy_last_available` (stamped by
+     `_track_envoy_availability`, `energy.py:2771`, `:2783`) exceeds
+     `max(600, min(1800, decision_interval_min * 60 * 2))` — with `energy_decision_interval = 5`
+     that is **600 s**.
+* **Live diagnosis at audit time:** `last_reading_age_seconds = 19.3` (far under 600) and
+  `data_anomaly_age_seconds = 19.3`. **Path 1 is firing; path 2 is not.** The hourly
+  consumption cross-check diverged >15% and re-armed the one-hour window; the sensor will keep
+  reading `stale` until a cross-check lands under 5%. `envoy_degraded = false`,
+  `offline_count_today = 0`.
+
+**Consequence for the operator's question about using this as the Envoy availability gate: NO.**
+`envoy_status == "stale"` currently means *"URA's lifetime-consumption bookkeeping disagrees with
+Envoy's own daily counter by >15%"* — an **accounting** divergence, not a telemetry-freshness
+signal. It is on right now while every underlying reading is 19 seconds old. The correct freshness
+gates already used inside the EVSE path are `coord.envoy_available` and
+`coord.reserve_write_verifiable()` (`energy_pool.py:418-452`), and the LKG envelope tier
+(`energy_battery.py:2215`). A known, filed instance of this same confusion:
+`reviews/v4.2.27_envoy_bill_assumptions.md:145` — "URA reports Envoy 'online' while data sensors are
+unavailable" — deferred at v4.2.28.
+
+---
+
+## 13. STALE-COMMENT REGISTER (comments that will mislead the next reader)
+
+| Location | Says | Reality |
+|---|---|---|
+| `energy_const.py:1479-1480` | "Registry-verified candidates (2026-07-21): `sensor.mains_vue_2_mainstogrid_*`, `sensor.mainw_vue_balance_power_minute_average`" | The Emporia device and entities have been **renamed**; the canonical families are now `Mains Vue 3 MainsToGrid`, `Mains Vue 3 Total Usage`, `Mainw Vue Balance`. `mains_vue_2_*` no longer exists, and `sensor.mainw_vue_balance_power_minute_average` has **zero recorded samples and reads unavailable**. **This is the comment that misled the operator.** Recommend deleting the candidate list rather than updating it. |
+| `energy_const.py:905` | `CONF_ENERGY_GRID_IMPORT_ENTITY` — "Direct grid import/export sensors (e.g., Emporia mains)" | Live-wired to `sensor.envoy_..._current_net_power_consumption`, an Envoy sensor. |
+| `energy_pool.py:2622-2626` | canonical precedence ladder | Display/classifier only, not actuation (§2, §7.0). |
+| `energy_pool.py:1269` | calls the TOU class `EnergyTOUEngine` | The class is `TOURateEngine` (`energy_tou.py`). |
+| `energy_drain_precedence.py:1-31` | "Session-A skeleton", actuation "deferred to Session B" | Actuation is live in `energy.py` and shipped (`AUDIT_dp_live_behavior.md:4`). |
+| `energy.py:4595-4646`, `energy.py:5295-5297` | cite `energy.py:3224/3320/3546`, `energy_drain_precedence.py:333` | Line numbers no longer point at the referenced code. Live sites are `energy.py:4733-4742` / `:4829-4833`. |
+| `energy_drain_precedence.py:388-399` | describes expiry / `DP_TRANSITION_MAX_DURATION_H` restore branches | Explicitly dead — the code says so at `:426-429`; the constant is imported at `:51` and never used. |
+| `energy_const.py:884-886` | `CONF_EVSE_SELF_MODULATES_SUFFIX = "_self_modulates"`, "stored on the per-EVSE config dict at `EVPool._evse[evse_id]["self_modulates"]`" | The constant has **no consumer** (grep: only its own definition). The live read uses the literal `"self_modulates"` (`energy_pool.py:722`), without the leading underscore. **Could not determine** whether the suffix was ever applied; nothing in the tree applies it. |
+| `PLANNING_fill_priority_daylight_restoration.md:3` | "FILED 2026-07-22 … Not scheduled" | **Shipped** as v5.28.0; live at `energy_pool.py:2133-2138`. |
+| `PLANNING_evse_offpeak_fill_priority_release.md:3` | "PLAN — awaiting operator go-ahead" | Shipped as v5.5.5. |
+| `PLANNING_v4.7.6_evse_solar_aware_charging.md:692-703` | D1/D3.4/D4 still `[PLANNED]` | All PASS live per `reviews/code-review/v4.7.6_review_D_live_validation.md:18-37`. |
+
+---
+
+## 14. OPEN QUESTIONS AND THINGS I COULD NOT DETERMINE
+
+1. **Could not determine** whether Envoy's `lifetime_net_energy_production` (wired to
+   `solar_export_sensor`) is net export or gross production. Settle by differencing it against
+   `sensor.mains_vue_3_mainstogrid_energy_today` over one day.
+2. **Could not determine** whether an HVAC-side gate on EVSE/battery exists in `hvac_override.py` or
+   `hvac_covers.py` — not read end-to-end. Everything read (`hvac.py`, `hvac_predict.py`,
+   `energy*.py`) shows none.
+3. **Could not determine** whether `DEFAULT_OFFPEAK_DRAIN_UNKNOWN` (`energy_const.py:724`, value 40)
+   has a live consumer; unlike its four siblings it has no paired `CONF_` key.
+4. **Could not determine** the exact current expression at the `reason=` keyword in the DP
+   `decision_log` writer; `AUDIT_dp_live_behavior.md:41` reports all 4,181 rows carry `reason: null`.
+   Spot-check before fixing.
+5. **Unresolved operator decision, blocking `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` and colouring this
+   cycle:** is `evse_battery_hold` demotion in scope? While it holds, `max(hold_reserve=SOC, dp_target)`
+   makes any lower DP target unreachable (`energy.py:4733-4742`; `KANBAN.md:506`).
+6. **Unanswered by the card:** the marginal-benefit decomposition in §1.2 — how much of the yo-yo does
+   a hysteresis band plus minimum-on-time on the existing gate remove, before any amp writer exists?
+7. **Unanswered:** does the fence at `PLANNING_v4.7.x_advanced_energy_management.md:219`
+   ("EVs are just controllable loads under existing EVSE switch coordination. No separate stack")
+   still hold, given the card proposes a separately-timed controller?
+
+---
+
+## 15. IF A BUILD PROCEEDS — the non-obvious things a builder must not miss
+
+1. **Wire the excess signal to `net_power_w`** (`energy_battery.py:1614-1623`), not to a new
+   `balanced_net` read and not to `production − load`. It is already signed, already
+   unit-normalized (Bug Class #30 handled), and already live.
+2. **If the Emporia veto is wired, fix the sign** — `mains_export_active` expects positive-export
+   (`energy_const.py:1481-1483`); the operator's sensor is negative-export (§8.3).
+3. **Register a write-verify surface** for the amp write, or accept that it is unverified
+   (`energy.py:7587-7591`).
+4. **Copy `PoolOptimizer`'s save/restore shape**, including its "entity unavailable → keep state,
+   retry next cycle" branch (`energy_pool.py:135-137`).
+5. **Persist the pre-session amp value** through `EV_REGISTRY` (`energy_pool_owners.py`), or a
+   restart strands a throttled charger (§5.3).
+6. **Expect `evse_battery_hold` to stay engaged at 6 A** and to pin the battery reserve for the whole
+   session (INT-5).
+7. **Do not assume "peak stops it" after 1 October** — shoulder and winter define no peak period
+   (§4.1).
+8. **Every new number gets a knob name and a rung.** Precedent for tunable-by-observation values in
+   this domain is a **Number entity** (rung 3), same rung as `EVBatteryDrainSOCNumber`
+   (`number.py:1417`) and `ArbitrageChargeLeadTimeNumber` (`number.py:1287`) — per
+   `S14-CEILING-NEEDS-AN-ENDING-1`.
+9. **Tier.** By CLAUDE.md's standing policy this is regression-prone on every axis — a new writer on
+   a shared primitive, cost-and-comfort impacting, threading a value through a state machine with
+   many decision sites. That is **Tier 3** (four framing-disjoint reviews + operator checkpoint
+   before deploy), not Tier 2-DB. It also requires a **plan review** (two, framing-disjoint) before
+   any build dispatch.
+10. **Measure first.** The card's own `next` field says so, and `AUDIT_envoy_telemetry_pairing_manual.md`
+    is the precedent where a 10-minute probe rejected two deliverables on measured grounds (P13).
+
+---
+
+*Audit produced 2026-08-23. Read-only: no code, config, or live state changed; test suite not run.*
