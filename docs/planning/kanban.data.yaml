@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-23'
+  last_reconciled: '2026-08-25'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -434,8 +434,191 @@ cards:
   status: 'planned'
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Card and fix. Approved.'')'
+  TIER3_REVIEW_2026_08_24_DO_NOT_SHIP: 'Build 9694df524 (branch feature/dp-drain-target-mis-sourcing)
+    got its four framing-disjoint Tier-3 reviews. A, B, and D INDEPENDENTLY CONVERGED on the same
+    CRITICAL, and the orchestrator VERIFIED the mechanism in source. VERDICT: DO-NOT-SHIP. The build
+    is faithful to the plan; the PLAN chose the wrong source. Nothing deployed. Back to planning.
+    THE CONVERGENT CRITICAL (A-CRIT-1 / B-HIGH-2 / D-CRIT-1): the fix sources the DP drain target from
+    compose_release_floor, whose off-peak value is max(reserve_soc, current_park_floor()). BUT
+    current_park_floor() (energy_battery.py:1770) returns _last_reserve_level — the POST-OVERLAY
+    effective commanded reserve, NOT the strategy floor. _apply_evse_battery_hold (energy.py:5609,
+    runs BEFORE _dp_decision_tick at :5628 same tick) stamps _last_reserve_level = max(existing,
+    _evse_hold_soc, _dp_decision_soc) at :4779/:4868, where _evse_hold_soc = battery SOC captured at
+    EVSE-charge start. DP only acts when an EVSE is charging (gate 4) — exactly when the hold overlay
+    is active. So the composed floor is pinned to ~live SOC. Legal-config repro: off-peak, EV charging,
+    SOC 40, reserve 10, forecast target 10, evse_battery_hold enabled (live today) -> composed floor
+    = max(10, 40) = 40 -> gate 7 (soc <= drain_target: 40 <= 40) -> ALREADY_BELOW_TARGET -> DP never
+    transitions. The blocking value just moved from static 80 to a live-SOC-tracking floor; DP is
+    still locked out and the money-losing behavior is NOT fixed. Worse, it is self-referential:
+    _dp_decision_soc folds back into _last_reserve_level, so once a transition squeaks through the
+    revert predicate flaps one tick later (reintroduces the INV-DP-DRAIN-1b flap through a new path).
+    WHY EVERYONE MISSED IT (incl. the plan AND the orchestrator plan-review): the §7 fixture contract
+    PINS reserve_soc=10 AND park_floor=10 — the one state where the leak is invisible. The plan saw the
+    hold as a CONSUMER of _dp_decision_soc (T1c note, §5 coupling 4) and never as the PRODUCER of the
+    helper input. Bug Class #53 consumed-but-changed + a feedback edge. This is the v5.5.3 D-HIGH-1
+    story: 3 framings converged where the plan could not.
+    FIX DIRECTION (plan-level, needs operator/planner decision): source the DP drain target off the
+    PRE-OVERLAY strategy/policy floor — max(reserve_soc, current_offpeak_drain_target()) or the
+    existing _last_reserve_level_desired (energy_battery.py:377, the pre-overlay strategy-desired that
+    _result writes). §2 recorded current_offpeak_drain_target was "DELIBERATELY NOT used" — that exact
+    decision produced this leak and must be re-litigated. The fixture contract must pin park_floor !=
+    reserve_soc so the discriminating case is tested.
+    SECONDARY (also fix in replan): B-HIGH-1/D-HIGH-1 — the :4578 containment guard is DEAD CODE; the
+    bare call at :4478 raises FIRST in the same tick, so on an Envoy outage the whole tick aborts,
+    stranding EVSEs in _paused_by_dp AND leaving the carrier TRANSITIONED with the must-start-by timer
+    never armed (one-shot deleted). Fix: single defensive computation right after the off-peak gate,
+    early-RETURN not raise, reused at all five sites. B-MED-1/A-LOW-1/D-MED-1 — the helper is passed a
+    stale period arg while the gate re-reads get_current_period(); at a TOU boundary the non-off-peak
+    branch silently returns raw reserve. D-MED-2 — the Live acceptance criterion §3b points at
+    energy.py:3871, which is the R3 blind-window payload (static knob), NOT a DP snapshot; it would read
+    80 forever (false FAIL). Use energy.py:4021 / the charging-plan snapshot instead. B-LOW-1 —
+    INV-DP-DRAIN-4 framing is wrong: live-apply DOES exist (set_offpeak_drain mutates _drain_targets in
+    place at energy.py:8670), no reload needed.
+    CLEAN across all reviewers: exactly five R2 sites and no sixth; R1 (5867/6002) and R3 (3752,
+    energy_pool.py:954/1435) byte-identical (INV-DP-DRAIN-2/3 hold); the reserve folds stay monotone
+    max() so no other coordinator is lowered. Review C (mutation drills) was still running at report
+    time; its verdict cannot rescue the cycle because the fixture pins the leak-hiding state.'
+  SIM_2026_08_24_CANDIDATE_WINNER: 'Operator asked to enumerate + SIMULATE all candidate sources
+    before replanning (scripts/probes/dp_drain_target_candidate_sim.py). 9-scenario matrix scored each
+    candidate against an independent oracle (correct floor = max(reserve_soc, offpeak_drain_target,
+    inclement_floor, arbitrage_park); EVSE-hold + DP-stamp excluded), on BOTH fit-eligibility and drain
+    depth. Result: C0 static 2/9; C1 compose/park (BUILT) 5/9 +1 depth-wrong; C2 offpeak-only 7/9;
+    C3 max(reserve,offpeak) 7/9 +1 depth-wrong; C4 _last_reserve_level_desired (+boot fallback
+    max(reserve_soc, current_offpeak_drain_target())) 9/9 — the ONLY fully-correct candidate.
+    Discriminators: S2/S3/S6/S9 (EV charging, hold captured) kill C1 (EVSE-hold contamination);
+    S4/S7 (storm partial_hold, arbitrage park) kill C2/C3 (they over-drain through legitimate holds);
+    S5 shows C2/C3 also get depth wrong. SURGICAL CHANGE: source DP drain target from
+    _last_reserve_level_desired (energy_battery.py:377 — the pre-overlay STRATEGY-DESIRED _result stamps,
+    folds offpeak-drain+inclement+arbitrage but NOT the EVSE-hold overlay) with boot fallback
+    max(reserve_soc, current_offpeak_drain_target()) when None. Confirms operator instinct. Replan
+    dispatched to ura-planner 2026-08-24.'
+  PLAN_REVIEW_ROUND2_2026_08_24_FIX_PLAN_FIRST: 'Rev-12 replan got TWO framing-disjoint Tier-3 plan reviews
+    (completeness + adversarial build-prediction). BOTH returned FIX-PLAN-FIRST and converge. Orchestrator
+    verified the real _result branches in source (energy_battery.py:4890 backup bypass, 4998 peak soc-5,
+    5057 mid-peak soc, 5330 off-peak drain, 5343 off-peak hold soc, 5588 desired write, 5612 _desired_stamped_at).
+    CONFIRMED-REAL, must fix before build: (1) STALENESS (the big one): _result stamps _last_reserve_level_desired
+    ONLY when reserve_level is not None; the grid-disconnect BACKUP leg (4890) + blind-hold RETURN legs bypass it,
+    leaving desired STALE from a prior (maybe peak SOC-pinned) tick -> a grid-outage off-peak DP tick reads a stale
+    floor. FIX: freshness-gate on _desired_stamped_at (exists for exactly this); treat stale as skip; add freshness
+    invariant. (2) SHADOW SITE :4271 in _run_dp_shadow_eval (4195) — different method, before the off-peak gate,
+    DP-disabled only; the compute-once local cannot reach it. Needs its own compute + None handling; T1b/C6
+    respecified. (3) CONTAINMENT early-return is INERT: MUST_START_FORCED + paused-idle branches sit AFTER the
+    compute site, so early-RETURN skips them just like a raise. Hoist them above, or lazy-compute at consumption.
+    (4) revert snippet DROPS `_soc is not None` -> None<=target TypeError -> reintroduces the hazard; keep the guard.
+    (5) boot-fallback `or 0` yields reserve 0 (battery-to-empty) if the accessor raises; delete `or 0`. (6)
+    _StubBattery lacks reserve_soc; helper reads it outside try -> AttributeError; use getattr, enumerate 3 stub
+    additions. (7) fixture scenario3 asserts 80 == live static knob -> mutation C1 passes on it; require 4-way
+    distinctness. (8) my SIM ORACLE WAS TAUTOLOGICAL (true_floor==strategy_desired, no reserve>drain row) — 9/9 is
+    not independent evidence; rebuild with a real oracle + real branch models.
+    ORCHESTRATOR RESOLUTION (do not take reviewers at face value): review#1 CRIT-1 (source MUST floor by reserve_soc)
+    is PARTIALLY WRONG — the off-peak drain branch INTENTIONALLY drains below reserve_soc on good-solar nights
+    (drain stored solar, refill tomorrow); reserve_soc is the NON-off-peak floor. Flooring by reserve would make DP
+    MORE conservative than the strategy and break the fix on excellent nights. The real defect is STALENESS, not
+    sub-reserve. OPEN DESIGN DECISION for the operator: should DP be allowed to drain below the hard reserve to
+    charge the car on a good-solar night (matching strategy intent), or is the hard reserve an absolute EV-charging
+    floor? NEXT: rebuild sim with real branches, resolve that decision, hand planner ONE consolidated fix-up, re-review.'
+  SOURCE_RULING_2026_08_24: 'OPERATOR RULED: the DP drain target is the OFF-PEAK DRAIN TARGET (forecast
+    next-day safe floor, computed after peak/mid-peak, >= reserve in this config), NOT _last_reserve_level_desired.
+    Final source: max(reserve_soc, current_offpeak_drain_target()) — which is EXACTLY the formula the accessor
+    docstring already names as "the drain-release floor" (energy_battery.py:1733). This makes DP drain to
+    precisely what the strategy off-peak emitter drains to (the accessor mirrors the emitter incl the multi-day
+    max(D+1,D+2)). Reserve-floor question RESOLVED as moot in this config: drain_targets {excellent 10, good 15,
+    moderate 20, poor 30, very_poor 30} are all >= reserve_soc 10, so the max() is a free safety net (no-op today,
+    guards a future inverted config). NOT _classify_target_day for DP: using the peak-anchored resolver in DP while
+    the emitter still uses calendar-tomorrow would make DP pause/allow the EV against a floor the battery is not
+    holding — a NEW divergence, worse than the shared staleness. The cross-midnight staleness (accessor + emitter
+    both key on calendar-tomorrow, stale after midnight in the cross-midnight off-peak window) is SPLIT OUT to
+    DRAIN-TARGET-DAY-STALENESS-1 (operator-approved split), which fixes emitter+accessor together via
+    _classify_target_day. This supersedes SIM candidate C4 (_last_reserve_level_desired): rebuild the sim oracle
+    around max(reserve_soc, current_offpeak_drain_target()) and re-score. Consolidated planner fix-up now folds:
+    this source + the round-2 review findings (staleness-of-desired no longer relevant since we do not use desired;
+    shadow-site :4271 own compute; containment reshape; keep _soc None-guard; no `or 0`; getattr reserve_soc;
+    4-way-distinct fixtures; harness _dp_drain_target_soc). Then fresh Tier-3 plan re-review.'
+  DEPENDS_ON_MIDNIGHT_FIX_2026_08_24: 'REFINEMENT (operator insight): DP is NOT evening-only — only gate is
+    off_peak AND dp_on (energy.py:4416); off-peak crosses midnight, so DP fires post-midnight (overnight
+    charge into AM / post-midnight plug-in). So DP needs the SAME-DAY drain target after midnight like attain
+    (peak-anchored: tomorrow before midnight, today after). => DP must consume the PEAK-ANCHORED accessor, so
+    DRAIN-TARGET-DAY-STALENESS-1 is now a PREREQUISITE (blocked_by), NOT a parallel/after split. Sequence:
+    midnight fix ships first -> DP consumes the corrected current_offpeak_drain_target() -> the day-classification
+    slice of the round-2 staleness findings dissolves (the accessor DP reads is already correct). SUPERSEDES the
+    earlier "consume stale accessor to match emitter, fix later" compromise (which would make DP consistently
+    wrong after midnight).'
+  SIM_V2_2026_08_24_NON_TAUTOLOGICAL: 'Rebuilt sim (scripts/probes/dp_drain_target_candidate_sim.py) with a
+    NON-tautological oracle = the emitter''s ACTUAL off-peak drain floor (modeled from the real emitter: multi-day
+    max(D+1,D+2) + partial_hold clamp), independent of any candidate formula; C1''s EVSE-hold contamination modeled
+    explicitly. 8 scenarios, scored on fit AND exact depth. C0 static 0/8 exact; C1 compose/park (BUILT) 2/8 exact,
+    3/8 fit — diverges whenever an EVSE charges (S2/S3/S4/S7), mis-depths (S5); C2 current_offpeak_drain_target 8/8
+    exact (perfect emitter mirror); C3 max(reserve,accessor) [RULED] 8/8 fit, 7/8 exact — differs only in the SAFE
+    direction on the never-in-config inverted case (S8 reserve15/drain10 -> 15 vs 10). Confirms the ruled source
+    non-tautologically. C2 is the purest mirror; C3 adds a safe reserve floor the emitter lacks — operator ruled C3.
+    Consolidated fix-up dispatched to ura-planner.'
+  REV13_REREVIEW_2026_08_24_FIX_PLAN_FIRST_SIM_WRONG_AGAIN: 'Both Rev-13 Tier-3 re-reviews (completeness +
+    build-prediction) returned FIX-PLAN-FIRST and CONVERGED on a CRITICAL that invalidates the ruling. Orchestrator
+    owns this: my sim v2 was ALSO flawed — c2_accessor MODELED a partial_hold clamp (max with effective_reserve)
+    that the REAL current_offpeak_drain_target() (energy_battery.py:1726-1747) does NOT have (it is only
+    max(D+1,D+2); the clamp lives in the EMITTER at :5322). So C3 is NOT 8/8 — on the inclement S6 fixture the real
+    accessor returns 10 while the emitter parks at 60 (7/8, failing the safety case). WORSE (D-CRIT-2): the accessor
+    mirrors ONLY the drain-FALLBACK branch. When arbitrage is ON / attain / full_hold / partial_hold, the emitter
+    emits a DIFFERENT reserve_level (peak_buffer_target / attain floor / backup) and NEVER reaches the drain branch
+    (source comment :5301-5305: "When arbitrage is ON we never reach this branch"). current_park_floor() docstring
+    (:1753-1758) enumerates exactly these divergences and says the drain-target accessor "mirrors only the
+    drain-target fallback path". So "DP mirrors the emitter via current_offpeak_drain_target()" is FALSE on
+    reachable legal-config paths — DP would OVER-CREDIT drain headroom (think it can drain to 10 when the battery
+    holds 60/80) -> pause the EV expecting drain that never happens.
+    THE REAL FORK (operator decision needed; do NOT let me iterate again without it): (A) narrow the invariant +
+    add an explicit BRANCH GATE — DP only transitions when the emitter is actually in the drain-fallback branch
+    (not arbitrage/attain/full_hold/partial_hold), reading current_offpeak_drain_target() for that branch only; OR
+    (B) source from _last_reserve_level_desired — the pre-overlay strategy floor _result stamps, which DOES include
+    inclement/arbitrage/attain across ALL branches and excludes the EVSE-hold overlay — BUT has the bypass-leg
+    STALENESS caveat an earlier review flagged (needs freshness gating via _desired_stamped_at). This is exactly the
+    source I pivoted AWAY from earlier; the pivot was wrong for the multi-branch reason. Neither is clean. Bug Class
+    #63 (concept collision) biting the orchestrator twice on the same seam. Secondary: line drift _apply_dp_transition
+    is :4873 not :4953; b2c1 has 3 battery stubs (_StubBattery/_SpyBattery/_Boom) + 2 name lists + a b2c3 harness the
+    plan under-enumerates; shadow acceptance must assert shadow_reason not set-membership; tou_period arg unused;
+    very_poor validator (energy.py:8645) now load-bearing — card with this cycle. STATUS: DP source UNRESOLVED, NOT
+    building. Surfaced to operator with full candor.'
+  OPTION_A_RULED_2026_08_24: 'Operator ruled OPTION A (branch-gate): "DP and Attain are almost mutually
+    exclusive in practice." DP transitions ONLY when the off-peak emitter is in its DRAIN-FALLBACK branch;
+    when arbitrage/attain/full_hold is active DP declines (the battery is already held high — no drain-
+    precedence decision). In the drain branch, target = max(reserve_soc, current_offpeak_drain_target()).
+    This makes "mirror the drain-fallback branch" the EXPLICIT contract and resolves the Rev-13 CRITICALs
+    (the false whole-emitter-mirror claim). Rev-14 dispatched to ura-planner: branch gate + reason code,
+    HONEST sim rebuild (real accessor, no clamp; arbitrage/attain fixtures where DP correctly DECLINES),
+    plus the still-applicable findings (lazy-compute containment, shadow not_applicable, harness enumeration
+    incl _SpyBattery/_Boom/b2c3, _apply_dp_transition line drift 4873, very_poor card). Then Tier-3 re-review.'
+  REV14_REREVIEW_2026_08_24_FIX_PLAN_FIRST_GATE_LEAK: 'Rev-14 branch-gate re-review: FIX-PLAN-FIRST, CRITICAL.
+    The negative-inference gate (not_arb AND not_attain AND allow_discharge) is INCOMPLETE — it OPENS on paths
+    that are NOT the drain-fallback branch: (C-CRIT-1) arbitrage WAIT explicitly sets _arbitrage_active=False at
+    energy_battery.py:3157 -> gate opens but emitter emitted reserve_soc, not the drain floor; legal-config repro
+    (arbitrage_enabled, target poor, WAIT phase): accessor 30 vs emitter rides to 10 -> DP mispredicts by 20pp,
+    the SAME mis-sourcing this cycle exists to fix. (C-CRIT-1b) 4 more: Envoy-blind hold (:4705), attain-reboot
+    defer (:4118) + release (:4131), grid-disconnect backup (:4890). RECOMMENDED FIX (sound, more robust): STOP
+    inferring — stamp POSITIVELY inside the drain-fallback branch (one line at ~:5274, e.g. _offpeak_branch_tick
+    = decision_tick_seq) and have the gate verify the stamp is THIS tick. Requires relaxing the plan-s
+    "no energy_battery.py change" constraint (that constraint is what forced the fragile negative inference). This
+    is the durable Bug Class #53 (computed-but-not-consumed / seam) closure. ALSO: C-HIGH-1 shadow gate runs before
+    the off-peak gate (opens in peak/mid_peak) — add tou_period=="off_peak" to the gate; C-HIGH-2 gate closing while
+    TRANSITIONED strands the pause (suppression-needs-a-discharge) — force revert or compare stamped _dp_decision_soc;
+    C-HIGH-3 the v3 sim in_drain_branch is DERIVED from the candidate predicate (tautological AGAIN) — set it
+    independently per fixture + add N5 WAIT / N6 envoy-blind / N7 attain-release / N8 peak fixtures. Items 2/4/5
+    verified clean (ordering, containment, harness, very_poor card, new constant). STATUS: NOT building; positive-
+    stamp fix needed + re-run Tier-3 D pass. DP has now had 1 rolled build + 3 flawed sims + ~12 reviews + 4 plan
+    revisions on this seam — surfacing park-or-continue to operator.'
+  links:
+    related: [DRAIN-TARGET-DAY-STALENESS-1]
+    context: 'DECOUPLED (operator 2026-08-24, after the nervousness re-examination): DP just READS
+      current_offpeak_drain_target() and must MIRROR the emitter (DP predicts where the battery actually
+      drains, which follows the emitter). So DP does NOT touch the shared primitive and is NOT blocked by
+      the midnight fix. When the midnight fix lands it corrects emitter+accessor together and DP inherits
+      the correction automatically. The earlier blocked_by was wrong — DP mirroring the emitter is correct
+      relative to actual battery behavior regardless of the staleness.'
   created: 2026-08-20 00:20
-  updated: 2026-08-20 19:05
+  updated: 2026-08-24 17:30
+  DISPATCH_2026_08_24: 'Plan re-reviewed by orchestrator this session (independent grep of the five
+    R2 sites, compose_release_floor signature, off-peak gate coverage, and the :4555 MUST_START
+    containment hazard — all confirmed source-accurate, zero drift). Operator approved the fan-out.
+    Dispatched to ura-builder in an isolated worktree as a Tier-3 build. SHIP is still gated on the
+    mandatory Tier-3 operator checkpoint BEFORE deploy (operator: "after I will approve to ship").'
   HOLD_DEMOTION_REFRAMED_2026_08_20: 'MY EARLIER "max() SWALLOWS DP" FRAMING WAS WRONG — retracted after a second code read
     at operator''s instruction. DP does NOT have to beat evse_battery_hold in the max() fold, because DP PAUSES THE CHARGER
     (energy.py:4921-4941, switch.turn_off via _claim_pause_dispatch_owner("dp")), and the hold is keyed on _is_any_evse_charging():
@@ -2190,10 +2373,32 @@ cards:
   title: ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from
     the pipeline-hardening cycle, carded so the request is not dropped
   thread: hvac
-  status: investigating
+  status: pre_planning
   created: 2026-08-22 15:30
-  updated: 2026-08-22 15:30
-  refinement_status: initial
+  updated: 2026-08-24 16:45
+  refinement_status: refined
+  REMEDIATION_RUN_2026_08_24: 'Operator granted permission for the full remediation sequence incl the
+    reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py,
+    pid 29697, 6h window, exits on first confirmed episode); the remediation is driven by the orchestrator
+    via home-assistant MCP when the detector fires (auth + exact entry_id handled safely, live reload under
+    control) rather than embedded in the detached script. Live-state check at launch: NO zone confirmed-blind
+    right now (z1 cooling/3.6kW blower0; z2 cooling/1.8kW; z3 idle/1.7kW/blower736 but UNDER the 2200W thr =
+    likely fan circulation, not a compressor-blind episode). Awaiting next episode. Remediation sequence when
+    it fires: (1) homeassistant.update_entity on the blind zone climate entity -> reread; (2) if still blind,
+    homeassistant.reload_config_entry on the ha_carrier entry ONLY -> reread; record update_entity_worked +
+    reload_worked to settle the cheap-vs-costly design question. MUST BE POLLED: ssh ha "cat
+    /tmp/carrier_blind_watch2.out".'
+  PROBE_C_RESULT_2026_08_24_CONFIRMED: 'The detached blind-episode detector FIRED and exited on the
+    first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle,
+    blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20. This
+    CONFIRMS the sustained-blind defect live (idle reported during active conditioning). NOTE: the
+    detector script as run only captured/emitted the blind state — the update_entity-then-reload
+    remediation legs (per PROBE_C_STILL_WORTH_RUNNING) were NOT exercised in this run, so the
+    open question (does homeassistant.update_entity clear it, or only a reload?) is STILL OPEN.
+    Promoting investigating -> pre_planning: the defect is confirmed real and sustained; what
+    remains is the cheap-vs-costly remediation decision, which is a design/scope question, not a
+    measurement question. Next probe run must exercise the remediation legs to settle update_entity
+    vs reload before any periodic-refresh design.'
   approval: unreviewed
   tags:
   - third-party-defect
@@ -8820,10 +9025,158 @@ cards:
     NOT RECOMMENDED IN THIS PASS: comfort_deviation_hours and egress_pause_frequency are both event-driven accumulators
     over rare events, which per RESTART-SAFETY-DOCTRINE-1 is the hazard class that stays structurally inert; wire them
     only with an explicit statement of expected samples-per-day, or leave them declared-and-suppressed.'
-  status: waiting_operator
+  status: shipped_organic
+  shipped_version: v5.90.0
   created: 2026-08-20 14:15
-  updated: '2026-08-24 01:10'
+  updated: '2026-08-24 18:40'
   refinement_status: refined
+  BUILD_REVIEW_2026_08_24: 'Build 1f4d36325 (branch feature/hvac-shortcycle-producer) orchestrator-verified
+    (fresh base, diff=plan scope, restart-guard correct, midday-restart + guard tests present). Tier-2-DB code
+    reviews (A data-integrity / B async-lifecycle / C mutation) dispatched. REVIEW B back = FIX-BEFORE-SHIP,
+    2 HIGH + 3 MED (all source-verified, all fixable): B-HIGH-1 clear_active_anomalies_filtered runs AFTER
+    record_observation -> deletes the anomaly it just created -> sensor/worst_severity never show short-cycle
+    (de-suppression buys nothing); fix = clear BEFORE record + a real-detector ordering test. B-HIGH-2
+    unavailable/unknown climate state read as active->idle -> fabricates short cycles on WiFi flaps (fires on
+    network not compressor); fix = gate on new_state.state, drop on_since. B-MED-1 untracked async_create_task
+    from callback + midnight increment/reset off-by-one. B-MED-2 multi-day-down restart emits stale partial day.
+    B-MED-3 detector-None branch advances date without resetting counter -> unbounded growth. Reviews A + C still
+    running. Plan: consolidate ALL 3 reviews into ONE fix-up (build-implies-ship, Tier-2-DB, no operator checkpoint),
+    re-verify, then deploy. NOT ship-ready yet.'
+  BUILD_REVIEW_A_2026_08_24: 'Review A (data-integrity) back = FIX-BEFORE-SHIP, 2 CRITICAL + 1 HIGH + 3 MED,
+    CONVERGES with B on the top two. C1 (=B-HIGH-1) clear-after-record deletes the anomaly -> de-suppression
+    dead-on-arrival (CRITICAL). C2 (=B-MED-1) callback async_create_task = double-emit + increment/reset day
+    misattribution + untracked task (A rates CRITICAL: violates the once-per-(z,d) invariant; the tick already
+    covers it so preferred fix is DELETE the callback rollover). H1 (=B-HIGH-2) unavailable/unknown -> phantom
+    short cycles; A notes the PLAN REQUIRED this guard AND a named test (test_short_cycle_unavailable_hvac_action_
+    drops_on_since, plan :571-575/:740) and NEITHER was built = missed deliverable. M1 zone_id in extra not the
+    canonical top-level build_context_json(zone_id=) key. M2 get_status_summary per-metric entry lacks the
+    minimum_samples gate (dashboard would show 14/336 while active=true) — add gate to per-metric entry. M3
+    detector-None branch discards a day (converges with B-MED-3). HOLLOW TESTS confirmed: the de-suppression
+    test hand-assigns _active_anomalies (never runs the emitter); the rollover test stub can-t observe ordering.
+    Verified-GOOD: _min_samples_for routing, clear_active_anomalies_filtered filter semantics, D1b nested scopes,
+    restart-safety of on_since, the __-prefix skip, LOCAL-day clock. Review C (mutation) still running -> then ONE
+    consolidated fix-up folding A+B+C (delete callback rollover; clear-before-record + real-detector test;
+    unavailable guard + its named test; M1/M2/M3 one-liners), re-verify with the mutation drills, then deploy.'
+  BUILD_REVIEW_C_2026_08_24: 'Review C (mutation/test-authority) back = FIX-BEFORE-SHIP, 1 CRITICAL. C-CRITICAL-1:
+    the D1a WIRE-IN is untested — deleting minimum_samples_by_metric={"short_cycle_rate":HVAC_SHORT_CYCLE_MIN_SAMPLES}
+    from the HVAC AnomalyDetector ctor (hvac.py:1251-1253) leaves the full suite GREEN (62 passed). Constant tested,
+    param tested, CONNECTION untested = wire-in-anchor bug class; if it regresses the gate falls back to 336 -> 336-day
+    maturation -> feature silently never fires. Fix: add a ctor-args anchor modeled on
+    test_all_coordinators_pass_suppression_set_to_anomaly_detector (test_v465_observability_gap.py:1312). C-HIGH-1: the
+    de-suppression test is HOLLOW (hand-copies frozenset({"zone_call_frequency"}) instead of importing
+    HVAC_SUPPRESSED_FROM_PERSISTENCE; stayed green under its own mutation) — re-point at the real frozenset. C-MED-1:
+    sites 2B/2C/2D (get_learning_status/get_status_summary gates) only source-count coverage — add behavioral per-site
+    tests. GOOD: mutations 1a/1b/2A/4/5/6/E1 all bit for the right reason with independently-authored oracles; the
+    D2 behavioral tests AST-extract the real methods; no shape regression from the nested scopes addition (324/325 in
+    9 sibling AnomalyDetector harnesses, the 1 fail pre-existing in safety.py). Full-suite name-diff was still running
+    (434 files); orchestrator must confirm 61 not higher before ship. ALL 3 REVIEWS NOW IN -> consolidated fix-up.'
+  FIXUP_DONE_VERIFYING_2026_08_24: 'Consolidated fix-up done, commit d332c3b (origin; builder pushed it — untidy
+    but a feature branch, no release fired; local ref still at 1f4d36325, will sync at deploy). Orchestrator-
+    verified: d332c3b IS a superset of the original build, base fresh (0 behind develop), diff scope intact (same
+    5 files). All A/B/C findings fixed; 36 cycle tests pass; the 3 key mutations BITE (ctor wire-in ->
+    test_hvac_anomaly_detector_ctor_wires_short_cycle_min_samples; clear-before-record -> behavioral+source; unavailable
+    guard -> named test). Full-suite name-diff RUNNING in background (target 61, not higher). If clean -> DEPLOY
+    (build-implies-ship, Tier-2-DB, no operator checkpoint). NOTE the builder pushing to origin is a process deviation
+    to flag.'
+  NAMEDIFF_CORRECTION_2026_08_24: 'CORRECTION: my background run reported 61 failed = baseline COUNT, but this
+    suite has ORDER-DEPENDENT failure counts (loader shims pollute sys.modules; collection order cascades — the
+    SUITE-ORDER-POLLUTION class). Review C got 158 under -p no:randomly (different deterministic order). So the
+    61-count-match is NOT a rigorous name-diff. SOLID evidence the cycle is clean: under BOTH orderings all 25 cycle
+    tests + the amended v465 test PASS and NO cycle-surface test (short_cycle/coordinator_diagnostics/v465) is in the
+    failure set; review C targeted 9 AnomalyDetector/get_status_summary harnesses = 324/325 (1 pre-existing). The
+    AUTHORITATIVE order-matched name-diff (branch vs develop under identical order) is still RUNNING via review C.
+    DECISION: HOLD the HVAC deploy until that name-diff confirms — "very likely clean, final name-diff pending", not
+    "ready to ship". Incidental suite-infra bug (card-worthy): pytest hangs in Py_FinalizeEx on a leaked non-daemon
+    thread; `pytest | sort > file` yields empty files (sort never sees EOF) — redirect raw output for baseline diffs.'
+  NAMEDIFF_RESOLVED_SHIP_READY_2026_08_24: 'Untangled the two orderings: my background full-suite run WAS on the
+    shipping commit d332c3b under STANDARD order = 61 = the 61 default-order baseline (valid count compare); review
+    C-s 158=158 CLEAN name-diff was under -p no:randomly on the superset-PARENT 1f4d36325 (local ref was never
+    advanced to d332c3b — origin had it). d332c3b is a verified superset of 1f4d36325 adding only cycle-surface fixes
+    + tests + ONE additive summary key (A-M2 per-metric minimum_samples); the nested-scopes shape change was ALREADY
+    in 1f4d36325 and covered by C-s clean name-diff. Under BOTH orderings: cycle tests pass, NO cycle-surface test
+    fails. C-CRITICAL-1 (wire-in untested) was on 1f4d36325 and is FIXED in d332c3b (ctor-anchor test added + mutation
+    bites, orchestrator-verified). Targeted-in-isolation harness run hit the pre-existing order-pollution ImportError
+    (test_coordinator_diagnostics cannot collect outside full-suite order) — confirms that class, not a regression.
+    CONCLUSION: d332c3b has NO regressions; ship-ready. Holding the live-restart deploy for operator presence
+    (hostile-timing) + explicit ship-go; one command out (merge d332c3b->develop, README_v5.90.0, deploy.sh --cards
+    HVAC-ANOMALY-BLIND-1).'
+  BUILD_GO_2026_08_24: 'Operator: "HVAC producer build go." Plan clean + both reviews resolved + restart-guard
+    re-verified. Dispatched to ura-builder (Tier 2-DB, worktree). Producer only (short_cycle_rate) per the
+    fixed plan.'
+  PLAN_REVIEW_ROUND2_2026_08_24_FIX_PLAN_FIRST: 'Second (post-D0) Tier-2-DB plan review: FIX-PLAN-FIRST,
+    1 CRITICAL + 3 HIGH, all source-verified. CRITICAL: F7 rollover insertion (hvac.py:1290-1305) is gated on
+    _last_daily_reset which is init "" at :421 and NEVER persisted -> fires first cycle after EVERY restart
+    (~2.9/day) -> partial-day emits + zeroes the persisted counter, poisoning D0 calibration. Fix: guard on the
+    tracker''s own persisted date (short_cycles_today_date not in ("", today)); add a mid-day-restart-emits-zero
+    test. HIGH: local/UTC clock mixing (branch + fixture are LOCAL, invariant/tracker are UTC) — pick LOCAL.
+    HIGH: D1a 5-site drill unsatisfiable at site 4 (which correctly keeps scalar) — rescope to 4 routed sites.
+    HIGH: restart persistence loss windows (snapshot >4h skip + ~25min cadence) violate the no-loss invariant —
+    bound it or add a store. MEDIUMs: REUSE _unsub_listeners/_cancel_listeners (drop invented list); drop D1b
+    order-hedge (zones available); reconcile site-3 active_count; add de-suppression consumer enumeration
+    (worst_severity/notification); re-justify MIN_SAMPLES=14 on time-to-usefulness (8-day window, not 14);
+    epistemics wording (n=8 can''t call mean REAL + std unchanged both). D0 fold itself verified CORRECT.
+    Fix-up dispatched to ura-planner 2026-08-24; needs targeted re-verify of the restart guard before build.'
+  ROUND2_FIXUP_APPLIED_AND_REVERIFIED_2026_08_24: 'ura-planner applied all round-2 findings (LOCAL clock
+    throughout, 4-site drill + site-4 shape test, bounded persistence loss windows named as invariant
+    exceptions, REUSE _unsub_listeners/_cancel_listeners, dropped D1b order-hedge, site-3 all-scopes-gate,
+    de-suppression consumer enumeration + propagation test, MIN_SAMPLES re-justified on time-to-usefulness,
+    n=8 epistemics). Orchestrator PERSONALLY re-verified the CRITICAL restart-guard pseudocode (plan
+    lines ~605-645): (a) gate reads persisted _short_cycles_today_date NOT _last_daily_reset; (b) mid-day
+    restart prev_date==today is a strict no-op (no emit/no counter mutation/no date write); (c) first-boot
+    prev_date=="" seeds date only; (d) discriminating mid-day-restart-emits-zero test present. PASS. Plan is
+    CLEAN and build-ready. Tier 2-DB. Awaiting operator go-to-BUILD (new capability on a shared primitive
+    consumed by 6 coordinators + 14-day maturity cost, so surfacing a build checkpoint rather than
+    auto-dispatching).'
+  D0_PROBE_2026_08_24_FAIL_BUT_SAFE: 'D0 fidelity probe (hvac_shortcycle_daily_probe.py, recorder-event
+    fidelity = the D2 event-listener fidelity, 8-day window) FAILED the ±10% gate: per-zone means 21-30%
+    BELOW the plan fixture (z1 0.62/0.86 vs 0.88/0.78; z2 1.12/1.27 vs 1.50/1.32; z3 1.38/1.22 vs
+    1.75/1.71). BUT the shift is DOWNWARD (fewer short cycles) so separation IMPROVES: worst-normal z
+    1.3-1.6 vs fault-day z 5.4-13.3, cleanly separable. Distribution shape unchanged (near-Poisson 0-3/day)
+    so HVAC_SHORT_CYCLE_MIN_SAMPLES=14 has no shape-driven reason to move. Option (c) HOLDS with more margin.
+    ACTION: re-freeze the plan z-scores/fixture from these numbers and run the mandatory SECOND plan review
+    before build (per plan §D0). Fidelity question (F2) is RESOLVED — the divergence is a rate difference,
+    not fidelity. Probe agent did not write the audit doc or edit the plan (measurement-only scope); numbers
+    ready to drop into docs/planning/AUDIT_hvac_shortcycle_recorder_fidelity.md.'
+  PLAN_REVIEW_2026_08_24_DO_NOT_BUILD: 'The producer plan (PLANNING_hvac_short_cycle_producer.md)
+    got its mandatory Tier-2-DB adversarial plan review this session. VERDICT: DO-NOT-BUILD /
+    FIX-PLAN-FIRST. Two CRITICALs invalidate the design as written; a re-review is required after
+    fix-up (the fix changes the fixture, which changes every downstream number). Operator approved
+    the plan (#3), but the gate rejected it — findings must be fixed IN THE PLAN before any build.
+    BLOCKING findings (all source-verified with file:line):
+      F1 (CRIT): clear_active_anomalies at coordinator_diagnostics.py:1310 takes NO args and clears
+        ALL active anomalies for the detector. The plan calls clear_active_anomalies(metric=,scope=)
+        "REUSED" — that signature does not exist. As written a builder wipes zone_call_frequency +
+        override_frequency house-wide daily. Needs a NEW filtered variant with backward-compat default.
+      F2 (CRIT, the killer): the observable zone.hvac_action is a 5-MINUTE POLLED snapshot, but the
+        measured fixture (z=9.13/4.91/3.65, the whole Option-(c) case + minimum_samples=14) came from
+        FULL-FIDELITY recorder rows. The entire <600s detection band is 1-2 sample intervals wide —
+        Nyquist failure: the shortest, most diagnostic cycles are invisible, durations quantize to
+        ~300s multiples. The fixture is NOT the distribution the producer can emit. Fix: drive the
+        cycle tracker from async_track_state_change_event on the 3 climate entities (reviewer: almost
+        certainly correct, not a builder choice) OR re-run the probe downsampled to 5-min and rebuild
+        every z-score. Then the Option-(c) argument must be re-derived.
+      F4 (CRIT): _short_cycles_today is in-memory, resets on restart -> emitted "daily" counts are
+        really "since-last-restart"; a fault day interrupted by a restart is truncated below threshold
+        (false negative in the fault direction). The plan has the persist/reset decision INVERTED:
+        it persists on_since (creating a phantom-cycle hazard it then patches with a nonexistent
+        restart_epoch) while leaving the counter unpersisted (the hazard that actually degrades the
+        metric). restart_epoch/boot_id does not exist in the repo.
+      F5 (HIGH): per-metric minimum_samples override must thread through 5 read sites (:994/:1057/:1118/
+        :1135/:1149), not just record_observation — Bug Class #53; D1s own Live criterion reads :1057/:1149.
+      F6 (HIGH): short_cycle_rate is zone-scoped but both status surfaces call at scope="house", so the
+        metric is invisible + _get_baseline creates-on-read materializes phantom house baselines. First
+        zone-scoped HVAC metric; surfaces are not scope-aware. D1 Live names an attribute that does not exist.
+      F7 (HIGH): the rollover block would land after the early return in the delta<0 midnight-reset branch
+        of _record_anomaly_observations -> skipped on exactly the boundary cycles. Insertion point must be named.
+    SHOULD-FIX: F3 (the 2.9/day denominator is cited to the audit which says UNVERIFIED — but note THIS
+      card carries the actual measurement, so it is a citation-provenance fix, not a fabrication;
+      downgrade from the reviewers HIGH), minimum_samples=14 needs a rung (HVAC_SHORT_CYCLE_MIN_SAMPLES
+      beside HVAC_ANOMALY_MIN_SAMPLES=336), 5-vs-6 coordinator count (manager.py:232 missed).
+    CLEAN: maturation (minimum_samples) vs forgetting (max_samples) are correctly NOT conflated — the
+      plan never touches the Welford bound (that is HVAC-BASELINE-MAXSAMPLES-1). MetricBaseline already
+      carries max_samples:int=0 at :148, which is that other cards surface.
+    Full review in the session transcript; key files coordinator_diagnostics.py, hvac.py, hvac_zones.py,
+    hvac_const.py, scripts/probes/hvac_shortcycle_daily_probe.py.'
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Fix the [detector ... never received a sample on 3 of 5 metrics].'')'
   tags:
@@ -9285,6 +9638,394 @@ cards:
   refs:
   - ha_get_system_health 2026-08-20
   - FRIGATE-LEG-NAMING-1
+- id: ENVOY-PRODUCTION-STALE-1
+  title: Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a
+    stale live sensor that URA's solar entity derives from; does any decision path trust it?
+  thread: energy
+  status: investigating
+  created: 2026-08-24 16:45
+  updated: 2026-08-24 16:45
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - measure-before-build
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: the sensor that reports how much power the solar panels are making went stuck at
+     zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing
+     6 kW back to the grid at the time. If any part of the energy brain trusts that stuck number
+     to make a decision (how much to charge the battery, whether to let the car draw solar), it
+     would have been acting on a false "no sun" reading. Solution: first MEASURE whether any
+     decision path actually consumes the derived value, or whether it is only used to discover the
+     Envoy serial number (in which case the staleness is harmless). Then decide if a freshness
+     guard is warranted.'
+  origin:
+    date: '2026-08-24'
+    gist: session handoff live-fault #1 — sensor.envoy_482543015950_current_power_production stale ~16.5h
+  why: 'A stale-at-zero solar reading feeding a real decision is the exact failure class the
+    energy invariants campaign exists to catch. The handoff notes config derivation is unaffected
+    (energy_envoy_entity is only a serial-discovery seed, __init__.py:3026 -> extract_envoy_serial
+    -> derive_envoy_config), but whether any EC decision path reads the DERIVED value was flagged
+    as an open question not chased this session.'
+  constraints: []
+  next: 'Producer/consumer check: grep every reader of CONF_ENERGY_SOLAR_ENTITY / the derived
+    production value; for each, is it a trust decision or display? Compare against the live export
+    reading as ground truth. ONE read-only measurement, then verdict.'
+  refs:
+  - docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault #1)
+  - __init__.py:3026
+- id: DP-VERYPOOR-DRAIN-VALIDATOR-1
+  title: 'On a "very poor" solar-forecast night the EV drain target comes from a value NO slider
+    can change — the live-update validator accepts only 4 of the 5 forecast qualities'
+  thread: energy
+  status: planned
+  created: 2026-08-24 16:45
+  updated: 2026-08-24 16:45
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: the four "off-peak drain target" sliders let the operator tune how deep URA will
+     drain the home battery to charge the EV, one per solar-forecast quality. But there are FIVE
+     qualities in the code (excellent/good/moderate/poor/very_poor) and the validator that accepts
+     live slider updates only knows four — it rejects "very_poor". So on a very-poor-forecast
+     night the drain target is a value the operator cannot change through any control. Solution:
+     add very_poor to the accepted set in the update validator so all five targets are tunable.'
+  origin:
+    date: '2026-08-24'
+    gist: DP drain-target plan §5 flagged this pre-existing gap and said it needs a card
+  why: 'Pre-existing, but the DP drain-target cycle (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is what makes
+    the very_poor target LOAD-BEARING for DP — before the fix DP never read the composed target at
+    all. energy.py:8647 validates quality against {excellent, good, moderate, poor}; _drain_targets
+    carries very_poor (energy_battery.py:466) and classify_tomorrow_solar can return it.'
+  constraints:
+  - Small validator/config fix; do NOT change drain arithmetic or the DP cycle surface.
+  links:
+    sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
+    context: 'Same knob family; DP cycle makes very_poor load-bearing but explicitly parks this fix
+      out of its own scope. Ship after the DP cycle lands.'
+  parsimony:
+    problem: A legal forecast class (very_poor) yields a drain target no live control can adjust.
+    verdict: BUILD
+  next: Add very_poor to the accepted-qualities set at energy.py:8647; test that setting the
+    very_poor off-peak drain Number live-applies. Tier 1 (single validator surface).
+  refs:
+  - docs/planning/PLANNING_dp_drain_target_mis_sourcing.md (§5)
+  - energy.py:8647
+- id: EC-SOC-LADDER-XVALIDATE-1
+  title: 'No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a
+    gate polarity and oscillate EV pause/resume; the parked fix''s trigger has now fired'
+  thread: energy
+  status: pre_planning
+  created: 2026-08-24 16:45
+  updated: 2026-08-24 16:45
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - institutional-context
+  - numbers-get-knobs
+  problem_solution:
+  - 'Problem: the energy coordinator has several SOC thresholds the operator sets independently
+     (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain
+     targets vs the inclement floor). Nothing checks they are ordered sensibly relative to each
+     other. Documented failure mode: if two are inverted (e.g. fill_priority_soc > excess_solar_soc)
+     the middle band flips polarity and the EV oscillates pause/resume at every SOC change.
+     Solution: extend the existing validate_threshold_ladder to cross-check the pairs that must be
+     ordered, rejecting or warning on inversions.'
+  origin:
+    date: '2026-08-24'
+    gist: handoff live-fault #5 + adjacency sweep — this is the PARKED D3/S5 deliverable, trigger fired
+  why: 'This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at
+    PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in
+    BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3). AUDIT_excess_solar_and_evse_prior_art.md
+    (P1 row, :822) confirms the solar-follow amp cycle turns the 80/95 band into an actively-modulated
+    region and "fires its trigger directly". validate_threshold_ladder currently takes only
+    reserve_soc, drain_targets, arbitrage_trigger, peak_buffer_target — it never sees
+    resume/pause/drain-floor/excess-solar knobs.'
+  constraints:
+  - Cross-check pairs, do not silently clamp; a rejected/inverted config must surface to the operator.
+  links:
+    related: [EVSE-SOLAR-FOLLOW-AMPS-1, EVSE-DRAIN-PRECEDENCE-KNOB-80-1]
+    context: 'The solar-follow amp cycle is what actively modulates the 80/95 band, firing this
+      parked fix''s trigger. Best sequenced after solar-follow so the ladder covers the live surface.'
+  parsimony:
+    problem: Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
+    verdict: BUILD
+  next: 'Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered
+    pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.).
+    Tier 2-DB (touches a shared validator consumed across EC).'
+  refs:
+  - docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525
+  - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822
+  - energy_const.py:980
+- id: HVAC-BASELINE-MAXSAMPLES-1
+  title: 'HVAC anomaly baselines never forget — an accumulator matured on August cooling will
+    misjudge October; scope a bounded/windowed sample count into the shared detector'
+  thread: hvac
+  status: pre_planning
+  created: 2026-08-24 16:45
+  updated: 2026-08-24 16:45
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-24 (chat: "4 - scope in a max_samples")'
+  tags:
+  - tier-2db
+  - numbers-get-knobs
+  problem_solution:
+  - 'Problem: the anomaly detector learns each metric''s "normal" by accumulating every observation
+     forever (unbounded Welford, no cap). So a baseline trained through the August cooling season
+     keeps averaging in summer data indefinitely — by October, when normal HVAC behaviour has
+     shifted, the stale baseline will flag normal autumn operation as anomalous (or mask real
+     faults). Solution: give the shared detector a bounded/windowed sample count (a max_samples /
+     rolling window) so old observations age out and the baseline tracks the current season.'
+  origin:
+    date: '2026-08-24'
+    gist: operator decision #4 this session — "scope in a max_samples" for the never-forgetting baselines
+  why: 'Operator-approved (#4). Distinct from the short-cycle producer''s minimum_samples override:
+    that governs MATURATION (how many samples before firing); this governs FORGETTING (bounding the
+    accumulator so it tracks the current regime). The detector is a shared primitive consumed by 5
+    coordinators, so changing its accumulation model is regression-prone across all metrics — hence
+    Tier 2-DB and its own scoping, NOT a lump-in to the producer cycle.'
+  constraints:
+  - Shared AnomalyDetector (coordinator_diagnostics.py) is consumed by 5 coordinators — additive,
+    backward-compatible default (unbounded stays the default unless a metric opts in).
+  - Windowed variance is not free — a naive rolling recompute changes cost/behaviour for every
+    consumer; scope the accumulation model deliberately (Welford-with-decay vs fixed ring buffer).
+  links:
+    related: [HVAC-ANOMALY-BLIND-1]
+    context: 'Same detector primitive as the short-cycle producer cycle, but the forgetting change
+      is orthogonal to that cycle''s maturation override — scope and review separately.'
+  parsimony:
+    problem: An unbounded baseline trained on one season will misjudge the next, with no forgetting mechanism.
+    verdict: BUILD
+  next: 'Scope the accumulation model (decay vs fixed window vs max_samples cap), decide default and
+    per-metric opt-in, and enumerate blast radius across the 5 consumers. Then Tier 2-DB plan +
+    review before build.'
+  refs:
+  - docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (decision #4)
+  - coordinator_diagnostics.py (AnomalyDetector)
+- id: DASH-SOLAR-EV-CENSUS-1
+  title: 'Enrich v6+v8 dashboards: Solar-Aware EV panel + v8 House Census (counts + per-person path
+    & predicted next room)'
+  thread: dashboarding
+  status: shipped_organic
+  created: 2026-08-24 17:10
+  updated: 2026-08-24 17:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-24 (chat: "ura v6 and ura v8 need more information from EVSE Solar
+    Aware charging sensors... ura v8 needs information about census... Yes finish the dashboard")'
+  tags:
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: the EV panels on the v6 and v8 dashboards did not show the solar-aware charging picture
+     (is there surplus, is the car charging on it, what will the battery drain to, when does fill-
+     priority release), and the v8 People tab had no house-census summary — how many people are on
+     the property vs inside vs at the perimeter, who is identified, where each person is and where
+     they are predicted to go next. Solution: added a Solar-Aware EV Charging card to both v6 and v8
+     EV sections, and a House Census card at the top of the v8 People tab, both grounded in real live
+     sensors and applied live via the dashboard API.'
+  origin:
+    date: '2026-08-24'
+    gist: operator push to enrich EVSE panels (v6+v8) and add census to v8
+  why: Surfaces already-shipped solar-aware + census producers the dashboards were not consuming.
+  constraints:
+  - Applied via ha_config_set_dashboard python_transform, NOT a .storage hand-edit.
+  - Markdown cards carry explicit entity_id watch-lists (Jinja-variable entities are not auto-detected).
+  next: 'When EVSE-SOLAR-FOLLOW-AMPS-1 ships, add its amp-modulation attributes (solar_follow_surplus_kw,
+    solar_follow_state, solar_follow_original_amps, solar_follow_blind_since) to the Solar-Aware EV card.'
+  links:
+    related: [EVSE-SOLAR-FOLLOW-AMPS-1, EVCARD-1]
+    context: 'EVSE-SOLAR-FOLLOW-AMPS-1 will add the amp-modulation telemetry this card should later
+      surface; EVCARD-1 is the sibling v8 EV detail card this extends.'
+  refs:
+  - docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md
+  - docs/dashboards/ura_v8_energy_ev_detail_card.md
+- id: DRAIN-TARGET-DAY-STALENESS-1
+  title: 'Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target
+    day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far'
+  thread: energy
+  status: planned
+  created: 2026-08-24 18:10
+  updated: 2026-08-24 18:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-24 (chat: "Good with the split" + "card... identifies what does not use
+    the fix and what the fix is")'
+  tags:
+  - no-fabrication-verify
+  - institutional-context
+  problem_solution:
+  - 'Problem: the off-peak battery drain target (how deep URA will drain the battery overnight, chosen
+     from the next daylight day''s solar forecast) is keyed to CALENDAR tomorrow. The off-peak window
+     crosses midnight (summer 21:00->14:00, winter 21:00->05:00). Before midnight "tomorrow" correctly
+     means the coming daylight day; AFTER midnight the calendar has rolled, so "tomorrow" now points a
+     day too far and the coming daylight day is actually "today" — the drain target is then computed
+     from the WRONG day''s forecast. The arbitrage part of the same decision already fixed this; the
+     drain part never did. Solution: make the drain target use the same peak-anchored day resolver the
+     arbitrage path uses, so it always forecasts the day whose upcoming peak the battery must attain for.'
+  origin:
+    date: '2026-08-24'
+    gist: split out of the DP drain-target cycle; operator asked which day the drain target reflects and when it refreshes
+  why: 'Surfaced while resolving the DP drain-target source. The DP cycle deliberately consumes
+    current_offpeak_drain_target() UNCHANGED (to match the emitter exactly, avoiding divergence); this
+    staleness is PRE-EXISTING in the strategy''s own off-peak drain emit and must be fixed for the
+    emitter AND the accessor TOGETHER so DP''s floor and the strategy''s drain stay identical.'
+  forensic_what_does_NOT_use_the_fix:
+  - 'current_offpeak_drain_target() at energy_battery.py:1738 — calls self.classify_tomorrow_solar()
+     (= solcast_tomorrow, calendar tomorrow). This is the DP release-floor accessor AND is consumed by
+     compose_release_floor (:296), current_park_floor fallback (:1773), the sensor (:6043),
+     energy.py:5831, energy_pool.py:1797/:3203.'
+  - 'Off-peak drain emitter: tomorrow_class = self.classify_tomorrow_solar() at energy_battery.py:5111
+     (and the sibling path at :5909). drain_class_for_target derives from tomorrow_class (~:5301) and,
+     with multi_day_horizon, max()s against classify_solar_day_n(2). This is the value the battery
+     actually drains toward — so the accessor mirrors it (its docstring says so).'
+  - 'classify_tomorrow_solar() itself (energy_battery.py:1690) reads solcast_tomorrow blindly and uses
+     (now()+1day).month for thresholds — no target-day anchoring.'
+  forensic_what_DOES_use_the_fix_precedent:
+  - '_classify_target_day(now) at energy_battery.py:2395 — peak-anchored: reads
+     get_next_high_rate_transition(now), offset<=0 -> classify_solar_day() (today), offset==1 ->
+     classify_tomorrow_solar() (tomorrow), offset>=2 -> classify_solar_day_n(offset). Its docstring
+     names the exact bug ("at 08:00 the next morning the same chunk''s target is now TODAY... read
+     today''s Solcast, not tomorrow''s"). Already used by the arbitrage/attain legs at :2454
+     (_recheck_forecast_on_charge_entry), :5026 (mid-peak), :5112 and :5911 (target_day_class in the
+     SAME off-peak decision whose drain leg is stale — the split is visible on adjacent lines).'
+  fix:
+  - 'Replace classify_tomorrow_solar() with _classify_target_day(now) for the DRAIN target selection in
+     BOTH current_offpeak_drain_target() (:1738) and the off-peak emitter drain-class computation
+     (:5111 / :5909 / the drain_class_for_target logic ~:5301), preserving the multi_day max(d1,d2) but
+     anchoring d1 on the target day. current_offpeak_drain_target() takes no now today (classify_tomorrow
+     uses dt_util.now() internally) — the fix must thread now (or call dt_util.now()) so the peak-anchored
+     resolver can be used. Emitter and accessor change TOGETHER so DP''s floor == the strategy''s drain
+     on every tick incl after midnight.'
+  constraints:
+  - Emitter + accessor MUST change together (divergence between them is worse than the shared staleness).
+  - Keep the multi-day max(D+1, D+2) conservative-selection behavior; only the day-anchoring changes.
+  PLAN_REVIEW_2026_08_24_FIX_PLAN_FIRST_BLAST_RADIUS: 'Tier-3 plan review: FIX-PLAN-FIRST. BIG REFRAME
+    (CRITICAL-1): the "midnight" name is wrong — the TOU table (energy_const.py:15-64) has DAYTIME off-peak
+    (summer 0-14+21-24, shoulder 0-17+21-24, winter 0-5+9-17+21-24), so offset==0 (target=TODAY) covers ~17 of
+    ~20 daily off-peak hours; only the 21-24 evening block (offset 1) stays byte-identical. So the fix changes
+    the DOMINANT off-peak drain-release path (feeds compose_release_floor/current_park_floor every pool tick),
+    NOT a cross-midnight edge. The bug is correspondingly bigger (drain forecasts wrong day during daytime
+    off-peak too, ~37% days) so the fix is MORE valuable AND higher blast-radius. SURFACED TO OPERATOR for a
+    scope decision given their earlier nervousness about perturbing this code. Other findings to fix in-plan:
+    HIGH-1 two MORE drain-target derivations (_threshold_position :5669, _next_action_estimate :5700, called
+    :6079/:6080) contradict the fixed accessor on the same sensor + hardcode 40/bypass _get_offpeak_drain_target
+    + ignore multi-day; HIGH-2 _tou=None fixtures make tests hollow (mandate wired TOU + named C-drill failure);
+    MED-1 new raise path via get_next_high_rate_transition needs try/except in the accessor; MED-2 analogous
+    off-by-one in arbitrage gate (:2458/:2878 pair target_day with hardcoded classify_solar_day_n(2)) — card as
+    non-goal (framing-D would find it). CONFIRMED-GOOD: offset>=2 unreachable so d1_offset+1 re-pairing is
+    correct+complete (CRITICAL-2); trust/display split complete (only :5300/:5308 are trust); TOU seam clean;
+    no intra-day staleness (classify_solar_day reads full-day solcast_today). Re-target T-boundary tests to
+    14:00/17:00/05:00/21:00 not midnight. 7 minimum plan edits listed in the review before build.'
+  ORCHESTRATOR_CONFIRMED_AND_RIGHTSIZED_2026_08_24: 'Operator asked me to CONFIRM the offset-0 claim myself
+    using the energy system note, not the reviewer. DONE via ENERGY_COORDINATOR_MANUAL §2.1/§2.2 + the TOU table
+    (energy_const.py:15-64) read directly: off-peak DOES include daytime (summer 0-14, shoulder 0-17, winter
+    0-5+9-17), so offset==0 (target=TODAY) covers ~17 of ~20 off-peak hours; classify_tomorrow is live-per-tick
+    so the target flips at midnight to the wrong day for the same peak. CONFIRMED. The note §2.2 documents the
+    intended driver as target_day_class (peak-anchored _classify_target_day) — the accessor never adopted it, so
+    the fix aligns code with the documented model. RIGHT-SIZED (operator instinct validated): the drain target is
+    a DISCHARGE FLOOR (§2.2: battery still charges from solar), so during daylight off-peak (~sunrise->14:00) the
+    battery is charging and the floor rarely binds; the real money-impact window is the DARK discharge hours
+    (~00:00->sunrise) on class-disagreement nights where the battery is still discharging — a SUBSET of the probe
+    37%, NOT the full 17h. So: real issue, worth fixing, but modest + concentrated, NOT a dominant-path change.
+    Operator: PROCEED, ensuring all consumers correct at build (the two _threshold_position/_next_action_estimate
+    helpers folded into D3). Fix-up dispatched to ura-planner with the right-sizing + all review findings.'
+  REREVIEW_2026_08_24_4_EDITS_THEN_BUILD: 'Focused re-review: FIX-PLAN-FIRST but only 4 surgical text edits, no
+    re-architecture; all 5 prior flags RESOLVED (offset PROVEN in {0,1} via the TOU walk; TOU hours confirmed;
+    D3 trust-site list COMPLETE — only 5 _get_offpeak_drain_target call sites exist; seam clean). Load-bearing
+    find H-1: _get_offpeak_drain_target (:1722) is a bare dict lookup with NO multi-day max (open-coded twice at
+    accessor :1740 + emitter :5306), so the narration-helper route would return D+1-only and FAIL INV-DTDS-3
+    equality under multi_day_horizon. FIX = one shared _drain_target_for(now) helper all 4 sites call (also
+    collapses the 2 duplicate max copies = real #53 closure). M-1 manual §2.1 DOES contradict the fix (says
+    "tomorrow"), needs 2 one-line edits (authority is §2.2 alone). M-2 offset==1 also covers in-progress high-rate
+    hours, not just 21-24 (harmless, restate). M-3 INV-DTDS-3 falsifiable on non-drain paths — scope to the
+    drain-fallback branch, compare PRE-clamp drain_target, gate live-check on arbitrage n/a + allow_discharge.
+    3 LOWs (widen D grep to package incl inclement.py:432; add :8625/:8638/:8651 mutators to consumer table; stale
+    citations). Reviewer: NO second full review — orchestrator diff-check the 4 edits then build. Micro-fix-up
+    dispatched. NEXT: diff-check -> build (operator said proceed).'
+  PLAN_WRITTEN_2026_08_24: 'Plan written to docs/planning/PLANNING_offpeak_drain_target_day_staleness.md
+    (pure additive helper _resolve_target_day + one accessor signature change with default now=None; no new
+    CONF_/sensor/knob). Tier-3 plan review DISPATCHED (tees it up). Planner CORRECTED this card''s consumer
+    list: energy.py:5831, energy_pool.py:1797/:3203 are DOC/COMMENT mentions NOT runtime calls — real
+    runtime consumers of current_offpeak_drain_target() are energy_battery.py:296, :1773, :6043 + the
+    emitter drain path :5300-5313. Multi-day re-pairing spec: d2_class = classify_solar_day_n(d1_offset+1)
+    (not hardcoded 2); FLAGGED pre-existing limitation that classify_solar_day_n falls back to
+    classify_tomorrow for days_ahead!=2 (d2 collapses to D+1 when offset>=2) — plan-reviewer to adjudicate.'
+  BUILD_PAUSED_PLAN_ONLY_2026_08_24: 'Operator: "pause midnight. Just write the plan and review it and tee it
+    up." So: ura-planner writes the Tier-3 plan (reserve-affecting; the subtle part is the multi-day max(d1,d2)
+    re-pairing once the anchor moves from calendar-tomorrow to _classify_target_day(now)); then ONE Tier-3-style
+    plan review; then STOP — build-ready, awaiting explicit operator go. DECOUPLED from DP (DP reads-only, mirrors
+    emitter). Probe already confirmed BUILD (37%/~10pp/20pp).'
+  links:
+    related: [EVSE-DRAIN-PRECEDENCE-KNOB-80-1]
+    context: 'DECOUPLED from the DP fix (operator 2026-08-24): DP just reads/mirrors the emitter, so it is NOT
+      blocked by this. Superseded the earlier "PREREQUISITE" framing: DP is NOT evening-only — its only
+      gate is off_peak AND dp_on (energy.py:4416), and off-peak crosses midnight (summer 21:00->14:00,
+      winter 21:00->05:00), so DP fires post-midnight too (overnight charge into AM, or post-midnight
+      plug-in). Therefore DP needs the SAME-DAY target after midnight exactly like attain — peak-anchored:
+      tomorrow before midnight, today after. So DP must consume the FIXED (peak-anchored) accessor, NOT the
+      stale calendar-tomorrow one. This SUPERSEDES the earlier "DP consumes the stale accessor to match the
+      emitter, fix later" compromise (which would make DP consistently WRONG after midnight). Sequence:
+      midnight fix FIRST -> DP consumes the corrected accessor -> the day-classification slice of the DP
+      round-2 staleness findings dissolves (accessor is correct by the time DP reads it). Probe (see
+      PROBE_RESULT) confirmed it bites 37% of days / ~10pp / 20pp worst -> BUILD.'
+  PROBE_RESULT_2026_08_24_BITES: 'Probe done (536 days of long-term solcast statistics 2025-03-07..2026-08-24;
+    representative = forecast value nearest 06:00 when post-midnight off-peak decisions run). VERDICT: BITES
+    OFTEN + MATERIALLY. class(D) != class(D+1) on 37.4% of days (200/535 pairs; 36.8% under median-of-day, not
+    a sampling artifact). Drain-target delta among differing days: mean 9.9 / median 10 SOC pts (Δ5:83, Δ10:63,
+    Δ15:27, Δ20:27); worst case 20pp, recurs across seasons (excellent<->poor swings, e.g. 2025-05-01->02 10->30,
+    2025-12-01->02 30->10). Both directions occur: hold-too-much before a sunny day = lost value; drain-too-deep
+    before a poor day = peak grid-import risk. NOT correct-but-low-value — clears the bar for a near-term fix.
+    Fix is low-risk (route the off-peak drain path through existing _classify_target_day(now)) but is a cross-site
+    Bug Class #53 change (accessor + emitter multi-day max(d1,d2)) so it gets normal tier review, not a one-liner.
+    Recommend sequencing BEFORE the DP fix so DP consumes the corrected accessor from the start.'
+  parsimony:
+    problem: After local midnight in a cross-midnight off-peak window, the drain target forecasts a day too far.
+    verdict: BUILD
+  next: 'Scope the plan: thread now into current_offpeak_drain_target(), swap to _classify_target_day at
+    the accessor + the two emitter drain legs, add a cross-midnight test (02:00 off-peak with next peak
+    at 14:00 today -> classifies TODAY not tomorrow). Tier 2-DB (shared strategy primitive).'
+  refs:
+  - energy_battery.py:1738
+  - energy_battery.py:2395
+  - energy_battery.py:5111
+  - docs/planning/PLANNING_dp_drain_target_mis_sourcing.md
+- id: ARBITRAGE-GATE-D2-OFFBYONE-1
+  title: 'Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so at
+    offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing'
+  thread: energy
+  status: planned
+  created: 2026-08-24 19:20
+  updated: 2026-08-24 19:20
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the arbitrage gate decides whether to grid-charge for the coming peak using the correct
+     (peak-anchored) target day for D+1 but a HARDCODED "2 days ahead" for its second day — so when the
+     target day is today (offset 0), it compares today against the day-after-tomorrow and skips the actual
+     next day entirely. Same class of day-mis-pairing bug the off-peak drain fix (DRAIN-TARGET-DAY-STALENESS-1)
+     addresses, on a different decision. Solution: derive the second day relative to the target-day offset
+     (target_offset + 1), mirroring the drain fix.'
+  origin:
+    date: '2026-08-24'
+    gist: found by the midnight-plan review (MED-2) as an analogous off-by-one; declared non-goal of that cycle
+  why: 'Declared out-of-scope for the drain-staleness cycle to keep it surgical, but it is a real analogous
+    defect a framing-D reviewer would otherwise flag mid-cycle. Card it now.'
+  links:
+    related: [DRAIN-TARGET-DAY-STALENESS-1]
+    context: 'Same day-mis-pairing pattern; fix mirrors the drain fix (offset+1 instead of hardcoded 2). Best
+      done after or alongside the drain-staleness cycle so the pattern is settled.'
+  parsimony:
+    problem: At offset 0 the arbitrage gate pairs today with D+2 and skips the actual next day.
+    verdict: BUILD
+  next: Scope after DRAIN-TARGET-DAY-STALENESS-1 lands; mirror its offset+1 derivation. Tier 2-DB (arbitrage decision).
+  refs:
+  - energy_battery.py:2454
+  - energy_battery.py:2871
+  - docs/planning/PLANNING_offpeak_drain_target_day_staleness.md
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

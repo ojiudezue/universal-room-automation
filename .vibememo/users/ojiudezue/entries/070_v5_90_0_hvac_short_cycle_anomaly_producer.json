@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "070",
+  "author": "ojiudezue",
+  "session_id": "claude_20260825_113012_ship_v5_90_0",
+  "timestamp": "2026-08-25T11:30:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.90.0 shipped: HVAC short-cycle anomaly producer",
+  "summary": "The HVAC anomaly detector reported nominal while structurally blind on short_cycle_rate \u2014 it was declared but never produced, so a short-cycling compressor could never raise an anomaly. This wires the producer, closing a real detection gap. D0 probe (recorder-event fidelity) confirmed clean fault separation at minimum_samples=14; ships with the restart-guard, unavailable-guard, and ctor wire-in anchor that the three reviews demanded.",
+  "refs": {
+    "cards": [
+      "HVAC-ANOMALY-BLIND-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.90.0.md"
+    ],
+    "release_notes": "Wires the previously-blind short_cycle_rate metric end to end: event-driven per-zone daily producer (async_track_state_change_event, LOCAL-day, restart-safe counter), per-metric 14-sample maturation gate (minimum_samples_by_metric), scope-aware surfaces, clear_active_anomalies_filtered, and de-suppression so a fire reaches worst-severity and NM. Tier-2-DB, 3 framing-disjoint reviews + consolidated fix-up (clear-before-record, unavailable/unknown guard, callback double-emit removed, ctor wire-in mutation-anchored). 0 new suite regressions vs the 61 baseline."
+  }
+}
