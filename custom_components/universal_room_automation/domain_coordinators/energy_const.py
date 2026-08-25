@@ -909,6 +909,33 @@ CONF_ENERGY_GRID_EXPORT_ENTITY: Final = "energy_grid_export_entity"
 # v4.2.17: Utility company net energy meter (SmartHub, etc.)
 CONF_ENERGY_UTILITY_METER_ENTITY: Final = "energy_utility_meter_entity"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# EVSE solar-following amp modulation (SolarFollowController, D1)
+# See docs/planning/PLANNING_evse_solar_follow_amps.md §8.
+# ─────────────────────────────────────────────────────────────────────────────
+# Amp bounds — safety-derived; changes MUST require code review.
+SOLAR_FOLLOW_MIN_AMPS: Final[int] = 6            # J1772 pilot floor
+SOLAR_FOLLOW_MAX_AMPS: Final[int] = 48           # DERIVED: 80% of 60A branch — DO NOT RAISE
+SOLAR_FOLLOW_RESTORE_AMPS: Final[int] = 48       # capture-rejection + boot-backstop restore value
+SOLAR_FOLLOW_PHASES: Final[int] = 1              # single-phase 240 V
+SOLAR_FOLLOW_CAPTURE_SANITY_A: Final[int] = 20   # below this at capture time → use RESTORE_AMPS
+SOLAR_FOLLOW_DEADBAND_A: Final[int] = 1
+SOLAR_FOLLOW_UP_STEP_A: Final[int] = 4
+SOLAR_FOLLOW_UP_MIN_TICKS: Final[int] = 3        # default for Number override; §5.10
+SOLAR_FOLLOW_TICK_S: Final[int] = 60
+SOLAR_FOLLOW_VERIFY_S: Final[int] = 8            # readback delay via async_call_later
+SOLAR_FOLLOW_MAX_WRITES_PER_HOUR: Final[int] = 60
+SOLAR_FOLLOW_STALE_GRACE_S: Final[int] = 300     # blind grace before WARNING
+SOLAR_FOLLOW_BLIND_EXIT_S: Final[int] = 900      # restore-and-quiet after prolonged blind
+SOLAR_POWER_FRESH_S: Final[int] = 180            # per-EVSE power reading freshness (uses last_updated)
+SOLAR_FOLLOW_GRID_FRESH_S: Final[int] = 300      # grid source freshness (uses last_reported — INV-SF-10)
+
+# Grid entities for solar-follow (deliberately NOT reusing CONF_ENERGY_GRID_IMPORT_ENTITY).
+CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY: Final = "energy_solar_follow_grid_entity"
+CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "energy_solar_follow_grid_fallback_entity"
+DEFAULT_SOLAR_FOLLOW_GRID_ENTITY: Final = "sensor.mains_vue_3_power_minute_average"
+DEFAULT_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "sensor.envoy_482543015950_current_net_power_consumption"
+
 # Load shedding defaults
 DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0
 DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES: Final = 15

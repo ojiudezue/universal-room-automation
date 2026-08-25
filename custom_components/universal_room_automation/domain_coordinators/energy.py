@@ -489,6 +489,32 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._grid_import_entity: str | None = ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY)
         self._utility_meter_entity: str | None = ec.get(CONF_ENERGY_UTILITY_METER_ENTITY)
+
+        # SolarFollowController D1 — construct AFTER the grid entity block so
+        # ec.get(...) has run (§5 institutional-context note: constructing at
+        # __init__ line 293 would silently pass None for both grid entities).
+        from .energy_const import (
+            CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY,
+            CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
+            DEFAULT_SOLAR_FOLLOW_GRID_ENTITY,
+            DEFAULT_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
+        )
+        from .energy_pool import SolarFollowController
+        self._solar_follow = SolarFollowController(
+            hass,
+            self,
+            self._ev,
+            None,  # db attached in _setup_coordinator; timer registered there too
+            ec.get(
+                CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY,
+                DEFAULT_SOLAR_FOLLOW_GRID_ENTITY,
+            ),
+            ec.get(
+                CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
+                DEFAULT_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
+            ),
+        )
+        self._solar_follow_timer_unsub = None
         self._billing = CostTracker(
             hass, self._tou,
             net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
@@ -978,6 +1004,18 @@ class EnergyCoordinator(BaseCoordinator):
         # Timer managed separately via _decision_timer_unsub — do NOT add to
         # _unsub_listeners to avoid double-unsubscribe in async_teardown
 
+        # SolarFollowController D1 — register the 60s modulation tick AFTER
+        # _restore_all_sequential has hydrated _original_amps/_touched, and
+        # store the unsub separately (same discipline as _decision_timer_unsub)
+        # so async_teardown cancels it before verify handles are cancelled.
+        if self._solar_follow is not None:
+            from .energy_const import SOLAR_FOLLOW_TICK_S
+            self._solar_follow_timer_unsub = async_track_time_interval(
+                self.hass,
+                self._solar_follow._tick,  # noqa: SLF001 — wire-in call site
+                timedelta(seconds=SOLAR_FOLLOW_TICK_S),
+            )
+
         # v3.22.0 D2: Subscribe to safety hazard signals
         self._unsub_listeners.append(
             async_dispatcher_connect(
@@ -1249,6 +1287,24 @@ class EnergyCoordinator(BaseCoordinator):
         await self._restore_midnight_snapshot()
         await self._restore_envoy_cache()
         await self._restore_load_shedding_level()
+        await self._restore_solar_follow_state()
+
+    async def _restore_solar_follow_state(self) -> None:
+        """SolarFollowController D1.7 restore — MUST run before the timer
+        registers so the first tick observes the persisted _original_amps
+        and _touched blobs (INV-SF-3, D1.6 backstop).
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if self._solar_follow is None:
+            return
+        # Attach db so _persist can write on mutation, then restore.
+        self._solar_follow._db = db  # noqa: SLF001
+        try:
+            await self._solar_follow.async_restore()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "solar-follow restore raised (swallowed)", exc_info=True,
+            )
 
     async def _restore_cycle_from_db(self, now) -> None:
         """Restore billing cycle totals from DB on startup."""
@@ -8598,6 +8654,23 @@ class EnergyCoordinator(BaseCoordinator):
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
+        # SolarFollowController D1 — cancel the modulation timer + any
+        # outstanding async_call_later verify handles (Bug Class #38).
+        if self._solar_follow_timer_unsub is not None:
+            try:
+                self._solar_follow_timer_unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "solar-follow timer unsub raised (swallowed)", exc_info=True,
+                )
+            self._solar_follow_timer_unsub = None
+        if self._solar_follow is not None:
+            try:
+                self._solar_follow.cancel_all()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "solar-follow cancel_all raised (swallowed)", exc_info=True,
+                )
         # v5.17.3 D1: cancel the anticipatory TOU-boundary listener too.
         # Stored separately from `_unsub_listeners` (mirrors the periodic
         # timer pattern) so re-setup after teardown can re-arm cleanly.
@@ -8751,6 +8824,28 @@ class EnergyCoordinator(BaseCoordinator):
         self._battery._drain_targets[quality] = value
         _LOGGER.info("Off-peak drain %s set to %d%%", quality, value)
         self._check_threshold_ladder()
+
+    def set_solar_follow_confirm(self, value: int) -> None:
+        """Update SolarFollowController up-min-ticks knob (D1.10).
+
+        Mirrors ``set_offpeak_drain``: writes the live attr on the
+        controller so the next tick observes the new value. No-op safely
+        when the controller is absent (feature dormant / test harness).
+        """
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            _LOGGER.warning("Invalid solar-follow confirm value %r", value)
+            return
+        if v < 1 or v > 10:
+            _LOGGER.warning(
+                "solar-follow confirm out of range 1-10: %d — clamping", v,
+            )
+            v = max(1, min(10, v))
+        if self._solar_follow is None:
+            return
+        self._solar_follow._up_min_ticks = v  # noqa: SLF001
+        _LOGGER.info("Excess Solar Confirm set to %d ticks", v)
 
     @property
     def arbitrage_target(self) -> int:
@@ -9144,10 +9239,20 @@ class EnergyCoordinator(BaseCoordinator):
             )
         except Exception:  # pragma: no cover — defensive
             plug_status = {}
-        return self._ev.get_status(
+        status = self._ev.get_status(
             fill_priority_target_soc=self._fill_priority_soc,
             plug_status=plug_status,
         )
+        # SolarFollowController D1 §6 — merge modulation attrs (read-only,
+        # no DP or peer state consulted; derived solely from D1's own state).
+        try:
+            if self._solar_follow is not None:
+                status.update(self._solar_follow.get_status())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "solar-follow get_status raised (swallowed)", exc_info=True,
+            )
+        return status
 
     # E3 accessors
     @property

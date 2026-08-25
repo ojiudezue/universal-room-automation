@@ -172,6 +172,8 @@ DEFAULT_EVSE_ENTITIES = {
         "energy_today": "sensor.garage_a_energy_today",
         "energy_month": "sensor.garage_a_energy_this_month",
         "span_breaker": "switch.span_panel_car_charger_breaker",
+        # SolarFollowController D1 §5.5 — Emporia current-limit Number.
+        "current_limit": "number.garage_a_evse_emporia_wifi_garagea_current_limit",
     },
     "garage_b": {
         "switch": "switch.garage_b",
@@ -179,6 +181,7 @@ DEFAULT_EVSE_ENTITIES = {
         "energy_today": "sensor.garage_b_energy_today",
         "energy_month": "sensor.garage_b_energy_this_month",
         "span_breaker": "switch.span_panel_garage_b_evse_breaker",
+        "current_limit": "number.garage_b_evse_emporia_wifi_garageb_current_limit",
     },
 }
 
@@ -3673,4 +3676,540 @@ class SmartPlugController:
             "pause_reason_human": pause_reason_human,
             "evse_config": evse_config,
             "pause_dispatch_state": pause_dispatch_state,
+        }
+
+
+# ============================================================================
+# SolarFollowController (D1) — EVSE amp modulation per measured export
+# See docs/planning/PLANNING_evse_solar_follow_amps.md.
+# ============================================================================
+
+import json as _sf_json  # noqa: E402
+import time as _sf_time  # noqa: E402
+
+from .energy_const import (  # noqa: E402
+    SOLAR_FOLLOW_MIN_AMPS,
+    SOLAR_FOLLOW_MAX_AMPS,
+    SOLAR_FOLLOW_RESTORE_AMPS,
+    SOLAR_FOLLOW_PHASES,
+    SOLAR_FOLLOW_CAPTURE_SANITY_A,
+    SOLAR_FOLLOW_DEADBAND_A,
+    SOLAR_FOLLOW_UP_STEP_A,
+    SOLAR_FOLLOW_UP_MIN_TICKS,
+    SOLAR_FOLLOW_TICK_S,
+    SOLAR_FOLLOW_VERIFY_S,
+    SOLAR_FOLLOW_MAX_WRITES_PER_HOUR,
+    SOLAR_FOLLOW_STALE_GRACE_S,
+    SOLAR_FOLLOW_BLIND_EXIT_S,
+    SOLAR_POWER_FRESH_S,
+    SOLAR_FOLLOW_GRID_FRESH_S,
+    CONF_ENERGY_SOLAR_NAMEPLATE_W,
+    DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
+    DP_L1_RATE_THRESHOLD_KW,
+)
+
+
+_KV_ORIGINAL_AMPS = "solar_follow_original_amps_v1"
+_KV_TOUCHED = "solar_follow_touched_v1"
+
+
+class SolarFollowController:
+    """Modulate EVSE current limits to track measured solar export.
+
+    Scope: amp modulation ONLY inside an active excess-solar session.
+    Session start/stop is owned by ``EVChargerController.determine_excess_solar_actions``.
+    See planning doc §4 for the falsifiable invariants (INV-SF-1..10) and §5
+    for the per-tick control law.
+    """
+
+    def __init__(
+        self,
+        hass,
+        coord,
+        ev,
+        db,
+        grid_primary_entity,
+        grid_fallback_entity,
+    ):
+        self.hass = hass
+        self._coord = coord
+        self._ev = ev
+        self._db = db
+        self._grid_primary = grid_primary_entity
+        self._grid_fallback = grid_fallback_entity
+        self._up_min_ticks = SOLAR_FOLLOW_UP_MIN_TICKS
+        self._original_amps = {}
+        self._up_streak = {}
+        self._writes = {}
+        self._last_commanded = {}
+        self._pending_verify = {}
+        self._blind_since = None
+        self._was_enabled = True
+        self._touched = set()
+        self._entity_warned = set()
+        self._last_surplus_kw = None
+        self._last_grid_source = "unknown"
+        self._last_state = {}
+        self._did_boot_reconcile = True
+
+    # -- helpers (§5.1) --------------------------------------------------
+    def _limit_entity(self, evse_id):
+        cfg = self._ev._evse.get(evse_id, {})  # noqa: SLF001
+        ent = cfg.get("current_limit")
+        if not ent:
+            if evse_id not in self._entity_warned:
+                _LOGGER.warning(
+                    "solar-follow: EVSE %s has no current_limit entity", evse_id,
+                )
+                self._entity_warned.add(evse_id)
+            return None
+        return ent
+
+    def _read_amps(self, entity):
+        st = self.hass.states.get(entity)
+        if st is None or st.state in ("unknown", "unavailable", None):
+            return None
+        try:
+            return float(st.state)
+        except (ValueError, TypeError):
+            return None
+
+    async def _write_amps(self, entity, amps):
+        await self.hass.services.async_call(
+            "number", "set_value",
+            {"entity_id": entity, "value": float(int(amps))},
+            blocking=False,
+        )
+
+    def _budget_allows(self, evse_id):
+        now = _sf_time.monotonic()
+        stamps = self._writes.setdefault(evse_id, [])
+        cutoff = now - 3600.0
+        stamps[:] = [s for s in stamps if s >= cutoff]
+        return len(stamps) < SOLAR_FOLLOW_MAX_WRITES_PER_HOUR
+
+    def _stamp_write(self, evse_id):
+        self._writes.setdefault(evse_id, []).append(_sf_time.monotonic())
+
+    def _nameplate_w(self):
+        cfg = getattr(self._coord, "_entity_config", None) or {}
+        try:
+            raw = cfg.get(CONF_ENERGY_SOLAR_NAMEPLATE_W)
+            if raw is None:
+                return float(DEFAULT_ENERGY_SOLAR_NAMEPLATE_W)
+            return float(raw)
+        except (TypeError, ValueError):
+            return float(DEFAULT_ENERGY_SOLAR_NAMEPLATE_W)
+
+    # -- grid read (§5.3) — INV-SF-10 last_reported gate --------------
+    def _read_grid_watts(self):
+        primary = self._read_one_grid(self._grid_primary)
+        if primary[0] is not None:
+            return (primary[0], "primary")
+        fallback = self._read_one_grid(self._grid_fallback)
+        if fallback[0] is not None:
+            if primary[1] == "stale":
+                return (fallback[0], "primary_stale->fallback")
+            return (fallback[0], "fallback")
+        if primary[1] == "stale" or fallback[1] == "stale":
+            return (None, "stale")
+        return (None, "blind")
+
+    def _read_one_grid(self, entity):
+        if not entity:
+            return (None, "absent")
+        try:
+            st = self.hass.states.get(entity)
+        except Exception:  # noqa: BLE001
+            return (None, "unavailable")
+        if st is None or st.state in ("unknown", "unavailable", None):
+            return (None, "unavailable")
+        uom = ""
+        try:
+            uom = (st.attributes or {}).get("unit_of_measurement", "") or ""
+        except Exception:  # noqa: BLE001
+            uom = ""
+        try:
+            value = float(st.state)
+        except (ValueError, TypeError):
+            return (None, "non_numeric")
+        if uom in ("W", "", None):
+            watts = value
+        elif uom in ("kW", "kw"):
+            watts = value * 1000.0
+        else:
+            return (None, "bad_unit")
+        # INV-SF-10: last_reported freshness.
+        try:
+            lr = getattr(st, "last_reported", None)
+            if lr is None:
+                # No last_reported on the state object → treat as stale so a
+                # sensor lacking the freshness signal cannot silently size draw.
+                return (None, "stale")
+            from datetime import datetime as _dt, timezone as _tz
+            now_utc = _dt.now(_tz.utc)
+            lr_cmp = lr if getattr(lr, "tzinfo", None) else lr.replace(tzinfo=_tz.utc)
+            age = (now_utc - lr_cmp).total_seconds()
+            if age > SOLAR_FOLLOW_GRID_FRESH_S:
+                return (None, "stale")
+        except Exception:  # noqa: BLE001
+            return (None, "stale")
+        return (watts, "")
+
+    # -- restore pass (§5.2 step 1) ------------------------------------
+    async def _restore_pass(self):
+        if not self._original_amps:
+            return
+        mutated = False
+        for evse_id in list(self._original_amps):
+            try:
+                if self._ev._stronger_peer_holds(evse_id) or evse_id in self._ev._paused_by_dp:  # noqa: SLF001
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            if evse_id in self._ev._excess_solar_active:  # noqa: SLF001
+                continue
+            entity = self._limit_entity(evse_id)
+            saved = self._original_amps.pop(evse_id, None)
+            mutated = True
+            if entity is None or saved is None:
+                continue
+            try:
+                await self._write_amps(entity, saved)
+                self._last_commanded[evse_id] = float(saved)
+                self._last_state[evse_id] = "restored"
+                _LOGGER.info(
+                    "solar-follow: restored %s current_limit → %s A",
+                    evse_id, int(saved),
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("solar-follow restore write raised", exc_info=True)
+        if mutated:
+            await self._persist()
+
+    # -- persistence (§5.7) -------------------------------------------
+    async def _persist(self):
+        if self._db is None:
+            return
+        try:
+            await self._db.save_energy_state(
+                _KV_ORIGINAL_AMPS,
+                _sf_json.dumps({k: float(v) for k, v in self._original_amps.items()}),
+            )
+            await self._db.save_energy_state(
+                _KV_TOUCHED, _sf_json.dumps(sorted(self._touched)),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("solar-follow persist raised", exc_info=True)
+
+    async def async_restore(self):
+        """Restore persisted state at boot (BEFORE the timer registers)."""
+        if self._db is None:
+            self._did_boot_reconcile = False
+            return
+        try:
+            raw = await self._db.restore_energy_state_with_age(
+                _KV_ORIGINAL_AMPS, max_age_hours=10,
+            )
+            if raw:
+                try:
+                    payload = _sf_json.loads(raw)
+                except (ValueError, TypeError):
+                    payload = None
+                if isinstance(payload, dict):
+                    self._original_amps = {
+                        str(k): float(v) for k, v in payload.items()
+                    }
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("solar-follow original_amps restore raised", exc_info=True)
+        try:
+            raw = await self._db.restore_energy_state_with_age(
+                _KV_TOUCHED, max_age_hours=None,
+            )
+            if raw:
+                try:
+                    ids = _sf_json.loads(raw)
+                except (ValueError, TypeError):
+                    ids = None
+                if isinstance(ids, list):
+                    self._touched = {str(x) for x in ids}
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("solar-follow touched restore raised", exc_info=True)
+        self._did_boot_reconcile = False
+
+    # -- write-verify (§5.8) ------------------------------------------
+    def _schedule_verify(self, evse_id, entity, commanded):
+        from homeassistant.helpers.event import async_call_later
+
+        async def _delayed(_now):
+            self._pending_verify.pop(evse_id, None)
+            try:
+                observed = self._read_amps(entity)
+                if observed is not None and abs(observed - commanded) >= 1:
+                    _LOGGER.warning(
+                        "solar-follow: %s verify mismatch cmd=%s obs=%s",
+                        evse_id, commanded, observed,
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("solar-follow verify raised", exc_info=True)
+
+        prev = self._pending_verify.pop(evse_id, None)
+        if prev is not None:
+            try:
+                prev()
+            except Exception:  # noqa: BLE001
+                pass
+        self._pending_verify[evse_id] = async_call_later(
+            self.hass, SOLAR_FOLLOW_VERIFY_S, _delayed,
+        )
+
+    def cancel_all(self):
+        """Cancel all outstanding verify handles (EC teardown path)."""
+        for evse_id, handle in list(self._pending_verify.items()):
+            try:
+                handle()
+            except Exception:  # noqa: BLE001
+                pass
+            self._pending_verify.pop(evse_id, None)
+
+    # -- per-tick control law (§5.2) ---------------------------------
+    async def _tick(self, _now=None):
+        # 0. GATING (INV-SF-9) + SELF-PRUNE.
+        try:
+            enabled = (
+                self._coord._excess_solar_enabled  # noqa: SLF001
+                and not self._coord._observation_mode  # noqa: SLF001
+            )
+        except Exception:  # noqa: BLE001
+            enabled = False
+        if not enabled:
+            if self._was_enabled:
+                await self._restore_pass()
+                self._was_enabled = False
+            return
+        self._was_enabled = True
+
+        try:
+            known = set(self._ev._evse)  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            known = set()
+        for d in (self._original_amps, self._up_streak, self._writes,
+                  self._last_commanded, self._pending_verify, self._last_state):
+            for gone in [k for k in d if k not in known]:
+                d.pop(gone, None)
+        self._touched &= known
+
+        if not self._did_boot_reconcile:
+            await self._boot_reconcile()
+            self._did_boot_reconcile = True
+
+        try:
+            active = self._ev._excess_solar_active  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            active = set()
+        if not active and not self._original_amps:
+            return
+
+        # 1. RESTORE.
+        await self._restore_pass()
+
+        # 2. GRID READ.
+        grid_w, source = self._read_grid_watts()
+        self._last_grid_source = source
+        if grid_w is None:
+            await self._handle_blind()
+            return
+        if self._blind_since is not None:
+            _LOGGER.info("solar-follow: grid source recovered (%s)", source)
+            self._blind_since = None
+
+        # 3. ELIGIBLE / DRAWING / STALE_POWER (INV-SF-4).
+        eligible = []
+        drawing = []
+        stale_power = set()
+        for evse_id in list(active):
+            try:
+                if self._ev._stronger_peer_holds(evse_id) or evse_id in self._ev._paused_by_dp:  # noqa: SLF001
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            try:
+                state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                continue
+            if state.get("power_source") != "sensor":
+                continue
+            power_ent = self._ev._evse.get(evse_id, {}).get("power")  # noqa: SLF001
+            if not power_ent:
+                continue
+            pst = self.hass.states.get(power_ent)
+            if pst is None or pst.state in ("unknown", "unavailable", None):
+                continue
+            try:
+                float(pst.state)
+            except (ValueError, TypeError):
+                continue
+            eligible.append(evse_id)
+            if state.get("charging"):
+                try:
+                    from datetime import datetime as _dt, timezone as _tz
+                    lu = getattr(pst, "last_updated", None)
+                    if lu is None:
+                        drawing.append(evse_id)
+                    else:
+                        now_utc = _dt.now(_tz.utc)
+                        lu_cmp = lu if getattr(lu, "tzinfo", None) else lu.replace(tzinfo=_tz.utc)
+                        age = (now_utc - lu_cmp).total_seconds()
+                        if age <= SOLAR_POWER_FRESH_S:
+                            drawing.append(evse_id)
+                        else:
+                            stale_power.add(evse_id)
+                except Exception:  # noqa: BLE001
+                    drawing.append(evse_id)
+
+        # 4. S_eligible + nameplate sanity clamp.
+        add_back = 0.0
+        for eid in drawing:
+            try:
+                add_back += float(self._ev._get_evse_state(eid).get("power", 0.0))  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                pass
+        s_eligible = -float(grid_w) + add_back
+        nameplate = self._nameplate_w()
+        if nameplate and s_eligible > nameplate * 1.15:
+            _LOGGER.warning(
+                "solar-follow: implausible surplus %.0fW > 1.15*nameplate", s_eligible,
+            )
+            self._last_surplus_kw = None
+            await self._handle_blind()
+            return
+        self._last_surplus_kw = s_eligible / 1000.0
+
+        # 5. ALLOCATE — parked-floor NET first (INV-SF-4).
+        n_eligible = len(eligible)
+        n_drawing = len(drawing)
+        parked_w = (n_eligible - n_drawing) * SOLAR_FOLLOW_MIN_AMPS * 240
+        allocatable_w = max(0.0, s_eligible - parked_w)
+        a_total = int(allocatable_w // (240 * SOLAR_FOLLOW_PHASES))
+        n_denom = max(1, n_drawing)
+        raw = a_total // n_denom
+        a_per_drawing = max(SOLAR_FOLLOW_MIN_AMPS, min(SOLAR_FOLLOW_MAX_AMPS, raw))
+
+        # 6. PER-EVSE WRITE.
+        for evse_id in eligible:
+            entity = self._limit_entity(evse_id)
+            if entity is None:
+                continue
+            a_current = self._read_amps(entity)
+            if a_current is None:
+                self._up_streak[evse_id] = 0
+                continue
+            if evse_id not in self._original_amps:
+                if a_current >= SOLAR_FOLLOW_CAPTURE_SANITY_A:
+                    self._original_amps[evse_id] = float(a_current)
+                else:
+                    _LOGGER.warning(
+                        "solar-follow: capture %s reads %.0fA < sanity; "
+                        "capturing RESTORE=%d",
+                        evse_id, a_current, SOLAR_FOLLOW_RESTORE_AMPS,
+                    )
+                    self._original_amps[evse_id] = float(SOLAR_FOLLOW_RESTORE_AMPS)
+                self._touched.add(evse_id)
+                await self._persist()
+            if evse_id in stale_power:
+                self._last_state[evse_id] = "hold_stale"
+                continue
+            if evse_id in drawing:
+                a_target = a_per_drawing
+            else:
+                a_target = SOLAR_FOLLOW_MIN_AMPS
+            if a_target > a_current:  # INV-SF-5 up-gate.
+                self._up_streak[evse_id] = self._up_streak.get(evse_id, 0) + 1
+                if self._up_streak[evse_id] < self._up_min_ticks:
+                    self._last_state[evse_id] = "up_gated"
+                    continue
+                a_target = min(a_target, a_current + SOLAR_FOLLOW_UP_STEP_A)
+            else:
+                self._up_streak[evse_id] = 0
+            if abs(a_target - a_current) < SOLAR_FOLLOW_DEADBAND_A:
+                self._last_state[evse_id] = "deadband"
+                continue
+            if not self._budget_allows(evse_id):
+                self._last_state[evse_id] = "budget"
+                continue
+            try:
+                if self._ev._stronger_peer_holds(evse_id) or evse_id in self._ev._paused_by_dp:  # noqa: SLF001
+                    self._last_state[evse_id] = "yielded"
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            try:
+                await self._write_amps(entity, a_target)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("solar-follow write raised", exc_info=True)
+                continue
+            self._stamp_write(evse_id)
+            self._last_commanded[evse_id] = float(a_target)
+            self._last_state[evse_id] = "writing"
+            self._schedule_verify(evse_id, entity, a_target)
+
+    async def _handle_blind(self):
+        now = _sf_time.monotonic()
+        if self._blind_since is None:
+            self._blind_since = now
+            return
+        elapsed = now - self._blind_since
+        if elapsed >= SOLAR_FOLLOW_BLIND_EXIT_S:
+            _LOGGER.warning(
+                "solar-follow: %ds blind — restore + quiet", int(elapsed),
+            )
+            await self._restore_pass()
+        elif elapsed >= SOLAR_FOLLOW_STALE_GRACE_S:
+            _LOGGER.warning("solar-follow: blind for %ds", int(elapsed))
+        for eid in list(self._last_state):
+            self._last_state[eid] = "blind"
+
+    async def _boot_reconcile(self):
+        """D1.6 un-throttle backstop."""
+        try:
+            active = self._ev._excess_solar_active  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            active = set()
+        for evse_id in list(self._touched):
+            if evse_id in active:
+                continue
+            entity = self._limit_entity(evse_id)
+            if entity is None:
+                self._touched.discard(evse_id)
+                continue
+            a = self._read_amps(entity)
+            if a is None:
+                continue
+            if a < SOLAR_FOLLOW_CAPTURE_SANITY_A:
+                try:
+                    await self._write_amps(entity, SOLAR_FOLLOW_RESTORE_AMPS)
+                    self._last_commanded[evse_id] = float(SOLAR_FOLLOW_RESTORE_AMPS)
+                    _LOGGER.info(
+                        "solar-follow boot-reconcile: %s %.0fA < %d → %d",
+                        evse_id, a, SOLAR_FOLLOW_CAPTURE_SANITY_A,
+                        SOLAR_FOLLOW_RESTORE_AMPS,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("solar-follow boot-reconcile write raised", exc_info=True)
+            self._touched.discard(evse_id)
+        await self._persist()
+
+    # -- observability (§6) -------------------------------------------
+    def get_status(self):
+        below_dp = any(
+            a * 240 * SOLAR_FOLLOW_PHASES <= DP_L1_RATE_THRESHOLD_KW * 1000
+            for a in self._last_commanded.values()
+        )
+        return {
+            "solar_follow_surplus_kw": self._last_surplus_kw,
+            "solar_follow_original_amps": dict(self._original_amps),
+            "solar_follow_state": dict(self._last_state),
+            "solar_follow_blind_since": self._blind_since,
+            "solar_follow_grid_source": self._last_grid_source,
+            "solar_follow_below_dp_l1_threshold": bool(below_dp),
         }

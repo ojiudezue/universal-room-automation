@@ -149,6 +149,11 @@ class MockState:
         self.attributes = attributes or {}
         self.last_changed = last_changed or datetime.now()
         self.last_updated = last_changed or datetime.now()
+        # SolarFollowController INV-SF-10 grid freshness gate reads
+        # `last_reported` (minute-averages re-emit unchanged values, so
+        # `last_updated` would false-trip on a stable house). Default to the
+        # same wall clock as `last_updated`; tests override via a keyword.
+        self.last_reported = last_changed or datetime.now()
 
 
 class MockHass:

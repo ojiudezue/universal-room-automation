@@ -3765,6 +3765,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GRID_IMPORT_ENTITY,
             CONF_ENERGY_GRID_EXPORT_ENTITY,
             CONF_ENERGY_UTILITY_METER_ENTITY,
+            CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY,
+            CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
             # v5.21.0 fix-up (operator scope change 2026-07-17) — BAEC folded
             # into this step as `baec` + `baec_advanced` sections.
             CONF_ENERGY_DP_ENABLE,
@@ -4547,6 +4549,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 description={"suggested_value": self._get_current(CONF_ENERGY_UTILITY_METER_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy")
+            ),
+            # SolarFollowController D1 §5.3 — grid signal for EVSE amp modulation.
+            # PRIMARY = Emporia mains (W, negative=export); FALLBACK = Envoy net
+            # (kW, negative=export). Unit + freshness (`last_reported`) guarded
+            # inside the controller — see energy_pool.SolarFollowController.
+            vol.Optional(
+                CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),
             # Note: energy anomaly sensitivity dropdown removed (v4.6.3 C7 fix).
             # The energy coordinator uses cross-check anomaly detection (a distinct
