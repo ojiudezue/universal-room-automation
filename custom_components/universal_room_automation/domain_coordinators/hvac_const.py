@@ -991,25 +991,53 @@ HVAC_METRICS: Final = [
 #   ADVISORY would fire routinely. Same shape family as the suppressed
 #   census_count (v4.6.3.3). record_observation is still called so the
 #   per-coordinator anomaly sensor keeps counting; only persistence is gated.
-# - short_cycle_rate / comfort_deviation_hours: defined in HVAC_METRICS but
-#   no record_observation call site exists — they are silent slots.
-#   Documented per v4.6.3.1 doctrine: silent metrics must be explicitly
-#   listed rather than silently absent.
+# - comfort_deviation_hours: defined in HVAC_METRICS but no
+#   record_observation call site exists — silent slot. Documented per
+#   v4.6.3.1 doctrine: silent metrics must be explicitly listed rather
+#   than silently absent.
+# - short_cycle_rate: HVAC-ANOMALY-BLIND-1 D2 wired it as an event-driven
+#   per-zone daily observation (see hvac.py `_emit_and_reset_short_cycles`)
+#   and removed it from this frozenset. Kept out of this comment's silent
+#   list to reflect the new reality.
 #
 # v4.7.8 fix-up C-M1: egress_pause_frequency is reserved per v4.6.3.1 P2
 # doctrine — silent metrics MUST be explicitly listed rather than absent.
 # Not yet wired (no record_observation call site exists). Will be wired in
 # a follow-up cycle once a baseline is available (≥ HVAC_ANOMALY_MIN_SAMPLES
 # observations / ~14 days). Deferred per plan §13.
+# HVAC-ANOMALY-BLIND-1 D2: short_cycle_rate is now WIRED (per-zone daily
+# count, event-driven producer) and its per-day cardinality is well-
+# conditioned (measured std 0.78-1.71 across 7-8 days of live data — see
+# PLANNING_hvac_short_cycle_producer.md §Design Decision). It ships
+# PERSISTED — removed from the suppression frozenset — because its shape is
+# nothing like the degenerate zone_call_frequency mean=0.378 that motivated
+# the original v4.6.5 suppression. Worst-case anomaly_log write rate is
+# 3 rows/day (one per zone); typical is zero.
 HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
     "zone_call_frequency",
-    "short_cycle_rate",
     "comfort_deviation_hours",
     "egress_pause_frequency",
 })
 
 # Minimum samples before anomaly detection activates (14 days * 24/day)
 HVAC_ANOMALY_MIN_SAMPLES: Final = 336
+
+# HVAC-ANOMALY-BLIND-1 D2: per-metric override for short_cycle_rate.
+# Sampling cadence is 1 observation / day / zone (fired at local-day
+# rollover). With HVAC_ANOMALY_MIN_SAMPLES=336 the maturation gate would
+# be 336 DAYS, so we override to 14 days — matching the probe window that
+# established the fixture (per-zone std 0.78-1.71). See planning doc
+# §Design Decision. Knob ladder rung: module constant (safety-adjacent
+# tuning; changing the maturation window should require code review).
+HVAC_SHORT_CYCLE_MIN_SAMPLES: Final = 14
+
+# HVAC-ANOMALY-BLIND-1 D2: sub-cycle threshold — an on-cycle whose
+# duration (idle→active→idle) is under this many seconds counts as a
+# "short cycle". Rung: module constant (compressor-short-cycling
+# protection semantics; retuning should require review). Picked at 10 min
+# against measured medians ~20-22m and sub-5min share 2.7-4.8%; 10-min
+# threshold captures the 5-min band a shorter knob would miss.
+SHORT_CYCLE_THRESHOLD_S: Final = 600
 
 # ============================================================================
 # Dispatcher signal for HVAC entity updates

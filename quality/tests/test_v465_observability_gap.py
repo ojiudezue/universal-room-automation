@@ -170,9 +170,17 @@ def test_hvac_metrics_silent_metrics_suppressed():
         "D1: hvac_const.py must define HVAC_SUPPRESSED_FROM_PERSISTENCE for silent metrics"
     )
     suppressed = _parse_list_literal(const_src, "HVAC_SUPPRESSED_FROM_PERSISTENCE")
-    assert "short_cycle_rate" in suppressed, (
-        "D1: short_cycle_rate must appear in HVAC_SUPPRESSED_FROM_PERSISTENCE "
-        "— it has no record_observation call site"
+    # HVAC-ANOMALY-BLIND-1 D2: short_cycle_rate is now WIRED (event-driven
+    # per-zone daily producer in hvac.py) and REMOVED from the suppressed
+    # set — its per-day cardinality is well-conditioned (measured std
+    # 0.78-1.71). The forward-compatible `test_every_metric_is_wired_or_suppressed`
+    # holds the invariant that every HVAC_METRICS entry is EITHER wired OR
+    # suppressed, so removing the assertion for a now-wired metric here
+    # does not weaken coverage.
+    assert "short_cycle_rate" not in suppressed, (
+        "HVAC-ANOMALY-BLIND-1 D2: short_cycle_rate is now wired via an "
+        "event-driven per-zone daily producer and must NOT be in "
+        "HVAC_SUPPRESSED_FROM_PERSISTENCE."
     )
     assert "comfort_deviation_hours" in suppressed, (
         "D1: comfort_deviation_hours must appear in HVAC_SUPPRESSED_FROM_PERSISTENCE "
