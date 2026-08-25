@@ -482,6 +482,15 @@ class BatteryStrategy:
         )
         self._arbitrage_active = False
 
+        # dp-drain-target-value-stamp — cross-tick VALUE STAMP consumed by
+        # EnergyCoordinator DP tick. Stamped only inside determine_mode's
+        # off_peak drain-fallback branch (post partial_hold clamp). Reset
+        # to None as the FIRST executable statement of determine_mode so
+        # any tick that does NOT reach the drain-fallback returns leaves
+        # a None value — DP consumers then decline / release rather than
+        # re-using a prior tick's value (D2-HIGH-1 inter-tick refill guard).
+        self._offpeak_drain_branch_target: int | None = None
+
         # v4.5.0 D1: phased state machine. WAIT/CHARGE/HOLD apply within
         # the off-peak chunk leading into the next high-rate transition.
         # DISCHARGE is the existing peak/mid_peak path. Phase resets to
@@ -4619,6 +4628,14 @@ class BatteryStrategy:
         Returns dict with: mode, reason, actions (list of service calls to make).
         v4.5.0 also includes `arbitrage_phase`, `target_day_class` keys.
         """
+        # dp-drain-target-value-stamp — ENTRY-RESET. FIRST executable
+        # statement of determine_mode. Clears any prior tick's off_peak
+        # drain-branch stamp so DP consumers see a fresh value only if
+        # THIS tick's off_peak drain-fallback branch re-stamps it (see
+        # end of the off_peak branch below). determine_mode has NO await
+        # in its body, so this reset is synchronous-airtight across all
+        # early-return paths — closes the D2-HIGH-1 inter-tick refill.
+        self._offpeak_drain_branch_target = None
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -5320,6 +5337,16 @@ class BatteryStrategy:
         # 50% reserve instead of draining to drain_target (commonly 20-30%).
         if decision.hold_depth == "partial_hold":
             drain_target = max(drain_target, effective_reserve)
+
+        # dp-drain-target-value-stamp — VALUE STAMP. Publish the fully
+        # composed off_peak drain target (post multi-day-max, post
+        # partial_hold clamp) so EnergyCoordinator's DP tick can consume
+        # THIS tick's value verbatim without re-deriving from the static
+        # `_ev_battery_drain_soc` knob. Entry-reset at determine_mode's
+        # top ensures ticks that never reach this line leave a None
+        # value → DP declines / releases. Stamp the local `drain_target`
+        # (int), not `effective_reserve`.
+        self._offpeak_drain_branch_target = int(drain_target)
 
         if soc is not None and soc > drain_target:
             # Above target — drain stored solar (free energy)

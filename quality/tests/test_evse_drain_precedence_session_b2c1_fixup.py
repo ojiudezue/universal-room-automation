@@ -499,7 +499,7 @@ def test_blind_signal_uses_envoy_available_and_battery_soc():
     coord, ev, _, _ = _make_coord()
     spy = _SpyBattery()
     coord._battery = spy
-    coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=1000.0)
+    coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=1000.0, drain_target_soc=30)
     # Real fix reads BOTH canonical signals.
     assert spy.envoy_reads >= 1, "fix must read envoy_available"
     assert spy.soc_reads >= 1, "fix must read battery_soc"
@@ -534,7 +534,7 @@ def test_blind_signal_negative_case_envoy_ok():
     coord._battery = _Boom()
     # If code reads `_is_blind_hold_active`, this raises → tick swallows,
     # but our test asserts the tick completes without raising OUT.
-    coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=0.0)
+    coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
 
 
 # ==========================================================================
@@ -563,7 +563,7 @@ def test_kill_switch_hoist_releases_pause_mid_window():
     coord.dp_enabled = False
     tou._period = "peak"
     try:
-        coord._dp_decision_tick({"soc": 60}, "peak", ev_load_w=0.0)
+        coord._dp_decision_tick({"soc": 60}, "peak", ev_load_w=0.0, drain_target_soc=30)
     except _DPSkip:
         pass
     # Carrier normalized + save fired (kill-switch hoist responsibility).
@@ -594,7 +594,7 @@ def test_kill_switch_hoist_completes_release_on_offpeak_return():
     tou._period = "off_peak"
     coord.hass.set_state("switch.garage_a", "off")
     try:
-        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0)
+        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
     except _DPSkip:
         pass
     # Sticky drained — turn_on dispatched via kill-switch hoist's
@@ -622,7 +622,7 @@ def test_h2_sticky_orphan_hold_only_retry_dispatches_turn_on_switch_on_path():
     coord._dp_carrier.state = DPState.HOLD_ONLY
     coord.hass.set_state("switch.garage_a", "off")
     try:
-        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0)
+        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
     except _DPSkip:
         pass
     assert "garage_a" not in ev._paused_by_dp, (
@@ -644,7 +644,7 @@ def test_night_window_gate_skips_tick_outside_off_peak():
     _prev = coord._dp_carrier.state
     raised = False
     try:
-        coord._dp_decision_tick({"soc": 90}, "peak", ev_load_w=0.0)
+        coord._dp_decision_tick({"soc": 90}, "peak", ev_load_w=0.0, drain_target_soc=30)
     except _DPSkip:
         raised = True
     assert raised, "night gate must raise _DPSkip in non-off_peak"
@@ -655,7 +655,7 @@ def test_night_window_gate_skips_tick_outside_off_peak():
 def test_night_window_gate_allows_off_peak_tick():
     coord, ev, _, tou = _make_coord(period="off_peak")
     # Should not raise _DPSkip.
-    coord._dp_decision_tick({"soc": 90}, "off_peak", ev_load_w=1000.0)
+    coord._dp_decision_tick({"soc": 90}, "off_peak", ev_load_w=1000.0, drain_target_soc=30)
 
 
 # ==========================================================================
@@ -680,7 +680,7 @@ def test_second_plug_in_rescan_claims_car_b_within_one_tick():
         "sensor.garage_b_power", "1000",
         attributes={"unit_of_measurement": "W"},
     )
-    coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=1000.0)
+    coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=1000.0, drain_target_soc=30)
     assert "garage_b" in ev._paused_by_dp, (
         "re-scan must claim newly-charging peer within one tick"
     )
@@ -711,7 +711,7 @@ def test_paused_aware_exit_holds_window_across_three_ticks():
     )
     for tick in range(3):
         # SOC well ABOVE drain target (floor NOT reached).
-        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0)
+        coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
         assert coord._dp_carrier.state == DPState.TRANSITIONED, (
             f"window collapsed on tick {tick}: state={coord._dp_carrier.state}"
         )
@@ -730,7 +730,7 @@ def test_paused_aware_exit_reverts_when_soc_hits_drain_target():
         attributes={"unit_of_measurement": "W"},
     )
     # SOC at floor → revert legitimately.
-    coord._dp_decision_tick({"soc": 30}, "off_peak", ev_load_w=0.0)
+    coord._dp_decision_tick({"soc": 30}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
     assert coord._dp_carrier.state == DPState.HOLD_ONLY
     assert "garage_a" not in ev._paused_by_dp
 
@@ -744,7 +744,7 @@ def test_paused_aware_exit_reverts_on_car_gone():
         "sensor.garage_a_power", "0",
         attributes={"unit_of_measurement": "W"},
     )
-    coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0)
+    coord._dp_decision_tick({"soc": 60}, "off_peak", ev_load_w=0.0, drain_target_soc=30)
     assert coord._dp_carrier.state == DPState.HOLD_ONLY
 
 
@@ -844,8 +844,8 @@ def test_MUTATION_item3_blind_signal_reverted_to_invented_attr_makes_test_red():
 
 def test_MUTATION_item4_rescan_removed_makes_car_b_test_red():
     _mutate_and_expect_red(
-        swap_from="if _fresh:\n                class _DPActRescan:",
-        swap_to="if False and _fresh:\n                class _DPActRescan:",
+        swap_from="if _fresh:\n                # dp-drain-target-value-stamp — R2 rescan site (:4540).",
+        swap_to="if False and _fresh:\n                # dp-drain-target-value-stamp — R2 rescan site (:4540).",
         test_name="test_second_plug_in_rescan_claims_car_b_within_one_tick",
     )
 
