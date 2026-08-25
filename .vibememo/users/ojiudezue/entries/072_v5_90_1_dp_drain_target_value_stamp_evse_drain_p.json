@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "072",
+  "author": "ojiudezue",
+  "session_id": "claude_20260825_193209_ship_v5_90_1",
+  "timestamp": "2026-08-25T19:32:09Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.90.1 shipped: DP drain-target value-stamp \u2014 EVSE drain precedence drains to the composed off-peak floor, not a stale static knob",
+  "summary": "DP was pausing EV charging and draining the house battery toward a stale re-derived floor (coincidentally the static reserve knob, ~10) instead of the composed off-peak drain target the battery strategy actually clamped and acted on that same tick. On a day-evening plug-in that over-drains the battery below the forecast-safe floor and buys expensive peak grid import to re-attain. The fix threads the emitter's this-tick composed target verbatim into the DP decision, deletes the re-derivation, debounces the None-release 2 ticks for responsiveness without flap, and fixes shadow blind-hold precedence. Root cause was code-verified, orchestrator-verified by hand (mutation on the stamp site + full-suite name-diff clean), and operator gave the Tier-3 go.",
+  "refs": {
+    "cards": [
+      "EVSE-DRAIN-PRECEDENCE-KNOB-80-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.90.1.md"
+    ],
+    "release_notes": "EVSE Drain Precedence now consumes the battery strategy's this-tick composed off-peak drain target verbatim (value-stamp), deleting the stale re-derivation that coincidentally matched the static reserve knob (Bug Class #63). Adds a 2-tick debounce on the None-release to kill single-tick oscillation, and fixes shadow-eval blind-hold precedence. Tier-3, orchestrator-verified, 0 new test regressions."
+  }
+}

@@ -431,9 +431,59 @@ cards:
     triangulation of latest findings. Not just memory." Applied here: memory was the least current
     of the three sources, and the card body plus the code both outrank it.'
   thread: energy
-  status: 'planned'
+  status: shipped_organic
+  shipped_version: v5.90.1
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Card and fix. Approved.'')'
+  REV17_VERIFIED_BUILDING_2026_08_25: 'Operator chose (a) one final Rev-17 -> build. Rev-17 written (terminal
+    entry-reset + honest sim: emitted_drain_target hand-set, C6 12/12 ORACLE-A as REAL evidence). Orchestrator
+    verification PASSED: determine_mode at energy_battery.py:4590 has ZERO await in its body (:4590-5352), so the
+    entry-reset (first line) is synchronous-airtight for ANY caller -> D2-HIGH-1 inter-tick refill closed by
+    construction; value-stamp right after the partial_hold clamp (:5322); capture (~:5579) before the first await
+    (:5587); both callers confirmed (:5573, :6185). Building as 5.90.1 (PATCH per the 2026-08-25 cadence). Tier-3:
+    build -> framing-disjoint reviews (small diff + C-entry-reset mutation must bite + T-cross-tick-reset drives
+    REAL determine_mode) -> orchestrator verify -> operator checkpoint before deploy.'
+  BUILD_REVIEW_A_2026_08_25_FIX_BEFORE_SHIP: 'DP build 14988adc7 (branch feature/dp-drain-target-value-stamp).
+    Review A (correctness/lifecycle): FIX-BEFORE-SHIP, but the value-stamp CORE is AST-verified airtight (entry-reset
+    is body[1], ZERO awaits in determine_mode :4599-5380, earliest return :4824 = all 18 returns post-reset; capture
+    :5636 await-free before first await :5647; single reader, threading clean; R1 :5904/:6039 + R3 :3752 untouched;
+    stamped value is drain_target not hold_reserve — correct for the soc<=drain_target predicate). ALL findings are in
+    the ONE new INV-DP-DRAIN-1e release branch (:4436-4451): 5a HIGH — release omits the peer reversion contract
+    (try_transition HOLD_ONLY + _save_evse_state), so carrier lies TRANSITIONED w/ stale must_start_by for a window
+    (self-heals next tick); 5b MED — no persist after release (restart restores stale _paused_by_dp); 5c MED — the
+    OSCILLATOR: release-on-None + re-pause-on-rescan cycles the charger if hold_depth flickers (NWS entity toggling
+    partial<->full at 5-min cadence), NO debounce — EXACTLY the class the sibling EVSE-stop cycle was split over.
+    LOWs: _dp_decision_soc plain-assign can now LOWER the DP floor mid-window (intended Rev-17 fresh-target-wins,
+    note in README); shadow ledger thins (not_applicable on non-drain ticks — note in validation write-back).
+    5a/5b = mechanical fix (mirror the peer reversion site). 5c = OPERATOR DECISION (debounce/dwell vs accept+card).
+    Review C (mutation+name-diff) still running. ONE consolidated fix-up after C + the 5c call. NOT shipping.'
+  BUILD_REVIEW_C_2026_08_25_FIX_BEFORE_SHIP: 'Review C (mutation + name-diff): FIX-BEFORE-SHIP. Battery-side value-
+    stamp CONFIRMED solid (entry-reset AST-airtight, stamp after multi-day-max + partial_hold clamp -> 50 not 10, the
+    cross-tick test drives the REAL determine_mode = NOT hollow). Coordinator-side gaps: C-CRIT-1 = drain_target_soc
+    defaults to None, so the 11 prior-cycle b2c1/b2c2 DP tests (call _dp_decision_tick with the OLD signature) hit the
+    1e gate + _DPSkip before any logic -> 12 NEW regressions (name-diff: branch 153 failed vs develop 141, +12, 0
+    fixed), AND that disarm is WHY C-s coordinator drills 3b/4b/5 came back SILENT (the net was disabled). Fix: make
+    drain_target_soc REQUIRED keyword-only (missing = TypeError) + update the 11 sibling call-sites -> 12 regressions
+    go green. HOLLOW ANCHORS: CAPTURE (:5635), R2 fresh-actuation (:4556), and the 1e force-revert (:4443) are guarded
+    only by source-STRING greps -> 3b (append _drain_target=999), 4b (int(dts)+7), 5 (if False) all PASS-on-neuter =
+    behaviorally UNTESTED. Fix: value-behavioral anchors (stamp 40, knob 20 -> paused at 40) + a real 1e stranded-
+    release test. C-HIGH-1: shadow None-gate reordered ahead of the pure eval -> blind-hold tick reports
+    no_drain_target_this_tick instead of blind_hold (breaks test_switch_off_blind_hold_marks_shadow_not_applicable);
+    fix = move the None-gate AFTER the blind-hold check (blind_hold keeps precedence). Also tighten
+    test_mutation_c_entry_reset_bites to require "MUTATION SILENT". CONSOLIDATED FIX-UP (after operator 5c call):
+    required-param + 11 sibling tests + behavioral anchors + A-s 5a/5b reversion contract + shadow reorder + 5c ->
+    re-verify name-diff to 141 baseline + drills bite -> checkpoint -> deploy 5.90.1. GATING: operator 5c (debounce vs
+    accept+card).'
+  FIXUP_DISPATCHED_2026_08_25: 'Operator ruled 5c = (a) DEBOUNCE, 2 ticks (not 3) — "I want responsiveness." So the
+    1e None-release waits for 2 consecutive None-while-TRANSITIONED ticks before releasing (in-memory streak, reset on
+    any non-None / state-change; must-start-by remains the independent backstop; tick-1 holds the pause, no floor
+    update). Consolidated fix-up dispatched to ura-builder on the branch: (1) drain_target_soc REQUIRED keyword-only +
+    update the 11 b2c1/b2c2 sibling call-sites (clears the 12 regressions); (2) behavioral anchors replacing the 5
+    source-grep tests (stamp 40/knob 20 -> paused at 40) + real 1e stranded-release test; (3) 5a/5b mirror the peer
+    reversion contract (try_transition HOLD_ONLY + _save_evse_state); (4) 5c 2-tick debounce + test; (5) shadow None-
+    gate moved AFTER blind-hold check (precedence); (6) tighten mutation-sanity to require "MUTATION SILENT". Then
+    re-verify: sibling files green, name-diff to 141, every drill FAIL-on-neuter -> operator Tier-3 checkpoint ->
+    deploy 5.90.1.'
   TIER3_REVIEW_2026_08_24_DO_NOT_SHIP: 'Build 9694df524 (branch feature/dp-drain-target-mis-sourcing)
     got its four framing-disjoint Tier-3 reviews. A, B, and D INDEPENDENTLY CONVERGED on the same
     CRITICAL, and the orchestrator VERIFIED the mechanism in source. VERDICT: DO-NOT-SHIP. The build
@@ -604,6 +654,49 @@ cards:
     verified clean (ordering, containment, harness, very_poor card, new constant). STATUS: NOT building; positive-
     stamp fix needed + re-run Tier-3 D pass. DP has now had 1 rolled build + 3 flawed sims + ~12 reviews + 4 plan
     revisions on this seam — surfacing park-or-continue to operator.'
+  REV15_DPASS_2026_08_25_VALUE_STAMP: 'Operator chose CONTINUE. Rev-15 positive-BOOL-stamp built + sim C5 12/12,
+    but the adversarial-completeness D pass found 2 more real leaks (bool stamp exhaustive as a LINE, but its
+    MEANING is not): D-HIGH-1 partial_hold REACHES the drain-fallback branch (only full_hold short-circuits at
+    :4903; :4900 comment: "partial_hold/allow_discharge fall through"), stamps True, THEN the emitter clamps
+    drain_target up to effective_reserve at :5322 — which current_offpeak_drain_target() does NOT mirror. Repro:
+    partial_hold, eff_reserve 50, tomorrow excellent drain 10, SOC 55 -> gate opens, DP uses 10, emitter parks 50
+    -> DP pauses EVSE for SOC<=10 that never comes. The sim N3 fixture wrongly modeled partial_hold as
+    in_drain_branch=False, hiding it. D-HIGH-2 determine_mode has TWO callers (_decision_cycle_body :5573 AND
+    _evaluate_battery :6185) + an await window before the DP gate read, so a concurrent _evaluate_battery at a TOU
+    boundary can stamp for a different decision. CLEAN: Rev-14 branch enumeration confirmed (WAIT/envoy/attain/peak
+    do NOT reach :5274); shadow guard holds; 1e holds; exactly-one stamp LINE.
+    FIX (reviewer-prescribed, the converged end-state): stamp the VALUE not a bool — after the partial_hold clamp,
+    adjacent to the emitted _result, set _offpeak_drain_branch_target: int|None = drain_target (the ACTUAL post-clamp
+    value); reset None each cycle; gate = "value present"; DP consumes it VERBATIM -> ELIMINATES _dp_drain_target_soc
+    re-derivation (root of the saga), value-exact across ALL branches incl partial_hold. Stamp LATE (after clamp),
+    fail closed. D-HIGH-2: capture the value into a LOCAL right after determine_mode returns at :5573 (no await
+    between) + thread as a param into _dp_decision_tick + _run_dp_shadow_eval; do NOT re-read the gate inside the
+    tick. D-LOW-1: _get_off_peak_decision does not exist — the branch is inline in determine_mode (:4590/:5269-5352);
+    rename. Restate INV-1d as "the decision DP is reasoning about was produced by the drain branch" (value-carried).
+    Fix the sim: N3 -> in_drain_branch True + clamp in the oracle; re-score. Rev-16 (value-stamp) dispatched. This
+    is convergent — each round drove toward "DP just reads the emitter''s real emitted floor," which the value-stamp
+    IS. Tier-3, re-review after.'
+  REV16_DPASS_2026_08_25_NEW_LEAK_STEPBACK: 'Rev-16 value-stamp built (C6 = strict emitter mirror, 12/12
+    ORACLE-A by construction; deletes _dp_drain_target_soc + the bool gate). D-pass found ONE genuinely NEW
+    reachable leak = D2-HIGH-1: the mailbox is cleared ONLY by the consumer (_decision_cycle_body capture), so
+    the OTHER determine_mode caller (_evaluate_battery :6185, fired on a TOU edge) can REFILL it BETWEEN ticks.
+    Legal repro: evaluate() stamps 10 at the 21:00 off-peak edge (good forecast, drain branch) -> NWS warning
+    flips the next tick to full_hold (short-circuit :4903, no stamp) -> DP tick reads leftover 10 -> pauses EVSE
+    to "drain to 10" while the battery is in storm full_hold not draining. TERMINAL FIX (reviewer-prescribed):
+    move the reset to the FIRST statement of determine_mode (:4590, before any early return); determine_mode is
+    fully synchronous (no await :4590-5352) so entry-reset + immediate capture is airtight for ANY number of
+    callers, closed by construction (strictly stronger than the mailbox). Other findings = doc-consistency:
+    §1/§2/§3 still describe the no-reset variant (a builder would ship stale-value from §3) -> reconcile to
+    entry-reset; §3a scorecard numbers wrong (C2 4/3, C3 3/4, C6 12A/11B) + A/B labels swapped; the sim
+    emitted_drain_target is DERIVED from emitter_drain_floor (same fn as ORACLE-A) so C6=oracle is a value-axis
+    TAUTOLOGY — the honest claim is closed-by-construction from SOURCE, not sim evidence (gate axis in_drain_branch
+    IS hand-set, honest); reserve_level-equality wording wrong on the :5344 at/below-target path (emits hold_reserve
+    not drain_target); extend the no-helper grep to _run_dp_shadow_eval; :5573->:5579 citation.
+    STEP-BACK per operator standing instruction ("if a new leak appears, step back not Rev-17"). Orchestrator read:
+    the leak is a reset-PLACEMENT bug with a TERMINAL fix, the value-stamp APPROACH is sound + converged (leaks all
+    about where the reset lives, never the sourcing) — likely the last round, but surfaced to operator for the call:
+    (a) one final Rev-17 (entry-reset + doc reconcile) -> build; (b) pause DP, move to solar-follow; (c) operator
+    reviews the design first. NOT dispatching Rev-17 without a nod.'
   links:
     related: [DRAIN-TARGET-DAY-STALENESS-1]
     context: 'DECOUPLED (operator 2026-08-24, after the nervousness re-examination): DP just READS
