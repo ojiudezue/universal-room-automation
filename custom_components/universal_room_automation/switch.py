@@ -1,9 +1,17 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.89.0
+# Universal Room Automation vv5.90.0
 # Build: 2026-01-02
 # File: switch.py
 #
+# 2026-08-23: PEP-604 unions (`str | None`) appear in annotations here. Without
+# this future import those annotations are EVALUATED at def time, which raises
+# on Python 3.9 — the version the local quality suite runs (production HA is on
+# 3.14, where it is fine). This was the only file in the integration still
+# missing it; the other 90 already carry it. PEP 563 stringification is safe
+# here: nothing in this module reads __annotations__ or calls get_type_hints.
+
+from __future__ import annotations
 
 import logging
 from typing import Any

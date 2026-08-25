@@ -83,3 +83,4 @@ dashboard-v3/playwright/.cache/
 # Local HA reproduction env (v5.8.0 incident, do not commit)
 .venv-ha/
 docs/planning/backups/
+.venv-test/

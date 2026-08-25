@@ -2415,6 +2415,45 @@ sole coverage of behavior.
 
 ---
 
+### Bug Class #63 — Coincidental-equality concept collision (equal values mask a concept split) ⚠️
+
+**Symptom.** Two genuinely different quantities are treated as interchangeable
+because they hold the SAME value in the common/live config. The wrong one is
+substituted for the right one; the code produces the correct number on ~99% of
+inputs, so nothing surfaces the bug. It fires only in a rarely-reached
+discriminating config where the two diverge.
+
+**Exemplar.** The EVSE drain-precedence "wrong drain target" bug (2026-08-24).
+The battery **reserve/park floor** (`max()` of protections; what the battery
+holds) and the **off-peak drain target** (how deep to drain for the car;
+forecast-based) are distinct concepts but are both `10` in the live config
+(`reserve_soc = 10`, excellent-night `drain_target = 10`). The builder/plan
+sourced the DP drain target from the reserve/park floor (post-overlay, EVSE-hold
+contaminated) and it "looked right" because the numbers matched. Survived a very
+long time; it was an *understanding* failure, not complexity. A synonym-heavy
+vocabulary (`reserve_soc` / `drain_target` / `park_floor` / `_last_reserve_level`
+/ `_last_reserve_level_desired` / `effective_release_floor` / "release floor")
+camouflaged the split. A first simulation "proved" the wrong source 9/9 because
+its oracle was defined identically to the candidate (tautology) AND no scenario
+had `reserve != drain`.
+
+**Detection.**
+- When a plan/fix treats value A as interchangeable with B "because they're the
+  same anyway," STOP: state each one's meaning in plain language and ask whether
+  they are the same *concept* or just the same *number in this config*.
+- Find and TEST a discriminating config where they diverge (here `reserve >
+  drain`, or the cross-midnight forecast roll). Fixture contracts must pin the
+  two values DISTINCT — equal-value fixtures hide the leak (and make simulation
+  oracles tautological). Acceptance criteria must discriminate the fix from a
+  plausible different failure (sibling of the cross-investigation-synthesis rule).
+- Ask the PRODUCER question (how is it computed / which derivation wins / does it
+  mean what its name says), not only the consumer question. A domain with several
+  names that all evaluate to the same number most of the time is itself the
+  warning sign. Sibling of #53 (computed-but-not-consumed) and the Producer/
+  Consumer rule in CLAUDE.md.
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

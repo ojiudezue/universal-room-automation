@@ -182,6 +182,16 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     # added to _NM_A2_KEYS which is splatted into OPTIONS_RELOAD_SUPPRESS_KEYS.
     "stuck_signal_nm_enabled",
     "stuck_sensor_exclusion_enabled",
+    # STEP chatter cycle (2026-08-19, v5.85.0) — D2 fix-up added the two
+    # safety-knob overrides and D7 added the operational mode. These were
+    # added as DIRECT literals in OPTIONS_RELOAD_SUPPRESS_KEYS rather than
+    # flowing through _HVAC_TUNABLE_DISPATCH, so unlike dispatch-derived
+    # keys they do NOT self-track and this expectation had to be updated
+    # by hand. That cycle grew the allowlist and left the guard behind;
+    # the guard did its job and nobody read it for four days. -> 92
+    "chatter_burst_k",
+    "chatter_t_floor_s",
+    "chatter_mode",
 }
 
 
@@ -311,7 +321,15 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    operator's engagement without a signal) -> 87
     # +2 STUCK-SENSOR-1 B-MED-2 fix-up (2026-08-13): stuck_signal_nm_enabled
     #    + stuck_sensor_exclusion_enabled added to _NM_A2_KEYS -> 89
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 89
+    # +3 STEP chatter cycle (2026-08-19, v5.85.0): chatter_burst_k +
+    #    chatter_t_floor_s (D2 fix-up safety-knob overrides) + chatter_mode
+    #    (D7 operational mode), added as DIRECT literals -> 92
+    # NOTE: the v5.89.0 AC-ramp knobs are NOT counted here — they enter via
+    #    `*_HVAC_TUNABLE_DISPATCH.keys()`, so they appear on BOTH sides of
+    #    the membership comparison and self-track. Only direct literals need
+    #    a manual bump. That distinction is why this ledger stayed correct
+    #    through v5.89.0 but broke on v5.85.0.
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 92
 
 
 # ---------------------------------------------------------------------------
@@ -337,11 +355,20 @@ def _load_init_dispatch_namespace() -> dict:
         # bundle spliced into both _NO_LIVE_ATTR_KEYS and
         # OPTIONS_RELOAD_SUPPRESS_KEYS via `*_NM_C_KEYS`.
         "_NM_C_KEYS",
+        # F16 (2026-08-22, v5.89.0): side table mapping conf keys to the
+        # coordinator setter that owns each tunable. _hvac_tunable_apply
+        # reads it, so slicing that helper requires this dict too.
+        "_HVAC_TUNABLE_SETTER_METHOD",
     }
     keep_funcs = {
         "_seed_cm_last_applied_options",
         "_apply_in_place",
         "_async_update_listener",
+        # F16 (2026-08-22, v5.89.0): _apply_in_place now routes tunables
+        # through this helper so the coordinator setters' range guards
+        # actually run. Slicing _apply_in_place without it leaves a free
+        # Name load and the guard raises.
+        "_hvac_tunable_apply",
     }
     body = []
     for node in tree.body:
@@ -367,6 +394,26 @@ def _load_init_dispatch_namespace() -> dict:
         # allowlisted key so the sliced module compiles.
         "ENTRY_TYPE_INTEGRATION": "integration",
         "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
+        # STEP D2/D7 (2026-08-19, v5.85.0): these three are ALIASED IMPORTS
+        # (`CONF_X as _CONF_X`), not module-level assignments, so keep_names
+        # — which only matches ast.Assign / ast.AnnAssign — structurally
+        # cannot pick them up. They must be injected as namespace stubs.
+        # Values mirror const.py:3859/3860/3877 exactly.
+        "_CONF_CHATTER_BURST_K": "chatter_burst_k",
+        "_CONF_CHATTER_T_FLOOR_S": "chatter_t_floor_s",
+        "_CONF_CHATTER_MODE": "chatter_mode",
+        # AC-RAMP-PIPELINE-HARDENING-1 A2 (2026-08-22, v5.89.0): the eight
+        # AC-ramp knobs joined _HVAC_TUNABLE_DISPATCH so they seed from CM
+        # options at init. Same aliased-import shape as the chatter three —
+        # keep_names cannot see them. Values mirror hvac_const.py exactly.
+        "_CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT": "hvac_ac_soft_nudge_daily_limit",
+        "_CONF_HVAC_AC_RESET_DAY_BUDGET": "hvac_ac_reset_day_budget",
+        "_CONF_HVAC_AC_RESET_NIGHT_BUDGET": "hvac_ac_reset_night_budget",
+        "_CONF_HVAC_AC_RESET_OFF_DURATION": "hvac_ac_reset_off_duration",
+        "_CONF_HVAC_AC_DURABILITY_WINDOW": "hvac_ac_durability_window",
+        "_CONF_HVAC_AC_NIGHT_START_HHMM": "hvac_ac_night_start_hhmm",
+        "_CONF_HVAC_AC_NIGHT_END_HHMM": "hvac_ac_night_end_hhmm",
+        "_CONF_HVAC_AC_GATE4_PREDICATE_MODE": "hvac_ac_gate4_predicate_mode",
         # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, Review C M-1):
         # AST-slice guard requires every referenced Name to be present.
         "ConfigEntry": type("ConfigEntry", (), {}),

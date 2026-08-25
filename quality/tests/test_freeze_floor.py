@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import contextlib
 import sys
 import types
 from datetime import datetime, timezone
@@ -290,6 +291,7 @@ class _FakeHass:
 def _make_coord(*, cool_setpoint, outdoor_temp, freeze_active_seed=False, egress_paused=()):
     mod = _load_hvac_module()
     coord = mod.HVACCoordinator.__new__(mod.HVACCoordinator)
+    _fill_init_defaults(coord, "hvac", "HVACCoordinator")
     coord.hass = _FakeHass()
     coord._house_state = "home"
     coord._guest_mode_actuation_enabled = True
@@ -592,9 +594,80 @@ def _stub_recorder_deps():
 _REAL_LOADED: dict[str, object] = {}
 
 
+# Sibling modules that a REAL-loaded module imports at module scope. The
+# loader installs a lightweight stub for each BEFORE exec so the import
+# resolves; only the symbol actually imported needs to exist.
+#
+# 2026-08-23: hvac_override.py:116 does `from .energy_billing import
+# _get_effective_rate_kwh`. The loader placed hvac_override under the
+# synthetic package `ura_hvac_pkg.domain_coordinators` but never provided that
+# sibling, so exec_module raised
+#   ModuleNotFoundError: No module named
+#   'ura_hvac_pkg.domain_coordinators.energy_billing'
+# and all four freeze-floor tests failed. The traceback POINTS AT PRODUCTION
+# CODE (hvac_override.py:116), which is why the D1 triage classified these as
+# real product defects — but the raise is a HARNESS gap, not a code defect.
+# The production import is correct and works in HA.
+@contextlib.asynccontextmanager
+async def _noop_acm(*_a, **_kw):
+    """Stand-in for hvac_excursion.auto_release_on_incomplete.
+
+    Must be a genuine async context manager — the production nudge path does
+    `async with hvac_excursion.auto_release_on_incomplete(...)`, so a MagicMock
+    or bare attribute fails at __aenter__.
+    """
+    yield None
+
+
+async def _noop_async_none(*_a, **_kw):
+    return None
+
+
+_SIBLING_STUBS: dict[str, dict] = {
+    # hvac_override.py:116 — `from .energy_billing import _get_effective_rate_kwh`
+    "energy_billing": {"_get_effective_rate_kwh": lambda *a, **kw: 0.0},
+    # hvac_predict.py:1345 — `from . import hvac_excursion` (whole module).
+    # Needs a REAL async context manager, not a MagicMock: the nudge path uses
+    # `async with hvac_excursion.auto_release_on_incomplete(...)`, and a plain
+    # attribute stub raises AttributeError at the `async with`.
+    "hvac_excursion": {
+        "auto_release_on_incomplete": _noop_acm,
+        "begin_excursion": _noop_async_none,
+        "return_excursion": _noop_async_none,
+    },
+}
+
+
+def _install_sibling_stubs():
+    """Provide sibling modules the REAL-loaded modules import at module scope.
+
+    Two placements are needed, and only one is obvious:
+      * sys.modules[pkg.sib] — satisfies `from .sib import name`
+      * setattr(parent_pkg, sib) — ALSO required for `from . import sib`,
+        which resolves the name as an ATTRIBUTE of the package. Without it
+        that form raises "cannot import name 'hvac_excursion' from
+        'ura_hvac_pkg.domain_coordinators' (unknown location)" even though
+        sys.modules holds the module.
+    """
+    parent_key = "ura_hvac_pkg.domain_coordinators"
+    parent = sys.modules.get(parent_key)
+    for _sib, _attrs in _SIBLING_STUBS.items():
+        _key = f"{parent_key}.{_sib}"
+        _m = sys.modules.get(_key)
+        if _m is None:
+            _m = types.ModuleType(_key)
+            _m.__package__ = parent_key
+            for _k, _v in _attrs.items():
+                setattr(_m, _k, _v)
+            sys.modules[_key] = _m
+        if parent is not None and not hasattr(parent, _sib):
+            setattr(parent, _sib, _m)
+
+
 def _load_real_submodule(name, attr):
     _load_hvac_module()  # package + hvac_const + hvac_setpoint
     _stub_recorder_deps()
+    _install_sibling_stubs()
     key = f"ura_hvac_pkg.domain_coordinators.{name}"
     if key in _REAL_LOADED:
         return _REAL_LOADED[key]
@@ -606,6 +679,64 @@ def _load_real_submodule(name, attr):
     spec.loader.exec_module(mod)
     _REAL_LOADED[key] = mod
     return mod
+
+
+def _fill_init_defaults(obj, src_name, cls_name):
+    """Set attributes the REAL __init__ would set that __new__ construction skips.
+
+    2026-08-23. These tests build objects with `Cls.__new__(Cls)`, bypassing
+    __init__ entirely, then hand-set only the attributes the author knew the
+    path touched. Every later cycle that adds state to __init__ breaks them
+    with an AttributeError raised INSIDE PRODUCTION CODE — which is exactly the
+    traceback shape that made the D1 triage classify these as real product
+    defects. They are not. Production __init__ is correct; the harness is
+    incomplete.
+
+    Rather than hand-listing attribute names (I guessed one wrong on the first
+    attempt — `_hold_immunity` instead of `_immune_holds`), DERIVE them from the
+    production source: parse __init__ and replay every simple
+    `self.NAME = <literal>` assignment that the object does not already have.
+    That self-maintains as __init__ grows, which is the property the previous
+    approach lacked.
+
+    Only fills what is MISSING, so a test that deliberately configures an
+    attribute still wins.
+    """
+    import ast as _ast
+    src = (ROOT_DIR / ROOT_REL / "domain_coordinators" / f"{src_name}.py").read_text()
+    tree = _ast.parse(src)
+    cls = next(
+        (n for n in _ast.walk(tree)
+         if isinstance(n, _ast.ClassDef) and n.name == cls_name),
+        None,
+    )
+    if cls is None:
+        return obj
+    init = next(
+        (n for n in cls.body
+         if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+         and n.name == "__init__"),
+        None,
+    )
+    if init is None:
+        return obj
+    for node in _ast.walk(init):
+        target = value = None
+        if isinstance(node, _ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        elif isinstance(node, _ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        if not isinstance(target, _ast.Attribute):
+            continue
+        if not (isinstance(target.value, _ast.Name) and target.value.id == "self"):
+            continue
+        try:
+            default = _ast.literal_eval(value)   # literals only — skip calls
+        except (ValueError, SyntaxError):
+            continue
+        if not hasattr(obj, target.attr):
+            setattr(obj, target.attr, default)
+    return obj
 
 
 def _load_predict_module():
@@ -631,6 +762,7 @@ async def test_predict_preheat_floored_via_chokepoint():
     result < 50 the chokepoint floors it to 50."""
     mod = _load_predict_module()
     pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
+    _fill_init_defaults(pred, "hvac_predict", "HVACPredictor")
     pred.hass = _CapHass()
     zone = _PHZone("z1", "climate.z1", low=46, high=70)  # low+2 = 48 < 50
     pred._zone_manager = types.SimpleNamespace(zones={"z1": zone})
@@ -648,6 +780,7 @@ async def test_predict_preheat_floored_via_chokepoint():
 async def test_predict_preheat_no_freeze_unchanged():
     mod = _load_predict_module()
     pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
+    _fill_init_defaults(pred, "hvac_predict", "HVACPredictor")
     pred.hass = _CapHass()
     zone = _PHZone("z1", "climate.z1", low=46, high=70)
     pred._zone_manager = types.SimpleNamespace(zones={"z1": zone})
@@ -669,6 +802,7 @@ async def test_override_compromise_floored_via_chokepoint():
     freeze is raised to 50 through the chokepoint."""
     mod = _load_override_module()
     arr = mod.OverrideArrester.__new__(mod.OverrideArrester)
+    _fill_init_defaults(arr, "hvac_override", "OverrideArrester")
     arr.hass = _CapHass()
     arr._compromise_active = {}
     arr._grace_timers = {}
@@ -718,6 +852,7 @@ async def test_full_cycle_preset_then_preheat_final_low_floored():
     # 2. pre-heat runs AFTER: low+2 from a custom 47 base = 49 (< 50).
     mod = _load_predict_module()
     pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
+    _fill_init_defaults(pred, "hvac_predict", "HVACPredictor")
     pred.hass = _CapHass()
     zone = _PHZone("z1", "climate.z1", low=47, high=55)  # low+2 = 49
     pred._zone_manager = types.SimpleNamespace(zones={"z1": zone})
@@ -815,6 +950,7 @@ def _make_cycle_coord(*, outdoor_temp, guest_mode, observation):
 
     mod = _load_hvac_module()
     coord = mod.HVACCoordinator.__new__(mod.HVACCoordinator)
+    _fill_init_defaults(coord, "hvac", "HVACCoordinator")
     coord.hass = _FakeHass()
     coord._enabled = True
     coord._boot_settle_done = True

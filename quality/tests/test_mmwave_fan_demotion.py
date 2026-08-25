@@ -227,6 +227,7 @@ def _seed_presence(
     *,
     demoted_rooms: set[str],
     recheck_state: str = "idle",
+    recheck_eligible: bool = False,
     fan_on_since: datetime | None = None,
     fan_hold_until: datetime | None = None,
 ):
@@ -247,6 +248,18 @@ def _seed_presence(
     presence.tracker_for_room = MagicMock(return_value=tracker)
     fr_mgr = MagicMock()
     fr_mgr.get_room_state = MagicMock(return_value=recheck_state)
+    # 2026-08-23 — MAGICMOCK TRUTHINESS TRAP. Production reads
+    #   recheck_eligible = bool(fr_mgr.is_recheck_eligible(room_name))
+    # (coordinator.py ~:3857) and then SKIPS demotion when
+    #   `recheck_in_flight or recheck_eligible`.
+    # An unstubbed MagicMock auto-creates that method and returns another
+    # MagicMock, which is TRUTHY — so every "positive demote" test silently
+    # took the recheck-skip branch and asserted an Invariant M leak against
+    # code that was behaving correctly. Five tests failed this way and the D1
+    # triage classified them as real product defects ("drives real code, code
+    # disagrees"). The code did not disagree; the harness lied.
+    # Default it FALSE and let the recheck-specific tests opt in.
+    fr_mgr.is_recheck_eligible = MagicMock(return_value=recheck_eligible)
     presence._fan_recheck_manager = fr_mgr
     manager = MagicMock()
     manager.coordinators = {"presence": presence}

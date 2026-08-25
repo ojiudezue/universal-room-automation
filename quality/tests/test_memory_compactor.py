@@ -37,6 +37,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import pytest_asyncio
 
 _FIXTURE_NOW_ANCHOR = None  # set below
 
@@ -139,12 +140,59 @@ async def _make_db(tmp_path):
     ok = await db.initialize()
     assert ok
     await db.start_write_worker()
+    # SUITE-WEDGE fix (2026-08-23): register for guaranteed teardown. Each
+    # UniversalRoomDatabase starts an aiosqlite worker whose connection lives
+    # in an `async with` inside a NON-DAEMON thread. If it is never closed the
+    # thread never exits, and CPython's interpreter shutdown blocks forever in
+    # threading._shutdown joining it — the process hangs AFTER the tests pass.
+    # Measured: tests complete in 1.17s, process still alive at 30s (rc=124),
+    # four leaked aiosqlite worker threads in the fault-handler dump.
+    _OPEN_DBS.append(db)
     return db, hass
 
 
+# SUITE-WEDGE fix (2026-08-23): every db handed out by _make_db lands here so
+# the autouse fixture below can close it even when a test raises.
+_OPEN_DBS: list = []
+
+
 async def _teardown(db):
-    if db._write_task and not db._write_task.done():
-        db._write_task.cancel()
+    """Close the DB properly.
+
+    WAS BROKEN AND NEVER CALLED. The old body did a bare
+    `db._write_task.cancel()` with NO await, and nothing in the module ever
+    invoked it. Cancelling without awaiting means the worker's
+    CancelledError handler never runs, so the `async with
+    aiosqlite.connect(...)` block never exits and its connection — plus the
+    non-daemon thread servicing it — leaks for the life of the process.
+    `stop_write_worker()` is the supported close: it cancels AND awaits, which
+    is what actually unwinds the context manager (database.py:161).
+    """
+    try:
+        await db.stop_write_worker()
+    except Exception:  # noqa: BLE001 — teardown must never mask a test failure
+        pass
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _close_dbs_after_each_test():
+    """Guarantee DB teardown regardless of how the test exits.
+
+    MUST be async and MUST share the test's event loop. A sync fixture that
+    spins up its own loop CANNOT unwind these connections: the aiosqlite
+    connection and its `async with` live on the loop that created them, so
+    cancelling from a foreign loop leaves the context manager open and the
+    non-daemon worker thread alive. Verified empirically — the sync version
+    of this fixture left the process wedged at rc=124.
+
+    Autouse rather than per-test cleanup because there are ~15 `_make_db`
+    call sites and a missed one silently reintroduces the hang. The failure
+    mode is invisible (tests still PASS) and only surfaces as a wedged
+    process that kills the NEXT suite run.
+    """
+    yield
+    while _OPEN_DBS:
+        await _teardown(_OPEN_DBS.pop())
 
 
 async def _seed_exterior_track_from_fixture(db):

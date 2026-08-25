@@ -15,12 +15,16 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
 )
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -45,6 +49,8 @@ from .hvac_const import (
     FREEZE_TRIGGER_HYSTERESIS,
     FREEZE_TRIGGER_TEMP,
     HVAC_ANOMALY_MIN_SAMPLES,
+    HVAC_SHORT_CYCLE_MIN_SAMPLES,
+    SHORT_CYCLE_THRESHOLD_S,
     HVAC_COORDINATOR_ID,
     HVAC_COORDINATOR_NAME,
     HVAC_COORDINATOR_PRIORITY,
@@ -541,6 +547,31 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_state_store = Store(hass, 1, f"{DOMAIN}.hvac_zone_state")
         self._zone_state_save_counter: int = 0
 
+        # HVAC-ANOMALY-BLIND-1 D2: event-driven short-cycle tracker.
+        # `_short_cycles_today`: per-zone integer count of sub-
+        #   SHORT_CYCLE_THRESHOLD_S on-cycles observed today (LOCAL day per
+        #   dt_util.now()). PERSISTED via hvac_zone_state so a mid-day
+        #   restart preserves the day's accumulated count and does not
+        #   emit a partial-day observation. See rollover guard below.
+        # `_short_cycles_today_date`: LOCAL-day ISO string ("YYYY-MM-DD")
+        #   the counter belongs to. Empty on first boot; on first
+        #   post-boot decision cycle we seed it to today and emit NOTHING.
+        #   On subsequent-day rollover (prev != today), emit exactly once
+        #   per zone THEN reset. This guard is on the tracker's OWN
+        #   persisted date — NOT on `_last_daily_reset` (RAM-only, would
+        #   fire an empty observation on every boot).
+        # `_short_cycle_on_since`: per-zone datetime of the most recent
+        #   idle→active transition. RESET on restart (not persisted) so
+        #   that an on-cycle whose start predates the current boot cannot
+        #   be observed as short — its duration is unknowable.
+        self._short_cycles_today: dict[str, int] = {}
+        self._short_cycles_today_date: str = ""
+        self._short_cycle_on_since: dict[str, Any] = {}
+        # Restored from persisted snapshot in _setup_short_cycle_tracker (see
+        # async_setup); listener unsubs held on the shared _unsub_listeners
+        # (drained by _cancel_listeners in async_teardown).
+        self._short_cycle_listener_installed: bool = False
+
     @property
     def zone_manager(self) -> ZoneManager:
         """Return zone manager for sensor access."""
@@ -886,6 +917,37 @@ class HVACCoordinator(BaseCoordinator):
         except Exception as e:
             _LOGGER.warning("HVAC: Failed to restore zone state: %s", e)
 
+        # HVAC-ANOMALY-BLIND-1 D2: restore persisted short-cycle counter
+        # AND install the event-driven listener on each zone's climate
+        # entity. Runs AFTER zone discovery so `self._zone_manager.zones`
+        # is populated and AFTER restore_state_snapshot so the counter is
+        # available if it survived a mid-day restart. The tracker's
+        # `_short_cycle_on_since` map is intentionally NOT restored — an
+        # on-cycle whose start predates the current boot cannot have its
+        # duration measured, so we discard rather than fabricate.
+        if stored and isinstance(stored, dict):
+            try:
+                sc_state = stored.get("__short_cycles_today", {}) or {}
+                if isinstance(sc_state, dict):
+                    counts = sc_state.get("counts", {})
+                    date = sc_state.get("date", "")
+                    if isinstance(counts, dict) and isinstance(date, str):
+                        self._short_cycles_today = {
+                            str(k): int(v) for k, v in counts.items()
+                            if isinstance(v, (int, float))
+                        }
+                        self._short_cycles_today_date = date
+                        _LOGGER.info(
+                            "HVAC: Restored short-cycle counter (date=%s, "
+                            "counts=%s)",
+                            date, self._short_cycles_today,
+                        )
+            except Exception as e:
+                _LOGGER.warning(
+                    "HVAC: Failed to restore short-cycle counter: %s", e,
+                )
+        self._install_short_cycle_listeners()
+
         # v3.18.5: Build person-zone map from zone configs
         new_map = self._build_person_zone_map()
         if new_map:
@@ -1184,6 +1246,12 @@ class HVACCoordinator(BaseCoordinator):
             # toward get_worst_severity() so the per-coordinator anomaly
             # sensor reflects anomaly_log-eligible signal.
             suppressed_metric_names=HVAC_SUPPRESSED_FROM_PERSISTENCE,
+            # HVAC-ANOMALY-BLIND-1 D1a: short_cycle_rate is 1 obs/day/zone;
+            # 336-day maturation is infeasible. Override to 14 days —
+            # matches the probe window that established the fixture.
+            minimum_samples_by_metric={
+                "short_cycle_rate": HVAC_SHORT_CYCLE_MIN_SAMPLES,
+            },
         )
         try:
             await self.anomaly_detector.load_baselines()
@@ -1303,6 +1371,18 @@ class HVACCoordinator(BaseCoordinator):
             # internal UTC clock.
             self._vacancy_sweeps_today.rollover_if_needed()
             self._pre_arrival_triggers_today.rollover_if_needed()
+            # HVAC-ANOMALY-BLIND-1 D2: emit per-zone short_cycle_rate
+            # observation for the completed LOCAL day, then reset the
+            # counter. Placed BESIDE the vacancy/pre-arrival rollovers
+            # (:1304-1305) so it participates in the same daily hinge.
+            # NOTE — the CRITICAL guard against emitting a partial-day
+            # value at boot lives in `_emit_and_reset_short_cycles` and
+            # gates on the tracker's OWN persisted date
+            # (`_short_cycles_today_date`), NOT `_last_daily_reset`
+            # (RAM-only, resets on every boot). Passing `today` (already
+            # computed above from dt_util.now(), LOCAL day) keeps clock
+            # semantics consistent across the tracker.
+            await self._emit_and_reset_short_cycles(today)
 
         # Update zone states
         self._zone_manager.update_all_zones()
@@ -1442,6 +1522,15 @@ class HVACCoordinator(BaseCoordinator):
             try:
                 snapshot = self._zone_manager.get_state_snapshot()
                 snapshot["__person_zone_map"] = self._person_zone_map
+                # HVAC-ANOMALY-BLIND-1 D2: persist short-cycle counter so
+                # a mid-day restart preserves accumulated per-zone counts
+                # and the rollover guard can distinguish "same day" from
+                # "new day" against the tracker's OWN date (not the
+                # RAM-only _last_daily_reset).
+                snapshot["__short_cycles_today"] = {
+                    "date": self._short_cycles_today_date,
+                    "counts": dict(self._short_cycles_today),
+                }
                 await self._zone_state_store.async_save(snapshot)
             except Exception as e:
                 _LOGGER.warning("HVAC: Failed to save zone state: %s", e)
@@ -2729,7 +2818,11 @@ class HVACCoordinator(BaseCoordinator):
                 #     dispatch. Husk zones (no thermostat) never enter
                 #     this store, so name-based fallback is dead code.
                 for zid in list(stored.keys()):
-                    if zid == "__person_zone_map":
+                    # Skip all meta keys (dunder-prefixed), not just the
+                    # person-zone map — HVAC-ANOMALY-BLIND-1 D2 added
+                    # `__short_cycles_today`, and future meta keys
+                    # should not be treated as zone_ids either.
+                    if isinstance(zid, str) and zid.startswith("__"):
                         continue
                     if deleted_id and zid == deleted_id and zid not in guard_spared_ids:
                         stored.pop(zid, None)
@@ -3611,6 +3704,300 @@ class HVACCoordinator(BaseCoordinator):
             else:
                 zone.zone_presence_state = "away"
 
+    # ------------------------------------------------------------------
+    # HVAC-ANOMALY-BLIND-1 D2 — Short-cycle producer (event-driven)
+    # ------------------------------------------------------------------
+    def _install_short_cycle_listeners(self) -> None:
+        """Register a state-change listener on each discovered zone's
+        climate entity so `hvac_action` transitions drive the short-cycle
+        tracker directly — no 5-min-tick polling loss.
+
+        The unsub is appended to the shared `self._unsub_listeners`
+        (drained by `self._cancel_listeners()` in `async_teardown`), so
+        the listener follows the same lifecycle envelope as every other
+        HVAC listener. Idempotent — a re-run (e.g. zone-config reload)
+        will not double-register because `_short_cycle_listener_installed`
+        latches.
+        """
+        if self._short_cycle_listener_installed:
+            return
+        entities = [
+            z.climate_entity
+            for z in self._zone_manager.zones.values()
+            if z.climate_entity
+        ]
+        if not entities:
+            _LOGGER.debug(
+                "HVAC short-cycle: no climate entities to watch"
+            )
+            return
+        try:
+            unsub = async_track_state_change_event(
+                self.hass, entities, self._on_zone_climate_state_change,
+            )
+            self._unsub_listeners.append(unsub)
+            self._short_cycle_listener_installed = True
+            _LOGGER.info(
+                "HVAC short-cycle: watching %d climate entities (%s)",
+                len(entities), entities,
+            )
+        except Exception as e:
+            _LOGGER.warning(
+                "HVAC short-cycle: failed to install state listener: %s", e,
+            )
+
+    @callback
+    def _on_zone_climate_state_change(self, event: Any) -> None:
+        """Handler for climate.hvac_action transitions.
+
+        idle→active: stamp `_short_cycle_on_since[zone_id] = now()`.
+        active→idle: if on_since is set AND its duration is under
+          SHORT_CYCLE_THRESHOLD_S, increment
+          `_short_cycles_today[zone_id]` (clamping the date first if the
+          restored counter is from a previous day). Missing on_since ==
+          the on-cycle started before this boot: DISCARD.
+        """
+        try:
+            data = event.data
+            entity_id = data.get("entity_id")
+            new_state = data.get("new_state")
+            old_state = data.get("old_state")
+            if entity_id is None or new_state is None:
+                return
+            # A-H1 / B-HIGH-2 (review fix-up): drop unavailable/unknown
+            # transitions before they fabricate a phantom short cycle from
+            # a WiFi/cloud blip. Symmetric on both sides — if either endpoint
+            # of the transition is UNAVAILABLE/UNKNOWN we can't trust the
+            # duration, and we clear any dangling on_since so the next real
+            # idle→active transition starts a fresh cycle.
+            zone_id_for_drop: str | None = None
+            for zid, zone in self._zone_manager.zones.items():
+                if zone.climate_entity == entity_id:
+                    zone_id_for_drop = zid
+                    break
+            if new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                if zone_id_for_drop is not None:
+                    self._short_cycle_on_since.pop(zone_id_for_drop, None)
+                return
+            if old_state is not None and old_state.state in (
+                STATE_UNAVAILABLE, STATE_UNKNOWN,
+            ):
+                if zone_id_for_drop is not None:
+                    self._short_cycle_on_since.pop(zone_id_for_drop, None)
+                return
+            new_action = new_state.attributes.get("hvac_action") or ""
+            old_action = (
+                old_state.attributes.get("hvac_action") if old_state else ""
+            ) or ""
+            # If hvac_action attribute is missing/None on the new state,
+            # treat it like unavailable (can't classify → drop).
+            if new_state.attributes.get("hvac_action") is None:
+                if zone_id_for_drop is not None:
+                    self._short_cycle_on_since.pop(zone_id_for_drop, None)
+                return
+            if new_action == old_action:
+                return
+            zone_id: str | None = zone_id_for_drop
+            if zone_id is None:
+                return
+            active_states = ("cooling", "heating")
+            now_local = dt_util.now()
+            if old_action not in active_states and new_action in active_states:
+                # idle → active
+                self._short_cycle_on_since[zone_id] = now_local
+                _LOGGER.debug(
+                    "HVAC short-cycle: zone=%s on_since=%s",
+                    zone_id, now_local.isoformat(),
+                )
+            elif old_action in active_states and new_action not in active_states:
+                # active → idle
+                on_since = self._short_cycle_on_since.pop(zone_id, None)
+                if on_since is None:
+                    _LOGGER.debug(
+                        "HVAC short-cycle: zone=%s cycle-end with no "
+                        "on_since (predates boot?) — DISCARD",
+                        zone_id,
+                    )
+                    return
+                duration_s = (now_local - on_since).total_seconds()
+                if duration_s < SHORT_CYCLE_THRESHOLD_S:
+                    today = now_local.date().isoformat()
+                    # A-C2 / B-MED-1 (review fix-up): the callback used to
+                    # schedule `_emit_and_reset_short_cycles` via
+                    # async_create_task on a stale-date increment. That path
+                    # (a) double-emitted (not under the decision lock),
+                    # (b) misattributed the day by incrementing BEFORE the
+                    # scheduled task ran, and (c) was an untracked task.
+                    # The ≤5-min decision-cycle rollover in hvac.py:1304-05
+                    # is now the SOLE rollover path. If the date is stale
+                    # here, skip the increment and let the next decision
+                    # tick roll + attribute correctly. The cycle is
+                    # discarded, not lost to yesterday.
+                    if (
+                        self._short_cycles_today_date
+                        and self._short_cycles_today_date != today
+                    ):
+                        _LOGGER.debug(
+                            "HVAC short-cycle: zone=%s cycle-end straddled "
+                            "day rollover (stored=%s today=%s) — DISCARD, "
+                            "decision tick will roll",
+                            zone_id, self._short_cycles_today_date, today,
+                        )
+                        return
+                    self._short_cycles_today[zone_id] = (
+                        self._short_cycles_today.get(zone_id, 0) + 1
+                    )
+                    if not self._short_cycles_today_date:
+                        self._short_cycles_today_date = today
+                    _LOGGER.info(
+                        "HVAC short-cycle: zone=%s duration=%.1fs "
+                        "count_today=%d",
+                        zone_id, duration_s,
+                        self._short_cycles_today[zone_id],
+                    )
+                else:
+                    _LOGGER.debug(
+                        "HVAC short-cycle: zone=%s duration=%.1fs "
+                        "(above threshold, not counted)",
+                        zone_id, duration_s,
+                    )
+        except Exception:
+            _LOGGER.debug(
+                "HVAC short-cycle: state-change handler failed",
+                exc_info=True,
+            )
+
+    async def _emit_and_reset_short_cycles(self, today: str) -> None:
+        """Rollover emitter — records one observation per zone for the
+        completed day, clears prior-day active anomalies for the metric
+        (via the D1c filtered clear), then resets the counter and stamps
+        the new date.
+
+        CRITICAL GUARD (falsifiable invariant, planning doc §Invariant):
+        gate on the tracker's OWN persisted date
+        (`_short_cycles_today_date`), NEVER on `_last_daily_reset` (which
+        is RAM-only and would fire an empty observation on every boot).
+          - first boot (prev_date == ""): seed date, no emit
+          - mid-day restart (prev_date == today): strict no-op
+          - genuine day rollover (prev_date != "" and != today): emit
+            each zone's count, clear latched anomalies, reset to zero
+            keyed on today
+        """
+        prev_date = self._short_cycles_today_date
+        if prev_date == "":
+            self._short_cycles_today_date = today
+            _LOGGER.debug(
+                "HVAC short-cycle: first-boot seed date=%s (no emit)", today,
+            )
+            return
+        if prev_date == today:
+            return
+        if self.anomaly_detector is None:
+            # B-MED-3 / A-M3 (review fix-up): no detector to emit into.
+            # Reset the counter so it doesn't grow unbounded across days,
+            # but do NOT advance the date — leave the rollover pending so
+            # the next tick with a live detector still evaluates.
+            self._short_cycles_today = {
+                zid: 0 for zid in self._zone_manager.zones
+            }
+            return
+        # B-MED-2 (review fix-up): multi-day-down restart. Only emit when
+        # prev_date is exactly (today - 1 local day). Any larger gap means
+        # the counter represents an unknown-length partial history — emit
+        # would be a stale partial-day sample; discard-and-reseed instead.
+        try:
+            prev_dt = dt_util.parse_datetime(prev_date + "T00:00:00")
+            today_dt = dt_util.parse_datetime(today + "T00:00:00")
+            if prev_dt is None or today_dt is None:
+                gap_days = None
+            else:
+                gap_days = (today_dt.date() - prev_dt.date()).days
+        except Exception:
+            gap_days = None
+        if gap_days is None or gap_days != 1:
+            _LOGGER.info(
+                "HVAC short-cycle: multi-day gap (prev=%s today=%s "
+                "gap_days=%s) — DISCARD accumulated counts, reseed date",
+                prev_date, today, gap_days,
+            )
+            self._short_cycles_today = {
+                zid: 0 for zid in self._zone_manager.zones
+            }
+            self._short_cycles_today_date = today
+            return
+        for zone_id in list(self._zone_manager.zones.keys()):
+            count = int(self._short_cycles_today.get(zone_id, 0))
+            # A-C1 / B-HIGH-1 (review fix-up): clear the (metric, scope)
+            # BEFORE recording the new observation, so the just-cleared
+            # slot is empty when record_observation potentially appends a
+            # fresh anomaly for today's value. Prior ordering deleted the
+            # anomaly it had just created → sensor/get_worst_severity
+            # never saw it.
+            try:
+                self.anomaly_detector.clear_active_anomalies_filtered(
+                    metric_name="short_cycle_rate", scope=zone_id,
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "HVAC short-cycle: filtered clear failed for zone=%s",
+                    zone_id, exc_info=True,
+                )
+            try:
+                anomaly = self.anomaly_detector.record_observation(
+                    "short_cycle_rate", zone_id, float(count),
+                )
+            except Exception as e:
+                _LOGGER.warning(
+                    "HVAC short-cycle: record_observation failed for "
+                    "zone=%s: %s", zone_id, e,
+                )
+                continue
+            if anomaly is not None:
+                _LOGGER.info(
+                    "HVAC short-cycle anomaly: zone=%s count=%d "
+                    "severity=%s z=%.2f",
+                    zone_id, count, anomaly.severity.value, anomaly.z_score,
+                )
+                try:
+                    from .anomaly_event import (  # noqa: PLC0415
+                        AnomalyEvent,
+                        AnomalyType,
+                        build_context_json,
+                        map_diag_severity,
+                    )
+                    ctx = build_context_json(
+                        zone_id=zone_id,
+                        source_signal="hvac_short_cycle_rollover",
+                        extra={
+                            "short_cycles_yesterday": count,
+                            "threshold_s": SHORT_CYCLE_THRESHOLD_S,
+                        },
+                    )
+                    event = AnomalyEvent(
+                        coordinator="hvac",
+                        type="hvac.short_cycle_rate",
+                        severity=map_diag_severity(anomaly.severity),
+                        anomaly_type=AnomalyType.POINT_IN_TIME,
+                        detected_at=anomaly.timestamp.isoformat(),
+                        payload=ctx,
+                        observed_value=anomaly.observed_value,
+                        expected_mean=anomaly.expected_mean,
+                        expected_std=anomaly.expected_std,
+                        z_score=round(anomaly.z_score, 3),
+                        sample_size=anomaly.sample_size,
+                    )
+                    await self.anomaly_detector.store_event(event)
+                except Exception:
+                    _LOGGER.debug(
+                        "HVAC short-cycle: anomaly persist failed",
+                        exc_info=True,
+                    )
+        # Reset counter keyed on the new day.
+        self._short_cycles_today = {
+            zid: 0 for zid in self._zone_manager.zones
+        }
+        self._short_cycles_today_date = today
+
     async def _record_anomaly_observations(self) -> None:
         """Record observations for anomaly detection and persist anomalies to anomaly_log.
 
@@ -3632,9 +4019,13 @@ class HVACCoordinator(BaseCoordinator):
         - override_frequency: integer count of overrides today across zones,
           grows throughout day. Live mean=3.234, std=3.436 — well-shaped
           continuous distribution. WIRE.
-        - short_cycle_rate: defined in HVAC_METRICS but never recorded via
-          record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
-          metric is silent; z-score detection never fires for it.
+        - short_cycle_rate: HVAC-ANOMALY-BLIND-1 D2 — WIRED via a per-zone
+          event-driven producer (`_on_zone_climate_state_change` +
+          `_emit_and_reset_short_cycles`), one observation per zone per
+          LOCAL-day rollover. PERSISTED (removed from
+          HVAC_SUPPRESSED_FROM_PERSISTENCE). Not emitted from this
+          function — the emit hinge is the daily-reset block in
+          _run_decision_cycle.
         - comfort_deviation_hours: defined in HVAC_METRICS but never recorded via
           record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
           metric is silent; z-score detection never fires for it.
@@ -3940,6 +4331,15 @@ class HVACCoordinator(BaseCoordinator):
             if self._zone_manager:
                 snapshot = self._zone_manager.get_state_snapshot()
                 snapshot["__person_zone_map"] = self._person_zone_map
+                # HVAC-ANOMALY-BLIND-1 D2: persist short-cycle counter so
+                # a mid-day restart preserves accumulated per-zone counts
+                # and the rollover guard can distinguish "same day" from
+                # "new day" against the tracker's OWN date (not the
+                # RAM-only _last_daily_reset).
+                snapshot["__short_cycles_today"] = {
+                    "date": self._short_cycles_today_date,
+                    "counts": dict(self._short_cycles_today),
+                }
                 await self._zone_state_store.async_save(snapshot)
                 _LOGGER.info("HVAC: Zone state saved on shutdown")
         except Exception as e:
