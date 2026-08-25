@@ -879,6 +879,7 @@ class AnomalyDetector:
         minimum_samples: Optional[int] = None,
         sensitivity_multiplier: float = 1.0,
         suppressed_metric_names: Optional["frozenset[str]"] = None,
+        minimum_samples_by_metric: Optional[Dict[str, int]] = None,
     ) -> None:
         """Initialize the anomaly detector.
 
@@ -929,6 +930,28 @@ class AnomalyDetector:
         self._suppressed_metric_names: "frozenset[str]" = (
             suppressed_metric_names if suppressed_metric_names is not None
             else frozenset()
+        )
+        # HVAC-ANOMALY-BLIND-1 D1a: per-metric minimum_samples override.
+        # When a metric is absent from this dict the scalar
+        # `self.minimum_samples` still applies (backward-compat default).
+        # Sampling cadences differ: a daily-emit metric (short_cycle_rate:
+        # 1 obs/day/zone) cannot share a maturation gate with a 5-min-tick
+        # metric — 336 samples ≈ 28h for the tick cadence but 336 DAYS at
+        # 1/day. See PLANNING_hvac_short_cycle_producer.md §Design Decision.
+        self._minimum_samples_by_metric: Dict[str, int] = (
+            dict(minimum_samples_by_metric) if minimum_samples_by_metric
+            else {}
+        )
+
+    def _min_samples_for(self, metric_name: str) -> int:
+        """Return the maturation gate for a metric.
+
+        Uses the per-metric override (D1a) if configured; falls back to the
+        scalar `self.minimum_samples`. Called from record_observation,
+        get_learning_status, and get_status_summary.
+        """
+        return self._minimum_samples_by_metric.get(
+            metric_name, self.minimum_samples,
         )
 
     def _persisted_active_anomalies(self) -> list:
@@ -991,7 +1014,7 @@ class AnomalyDetector:
 
         # Check for anomaly BEFORE updating baseline
         anomaly = None
-        if baseline.sample_count >= self.minimum_samples:
+        if baseline.sample_count >= self._min_samples_for(metric_name):
             z = baseline.z_score(value)
             severity = self._classify_severity(z)
             if severity != AnomalySeverity.NOMINAL:
@@ -1054,7 +1077,7 @@ class AnomalyDetector:
         learning_metrics = 0
         for metric_name in self.metric_names:
             baseline = self._get_baseline(metric_name, scope)
-            if baseline.sample_count >= self.minimum_samples:
+            if baseline.sample_count >= self._min_samples_for(metric_name):
                 active_metrics += 1
             elif baseline.sample_count > 0:
                 learning_metrics += 1
@@ -1115,7 +1138,7 @@ class AnomalyDetector:
         silent_metrics: list[str] = []
         for metric_name in self.metric_names:
             baseline = self._get_baseline(metric_name, scope)
-            if baseline.sample_count >= self.minimum_samples:
+            if baseline.sample_count >= self._min_samples_for(metric_name):
                 active_count += 1
             elif baseline.sample_count == 0:
                 silent_metrics.append(metric_name)
@@ -1140,14 +1163,37 @@ class AnomalyDetector:
             "anomalies_today": self._anomalies_today.value,
             "metrics": {},
         }
+        # HVAC-ANOMALY-BLIND-1 D1b: scope-aware per-metric surface.
+        # The requested `scope` (default "house") remains the top-level shape
+        # for backward compat with existing dashboards and tests. For metrics
+        # that also have non-`scope` baselines (e.g. zone-scoped
+        # `short_cycle_rate` with scope=zone_1/zone_2/zone_3), a nested
+        # `scopes` dict surfaces them — never via `_get_baseline(other_scope,
+        # requested_scope)` which would fabricate an empty baseline for the
+        # wrong key. Only keys already present in `self._baselines` are
+        # surfaced (no side-effect creation).
         for metric_name in self.metric_names:
             baseline = self._get_baseline(metric_name, scope)
-            summary["metrics"][metric_name] = {
+            gate = self._min_samples_for(metric_name)
+            entry: Dict[str, Any] = {
                 "mean": round(baseline.mean, 4),
                 "std": round(baseline.std, 4),
                 "sample_count": baseline.sample_count,
-                "active": baseline.sample_count >= self.minimum_samples,
+                "active": baseline.sample_count >= gate,
             }
+            per_scope: Dict[str, Dict[str, Any]] = {}
+            for (m_name, s_name), b in self._baselines.items():
+                if m_name != metric_name or s_name == scope:
+                    continue
+                per_scope[s_name] = {
+                    "mean": round(b.mean, 4),
+                    "std": round(b.std, 4),
+                    "sample_count": b.sample_count,
+                    "active": b.sample_count >= gate,
+                }
+            if per_scope:
+                entry["scopes"] = per_scope
+            summary["metrics"][metric_name] = entry
         return summary
 
     async def store_event(self, event: "AnomalyEvent") -> Optional[int]:
@@ -1310,6 +1356,46 @@ class AnomalyDetector:
     def clear_active_anomalies(self) -> None:
         """Clear active anomalies (e.g., after resolution)."""
         self._active_anomalies.clear()
+
+    def clear_active_anomalies_filtered(
+        self,
+        *,
+        metric_name: Optional[str] = None,
+        scope: Optional[str] = None,
+    ) -> int:
+        """HVAC-ANOMALY-BLIND-1 D1c: filtered variant of
+        `clear_active_anomalies`.
+
+        Removes entries from `_active_anomalies` matching BOTH `metric_name`
+        (when supplied) and `scope` (when supplied). Either filter may be
+        None to be a wildcard on that axis; supplying neither is equivalent
+        to the zero-arg `clear_active_anomalies` and simply drops everything
+        — but the caller should just call that method in that case.
+
+        Returns the count of entries removed.
+
+        Why this exists as a new method (not a superset of the existing one):
+        the zero-arg call has multiple call sites treating it as "reset the
+        detector's memory"; changing its signature would risk silently
+        widening its blast radius. This method's contract is narrow:
+        contain latching for ONE (metric, scope) combination at daily
+        rollover, per §Traps trap 3 of the planning doc.
+        """
+        if metric_name is None and scope is None:
+            removed = len(self._active_anomalies)
+            self._active_anomalies.clear()
+            return removed
+        kept: list[AnomalyRecord] = []
+        removed_count = 0
+        for a in self._active_anomalies:
+            matches_metric = metric_name is None or a.metric_name == metric_name
+            matches_scope = scope is None or a.scope == scope
+            if matches_metric and matches_scope:
+                removed_count += 1
+                continue
+            kept.append(a)
+        self._active_anomalies = kept
+        return removed_count
 
 
 # ============================================================================

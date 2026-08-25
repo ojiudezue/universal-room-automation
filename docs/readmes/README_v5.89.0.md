@@ -116,7 +116,31 @@ or a gate that fails toward the pre-existing behaviour.
 `night_session_date`, `in_flight_durable_started_ts`, `in_flight_durable_event_id` on
 `ac_reset_state`). A code revert leaves the columns in place, unread. That is safe.
 
-## Live validation — PROSPECTIVE (to be replaced with observed results)
+## Live validation — PARTIAL, validated 2026-08-23 11:11-11:45 CDT
+
+Restart 11:07, HA responsive 11:11, manifest v5.89.0 verified on disk BEFORE restart.
+This table records what has ACTUALLY been observed. Criteria needing elapsed time or an
+organic event remain open and are marked so — they are not assumed.
+
+| # | Criterion | Verdict | Observed evidence |
+|---|---|---|---|
+| L1 | Boot clean, no URA errors | **PASS** | `system` log, level=ERROR, search=universal_room_automation -> 0 entries since restart |
+| L-live | Gate 4 predicate mode | **PASS** | `select.ura_hvac_ac_gate4_predicate_mode` = `live` on cold boot. The operator's explicit choice survived startup — this was the specific seed-race risk flagged when the default was flipped from `shadow`, and it did NOT silently downgrade |
+| L-sensors | Five A1 sensors exist | **PASS** | All three `sensor.ura_hvac_coordinator_82_ac_gate4_blind_fraction_7d_*` present (back_hallway / entertainment_master_suite / upstairs), reading 0.0 — correct starting value for a 7-day window opened minutes ago, NOT a defect |
+| F2 | Migration must not inflate upgrade-day budget | **PASS** | `ac_reset_state` newest zone_1 row reads `hard_reset_count=1, day_reset_count=1, night_reset_count=0` — the new day counter was SEEDED from the existing count rather than starting at 0. A zone that had already spent budget did not receive a fresh 2+2. This is the fix for the defect three reviewers flagged |
+| L-schema | New columns present | **PASS** | `durable`, `truncated`, `kwh_rate_settle`, `reset_outcome`, `settled_reason` all queryable on `ac_ramp_events`; `day_reset_count`, `night_reset_count`, `night_session_date` on `ac_reset_state` |
+| L4 | Day/night buckets separately populated; 22:00 and post-midnight charge the SAME night | **OPEN** | Needs an overnight. Day bucket confirmed populating (F2 row above); night bucket untested — no reset has fired at night since install |
+| L7 | `durable` populated with BOTH values; `truncated` distinguishes branches | **OPEN** | 0 `ac_ramp_events` rows since restart — the AC has been idle (zone_1 circuit at 10.8 W). Nothing to measure yet. **All-zero `durable` when rows DO appear = the threshold bug regressed** |
+| L8 | `kwh_rate_settle` not uniformly zero | **OPEN** | No hard reset since install. **Uniform ~0.0 kW = still sampling inside the 72-101s actuation lag** |
+| L9 | Blind fraction <= 0.01 after 7 days live | **OPEN** | Window opened 11:11 today. Compare the high-draw-denominated attribute against the pre-fix baseline (zone_1 12.2%, zone_2 7.1%, zone_3 12.9%) — the wall-clock `native_value` is NOT comparable to it |
+| L10 | `triggered_by` discriminates manual vs auto | **OPEN** | Needs a hard reset to fire |
+| L6 | New knobs survive a restart | **NOT YET TESTED — SETUP OWED** | This restart could not test it: no non-default value was set beforehand, so seeding from defaults is indistinguishable from seeding from options. To test: set a non-default reset budget NOW, then verify it survives the NEXT restart. **This is the one diagnosis taken on trust during the cycle** (the builder concluded the seeding tests had a stale harness rather than F16/A2 breaking seeding) and it is the restart path for compressor-protection settings |
+
+**The signal to watch over the next 24h:** nudge counts should RISE. Gate 4 was vetoing 7-13% of
+high-draw time. A flat count means the new predicate is not firing — that is the rip signal, and
+the rip is flipping the Select to `legacy`, no deploy required.
+
+### Original prospective criteria (retained for reference)
 
 Per the standing rule, this section is rewritten post-restart with a
 `Validated <date>` table carrying observed evidence. It is NOT done until then.
