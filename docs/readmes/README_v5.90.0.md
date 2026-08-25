@@ -30,6 +30,20 @@ Tier-2-DB, three framing-disjoint code reviews (A data-integrity / B async-lifec
 - **Live (post-restart):** `short_cycle_rate` appears per-zone in the HVAC anomaly detector's learning status with `minimum_samples=14`, `sample_count` starting to accrue (one per local day per zone). It should read NOT-yet-mature for ~14 days, then begin scoring. No spurious ADVISORY/CRITICAL from the metric in the first days.
 - **Live (~14 days):** first real scoring; a genuine short-cycling day (≥ the fault threshold) raises the HVAC anomaly sensor's worst severity and fires NM — while normal days stay nominal.
 
-## Post-deploy validation (write-back — TO BE COMPLETED after restart)
+## Post-deploy validation — Validated 2026-08-25 (day-0, post-restart)
 
-_Replace this section with a `Validated <date>` results table once the restarted instance is read: confirm `short_cycle_rate` is registered per-zone at minimum_samples=14, accruing, and not spuriously firing. Note that full scoring only proves out after the 14-day maturation, so the day-0 check is registration + accrual + no-false-fire, not detection._
+Read from `sensor.ura_hvac_coordinator_hvac_anomaly` after the v5.90.0 restart (HA back up, house state live, config-check valid).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| `short_cycle_rate` registered (not suppressed) | ✅ PASS | Present in the anomaly detector's `metrics` map (was in `HVAC_SUPPRESSED_FROM_PERSISTENCE`; now live) |
+| Per-metric maturation gate = 14 (the ctor wire-in, C-CRITICAL-1) | ✅ PASS | `metrics.short_cycle_rate.minimum_samples: 14` — the `minimum_samples_by_metric` override is LIVE in production (vs the global 336) |
+| Not yet matured / immature at day-0 | ✅ as-expected | `sample_count: 0, active: false` — first daily observation emits at the next local-day rollover |
+| No spurious firing | ✅ PASS | sensor `nominal`, `active_anomalies: 0`, `anomalies_today: 0` |
+| De-suppression reaches the sensor surface | ✅ PASS | metric is silent-because-no-samples, NOT silent-because-suppressed (it appears in the live `metrics` dict, `metrics_active_ratio: 2/5`) |
+
+**Deferred (cannot prove at day-0):**
+- **Per-zone accrual** — the producer emits one observation per zone per local day; the first per-zone samples land at the next local midnight rollover. Confirm zone-scoped `sample_count` incrementing by 1/day/zone over the next 1–2 days.
+- **Detection / scoring** — proves out only after ~14 days of maturation, when a genuine short-cycling day should raise worst-severity + fire NM while normal days stay nominal. This is the organic-proof gate (`shipped_organic` → `done`).
+
+Boot transient dismissed: none observed — the metric came up immature-and-nominal exactly as designed.

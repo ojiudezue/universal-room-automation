@@ -60,7 +60,7 @@ def test_switch_off_off_peak_publishes_shadow_attrs_no_actuation():
     )
 
     try:
-        coord._dp_decision_tick({"soc": 75}, "off_peak", ev_load_w=7600.0)
+        coord._dp_decision_tick({"soc": 75}, "off_peak", ev_load_w=7600.0, drain_target_soc=30)
     except _b2c1._DPSkip:
         pass
 
@@ -92,7 +92,7 @@ def test_switch_off_outside_off_peak_marks_shadow_not_applicable():
     )
 
     try:
-        coord._dp_decision_tick({"soc": 75}, "mid_peak", ev_load_w=7600.0)
+        coord._dp_decision_tick({"soc": 75}, "mid_peak", ev_load_w=7600.0, drain_target_soc=30)
     except _b2c1._DPSkip:
         pass
 
@@ -115,7 +115,7 @@ def test_switch_off_blind_hold_marks_shadow_not_applicable():
     )
 
     try:
-        coord._dp_decision_tick({"soc": None}, "off_peak", ev_load_w=7600.0)
+        coord._dp_decision_tick({"soc": None}, "off_peak", ev_load_w=7600.0, drain_target_soc=30)
     except _b2c1._DPSkip:
         pass
 
@@ -139,7 +139,7 @@ def test_switch_on_does_not_populate_shadow_attrs():
         envoy_available=True, battery_soc=75.0,
     )
     try:
-        coord._dp_decision_tick({"soc": 75}, "off_peak", ev_load_w=7600.0)
+        coord._dp_decision_tick({"soc": 75}, "off_peak", ev_load_w=7600.0, drain_target_soc=30)
     except _b2c1._DPSkip:
         pass
     assert coord._dp_carrier.shadow_decision is None

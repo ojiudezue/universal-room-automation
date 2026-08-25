@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "071",
+  "author": "ojiudezue",
+  "session_id": "claude_20260825_versioning_cadence",
+  "timestamp": "2026-08-25T18:55:19Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Version cadence codified: patch-per-fix-cycle; v6.0.0 anchored to identity-driven autonomy (not a mechanical 5.100 rollover)",
+  "summary": "At v5.90.0 the minor-per-cycle habit was drifting toward the ugly 5.100. Operator ruled two levers: (1) PATCH is the default per-cycle bump (fixes, correctness cycles, small features, producers — e.g. 5.90.1, 5.90.2); MINOR is reserved for a genuinely NEW user-facing capability; this is the 'next patch at deploy' the original 2026-06-03 rule already said but practice had drifted from. (2) MAJOR (6.0.0) is anchored to a NAMED milestone — IDENTITY-DRIVEN AUTONOMY (the census/identity arc reaching real actuation: guest gate consuming door-identity, arrival/departure keyed to person_id, egress identity), gated on face-recognition/coverage being restored.",
+  "why": "The climb toward 5.100 was a cadence habit, not a semver necessity — ~90 minors since v5.0.0 because every cycle took a .0. Patch-per-fix stops it by construction (5.90.x holds dozens of ships). Reserving 6.0.0 for a capability milestone matches the precedent: v5.0.0 was the Optimization Coordinator (a new capability), never a number rollover. Operator explicitly rejected mechanical rollover ('don't climb into the hundreds' is solved by cadence, not by faking a major). Identity-driven autonomy chosen as the 6.0.0 anchor over optimizer-L2 or load-shedding.",
+  "implications": "Applied immediately to the energy pipeline: DP drain-target fix = 5.90.1 (patch), midnight drain-target-day-staleness = 5.90.2 (patch), solar-follow amp modulation = 5.91.0 (minor — new user-facing capability). At every deploy, classify the cycle before picking the number.",
+  "revisit_trigger": "When the census/identity arc reaches real actuation (a guest gate / arrival-departure / egress consumer trusting person_id in production), that ship is v6.0.0.",
+  "supersedes": "Extends the 2026-06-03 versioning-convention (major = major new functionality); makes the patch-vs-minor level rule concrete and names the 6.0.0 milestone.",
+  "refs": {
+    "docs": ["CLAUDE.md (Release Process → Version-level cadence)"],
+    "memory": ["feedback_versioning_convention"]
+  }
+}

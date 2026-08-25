@@ -50,6 +50,11 @@ For URA cycles, route each phase to the designated subagent. Do NOT default to `
 - Pre-stage new directories with `git add` before running deploy.sh
 - Do NOT manually commit, push, or create PRs for releases
 
+### Version-level cadence (operator-coined 2026-08-25 — currently v5.90.x)
+- **PATCH (`x.y.PATCH`) is the default per-cycle bump** — fixes, correctness cycles, small features, knobs, producers (e.g. `5.90.1`, `5.90.2`). This is what stops the drift toward the ugly `5.100`; `5.90.x` holds dozens of ships.
+- **MINOR (`x.MINOR.0`) is reserved for a genuinely NEW user-facing capability** — a new coordinator dimension, a new autonomous behavior, a new operator-facing feature. Not for a fix or refactor.
+- **MAJOR = `6.0.0` is anchored to a named milestone: IDENTITY-DRIVEN AUTONOMY** (the census/identity arc reaching real actuation — guest gate consuming door-identity, arrival/departure keyed to `person_id`, egress identity), gated on face-recognition/coverage being restored. Do NOT roll `6.0.0` mechanically to dodge `5.100` — hold it for the milestone (parallels `v5.0.0` = Optimization Coordinator L1). See memory `feedback_versioning_convention`.
+
 ## Before Making Changes
 - Read `docs/QUALITY_CONTEXT.md` for known bug classes (22 classes — includes stale data source #7, enum mismatch #22, observation mode gating #23)
 - Read `quality/DEVELOPMENT_CHECKLIST.md` for review checklist
