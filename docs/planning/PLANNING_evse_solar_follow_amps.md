@@ -1,6 +1,24 @@
 # PLANNING — EVSE solar-following amp modulation (D1 only)
 
-**Status:** build-ready, awaiting operator go. Tier 3. Self-contained.
+**Status:** build-ready pending a focused plan-review of the 2026-08-25 additions. Tier 3. Self-contained.
+
+**Changelog 2026-08-25 (operator-directed, added post-review):**
+- **INV-SF-10 (grid freshness).** Closed a stale-but-available hole: §5.4 previously declared blind
+  only on BOTH sources *unavailable*, so a numeric-but-frozen grid reading (e.g. a stuck Emporia
+  minute-average that never goes `unavailable`) would be sized on — overshooting into the battery,
+  the exact harm this cycle prevents. The grid read now enforces a `last_reported` freshness gate
+  (`SOLAR_FOLLOW_GRID_FRESH_S`, 300 s) and a stale PRIMARY hands off to the FALLBACK just like an
+  absent one. **`last_reported`, not `last_updated`** — the grid sensors are minute-averages that
+  re-emit unchanged values (§2), so `last_updated` would false-trip on a stable house.
+- **DP-coupling observability** (`solar_follow_below_dp_l1_threshold`, `solar_follow_grid_source`).
+  Read-only cross-reference so a DP `l1_only` no-drain is diagnosable as "solar-follow throttled the
+  charger below 3 kW" without DP ever reading D1 state — closes the mis-attribution hazard the card
+  raised (gate 6 masked the 2026-08-20 drain defect) while respecting the never-coordinate scope fence.
+  This is the endorsed response to "adjust the DP arithmetic coupling?" — make it legible, not tune it.
+
+These two additions touch the invariant + observability surface; per Plan Review tiering they get
+one focused adversarial plan-review pass (freshness-field correctness, fallback-on-stale selection,
+the read-only-ness of the DP flag) before build dispatch.
 
 **Scope:** amp modulation ONLY. This cycle changes *how much current* an EVSE draws inside a
 solar session. It does not change when sessions start or stop — the existing claim and release
@@ -142,6 +160,15 @@ full surplus to DRAWING bays and then paying each parked bay's 6 A on top makes 
 false in the ordinary mixed fleet state: one bay at 29 A plus one parked at 6 A is 8400 W
 against 7000 W of surplus. Netting first gives 23 A and 6960 W, which holds. **There is no
 headroom term.**
+
+**INV-SF-10 (grid freshness — no sizing on a stale grid read).** `S_eligible` is computed only
+from a grid source whose `last_reported` age is `≤ SOLAR_FOLLOW_GRID_FRESH_S`. A source that is
+`available` but whose `last_reported` is older than that threshold is treated as unavailable and
+handed off to the fallback; if BOTH are stale-or-unavailable, D1 is blind (§5.4) and writes
+nothing. **Falsified by:** any tick where `-grid_W` enters `S_eligible` from an entity whose
+`last_reported` age exceeds the threshold. This is the stale-but-available failure the binary
+`unavailable`-only check missed — sizing draw on a frozen export reading is how the controller
+overshoots into the battery, the exact harm this cycle exists to prevent.
 
 The `SOLAR_POWER_FRESH_S` gate exists because the per-EVSE power sensor (p90 250 s) can lag the
 mains sensor (p90 120 s), so the add-back can describe a draw the grid term already stopped
@@ -335,6 +362,17 @@ entry when the entity is unresolvable, and persists.
 * **Contract enforced at read time on both:** read `unit_of_measurement`; `W`/`None`/`""`
   identity, `kW`/`kw` ×1000, **anything else → source unavailable** (Bug Class #30). A
   non-numeric state is unavailable, not zero.
+* **Freshness enforced at read time on both (NEW — closes the stale-but-available hole):** a
+  source whose `hass.states.get(entity).last_reported` age exceeds `SOLAR_FOLLOW_GRID_FRESH_S`
+  is treated as **unavailable**, exactly like a bad unit. **Use `last_reported`, NOT
+  `last_updated`** — both grid entities are *minute-average* sensors (§2: they re-emit every
+  ~60 s even when the value is unchanged), so `last_updated` freezes on a stable export and would
+  false-trip blind on a healthy house; `last_reported` bumps on every emission, so a frozen
+  `last_reported` means the source genuinely stopped reporting. (Contrast the per-EVSE power gate
+  in INV-SF-4, which correctly uses `last_updated` because a charging load fluctuates continuously.)
+* **Source selection:** PRIMARY if available-and-fresh; else FALLBACK if available-and-fresh; else
+  blind (§5.4). A stale PRIMARY hands off to the FALLBACK the same as an unavailable one — this is
+  the un-availability the operator flagged: the fallback must cover *stale*, not only *absent*.
 
 D1 does not reuse `CONF_ENERGY_GRID_IMPORT_ENTITY` (documented in-repo as "Emporia mains",
 consumed by `CostTracker`, live value is the Envoy — borrowing a field whose documented meaning
@@ -347,7 +385,7 @@ accurate instantaneous grid-boundary reading.
 
 ### 5.4 — blind state
 
-Blind means BOTH sources unavailable. It does not mean degraded EVSE signals.
+Blind means BOTH sources unavailable **or stale** (per the §5.3 freshness gate — a numeric-but-frozen reading counts as unavailable). It does not mean degraded EVSE signals.
 
 * Under `SOLAR_FOLLOW_STALE_GRACE_S` (300 s) from first unavailability: no writes, no warning.
 * At the grace: WARNING, stamp `_blind_since`.
@@ -355,7 +393,7 @@ Blind means BOTH sources unavailable. It does not mean degraded EVSE signals.
   reading D1 cannot size draw, and the charger must not hold a modulated limit indefinitely.
   D1 does NOT end the session — that is not its job (INV-SF-8); the existing release logic ends
   it on its own terms.
-* On recovery of either source: clear `_blind_since` and resume normally.
+* On recovery of either source **to available-and-fresh**: clear `_blind_since` and resume normally. A source that returns to `available` but is still stale does NOT count as recovery.
 
 ### 5.5 — current-limit entities
 
@@ -457,6 +495,8 @@ and `pause_reason_human`. Solar-follow adds four:
 | `solar_follow_original_amps` | per-EVSE saved restore value; what a stuck-throttle incident needs |
 | `solar_follow_state` | per-EVSE `writing` / `yielded` / `blind` / `disabled` |
 | `solar_follow_blind_since` | makes the 900 s restore observable before it fires |
+| `solar_follow_grid_source` | which grid entity is live this tick (`primary` / `fallback` / `blind`) and whether the primary was demoted for **staleness** vs unavailability — so a stale-but-available Emporia is diagnosable, not silent |
+| `solar_follow_below_dp_l1_threshold` | true when D1 is holding any bay's commanded rate ≤ `DP_L1_RATE_THRESHOLD_KW` (3.0 kW). **Read-only cross-reference, NOT coordination** (respects the scope fence): lets anyone diagnosing a DP `l1_only` no-drain see immediately that solar-follow's throttle is the cause, closing the mis-attribution hazard the card raised (the same gate that masked the 2026-08-20 drain-target defect) — without DP ever reading D1 state |
 
 ---
 
@@ -502,6 +542,7 @@ declared there, parsed in the coordinator-manager options step of `config_flow.p
 | `SOLAR_FOLLOW_STALE_GRACE_S` | 1 | 300 | blind declared |
 | `SOLAR_FOLLOW_BLIND_EXIT_S` | 1 | 900 | restore-and-go-quiet |
 | `SOLAR_POWER_FRESH_S` | 1 | 180 | max age of a per-EVSE power reading for DRAWING; that sensor's p90 is 250 s |
+| `SOLAR_FOLLOW_GRID_FRESH_S` | 1 | 300 | max **`last_reported`** age of a grid source before it is treated as unavailable (INV-SF-10). Generous vs the measured p90 (Emporia 120 s / Envoy 86 s, §2) so a healthy minute-average never false-trips; tight enough to catch a stuck sensor. Uses `last_reported` NOT `last_updated` (minute-average re-emits unchanged values) |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY` | 2 | — | primary grid entity |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY` | 2 | — | fallback grid entity |
 
