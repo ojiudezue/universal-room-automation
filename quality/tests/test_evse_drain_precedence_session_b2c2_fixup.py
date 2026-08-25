@@ -323,7 +323,7 @@ def test_transition_entry_pauses_actual_configured_evse_id():
     anchor = datetime(2026, 7, 20, 22, 0, 0)
     with _frozen_dt_now(anchor):
         # Tick 1: HOLD_ONLY → HOLD_PRE_EVAL (eval_delay window begins).
-        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0)
+        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0, drain_target_soc=30)
         assert coord._dp_carrier.state == DPState.HOLD_PRE_EVAL
 
         # Fast-forward: pretend the eval_delay elapsed by moving
@@ -331,7 +331,7 @@ def test_transition_entry_pauses_actual_configured_evse_id():
         coord._dp_carrier.hold_started_at = anchor - timedelta(minutes=60)
 
         # Tick 2: HOLD_PRE_EVAL → EVAL_TRANSITION → TRANSITIONED (fits).
-        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0)
+        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0, drain_target_soc=30)
 
     # The critical assertion — production dispatch must have claimed
     # the real configured id. If the tick had mocked its way to
@@ -363,9 +363,9 @@ def test_transition_entry_pauses_only_charging_evse_ids_multi_evse():
     coord._dp_needed_kwh_garage_b = 5.0  # peer knob non-zero — must NOT count
     anchor = datetime(2026, 7, 20, 22, 0, 0)
     with _frozen_dt_now(anchor):
-        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0)
+        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0, drain_target_soc=30)
         coord._dp_carrier.hold_started_at = anchor - timedelta(minutes=60)
-        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0)
+        coord._dp_decision_tick({"soc": 50}, "off_peak", ev_load_w=6000.0, drain_target_soc=30)
     assert coord._dp_carrier.state == DPState.TRANSITIONED
     assert "garage_a" in ev._paused_by_dp
     assert "garage_b" not in ev._paused_by_dp, (

@@ -4198,7 +4198,7 @@ class EnergyCoordinator(BaseCoordinator):
         decision: dict[str, Any],
         ev_load_w: float | None,
         period: str,
-        drain_target_soc: int | None = None,
+        drain_target_soc: int | None,
     ) -> None:
         """v5.21.0 D4 — Shadow eval (kill switch OFF path).
 
@@ -4243,17 +4243,10 @@ class EnergyCoordinator(BaseCoordinator):
             self._dp_carrier.shadow_last_eval_snapshot = {}
             return
 
-        # dp-drain-target-value-stamp — no THIS-tick composed drain target
-        # (determine_mode did not reach the off_peak drain-fallback branch,
-        # e.g. full_hold, arbitrage CHARGE, or non-off_peak). TransitionInputs
-        # requires an int, so shadow is not applicable this tick.
-        if drain_target_soc is None:
-            self._dp_carrier.shadow_decision = "not_applicable"
-            self._dp_carrier.shadow_reason = "no_drain_target_this_tick"
-            self._dp_carrier.shadow_last_eval_at = now
-            self._dp_carrier.shadow_last_eval_snapshot = {}
-            return
-
+        # C-HIGH-1 precedence: compute the blind signal FIRST so a
+        # blind-hold tick reports its safety reason ("blind_hold") even
+        # when drain_target_soc is also None. Blind is the load-bearing
+        # safety signal; drain-None is a downstream input problem.
         _soc = decision.get("soc")
         try:
             _env_ok_sh = bool(self._battery.envoy_available)
@@ -4268,6 +4261,23 @@ class EnergyCoordinator(BaseCoordinator):
         # uniquely bound to the DP tick site (the load-bearing one for
         # actuation).
         _shadow_blind = bool((not _env_ok_sh) and _bat_soc_sh is None)
+        if _shadow_blind:
+            self._dp_carrier.shadow_decision = "not_applicable"
+            self._dp_carrier.shadow_reason = DP_REASON_BLIND_HOLD
+            self._dp_carrier.shadow_last_eval_at = now
+            self._dp_carrier.shadow_last_eval_snapshot = {}
+            return
+
+        # dp-drain-target-value-stamp — no THIS-tick composed drain target
+        # (determine_mode did not reach the off_peak drain-fallback branch,
+        # e.g. full_hold, arbitrage CHARGE, or non-off_peak). TransitionInputs
+        # requires an int, so shadow is not applicable this tick.
+        if drain_target_soc is None:
+            self._dp_carrier.shadow_decision = "not_applicable"
+            self._dp_carrier.shadow_reason = "no_drain_target_this_tick"
+            self._dp_carrier.shadow_last_eval_at = now
+            self._dp_carrier.shadow_last_eval_snapshot = {}
+            return
 
         inputs = _DPInputs(
             # Bypass the in-eval kill-switch branch — the OUTER gate is the
@@ -4340,7 +4350,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _dp_decision_tick(
         self, decision: dict[str, Any], period: str, ev_load_w: float | None,
-        *, drain_target_soc: int | None = None,
+        *, drain_target_soc: int | None,
     ) -> None:
         """Drain-precedence per-cycle tick body (B2c-1 fix-up extraction).
 
@@ -4433,21 +4443,49 @@ class EnergyCoordinator(BaseCoordinator):
         if not _dp_on or self._tou.get_current_period() != "off_peak":
             raise _DPSkip()
 
-        # dp-drain-target-value-stamp — INV-DP-DRAIN-1e. No composed
-        # drain target from THIS tick's determine_mode (drain-fallback
-        # branch not entered, e.g. full_hold / arbitrage CHARGE). Force
-        # a reversion if we're currently TRANSITIONED so the pause is
-        # released rather than held on a stale target, then skip the
-        # rest of the tick — TransitionInputs requires an int and we
-        # will not fabricate one from the static R1 knob.
+        # dp-drain-target-value-stamp — INV-DP-DRAIN-1e with 5c debounce.
+        # No composed drain target from THIS tick's determine_mode
+        # (drain-fallback branch not entered, e.g. full_hold / arbitrage
+        # CHARGE). Debounce (2 consecutive None-while-TRANSITIONED ticks)
+        # then release, using the same reversion contract as the peer
+        # paused-aware-exit site (~:4614-4621):
+        # try_transition(HOLD_ONLY) → _apply_dp_reversion → persist.
+        # must-start-by remains an independent backstop (its point-in-time
+        # callback fires regardless of this streak).
         if drain_target_soc is None:
             if self._dp_carrier.state == _DPState.TRANSITIONED:
-                _LOGGER.info(
-                    "drain-precedence: forcing reversion — determine_mode "
-                    "did not stamp an off_peak drain target this tick",
-                )
-                self._apply_dp_reversion(tou_period=period)
+                self._dp_none_streak = getattr(
+                    self, "_dp_none_streak", 0,
+                ) + 1
+                if self._dp_none_streak >= 2:
+                    _LOGGER.info(
+                        "drain-precedence: forcing reversion — "
+                        "determine_mode did not stamp an off_peak drain "
+                        "target for %d consecutive ticks",
+                        self._dp_none_streak,
+                    )
+                    from .energy_drain_precedence import (
+                        try_transition as _dp_try_1e,
+                    )
+                    _dp_try_1e(
+                        self._dp_carrier, _DPState.HOLD_ONLY,
+                        now_provider=dt_util.now,
+                    )
+                    self._apply_dp_reversion(tou_period=period)
+                    self.hass.async_create_task(self._save_evse_state())
+                    self._dp_none_streak = 0
+                else:
+                    _LOGGER.info(
+                        "drain-precedence: 1st None-while-TRANSITIONED "
+                        "tick — deferring release (debounce)",
+                    )
+            else:
+                # Not TRANSITIONED — no pause to release; reset streak.
+                self._dp_none_streak = 0
             raise _DPSkip()
+        # A THIS-tick composed floor exists — any prior None streak is
+        # discharged. Reset counter so a future streak starts fresh.
+        self._dp_none_streak = 0
 
         _prev_dp_state = self._dp_carrier.state
         _now_dp = dt_util.now()

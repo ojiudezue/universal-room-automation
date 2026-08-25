@@ -313,83 +313,6 @@ def _method_body(source: str, class_name: str, method_name: str) -> str:
     )
 
 
-def test_no_ev_battery_drain_soc_read_in_dp_decision_tick():
-    """After the value-stamp cycle, `_dp_decision_tick` must not read
-    the static R1 knob — it consumes only the threaded
-    `drain_target_soc` parameter."""
-    src = _ENERGY_PY.read_text()
-    body = _method_body(src, "EnergyCoordinator", "_dp_decision_tick")
-    # Strip comments so the docstring / cycle notes don't false-fail.
-    stripped = re.sub(r"#.*", "", body)
-    stripped = re.sub(r'""".*?"""', "", stripped, flags=re.DOTALL)
-    assert "_ev_battery_drain_soc" not in stripped, (
-        "_dp_decision_tick still reads the static R1 knob"
-    )
-    assert "drain_target_soc" in body  # threaded param is used
-
-
-def test_no_ev_battery_drain_soc_read_in_shadow_eval():
-    """After the value-stamp cycle, `_run_dp_shadow_eval` must not read
-    the static R1 knob — it consumes only the threaded
-    `drain_target_soc` parameter."""
-    src = _ENERGY_PY.read_text()
-    body = _method_body(src, "EnergyCoordinator", "_run_dp_shadow_eval")
-    stripped = re.sub(r"#.*", "", body)
-    stripped = re.sub(r'""".*?"""', "", stripped, flags=re.DOTALL)
-    assert "_ev_battery_drain_soc" not in stripped, (
-        "_run_dp_shadow_eval still reads the static R1 knob"
-    )
-    assert "drain_target_soc" in body
-
-
-def test_coord_captures_stamp_before_first_await():
-    """The coordinator captures `_offpeak_drain_branch_target` from the
-    battery strategy immediately after determine_mode returns and threads
-    it into the DP tick call. This is the whole seam of the fix."""
-    src = _ENERGY_PY.read_text()
-    # Simple structural checks — capture + thread both present.
-    assert "_offpeak_drain_branch_target" in src, (
-        "coordinator does not capture the value stamp"
-    )
-    assert re.search(
-        r"self\._dp_decision_tick\([^\)]*drain_target_soc\s*=\s*_drain_target",
-        src, re.DOTALL,
-    ), "coord does not thread drain_target_soc into _dp_decision_tick"
-
-
-def test_r1_static_knob_preserved_in_drain_pause_callers():
-    """R1 sites — the EV / plug drain-pause callers must still pass the
-    static `self._ev_battery_drain_soc` as the SOC threshold."""
-    src = _ENERGY_PY.read_text()
-    # Two matches expected (EV + plugs).
-    matches = re.findall(
-        r"soc_threshold\s*=\s*self\._ev_battery_drain_soc", src,
-    )
-    assert len(matches) >= 2, matches
-
-
-def test_r3_static_knob_preserved_in_ride_sites():
-    """R3 sites — blind-hold envelope proof (:3752) + energy_pool ride
-    sites (:954, :1435) must still read the static
-    `_ev_battery_drain_soc` unchanged."""
-    src_e = _ENERGY_PY.read_text()
-    src_p = _ENERGY_POOL_PY.read_text()
-    assert "_ev_battery_drain_soc" in src_e
-    # energy_pool sites pass a soc-threshold-like ARG whose caller-source
-    # value is the static knob (`_ev_battery_drain_soc`) per the plan; the
-    # helper `_soc_envelope_admits_dp_transition` reads it as an ARG.
-    # Guard: the two blind-window ride sites reference the static knob
-    # by attribute name via the caller — a domain-wide rename would
-    # break this assertion.
-    assert "_ev_battery_drain_soc" in src_p or "drain_target" in src_p
-
-
-# ---------------------------------------------------------------------------
-# Mutation drill C-entry-reset: delete the entry-reset line and verify the
-# cross-tick reset scenario FAILS. Runs in a subprocess with
-# PYTHONDONTWRITEBYTECODE=1 to avoid stale .pyc.
-# ---------------------------------------------------------------------------
-
 _MUTATION_MARKER = "self._offpeak_drain_branch_target = None"
 
 
@@ -627,7 +550,279 @@ def test_mutation_c_entry_reset_bites():
     # Sanity: the failure is the AssertionError we authored, not a random
     # import blow-up.
     combined = proc.stdout + "\n" + proc.stderr
-    assert (
-        "MUTATION SILENT" in combined
-        or "AssertionError" in combined
-    ), combined
+    # Fix #6 — require the specific "MUTATION SILENT" marker so an
+    # import/fixture break cannot masquerade as a bitting drill.
+    assert "MUTATION SILENT" in combined, (
+        "expected 'MUTATION SILENT' marker in mutated-run output "
+        f"(guards against import/fixture breaks masquerading as bites)\n"
+        f"combined output:\n{combined}"
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# Fix #2 - BEHAVIORAL anchors (replaces the 5 removed source-string tests).
+# These fail on a WRONG VALUE, not on a rename.
+# ---------------------------------------------------------------------------
+
+import hashlib as _hashlib
+import shutil as _shutil
+from datetime import timedelta as _timedelta
+
+import quality.tests.test_evse_drain_precedence_session_b2c1_fixup as _b2c1_dp
+import quality.tests.test_evse_drain_precedence_session_b2c2_fixup as _b2c2_dp
+
+_DPState_dp = _b2c1_dp.DPState
+
+
+def _drive_fresh_transition(coord, drain_stamp):
+    """Drive HOLD_ONLY -> TRANSITIONED via two ticks under a frozen clock."""
+    anchor = datetime(2026, 7, 20, 22, 0, 0)
+    with _b2c2_dp._frozen_dt_now(anchor):
+        coord._dp_decision_tick(
+            {"soc": 50}, "off_peak", ev_load_w=6000.0,
+            drain_target_soc=drain_stamp,
+        )
+        coord._dp_carrier.hold_started_at = anchor - _timedelta(minutes=60)
+        coord._dp_decision_tick(
+            {"soc": 50}, "off_peak", ev_load_w=6000.0,
+            drain_target_soc=drain_stamp,
+        )
+
+
+def test_dp_transition_consumes_stamped_target_not_static_knob():
+    """Behavioral: static knob=20, THIS-tick stamp=40. The fresh DP
+    transition must stamp `_dp_decision_soc == 40` (from the stamp),
+    NOT 20 (from the R1 static knob). Fails on any wrong-value
+    regression, not on a rename."""
+    coord, _ev, _bat, _tou = _b2c1_dp._make_coord(
+        ids=("garage_a",), charging=("garage_a",), drain_target=20,
+    )
+    coord._dp_needed_kwh_garage_a = 5.0
+    _drive_fresh_transition(coord, drain_stamp=40)
+    assert coord._dp_carrier.state == _DPState_dp.TRANSITIONED, (
+        f"pre-req: fresh transition did not fire; state="
+        f"{coord._dp_carrier.state}"
+    )
+    assert coord._dp_decision_soc == 40, (
+        f"stamp not consumed: _dp_decision_soc="
+        f"{coord._dp_decision_soc!r} (expected 40, static knob=20)"
+    )
+
+
+def _drive_transitioned_ready(coord):
+    _drive_fresh_transition(coord, drain_stamp=30)
+    assert coord._dp_carrier.state == _DPState_dp.TRANSITIONED
+
+
+def test_debounce_first_none_tick_holds_pause():
+    """Fix #4 (5c debounce). 1st None-while-TRANSITIONED tick MUST NOT
+    release: state stays TRANSITIONED, streak counter == 1."""
+    coord, _ev, _bat, _tou = _b2c1_dp._make_coord(
+        ids=("garage_a",), charging=("garage_a",), drain_target=30,
+    )
+    coord._dp_needed_kwh_garage_a = 5.0
+    _drive_transitioned_ready(coord)
+    try:
+        coord._dp_decision_tick(
+            {"soc": 50}, "off_peak", ev_load_w=6000.0,
+            drain_target_soc=None,
+        )
+    except _b2c1_dp._DPSkip:
+        pass
+    assert coord._dp_carrier.state == _DPState_dp.TRANSITIONED, (
+        "released on FIRST None tick (debounce missing)"
+    )
+    assert getattr(coord, "_dp_none_streak", 0) == 1
+
+
+def test_debounce_second_consecutive_none_tick_releases():
+    """Fix #4: 2nd consecutive None tick releases via the peer reversion
+    contract (state -> HOLD_ONLY)."""
+    coord, _ev, _bat, _tou = _b2c1_dp._make_coord(
+        ids=("garage_a",), charging=("garage_a",), drain_target=30,
+    )
+    coord._dp_needed_kwh_garage_a = 5.0
+    _drive_transitioned_ready(coord)
+    for _ in range(2):
+        try:
+            coord._dp_decision_tick(
+                {"soc": 50}, "off_peak", ev_load_w=6000.0,
+                drain_target_soc=None,
+            )
+        except _b2c1_dp._DPSkip:
+            pass
+    assert coord._dp_carrier.state == _DPState_dp.HOLD_ONLY
+
+
+def test_debounce_streak_resets_on_non_none_tick():
+    """Fix #4: a non-None tick between None ticks resets the streak."""
+    coord, _ev, _bat, _tou = _b2c1_dp._make_coord(
+        ids=("garage_a",), charging=("garage_a",), drain_target=30,
+    )
+    coord._dp_needed_kwh_garage_a = 5.0
+    _drive_transitioned_ready(coord)
+    try:
+        coord._dp_decision_tick(
+            {"soc": 50}, "off_peak", ev_load_w=6000.0,
+            drain_target_soc=None,
+        )
+    except _b2c1_dp._DPSkip:
+        pass
+    assert coord._dp_carrier.state == _DPState_dp.TRANSITIONED
+    coord._dp_decision_tick(
+        {"soc": 50}, "off_peak", ev_load_w=6000.0,
+        drain_target_soc=30,
+    )
+    assert coord._dp_none_streak == 0
+    try:
+        coord._dp_decision_tick(
+            {"soc": 50}, "off_peak", ev_load_w=6000.0,
+            drain_target_soc=None,
+        )
+    except _b2c1_dp._DPSkip:
+        pass
+    assert coord._dp_carrier.state == _DPState_dp.TRANSITIONED
+
+
+def test_inv_dp_drain_1e_stranded_release_after_two_none_ticks():
+    """INV-DP-DRAIN-1e end-to-end: carrier TRANSITIONED with an EVSE
+    paused; two consecutive None-while-TRANSITIONED off_peak ticks
+    -> EVSE released, carrier back to HOLD_ONLY."""
+    coord, ev, _bat, _tou = _b2c1_dp._make_coord(
+        ids=("garage_a",), charging=("garage_a",), drain_target=30,
+    )
+    coord._dp_needed_kwh_garage_a = 5.0
+    _drive_transitioned_ready(coord)
+    assert "garage_a" in ev._paused_by_dp
+    for _ in range(2):
+        try:
+            coord._dp_decision_tick(
+                {"soc": 50}, "off_peak", ev_load_w=6000.0,
+                drain_target_soc=None,
+            )
+        except _b2c1_dp._DPSkip:
+            pass
+    assert coord._dp_carrier.state == _DPState_dp.HOLD_ONLY
+    assert "garage_a" not in ev._paused_by_dp
+
+
+# ---------------------------------------------------------------------------
+# Mutation drills on the new value-stamp / debounce anchors.
+# ---------------------------------------------------------------------------
+
+_HERE_DP = os.path.dirname(os.path.abspath(__file__))
+
+_CAPTURE_ANCHOR = (
+    '_drain_target = getattr(\n'
+    '                self._battery, "_offpeak_drain_branch_target", None,\n'
+    '            )'
+)
+_CAPTURE_MUTATED = _CAPTURE_ANCHOR + "\n            _drain_target = 999"
+
+_R2_FRESH_ANCHOR = "_dts_fresh = int(drain_target_soc)"
+_R2_FRESH_MUTATED = "_dts_fresh = int(drain_target_soc) + 7"
+
+_1E_STREAK_ANCHOR = (
+    'self._dp_none_streak = getattr(\n'
+    '                    self, "_dp_none_streak", 0,\n'
+    '                ) + 1\n'
+    '                if self._dp_none_streak >= 2:'
+)
+_1E_STREAK_MUTATED = _1E_STREAK_ANCHOR.replace(">= 2", ">= 1")
+
+
+def _md5_dp(p):
+    return _hashlib.md5(Path(p).read_bytes()).hexdigest()
+
+
+def _clear_pycache_dp():
+    for root, dirs, _ in os.walk(_dc_path):
+        for d in list(dirs):
+            if d == "__pycache__":
+                _shutil.rmtree(os.path.join(root, d), ignore_errors=True)
+
+
+def _run_named_test_subprocess_dp(test_name):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.path.abspath(os.path.join(_HERE_DP, ".."))
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return subprocess.run(
+        [
+            sys.executable, "-m", "pytest",
+            f"{os.path.abspath(__file__)}::{test_name}",
+            "-x", "--tb=short", "-q",
+        ],
+        env=env, capture_output=True, text=True,
+        cwd=os.path.abspath(os.path.join(_HERE_DP, "..", "..")),
+    )
+
+
+def _mutate_energy_expect_red(swap_from, swap_to, test_name):
+    src_path = Path(_ENERGY_PY)
+    original = src_path.read_text(encoding="utf-8")
+    assert swap_from in original, f"anchor missing in energy.py: {swap_from!r}"
+    mutated = original.replace(swap_from, swap_to, 1)
+    assert mutated != original, "mutation was a no-op"
+    src_path.write_text(mutated, encoding="utf-8")
+    md5_after = _md5_dp(src_path)
+    try:
+        _clear_pycache_dp()
+        result = _run_named_test_subprocess_dp(test_name)
+        assert result.returncode != 0, (
+            f"MUTATION SILENT: {test_name} passed under mutation\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        )
+    finally:
+        src_path.write_text(original, encoding="utf-8")
+        _clear_pycache_dp()
+        assert _md5_dp(src_path) != md5_after
+        assert src_path.read_text(encoding="utf-8") == original
+
+
+def test_capture_is_last_binding_before_dp_tick_call():
+    """Wire-integrity anchor for the CAPTURE. The block between
+    `_drain_target = getattr(self._battery, ...)` and the
+    `self._dp_decision_tick(...)` call must contain EXACTLY ONE binding
+    of `_drain_target`. Any rebinding (e.g. an override `_drain_target =
+    999` inserted between the two) makes this test RED — which is what
+    the CAPTURE mutation drill below exploits."""
+    src = Path(_ENERGY_PY).read_text()
+    start = src.index("_drain_target = getattr(")
+    end = src.index("self._dp_decision_tick(", start)
+    between = src[start:end]
+    rebindings = re.findall(r"^\s*_drain_target\s*=\s*", between, re.M)
+    assert len(rebindings) == 1, (
+        f"expected exactly ONE binding of _drain_target between capture "
+        f"and DP tick call; found {len(rebindings)} — an interposed "
+        f"rebinding would silently break the value-stamp thread"
+    )
+
+
+def test_MUTATION_capture_override_makes_capture_wire_test_red():
+    """Mutating the CAPTURE (append `_drain_target = 999`) makes
+    test_capture_is_last_binding_before_dp_tick_call RED (two rebindings
+    detected instead of one)."""
+    _mutate_energy_expect_red(
+        _CAPTURE_ANCHOR, _CAPTURE_MUTATED,
+        test_name="test_capture_is_last_binding_before_dp_tick_call",
+    )
+
+
+def test_MUTATION_r2_fresh_actuation_offset_makes_stamp_test_red():
+    """Mutating R2 fresh-actuation (`int(drain_target_soc)+7`) makes the
+    stamp anchor RED (expects 40, gets 47)."""
+    _mutate_energy_expect_red(
+        _R2_FRESH_ANCHOR, _R2_FRESH_MUTATED,
+        test_name="test_dp_transition_consumes_stamped_target_not_static_knob",
+    )
+
+
+def test_MUTATION_1e_no_debounce_makes_debounce_test_red():
+    """Mutating the 1e branch to release on the FIRST None tick (`>= 1`
+    instead of `>= 2`) makes test_debounce_first_none_tick_holds_pause
+    RED - proves the debounce is load-bearing."""
+    _mutate_energy_expect_red(
+        _1E_STREAK_ANCHOR, _1E_STREAK_MUTATED,
+        test_name="test_debounce_first_none_tick_holds_pause",
+    )
