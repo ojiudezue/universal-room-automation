@@ -201,10 +201,15 @@ cards:
     WHY THIS PAIRING, AND WHY IT IS NOT ARBITRARY REDUNDANCY:
       Envoy is the better SIZING signal — one signed figure covering production, consumption and
       battery, so the amp target can be computed directly from it.
-      Emporia answers the one question Envoy STRUCTURALLY CANNOT: did surplus actually LEAVE THE
-      PROPERTY? A battery discharge does not cross the meter, so it cannot present as solar surplus
-      there. Envoy `balanced_net` CAN read as export while the battery drains — which is precisely
-      the yo-yo this card exists to remove.
+      Emporia answers the export question BETTER — not the only sensor that can answer it.
+      CORRECTION (operator 2026-08-25): an Envoy entity CAN read whether surplus actually left the
+      property — the Envoy net-consumption CT (grid boundary, `sensor.envoy_482543015950_current_net_power_consumption`)
+      reads the meter, and it is the design FALLBACK leg. Emporia mains is PRIMARY only because it is
+      more trustworthy, NOT because Envoy is structurally blind to the meter. The real limitation is
+      signal-scoped, not Envoy-scoped: the ONE signal `balanced_net` includes the battery, so it can
+      read as export while the battery drains — which is the yo-yo this card exists to remove. Do not
+      inherit the earlier over-broad claim that Envoy "structurally cannot" see export; it can, via a
+      different Envoy CT, and that CT is the backup.
       OPERATOR''S DECISIVE POINT: Emporia mains is what the EMPORIA EVSE''S OWN excess-solar control
       used. So it is not a generic second sensor — it is the measurement the feature being replicated
       was built on. Matching Emporia''s behaviour means matching Emporia''s boundary; sizing on a
@@ -289,7 +294,7 @@ cards:
   approval: explicit
   approved_by: 'operator 2026-08-23 (asked for the card + a simple plan + surgical insertion point)'
   created: '2026-08-23 16:10'
-  updated: '2026-08-24 18:00'
+  updated: '2026-08-25 15:20'
   refinement_status: initial
   tags:
   - measure-before-build
