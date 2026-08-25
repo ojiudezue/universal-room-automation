@@ -4198,6 +4198,7 @@ class EnergyCoordinator(BaseCoordinator):
         decision: dict[str, Any],
         ev_load_w: float | None,
         period: str,
+        drain_target_soc: int | None = None,
     ) -> None:
         """v5.21.0 D4 — Shadow eval (kill switch OFF path).
 
@@ -4242,6 +4243,17 @@ class EnergyCoordinator(BaseCoordinator):
             self._dp_carrier.shadow_last_eval_snapshot = {}
             return
 
+        # dp-drain-target-value-stamp — no THIS-tick composed drain target
+        # (determine_mode did not reach the off_peak drain-fallback branch,
+        # e.g. full_hold, arbitrage CHARGE, or non-off_peak). TransitionInputs
+        # requires an int, so shadow is not applicable this tick.
+        if drain_target_soc is None:
+            self._dp_carrier.shadow_decision = "not_applicable"
+            self._dp_carrier.shadow_reason = "no_drain_target_this_tick"
+            self._dp_carrier.shadow_last_eval_at = now
+            self._dp_carrier.shadow_last_eval_snapshot = {}
+            return
+
         _soc = decision.get("soc")
         try:
             _env_ok_sh = bool(self._battery.envoy_available)
@@ -4268,7 +4280,10 @@ class EnergyCoordinator(BaseCoordinator):
                 and self._ev._force_charge_until > now  # noqa: SLF001
             ),
             soc=int(_soc) if _soc is not None else None,
-            drain_target_soc=int(self._ev_battery_drain_soc),
+            # dp-drain-target-value-stamp — R2 shadow site (:4271).
+            # Consume THIS tick's composed off_peak drain floor verbatim,
+            # NOT the static `_ev_battery_drain_soc` R1 knob.
+            drain_target_soc=int(drain_target_soc),
             any_evse_charging=self._is_any_evse_charging(),
             charger_rate_kw=float((ev_load_w or 0.0) / 1000.0),
             needed_kwh=self._dp_needed_kwh_plugged(),
@@ -4325,6 +4340,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _dp_decision_tick(
         self, decision: dict[str, Any], period: str, ev_load_w: float | None,
+        *, drain_target_soc: int | None = None,
     ) -> None:
         """Drain-precedence per-cycle tick body (B2c-1 fix-up extraction).
 
@@ -4409,11 +4425,28 @@ class EnergyCoordinator(BaseCoordinator):
             try:
                 self._run_dp_shadow_eval(
                     decision=decision, ev_load_w=ev_load_w, period=period,
+                    drain_target_soc=drain_target_soc,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("DP shadow eval raised", exc_info=True)
         # ---- item 6: night-window gate ----
         if not _dp_on or self._tou.get_current_period() != "off_peak":
+            raise _DPSkip()
+
+        # dp-drain-target-value-stamp — INV-DP-DRAIN-1e. No composed
+        # drain target from THIS tick's determine_mode (drain-fallback
+        # branch not entered, e.g. full_hold / arbitrage CHARGE). Force
+        # a reversion if we're currently TRANSITIONED so the pause is
+        # released rather than held on a stale target, then skip the
+        # rest of the tick — TransitionInputs requires an int and we
+        # will not fabricate one from the static R1 knob.
+        if drain_target_soc is None:
+            if self._dp_carrier.state == _DPState.TRANSITIONED:
+                _LOGGER.info(
+                    "drain-precedence: forcing reversion — determine_mode "
+                    "did not stamp an off_peak drain target this tick",
+                )
+                self._apply_dp_reversion(tou_period=period)
             raise _DPSkip()
 
         _prev_dp_state = self._dp_carrier.state
@@ -4453,7 +4486,9 @@ class EnergyCoordinator(BaseCoordinator):
                 and self._ev._force_charge_until > _now_dp  # noqa: SLF001
             ),
             soc=int(_soc) if _soc is not None else None,
-            drain_target_soc=int(self._ev_battery_drain_soc),
+            # dp-drain-target-value-stamp — R2 real-tick site (:4456).
+            # Consume THIS tick's composed off_peak drain floor verbatim.
+            drain_target_soc=int(drain_target_soc),
             any_evse_charging=self._is_any_evse_charging(),
             charger_rate_kw=float((ev_load_w or 0.0) / 1000.0),
             # B2c-2 item 1: per-plugged-car sum. Cars not plugged in do
@@ -4517,9 +4552,11 @@ class EnergyCoordinator(BaseCoordinator):
                 if self._ev._get_evse_state(eid).get("charging", False)  # noqa: SLF001
             ]
 
+            # dp-drain-target-value-stamp — R2 fresh-actuation site (:4522).
+            _dts_fresh = int(drain_target_soc)
             class _DPAct:
                 transition = True
-                drain_target_soc = int(self._ev_battery_drain_soc)
+                drain_target_soc = _dts_fresh
                 evse_ids_to_pause = _pause_ids
             self._apply_dp_transition(_DPAct())
             if self._dp_carrier.must_start_by_dt is not None:
@@ -4535,9 +4572,11 @@ class EnergyCoordinator(BaseCoordinator):
                 and eid not in self._ev._paused_by_dp  # noqa: SLF001
             ]
             if _fresh:
+                # dp-drain-target-value-stamp — R2 rescan site (:4540).
+                _dts_rescan = int(drain_target_soc)
                 class _DPActRescan:
                     transition = True
-                    drain_target_soc = int(self._ev_battery_drain_soc)
+                    drain_target_soc = _dts_rescan
                     evse_ids_to_pause = _fresh
                 self._apply_dp_transition(_DPActRescan())
 
@@ -4552,8 +4591,18 @@ class EnergyCoordinator(BaseCoordinator):
         # ---- item 1: paused-aware exit predicate ----
         _revert = False
         if self._dp_carrier.state == _DPState.TRANSITIONED:
-            _drain = int(self._ev_battery_drain_soc)
-            if _soc is not None and int(_soc) <= _drain:
+            # dp-drain-target-value-stamp — R2 revert-predicate site
+            # (:4555). Two-part guard preserves INV-DP-DRAIN-1e: the
+            # drain_target_soc=None branch is handled above (force
+            # reversion + _DPSkip); here we've already committed that
+            # a THIS-tick composed floor exists, but the defensive None
+            # check stays to keep the invariant airtight against future
+            # callers.
+            if (
+                _soc is not None
+                and drain_target_soc is not None
+                and int(_soc) <= drain_target_soc
+            ):
                 _revert = True
         if self._dp_carrier.state == _DPState.MUST_START_FORCED:
             _revert = True
@@ -5576,6 +5625,16 @@ class EnergyCoordinator(BaseCoordinator):
                 tou_transition_into=new_period,
                 ev_load_w=ev_load_w,
             )
+            # dp-drain-target-value-stamp — CAPTURE the value THIS tick's
+            # determine_mode stamped (None outside off_peak drain-branch).
+            # Grab it BEFORE the first await below so a concurrent tick
+            # (there aren't any today, but this is future-proofing) cannot
+            # overwrite before DP consumes it. Threaded verbatim into
+            # _dp_decision_tick + _run_dp_shadow_eval so BOTH R2 paths use
+            # THIS tick's composed floor, not the static R1 knob.
+            _drain_target = getattr(
+                self._battery, "_offpeak_drain_branch_target", None,
+            )
 
             # v4.3.0 D4: Arbitrage cycle accounting — fire-and-forget DB write.
             # When arbitrage_active and SOC has risen since the previous cycle,
@@ -5625,7 +5684,10 @@ class EnergyCoordinator(BaseCoordinator):
             # must-start-by fire are handled by the timer callback + the
             # charging-stopped branch below.
             try:
-                self._dp_decision_tick(decision, period, ev_load_w)
+                self._dp_decision_tick(
+                    decision, period, ev_load_w,
+                    drain_target_soc=_drain_target,
+                )
             except _DPSkip:
                 pass
             except Exception:  # noqa: BLE001
