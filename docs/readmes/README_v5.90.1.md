@@ -34,4 +34,20 @@ The discriminating observable is `sensor.ura_energy_drain_precedence_state` attr
 - **Drains to the right floor:** on the first real off-peak drain with the EV plugged in, DP pauses charging and the battery settles at the **composed target** (e.g. ~40), NOT overshooting down to ~10. Discriminator: final resting SOC == composed `drain_target_soc`, not the static fallback.
 - **No release flap:** when the target goes `None` (drain window ends), the DP ledger shows the pause released after **2** ticks, with **no** adjacent-tick pause↔release flip-flop.
 
-## Post-deploy validation — (to be written back after restart)
+## Post-deploy validation — Validated 2026-08-25 (day-0, post-restart)
+
+Read from `sensor.ura_energy_coordinator_battery_strategy` after the v5.90.1 restart (HA back up, energy coordinator warmed, config-check valid). The DP state sensor (`sensor.ura_energy_drain_precedence_state`) is disabled-by-default in the registry, so the strategy sensor's attributes were used — they carry both discriminators (`current_offpeak_drain_target` and `evse_paused_by_arbitrage`).
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Strategy sensor available & well-formed | ✅ PASS | `state=self_consumption`, `arbitrage_phase=discharge`, coherent `reason` "Mid-peak (summer) — holding charge for peak" (14:41:06 CDT) |
+| Boot transient cleared | ✅ as-expected | Held `mode=unknown` / "Envoy unavailable — holding" for ~4 min while the Envoy local integration warmed (Envoy battery entity became available 14:39:41); the next strategy tick resolved to `self_consumption`. Defensive early-return gate, upstream of and orthogonal to this cycle. |
+| No new URA ERROR logs | ✅ PASS | error_log + system(ERROR) scans since the 14:35 restart: zero URA ERRORs; no `determine_mode`/`energy_battery`/`energy` traceback. Only pre-existing benign WARNINGs (lock offline, SPAN energy sensors unavailable, HVAC boot-settle, census cameras). |
+| Entry-reset / no stale cross-restart DP pause | ✅ PASS | `evse_paused_by_arbitrage: []` post-restart — DP is not carrying a phantom pre-boot HOLD; `current_holds_active: []`. |
+| Discriminator present: composed target ≠ static knob | ✅ PASS | `current_offpeak_drain_target: 15` (composed, `target_day_class=excellent`, tomorrow good→15) vs `reserve_soc: 10` (the static fallback the pre-fix bug drained toward). The two values are **provably distinct live**, so a future organic drain can discriminate fix from bug. |
+
+**Deferred to organic (needs an EV-plugged off-peak evening — the discriminating observation is stated so a future session confirms without re-deriving):**
+- **Drains to the composed floor, not the static knob.** On the first real off-peak drain with the EV plugged in, DP pauses charging and the battery settles at the composed `current_offpeak_drain_target` (e.g. 15), NOT overshooting to the static ~10. At day-0 DP was not in a drain-eligible tick (mid-peak, `arbitrage_phase=discharge`, no EVSE pause), so the stamp/consume path could not be exercised live — this is the correct "not-in-drain-tick" branch, not a gap.
+- **No release flap.** When the target goes `None` (drain window ends), the DP ledger shows the pause released after 2 ticks with no adjacent-tick pause↔release flip-flop (the INV-DP-DRAIN-1e 2-tick debounce).
+
+This closes day-0 validation. The card stays `shipped_organic` until the two organic criteria are observed on a plug-in evening.
