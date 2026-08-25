@@ -487,7 +487,7 @@ the start gate, which is a different thing.
 
 **No new entity.** `sensor.ura_energy_coordinator_ev_charging_status` already publishes 23
 attributes including `excess_solar_active`, `excess_solar_evses`, per-EVSE dicts, every pause set
-and `pause_reason_human`. Solar-follow adds four:
+and `pause_reason_human`. Solar-follow adds six:
 
 | Attribute | Why not derivable |
 |---|---|
@@ -497,6 +497,14 @@ and `pause_reason_human`. Solar-follow adds four:
 | `solar_follow_blind_since` | makes the 900 s restore observable before it fires |
 | `solar_follow_grid_source` | which grid entity is live this tick (`primary` / `fallback` / `blind`) and whether the primary was demoted for **staleness** vs unavailability — so a stale-but-available Emporia is diagnosable, not silent |
 | `solar_follow_below_dp_l1_threshold` | true when D1 is holding any bay's commanded rate ≤ `DP_L1_RATE_THRESHOLD_KW` (3.0 kW). **Read-only cross-reference, NOT coordination** (respects the scope fence): lets anyone diagnosing a DP `l1_only` no-drain see immediately that solar-follow's throttle is the cause, closing the mis-attribution hazard the card raised (the same gate that masked the 2026-08-20 drain-target defect) — without DP ever reading D1 state |
+
+**Computation of `solar_follow_below_dp_l1_threshold` (read-only, no DP read).** Derived solely
+from D1's own state: `any(a * 240 * SOLAR_FOLLOW_PHASES <= DP_L1_RATE_THRESHOLD_KW * 1000 for a in
+self._last_commanded.values())`, where `DP_L1_RATE_THRESHOLD_KW` is **imported from
+`energy_const`** (the same constant DP gate 6 reads). **D1 reads no DP-owned attribute, calls no DP
+method, and touches no gating predicate** — this is a pure attribute derived from the amps D1 itself
+commanded this tick (§5.2 step 6). It exists so a DP `l1_only` no-drain is diagnosable against D1's
+throttle without any behavioral coupling (INV-SF-1 non-perturbation is unaffected).
 
 ---
 
