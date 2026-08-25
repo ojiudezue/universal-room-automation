@@ -313,29 +313,61 @@ def test_clear_active_anomalies_zero_arg_unchanged():
 # De-suppression consumer path: short_cycle_rate now propagates severity
 # ===========================================================================
 
+def _load_hvac_const():
+    """Load hvac_const.py in isolation to read the REAL
+    HVAC_SUPPRESSED_FROM_PERSISTENCE frozenset (C-HIGH-1 fix-up)."""
+    if "ura_shortcycle_hvac_const" in sys.modules:
+        return sys.modules["ura_shortcycle_hvac_const"]
+    src = COORD_DIR / "hvac_const.py"
+    spec = importlib.util.spec_from_file_location(
+        "ura_shortcycle_hvac_const", str(src),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["ura_shortcycle_hvac_const"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def test_short_cycle_rate_desuppression_reaches_worst_severity():
     """With short_cycle_rate REMOVED from HVAC_SUPPRESSED_FROM_PERSISTENCE
-    (D2 §Traps trap 4), an active fire on this metric MUST propagate
-    into get_worst_severity()'s persisted-eligible set. Prior to the
-    cycle it was filtered out and never influenced the sensor state."""
+    (D2 §Traps trap 4), an active fire on this metric produced BY THE
+    EMITTER must propagate into get_worst_severity()'s persisted-eligible
+    set. C-HIGH-1 fix-up: use the REAL frozenset from hvac_const (not a
+    hand-copied literal) AND drive the emitter (not a fabricated
+    _active_anomalies list) — so mutation 4 (re-adding short_cycle_rate
+    to the frozenset) turns this red."""
     mod = _load_anomaly_detector()
-    # Simulate the post-D2 config: the metric is NOT in the suppressed
-    # frozenset any more.
+    const_mod = _load_hvac_const()
+    suppressed = const_mod.HVAC_SUPPRESSED_FROM_PERSISTENCE
+    # Preflight sanity: if a future edit re-adds short_cycle_rate to the
+    # frozenset, this precondition MUST fail so we don't silently pass a
+    # test whose scenario was invalidated at the source.
+    assert "short_cycle_rate" not in suppressed, (
+        "C-HIGH-1 fix-up precondition: HVAC_SUPPRESSED_FROM_PERSISTENCE "
+        "must NOT include short_cycle_rate; if this fires, mutation 4 "
+        "re-added the suppression and the whole D2 emit path is inert."
+    )
     det = mod.AnomalyDetector(
         _StubHass(), "hvac", ["short_cycle_rate", "other"],
         minimum_samples=5,
-        suppressed_metric_names=frozenset({"zone_call_frequency"}),
+        suppressed_metric_names=suppressed,
     )
-    AR = mod.AnomalyRecord
+    # Seed a tight baseline so a big value fires CRITICAL.
+    for _ in range(6):
+        det.record_observation("short_cycle_rate", "zone_1", 0.0)
+    # Now build a stub with this real detector and drive the emitter
+    # so the emit path (not a fabricated list) puts the anomaly into
+    # _active_anomalies.
+    ns = _make_hvac_stub_with_bound_methods()
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub.anomaly_detector = det
+    stub._short_cycles_today = {"zone_1": 20}
+    stub._short_cycles_today_date = "2026-08-23"
+    emit = _bind(ns, "_emit_and_reset_short_cycles", stub)
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
     Sev = mod.AnomalySeverity
-    now = datetime.utcnow()
-    det._active_anomalies = [
-        AR(timestamp=now, coordinator_id="hvac", scope="zone_1",
-           metric_name="short_cycle_rate", observed_value=8.0,
-           expected_mean=1.5, expected_std=1.0, z_score=6.5,
-           severity=Sev.CRITICAL, sample_size=14),
-    ]
-    assert det.get_worst_severity() == Sev.CRITICAL, (
+    assert det.get_worst_severity() != Sev.NOMINAL, (
         "de-suppression consumer path: short_cycle_rate fire must flow "
         "through _persisted_active_anomalies() into get_worst_severity()."
     )
@@ -507,6 +539,10 @@ def _make_hvac_stub_with_bound_methods():
         @staticmethod
         def now():
             return _make_hvac_stub_with_bound_methods._now
+
+        @staticmethod
+        def parse_datetime(s):
+            return _dt.fromisoformat(s) if s else None
     _make_hvac_stub_with_bound_methods._now = _dt(2026, 8, 24, 12, 0, 0)
 
     def _callback(fn):
@@ -517,6 +553,10 @@ def _make_hvac_stub_with_bound_methods():
         "dt_util": _DtUtil,
         "callback": _callback,
         "SHORT_CYCLE_THRESHOLD_S": 600,
+        # Review fix-up (A-H1/B-HIGH-2): the callback now guards on
+        # STATE_UNAVAILABLE/STATE_UNKNOWN — inject them into the exec ns.
+        "STATE_UNAVAILABLE": "unavailable",
+        "STATE_UNKNOWN": "unknown",
     })
     code = compile(mod_ast, "<hvac_shortcycle_extract>", "exec")
     exec(code, ns)
@@ -578,13 +618,17 @@ def _bind(ns, method_name, stub):
 
 def _fake_event(entity_id, old_action, new_action):
     ev = MagicMock()
+    new_state = MagicMock(
+        attributes={"hvac_action": new_action}, state=new_action,
+    )
+    old_state = (
+        MagicMock(attributes={"hvac_action": old_action}, state=old_action)
+        if old_action is not None else None
+    )
     ev.data = {
         "entity_id": entity_id,
-        "new_state": MagicMock(attributes={"hvac_action": new_action}),
-        "old_state": (
-            MagicMock(attributes={"hvac_action": old_action})
-            if old_action is not None else None
-        ),
+        "new_state": new_state,
+        "old_state": old_state,
     }
     return ev
 
@@ -754,3 +798,244 @@ def test_hvac_const_defines_short_cycle_threshold_and_min_samples():
         r"^HVAC_SHORT_CYCLE_MIN_SAMPLES\s*:\s*Final\s*=\s*14\b",
         HVAC_CONST_SRC, re.M,
     ), "HVAC_SHORT_CYCLE_MIN_SAMPLES constant missing / wrong value"
+
+
+# ===========================================================================
+# Review fix-ups (A-C1/B-HIGH-1, A-H1/B-HIGH-2, C-CRITICAL-1, C-MED-1)
+# ===========================================================================
+
+def test_short_cycle_unavailable_hvac_action_drops_on_since(hvac_ns):
+    """A-H1 / B-HIGH-2: an UNAVAILABLE/UNKNOWN transition MUST NOT be
+    counted, and MUST clear any dangling on_since so a WiFi/cloud blip
+    can't fabricate a phantom short cycle. Symmetric on both endpoints.
+    """
+    STATE_UNAVAILABLE = "unavailable"
+
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    handler = _bind(hvac_ns, "_on_zone_climate_state_change", stub)
+    handler(_fake_event("climate.zone_1", "idle", "cooling"))
+    assert "zone_1" in stub._short_cycle_on_since
+
+    ev = MagicMock()
+    new = MagicMock()
+    new.state = STATE_UNAVAILABLE
+    new.attributes = {}
+    old = MagicMock()
+    old.state = "cooling"
+    old.attributes = {"hvac_action": "cooling"}
+    ev.data = {"entity_id": "climate.zone_1", "new_state": new, "old_state": old}
+    handler(ev)
+
+    assert "zone_1" not in stub._short_cycle_on_since, (
+        "unavailable transition must drop the on_since stamp"
+    )
+    assert stub._short_cycles_today.get("zone_1", 0) == 0
+    assert stub.anomaly_detector.calls == []
+
+    stub._short_cycle_on_since["zone_1"] = _make_hvac_stub_with_bound_methods._now
+    ev2 = MagicMock()
+    new2 = MagicMock()
+    new2.state = "idle"
+    new2.attributes = {"hvac_action": "idle"}
+    old2 = MagicMock()
+    old2.state = STATE_UNAVAILABLE
+    old2.attributes = {}
+    ev2.data = {"entity_id": "climate.zone_1", "new_state": new2, "old_state": old2}
+    handler(ev2)
+    assert "zone_1" not in stub._short_cycle_on_since
+    assert stub._short_cycles_today.get("zone_1", 0) == 0
+
+
+def test_short_cycle_missing_hvac_action_drops_on_since(hvac_ns):
+    """Companion: hvac_action attr missing/None also un-classifiable."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    handler = _bind(hvac_ns, "_on_zone_climate_state_change", stub)
+    handler(_fake_event("climate.zone_1", "idle", "cooling"))
+    assert "zone_1" in stub._short_cycle_on_since
+    ev = MagicMock()
+    new = MagicMock()
+    new.state = "idle"
+    new.attributes = {}
+    old = MagicMock()
+    old.state = "cooling"
+    old.attributes = {"hvac_action": "cooling"}
+    ev.data = {"entity_id": "climate.zone_1", "new_state": new, "old_state": old}
+    handler(ev)
+    assert "zone_1" not in stub._short_cycle_on_since
+    assert stub._short_cycles_today.get("zone_1", 0) == 0
+
+
+def test_short_cycle_clear_before_record_reaches_sensor(hvac_ns):
+    """A-C1 / B-HIGH-1: clear runs BEFORE record so the just-recorded
+    anomaly survives and get_worst_severity() reflects it."""
+    mod = _load_anomaly_detector()
+    const_mod = _load_hvac_const()
+    det = mod.AnomalyDetector(
+        _StubHass(), "hvac", ["short_cycle_rate"],
+        minimum_samples=5,
+        suppressed_metric_names=const_mod.HVAC_SUPPRESSED_FROM_PERSISTENCE,
+    )
+    for _ in range(6):
+        det.record_observation("short_cycle_rate", "zone_1", 0.0)
+    assert det._active_anomalies == []
+
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub.anomaly_detector = det
+    stub._short_cycles_today = {"zone_1": 20}
+    stub._short_cycles_today_date = "2026-08-23"
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+
+    assert len(det._active_anomalies) == 1, (
+        f"clear-before-record ordering: expected 1 active anomaly after "
+        f"emit, found {len(det._active_anomalies)}."
+    )
+    Sev = mod.AnomalySeverity
+    assert det.get_worst_severity() != Sev.NOMINAL
+
+
+def test_hvac_anomaly_detector_ctor_wires_short_cycle_min_samples():
+    """C-CRITICAL-1: balanced-paren walk of AnomalyDetector( body in
+    hvac.py must include minimum_samples_by_metric with
+    HVAC_SHORT_CYCLE_MIN_SAMPLES keyed on 'short_cycle_rate'."""
+    live = "\n".join(
+        line for line in HVAC_SRC.splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    idx = live.find("AnomalyDetector(")
+    assert idx >= 0, "no AnomalyDetector( instantiation in hvac.py"
+    start = idx + len("AnomalyDetector(")
+    depth = 1
+    i = start
+    while i < len(live) and depth > 0:
+        ch = live[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        i += 1
+    body = live[start : i - 1]
+    assert "minimum_samples_by_metric" in body, (
+        "C-CRITICAL-1: HVAC AnomalyDetector() must pass "
+        "`minimum_samples_by_metric=...`"
+    )
+    assert "HVAC_SHORT_CYCLE_MIN_SAMPLES" in body, (
+        "C-CRITICAL-1: override map must reference HVAC_SHORT_CYCLE_MIN_SAMPLES"
+    )
+    assert '"short_cycle_rate"' in body or "'short_cycle_rate'" in body
+
+
+def test_per_metric_gate_reported_active_in_get_learning_status():
+    """C-MED-1: _min_samples_for routing through get_learning_status."""
+    mod = _load_anomaly_detector()
+    det = mod.AnomalyDetector(
+        _StubHass(), "hvac", ["fast", "slow"],
+        minimum_samples=100,
+        minimum_samples_by_metric={"fast": 3},
+    )
+    _seed(det, "fast", "house", 4, value=1.0)
+    assert det.get_learning_status("house") == mod.LearningStatus.ACTIVE
+
+
+def test_per_metric_gate_reported_active_in_get_status_summary():
+    """C-MED-1 + A-M2: per-metric entry gate reporting."""
+    mod = _load_anomaly_detector()
+    det = mod.AnomalyDetector(
+        _StubHass(), "hvac", ["fast", "slow"],
+        minimum_samples=100,
+        minimum_samples_by_metric={"fast": 3},
+    )
+    _seed(det, "fast", "house", 4, value=1.0)
+    _seed(det, "slow", "house", 4, value=1.0)
+    summary = det.get_status_summary("house")
+    m_fast = summary["metrics"]["fast"]
+    m_slow = summary["metrics"]["slow"]
+    assert m_fast["active"] is True
+    assert m_slow["active"] is False
+    assert m_fast.get("minimum_samples") == 3
+    assert m_slow.get("minimum_samples") == 100
+    assert summary["minimum_samples"] == 100
+
+
+def test_short_cycle_emit_uses_build_context_zone_id_param():
+    """A-M1: zone_id via canonical kwarg, not inside extra{}."""
+    m = re.search(
+        r"build_context_json\(\s*([\s\S]*?)\)\s*\n\s+event = AnomalyEvent",
+        HVAC_SRC,
+    )
+    assert m is not None
+    call_kwargs = m.group(1)
+    assert "zone_id=" in call_kwargs
+    extra_m = re.search(r"extra=\{([\s\S]*?)\}", call_kwargs)
+    if extra_m:
+        assert '"zone_id"' not in extra_m.group(1)
+
+
+def test_short_cycle_emit_clear_before_record_source_ordering():
+    """A-C1 / B-HIGH-1 source anchor."""
+    m = re.search(
+        r"async def _emit_and_reset_short_cycles\([^)]*\)[^\n]*:\n"
+        r"(?P<body>(?:[ \t]+.*\n|\s*\n)+?)(?=\n[ \t]{0,4}(?:async |def |@))",
+        HVAC_SRC,
+    )
+    assert m is not None
+    body = m.group("body")
+    loop_idx = body.find("for zone_id in list(self._zone_manager.zones")
+    assert loop_idx >= 0
+    loop_body = body[loop_idx:]
+    clear_pos = loop_body.find("clear_active_anomalies_filtered(")
+    record_pos = loop_body.find("record_observation(")
+    assert clear_pos >= 0 and record_pos >= 0
+    assert clear_pos < record_pos, (
+        "clear must appear before record in per-zone loop"
+    )
+
+
+def test_short_cycle_callback_no_untracked_rollover_task():
+    """A-C2 / B-MED-1: callback must not schedule the emitter."""
+    m = re.search(
+        r"def _on_zone_climate_state_change\([^)]*\)[^\n]*:\n"
+        r"(?P<body>(?:[ \t]+.*\n|\s*\n)+?)(?=\n[ \t]{0,4}(?:async |def |@))",
+        HVAC_SRC,
+    )
+    assert m is not None
+    body = m.group("body")
+    # Strip docstring + line comments before scanning — the fix-up
+    # comment legitimately explains what the callback USED TO do.
+    code_only = re.sub(r'"""[\s\S]*?"""', "", body, count=1)
+    code_only = re.sub(r"(?m)^\s*#.*$", "", code_only)
+    assert "_emit_and_reset_short_cycles" not in code_only, (
+        "A-C2 / B-MED-1: callback must not schedule the emitter"
+    )
+    assert "async_create_task" not in code_only, (
+        "callback must not create an untracked task"
+    )
+
+
+def test_short_cycle_multi_day_gap_discards_and_reseeds(hvac_ns):
+    """B-MED-2: gap > 1 day → no emit, reset counter, reseed date."""
+    stub = _CoordStub(
+        ["zone_1", "zone_2"], _make_hvac_stub_with_bound_methods._now,
+    )
+    stub._short_cycles_today = {"zone_1": 7, "zone_2": 2}
+    stub._short_cycles_today_date = "2026-08-20"
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+    assert stub.anomaly_detector.calls == []
+    assert stub._short_cycles_today == {"zone_1": 0, "zone_2": 0}
+    assert stub._short_cycles_today_date == "2026-08-24"
+
+
+def test_short_cycle_detector_none_resets_counter_no_date_advance(hvac_ns):
+    """B-MED-3 / A-M3: detector-None resets counter, keeps date."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today = {"zone_1": 12}
+    stub._short_cycles_today_date = "2026-08-23"
+    stub.anomaly_detector = None
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+    assert stub._short_cycles_today == {"zone_1": 0}
+    assert stub._short_cycles_today_date == "2026-08-23"

@@ -1180,6 +1180,11 @@ class AnomalyDetector:
                 "std": round(baseline.std, 4),
                 "sample_count": baseline.sample_count,
                 "active": baseline.sample_count >= gate,
+                # A-M2 (review fix-up): per-metric gate value alongside
+                # the top-level scalar `minimum_samples` at :1158 — a
+                # per-metric override (D1a) was invisible on the sensor
+                # without this. Top-level scalar preserved unchanged.
+                "minimum_samples": gate,
             }
             per_scope: Dict[str, Dict[str, Any]] = {}
             for (m_name, s_name), b in self._baselines.items():
@@ -1190,6 +1195,7 @@ class AnomalyDetector:
                     "std": round(b.std, 4),
                     "sample_count": b.sample_count,
                     "active": b.sample_count >= gate,
+                    "minimum_samples": gate,
                 }
             if per_scope:
                 entry["scopes"] = per_scope
