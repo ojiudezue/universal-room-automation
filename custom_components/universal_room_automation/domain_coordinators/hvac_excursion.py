@@ -83,6 +83,13 @@ EXCURSION_RETURN_BLOCKING: bool = True
 """The `blocking=True` contract on return-path emits (§4.1). Named so a
 mutation drill can flip at one point."""
 
+EXCURSION_AUTORELEASE_SWEEP_S: int = 60
+"""D1 auto-release sweep cadence. Rows whose age exceeds
+``duration_s + EXCURSION_LEASE_SLACK_S`` (bounded by
+``EXCURSION_LEASE_MAX_S``) are closed by ``_auto_return`` with
+``trigger="lease_expiry"``. Rung 1 (module constant) — implementation
+detail; not exposed as an operator knob."""
+
 
 class EXCURSION_KIND(str, Enum):
     """Five kinds per §4.1.
@@ -586,6 +593,172 @@ def _reap_stale(zone_id: str, tok: ExcursionToken) -> None:
     _schedule_db_clear(zone_id)
 
 
+# --- D1 auto-release sweep --------------------------------------------------
+#
+# Closes rows whose age has exceeded ``duration_s + SLACK`` (bounded by
+# ``EXCURSION_LEASE_MAX_S``). With D4 parked, this sweep only touches
+# BANKING/PREHEAT/COMPROMISE/EGRESS_PAUSE rows — kinds that open a borrow
+# but have no in-band explicit-close today. Its measurement-anchored
+# purpose is closing the 2 open / 0 ended BANKING rows observed on the
+# live house (2026-08-25 probe). NUDGE has its own in-band close via
+# hvac_override; it never reaches this path.
+#
+# B3 re-entrancy guard: ``_sweep_running`` is set for the duration of a
+# sweep pass so an overlapping ``async_track_time_interval`` tick (which
+# can happen if a preset emit blocks >SWEEP_S — Carrier settle is ~60s)
+# does NOT re-collect the same row and issue a duplicate wire write. A
+# per-zone in-flight set would also work; a whole-sweep flag is simpler
+# for one interval-tracked sweep and has no false-sharing surface (every
+# row already goes through the per-token ``_returned`` guard in
+# ``return_excursion``, which is the second line of defence).
+_sweep_running: bool = False
+
+
+async def _auto_return(
+    token: "ExcursionToken",
+    *,
+    trigger: str,
+    hass: Any = None,
+    coord: Any = None,
+) -> None:
+    """D1 auto-release: close ``token`` and restore ``pre_preset``.
+
+    Called from the periodic sweep (``_auto_release_sweep``) and from
+    the boot audit's stale-BANKING path (``async_startup_excursion_audit``).
+
+    **HIGH-1 skip rule:** if ``token.pre_preset in {None, "", "manual"}``
+    the preset write is SKIPPED and the ended event is logged with
+    ``restore_ok=None`` (three-way ReturnOutcome — neither PASS nor
+    FAIL, "no legitimate preset to restore to"). Nothing recovers the
+    zone from ``manual`` in the D1-only build; that is D3's job and
+    D3 is parked. This is a known, documented gap.
+
+    Never raises. All wire failures are swallowed after logging.
+    """
+    if token._returned:
+        return
+    pre_preset = token.pre_preset
+    preset_after: Optional[str] = None
+    restore_ok: Optional[bool] = None
+    detail = trigger
+
+    if pre_preset in (None, "", "manual"):
+        _LOGGER.info(
+            "excursion.auto_return: zone=%s kind=%s trigger=%s — "
+            "SKIP preset restore (pre_preset=%r); zone remains as-is "
+            "(D3 recovery parked).",
+            token.zone_id, token.kind.value, trigger, pre_preset,
+        )
+    else:
+        entity_id: Optional[str] = None
+        try:
+            if coord is not None:
+                zm = getattr(coord, "_zone_manager", None)
+                if zm is not None:
+                    zone_obj = getattr(zm, "zones", {}).get(token.zone_id)
+                    if zone_obj is not None:
+                        entity_id = getattr(zone_obj, "climate_entity", None)
+        except Exception:  # noqa: BLE001
+            entity_id = None
+        _hass = hass if hass is not None else _hass_ref
+        if entity_id and _hass is not None:
+            try:
+                from .hvac_setpoint import emit_set_preset_mode  # noqa: PLC0415
+                wrote = await emit_set_preset_mode(
+                    _hass,
+                    entity_id,
+                    pre_preset,
+                    blocking=EXCURSION_RETURN_BLOCKING,
+                    gate=None,
+                    site=f"auto_return:{token.kind.value}",
+                    zone_id=token.zone_id,
+                    reason=trigger,
+                )
+                preset_after = pre_preset if wrote else None
+                restore_ok = True if wrote else False
+                if not wrote:
+                    detail = f"{trigger}:emit_set_preset_mode_deferred"
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning(
+                    "excursion.auto_return: preset restore FAILED for "
+                    "zone %s (entity=%s preset=%s trigger=%s): %s",
+                    token.zone_id, entity_id, pre_preset, trigger, exc,
+                )
+                restore_ok = False
+                detail = f"{trigger}:exception:{type(exc).__name__}"
+        else:
+            _LOGGER.debug(
+                "excursion.auto_return: no entity resolvable for zone %s "
+                "(entity=%s hass=%s coord=%s); skipping preset write",
+                token.zone_id, entity_id, _hass is not None,
+                coord is not None,
+            )
+            # No entity to write to — policy skip (None), not divergence.
+            restore_ok = None
+
+    try:
+        await return_excursion(
+            token,
+            trigger=trigger,
+            preset_after=preset_after,
+            restore_ok=restore_ok,
+            trigger_detail=detail,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug(
+            "excursion.auto_return: return_excursion failed for %s: %s",
+            token.zone_id, exc,
+        )
+
+
+async def _auto_release_sweep(coord: Any = None) -> int:
+    """Periodic D1 sweep. Scan ``_rows``; auto-return any expired token.
+
+    Returns the number of rows released this pass (test-visible).
+
+    B3 re-entrancy: guarded by ``_sweep_running`` so a tick that fires
+    while a prior tick is still awaiting a slow (Carrier ~60s) preset
+    emit becomes a no-op instead of re-collecting the same row.
+
+    B6 teardown: if ``coord`` is provided and its ``hass`` is gone (unload
+    torn down the coordinator), skip — an in-flight sweep must not write
+    against a dead coordinator.
+    """
+    global _sweep_running
+    if _sweep_running:
+        _LOGGER.debug("excursion.sweep: prior pass still running; skipping")
+        return 0
+    if coord is not None and getattr(coord, "hass", None) is None:
+        _LOGGER.debug("excursion.sweep: coord.hass gone; skipping post-teardown")
+        return 0
+    if not _rows:
+        return 0
+    _sweep_running = True
+    released = 0
+    try:
+        now = _now()
+        to_release: list["ExcursionToken"] = []
+        for zone_id, tok in list(_rows.items()):
+            if now >= tok.stale_ts():
+                to_release.append(tok)
+        for tok in to_release:
+            try:
+                await _auto_return(tok, trigger="lease_expiry", coord=coord)
+                released += 1
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "excursion.sweep: _auto_return failed for %s: %s",
+                    tok.zone_id, exc,
+                )
+    finally:
+        _sweep_running = False
+    if released:
+        _LOGGER.info(
+            "excursion.sweep: released=%d (lease_expiry)", released,
+        )
+    return released
+
+
 async def begin_excursion(
     hass,
     *,
@@ -982,6 +1155,46 @@ async def async_startup_excursion_audit(hass, coord) -> None:
             continue
 
         if kind == EXCURSION_KIND.BANKING:
+            # D1 stale-boot BANKING release (2026-08-26): a stale-boot
+            # BANKING row means the prior process died mid-flight
+            # without closing the borrow. Run the auto-release restore
+            # path so the ended-event row is written AND the preset is
+            # restored (HIGH-1 pre_preset skip applies). This is the
+            # discriminating live-validation criterion for the OPEN
+            # banking rows on the live house (2026-08-25 probe).
+            tok = ExcursionToken(
+                zone_id=zone_id,
+                excursion_id=row["excursion_id"],
+                kind=kind,
+                started_ts=started_epoch,
+                started_iso=started_ts_iso,
+                pre_preset=row.get("pre_preset"),
+                pre_target_low=row.get("pre_target_low"),
+                pre_target_high=row.get("pre_target_high"),
+                intended_mode=row.get("intended_mode") or "heat_cool",
+                duration_s=row.get("duration_s"),
+                caller_site=row.get("caller_site") or "restart_audit",
+                excursion_target_low=row.get("excursion_target_low"),
+                excursion_target_high=row.get("excursion_target_high"),
+            )
+            # Insert into _rows so return_excursion (inside _auto_return)
+            # sees a real token; return_excursion pops it back out.
+            _rows[zone_id] = tok
+            try:
+                await _auto_return(
+                    tok,
+                    trigger="stale_boot_release",
+                    hass=hass,
+                    coord=coord,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "excursion.startup_audit: banking auto-release "
+                    "failed for %s: %s", zone_id, exc,
+                )
+            # Defensive: ensure row cleared even if _auto_return raised
+            # before return_excursion popped it.
+            _rows.pop(zone_id, None)
             try:
                 await _db_ref.clear_excursion_row(zone_id)
             except Exception:  # noqa: BLE001

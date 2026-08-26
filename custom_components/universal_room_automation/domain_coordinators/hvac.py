@@ -1041,6 +1041,11 @@ class HVACCoordinator(BaseCoordinator):
             )
         )
 
+        # D1 excursion auto-release sweep (HVAC-EXCURSION-D1-ONLY,
+        # 2026-08-26). Wire-in extracted into a helper so the wire-in
+        # anchor test (C-8) can neuter one call site and see RED.
+        self._schedule_excursion_autorelease_sweep()
+
         # Set up diagnostics
         try:
             await self._setup_diagnostics()
@@ -1205,6 +1210,47 @@ class HVACCoordinator(BaseCoordinator):
             _LOGGER.debug(
                 "HVAC: scheduling egress gate release failed (non-fatal)",
                 exc_info=True,
+            )
+
+    def _schedule_excursion_autorelease_sweep(self) -> None:
+        """D1 wire-in: schedule the periodic excursion auto-release sweep.
+
+        Ticks every ``EXCURSION_AUTORELEASE_SWEEP_S``. Each tick closes
+        borrows whose age exceeds ``duration_s + SLACK`` (bounded by
+        ``EXCURSION_LEASE_MAX_S``) via ``_auto_return``, writing an
+        ended-event row and restoring ``pre_preset`` (or skipping the
+        preset write when ``pre_preset`` is ``manual``/``None``/``""``
+        per HIGH-1).
+
+        The unsub is appended to ``self._unsub_listeners`` per Bug Class
+        #50 so ``async_unload`` cancels it. B3 re-entrancy and B6
+        torn-down-coord guards live inside ``_auto_release_sweep``.
+        """
+        try:
+            from . import hvac_excursion as _ex_mod_sweep  # noqa: PLC0415
+            from datetime import timedelta as _td  # noqa: PLC0415
+
+            async def _sweep_tick(_now) -> None:
+                try:
+                    await _ex_mod_sweep._auto_release_sweep(coord=self)
+                except Exception as _exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "excursion.sweep tick failed: %s", _exc,
+                    )
+
+            self._unsub_listeners.append(
+                async_track_time_interval(
+                    self.hass,
+                    _sweep_tick,
+                    _td(seconds=_ex_mod_sweep.EXCURSION_AUTORELEASE_SWEEP_S),
+                )
+            )
+        except Exception as _sweep_exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "excursion.sweep: failed to schedule periodic auto-release "
+                "sweep: %s — D1 auto-release falls back to boot audit + "
+                "stale-row NM notice only.",
+                _sweep_exc,
             )
 
     async def _setup_diagnostics(self) -> None:
