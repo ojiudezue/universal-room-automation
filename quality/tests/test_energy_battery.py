@@ -2267,8 +2267,13 @@ class TestMultiDayDrainTargetConservative:
     + multi_day_horizon=on → effective drain = drain_poor."""
 
     def test_drain_uses_more_conservative_of_d1_d2(self):
+        # DRAIN-TARGET-DAY-STALENESS-1: peak-anchored — at 09:00 with the
+        # next transition at 14:00 today, target_day=TODAY (offset=0). The
+        # multi-day max pair is (today, tomorrow), NOT (tomorrow, D+2).
+        # Encode the plan spirit (max wins) with today=excellent,
+        # tomorrow=poor → max(drain_excellent, drain_poor) == drain_poor.
         h = _BatteryHarness(
-            soc=70, solcast_today="120", solcast_tomorrow="120",
+            soc=70, solcast_today="120", solcast_tomorrow="20",
             arbitrage_enabled=False, with_tou_engine=True,
             multi_day_horizon_enabled=True, solcast_day_3="20",
         )
@@ -2276,7 +2281,6 @@ class TestMultiDayDrainTargetConservative:
             "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
         )
         reserve_actions = _get_reserve_actions(result)
-        # D+1 excellent → drain 10; D+2 poor → drain 30. Max = 30.
         assert reserve_actions[0]["data"]["value"] == DEFAULT_OFFPEAK_DRAIN_POOR
 
     def test_horizon_off_uses_d1_only(self):
