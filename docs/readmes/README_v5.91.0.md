@@ -31,4 +31,22 @@ Tier-3, **four framing-disjoint reviews** (A local-correctness / B async-lifecyc
 - **Live:** on a cloud transient the house battery no longer absorbs the full 11.5 kW swing (battery-power excursion shrinks vs the pre-cycle binary behavior).
 - **Live:** after a >10 h restart with a previously throttled bay, its limit reads 48 A (boot reconciliation).
 
-## Post-deploy validation — (to be written back after restart)
+## Post-deploy validation — Validated 2026-08-25 (day-0, post-restart, night)
+
+Read from `sensor.ura_energy_coordinator_ev_charging_status` after the v5.91.0 restart (HA back up, config valid). The feature is a daytime/sun-out mechanism, so at night it should come up **dormant and well-formed** — that is exactly the day-0 bar; modulation itself is the organic gate.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| The six solar-follow attributes publish | ✅ PASS | `ev_charging_status` shows `solar_follow_surplus_kw`, `solar_follow_state`, `solar_follow_grid_source`, `solar_follow_below_dp_l1_threshold` (+ pre-existing `_original_amps`/`_blind_since`) |
+| Non-perturbation while dormant (INV-SF-1) | ✅ PASS | `excess_solar_active: false`, `solar_follow_state: {}`, `solar_follow_surplus_kw: null`, `solar_follow_grid_source: "unknown"` — controller quiet, no `current_limit` writes |
+| `below_dp_l1_threshold` None on empty fleet (A-LOW-4/D-LOW-9 fix) | ✅ PASS | reads `null` with no active-session bay (was the "noisy on empty fleet" quality note) |
+| Zero new URA ERROR logs | ✅ PASS | `error_log` `solar_follow` scan empty; `system` ERROR `universal_room_automation` scan empty — no traceback from the new controller |
+
+**Deferred to organic (needs a sunny day + an active excess-solar EV session):**
+- **Modulation live:** the `number.*_current_limit` recorder history shows the commanded limit tracking surplus (steps 6–48 A, never >48) during an excess-solar session.
+- **Yo-yo gone:** the house-battery power excursion on a cloud transient shrinks vs the pre-cycle binary behavior.
+- **Boot reconciliation:** after a >10 h restart, a previously throttled bay reads 48 A.
+
+Boot transient dismissed: the battery strategy came up in a post-reboot "K-tick rate-window warm-up" HOLD (no commands issued) — expected STEP-shadow warm-up, unrelated to this cycle; solar-follow itself came up dormant-and-nominal as designed.
+
+This closes day-0 validation. The card stays `shipped_organic` until modulation is observed on a sunny day.
