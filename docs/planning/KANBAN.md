@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T01:41:27-05:00_ - _Data commit: `8043bfd26063`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T01:48:13-05:00_ - _Data commit: `39e91ab00b45`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,12 +13,12 @@ _Generated: 2026-08-26T01:41:27-05:00_ - _Data commit: `8043bfd26063`_ - _last_r
 |---|---:|
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 6 |
-| 🧭 Pre-planning | 12 |
+| 🧭 Pre-planning | 11 |
 | 📝 Planned | 11 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 47 |
-| ⏸️ Waiting on operator | 4 |
+| ⏸️ Waiting on operator | 5 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
 | ✅ Done | 47 |
@@ -378,22 +378,8 @@ _created 2026-08-25 22:20 · initial_
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
 
-## 🧭 Pre-planning (12)
+## 🧭 Pre-planning (11)
 _idea being decomposed_
-
-### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
-thread: **energy** - status: **pre_planning** - approval: **implied**
-_created 2026-08-24 22:30 · updated 2026-08-26 01:50 · refined ×1_
-- **Problem / Solution:**
-  - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
-- **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
-- **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
-- **Next:** Write the Tier-3 plan (ura-planner) adopting (b) suppressed-membership: enumerate every consumer of _excess_solar_active and specify suppressed-bay semantics for each; fold in the 6 inherited review findings (5 discard sites incl. prune-...
-- **Tags:** tier-3, split-from-cycle, oscillator-hazard
-- **Refs:** docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
-- **Forensic keys (2):**
-  - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
-  - `REVIEW_FINDINGS_INHERITED`: Carried forward from the three Rev-20/21 plan reviews so they are not re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-w...
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -1480,8 +1466,23 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
   - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
   - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
 
-## ⏸️ Waiting on operator (4)
+## ⏸️ Waiting on operator (5)
 _needs a human call_
+
+### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
+thread: **energy** - status: **waiting_operator** - approval: **implied**
+_created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
+- **Problem / Solution:**
+  - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
+- **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
+- **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
+- **Next:** WAITING ON OPERATOR — mechanism re-confirm (plan-review CRIT C1): the plan does discard-and-move (drop from _excess_solar_active + separate suppressed set), NOT your literal (b) keep-in-set. Discard-and-move is arguably sounder (avoids t...
+- **Tags:** tier-3, split-from-cycle, oscillator-hazard
+- **Refs:** docs/planning/PLANNING_evse_solar_stop_conditions.md (the plan under review); docs/planning/PLAN_REVIEW_evse_solar_stop_conditions.md (both plan reviews, FIX-PLAN-FIRST); docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); docs/planning/AUDIT_excess_solar_and_evse_prior_art.md (the coupling walkthrough the plan omitted); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
+- **Forensic keys (3):**
+  - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
+  - `REVIEW_FINDINGS_INHERITED`: Carried forward from the three Rev-20/21 plan reviews so they are not re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-w...
+  - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**

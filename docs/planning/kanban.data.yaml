@@ -30,9 +30,9 @@ cards:
   title: Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged
     car holds its claim until the fleet conditions end
   thread: energy
-  status: pre_planning
+  status: waiting_operator
   created: 2026-08-24 22:30
-  updated: 2026-08-26 01:50
+  updated: 2026-08-26 02:15
   refinement_status: refined
   approval: implied
   approved_by: 'operator 2026-08-26 (AskUserQuestion: oscillator resolution = "suppressed-membership")
@@ -108,15 +108,29 @@ cards:
     every other consumer of that set" — so the PLAN''s central task is to define, per consumer of
     _excess_solar_active, what suppressed means (skip amp-capture, skip re-command, keep the claim,
     surface a stop reason) and prove no consumer mis-reads a suppressed bay as actively charging.'
-  next: 'Write the Tier-3 plan (ura-planner) adopting (b) suppressed-membership: enumerate every consumer
-    of _excess_solar_active and specify suppressed-bay semantics for each; fold in the 6 inherited review
-    findings (5 discard sites incl. prune-pass, 4 add sites incl. DB restore, stamped first-observation
-    dicts not last_changed, missing-stamp=age-0, INV-STOP-2 scoped to new paths only, golden-frozen
-    owner registry), the SOC hysteresis pair (defensive min + warning), and the cessation ledger
-    (closed vocab on ev_charging_status). Then 2 framing-disjoint plan reviews (completeness +
-    build-prediction) before build dispatch.'
+  PLAN_REVIEWED_2026_08_26: 'The Tier-3 plan was ALREADY written (prior session, 665 lines,
+    PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness +
+    build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop_conditions.md.
+    Converged must-fixes: timeout reads stamped_monotonic never written (INV-STOP-3 unreachable);
+    no power-sensor-health gate (degraded sensor turns off a charging car); SOLAR_MIN_ON_S (carded
+    knob) dropped; SOC hysteresis dropped; no real test deliverable; byte-identity proof uses
+    line-ranges that shift on insert. UNIQUE/structural (completeness): the plan does NOT implement
+    the operator''s literal (b) keep-membership — it DISCARDS from _excess_solar_active and moves the
+    bay to a separate _solar_follow_suppressed set (a refinement avoiding (b)''s consumer-incoherence),
+    but never declares the deviation AND skips the card''s mandated per-consumer enumeration, which
+    hides 11 behaviour-changing consumers (TOU pausability, SolarFollowController amp _restore_pass
+    collision same-tick, classifier-reason loss, _proactive_offpeak_holds leak).'
+  next: 'WAITING ON OPERATOR — mechanism re-confirm (plan-review CRIT C1): the plan does discard-and-move
+    (drop from _excess_solar_active + separate suppressed set), NOT your literal (b) keep-in-set.
+    Discard-and-move is arguably sounder (avoids the active-set incoherence you flagged) BUT changes
+    11 consumers of the active set that the plan never enumerated. Question: OK to proceed on
+    discard-and-move (planner does the full consumer enumeration + all ~12 must-fixes), or hold to
+    strict keep-membership? Then plan rework -> re-review -> build. Gated behind HVAC-excursion landing.'
   refs:
+  - docs/planning/PLANNING_evse_solar_stop_conditions.md (the plan under review)
+  - docs/planning/PLAN_REVIEW_evse_solar_stop_conditions.md (both plan reviews, FIX-PLAN-FIRST)
   - docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from)
+  - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md (the coupling walkthrough the plan omitted)
   - energy_pool.py:1318-1702 (determine_excess_solar_actions)
   - energy_pool_owners.py:245-252 (excess_solar owner declaration)
 - id: EVSE-SOLAR-FOLLOW-AMPS-1
