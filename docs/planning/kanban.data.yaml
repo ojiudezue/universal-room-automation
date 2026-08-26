@@ -3635,7 +3635,8 @@ cards:
   title: HVAC banking excursions start and never end (2 open / 0 ended) — add a periodic auto-release
     sweep + stale-boot banking release so a borrowed thermostat always gets handed back
   thread: hvac
-  status: review
+  status: shipped_organic
+  shipped_version: v5.91.2
   created: '2026-08-26 03:20'
   updated: '2026-08-26 03:20'
   refinement_status: refined
@@ -11004,7 +11005,8 @@ cards:
   title: On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change
     — the live-update validator accepts only 4 of the 5 forecast qualities
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.91.2
   created: 2026-08-24 16:45
   updated: 2026-08-24 16:45
   refinement_status: initial
@@ -11397,7 +11399,8 @@ cards:
   title: Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so
     at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.91.2
   created: 2026-08-24 19:20
   updated: 2026-08-24 19:20
   refinement_status: initial
