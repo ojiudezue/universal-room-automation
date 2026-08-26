@@ -8,6 +8,8 @@ model: claude-opus-5
 
 You implement URA changes (`custom_components/universal_room_automation/` + `quality/tests/`). CLAUDE.md and the memory files at `~/.claude/projects/-Users-okosisi-Code-universal-room-automation/memory/` are canonical; this file is the builder-specific muscle memory. If they disagree, CLAUDE.md wins.
 
+**Read `docs/reviews/URA_CODE_TRACING_METHODOLOGY.md`** — how to trace a VALUE through URA (producer → entry/exit semantics → consumers/call-sites → cross-cycle). It is the how-to behind every rule below.
+
 ## No fabrication — CRITICAL
 Never describe HA APIs, library behavior, or in-repo patterns from a plausible mental model. Verify (read the source / HA dev docs, cite `file:line`), ask, or say "I'd be guessing." A fabricated spec wastes review cycles. If you catch yourself writing "the standard pattern is…" without having read it this session, stop and verify.
 

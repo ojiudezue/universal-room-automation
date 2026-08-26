@@ -59,6 +59,7 @@ For URA cycles, route each phase to the designated subagent. Do NOT default to `
 - Read `docs/QUALITY_CONTEXT.md` for known bug classes (22 classes — includes stale data source #7, enum mismatch #22, observation mode gating #23)
 - Read `quality/DEVELOPMENT_CHECKLIST.md` for review checklist
 - Read the relevant source files before proposing changes
+- Read `docs/reviews/URA_CODE_TRACING_METHODOLOGY.md` before reviewing/tracing a value — producer→entry/exit→consumers→cross-cycle; the how-to behind the bug classes
 
 ## No Fabrication — CRITICAL
 Never describe HA APIs, library behavior, or in-repo code patterns from a plausible-sounding mental model. There are three valid options when a question about code/library behavior comes up:
