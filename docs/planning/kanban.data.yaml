@@ -8894,9 +8894,9 @@ cards:
   title: AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc correction
     (magnitude is NOT a defect; the figure is explicitly not billing-grade)
   thread: energy
-  status: planned
+  status: done
   created: 2026-08-21 11:40
-  updated: 2026-08-21 11:40
+  updated: 2026-08-26 09:30
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -8966,6 +8966,9 @@ cards:
   - hvac_override.py:3442,3492-3495
   - sensor.py:12239-12276
   - PLANNING_hvac_kwh_avoided_savings.md
+  closed_note: 'DOC-FIX applied 2026-08-26: docs/TECH_DEBT.md v4.5.11 bullet corrected — bias is HIGH
+    (over-claims, doesn''t net post-restore rebound), not conservative. Acceptance decision unchanged
+    (not billing-grade). No cycle.'
 - id: KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1
   title: 'Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study
     B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase'

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T22:14:25-05:00_ - _Data commit: `9338f97591a0`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-25T22:15:13-05:00_ - _Data commit: `ec352306144f`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,14 +14,14 @@ _Generated: 2026-08-25T22:14:25-05:00_ - _Data commit: `9338f97591a0`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 13 |
+| 📝 Planned | 12 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 45 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
-| ✅ Done | 45 |
+| ✅ Done | 46 |
 
 ## 📥 Inbox (26)
 _raw capture_
@@ -525,7 +525,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (13)
+## 📝 Planned (12)
 _has plan / acceptance_
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
@@ -596,20 +596,6 @@ _created 2026-08-23 18:20 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `PROPOSED_SHAPE`: Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in requirements_test.txt + run instructions so nobody silently runs 3.9 again. 2) New tests import real HA; no new file adds sys.modules stubs. 3) Existing files migr...
   - `links`: related: TEST-STRATEGY-REARCH-1
-
-### `AC-RAMP-SAVINGS-OVERSTATED-1` - AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc correction (magnitude is NOT a defect; the figure is explicitly not billing-grade)
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-21 11:40 · initial_
-- **Next:** One-line correction to the docs/TECH_DEBT.md v4.5.11 entry: replace the "conservative bias is correct direction" justification with the measured direction (it over-claims, because the 30-min projection does not net the post-restore rebou...
-- **Tags:** measured-not-inferred, refutes-an-accepted-rationale
-- **Parsimony:** [DOC-FIX] the tech-debt entry gives a bias direction that measurement contradicts; future readers will reason from it
-- **Refs:** {'docs/TECH_DEBT.md "v4.5.11 — AC ramp-down': 'rough kWh-avoided estimate"'}; hvac_override.py:3442,3492-3495; sensor.py:12239-12276; PLANNING_hvac_kwh_avoided_savings.md
-- **Forensic keys (5):**
-  - `NOT_A_NEW_DEFECT_IT_IS_KNOWN_DEBT`: IMPORTANT FRAMING — do NOT card this as a newly discovered bug. It is ALREADY DOCUMENTED in docs/TECH_DEBT.md ("v4.5.11 — AC ramp-down: rough kWh-avoided estimate"), which states the formula and explicitly acknowledges it is "not baselin...
-  - `WHAT_IS_ACTUALLY_NEW_TWO_THINGS`: THE DEBT ENTRY IS WRONG ABOUT ITS OWN DIRECTION, and its revisit trigger has fired. Both are new. (1) THE JUSTIFICATION IS REFUTED. TECH_DEBT.md justifies the shortcut with: "Conservative bias is correct direction (better to under-claim ...
-  - `CONSUMER_IMPACT_CONTEXT_ONLY`: RETIRED AS A DEFECT per the operator ruling above — retained as context, NOT as work. sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=...
-  - `METHOD_CAVEAT_BE_HONEST`: The measurement controls for regression-to-the-mean via the -90/-45 window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min comparison window sits later in the day than the control. That confound c...
-  - `OPERATOR_RULING_2026_08_21_NOT_A_DEFECT`: OPERATOR PUSHBACK, ACCEPTED: "Saving is approximate. It is marked not billing grade explicitly. It needs to be directionally accurate not forensically." CORRECT, and this card was OVER-ESCALATED — the orchestrator relayed a measurement a...
 
 ### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind
 thread: **hvac** - status: **planned** - approval: **operator_decided**
@@ -1743,7 +1729,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-## ✅ Done (45)
+## ✅ Done (46)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -2229,6 +2215,21 @@ _created 2026-08-19 04:10 · updated 2026-08-19 05:15 · refined_
   - `operator_direction_2026_08_19`: OPERATOR DIRECTION: do not just instrument around it — WORK THROUGH THE CODE and find the bug. Bet: it has a bug and "feels like it has never worked." Strong candidate: the per-tick recheck call is wrapped in a swallowed except -> DEBUG ...
   - `bug_found_2026_08_19`: CODE TRACE FOUND IT (AUDIT_fan_recheck_bug_hunt.md). CONFIRMED: (1) the recheck has NEVER vacated a room — apply_fan_recheck_release guards on outcome==VACATED and never ran; 08-13 occupied_confirmed was the non-vacate path. (2) WHY IT S...
   - `CONFIRMED_LIVE_2026_08_19`: CONFIRMED LIVE (no build needed — the disambiguator sensor already existed). sensor.living_room_living_room_fan_recheck_state: veto_counts={not_occupied:1}, eval_count=1, last_attempt 2026-08-13. The recheck evaluated ONCE at boot, hit n...
+
+### `AC-RAMP-SAVINGS-OVERSTATED-1` - AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc correction (magnitude is NOT a defect; the figure is explicitly not billing-grade)
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-08-21 11:40 · updated 2026-08-26 09:30 · initial_
+- **Next:** One-line correction to the docs/TECH_DEBT.md v4.5.11 entry: replace the "conservative bias is correct direction" justification with the measured direction (it over-claims, because the 30-min projection does not net the post-restore rebou...
+- **Tags:** measured-not-inferred, refutes-an-accepted-rationale
+- **Parsimony:** [DOC-FIX] the tech-debt entry gives a bias direction that measurement contradicts; future readers will reason from it
+- **Refs:** {'docs/TECH_DEBT.md "v4.5.11 — AC ramp-down': 'rough kWh-avoided estimate"'}; hvac_override.py:3442,3492-3495; sensor.py:12239-12276; PLANNING_hvac_kwh_avoided_savings.md
+- **Forensic keys (6):**
+  - `NOT_A_NEW_DEFECT_IT_IS_KNOWN_DEBT`: IMPORTANT FRAMING — do NOT card this as a newly discovered bug. It is ALREADY DOCUMENTED in docs/TECH_DEBT.md ("v4.5.11 — AC ramp-down: rough kWh-avoided estimate"), which states the formula and explicitly acknowledges it is "not baselin...
+  - `WHAT_IS_ACTUALLY_NEW_TWO_THINGS`: THE DEBT ENTRY IS WRONG ABOUT ITS OWN DIRECTION, and its revisit trigger has fired. Both are new. (1) THE JUSTIFICATION IS REFUTED. TECH_DEBT.md justifies the shortcut with: "Conservative bias is correct direction (better to under-claim ...
+  - `CONSUMER_IMPACT_CONTEXT_ONLY`: RETIRED AS A DEFECT per the operator ruling above — retained as context, NOT as work. sensor.ura_hvac_ac_kwh_avoided_today / _total and the AC-ramp $ family feed dashboards and ROI figures. NOTE shipwatch CONFIRMED ac_ramp_savings_today=...
+  - `METHOD_CAVEAT_BE_HONEST`: The measurement controls for regression-to-the-mean via the -90/-45 window but does NOT control for diurnal trend — nudges cluster in the afternoon, so the +90 min comparison window sits later in the day than the control. That confound c...
+  - `OPERATOR_RULING_2026_08_21_NOT_A_DEFECT`: OPERATOR PUSHBACK, ACCEPTED: "Saving is approximate. It is marked not billing grade explicitly. It needs to be directionally accurate not forensically." CORRECT, and this card was OVER-ESCALATED — the orchestrator relayed a measurement a...
+  - `closed_note`: DOC-FIX applied 2026-08-26: docs/TECH_DEBT.md v4.5.11 bullet corrected — bias is HIGH (over-claims, doesn't net post-restore rebound), not conservative. Acceptance decision unchanged (not billing-grade). No cycle.
 
 ### `KITCHEN-OCCUPANCY-DEAD-1` - RESOLVED — NOT A DEFECT: kitchen occupancy is pinned off by switch.kitchen_override_vacant (room deliberately disabled); three inferred mechanisms were wrong before the switch was checked
 thread: **presence** - status: **done** - approval: **n/a**
