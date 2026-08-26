@@ -85,6 +85,9 @@ async def async_setup_entry(
             # solar surplus available, URA turns EVSEs ON even during off-peak
             # pause. Live-tunable companion to FillPrioritySOCNumber.
             ExcessSolarSOCNumber(hass, entry, 95),
+            # SolarFollowController D1.10 — rung-3 knob for the up-min-ticks
+            # (consecutive minutes of higher surplus before increasing amps).
+            ExcessSolarConfirmNumber(hass, entry),
             # v4.7.8 D2: Egress Window HVAC Pause threshold + resume-delay
             # sliders on the HVAC Coordinator device.
             HVACEgressPauseThresholdNumber(hass, entry, 3),
@@ -3991,3 +3994,86 @@ class ChatterTFloorNumber(_ChatterCMNumberBase):
             icon="mdi:timer-cog-outline",
             entity_id="number.ura_chatter_t_floor",
         )
+
+
+
+class ExcessSolarConfirmNumber(NumberEntity):
+    """SolarFollowController D1.10 — consecutive-tick up-gate (minutes).
+
+    Live-tunable knob (rung 3) mirroring ExcessSolarSOCNumber. Setter calls
+    ``energy.set_solar_follow_confirm(value)`` BEFORE the options writeback
+    so the next solar-follow tick observes the new value. No-op safely when
+    the EnergyCoordinator is not yet constructed (deferred-retry path
+    inherited from the parent pattern is skipped — the value is options-
+    seeded on next boot and pushed at first successful call).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sync-outline"
+    _attr_native_step = 1
+    _attr_native_min_value = 1
+    _attr_native_max_value = 10
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    CONF_KEY = "energy_excess_solar_confirm"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        from .domain_coordinators.energy_const import SOLAR_FOLLOW_UP_MIN_TICKS
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_excess_solar_confirm"
+        self._attr_name = "Excess Solar Confirm"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(self.CONF_KEY, SOLAR_FOLLOW_UP_MIN_TICKS))
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    def _push(self) -> bool:
+        energy = self._get_energy()
+        if energy is None:
+            return False
+        try:
+            energy.set_solar_follow_confirm(self._value)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("solar-follow confirm push raised", exc_info=True)
+            return False
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push()
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._push()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, self.CONF_KEY: self._value},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Excess Solar Confirm writeback failed", exc_info=True)
+        self.async_write_ha_state()
+        _LOGGER.info("Excess Solar Confirm set to %d min", self._value)
