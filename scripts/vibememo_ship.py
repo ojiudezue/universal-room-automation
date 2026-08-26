@@ -36,6 +36,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # deploy cannot mint one no matter which caller invokes it.
 MIN_REASONING_CHARS = 200
 MIN_REASONING_WORDS = 40
+# Soak-Exit synergy (operator-coined 2026-08-25): every ship must state its
+# DISPOSITION DISCRIMINATOR up front — the observable that says the
+# shipped_organic card is done. Without it, organic cards ride forever (the
+# 46-card backlog). This is the revisit_trigger, forced at the source.
+MIN_REVISIT_CHARS = 60
 
 
 def validate_reasoning(reasoning: str, notes: str, summary: str) -> str | None:
@@ -57,6 +62,24 @@ def validate_reasoning(reasoning: str, notes: str, summary: str) -> str | None:
         o = re.sub(r"\s+", " ", (other or "").lower()).strip()
         if o and norm == o:
             return f"reasoning is identical to the {label} (WHAT, not WHY). vibememo needs the reasoning behind the ship, not a copy of the notes."
+    return None
+
+
+def validate_revisit(revisit: str) -> str | None:
+    """Return an error string if the disposition discriminator is thin, else None.
+
+    The revisit_trigger is the Soak-Exit contract: the OBSERVABLE that closes
+    the shipped_organic card (a live entity value, a DB row, a metric). Refuse a
+    vague one so the next soak-sweep has something to query, not watch.
+    """
+    r = (revisit or "").strip()
+    if not r:
+        return ("revisit-trigger is empty — state the DISPOSITION DISCRIMINATOR: the observable "
+                "(entity value / DB row / metric) that closes this ship's shipped_organic card.")
+    if len(r) < MIN_REVISIT_CHARS:
+        return (f"revisit-trigger is too thin ({len(r)} chars < {MIN_REVISIT_CHARS}). Name what to "
+                "OBSERVE to dispose the card, not a date — e.g. \"sensor.X attr Y == Z on a class-"
+                "disagreement night\" or \"table T shows a non-sentinel row within 1h\".")
     return None
 
 
@@ -123,6 +146,8 @@ def build_entry(
     summary: str,
     notes: str,
     reasoning: str,
+    revisit_trigger: str,
+    implications: str,
     cards: list[str],
     now_iso: str,
 ) -> dict:
@@ -143,7 +168,13 @@ def build_entry(
         "type": "reasoning",
         "weight": "significant",
         "title": f"{ver} shipped: {summary}",
-        "summary": reasoning.strip(),
+        "summary": summary.strip(),
+        "why": reasoning.strip(),
+        "implications": (implications.strip() if implications.strip()
+                         else f"Shipped {', '.join(cards) or '(no cards)'} at {ver}; "
+                              f"card(s) sit shipped_organic pending validation. "
+                              f"Acceptance in README_{ver}.md (Live criteria)."),
+        "revisit_trigger": revisit_trigger.strip(),
         "refs": {
             "cards": cards,
             "docs": [f"docs/readmes/README_{ver}.md"],
@@ -215,6 +246,18 @@ def main(argv: list[str] | None = None) -> int:
         help="The WHY of the ship — decision, alternatives weighed, what review/verify "
         "caught. Rejected if thin (see MIN_REASONING_* thresholds).",
     )
+    p.add_argument(
+        "--revisit-trigger",
+        required=True,
+        help="The DISPOSITION DISCRIMINATOR (Soak-Exit): the observable that closes this "
+        "ship's shipped_organic card. Rejected if thin/vague (see MIN_REVISIT_CHARS).",
+    )
+    p.add_argument(
+        "--implications",
+        default="",
+        help="Optional: what this ship changes downstream / what to watch. Derived from "
+        "cards+README if omitted.",
+    )
     p.add_argument("--cards", default="")
     p.add_argument("--author", default=None)
     p.add_argument(
@@ -234,6 +277,10 @@ def main(argv: list[str] | None = None) -> int:
     if err is not None:
         print(f"vibememo_ship: REFUSED — {err}", file=sys.stderr)
         return 2
+    rerr = validate_revisit(args.revisit_trigger)
+    if rerr is not None:
+        print(f"vibememo_ship: REFUSED — {rerr}", file=sys.stderr)
+        return 2
 
     entry_id = next_entry_id(entries_dir)
     now_iso = _now_utc_iso()
@@ -246,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:
         summary=args.summary,
         notes=args.notes,
         reasoning=args.reasoning,
+        revisit_trigger=args.revisit_trigger,
+        implications=args.implications,
         cards=cards,
         now_iso=now_iso,
     )

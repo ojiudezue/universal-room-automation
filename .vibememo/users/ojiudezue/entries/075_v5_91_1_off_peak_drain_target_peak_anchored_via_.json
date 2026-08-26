@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "075",
+  "author": "ojiudezue",
+  "session_id": "claude_20260826_063252_ship_v5_91_1",
+  "timestamp": "2026-08-26T06:32:52Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.91.1 shipped: Off-peak drain-target peak-anchored via a single _drain_target_for source of truth + DP/EVSE decision telemetry",
+  "summary": "Off-peak drain-target peak-anchored via a single _drain_target_for source of truth + DP/EVSE decision telemetry",
+  "why": "The off-peak drain target was keyed to calendar-tomorrow (solcast_tomorrow), so after local midnight the target-day forecast rolled to the wrong day: at ~02:00 the reason string named tomorrow's class while the decision needed today's, and via the just-shipped DP value-stamp DP drained the house battery toward a stale floor. We chose a peak-anchored resolver (_resolve_target_day + a single _drain_target_for source of truth) over threading now through every consumer, because the failure mode is one-missed-site (Bug Class #53); four framing-disjoint reviews verified the arithmetic, the HIGH-2 stamp preservation (the stamp still carries the peak-anchored value), DST safety, and the arbitrage-boundary; a fix-up closed the emitter reason-string convergent finding and a D6-telemetry-blank-in-default-config bug; the orchestrator re-drilled the stamp mutation by hand and the full-suite name-diff was clean.",
+  "implications": "Shipped DRAIN-TARGET-DAY-STALENESS-1, DP-BATTERY-AUTHORITATIVE-TELEMETRY-1 at v5.91.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.91.1.md (Live criteria).",
+  "revisit_trigger": "On the next cross-midnight class-disagreement night, at ~02:00 CDT read sensor.ura_energy_coordinator_battery_strategy: reason names TODAY's class and current_offpeak_drain_target matches it (not tomorrow), with arbitrage_phase in {n/a,wait} and hold_depth==allow_discharge; and ev_charging_status publishes the dp_* + per_bay_state attrs. Dispose the card when observed.",
+  "refs": {
+    "cards": [
+      "DRAIN-TARGET-DAY-STALENESS-1",
+      "DP-BATTERY-AUTHORITATIVE-TELEMETRY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.91.1.md"
+    ],
+    "release_notes": "Keys the off-peak battery drain target to the peak-anchored target day instead of calendar-tomorrow, so post-midnight it no longer narrates or drains toward the wrong day; the DP value-stamp now carries the peak-anchored composed value downstream (mutation-verified). Adds always-on DP decision telemetry (dp_state/dp_drain_floor/...) and per-EVSE structured state so validation reads ground truth, not display prose. Tier-3, four framing-disjoint reviews, 0 new test regressions."
+  }
+}

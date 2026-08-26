@@ -3,11 +3,22 @@
 - Card: `DRAIN-TARGET-DAY-STALENESS-1`
 - Thread: `energy` / BatteryStrategy shared primitive
 - Tier: **Tier 3** (reserve-affecting, shared primitive consumed by both an accessor and an emitter, one-missed-site shape Bug Class #53, cost-AND-safety impacting).
-- Status: PLAN ONLY — awaiting explicit build-go after Tier-3 plan review. This revision (2026-08-24, midnight re-review pass) folds in the Tier-3 plan-review findings AND the orchestrator right-sizing of the blast-radius framing, PLUS the four surgical edits + three LOWs from the midnight re-review (H-1 shared-helper mandate, M-1 manual-edit sub-item, M-2 offset==1 scope, M-3 INV-DTDS-3 scoping).
+- Status: PLAN ONLY — awaiting explicit build-go after Tier-3 plan review. **2026-08-25: adopted additive D6/D7 (DP + per-EVSE telemetry) to ride with the cosmetic H-1 fix; those additions need a focused additive plan-review before build.** This revision (2026-08-24, midnight re-review pass) folds in the Tier-3 plan-review findings AND the orchestrator right-sizing of the blast-radius framing, PLUS the four surgical edits + three LOWs from the midnight re-review (H-1 shared-helper mandate, M-1 manual-edit sub-item, M-2 offset==1 scope, M-3 INV-DTDS-3 scoping).
 - Sequencing: ships BEFORE `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` (DP fix). DP reads `current_offpeak_drain_target()` unchanged and mirrors the emitter; this fix corrects emitter + accessor + narration helpers together, so DP inherits the corrected value on the next tick.
 - Probe (already run — see card `PROBE_RESULT_2026_08_24_BITES`): 536 days of long-term Solcast statistics; `class(D) != class(D+1)` on 37.4% of days; mean 9.9 / median 10 SOC-pt drain-target delta; worst 20; both directions. Measure-before-build satisfied.
 
 ---
+
+## Drift re-verification (2026-08-25, orchestrator, by hand — post-DP 5.90.1 + solar-follow 5.91.0)
+
+Plans drift with code; both shipped into `energy_battery.py`/`energy.py` after this plan was written (08-24). Re-verified against current develop:
+
+- **Line numbers drifted ~+27** in the drain branch and helpers. CURRENT: drain-class derivation `5316-5330`; A-CRIT-1 partial_hold clamp `5338-5339`; `current_offpeak_drain_target` `1735`; `_get_offpeak_drain_target` `1731`; `classify_tomorrow_solar` `1699`; `classify_solar_day_n` `1811`; `_threshold_position` `5696`; `_next_action_estimate` `5727`. D3/H-1 must use THESE, not the stale 08-24 citations.
+- **LOAD-BEARING NEW SITE the plan was blind to — the DP value-stamp at `5349`:** `self._offpeak_drain_branch_target = int(drain_target)` sits INSIDE D3's branch, AFTER the derivation (5330) and the partial_hold clamp (5340). It is how 5.90.1's DP fix consumes THIS tick's composed target. **D3 must replace ONLY the derivation (5316-5330) with `drain_target = self._drain_target_for(now)` and PRESERVE both the partial_hold clamp (5338-5339) and the value-stamp (5349) below it.** After D3, the stamp carries the *peak-anchored* composed target to DP — the fix flowing downstream — so this is desired, but it means D3 is a Bug-Class-#53 site with a NON-obvious consumer (the DP tick) that the plan's original site enumeration missed.
+- **Cross-cycle behavior change (must be stated):** because the stamp feeds DP, D3 silently changes DP's drain FLOOR from calendar-tomorrow to peak-anchored. The DP card (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is `shipped_organic` with an outstanding 2-tick-no-flap watch; this cycle re-touches the value DP drains toward, so DP's organic re-validation is implicated — the post-deploy live check MUST re-confirm the DP floor (via `command_trail`/`cloud_oracle`) equals the peak-anchored `_drain_target_for(now)`, not just that the accessor/narration agree.
+- Arbitrage-OFF gating confirmed unchanged (comment at 5320: "when arbitrage is ON we never reach this branch"): D3 only affects the arbitrage-OFF drain path — matches the plan's `arbitrage_phase ∈ {n/a, WAIT}` acceptance framing.
+
+**Design verdict: still sound; the fix needs the stamp-preservation sub-item + a DP-integration test added to D3 (below). Approved to build after the additive-D6/D7 plan-review, with these edits folded in.**
 
 ## Design-intent authority
 
@@ -208,6 +219,10 @@ Collapsing the two open-coded max copies into the shared helper IS the actual Bu
 - The hardcoded `40` fallback is naturally killed — `_drain_target_for` routes through `_get_offpeak_drain_target` which already uses `DEFAULT_OFFPEAK_DRAIN_UNKNOWN`. If any surviving direct `_drain_targets.get()` lookup remains (it should not, per H-1), it MUST use `DEFAULT_OFFPEAK_DRAIN_UNKNOWN` (`energy_const.py:724`) — not a bare literal.
 - Narration strings inside the helpers currently interpolate `tomorrow={tomorrow_class}`; rename to `target={d1_class}` (or similar) to match the corrected semantics; call out as an operator-facing string change in plan review.
 
+**HIGH-2 (drift, 2026-08-25) — preserve the DP value-stamp; test the DP downstream.** D3 replaces the derivation at `5316-5330` with `drain_target = self._drain_target_for(now)`. It MUST NOT touch the partial_hold clamp (`5340`) or the value-stamp (`5349`) that follow — the stamp reads the local `drain_target` and is how DP (5.90.1) consumes this tick's floor. After D3, the stamp must carry the peak-anchored composed value.
+- **Framing-C mutation site (7th):** re-point the derivation to the OLD calendar-tomorrow lookup (`drain_target = self._get_offpeak_drain_target(self.classify_tomorrow_solar())`) while leaving the stamp intact → a DP-integration test MUST fail, proving the stamp (and thus the DP floor) now routes through `_drain_target_for(now)`.
+- **Test:** `test_dp_value_stamp_carries_peak_anchored_target()` — at stubbed `now` at offset 0 with today/tomorrow class disagreement, assert `_offpeak_drain_branch_target` after `determine_mode` equals `_drain_target_for(now)` (peak-anchored), NOT `_get_offpeak_drain_target(classify_tomorrow_solar())`.
+
 **Acceptance criteria (D3):**
 
 - **Verify (INV-DTDS-2):** at stubbed `now = 2026-02-01 02:00` with `get_next_high_rate_transition` returning `2026-02-01 14:00` (offset 0), Solcast today=poor / tomorrow=excellent — emitted drain target keys TODAY (poor). Repro-exact using probe inversion pairs 2025-12-01→02 (30→10) and 2025-05-01→02 (10→30).
@@ -220,7 +235,30 @@ Collapsing the two open-coded max copies into the shared helper IS the actual Bu
 - **Test:** `test_display_attr_tomorrow_solar_class_still_calendar_tomorrow()` — INV-DTDS-1 for the DISPLAY axis; guards against a well-meaning collapse of the two variables.
 - **Test (HIGH-1):** `test_threshold_position_uses_shared_helper()` and `test_next_action_estimate_uses_shared_helper()` — with `now` at offset==0 and today/tomorrow class disagreement, the narration string cites TODAY's class and drain, matching the accessor. Both tests require real/stubbed `_tou`; a `_tou=None` fixture is a hollow anchor and is disallowed.
 - **Test (HIGH-1 constant):** `test_threshold_and_next_action_fallback_uses_default_constant()` — with an empty `_drain_targets` map, both helpers return `DEFAULT_OFFPEAK_DRAIN_UNKNOWN` (40 today), NOT a hardcoded literal. Assert against the imported constant, not the number.
+- **Live pre-fix divergence CONFIRMED 2026-08-25 21:25 CDT (H-1 empirical repro):** on the live sensor, `next_action_estimate` narrated "drain to 10.0% (tomorrow=excellent)" while `current_offpeak_drain_target` (the accessor) read **15** and the decision commanded 15 to hardware (cloud_oracle=15.0). This is exactly the H-1 same-sensor contradiction (naive `_drain_targets.get(tomorrow_class)` vs the composed multi-day max). Post-fix, this divergence MUST be gone: both must read the shared-helper value. Use this observed pair (10 vs 15) as the concrete pre/post check.
 - **Live:** on next cross-midnight class-disagreement night, at ~02:00 CDT read on the SAME sensor: `current_offpeak_drain_target`, `threshold_position`, `next_action_estimate` — all three MUST narrate today's class. Cross-check `forecast_outlook.d1_class` (contract: calendar tomorrow) — the two can legitimately disagree post-midnight; a session where they DO disagree and the drain narration cites today is the strong positive validation. Live-read the sensor's `arbitrage_phase` AND `hold_depth` attrs FIRST — treat the parity check as discriminating only when `arbitrage_phase ∈ {n/a, WAIT}` AND `hold_depth == allow_discharge`. On an arbitrage tick, `_threshold_position` will still narrate the shared-helper drain (it is not phase-gated at :5689) — that is expected and NOT a failure; the strong evidence is the drain-fallback tick.
+
+### D6 — (ADOPTED 2026-08-25, ADDITIVE) Always-on DP decision telemetry
+Surface the DP carrier decision as always-on attributes on `sensor.ura_energy_coordinator_ev_charging_status`. **Additive: reads the carrier only, no decision-path change, no new carrier state.** Field list with EXACT sources verified against `energy_drain_precedence.py` `to_attrs` / the carrier dataclass (per the additive plan-review F4):
+
+| Attr | Source (verified) |
+|---|---|
+| `dp_state` | carrier `state` (HOLD_ONLY / HOLD_PRE_EVAL / TRANSITIONED) — top-level |
+| `dp_hold_started_at` | carrier `hold_started_at` — top-level |
+| `dp_last_eval_soc` | `last_eval_snapshot.inputs.soc` — HONEST name: this is the LAST-EVAL SOC, not a preserved hold-entry latch (the carrier has none). Do NOT call it "latched". |
+| `dp_drain_floor` | `last_eval_snapshot.inputs.drain_target_soc` — the floor DP evaluated toward (the value 5.90.1 threads in) |
+| `dp_eval_age_min` | carrier `eval_age_min` — ELAPSED, already floored to whole minutes (B-H1 anti-churn). **Do NOT add a seconds countdown** (`dp_eval_countdown_s` DROPPED — it re-introduces the recorder churn B-H1 removed). |
+
+**The hold-entry "latched SOC" (the 28 the orchestrator observed on 2026-08-25) is NOT a DP-carrier field** — it is the battery strategy's `command_trail.reserve_soc.effective_desired` under `hold_owner=evse_battery_hold`, a SEPARATE already-visible surface. D6 does not duplicate it and does not add a carrier field to synthesize it; if a first-class "latched SOC" is later wanted, that is a distinct (non-additive) carrier change, out of scope here.
+
+**Acceptance:** the five attrs appear on `ev_charging_status`, each equal to its verified source at read time; `dp_drain_floor` == `last_eval_snapshot.inputs.drain_target_soc` == the value the battery stamped this eval. No new recorder-churn hot attribute (all coarse or event-shaped). Live: reproduces tonight's sequence legibly (dp_state transitions HOLD_* -> TRANSITIONED; dp_drain_floor reads the composed floor) WITHOUT enabling the disabled `sensor.ura_energy_drain_precedence_state`.
+
+### D7 — (ADOPTED 2026-08-25, ADDITIVE) Per-EVSE structured state (not prose)
+Replace reliance on `pause_reason_human` prose with a structured per-bay record: `{state: paused|throttled|charging, owner, commanded_amps, actual_kw}`. Kills the pause-vs-throttle ambiguity (orchestrator misread "grid import cap" as throttle when it means paused) and is REQUIRED once solar-follow throttling is live (a bay at 24 A is neither paused nor charging). Same surface as the solar-follow `solar_follow_*` observability. **Additive: no decision-path change.**
+
+**Acceptance:** for each bay, `state` matches actuator ground truth (switch on+power>threshold=charging; switch off=paused; solar-follow limit<48=throttled), `owner` names the controlling hold, `commanded_amps`/`actual_kw` present. Discriminating: a paused bay and a throttled bay are distinguishable without reading a prose string.
+
+**Plan-review note (both D6/D7):** additive surfacing adopted after the base plan's Tier-3 review; per Plan Review tiering they get one focused additive plan-review pass (no drain-target-logic overlap; confirm no new decision-path read, no write-flood, and that the DP attrs read the carrier not a recompute) before build. keep the Tier-3 rigor on D1–D3.
 
 ### D4 — (Deferred / non-goal) Thread `now` through consumer paths
 

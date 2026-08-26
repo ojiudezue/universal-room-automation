@@ -40,8 +40,11 @@ Coordinator honors.
 PEC has three periods (summer, illustrative): OFF_PEAK cheap /
 MID_PEAK moderate / PEAK expensive (4–8pm). The EC's default posture:
 
-- **Off-peak:** allow drain to a *drain target* set by tomorrow's solar
-  forecast (see §2.2). If arbitrage says today is worth grid-charging
+- **Off-peak:** allow drain to a *drain target* set by the class of
+  **the target day of the next high-rate transition** (peak-anchored —
+  TOMORROW's forecast when the next peak is tomorrow, TODAY's forecast
+  when the next peak is later today; see §2.2). If arbitrage says
+  today is worth grid-charging
   the battery, do so in the pre-peak window.
 - **Mid-peak (summer):** freeze battery at whatever SOC it's at when
   the boundary hits — this locks in solar gains earned during off-peak
@@ -59,7 +62,8 @@ one of `excellent / good / moderate / poor / very_poor`, using
 drives:
 
 - The **drain target** (how low to allow battery to fall off-peak — if
-  solar will refill tomorrow, drain deeper; if not, protect reserve).
+  solar will refill the target day (day of the next high-rate transition),
+  drain deeper; if not, protect reserve).
 - The **arbitrage gate** (grid-charge to peak buffer only makes sense
   on `poor / very_poor` days when solar won't refill on its own).
 

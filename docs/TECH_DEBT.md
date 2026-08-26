@@ -52,7 +52,7 @@ Likely Tier 2-DB (presence↔HVAC↔compliance↔safety trust-hierarchy ripple).
 **Shortcut:** kWh-avoided is computed as `max(0, kwh_before - kwh_after) × min(30, remaining_overshoot_minutes) / 60`. The 30-min projection cap is a sanity bound, not a precision instrument. Not baseline-matched against a comparable-weather-day counterfactual.
 
 **Why acceptable:**
-- Conservative bias is correct direction (better to under-claim than over-claim).
+- MEASURED bias is HIGH, not conservative: the 30-min projection OVER-claims because it does not net the post-restore rebound (the zone drifts back up once the nudge ends, giving back some of the projected saving). The figure is explicitly NOT billing-grade — only directionally useful — so the over-claim is accepted, but do not reason from an "under-claim / conservative" assumption. (Corrected 2026-08-26, AC-RAMP-SAVINGS-OVERSTATED-1; magnitude retired by operator.)
 - Trend direction (month-over-month) is what users care about for "is the feature working", not absolute kWh accuracy.
 - True baseline-matched analytics need Span historical data + comparable-day matching — meaningful complexity for marginal accuracy gain.
 
