@@ -417,7 +417,7 @@ cards:
     findings. Not just memory." Applied here: memory was the least current of the three sources, and the
     card body plus the code both outrank it.'
   thread: energy
-  status: done
+  status: shipped_organic
   shipped_version: v5.90.1
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Card and fix. Approved.'')'
@@ -701,7 +701,7 @@ cards:
       earlier blocked_by was wrong — DP mirroring the emitter is correct relative to actual battery behavior
       regardless of the staleness.'
   created: 2026-08-20 00:20
-  updated: 2026-08-25 21:32
+  updated: 2026-08-25 21:50
   DISPATCH_2026_08_24: 'Plan re-reviewed by orchestrator this session (independent grep of the five R2
     sites, compose_release_floor signature, off-peak gate coverage, and the :4555 MUST_START containment
     hazard — all confirmed source-accurate, zero drift). Operator approved the fan-out. Dispatched to
@@ -786,11 +786,8 @@ cards:
     "reserve floor does not exceed SOC" reads PASS both under the fix and under DP never transitioning
     at all; (7) very_poor drain target recorded as unable to live-apply (energy.py:8647 validates only
     four qualities) -- pre-existing but this cycle makes it load-bearing.'
-  next: 'PLAN FINALISED AND PARKED 2026-08-24. docs/planning/PLANNING_dp_drain_target_mis_sourcing.md
-    is build-ready: 5 R2 sites independently re-verified by review, helper typechecked, INV-DP-DRAIN-4
-    resolved by code read, T1-T5 + T4b specified with a binding fixture contract, 10 per-site mutation
-    drills (C1-C10), acceptance criteria with a PAIRED discriminating Live check. Ships FIRST, before
-    solar-follow. Awaiting operator go to build.'
+  next: Observe the INV-DP-DRAIN-1e 2-tick no-flap release at the next drain-window-end/TOU boundary;
+    if clean, dispose to done. Primary discriminator already validated.
   refinement_status: refined
   SCOPING_2026_08_20_ONE_NUMBER_THREE_ROLES: 'THE REAL FINDING — _ev_battery_drain_soc serves THREE INCOMPATIBLE
     SEMANTIC ROLES, two of which point in OPPOSITE DIRECTIONS. R1 PAUSE CEILING (energy.py:5842 EV, :5977
@@ -954,6 +951,12 @@ cards:
   closed_note: 'ORGANIC-VALIDATED 2026-08-25 21:26-31 CDT: live DP exercise showed latch at current SOC(28)->re-eval->composed
     floor 15 written to hardware (cloud_oracle=15.0), never the static reserve 10. README_v5.90.1 organic
     table. done.'
+  reopen_note_2026_08_25: 'REOPENED from a premature done. Post-watch conditions are NOT all met: (1)
+    drains to composed floor 15 not static 10 — ORGANICALLY VALIDATED 21:26 CDT (latch 28 -> re-eval ->
+    floor 15, cloud_oracle=15.0 hardware-confirmed). (2) INV-DP-DRAIN-1e 2-tick no-flap release on the
+    None-target path (drain-window-end / TOU boundary) — NOT yet observed organically; it is mutation-test-anchored
+    but unseen live. Hold shipped_organic until a None-release is observed with no adjacent-tick pause<->release
+    flip-flop (next off_peak->exit or peak boundary). Then dispose to done.'
 - id: BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
   thread: energy
   status: inbox
@@ -11232,9 +11235,9 @@ cards:
   title: Surface DP + per-EVSE decision state as always-on authoritative telemetry (not disabled sensor
     / prose) — validation should read truth, not reconstruct it
   thread: energy
-  status: pre_planning
+  status: planned
   created: 2026-08-25 21:30
-  updated: 2026-08-25 21:45
+  updated: 2026-08-25 21:50
   refinement_status: refined
   approval: implied
   tags:
@@ -11273,6 +11276,14 @@ cards:
     — extend beyond drain-target. NON-GOALS: heavy telemetry framework; per-tick logging (write-flood
     incident history); dashboards before the data model. Tier: likely Tier-2 (additive surfacing, no decision-path
     change) — confirm at plan time.'
+  adopted_2026_08_25: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target
+    cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6
+    (always-on DP decision attrs) + D7 (per-EVSE structured paused|throttled|charging state). Additive-surfacing
+    only — no drain-target decision-path change; Tier-3 rigor stays on the drain-target logic, telemetry
+    gets additive review. Triggers a midnight plan re-review of the additions before build (per Plan Review
+    tiering).
+  depends_on:
+  - DRAIN-TARGET-DAY-STALENESS-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
