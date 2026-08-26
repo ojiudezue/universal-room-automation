@@ -2076,3 +2076,4 @@
 {"timestamp":"2026-08-26T15:23:50.400Z","category":"architecture","severity":"significant","signal":"WebSocket server","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260721002120_c0b5"}
 {"timestamp":"2026-08-26T15:24:51.401Z","category":"architecture","severity":"significant","signal":"WebSocket server","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260721002120_c0b5"}
 {"timestamp":"2026-08-26T15:31:01.393Z","category":"architecture","severity":"significant","signal":"WebSocket server","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260721002120_c0b5"}
+{"timestamp":"2026-08-26T15:37:53.384Z","category":"deployment","severity":"significant","signal":"CI/CD config","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260721002120_c0b5"}

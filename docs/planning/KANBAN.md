@@ -16,7 +16,7 @@ _Generated: 2026-08-26T10:31:56-05:00_ - _Data commit: `c254e87db500`_ - _last_r
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 2 |
+| 🔍 Review | 3 |
 | 🚀 Shipped (organic open) | 47 |
 | ⏸️ Waiting on operator | 5 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -687,8 +687,21 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
+
+### `HVAC-EXCURSION-D1-BANKING-RELEASE-1` - HVAC banking excursions start and never end (2 open / 0 ended) — add a periodic auto-release sweep + stale-boot banking release so a borrowed thermostat always gets handed back
+thread: **hvac** - status: **review** - approval: **approved**
+_created 2026-08-26 03:20 · refined_
+- **Problem / Solution:**
+  - Problem: when HVAC banks a thermostat (pre-cool / pre-heat borrow), the borrow could be left open forever — measured 2 banking rows open with 0 ever ended. A stuck-open borrow means the zone keeps holding a setpoint URA thinks it already...
+- **Why:** The sound, well-tested part (D1) of the parked HVAC-EXCURSION-RESTORE-UNIFIED-1 cycle. Descoped and shipped alone (operator 2026-08-26) after D2/D3/D4 failed 4 Tier-3 reviews with 3 CRITICALs.
+- **Next:** Ships v5.91.2 (batched w/ arbitrage + dp-verypoor). Organic: confirm banking rows now CLOSE (hvac_excursion_events shows ended rows with trigger lease_expiry/stale_boot_release, not just open).
+- **Tags:** descope, tier-2, wire-in-anchor
+- **Refs:** docs/planning/PLANNING_hvac_excursion_restore_unified.md (D1); docs/reviews/code-review/hvac_excursion_restore_unified.md; feature/hvac-excursion-d1-only @ 48b06eaa7
+- **Forensic keys (2):**
+  - `DESCOPE_2026_08_26`: Built clean on feature/hvac-excursion-d1-only off develop (NOT off the failed unified build). Reviewed SHIP (1 read-only pass); 2 in-cycle fix-ups (boot-vs-sweep ordering to kill a bounded boot double-emit; restore_ok :no_entity discrimi...
+  - `KNOWN_GAP`: With D3 parked, a pre_preset==manual token closes with restore_ok=None and the zone stays manual — the PRE-EXISTING hazard the unified cycle was chartered to solve. D1 does NOT introduce new manual-stranding (strict improvement on develo...
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**

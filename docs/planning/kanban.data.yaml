@@ -3631,6 +3631,37 @@ cards:
     ''instantaneous read is authoritative'' design) and only 4 are real failures (immediate=0 AND delayed=0,
     ~4%). Primary deliverable proven; the 4-failure tail carded separately. Disposed per soak-exit rule
     — soaked since 08-23, discriminator now evaluable and met.'
+- id: HVAC-EXCURSION-D1-BANKING-RELEASE-1
+  title: HVAC banking excursions start and never end (2 open / 0 ended) — add a periodic auto-release
+    sweep + stale-boot banking release so a borrowed thermostat always gets handed back
+  thread: hvac
+  status: review
+  created: '2026-08-26 03:20'
+  updated: '2026-08-26 03:20'
+  refinement_status: refined
+  approval: approved
+  tags: [descope, tier-2, wire-in-anchor]
+  problem_solution:
+  - 'Problem: when HVAC banks a thermostat (pre-cool / pre-heat borrow), the borrow could be left open
+    forever — measured 2 banking rows open with 0 ever ended. A stuck-open borrow means the zone keeps
+    holding a setpoint URA thinks it already handed back. Solution: a periodic auto-release sweep closes
+    any borrow past its lease, and a stale-boot pass closes banking rows left dangling across a restart.'
+  why: The sound, well-tested part (D1) of the parked HVAC-EXCURSION-RESTORE-UNIFIED-1 cycle. Descoped
+    and shipped alone (operator 2026-08-26) after D2/D3/D4 failed 4 Tier-3 reviews with 3 CRITICALs.
+  DESCOPE_2026_08_26: 'Built clean on feature/hvac-excursion-d1-only off develop (NOT off the failed
+    unified build). Reviewed SHIP (1 read-only pass); 2 in-cycle fix-ups (boot-vs-sweep ordering to kill
+    a bounded boot double-emit; restore_ok :no_entity discriminator). 151 excursion/offphase/banking
+    tests pass, 0 regressions, 5/5 sites RED-on-neuter incl. the C-8 wire-in anchor.'
+  KNOWN_GAP: 'With D3 parked, a pre_preset==manual token closes with restore_ok=None and the zone stays
+    manual — the PRE-EXISTING hazard the unified cycle was chartered to solve. D1 does NOT introduce new
+    manual-stranding (strict improvement on develop, which dropped the row with no ended-event at all).
+    The manual-recovery fix lives in the parked D2/D3/D4 rework.'
+  next: 'Ships v5.91.2 (batched w/ arbitrage + dp-verypoor). Organic: confirm banking rows now CLOSE
+    (hvac_excursion_events shows ended rows with trigger lease_expiry/stale_boot_release, not just open).'
+  refs:
+  - docs/planning/PLANNING_hvac_excursion_restore_unified.md (D1)
+  - docs/reviews/code-review/hvac_excursion_restore_unified.md
+  - feature/hvac-excursion-d1-only @ 48b06eaa7
 - id: HVAC-EXCURSION-RESTORE-UNIFIED-1
   title: Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2),
     manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
