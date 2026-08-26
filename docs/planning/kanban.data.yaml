@@ -11050,7 +11050,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.91.1
   created: 2026-08-24 18:10
-  updated: 2026-08-24 18:10
+  updated: 2026-08-26 01:45
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-08-24 (chat: "Good with the split" + "card... identifies what does not use
@@ -11192,14 +11192,24 @@ cards:
     problem: After local midnight in a cross-midnight off-peak window, the drain target forecasts a day
       too far.
     verdict: BUILD
-  next: 'Scope the plan: thread now into current_offpeak_drain_target(), swap to _classify_target_day
-    at the accessor + the two emitter drain legs, add a cross-midnight test (02:00 off-peak with next
-    peak at 14:00 today -> classifies TODAY not tomorrow). Tier 2-DB (shared strategy primitive).'
+  VALIDATED_2026_08_26: 'SHIPPED v5.91.1, live-validated post-restart at 01:39 CDT (a post-midnight,
+    class-disagreement read). target_day_source=solcast_today + target_day_class=excellent while
+    tomorrow_solar_class=good — anchors to TODAY, not calendar-tomorrow (the core fix, observed in the
+    dark cross-midnight window). INV-DTDS-3 convergence confirmed: current_offpeak_drain_target=15 reads
+    15 identically across current_park_floor / current_commanded_reserve / effective_release_floor /
+    threshold_position / next_action_estimate (no naive-vs-composed divergence). 15 = multi-day max
+    (today excellent->10 lifted by d1/d2 good->15). Zero URA errors post-restart. See README_v5.91.1.md
+    validation table. ORGANIC WATCH REMAINING: the strict reason-string parity discriminator needs a
+    night where arbitrage_phase in {n/a,wait} AND hold_depth==allow_discharge (tonight was attain).'
+  next: 'Organic close-out: on the next cross-midnight class-disagreement night with arbitrage_phase in
+    {n/a,wait} + hold_depth==allow_discharge, confirm reason names TODAY class and current_offpeak_drain_target
+    matches; then card -> done. Core fix already live-proven 2026-08-26.'
   refs:
   - energy_battery.py:1738
   - energy_battery.py:2395
   - energy_battery.py:5111
   - docs/planning/PLANNING_dp_drain_target_mis_sourcing.md
+  - docs/readmes/README_v5.91.1.md
 - id: ARBITRAGE-GATE-D2-OFFBYONE-1
   title: Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so
     at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing
