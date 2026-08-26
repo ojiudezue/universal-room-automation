@@ -9916,7 +9916,7 @@ cards:
     way in — grep the identifier, do not seek the line number. Re-verify every file:line in this card
     before relying on it.'
   created: 2026-08-20 14:40
-  updated: 2026-08-25 22:05
+  updated: 2026-08-25 22:30
   refinement_status: reframed_architectural_root
   approval: unreviewed
   tags:
@@ -10005,17 +10005,17 @@ cards:
     It is the mirror image of HVAC-PRESET-FLAP-1: the flap is TOO MANY preset writes on zone_3, this is
     preset writes NOT HAPPENING on zone_1 because manual blocks them. Read the two together; they are
     plausibly two faces of one precedence defect.'
-  sibling_of: HVAC-PRESET-FLAP-1
+  sibling_of:
+  - BORROW-BANKING-LEASE-NOT-RELEASED-1
+  - S14-CEILING-NEEDS-AN-ENDING-1
   parsimony:
     problem: URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit
       operator design contract
     verdict: BUILD
     note: gate on the audit — if every excursion already restores, this reduces to a guard + a test rather
       than a redesign
-  next: 'Audit in flight (2026-08-20): enumerate every set_temperature site, whether it is sanctioned
-    (solar banking / pre-cool) and whether it has a restore-to-preset path; confirm or refute the should_change_preset
-    self-lockout; attribute the zone_1 stranding; verify the heat_cool invariant the operator believes
-    has held. THEN scope. Do not build before the audit returns.'
+  next: 'Scope as one excursion-restore cycle with BORROW + S14: restore-path for every raw-setpoint excursion
+    + fix/guard the should_change_preset manual self-lockout. Buildable; audit done 2026-08-25.'
   refs:
   - hvac_preset.py:212-217
   - hvac_override.py:186-195, 3070-3097
@@ -10032,6 +10032,15 @@ cards:
     zone_1 manual 10.5h). VERDICT: holds up as a real problem with a confirmed self-lockout, but per the
     card''s own gate it is NOT drop-in-buildable — the full set_temperature-site restore-path table must
     complete first to decide guard+test vs redesign.'
+  disposition_2026_08_25: 'CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset
+    self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion
+    — provably does NOT restore (BORROW finding: 0 ended events, 2 stuck-open). So NOT every sanctioned
+    excursion restores -> this is NOT just guard+test, it needs real restore paths. ADJACENT to BORROW-BANKING
+    (banking release) and S14 (borrow-kind ending): all three are the same family — ''every raw-setpoint
+    excursion needs a bounded ending that restores the preset, and the preset manager must recover a manual
+    zone no owner holds''. Recommend scoping them as ONE excursion-restore cycle, not three. Remaining
+    detail (not gating): the full per-site table (pre-cool, S10, S14) — enumerate during the build''s
+    institutional-context.'
 - id: HVAC-ANOMALY-BLIND-1
   title: The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the
     one that would have caught the zone-3 flap

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T22:12:16-05:00_ - _Data commit: `d4ea251547ff`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-25T22:14:25-05:00_ - _Data commit: `9338f97591a0`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -630,15 +630,16 @@ _created 2026-08-21 10:20 · updated 2026-08-25 22:20 · initial_
 
 ### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return?
 thread: **hvac** - status: **planned** - approval: **unreviewed**
-_created 2026-08-20 14:40 · updated 2026-08-25 22:05 · reframed_architectural_root_
+_created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_root_
 - **Problem / Solution:**
   - Problem: the thermostats are supposed to be driven by named presets that each carry a fixed temperature range, so the house always returns to known settings. Instead one zone spent over ten hours sitting on a hand-set temperature pair, s...
 - **Why:** OPERATOR SPEC (verbatim 2026-08-20): "The design spec was to not use manual but to use our presets as control. That way it always returns to same ranges. In addition we always want to use heat_cool. Have seen that part hold so far. Manua...
-- **Next:** Audit in flight (2026-08-20): enumerate every set_temperature site, whether it is sanctioned (solar banking / pre-cool) and whether it has a restore-to-preset path; confirm or refute the should_change_preset self-lockout; attribute the z...
+- **Next:** Scope as one excursion-restore cycle with BORROW + S14: restore-path for every raw-setpoint excursion + fix/guard the should_change_preset manual self-lockout. Buildable; audit done 2026-08-25.
 - **Tags:** no-fabrication-verify, institutional-context, tier-2db
+- **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (25):**
+- **Forensic keys (26):**
   - `DEDUPE_2026_08_23`: RULING: DUPLICATE — a card `PRESET-RESTORE-DOES-NOT-TAKE-1` was created on 2026-08-23 and has been DELETED; its content is folded into this card as the INSTANCE block below plus SCOPE_ONE_OR_MANY / CARRIER_MECHANISM_HYPOTHESIS / CANARY_B...
   - `INSTANCE_2026_08_23_do_the_excursions_return`: THIS CARD ASKS "do the sanctioned excursions return?" IN ITS OWN TITLE. MEASURED ANSWER: NO. Sampled the live climate entities at T+1/2/5/10/20/30 min after every nudge_restored, 47 paired nudges, from the recorder: intent == "manual" (r...
   - `SCOPE_ONE_OR_MANY_2026_08_23`: OPERATOR ASKED: "Is the restore via a borrow or its own mechanism? Just want to understand if we fix one thing or many." ANSWER: MANY. The borrow/excursion primitive is BOOKKEEPING ONLY. hvac_excursion.py:710 says it verbatim: "each site...
@@ -664,6 +665,7 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:05 · reframed_architectural_
   - `SUPERSEDED_SUSPECTED_SELF_LOCKOUT`: Candidate mechanism worth confirming: a URA set_temperature flips Bryant/Carrier to preset manual as a SIDE EFFECT (hvac_override.py:186-195, :3070-3097). Separately hvac_preset.should_change_preset (~:212-217) deliberately SKIPS acting ...
   - `RELATIONSHIP_TO_SIBLINGS`: This is very likely the ROOT of HVAC-PRESET-RESTORE-MISS-1 (zone_1 stranded through the 06:01 home_day boundary) — that card may collapse into this one once the audit lands. It is the mirror image of HVAC-PRESET-FLAP-1: the flap is TOO M...
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
+  - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
 ### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
 thread: **energy** - status: **planned** - approval: **unreviewed**
