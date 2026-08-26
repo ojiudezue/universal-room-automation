@@ -11189,8 +11189,8 @@ cards:
   thread: energy
   status: planned
   created: 2026-08-25 21:30
-  updated: 2026-08-25 21:30
-  refinement_status: initial
+  updated: 2026-08-25 21:35
+  refinement_status: refined
   approval: implied
   tags:
   - no-fabrication-verify
@@ -11210,8 +11210,15 @@ cards:
     gist: 'operator: ''fix some sensor bugs'' — spotted next_action_estimate=10 vs real 15 during DP validation'
   why: A display that disagrees with the decision misleads diagnosis (operator caught it live). Same class
     as the DP mis-sourcing.
-  next: grep next_action_estimate producer in energy_battery.py; point it at the composed target; add
-    a discriminating test (D+1!=D+2 classes).
+  next: 'Fold into the midnight drain-target-day-staleness cycle (same surface): one-line fix at :5759
+    + discriminating test (D+1!=D+2). Do NOT standalone-deploy tonight (avoids a redundant restart mid-DP-drain).'
+  forensic_fix: 'energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class,
+    ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max
+    the decision + the current_offpeak_drain_target attribute already use). Display-only, no decision-path
+    change. Discriminating test: D+1=excellent(10) / D+2=good(15) with multi_day_horizon enabled and soc>15
+    -> estimate must say ''drain to 15%'', not 10.'
+  depends_on:
+  - DRAIN-TARGET-DAY-STALENESS-1
 - id: DP-BATTERY-AUTHORITATIVE-TELEMETRY-1
   title: DP/battery decisions are only legible via human-readable display strings that can lie — expose
     authoritative floor + latch state as first-class telemetry

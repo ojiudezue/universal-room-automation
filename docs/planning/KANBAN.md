@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T21:06:23-05:00_ - _Data commit: `117ee8bdba69`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-25T21:29:42-05:00_ - _Data commit: `95705fe91843`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -715,14 +715,17 @@ _created 2026-08-24 19:20 · initial_
 
 ### `NEXT-ACTION-ESTIMATE-NAIVE-TARGET-1` - Battery strategy next_action_estimate reports naive single-day drain target (10) while the real composed floor is 15
 thread: **energy** - status: **planned** - approval: **implied**
-_created 2026-08-25 21:30 · initial_
+_created 2026-08-25 21:30 · updated 2026-08-25 21:35 · refined_
 - **Problem / Solution:**
   - Problem: the battery strategy sensor's next_action_estimate says 'drain to 10.0% (tomorrow=excellent)' while the actual drain floor in use is 15% (the multi-day-composed target). It shows the single-day class target (excellent->10) inste...
   - Solution: make next_action_estimate read the same composed drain target the decision uses (current_offpeak_drain_target / the value-stamp), not the naive per-day class lookup. Discriminator: on a day where D+1 and D+2 classes differ, the...
 - **Origin:** 2026-08-25 - operator: 'fix some sensor bugs' — spotted next_action_estimate=10 vs real 15 during DP validation
 - **Why:** A display that disagrees with the decision misleads diagnosis (operator caught it live). Same class as the DP mis-sourcing.
-- **Next:** grep next_action_estimate producer in energy_battery.py; point it at the composed target; add a discriminating test (D+1!=D+2 classes).
+- **Next:** Fold into the midnight drain-target-day-staleness cycle (same surface): one-line fix at :5759 + discriminating test (D+1!=D+2). Do NOT standalone-deploy tonight (avoids a redundant restart mid-DP-drain).
 - **Tags:** no-fabrication-verify, producer-consumer
+- **Depends on:** DRAIN-TARGET-DAY-STALENESS-1
+- **Forensic keys (1):**
+  - `forensic_fix`: energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class, ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max the decision + the c...
 
 ## 🔨 In progress (0)
 _being built_
