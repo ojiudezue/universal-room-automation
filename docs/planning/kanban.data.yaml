@@ -11314,6 +11314,54 @@ cards:
   - energy_battery.py:5111
   - docs/planning/PLANNING_dp_drain_target_mis_sourcing.md
   - docs/readmes/README_v5.91.1.md
+- id: ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1
+  title: When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's
+    class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that
+    contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically
+  thread: energy
+  status: inbox
+  created: '2026-08-26 03:10'
+  updated: '2026-08-26 03:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify, producer-consumer]
+  problem_solution:
+  - 'Problem: at ~00:05 rollover with the today Solcast entity unavailable and no cached class,
+    _resolve_target_day returns (classify_tomorrow_solar(), offset 0) — so the target class IS tomorrow''s,
+    and the multi-day leg then reads classify_solar_day_n(1)=tomorrow AGAIN. The broadening check becomes
+    a duplicate of the primary and silently adds nothing (pre-fix it consulted day_3). A sunny-today/poor-day_3
+    edge could gate differently than intended. Solution: when the resolver falls back to tomorrow at
+    offset 0, either broaden against day_3 explicitly or record that the broadening leg is degenerate.'
+  why: Found by arbitrage review B (B6). Shared with the DRAIN path (energy_battery.py:1765/:5463) which
+    has the IDENTICAL degeneracy — fixing the gate alone would reintroduce drain/gate divergence, so fix
+    BOTH together or neither.
+  next: Reproduce the ~00:05 today-unknown case (probe the resolver); decide broaden-vs-record; fix drain
+    + gate together. Tier 2-DB (shared resolver, both decision paths).
+  refs:
+  - energy_battery.py:2536-2538 (_resolve_target_day today-unknown fallback)
+  - energy_battery.py:1765 (drain), :3017 (gate)
+- id: ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1
+  title: The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 —
+    at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
+  thread: energy
+  status: inbox
+  created: '2026-08-26 03:10'
+  updated: '2026-08-26 03:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1,
+    so at offset 0 the value is TOMORROW''s class, not calendar day-after-tomorrow. No in-repo consumer
+    reads it (display-only), but it is operator-facing diagnosis surface on
+    sensor.ura_energy_coordinator_battery_strategy and could mislead a future trace. Solution: add a
+    sibling d2_offset attribute (or a README/manual note) so the second-day class is self-describing.'
+  why: Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's
+    authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
+  next: Add d2_offset attr to get_status alongside d2_class, or document the semantics in the EC manual.
+    Tier 1 (additive display attr).
+  refs:
+  - energy_battery.py:6119 (get_status d2_class)
 - id: ARBITRAGE-GATE-D2-OFFBYONE-1
   title: Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so
     at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T02:21:37-05:00_ - _Data commit: `4903968f49ea`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T09:39:34-05:00_ - _Data commit: `79d6d5d3d2e9`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-26T02:21:37-05:00_ - _Data commit: `4903968f49ea`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 26 |
+| 📥 Inbox | 28 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
@@ -23,7 +23,7 @@ _Generated: 2026-08-26T02:21:37-05:00_ - _Data commit: `4903968f49ea`_ - _last_r
 | 🅿️ Parked | 17 |
 | ✅ Done | 47 |
 
-## 📥 Inbox (26)
+## 📥 Inbox (28)
 _raw capture_
 
 ### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
@@ -290,6 +290,26 @@ _created 2026-08-20 14:15 · initial_
 - **Forensic keys (2):**
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
+
+### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-26 03:10 · initial_
+- **Problem / Solution:**
+  - Problem: at ~00:05 rollover with the today Solcast entity unavailable and no cached class, _resolve_target_day returns (classify_tomorrow_solar(), offset 0) — so the target class IS tomorrow's, and the multi-day leg then reads classify_s...
+- **Why:** Found by arbitrage review B (B6). Shared with the DRAIN path (energy_battery.py:1765/:5463) which has the IDENTICAL degeneracy — fixing the gate alone would reintroduce drain/gate divergence, so fix BOTH together or neither.
+- **Next:** Reproduce the ~00:05 today-unknown case (probe the resolver); decide broaden-vs-record; fix drain + gate together. Tier 2-DB (shared resolver, both decision paths).
+- **Tags:** no-fabrication-verify, producer-consumer
+- **Refs:** energy_battery.py:2536-2538 (_resolve_target_day today-unknown fallback); energy_battery.py:1765 (drain), :3017 (gate)
+
+### `ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1` - The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-26 03:10 · initial_
+- **Problem / Solution:**
+  - Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1, so at offset 0 the value is TOMORROW's class, not calendar day-after-tomorrow. No in-repo consumer reads it (display-only), but it is ope...
+- **Why:** Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
+- **Next:** Add d2_offset attr to get_status alongside d2_class, or document the semantics in the EC manual. Tier 1 (additive display attr).
+- **Tags:** no-fabrication-verify
+- **Refs:** energy_battery.py:6119 (get_status d2_class)
 
 ## 🔬 Investigating (6)
 _measuring; truth not yet known_
