@@ -820,15 +820,17 @@ def test_cf11_parked_w_includes_phases_factor():
 
     Neuter site: `* SOLAR_FOLLOW_PHASES` in parked_w line.
     """
-    from custom_components.universal_room_automation.domain_coordinators import (
-        energy_pool as ep,
-    )
+    import sys
+    h = _Harness(active=("garage_a", "garage_b"), grid_w=-1000.0,
+                 a_charging=True, b_charging=False,
+                 a_current=48, b_current=48, a_power=5000, b_power=0)
+    # Bind the patch to the SAME module instance the controller reads, not a
+    # freshly-imported alias — robust to sys.modules pollution (SUITE-HYGIENE-1),
+    # which otherwise patches a different copy and the tick reads PHASES=1.
+    ep = sys.modules[type(h.sf).__module__]
     orig_phases = ep.SOLAR_FOLLOW_PHASES
     try:
         ep.SOLAR_FOLLOW_PHASES = 2
-        h = _Harness(active=("garage_a", "garage_b"), grid_w=-1000.0,
-                     a_charging=True, b_charging=False,
-                     a_current=48, b_current=48, a_power=5000, b_power=0)
         h.sf._original_amps["garage_a"] = 48.0
         _run(h.sf._tick())
         assert h.written("garage_a")[-1] == SOLAR_FOLLOW_MIN_AMPS, h.written("garage_a")
