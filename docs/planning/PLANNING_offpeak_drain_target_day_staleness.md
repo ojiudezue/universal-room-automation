@@ -9,6 +9,17 @@
 
 ---
 
+## Drift re-verification (2026-08-25, orchestrator, by hand — post-DP 5.90.1 + solar-follow 5.91.0)
+
+Plans drift with code; both shipped into `energy_battery.py`/`energy.py` after this plan was written (08-24). Re-verified against current develop:
+
+- **Line numbers drifted ~+27** in the drain branch and helpers. CURRENT: drain-class derivation `5316-5330`; A-CRIT-1 partial_hold clamp `5340-5341`; `current_offpeak_drain_target` `1735`; `_get_offpeak_drain_target` `1731`; `classify_tomorrow_solar` `1699`; `classify_solar_day_n` `1811`; `_threshold_position` `5696`; `_next_action_estimate` `5727`. D3/H-1 must use THESE, not the stale 08-24 citations.
+- **LOAD-BEARING NEW SITE the plan was blind to — the DP value-stamp at `5349`:** `self._offpeak_drain_branch_target = int(drain_target)` sits INSIDE D3's branch, AFTER the derivation (5330) and the partial_hold clamp (5340). It is how 5.90.1's DP fix consumes THIS tick's composed target. **D3 must replace ONLY the derivation (5316-5330) with `drain_target = self._drain_target_for(now)` and PRESERVE both the partial_hold clamp (5340) and the value-stamp (5349) below it.** After D3, the stamp carries the *peak-anchored* composed target to DP — the fix flowing downstream — so this is desired, but it means D3 is a Bug-Class-#53 site with a NON-obvious consumer (the DP tick) that the plan's original site enumeration missed.
+- **Cross-cycle behavior change (must be stated):** because the stamp feeds DP, D3 silently changes DP's drain FLOOR from calendar-tomorrow to peak-anchored. The DP card (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is `shipped_organic` with an outstanding 2-tick-no-flap watch; this cycle re-touches the value DP drains toward, so DP's organic re-validation is implicated — the post-deploy live check MUST re-confirm the DP floor (via `command_trail`/`cloud_oracle`) equals the peak-anchored `_drain_target_for(now)`, not just that the accessor/narration agree.
+- Arbitrage-OFF gating confirmed unchanged (comment at 5320: "when arbitrage is ON we never reach this branch"): D3 only affects the arbitrage-OFF drain path — matches the plan's `arbitrage_phase ∈ {n/a, WAIT}` acceptance framing.
+
+**Design verdict: still sound; the fix needs the stamp-preservation sub-item + a DP-integration test added to D3 (below). Approved to build after the additive-D6/D7 plan-review, with these edits folded in.**
+
 ## Design-intent authority
 
 `docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md` §2.2 is the governing authority: the daily solar class drives **the drain target** ("how low to allow battery to fall off-peak — if solar will refill tomorrow, drain deeper; if not, protect reserve") and §2.2 also spells out that **the reserve is a discharge FLOOR, not a charge ceiling** (operator-validated 2026-07-16). NOTE (M-1): §2.1 currently PARAPHRASES the drain target as set by "tomorrow's solar forecast" (`ENERGY_COORDINATOR_MANUAL.md:43-44`), which CONTRADICTS the peak-anchored (target-day) model the code is being aligned to. The AUTHORITY for this cycle is §2.2's substantive definition, not §2.1's stale paraphrase. §2.1:43-44 and §2.2:61-62 are updated as part of D5 (see below). Two consequences the plan takes as governing:
@@ -207,6 +218,10 @@ Collapsing the two open-coded max copies into the shared helper IS the actual Bu
 - Inside each helper: `drain = self._drain_target_for(now)` — SINGLE call to the shared helper. Do NOT open-code a second `self._drain_targets.get(...)` lookup and do NOT open-code a second max(). If a display string cites a class name, compute it locally via `self._resolve_target_day(now)[0]`.
 - The hardcoded `40` fallback is naturally killed — `_drain_target_for` routes through `_get_offpeak_drain_target` which already uses `DEFAULT_OFFPEAK_DRAIN_UNKNOWN`. If any surviving direct `_drain_targets.get()` lookup remains (it should not, per H-1), it MUST use `DEFAULT_OFFPEAK_DRAIN_UNKNOWN` (`energy_const.py:724`) — not a bare literal.
 - Narration strings inside the helpers currently interpolate `tomorrow={tomorrow_class}`; rename to `target={d1_class}` (or similar) to match the corrected semantics; call out as an operator-facing string change in plan review.
+
+**HIGH-2 (drift, 2026-08-25) — preserve the DP value-stamp; test the DP downstream.** D3 replaces the derivation at `5316-5330` with `drain_target = self._drain_target_for(now)`. It MUST NOT touch the partial_hold clamp (`5340`) or the value-stamp (`5349`) that follow — the stamp reads the local `drain_target` and is how DP (5.90.1) consumes this tick's floor. After D3, the stamp must carry the peak-anchored composed value.
+- **Framing-C mutation site (7th):** re-point the derivation to the OLD calendar-tomorrow lookup (`drain_target = self._get_offpeak_drain_target(self.classify_tomorrow_solar())`) while leaving the stamp intact → a DP-integration test MUST fail, proving the stamp (and thus the DP floor) now routes through `_drain_target_for(now)`.
+- **Test:** `test_dp_value_stamp_carries_peak_anchored_target()` — at stubbed `now` at offset 0 with today/tomorrow class disagreement, assert `_offpeak_drain_branch_target` after `determine_mode` equals `_drain_target_for(now)` (peak-anchored), NOT `_get_offpeak_drain_target(classify_tomorrow_solar())`.
 
 **Acceptance criteria (D3):**
 
