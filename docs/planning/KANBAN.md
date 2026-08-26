@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T22:00:33-05:00_ - _Data commit: `9c2f93b1f203`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-25T22:12:16-05:00_ - _Data commit: `d4ea251547ff`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -530,15 +530,16 @@ _has plan / acceptance_
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
 thread: **hvac** - status: **planned** - approval: **needs_operator**
-_updated 2026-08-22 20:50_
+_updated 2026-08-25 22:25 · refined_
 - **Origin:** 2026-08-22 - Operator asked the direct question "So are borrows working or not?" during the AC-ramp pipeline-hardening cycle. Checking the borrow ledger (NOT the stale climate entity) answered yes for nudge and surfaced this as a live ex...
-- **Next:** Read the persisted lease/excursion rows directly; establish whether kind=banking has any auto-release path; then distinguish (a) from (b) before scoping a fix.
+- **Next:** Scope: add a lease-expiry auto-release for kind=banking (writes an ended_ts + restores preset), mirroring nudge. Verify no existing banking-release call in hvac code first. Buildable; investigation done 2026-08-25.
 - **Tags:** operator-observed, live-instance
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `measured`: From sensor.ura_hvac_coordinator_governed_thermostat_borrows state history, read at 2026-08-22 20:46 CDT. NUDGE BORROWS — HEALTHY, two independent oracles agreeing: 02:08 state 1 active_borrows[nudge zone_1] -> 02:10 state 0 started{nudg...
   - `finding`: TWO CANDIDATE MECHANISMS, NOT YET DISTINGUISHED — they need different fixes, so do not scope until one is ruled out: (a) LEDGER-ONLY LEAK. The thermostat was actually restored but return_excursion failed to clear the record, so the senso...
   - `WEAK_EVIDENCE_WARNING`: restore_failed_today is NOT a reliable all-day signal. The daily counters were observed resetting mid-day: started_today went {nudge:2} at 03:04 -> {} at 13:27, which looks like they do not survive a restart. So an empty restore_failed_t...
   - `NOT_THE_PRESET_QUESTION`: Distinct from the preset-landing question, which is UNRESOLVED for a different reason: ha_carrier does not write HA state after a preset service call (climate.py:381 has no async_write_ha_state / async_request_refresh; DEFAULT_UPDATE_INT...
+  - `investigation_2026_08_25`: RESOLVED to failure-mode (a): kind=banking has NO working release/end path. Live DB: hvac_excursion_state holds 2 OPEN banking rows; hvac_excursion_events (the ENDED table) has 0 banking rows (only 7 'compromise'). Banking excursions sta...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**

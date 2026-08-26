@@ -2904,7 +2904,7 @@ cards:
   thread: hvac
   status: planned
   approval: needs_operator
-  updated: 2026-08-22 20:50
+  updated: 2026-08-25 22:25
   tags:
   - operator-observed
   - live-instance
@@ -2938,8 +2938,9 @@ cards:
     a hypothesis from reading the call sites, not a measurement. NOTE on preset snapshot: pre_preset was
     away and the zone now reads home. That is NOT evidence of a restore failure — the house state can
     legitimately have moved away->home in four hours. Do not score it either way.'
-  next: Read the persisted lease/excursion rows directly; establish whether kind=banking has any auto-release
-    path; then distinguish (a) from (b) before scoping a fix.
+  next: 'Scope: add a lease-expiry auto-release for kind=banking (writes an ended_ts + restores preset),
+    mirroring nudge. Verify no existing banking-release call in hvac code first. Buildable; investigation
+    done 2026-08-25.'
   WEAK_EVIDENCE_WARNING: 'restore_failed_today is NOT a reliable all-day signal. The daily counters were
     observed resetting mid-day: started_today went {nudge:2} at 03:04 -> {} at 13:27, which looks like
     they do not survive a restart. So an empty restore_failed_today only covers the period since the last
@@ -2951,6 +2952,14 @@ cards:
     through the HA state object at any delay under the poll interval. See CARRIER-STALE-POLL-REFRESH-1.
     Every preset-restore FAIL verdict recorded before the pipeline-hardening cycle is inadmissible and
     must not be cited as evidence against the borrow.'
+  refinement_status: refined
+  investigation_2026_08_25: 'RESOLVED to failure-mode (a): kind=banking has NO working release/end path.
+    Live DB: hvac_excursion_state holds 2 OPEN banking rows; hvac_excursion_events (the ENDED table) has
+    0 banking rows (only 7 ''compromise''). Banking excursions start and never end. Nudge restores via
+    a DIFFERENT table (ac_ramp_events, 74 restore_ok) — which is why ''nudge returns cleanly, banking
+    did not''. Investigation the card gated on is COMPLETE; ready to scope a fix: give banking a lease-expiry/auto-release
+    path (mirror nudge''s restore + the borrow-kind ending S14 will also want). Confirm the code has no
+    banking release call before building.'
 - id: AC-RAMP-NO-RECURRENCE-ESCALATION-1
   RESET_MECHANISM_EVIDENCE_2026_08_22_PM: 'ORCHESTRATOR ERROR CORRECTED FIRST, because it was argued to
     the operator and must not be inherited: I argued escalation was pointless on the grounds that a hard
