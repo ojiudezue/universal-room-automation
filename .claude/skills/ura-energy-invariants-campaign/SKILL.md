@@ -1,6 +1,6 @@
 ---
 name: ura-energy-invariants-campaign
-description: Decision-gated runbook for URA energy-strategy correctness — proving and defending the battery reserve / TOU / arbitrage / inclement-hold / attain invariant surface so no reachable code path silently loses money. USE THIS SKILL when touching energy_battery.py, energy_tou.py, energy_pool.py, inclement.py, arbitrage phase machinery, the InclementDecision, partial_hold / full_hold / allow_discharge policy, ARBITRAGE_PHASE_WAIT/CHARGE/HOLD/ATTAIN, `_floor_reserve`, `_result`, `determine_mode`, reserve_level emissions, peak_buffer_target, or the `sensor.ura_battery_strategy` attribute surface; when investigating why the battery discharged in a hold, charged when it shouldn't have, or refused to charge at off-peak; when the operator says "this is delicate" about energy; or when planning any change that threads a value through multiple emission sites (Bug Class #53 — computed-but-not-consumed). Do NOT use for HVAC, presence, notifications, or for HA-lifecycle bugs — see sibling skills.
+description: Decision-gated runbook for URA energy-strategy correctness — proving and defending the battery reserve / TOU / arbitrage / inclement-hold / attain invariant surface so no reachable code path silently loses money. USE THIS SKILL when touching energy_battery.py, energy_tou.py, energy_pool.py, inclement.py, arbitrage phase machinery, the InclementDecision, partial_hold / full_hold / allow_discharge policy, ARBITRAGE_PHASE_WAIT/CHARGE/HOLD/ATTAIN, `_floor_reserve`, `_result`, `determine_mode`, reserve_level emissions, peak_buffer_target, or the `sensor.ura_energy_coordinator_battery_strategy` attribute surface; when investigating why the battery discharged in a hold, charged when it shouldn't have, or refused to charge at off-peak; when the operator says "this is delicate" about energy; or when planning any change that threads a value through multiple emission sites (Bug Class #53 — computed-but-not-consumed). Do NOT use for HVAC, presence, notifications, or for HA-lifecycle bugs — see sibling skills.
 ---
 
 # URA Energy Invariants Campaign
@@ -38,14 +38,14 @@ Cite these when planning; re-verify with the commands in "Provenance and mainten
 | `_result` — the ONLY correct way to emit a decision | `energy_battery.py:_result` L3154 |
 | `get_status` — attribute surface for the sensor | `energy_battery.py:get_status` L3332 |
 | TOU period resolver (day-boundary safe) | `energy_tou.py` (399 LoC), see the `get_current_period` chain |
-| Sensor entity + unique_id | `sensor.py:6766-6800` — `EnergyBatteryStrategySensor`, unique_id `f"{DOMAIN}_battery_strategy"` → `sensor.ura_battery_strategy` |
+| Sensor entity + unique_id | `sensor.py:8392-8407` — `EnergyBatteryStrategySensor`, unique_id `f"{DOMAIN}_battery_strategy"`; `_attr_has_entity_name=True` + device "URA: Energy Coordinator" → live entity `sensor.ura_energy_coordinator_battery_strategy` (the device name is prepended; the unique_id is NOT the entity_id) |
 | Bug Class #53 (computed-but-not-consumed) | `docs/QUALITY_CONTEXT.md` L2168 |
 | Bug Class #51 (day-boundary-blind TOU) | `docs/QUALITY_CONTEXT.md` L2045 |
 | Prior planning: WAIT/floor closure | `docs/planning/PLANNING_arbitrage_wait_inclement_floor.md` |
 | Prior planning: attain ladder | `docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md` |
 | Latest ship (Tier 3, 4-review) | `docs/reviews/code-review/v5.5.3_arbwait_review{A,B,C,D}_*.md` + `v5.5.3_arbwait_summary.md` |
 
-**Correction vs prior memos:** the sensor entity id is `sensor.ura_battery_strategy` (not `sensor.ura_energy_coordinator_battery_strategy`). Verify with `grep -n "battery_strategy" custom_components/universal_room_automation/sensor.py`. Older memos have the wrong name.
+**Correction (verified live 2026-08-25):** the sensor entity id is `sensor.ura_energy_coordinator_battery_strategy` — NOT `sensor.ura_battery_strategy`. A prior version of THIS skill asserted the reverse and was wrong. Root cause: `EnergyBatteryStrategySensor` sets `_attr_has_entity_name=True` with device "URA: Energy Coordinator", so HA composes `sensor.ura_energy_coordinator_battery_strategy`; the `unique_id` (`universal_room_automation_battery_strategy`) is not the entity_id. `sensor.ura_battery_strategy` returns NOT_FOUND on the live instance. The sensor.py docstring at :8395 ("Entity: sensor.ura_battery_strategy") is ALSO stale. Verify: `ha_get_state sensor.ura_energy_coordinator_battery_strategy`.
 
 **Correction vs prior backlog memos:** the "arbitrage-WAIT bypasses partial_hold floor" gap was **shipped-closed in v5.5.3** (see L1618 threading `_floor_reserve` into the WAIT emission). If a new session cites the gap as "open", verify against current source before acting. See Phase 2 for the current state and the *next* structurally-similar gap to watch for.
 
@@ -193,16 +193,16 @@ ls -la /Users/ojiudezue/ha-config/.HA_VERSION 2>&1 | head -3
 Live probes via MCP `home-assistant`:
 
 ```
-ha_get_state entity_id=sensor.ura_battery_strategy
-ha_get_history entity_id=sensor.ura_battery_strategy hours=1
+ha_get_state entity_id=sensor.ura_energy_coordinator_battery_strategy
+ha_get_history entity_id=sensor.ura_energy_coordinator_battery_strategy hours=1
 ha_get_logs level=WARNING lines=200
 ```
 
-**Fallback if MCP is down:** SSH to `homeassistant.local` (or `192.168.13.13`) → `ha state get sensor.ura_battery_strategy` (or read `.storage/core.restore_state` filtered by unique_id `universal_room_automation_battery_strategy`).
+**Fallback if MCP is down:** SSH to `homeassistant.local` (or `192.168.13.13`) → `ha state get sensor.ura_energy_coordinator_battery_strategy` (or read `.storage/core.restore_state` filtered by unique_id `universal_room_automation_battery_strategy`).
 
 ### 5.2 Decision tree
 
-| Observation on `sensor.ura_battery_strategy` | Meaning | Action |
+| Observation on `sensor.ura_energy_coordinator_battery_strategy` | Meaning | Action |
 |---|---|---|
 | `state` in {`self_consumption`, `backup`}; attrs include `arbitrage_phase`, `peak_buffer_target`, `target_day_class` | Coordinator online, emits well-formed status. | Continue to 5.3. |
 | `state == "unknown"` for >2 ticks post-restart (ticks ≈60s) | `coordinator_manager` didn't publish `energy` yet OR `energy.battery_status` returned no mode. | Read logs; expect a URA WARNING within 5 min. If none → check `manager.py` setup order (Envoy boot incident pattern). |
@@ -270,7 +270,7 @@ These are prior artifacts you WILL encounter while reading. Do not "clean them u
 | Legacy Storm Guard | superseded by inclement fusion (v5.5.0) | Do not re-introduce Storm Guard code paths. |
 | `arbitrage_soc_target` param name | `energy_battery.py:158, 214` — kept for migration ergonomics; canonical is `peak_buffer_target` | Do not rename in an invariants cycle. |
 | Drain-target fallback | `energy_battery.py` around L2497, L3131 — "when arbitrage disabled" | Do not delete; verify it's unreachable under partial_hold. |
-| Direct sensor-name assumption `ura_energy_coordinator_battery_strategy` | Older memos | The actual entity is `sensor.ura_battery_strategy`. Do not "fix" the entity — fix the memos. |
+| Direct sensor-name assumption `sensor.ura_battery_strategy` | An older version of this skill + the sensor.py:8395 docstring | The actual live entity is `sensor.ura_energy_coordinator_battery_strategy` (has_entity_name prepends the device name). Do not "correct" it back to `ura_battery_strategy` — that returns NOT_FOUND. |
 | Aggregate monkeypatch tests | `quality/tests/test_energy_battery_*` (any test that patches `_floor_reserve`) | Do not treat as sufficient. They pass Phase 4 vacuously. Add per-site mutation tests. |
 
 ## Provenance and maintenance
@@ -280,7 +280,9 @@ Every claim above should be re-verified per session — energy files change ofte
 ```bash
 cd ~/Code/universal-room-automation
 
-# Sensor entity name (should be sensor.ura_battery_strategy).
+# Sensor: unique_id is `battery_strategy` but has_entity_name=True → live entity is
+# sensor.ura_energy_coordinator_battery_strategy (device name prepended). Confirm live:
+#   ha_get_state sensor.ura_energy_coordinator_battery_strategy
 grep -n "battery_strategy" custom_components/universal_room_automation/sensor.py | head -5
 
 # Line numbers of the reserve-floor clamp (drifts as file grows).
@@ -300,7 +302,8 @@ ls -t docs/reviews/code-review/ | grep -iE "arbitr|inclem|reserve|freeze|attain|
 ```
 
 Date-stamped facts to sanity-check when they drift:
-- **2026-07-02:** v5.7.2 shipped, arbitrage-WAIT floor closed in v5.5.3, `sensor.ura_battery_strategy` is the correct entity id.
+- **2026-08-25:** live entity id is `sensor.ura_energy_coordinator_battery_strategy` (has_entity_name=True composes device+name; unique_id `battery_strategy` is NOT the entity_id). A prior skill claim of `sensor.ura_battery_strategy` was wrong and is retracted.
+- **2026-07-02:** v5.7.2 shipped, arbitrage-WAIT floor closed in v5.5.3.
 - **2026-06-15:** inclement-weather hold (v5.5.0) LIVE but the NWS-alert wiring may still be dormant — verify at Phase 5.2 before believing a `partial_hold` observation.
 - **Bug Classes in play:** #51 (day-boundary TOU), #53 (computed-but-not-consumed). Confirm neither has been renumbered.
 
