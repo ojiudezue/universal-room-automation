@@ -290,7 +290,8 @@ cards:
   title: 'Charge current is binary (48A or off) so solar charging yo-yos the house battery: add
     excess-following current modulation on the two L2 EVSEs'
   thread: energy
-  status: 'planned'
+  status: shipped_organic
+  shipped_version: v5.91.0
   approval: explicit
   approved_by: 'operator 2026-08-23 (asked for the card + a simple plan + surgical insertion point)'
   created: '2026-08-23 16:10'

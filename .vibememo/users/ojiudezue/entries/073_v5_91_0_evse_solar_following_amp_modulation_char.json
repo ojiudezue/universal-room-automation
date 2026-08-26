@@ -1,0 +1,20 @@
+{
+  "format_version": "2.1",
+  "entry_id": "073",
+  "author": "ojiudezue",
+  "session_id": "claude_20260826_020623_ship_v5_91_0",
+  "timestamp": "2026-08-26T02:06:23Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.91.0 shipped: EVSE solar-following amp modulation \u2014 charge current tracks measured solar surplus instead of binary 48A/off",
+  "summary": "Excess-solar EV charging was binary 48A-or-off, so any dip in production made the car keep drawing 11.5kW and pull the shortfall straight out of the house battery, then recharge it when the sun returned \u2014 a continuous yo-yo that wastes battery cycles and, worse, offered NOTHING vs EVERYTHING with no reference to what the service can carry. This modulates the charge current to match measured export so total draw stays bounded by production. It replaces Emporia's native solar mode (which the operator turned off) with a version that also sees battery intent, tariff, DP and the peer hierarchy. Shipped after four framing-disjoint Tier-3 reviews that caught and fixed a peak-tariff import money leak, a convergent restore-write-ordering bug, and the boot-reconcile un-throttle backstop; orchestrator independently drilled the money-leak bound and the wire-in call site, and the full-suite name-diff is clean.",
+  "refs": {
+    "cards": [
+      "EVSE-SOLAR-FOLLOW-AMPS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.91.0.md"
+    ],
+    "release_notes": "SolarFollowController modulates the two L2 EVSE current limits [6,48] to follow measured solar export, eliminating the yo-yo where a cloud transient made the car pull 48A out of the house battery. Emporia mains primary / Envoy fallback with a last_reported freshness gate (INV-SF-10, GRID_FRESH_S=180); amps-only, scope-fenced from DP. Tier-3, four framing-disjoint reviews, 15 code fixes incl. a peak-tariff money leak, orchestrator-verified, 0 new test regressions."
+  }
+}
