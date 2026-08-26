@@ -2243,11 +2243,10 @@ class TestMultiDayArbitrageGate:
         # a 14:00-next-day peak means gate opens but has not yet
         # reached CHARGE — accept any opened-phase (mirrors
         # TestMultiDayMatrix's relaxation below).
-        assert result["arbitrage_phase"] in (
-            ARBITRAGE_PHASE_CHARGE,
-            ARBITRAGE_PHASE_HOLD,
-            ARBITRAGE_PHASE_WAIT,
-        )
+        # Reviewers B+C confirmed the phase is deterministic at 22:00
+        # (next peak ~16h out, well outside charge_lead_time_min) — tighten
+        # to WAIT rather than the 3-way relaxation.
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
 
     def test_d2_excellent_keeps_gate_closed(self):
         h = _BatteryHarness(

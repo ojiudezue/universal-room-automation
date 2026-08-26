@@ -297,3 +297,45 @@ def test_gate_is_open_offset1_byte_identical_evening():
         f"At offset==1, gate should query n=2 (target_offset+1). "
         f"Calls: {calls}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Site 3 anchor: get_status d2_class display attr at energy_battery.py:6119.
+# get_status resolves its OWN `dt_util.now()` (energy_battery.py:6096), so
+# we patch the module-level `now` on the mocked homeassistant.util.dt to
+# pin the offset-0 datetime rather than passing it in.
+# ---------------------------------------------------------------------------
+
+
+def test_get_status_d2_class_offset0_tracks_tomorrow_not_day3():
+    """INV: get_status()['d2_class'] at offset==0 reflects tomorrow (n=1),
+    not day_3 (n=2). Fixture mirrors the offset-0 gate test's discriminator:
+    today=moderate, tomorrow=excellent, day_3=poor.
+
+    Mutation drill: reverting `classify_solar_day_n(_target_day_offset + 1)`
+    at energy_battery.py:~6119 back to `classify_solar_day_n(2)` turns this
+    test RED (d2_class becomes "poor").
+    """
+    import homeassistant.util.dt as _dt_mod
+
+    pinned = datetime(2026, 6, 11, 2, 0, 0)
+    strat, _ = _make_battery(
+        today_kwh=60, tomorrow_kwh=110, day3_kwh=20,
+        tou_next_dt=datetime(2026, 6, 11, 14, 0, 0),
+    )
+
+    # Sanity — resolver returns offset==0 at this pinned wall-clock.
+    _, offset = strat._resolve_target_day(pinned)
+    assert offset == 0
+
+    orig_now = getattr(_dt_mod, "now", None)
+    _dt_mod.now = lambda: pinned  # type: ignore[assignment]
+    try:
+        status = strat.get_status()
+    finally:
+        _dt_mod.now = orig_now  # type: ignore[assignment]
+
+    assert status["forecast_outlook"]["d2_class"] == "excellent", (
+        f"get_status d2_class must reflect tomorrow (n=target_offset+1==1) "
+        f"at offset==0, not day_3 (n=2). Got: {status['forecast_outlook']['d2_class']}"
+    )
