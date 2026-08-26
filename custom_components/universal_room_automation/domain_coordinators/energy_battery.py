@@ -1755,6 +1755,13 @@ class BatteryStrategy:
         if not self._multi_day_horizon_enabled:
             return d1_target
         try:
+            # CF-8 (LOW): the classify_* methods now accept `now=` for
+            # wall-clock-seam anchoring on month arithmetic. Kept as a
+            # POSITIONAL call here to preserve backwards-compatibility
+            # with existing monkeypatched fixtures that stub
+            # `classify_solar_day_n = lambda n: ...` (one-arg). The
+            # month-drift risk here is bounded — the accessor caller
+            # already re-derives every strategy tick.
             d2_class = self.classify_solar_day_n(d1_offset + 1)
         except Exception:  # noqa: BLE001
             return d1_target
@@ -1780,6 +1787,25 @@ class BatteryStrategy:
             from homeassistant.util import dt as dt_util
             now = dt_util.now()
         return self._drain_target_for(now)
+
+    def _safe_current_offpeak_drain_target(self, now: datetime | None) -> int | None:
+        """CF-9 (LOW B6) — get_status render-time guard.
+
+        Wraps `current_offpeak_drain_target` so a classify_* raise inside
+        the shared helper doesn't kill the whole strategy sensor render.
+        Returns None on failure (sensor renders `None`; downstream
+        consumers already tolerate `None` for a boot-transient window).
+        Do NOT call this on the decision path — decisions must observe
+        the raise.
+        """
+        try:
+            return self.current_offpeak_drain_target(now)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "get_status: current_offpeak_drain_target raised "
+                "(swallowed for render)", exc_info=True,
+            )
+            return None
 
     def current_park_floor(self) -> int | None:
         """Return the floor the battery is actually parking at RIGHT NOW.
@@ -1834,7 +1860,7 @@ class BatteryStrategy:
         except Exception:  # noqa: BLE001
             return None
 
-    def classify_solar_day_n(self, days_ahead: int) -> str:
+    def classify_solar_day_n(self, days_ahead: int, now: datetime | None = None) -> str:
         """v4.5.0 D3: classify the solar forecast for `days_ahead` from today.
 
         Reads the appropriate Solcast entity:
@@ -1846,8 +1872,12 @@ class BatteryStrategy:
         thresholds. Returns "unknown" if the underlying entity is not
         configured or unavailable.
         """
+        # CF-8 (LOW B5/B7/D-LOW-1): threaded `now` for wall-clock-seam
+        # anchoring on multi-day month arithmetic. Boot-only callers that
+        # do NOT have a `now` retain the legacy `dt_util.now()` fallback
+        # inline below.
         if days_ahead <= 0:
-            return self.classify_solar_day()
+            return self.classify_solar_day(now=now)
         if days_ahead == 1:
             return self.classify_tomorrow_solar()
         if days_ahead != 2:
@@ -1873,7 +1903,8 @@ class BatteryStrategy:
             return "very_poor"
 
         from homeassistant.util import dt as dt_util
-        target = (dt_util.now() + timedelta(days=days_ahead)).month
+        _base = now if now is not None else dt_util.now()
+        target = (_base + timedelta(days=days_ahead)).month
         p25, p50, p75 = SOLAR_MONTHLY_THRESHOLDS.get(target, (50.0, 80.0, 100.0))
         if forecast >= p75:
             return "excellent"
@@ -1883,11 +1914,13 @@ class BatteryStrategy:
             return "moderate"
         return "poor"
 
-    def classify_solar_day(self) -> str:
+    def classify_solar_day(self, now: datetime | None = None) -> str:
         """Classify today's solar forecast: excellent/good/moderate/poor/very_poor.
 
         Uses per-month percentile thresholds by default, or custom absolute
-        thresholds if configured.
+        thresholds if configured. CF-8 (LOW): threaded `now` for
+        wall-clock-seam anchoring; boot-only callers may omit it and get
+        the legacy `dt_util.now()` fallback.
         """
         forecast = self.solcast_today
         if forecast is None:
@@ -1905,7 +1938,7 @@ class BatteryStrategy:
 
         # Automatic (monthly) mode — use per-month P25/P50/P75
         from homeassistant.util import dt as dt_util
-        month = dt_util.now().month
+        month = (now if now is not None else dt_util.now()).month
         p25, p50, p75 = SOLAR_MONTHLY_THRESHOLDS.get(month, (50.0, 80.0, 100.0))
         if forecast >= p75:
             return "excellent"
@@ -2444,23 +2477,68 @@ class BatteryStrategy:
         `_resolve_target_day(now)[0]`) stay unchanged on the fallback
         path. In production configuration `offset ∈ {0, 1}` (INV-DTDS-5).
         """
+        # CF-7 source telemetry — record which leg produced the class so
+        # the strategy sensor can surface it. See `get_status`
+        # `target_day_source` attr. Reset on every call; the last write
+        # wins.
         _tou = getattr(self, "_tou", None)
         if _tou is None:
+            self._last_target_day_source = "tou_fallback"
             return (self.classify_tomorrow_solar(), 1)
         try:
             nxt = _tou.get_next_high_rate_transition(now)
         except Exception:  # noqa: BLE001 — MED-1 guarded fallback
+            # CF-6 (MED-B2): don't silently swallow a TOU raise on the
+            # money path — a broken TOU engine at offset==0 previously
+            # dropped us onto calendar-tomorrow's class (wrong day).
+            # `exc_info=True` so operators can act; keep the guarded
+            # fallback so a bad TOU doesn't crash the strategy tick.
+            _LOGGER.warning(
+                "resolve_target_day: TOU.get_next_high_rate_transition "
+                "raised; falling back to calendar-tomorrow class",
+                exc_info=True,
+            )
+            self._last_target_day_source = "tou_raised"
             return (self.classify_tomorrow_solar(), 1)
         if nxt is None:
+            self._last_target_day_source = "tou_no_transition"
             return (self.classify_tomorrow_solar(), 1)
         target_dt, _ = nxt
         offset = (target_dt.date() - now.date()).days
         if offset <= 0:
-            return (self.classify_solar_day(), 0)
+            # CF-7 (MED-B3): at the post-midnight offset==0 flip authority
+            # moves to `classify_solar_day()` (Solcast TODAY). If TODAY is
+            # briefly `unknown` (transient unavailability, ~00:05
+            # rollover), the pre-fix path returned "unknown" -> drain
+            # target 40 (DEFAULT_OFFPEAK_DRAIN_UNKNOWN) which stamps as
+            # the DP floor and extends EV-hold on days that don't need it.
+            # Fall back FIRST to the previously-resolved class (freshness
+            # cache), then to calendar-tomorrow's Solcast (usually still
+            # populated across the 00:05 boundary), rather than emitting
+            # the 40 sentinel. Surface which leg won via
+            # `_last_target_day_source`.
+            today_cls = self.classify_solar_day()
+            if today_cls != "unknown":
+                self._last_target_day_source = "solcast_today"
+                self._last_resolved_target_class = today_cls
+                return (today_cls, 0)
+            prev = getattr(self, "_last_resolved_target_class", None)
+            if prev is not None and prev != "unknown":
+                self._last_target_day_source = "previous_resolved"
+                return (prev, 0)
+            tmr_cls = self.classify_tomorrow_solar()
+            self._last_target_day_source = "tomorrow_solcast_fallback"
+            return (tmr_cls, 0)
         if offset == 1:
-            return (self.classify_tomorrow_solar(), 1)
+            self._last_target_day_source = "solcast_tomorrow"
+            cls = self.classify_tomorrow_solar()
+            self._last_resolved_target_class = cls
+            return (cls, 1)
         # offset >= 2 — D3 multi-day path
-        return (self.classify_solar_day_n(offset), offset)
+        self._last_target_day_source = f"solcast_day_{offset + 1}"
+        cls = self.classify_solar_day_n(offset)
+        self._last_resolved_target_class = cls
+        return (cls, offset)
 
     def _classify_target_day(self, now: datetime) -> str:
         """Class of the day containing the next high-rate transition.
@@ -5404,7 +5482,16 @@ class BatteryStrategy:
             # Above target — drain stored solar (free energy)
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
-                f"Off-peak drain — SOC {soc}% > target {drain_target}% (tomorrow {tomorrow_class}){_ladder_suffix}",
+                # CF-1 (convergent A-MED-1 / B-MED-1 / D-HIGH-1): narrate the
+                # class actually driving `drain_target` (target-day, with the
+                # multi-day-max bump live), not calendar tomorrow. Makes the
+                # previously-dead `drain_class_for_target` variable live and
+                # matches the peak-anchored `_threshold_position`/`_next_action`
+                # phrasing (`target=<class>`) — no more self-contradicting
+                # "target 30% (tomorrow excellent)" strings on class-disagreement
+                # days.
+                f"Off-peak drain — SOC {soc}% > target {drain_target}% "
+                f"(target {drain_class_for_target}){_ladder_suffix}",
                 current_mode,
                 reserve_level=drain_target,
                 season=season,
@@ -5422,7 +5509,9 @@ class BatteryStrategy:
             hold_reserve = max(hold_reserve, effective_reserve)
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
-            f"Off-peak hold — SOC {soc}% <= target {drain_target}% (tomorrow {tomorrow_class}){_ladder_suffix}",
+            # CF-1: same narration fix as the drain leg above.
+            f"Off-peak hold — SOC {soc}% <= target {drain_target}% "
+            f"(target {drain_class_for_target}){_ladder_suffix}",
             current_mode,
             reserve_level=hold_reserve,
             season=season,
@@ -6127,7 +6216,18 @@ class BatteryStrategy:
             # both EV and plug drain-release gates. `drain_targets` above
             # already surfaces the per-class map; these two answer "which
             # entry is tonight's" and "what SOC does the EV release at".
-            "current_offpeak_drain_target": self.current_offpeak_drain_target(now),
+            # CF-9 (LOW B6): wrap the three new drain-target attrs in a
+            # try/except so a classify_* raise inside `_drain_target_for`
+            # / `_resolve_target_day` doesn't kill the whole strategy
+            # sensor render. None-safe when the resolver blows up.
+            "current_offpeak_drain_target": self._safe_current_offpeak_drain_target(now),
+            # CF-7: surface which resolver leg produced the current
+            # target class ("solcast_today" | "solcast_tomorrow" |
+            # "previous_resolved" | "tomorrow_solcast_fallback" |
+            # "tou_raised" | "tou_no_transition" | "tou_fallback" |
+            # "solcast_day_N"). Read-only, non-decision, non-persisted.
+            "target_day_source": getattr(self, "_last_target_day_source", None),
+            "target_day_class_cached": getattr(self, "_last_resolved_target_class", None),
             # EV dead-band fix-up A-MED-1/A-LOW-2: honest label. This is the
             # floor the battery is ACTUALLY parking at (last commanded reserve,
             # captures inclement partial_hold + arbitrage/attain parks), not a

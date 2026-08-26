@@ -433,6 +433,39 @@ def test_emitter_drain_fallback_selects_today_at_offset_0():
     assert strat._offpeak_drain_branch_target == 25
 
 
+def test_emitter_reason_string_names_target_day_not_calendar_tomorrow():
+    """CF-1 anchor (convergent A-MED-1 / B-MED-1 / D-HIGH-1).
+
+    Pre-fix: the emitter's reason f-string interpolated `tomorrow_class`
+    while the drain-target derivation used the peak-anchored
+    `drain_class_for_target`. On multi-day-horizon days where the D+2
+    class bumps the target higher, the operator got self-contradicting
+    strings like "target 45% (tomorrow excellent)".
+
+    Setup: multi-day-horizon ON, today=excellent (D+1 for offset==1),
+    tomorrow=poor (bumps the multi-day max). The reason MUST cite
+    `target poor` (the class actually driving the target), NOT
+    `tomorrow excellent`. Reverting the emitter to `tomorrow_class`
+    interpolation makes this test RED.
+    """
+    # Evening off-peak so offset==1 (D+1 == tomorrow=poor); with
+    # multi-day-horizon on and D+2 also captured, the bump keeps the
+    # narration on the driving class.
+    now = datetime(2026, 6, 11, 22, 30, 0)
+    strat, _ = _make_battery(
+        soc=60, today_kwh=110, tomorrow_kwh=35, multi_day=True,
+        day3_kwh=35,
+        tou_next_dt=datetime(2026, 6, 12, 14, 0, 0),
+        drain_targets={"excellent": 10, "moderate": 25, "poor": 45},
+    )
+    r = strat.determine_mode("off_peak", "summer", now=now)
+    reason = r.get("reason", "")
+    # target-day narration present (peak-anchored), calendar-tomorrow
+    # narration absent.
+    assert "target poor" in reason, reason
+    assert "tomorrow" not in reason, reason
+
+
 def test_dp_value_stamp_carries_peak_anchored_target():
     """HIGH-2 / framing-C 7th site: the DP value-stamp at
     `_offpeak_drain_branch_target` carries the peak-anchored composed
@@ -462,15 +495,24 @@ def test_drain_target_for_helper_is_single_source_of_truth():
     today-excellent / D+1-poor pair at offset==0, accessor +
     `_threshold_position` derived drain + `_next_action_estimate` drain
     fallback + emitter pre-clamp `drain_target` ALL == `_drain_target_for`
-    == max(10, 40) == 40."""
+    == max(10, 45) == 45.
+
+    CF-10 fix-up: `poor` was 40 which equals `DEFAULT_OFFPEAK_DRAIN_UNKNOWN`
+    (the fallback sentinel). A mutation that dropped the helper for a bare
+    fallback would still pass under coincidental equality (Bug Class #63).
+    Use `poor=45` so the expected value 45 discriminates from the 40
+    sentinel and from every other class value.
+    """
     now = datetime(2026, 6, 11, 2, 0, 0)
     strat, _ = _make_battery(
-        soc=50, today_kwh=110, tomorrow_kwh=25, multi_day=True,
-        day3_kwh=25,
+        soc=50, today_kwh=110, tomorrow_kwh=35, multi_day=True,
+        day3_kwh=35,  # 35 >= poor threshold 30 → class "poor" (not the
+                       # fall-through "very_poor" that would key on a
+                       # missing drain_targets entry).
         tou_next_dt=datetime(2026, 6, 11, 14, 0, 0),
-        drain_targets={"excellent": 10, "moderate": 25, "poor": 40},
+        drain_targets={"excellent": 10, "moderate": 25, "poor": 45},
     )
-    expected = 40
+    expected = 45
     assert strat._drain_target_for(now) == expected
     assert strat.current_offpeak_drain_target(now) == expected
     # Emitter drain-fallback branch: SOC=50, drain=40 → stamped 40.
