@@ -694,7 +694,11 @@ async def _auto_return(
                 coord is not None,
             )
             # No entity to write to — policy skip (None), not divergence.
+            # LOW fix in-cycle: distinguish this from the HIGH-1 manual
+            # skip (which shares restore_ok=None) so the live-validation
+            # query on hvac_excursion_events can tell them apart.
             restore_ok = None
+            detail = f"{trigger}:no_entity"
 
     try:
         await return_excursion(

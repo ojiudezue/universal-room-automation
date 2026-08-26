@@ -1041,11 +1041,6 @@ class HVACCoordinator(BaseCoordinator):
             )
         )
 
-        # D1 excursion auto-release sweep (HVAC-EXCURSION-D1-ONLY,
-        # 2026-08-26). Wire-in extracted into a helper so the wire-in
-        # anchor test (C-8) can neuter one call site and see RED.
-        self._schedule_excursion_autorelease_sweep()
-
         # Set up diagnostics
         try:
             await self._setup_diagnostics()
@@ -1136,6 +1131,17 @@ class HVACCoordinator(BaseCoordinator):
                 "HVAC: excursion primitive bind/audit failed (non-fatal): %s",
                 _ex_boot_exc,
             )
+
+        # D1 excursion auto-release sweep (HVAC-EXCURSION-D1-ONLY,
+        # 2026-08-26). Wire-in extracted into a helper so the wire-in
+        # anchor test (C-8) can neuter one call site and see RED.
+        # ORDERING (MEDIUM fix in-cycle): scheduled AFTER
+        # async_startup_excursion_audit above, so the interval sweep
+        # cannot fire while the boot audit is still awaiting a blocking
+        # stale-boot BANKING preset emit — which would otherwise let
+        # the sweep re-collect the same row (the B3 _sweep_running guard
+        # protects sweep vs sweep only, not sweep vs boot audit).
+        self._schedule_excursion_autorelease_sweep()
 
         # v4.7.8 D6: Wire DB into EgressManager and rehydrate state BEFORE
         # the periodic decision-cycle timer is registered. Bug Class #14 —
