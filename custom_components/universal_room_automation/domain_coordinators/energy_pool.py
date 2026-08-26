@@ -3704,6 +3704,7 @@ from .energy_const import (  # noqa: E402
     SOLAR_POWER_FRESH_S,
     SOLAR_FOLLOW_GRID_FRESH_S,
     SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS,
+    SOLAR_FOLLOW_IDLE_DERESERVE_TICKS,
     CONF_ENERGY_SOLAR_NAMEPLATE_W,
     DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
     DP_L1_RATE_THRESHOLD_KW,
@@ -3763,6 +3764,17 @@ class SolarFollowController:
         # CF-5 fix-up: per-EVSE consecutive stale-power tick counter to
         # bound the HOLD (see SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS).
         self._stale_ticks = {}
+        # EVSE-SOLAR-IDLE-DERESERVE-1: per-bay counter of consecutive ticks
+        # in which the bay was `eligible` but not `drawing` and not in
+        # `stale_power`. When it crosses SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
+        # the bay's MIN-amp reservation is dropped from parked_w so a
+        # charging sibling gets the surplus. Lifecycle mirrors _stale_ticks.
+        self._notdraw_ticks: dict[str, int] = {}
+        # EVSE-SOLAR-IDLE-DERESERVE-1: track bays currently in long-idle so
+        # we can skip the idempotent per-tick MIN re-write while they stay
+        # idle (D3 — kills 6A safe-park churn). Cleared when the bay leaves
+        # long-idle.
+        self._long_idle_written: set[str] = set()
         # CF-13 fix-up: latch to suppress the every-tick blind-exit WARN.
         self._blind_exit_logged = False
 
@@ -4040,6 +4052,11 @@ class SolarFollowController:
         # CF-5 fix-up: also prune stale-tick counter.
         for gone in [k for k in self._stale_ticks if k not in known]:
             self._stale_ticks.pop(gone, None)
+        # EVSE-SOLAR-IDLE-DERESERVE-1: prune idle counters for gone bays.
+        for gone in [k for k in self._notdraw_ticks if k not in known]:
+            self._notdraw_ticks.pop(gone, None)
+        for gone in [k for k in list(self._long_idle_written) if k not in known]:
+            self._long_idle_written.discard(gone)
 
         # CF-4(c) fix-up: run boot reconciliation BEFORE the enabled gate.
         # Previous order returned on the disabled path before the backstop
@@ -4196,7 +4213,37 @@ class SolarFollowController:
         # at PHASES=2. Include it for symmetry with a_total's divisor.
         n_eligible = len(eligible)
         n_drawing = len(drawing)
-        parked_w = (n_eligible - n_drawing) * SOLAR_FOLLOW_MIN_AMPS * 240 * SOLAR_FOLLOW_PHASES
+        # EVSE-SOLAR-IDLE-DERESERVE-1 (D1): update per-bay idle counter.
+        # A bay counts as idle only if it is `eligible` AND not `drawing`
+        # AND not in `stale_power` — a stale-power bay keeps its
+        # reservation (dead sensor ≠ finished car).
+        eligible_set = set(eligible)
+        drawing_set = set(drawing)
+        for eid in eligible_set:
+            if eid not in drawing_set and eid not in stale_power:
+                self._notdraw_ticks[eid] = self._notdraw_ticks.get(eid, 0) + 1
+            else:
+                self._notdraw_ticks.pop(eid, None)
+        # Prune counters for bays no longer eligible this tick.
+        for eid in list(self._notdraw_ticks):
+            if eid not in eligible_set:
+                self._notdraw_ticks.pop(eid, None)
+        # EVSE-SOLAR-IDLE-DERESERVE-1 (D2): drop MIN reservation for bays
+        # idle beyond the threshold. INV-IDLE-3: NO discard from
+        # _excess_solar_active, NO switch.turn_off — only the parked_w
+        # arithmetic changes.
+        long_idle = {
+            eid for eid in eligible_set
+            if self._notdraw_ticks.get(eid, 0) >= SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
+        }
+        # Clear the write-suppression latch for bays that left long-idle.
+        for eid in list(self._long_idle_written):
+            if eid not in long_idle:
+                self._long_idle_written.discard(eid)
+        n_reserved = n_eligible - n_drawing - len(long_idle)
+        if n_reserved < 0:  # defensive; long_idle ⊆ (eligible − drawing).
+            n_reserved = 0
+        parked_w = n_reserved * SOLAR_FOLLOW_MIN_AMPS * 240 * SOLAR_FOLLOW_PHASES
         allocatable_w = max(0.0, s_eligible - parked_w)
         a_total = int(allocatable_w // (240 * SOLAR_FOLLOW_PHASES))
         n_denom = max(1, n_drawing)
@@ -4231,6 +4278,13 @@ class SolarFollowController:
                 a_target = a_per_drawing
             else:
                 a_target = SOLAR_FOLLOW_MIN_AMPS
+            # EVSE-SOLAR-IDLE-DERESERVE-1 (D3): once a long-idle bay has
+            # been safe-parked at MIN, skip the idempotent per-tick
+            # re-write. The deadband would usually swallow it too, but
+            # this makes the "no churn while long-idle" contract explicit.
+            if evse_id in long_idle and evse_id in self._long_idle_written:
+                self._last_state[evse_id] = "long_idle_parked"
+                continue
             if a_target > a_current:  # INV-SF-5 up-gate.
                 self._up_streak[evse_id] = self._up_streak.get(evse_id, 0) + 1
                 if self._up_streak[evse_id] < self._up_min_ticks:
@@ -4258,6 +4312,9 @@ class SolarFollowController:
                 continue
             self._stamp_write(evse_id)
             self._last_commanded[evse_id] = float(a_target)
+            # EVSE-SOLAR-IDLE-DERESERVE-1 (D3): latch long-idle safe-park.
+            if evse_id in long_idle:
+                self._long_idle_written.add(evse_id)
             self._last_state[evse_id] = "writing"
             self._schedule_verify(evse_id, entity, a_target)
 
