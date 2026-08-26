@@ -6034,7 +6034,7 @@ cards:
   title: Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for
     stuck but NOT for fan-demotion
   thread: presence
-  status: planned
+  status: done
   approval: explicit
   approved_by: operator 2026-08-18 (board button)
   origin:
@@ -6230,6 +6230,13 @@ cards:
   next: 'Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired
     unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units
     are named pir_zigbee_* and misrepresent their own modality.'
+  updated: 2026-08-26 09:45
+  closed_note: 'REFUTED FRAME (operator + measurements 2026-08-26). The role-matrix ''fan-independence
+    axis'' is the WRONG frame. AUDIT_fan_signature_separability_probe.md measured: phantom mmWave onsets
+    are TRANSITION-triggered — aligned to the exact second of a fan speed/power transition, while steady-state
+    fan (hours) produces ZERO phantom edges, across 2 rooms + 2 fan types. The specific premise (a Living-Room
+    10GHz latching unit) was also overturned (entity doesn''t exist). The real, measured fix is a fan-TRANSITION-COINCIDENCE
+    onset gate, not a sensor-role axis. Superseded by FAN-TRANSITION-COINCIDENCE-GATE-1.'
 - id: ROOM-NAME-DESYNC-1
   title: Options-flow room rename without data write-back — house tier permanently blind to 3 renamed
     rooms (substrate edges name-dropped)
@@ -11351,6 +11358,73 @@ cards:
   refs:
   - HVAC-GOVERNED-EXCURSION-1
   - ac_ramp_events
+- id: FAN-TRANSITION-COINCIDENCE-GATE-1
+  title: mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route
+    to the existing recheck ladder instead of granting occupancy
+  thread: presence
+  status: planned
+  created: 2026-08-26 09:45
+  updated: 2026-08-26 09:45
+  refinement_status: initial
+  approval: implied
+  tags:
+  - measure-before-build
+  - numbers-get-knobs
+  problem_solution:
+  - 'Problem: an mmWave-only room grants a phantom occupancy the instant a fan changes speed/power (measured:
+    onset within ≤1-2 s of a fan transition; steady-state fan never triggers it) — the existing fan-interference
+    recheck only rechecks LATER, not at onset. Solution: add an ONSET-TIME discriminator — when an mmWave-only
+    onset (no motion/BLE/camera corroboration) falls within a tunable window (~±5 s) of a power/speed
+    transition on that room’s registered fan entity, tag it fan-suspect and route to presence_fan_recheck
+    instead of granting occupancy; treat mmWave-only occupancy that clears within fan-off fade-time as
+    retroactive phantom confirmation.'
+  origin:
+    date: '2026-08-26'
+    gist: operator refuted the fan-independence frame; the AUDIT probe measured transition-coincidence
+      as the real signal
+  why: Geometry-/hardware-agnostic, all-rooms, no new hardware; builds on the existing presence_fan_recheck.py
+    + fan_recheck_state machinery (adds an onset-time gate to a later-recheck-only system). Measured,
+    not assumed (AUDIT_fan_signature_separability_probe.md §d GO).
+  knobs:
+  - 'FAN_TRANSITION_COINCIDENCE_WINDOW_S (rung: module const or Number; ~5s; the ± window around a fan
+    transition) — why: tunable per the probe caveats (2 labeled events, single-week confidence)'
+  next: 'Scope onto presence_fan_recheck.py: read the room’s registered fan entity transitions; gate mmWave-only
+    onsets in the window; the fade-time retroactive-clear. Tier 2 (presence trust decision). Confirm the
+    fan-entity registration path per room first.'
+  refs:
+  - docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO)
+  - presence_fan_recheck.py
+  - fan_recheck_state table
+  - SENSOR-FANINDEP-1 (refuted frame)
+- id: OFFPEAK-DRAIN-VERYPOOR-SLIDER-1
+  title: No very_poor off-peak-drain Number entity — the 5th quality target is tunable via the validator
+    now (DP-VERYPOOR) but has no operator slider
+  thread: energy
+  status: planned
+  created: 2026-08-26 09:45
+  updated: 2026-08-26 09:45
+  refinement_status: initial
+  approval: implied
+  tags:
+  - numbers-get-knobs
+  problem_solution:
+  - 'Problem: DP-VERYPOOR-DRAIN-VALIDATOR-1 made the very_poor off-peak drain target ACCEPT live updates,
+    but there is no very_poor Number ENTITY — OffPeakDrainNumber._conf_map covers only 4 qualities and
+    there is no CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR. So the operator still has no slider for the 5th quality.
+    Solution: add CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR + extend OffPeakDrainNumber._conf_map + _OFFPEAK_DRAIN_QUALITY
+    dispatch + the entity-setup loop + the reload-suppression allowlist.'
+  origin:
+    date: '2026-08-26'
+    gist: surfaced by the DP-VERYPOOR build grep — validator unblocked, entity still missing
+  why: 'Numbers-get-knobs: a load-bearing DP drain target the operator legitimately tunes by observation
+    should have a live slider, not only a validator that accepts a value nothing writes.'
+  next: Add the 5th CONF + Number + dispatch + setup-loop + allowlist. Tier 2 (config surface round-trip).
+    Mirror the 4 existing OffPeakDrain sliders.
+  refs:
+  - number.py:1084-1089 (OffPeakDrainNumber)
+  - __init__.py:6635 (_OFFPEAK_DRAIN_QUALITY)
+  - energy.py:8866 (validator, now 5-set)
+  - DP-VERYPOOR-DRAIN-VALIDATOR-1
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

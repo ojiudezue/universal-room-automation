@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T22:15:13-05:00_ - _Data commit: `ec352306144f`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-26T00:43:56-05:00_ - _Data commit: `ec951cdaf3d9`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,14 +14,14 @@ _Generated: 2026-08-25T22:15:13-05:00_ - _Data commit: `ec352306144f`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 12 |
+| 📝 Planned | 13 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 45 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
-| ✅ Done | 46 |
+| ✅ Done | 47 |
 
 ## 📥 Inbox (26)
 _raw capture_
@@ -525,7 +525,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (12)
+## 📝 Planned (13)
 _has plan / acceptance_
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
@@ -553,21 +553,6 @@ _updated 2026-08-18 10:05_
 - **Forensic keys (2):**
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
-thread: **presence** - status: **planned** - approval: **explicit**
-- **Origin:** 2026-08-14 - operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz functional-PIRs (still-blind, long range). Registry confirms 3 Hobeian classes. But the Upstairs Guestroom unit of this EXACT mode...
-- **Why:** STUCK-SENSOR-1 (v5.75.0) role layer accepts list-derived motion kind as corroborator — correct for non-fan stuck pathology, fails-agree (=status quo, no regression) under fan latch. The deferred D5 role-migration should add fan-independe...
-- **Next:** Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent ...
-- **Forensic keys (8):**
-  - `measurement_first`: Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run? (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.
-  - `PROBE_RESULT_2026_08_23_CONFIRMED`: Probe ran. FIRST: the card premise entity does not exist -- there is NO Hobeian unit in the Living Room (the tower fan fan.towerfan_dreopilotmaxs_wifi_livingroom is there, but no 10GHz unit is registered for that room). So the queued "do...
-  - `FLEET_SCOPING_2026_08_23_CLASS_CLAIM_REFINED`: Wiring census + per-unit edge-lag probe across the whole 10GHz fleet. THIS OVERTURNS THE CARD FRAMING -- read before scoping. WIRING CENSUS (live core.config_entries): 9 URA rooms have a Hobeian 10GHz unit wired, ALL of them in motion_se...
-  - `CENSUS_CORRECTED_BY_DEVICE_MODEL_2026_08_23`: Operator supplied binary_sensor.mmwave_temp_lux_hum_zigbee_livingroom_presence -- the Living Room unit I had reported as NOT EXISTING. It exists, it is HOBEIAN "Millimeter wave motion detection", same model as the rest. MY ERROR, TWO CAU...
-  - `RETRACTION_NAMES_ARE_RELIABLE_2026_08_23`: OPERATOR CORRECTION, and they are right. I claimed three units named pir_zigbee_* are 10GHz doppler devices misrepresenting their modality, and that the fleet is 35 units. BOTH CLAIMS ARE FALSE. Retracted in full. MY ERROR: I enumerated ...
-  - `PLACEMENT_EXPLAINS_THE_RESULT_2026_08_23`: Operator: the Living Room unit is UNDER THE COUCH, deliberately, to catch traffic and movement in the core couch area. ** THIS UPGRADES THE NO-LATCH RESULT FROM CORRELATION TO MECHANISM. ** Under a couch, the units cone is aimed at floor...
-  - `RETRACTION_LIVING_ROOM_COVERAGE_GAP_2026_08_23`: I claimed the Living Room has ONE occupancy input, a still-blind 10GHz unit, and that a seated occupant would be invisible. FALSE. Retracted in full -- do NOT card the "seated-occupant coverage gap"; there is no gap. THE ROOM IS PROPERLY...
-  - `SCREEK_LATCHES_2026_08_24_OPERATOR_HUNCH_CONFIRMED`: Operator: "the screek is the one that latches imo". MEASURED AND CONFIRMED, and it is the consequential one -- I had tested the BACKUP sensor and reported the room fine. SUBJECT: binary_sensor.screek_human_sensor_l13_2412s_presence (Scre...
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
 thread: **memory** - status: **planned**
@@ -718,6 +703,28 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
 - **Forensic keys (2):**
   - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
   - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
+
+### `FAN-TRANSITION-COINCIDENCE-GATE-1` - mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route to the existing recheck ladder instead of granting occupancy
+thread: **presence** - status: **planned** - approval: **implied**
+_created 2026-08-26 09:45 · initial_
+- **Problem / Solution:**
+  - Problem: an mmWave-only room grants a phantom occupancy the instant a fan changes speed/power (measured: onset within ≤1-2 s of a fan transition; steady-state fan never triggers it) — the existing fan-interference recheck only rechecks L...
+- **Origin:** 2026-08-26 - operator refuted the fan-independence frame; the AUDIT probe measured transition-coincidence as the real signal
+- **Why:** Geometry-/hardware-agnostic, all-rooms, no new hardware; builds on the existing presence_fan_recheck.py + fan_recheck_state machinery (adds an onset-time gate to a later-recheck-only system). Measured, not assumed (AUDIT_fan_signature_se...
+- **Next:** Scope onto presence_fan_recheck.py: read the room’s registered fan entity transitions; gate mmWave-only onsets in the window; the fade-time retroactive-clear. Tier 2 (presence trust decision). Confirm the fan-entity registration path per...
+- **Tags:** measure-before-build, numbers-get-knobs
+- **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
+
+### `OFFPEAK-DRAIN-VERYPOOR-SLIDER-1` - No very_poor off-peak-drain Number entity — the 5th quality target is tunable via the validator now (DP-VERYPOOR) but has no operator slider
+thread: **energy** - status: **planned** - approval: **implied**
+_created 2026-08-26 09:45 · initial_
+- **Problem / Solution:**
+  - Problem: DP-VERYPOOR-DRAIN-VALIDATOR-1 made the very_poor off-peak drain target ACCEPT live updates, but there is no very_poor Number ENTITY — OffPeakDrainNumber._conf_map covers only 4 qualities and there is no CONF_ENERGY_OFFPEAK_DRAIN...
+- **Origin:** 2026-08-26 - surfaced by the DP-VERYPOOR build grep — validator unblocked, entity still missing
+- **Why:** Numbers-get-knobs: a load-bearing DP drain target the operator legitimately tunes by observation should have a live slider, not only a validator that accepts a value nothing writes.
+- **Next:** Add the 5th CONF + Number + dispatch + setup-loop + allowlist. Tier 2 (config surface round-trip). Mirror the 4 existing OffPeakDrain sliders.
+- **Tags:** numbers-get-knobs
+- **Refs:** number.py:1084-1089 (OffPeakDrainNumber); __init__.py:6635 (_OFFPEAK_DRAIN_QUALITY); energy.py:8866 (validator, now 5-set); DP-VERYPOOR-DRAIN-VALIDATOR-1
 
 ## 🔨 In progress (0)
 _being built_
@@ -1729,7 +1736,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-## ✅ Done (46)
+## ✅ Done (47)
 _closed, evidence in refs_
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
@@ -1990,6 +1997,23 @@ thread: **security** - status: **done** - approval: **approved**
 - **Forensic keys (2):**
   - `apply_procedure`: At next deploy restart: flush-watcher pattern edit of the parent URA entry options.egress_cameras += [camera.garage_a, camera.garage_b] (F2-owned base ids, verified live), applied in the stop->boot gap; post-boot verify list + perimeter_...
   - `closed_2026_08_14`: Applied at v5.76.0 restart via flush-watcher (stop->boot gap); post-boot verified: egress_cameras contains garage_a+garage_b (README v5.76.0 L5 PASS).
+
+### `SENSOR-FANINDEP-1` - Role matrix needs a fan-independence axis — 10GHz motion-mmWave fleet is corroborator-grade for stuck but NOT for fan-demotion
+thread: **presence** - status: **done** - approval: **explicit**
+_updated 2026-08-26 09:45_
+- **Origin:** 2026-08-14 - operator: the Hobeian "Millimeter wave motion detection" units (~20, transit areas) are 10GHz functional-PIRs (still-blind, long range). Registry confirms 3 Hobeian classes. But the Upstairs Guestroom unit of this EXACT mode...
+- **Why:** STUCK-SENSOR-1 (v5.75.0) role layer accepts list-derived motion kind as corroborator — correct for non-fan stuck pathology, fails-agree (=status quo, no regression) under fan latch. The deferred D5 role-migration should add fan-independe...
+- **Next:** Scope the PER-UNIT fan-independence declaration for Upstairs Guestroom (the one latching wired unit). Census now complete by device model. SEPARATE follow-up worth carding: 3 HOBEIAN doppler units are named pir_zigbee_* and misrepresent ...
+- **Forensic keys (9):**
+  - `measurement_first`: Passive recorder probe queued: does the NEW Living Room 10GHz unit latch the tower fan on its next run? (Placement/sensitivity may differ from Guestroom.) Result gates how urgent the axis is.
+  - `PROBE_RESULT_2026_08_23_CONFIRMED`: Probe ran. FIRST: the card premise entity does not exist -- there is NO Hobeian unit in the Living Room (the tower fan fan.towerfan_dreopilotmaxs_wifi_livingroom is there, but no 10GHz unit is registered for that room). So the queued "do...
+  - `FLEET_SCOPING_2026_08_23_CLASS_CLAIM_REFINED`: Wiring census + per-unit edge-lag probe across the whole 10GHz fleet. THIS OVERTURNS THE CARD FRAMING -- read before scoping. WIRING CENSUS (live core.config_entries): 9 URA rooms have a Hobeian 10GHz unit wired, ALL of them in motion_se...
+  - `CENSUS_CORRECTED_BY_DEVICE_MODEL_2026_08_23`: Operator supplied binary_sensor.mmwave_temp_lux_hum_zigbee_livingroom_presence -- the Living Room unit I had reported as NOT EXISTING. It exists, it is HOBEIAN "Millimeter wave motion detection", same model as the rest. MY ERROR, TWO CAU...
+  - `RETRACTION_NAMES_ARE_RELIABLE_2026_08_23`: OPERATOR CORRECTION, and they are right. I claimed three units named pir_zigbee_* are 10GHz doppler devices misrepresenting their modality, and that the fleet is 35 units. BOTH CLAIMS ARE FALSE. Retracted in full. MY ERROR: I enumerated ...
+  - `PLACEMENT_EXPLAINS_THE_RESULT_2026_08_23`: Operator: the Living Room unit is UNDER THE COUCH, deliberately, to catch traffic and movement in the core couch area. ** THIS UPGRADES THE NO-LATCH RESULT FROM CORRELATION TO MECHANISM. ** Under a couch, the units cone is aimed at floor...
+  - `RETRACTION_LIVING_ROOM_COVERAGE_GAP_2026_08_23`: I claimed the Living Room has ONE occupancy input, a still-blind 10GHz unit, and that a seated occupant would be invisible. FALSE. Retracted in full -- do NOT card the "seated-occupant coverage gap"; there is no gap. THE ROOM IS PROPERLY...
+  - `SCREEK_LATCHES_2026_08_24_OPERATOR_HUNCH_CONFIRMED`: Operator: "the screek is the one that latches imo". MEASURED AND CONFIRMED, and it is the consequential one -- I had tested the BACKUP sensor and reported the room fine. SUBJECT: binary_sensor.screek_human_sensor_l13_2412s_presence (Scre...
+  - `closed_note`: REFUTED FRAME (operator + measurements 2026-08-26). The role-matrix 'fan-independence axis' is the WRONG frame. AUDIT_fan_signature_separability_probe.md measured: phantom mmWave onsets are TRANSITION-triggered — aligned to the exact sec...
 
 ### `NM-BB-IMAGE-1` - iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
 thread: **notifications** - status: **done** - approval: **approved**
