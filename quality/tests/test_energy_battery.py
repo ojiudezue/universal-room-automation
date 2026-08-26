@@ -2232,10 +2232,22 @@ class TestMultiDayArbitrageGate:
             multi_day_horizon_enabled=True, solcast_day_3="20",
         )
         result = h.strategy.determine_mode(
-            "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
+            "off_peak", "summer", now=datetime(2026, 7, 15, 22, 0),
         )
-        # D+1 good but D+2 poor → gate opens
-        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        # ARBITRAGE-GATE-D2-OFFBYONE-1: shifted `now` to 22:00 so
+        # _resolve_target_day returns offset=1 (tomorrow's peak). Then
+        # the multi-day broadening leg queries n=target_offset+1==2
+        # (day_3) — the original intent of this test. At 09:00 the fix
+        # (correctly) pairs target=today with n=1=tomorrow, which
+        # wouldn't exercise the D+2 leg. Charge lead-time at 22:00 for
+        # a 14:00-next-day peak means gate opens but has not yet
+        # reached CHARGE — accept any opened-phase (mirrors
+        # TestMultiDayMatrix's relaxation below).
+        assert result["arbitrage_phase"] in (
+            ARBITRAGE_PHASE_CHARGE,
+            ARBITRAGE_PHASE_HOLD,
+            ARBITRAGE_PHASE_WAIT,
+        )
 
     def test_d2_excellent_keeps_gate_closed(self):
         h = _BatteryHarness(
@@ -2394,7 +2406,7 @@ class TestMultiDayMatrix:
             solcast_day_3=cls_to_kwh[d2],
         )
         result = h.strategy.determine_mode(
-            "off_peak", "summer", now=datetime(2026, 7, 15, 9, 0),
+            "off_peak", "summer", now=datetime(2026, 7, 15, 22, 0),
         )
         if expected_gate_open:
             assert result["arbitrage_phase"] in (
