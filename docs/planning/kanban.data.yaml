@@ -3466,9 +3466,9 @@ cards:
   title: One governed-write primitive for all three thermostat axes — mode got hardened in v4.7.32, setpoints
     and presets never did, and the same call sites leak on the ungoverned axes
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.88.0
-  updated: 2026-08-23 14:30
+  updated: 2026-08-25 22:20
   approval: needs_operator
   tags:
   - operator-proposed
@@ -3589,6 +3589,13 @@ cards:
   next: 'PENDING 2026-08-23: 34 borrows returned with 0 restore failures; zones not in manual. Awaiting
     last_return.restore_ok=true on a natural nudge to close H1 (live discriminator). Also: reconciliation
     check started_today.nudge == ac_nudges_today entity not resolved.'
+  closed_note: 'VALIDATED via live DB 2026-08-25 (ac_ramp_events, 3487 rows): telemetry populated (113
+    non-NULL preset_before — not the all-NULL broken state); restore_ok_immediate=1 on 99; clean immediate+delayed
+    on 74 (H1 discriminator ''restore_ok=true on natural nudge'' MET). Of 28 restore_ok=0: 24 are the
+    documented delayed-poll artifact (immediate=1, cloud poll transiently read manual — the load-bearing
+    ''instantaneous read is authoritative'' design) and only 4 are real failures (immediate=0 AND delayed=0,
+    ~4%). Primary deliverable proven; the 4-failure tail carded separately. Disposed per soak-exit rule
+    — soaked since 08-23, discriminator now evaluable and met.'
 - id: RESTART-SAFETY-DOCTRINE-1
   title: URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no
     shared standard, and at least three detectors that can never reach their own threshold
@@ -9546,7 +9553,7 @@ cards:
   thread: hvac
   status: planned
   created: 2026-08-21 10:20
-  updated: 2026-08-21 10:20
+  updated: 2026-08-25 22:20
   refinement_status: initial
   approval: operator_decided
   sibling_of: HVAC-PRESET-FLAP-1
@@ -9643,11 +9650,9 @@ cards:
       it. You can address that fix after the borrow work is done." So this is SEQUENCED AFTER the borrow
       primitive, NOT GATED ON IT: it does not block, and it must not be folded into that cycle. Migrate
       as a kind rather than hand-rolling a second restore path.'
-  next: 'Wait for HVAC-GOVERNED-EXCURSION-1 (D2+D3) to land and live-validate. Then scope S14 as a borrow
-    kind whose ending is a BOUNDED TIMER + one-shot-per-off-phase (operator decision 2026-08-21), with
-    a Number-entity duration knob and declared restart behaviour. Deliverables include INVERTING test_ceiling_held_until_next_preset_transition
-    and annotating PLANNING_preset_flap_offphase_honesty.md:184-195,:280. Discriminating acceptance criterion:
-    the release fires ONCE PER OFF-PHASE, not per tick.'
+  next: 'Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance),
+    Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate
+    cleared 2026-08-25.'
   refs:
   - hvac.py:2972-2983
   - hvac_preset.py:202
@@ -9656,6 +9661,10 @@ cards:
   - test_ceiling_held_until_next_preset_transition
   - HVAC-MANUAL-PRESET-CONTRACT-1
   - HVAC-GOVERNED-EXCURSION-1
+  unblocked_2026_08_25: 'GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now
+    scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared
+    restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
+    the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
   DEDUPE_2026_08_23: 'RULING: DUPLICATE — a card `PRESET-RESTORE-DOES-NOT-TAKE-1` was created on 2026-08-23
     and has been DELETED; its content is folded into this card as the INSTANCE block below plus SCOPE_ONE_OR_MANY
@@ -11295,6 +11304,32 @@ cards:
     tiering).
   depends_on:
   - DRAIN-TARGET-DAY-STALENESS-1
+- id: HVAC-GOVERNED-RESTORE-FAIL-TAIL-1
+  title: ~4% of governed-write restores genuinely fail (immediate=0 AND delayed=0) — a small real tail
+    behind HVAC-GOVERNED-EXCURSION-1
+  thread: hvac
+  status: investigating
+  created: 2026-08-25 22:20
+  updated: 2026-08-25 22:20
+  refinement_status: initial
+  approval: implied
+  tags:
+  - measure-before-build
+  problem_solution:
+  - 'Problem: after HVAC-GOVERNED-EXCURSION-1 validated, 4 of ~103 restores show BOTH the instantaneous
+    and delayed restore failing (restore_ok_immediate=0 AND restore_ok=0) — a genuine ~4% restore-failure
+    tail, distinct from the 24 benign delayed-poll artifacts. Solution: pull those 4 rows'' context (zone,
+    timestamp, mode, error), find the common failure mode, and decide guard vs accept.'
+  origin:
+    date: '2026-08-25'
+    gist: surfaced disposing HVAC-GOVERNED-EXCURSION-1 via live DB cross-tab
+  why: A restore that fails on both signals strands the zone off-preset — the exact harm the primitive
+    exists to prevent, just rarer.
+  next: SELECT the 4 immediate0/delayed0 rows with full context from ac_ramp_events; classify the failure
+    mode; guard or accept.
+  refs:
+  - HVAC-GOVERNED-EXCURSION-1
+  - ac_ramp_events
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
