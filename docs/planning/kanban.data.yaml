@@ -9898,7 +9898,7 @@ cards:
     way in — grep the identifier, do not seek the line number. Re-verify every file:line in this card
     before relying on it.'
   created: 2026-08-20 14:40
-  updated: 2026-08-21 09:05
+  updated: 2026-08-25 22:05
   refinement_status: reframed_architectural_root
   approval: unreviewed
   tags:
@@ -10003,6 +10003,17 @@ cards:
   - hvac_override.py:186-195, 3070-3097
   - HVAC-PRESET-RESTORE-MISS-1
   - HVAC-PRESET-FLAP-1
+  audit_2026_08_25_orchestrator: 'Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset
+    (hvac_preset.py:214-219) returns False when current_preset==''manual'' (''Don''t fight manual — that''s
+    the arrester''s job'') — so once a zone is in manual the preset MANAGER will never restore it. A raw
+    set_temperature write flips preset_mode -> manual (hvac_override.py:220). NUDGE has restore paths
+    (hvac_override.py:4327 soft-nudge restore, :5525/5539 cancel_nudge restore — matches ''nudge returns
+    cleanly''). NOT YET ENUMERATED: whether solar-banking / pre-cool / the S10/S14 emit_set_temperature
+    sites (hvac.py:2445, :3149; hvac_override.py:3125, :4155) each restore a preset — the memory ''resume
+    2026-08-20'' claim of 9/13 sites never restoring needs the full per-site table. Problem is REAL (measured:
+    zone_1 manual 10.5h). VERDICT: holds up as a real problem with a confirmed self-lockout, but per the
+    card''s own gate it is NOT drop-in-buildable — the full set_temperature-site restore-path table must
+    complete first to decide guard+test vs redesign.'
 - id: HVAC-ANOMALY-BLIND-1
   title: The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the
     one that would have caught the zone-3 flap
