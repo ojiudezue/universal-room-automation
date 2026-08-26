@@ -1,0 +1,19 @@
+{
+  "format_version": "2.1",
+  "entry_id": "074",
+  "author": "ojiudezue",
+  "session_id": "claude_20260826_soak_exit_hvac_sweep",
+  "timestamp": "2026-08-26T03:10:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "Soak Exit rule — shipped_organic is not a parking lot; dispose via one-shot ground-truth query, never endless soak",
+  "summary": "The organic lane had piled to 46 cards — things ship, go shipped_organic, and ride forever with no exit, which the operator called out as effing slow. New MANDATORY rule: every organic card carries a binary discriminator and gets a bounded validate-then-DISPOSE window; validation is a one-shot query against the authoritative source (URA DB table, live entity, ground truth) AT disposition time, not a calendar watch. Met-with-residual = close the primary done + card the tail. Un-evaluable discriminator => convert to a code trip-wire or park with a trigger, not organic. Forcing sweep at every deploy + session start.",
+  "why": "An organic card with no forcing function is indistinguishable from a dropped one, so the backlog grows and the cycle feels slow. Proven same session: HVAC-GOVERNED-EXCURSION-1 (soaking since 08-23) was disposed to done in ONE ssh-sqlite3 cross-tab of ac_ramp_events (99 immediate restores, H1 met; 24 delayed-poll artifacts vs only 4 real failures) — not another week of watching. This is the sister of the pre-existing No-Soak-Watching rule, applied to disposition rather than to acceptance monitoring.",
+  "implications": "Codified in CLAUDE.md 'Soak Exit — MANDATORY' + memory feedback_soak_exit_forcing_function. Drove a live disposition sweep: HVAC-GOVERNED-EXCURSION-1 -> done (4-restore-fail tail carded); BORROW-BANKING confirmed failure-mode-a via DB (banking never ends: 2 open state rows / 0 ended events); HVAC-MANUAL confirmed self-lockout (should_change_preset returns False on manual) + banking-doesnt-restore; S14 unblocked. KEY: BORROW + HVAC-MANUAL + S14 are ONE excursion-restore family (every raw-setpoint excursion needs a bounded ending that restores a preset) — consolidated into PLANNING_hvac_excursion_restore_unified.md (Tier 3, D2-before-D3), replacing three separate cycles.",
+  "revisit_trigger": "If the organic lane grows past ~10 again without a disposition sweep, the forcing hooks aren't firing — tighten them.",
+  "supersedes": "Extends feedback_no_soak (No Soak Watching) from acceptance-monitoring to card disposition.",
+  "refs": {
+    "docs": ["CLAUDE.md (Soak Exit — MANDATORY)", "docs/planning/PLANNING_hvac_excursion_restore_unified.md"],
+    "memory": ["feedback_soak_exit_forcing_function", "feedback_no_soak"]
+  }
+}

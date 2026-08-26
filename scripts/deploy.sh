@@ -23,6 +23,7 @@ DRY_RUN=false
 CARDS=""
 NO_CARDS=false
 WHY=""
+REVISIT=""
 # Forcing function (operator-coined 2026-08-19): a real ship MUST carry a proper
 # vibememo reasoning trail (the WHY), not the thin auto-stub that just echoed the
 # release notes. --why is required whenever --cards is (i.e. a real release);
@@ -70,6 +71,20 @@ for arg in "$@"; do
       ;;
     --why=*)
       WHY="${arg#--why=}"
+      ;;
+    --revisit)
+      next_idx=$((i+1))
+      next_val="${!next_idx:-}"
+      if [[ -z "$next_val" || "$next_val" == --* ]]; then
+        echo "ERROR: --revisit requires the disposition discriminator (got: '${next_val}')." >&2
+        echo "       The OBSERVABLE that closes this ship's shipped_organic card (Soak-Exit rule):" >&2
+        echo "       an entity value / DB row / metric to QUERY, not a date to watch." >&2
+        exit 1
+      fi
+      REVISIT="$next_val"
+      ;;
+    --revisit=*)
+      REVISIT="${arg#--revisit=}"
       ;;
   esac
 done
@@ -128,6 +143,18 @@ if [[ "$NO_CARDS" == "false" ]]; then
   if [[ "${#why_trimmed}" -lt "$MIN_WHY_CHARS" ]]; then
     echo "ERROR: --why is too thin (${#why_trimmed} chars < $MIN_WHY_CHARS)." >&2
     echo "  A ship reasoning trail is a few real sentences, not a headline." >&2
+    exit 1
+  fi
+  # --revisit forcing gate (Soak-Exit synergy): a carded ship MUST state the
+  # observable that will DISPOSE its shipped_organic card, so the soak-sweep has
+  # something to query rather than a card that rides forever. vibememo_ship.py
+  # re-validates the 60-char floor; this is fail-fast.
+  revisit_trimmed="$(printf '%s' "$REVISIT" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "$revisit_trimmed" ]]; then
+    echo "ERROR: deploy.sh requires --revisit \"<disposition discriminator>\" (Soak-Exit gate)." >&2
+    echo "  Name the OBSERVABLE that closes this ship's shipped_organic card — an entity value," >&2
+    echo "  a DB row, a metric to QUERY. Not a date. e.g.:" >&2
+    echo "  --revisit \"sensor.X attr drain_floor==15 on a class-disagreement night at ~02:00\"" >&2
     exit 1
   fi
 fi
@@ -269,6 +296,7 @@ if [[ -n "$CARDS" ]]; then
          --summary "$SUMMARY" \
          --notes "$NOTES" \
          --reasoning "$WHY" \
+         --revisit-trigger "$REVISIT" \
          --cards "$CARDS" \
          --repo-root "$rehearsal_dir"; then
       echo "  [dry-run] vibememo entry (would-be write):"
@@ -291,6 +319,7 @@ if [[ -n "$CARDS" ]]; then
       --summary "$SUMMARY" \
       --notes "$NOTES" \
       --reasoning "$WHY" \
+         --revisit-trigger "$REVISIT" \
       --cards "$CARDS"
     vibememo_rc=$?
     if [ "$kanban_rc" -ne 0 ]; then
