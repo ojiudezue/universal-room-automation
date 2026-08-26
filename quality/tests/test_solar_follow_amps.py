@@ -820,22 +820,22 @@ def test_cf11_parked_w_includes_phases_factor():
 
     Neuter site: `* SOLAR_FOLLOW_PHASES` in parked_w line.
     """
-    import sys
     h = _Harness(active=("garage_a", "garage_b"), grid_w=-1000.0,
                  a_charging=True, b_charging=False,
                  a_current=48, b_current=48, a_power=5000, b_power=0)
-    # Bind the patch to the SAME module instance the controller reads, not a
-    # freshly-imported alias — robust to sys.modules pollution (SUITE-HYGIENE-1),
-    # which otherwise patches a different copy and the tick reads PHASES=1.
-    ep = sys.modules[type(h.sf).__module__]
-    orig_phases = ep.SOLAR_FOLLOW_PHASES
+    # Patch the EXACT globals dict the running tick reads, not sys.modules[name]:
+    # under sys.modules pollution (SUITE-HYGIENE-1) the controller's class methods
+    # keep reading their ORIGINAL module globals while sys.modules[name] points at a
+    # reloaded copy — so patch via the method's own __globals__ (bulletproof).
+    tick_globals = type(h.sf)._tick.__globals__
+    orig_phases = tick_globals["SOLAR_FOLLOW_PHASES"]
     try:
-        ep.SOLAR_FOLLOW_PHASES = 2
+        tick_globals["SOLAR_FOLLOW_PHASES"] = 2
         h.sf._original_amps["garage_a"] = 48.0
         _run(h.sf._tick())
         assert h.written("garage_a")[-1] == SOLAR_FOLLOW_MIN_AMPS, h.written("garage_a")
     finally:
-        ep.SOLAR_FOLLOW_PHASES = orig_phases
+        tick_globals["SOLAR_FOLLOW_PHASES"] = orig_phases
 
 
 def test_cf12_self_prune_cancels_verify_handles():
