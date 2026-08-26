@@ -32,14 +32,15 @@ cards:
   thread: energy
   status: pre_planning
   created: 2026-08-24 22:30
-  updated: 2026-08-24 22:30
+  updated: 2026-08-26 01:50
   refinement_status: refined
-  approval: unreviewed
+  approval: implied
+  approved_by: 'operator 2026-08-26 (AskUserQuestion: oscillator resolution = "suppressed-membership")
+    — design gate resolved; mechanism (b) chosen. Build approval still pending the written+reviewed plan.'
   tags:
   - tier-3
   - split-from-cycle
   - oscillator-hazard
-  - design-blocked
   problem_solution:
   - 'Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery
     drops below its threshold or the day''s remaining solar forecast runs out. If the car finishes charging
@@ -100,9 +101,20 @@ cards:
   - SOLAR_STOP_IDLE_S (rung 1) — ambiguous signal (thermal throttle, cell balancing run 5-15 min), act
     slow
   - SOLAR_MIN_ON_S (rung 1) — minimum session age before any stop
-  next: Decide the oscillator resolution FIRST — (a) claim-leg cooldown, (b) suppressed-membership, or
-    (c) no per-EVSE stops at all — before any further design. Then re-plan from the inherited findings
-    above.
+  refinement:
+  - 'Founding oscillator gate (stop-at-N re-claim-at-N+1) → operator chose (b) SUPPRESSED-MEMBERSHIP:
+    keep the bay in _excess_solar_active but mark it suppressed so the claim leg does not re-arm it.
+    The card itself flagged (b)''s cost — "switch off while membership says active is incoherent for
+    every other consumer of that set" — so the PLAN''s central task is to define, per consumer of
+    _excess_solar_active, what suppressed means (skip amp-capture, skip re-command, keep the claim,
+    surface a stop reason) and prove no consumer mis-reads a suppressed bay as actively charging.'
+  next: 'Write the Tier-3 plan (ura-planner) adopting (b) suppressed-membership: enumerate every consumer
+    of _excess_solar_active and specify suppressed-bay semantics for each; fold in the 6 inherited review
+    findings (5 discard sites incl. prune-pass, 4 add sites incl. DB restore, stamped first-observation
+    dicts not last_changed, missing-stamp=age-0, INV-STOP-2 scoped to new paths only, golden-frozen
+    owner registry), the SOC hysteresis pair (defensive min + warning), and the cessation ledger
+    (closed vocab on ev_charging_status). Then 2 framing-disjoint plan reviews (completeness +
+    build-prediction) before build dispatch.'
   refs:
   - docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from)
   - energy_pool.py:1318-1702 (determine_excess_solar_actions)

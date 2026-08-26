@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T01:32:52-05:00_ - _Data commit: `652eca6d1102`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T01:41:27-05:00_ - _Data commit: `8043bfd26063`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -382,14 +382,14 @@ _created 2026-08-25 22:20 · initial_
 _idea being decomposed_
 
 ### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
-thread: **energy** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-24 22:30 · refined_
+thread: **energy** - status: **pre_planning** - approval: **implied**
+_created 2026-08-24 22:30 · updated 2026-08-26 01:50 · refined ×1_
 - **Problem / Solution:**
   - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
 - **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
 - **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
-- **Next:** Decide the oscillator resolution FIRST — (a) claim-leg cooldown, (b) suppressed-membership, or (c) no per-EVSE stops at all — before any further design. Then re-plan from the inherited findings above.
-- **Tags:** tier-3, split-from-cycle, oscillator-hazard, design-blocked
+- **Next:** Write the Tier-3 plan (ura-planner) adopting (b) suppressed-membership: enumerate every consumer of _excess_solar_active and specify suppressed-bay semantics for each; fold in the 6 inherited review findings (5 discard sites incl. prune-...
+- **Tags:** tier-3, split-from-cycle, oscillator-hazard
 - **Refs:** docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
 - **Forensic keys (2):**
   - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
