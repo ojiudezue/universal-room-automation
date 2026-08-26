@@ -417,7 +417,7 @@ cards:
     findings. Not just memory." Applied here: memory was the least current of the three sources, and the
     card body plus the code both outrank it.'
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.90.1
   approval: explicit
   approved_by: 'operator 2026-08-20 (chat: ''Card and fix. Approved.'')'
@@ -701,7 +701,7 @@ cards:
       earlier blocked_by was wrong — DP mirroring the emitter is correct relative to actual battery behavior
       regardless of the staleness.'
   created: 2026-08-20 00:20
-  updated: 2026-08-24 17:30
+  updated: 2026-08-25 21:32
   DISPATCH_2026_08_24: 'Plan re-reviewed by orchestrator this session (independent grep of the five R2
     sites, compose_release_floor signature, off-peak gate coverage, and the :4555 MUST_START containment
     hazard — all confirmed source-accurate, zero drift). Operator approved the fan-out. Dispatched to
@@ -951,6 +951,9 @@ cards:
     :4511-4524)
   - custom_components/universal_room_automation/number.py (:1420-1482 setter)
   - project_ev_drain_precedence_cycle (memory)
+  closed_note: 'ORGANIC-VALIDATED 2026-08-25 21:26-31 CDT: live DP exercise showed latch at current SOC(28)->re-eval->composed
+    floor 15 written to hardware (cloud_oracle=15.0), never the static reserve 10. README_v5.90.1 organic
+    table. done.'
 - id: BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
   thread: energy
   status: inbox
