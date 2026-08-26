@@ -2580,11 +2580,15 @@ class BatteryStrategy:
         Idempotent within a chunk: the caller (`_get_arbitrage_phase`)
         only invokes this once per chunk via `_chunk_recheck_done`.
         """
-        target_class = self._classify_target_day(now)
+        target_class, target_offset = self._resolve_target_day(now)
         if target_class in ("poor", "very_poor"):
             return True
         if self._multi_day_horizon_enabled:
-            d2_class = self.classify_solar_day_n(2)
+            # ARBITRAGE-GATE-D2-OFFBYONE-1: derive D+1-of-target from the
+            # resolver offset (matches drain fix DRAIN-TARGET-DAY-STALENESS-1
+            # at line ~5453). Hardcoded n=2 skipped tomorrow when the target
+            # day was TODAY (offset 0, cross-midnight window).
+            d2_class = self.classify_solar_day_n(target_offset + 1)
             if d2_class in ("poor", "very_poor"):
                 return True
         return False
@@ -3004,7 +3008,13 @@ class BatteryStrategy:
         if target_day_class in ("poor", "very_poor"):
             forecast_gate_open = True
         elif self._multi_day_horizon_enabled:
-            d2_class = self.classify_solar_day_n(2)
+            # ARBITRAGE-GATE-D2-OFFBYONE-1: pair the target day (which caller
+            # resolved via _classify_target_day → _resolve_target_day) with
+            # its next-day neighbor, not a fixed n=2. Mirrors DRAIN-TARGET-
+            # DAY-STALENESS-1 (line ~5453). In the pre-midnight path
+            # target_offset==1, so target_offset+1==2 — byte-identical.
+            _, target_offset = self._resolve_target_day(now)
+            d2_class = self.classify_solar_day_n(target_offset + 1)
             if d2_class in ("poor", "very_poor"):
                 forecast_gate_open = True
         if not forecast_gate_open:
@@ -6084,7 +6094,9 @@ class BatteryStrategy:
             _LOGGER.debug("D2 evaluate failed (swallowed)", exc_info=True)
         tomorrow_class = self.classify_tomorrow_solar()
         now = dt_util.now()
-        target_day_class = self._classify_target_day(now)
+        # ARBITRAGE-GATE-D2-OFFBYONE-1: capture offset so the displayed
+        # d2_class matches the target-day the decision paths use.
+        target_day_class, _target_day_offset = self._resolve_target_day(now)
 
         # v4.5.0 D6: timing attributes
         next_transition_iso: str | None = None
@@ -6102,8 +6114,9 @@ class BatteryStrategy:
                 charge_window_opens_at_iso = opens.isoformat()
 
         # v4.5.0 D6: forecast outlook for cross-day reasoning
+        # ARBITRAGE-GATE-D2-OFFBYONE-1: derive from target offset (see above).
         d2_class = (
-            self.classify_solar_day_n(2)
+            self.classify_solar_day_n(_target_day_offset + 1)
             if self._multi_day_horizon_enabled
             else "unknown"
         )

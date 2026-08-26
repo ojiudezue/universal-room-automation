@@ -8863,7 +8863,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def set_offpeak_drain(self, quality: str, value: int) -> None:
         """Update a single off-peak drain target at runtime."""
-        valid = {"excellent", "good", "moderate", "poor"}
+        valid = {"excellent", "good", "moderate", "poor", "very_poor"}
         if quality not in valid:
             _LOGGER.warning("Invalid drain quality '%s' — must be one of %s", quality, valid)
             return

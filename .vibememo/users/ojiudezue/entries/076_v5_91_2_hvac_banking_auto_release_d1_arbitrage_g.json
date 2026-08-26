@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "076",
+  "author": "ojiudezue",
+  "session_id": "claude_20260826_153822_ship_v5_91_2",
+  "timestamp": "2026-08-26T15:38:22Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.91.2 shipped: HVAC banking auto-release (D1) + arbitrage gate day-pairing off-by-one fix + DP very_poor drain validator",
+  "summary": "HVAC banking auto-release (D1) + arbitrage gate day-pairing off-by-one fix + DP very_poor drain validator",
+  "why": "Three independent fixes ready at the same time, disjoint surfaces (HVAC excursion vs energy_battery arbitrage vs energy drain accepted-set), batched into one deploy to avoid three restarts. HVAC-D1 is the descoped sound half of the failed unified excursion cycle (D2/D3/D4 parked after 3 CRITICALs); arbitrage mirrors the already-live-validated drain day-pairing fix; dp-verypoor unblocks the 5th drain-quality slider. All passed review (arbitrage 3 framing-disjoint + orchestrator mutation verify).",
+  "implications": "Shipped HVAC-EXCURSION-D1-BANKING-RELEASE-1, ARBITRAGE-GATE-D2-OFFBYONE-1, DP-VERYPOOR-DRAIN-VALIDATOR-1 at v5.91.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.91.2.md (Live criteria).",
+  "revisit_trigger": "HVAC-D1: hvac_excursion_events shows ended banking rows (trigger lease_expiry/stale_boot_release), not just open. Arbitrage: battery_strategy d2_class at offset 0 = tomorrow's class. DP: drain_targets includes very_poor. Dispose each when observed.",
+  "refs": {
+    "cards": [
+      "HVAC-EXCURSION-D1-BANKING-RELEASE-1",
+      "ARBITRAGE-GATE-D2-OFFBYONE-1",
+      "DP-VERYPOOR-DRAIN-VALIDATOR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.91.2.md"
+    ],
+    "release_notes": "Batched 3 disjoint-surface fixes: (1) periodic auto-release sweep + stale-boot banking release so banked thermostats always hand back (was 2 open/0 ended); (2) arbitrage gate pairs the peak-anchored target day with offset+1 not hardcoded n=2 (skipped tomorrow at offset 0); (3) accept very_poor in the off-peak drain accepted-quality set."
+  }
+}

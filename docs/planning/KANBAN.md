@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T00:43:56-05:00_ - _Data commit: `ec951cdaf3d9`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-26T10:31:56-05:00_ - _Data commit: `c254e87db500`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-08-26T00:43:56-05:00_ - _Data commit: `ec951cdaf3d9`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 26 |
+| 📥 Inbox | 28 |
 | 🔬 Investigating | 6 |
-| 🧭 Pre-planning | 12 |
-| 📝 Planned | 13 |
+| 🧭 Pre-planning | 11 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 45 |
-| ⏸️ Waiting on operator | 4 |
+| 🔍 Review | 3 |
+| 🚀 Shipped (organic open) | 47 |
+| ⏸️ Waiting on operator | 5 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 16 |
+| 🅿️ Parked | 17 |
 | ✅ Done | 47 |
 
-## 📥 Inbox (26)
+## 📥 Inbox (28)
 _raw capture_
 
 ### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
@@ -185,7 +185,8 @@ _created 2026-08-18 02:30 · initial_
 thread: **platform** - status: **inbox**
 _created 2026-08-18 03:00 · updated 2026-08-19 07:45 · initial_
 - **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `INSTANCE_2026_08_26_WALLCLOCK_ALT_MECHANISM`: FOURTH sighting + a MECHANISM CORRECTION from the HVAC-excursion Tier-3 reviewer C. The SAME two test_evse_drain_precedence_session_b2c2_fixup.py tests (+ 4 in test_dp_drain_target_value_stamp.py) go RED near 02:00 LOCAL wall-clock and G...
   - `INSTANCE_2026_08_22_EVSE_DP_CARRIER`: THIRD INSTANCE. Two tests in test_evse_drain_precedence_session_b2c2_fixup.py — test_transition_entry_pauses_actual_configured_evse_id and test_transition_entry_pauses_only_charging_evse_ids_multi_evse — FAIL in the full suite and PASS i...
   - `INSTANCE_2026_08_21_GATE_BLOCKER_FIXED`: SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not jus...
   - `INSTANCE_2026_08_21_EXCURSION_CYCLE`: CONCRETE MEASURED INSTANCE, found during the HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority). SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion test files produces...
@@ -290,6 +291,26 @@ _created 2026-08-20 14:15 · initial_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
+### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-26 03:10 · initial_
+- **Problem / Solution:**
+  - Problem: at ~00:05 rollover with the today Solcast entity unavailable and no cached class, _resolve_target_day returns (classify_tomorrow_solar(), offset 0) — so the target class IS tomorrow's, and the multi-day leg then reads classify_s...
+- **Why:** Found by arbitrage review B (B6). Shared with the DRAIN path (energy_battery.py:1765/:5463) which has the IDENTICAL degeneracy — fixing the gate alone would reintroduce drain/gate divergence, so fix BOTH together or neither.
+- **Next:** Reproduce the ~00:05 today-unknown case (probe the resolver); decide broaden-vs-record; fix drain + gate together. Tier 2-DB (shared resolver, both decision paths).
+- **Tags:** no-fabrication-verify, producer-consumer
+- **Refs:** energy_battery.py:2536-2538 (_resolve_target_day today-unknown fallback); energy_battery.py:1765 (drain), :3017 (gate)
+
+### `ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1` - The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-26 03:10 · initial_
+- **Problem / Solution:**
+  - Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1, so at offset 0 the value is TOMORROW's class, not calendar day-after-tomorrow. No in-repo consumer reads it (display-only), but it is ope...
+- **Why:** Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
+- **Next:** Add d2_offset attr to get_status alongside d2_class, or document the semantics in the EC manual. Tier 1 (additive display attr).
+- **Tags:** no-fabrication-verify
+- **Refs:** energy_battery.py:6119 (get_status d2_class)
+
 ## 🔬 Investigating (6)
 _measuring; truth not yet known_
 
@@ -378,22 +399,8 @@ _created 2026-08-25 22:20 · initial_
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
 
-## 🧭 Pre-planning (12)
+## 🧭 Pre-planning (11)
 _idea being decomposed_
-
-### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
-thread: **energy** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-24 22:30 · refined_
-- **Problem / Solution:**
-  - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
-- **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
-- **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
-- **Next:** Decide the oscillator resolution FIRST — (a) claim-leg cooldown, (b) suppressed-membership, or (c) no per-EVSE stops at all — before any further design. Then re-plan from the inherited findings above.
-- **Tags:** tier-3, split-from-cycle, oscillator-hazard, design-blocked
-- **Refs:** docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
-- **Forensic keys (2):**
-  - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
-  - `REVIEW_FINDINGS_INHERITED`: Carried forward from the three Rev-20/21 plan reviews so they are not re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-w...
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -525,7 +532,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (13)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
@@ -638,71 +645,20 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · initial_
-- **Problem / Solution:**
-  - Problem: the four "off-peak drain target" sliders let the operator tune how deep URA will drain the home battery to charge the EV, one per solar-forecast quality. But there are FIVE qualities in the code (excellent/good/moderate/poor/ver...
-- **Origin:** 2026-08-24 - DP drain-target plan §5 flagged this pre-existing gap and said it needs a card
-- **Why:** Pre-existing, but the DP drain-target cycle (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is what makes the very_poor target LOAD-BEARING for DP — before the fix DP never read the composed target at all. energy.py:8647 validates quality against {exc...
-- **Next:** Add very_poor to the accepted-qualities set at energy.py:8647; test that setting the very_poor off-peak drain Number live-applies. Tier 1 (single validator surface).
-- **Tags:** no-fabrication-verify
-- **Parsimony:** [BUILD] A legal forecast class (very_poor) yields a drain target no live control can adjust.
-- **Refs:** docs/planning/PLANNING_dp_drain_target_mis_sourcing.md (§5); energy.py:8647
-- **Forensic keys (1):**
-  - `links`: sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
-
-### `DRAIN-TARGET-DAY-STALENESS-1` - Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far
-thread: **energy** - status: **planned** - approval: **explicit**
-_created 2026-08-24 18:10 · initial_
-- **Problem / Solution:**
-  - Problem: the off-peak battery drain target (how deep URA will drain the battery overnight, chosen from the next daylight day's solar forecast) is keyed to CALENDAR tomorrow. The off-peak window crosses midnight (summer 21:00->14:00, wint...
-- **Origin:** 2026-08-24 - split out of the DP drain-target cycle; operator asked which day the drain target reflects and when it refreshes
-- **Why:** Surfaced while resolving the DP drain-target source. The DP cycle deliberately consumes current_offpeak_drain_target() UNCHANGED (to match the emitter exactly, avoiding divergence); this staleness is PRE-EXISTING in the strategy's own of...
-- **Next:** Scope the plan: thread now into current_offpeak_drain_target(), swap to _classify_target_day at the accessor + the two emitter drain legs, add a cross-midnight test (02:00 off-peak with next peak at 14:00 today -> classifies TODAY not to...
-- **Tags:** no-fabrication-verify, institutional-context
-- **Parsimony:** [BUILD] After local midnight in a cross-midnight off-peak window, the drain target forecasts a day too far.
-- **Refs:** energy_battery.py:1738; energy_battery.py:2395; energy_battery.py:5111; docs/planning/PLANNING_dp_drain_target_mis_sourcing.md
-- **Forensic keys (10):**
-  - `forensic_what_does_NOT_use_the_fix`: current_offpeak_drain_target() at energy_battery.py:1738 — calls self.classify_tomorrow_solar() (= solcast_tomorrow, calendar tomorrow). This is the DP release-floor accessor AND is consumed by compose_release_floor (:296), current_park_...
-  - `forensic_what_DOES_use_the_fix_precedent`: _classify_target_day(now) at energy_battery.py:2395 — peak-anchored: reads get_next_high_rate_transition(now), offset<=0 -> classify_solar_day() (today), offset==1 -> classify_tomorrow_solar() (tomorrow), offset>=2 -> classify_solar_day_...
-  - `fix`: Replace classify_tomorrow_solar() with _classify_target_day(now) for the DRAIN target selection in BOTH current_offpeak_drain_target() (:1738) and the off-peak emitter drain-class computation (:5111 / :5909 / the drain_class_for_target l...
-  - `PLAN_REVIEW_2026_08_24_FIX_PLAN_FIRST_BLAST_RADIUS`: Tier-3 plan review: FIX-PLAN-FIRST. BIG REFRAME (CRITICAL-1): the "midnight" name is wrong — the TOU table (energy_const.py:15-64) has DAYTIME off-peak (summer 0-14+21-24, shoulder 0-17+21-24, winter 0-5+9-17+21-24), so offset==0 (target...
-  - `ORCHESTRATOR_CONFIRMED_AND_RIGHTSIZED_2026_08_24`: Operator asked me to CONFIRM the offset-0 claim myself using the energy system note, not the reviewer. DONE via ENERGY_COORDINATOR_MANUAL §2.1/§2.2 + the TOU table (energy_const.py:15-64) read directly: off-peak DOES include daytime (sum...
-  - `REREVIEW_2026_08_24_4_EDITS_THEN_BUILD`: Focused re-review: FIX-PLAN-FIRST but only 4 surgical text edits, no re-architecture; all 5 prior flags RESOLVED (offset PROVEN in {0,1} via the TOU walk; TOU hours confirmed; D3 trust-site list COMPLETE — only 5 _get_offpeak_drain_targe...
-  - `PLAN_WRITTEN_2026_08_24`: Plan written to docs/planning/PLANNING_offpeak_drain_target_day_staleness.md (pure additive helper _resolve_target_day + one accessor signature change with default now=None; no new CONF_/sensor/knob). Tier-3 plan review DISPATCHED (tees ...
-  - `BUILD_PAUSED_PLAN_ONLY_2026_08_24`: Operator: "pause midnight. Just write the plan and review it and tee it up." So: ura-planner writes the Tier-3 plan (reserve-affecting; the subtle part is the multi-day max(d1,d2) re-pairing once the anchor moves from calendar-tomorrow t...
-  - `links`: related: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
-  - `PROBE_RESULT_2026_08_24_BITES`: Probe done (536 days of long-term solcast statistics 2025-03-07..2026-08-24; representative = forecast value nearest 06:00 when post-midnight off-peak decisions run). VERDICT: BITES OFTEN + MATERIALLY. class(D) != class(D+1) on 37.4% of ...
-
 ### `ARBITRAGE-GATE-D2-OFFBYONE-1` - Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing
-thread: **energy** - status: **planned** - approval: **unreviewed**
+thread: **energy** - status: **planned** - approval: **approved**
 _created 2026-08-24 19:20 · initial_
 - **Problem / Solution:**
   - Problem: the arbitrage gate decides whether to grid-charge for the coming peak using the correct (peak-anchored) target day for D+1 but a HARDCODED "2 days ahead" for its second day — so when the target day is today (offset 0), it compar...
 - **Origin:** 2026-08-24 - found by the midnight-plan review (MED-2) as an analogous off-by-one; declared non-goal of that cycle
 - **Why:** Declared out-of-scope for the drain-staleness cycle to keep it surgical, but it is a real analogous defect a framing-D reviewer would otherwise flag mid-cycle. Card it now.
-- **Next:** Scope after DRAIN-TARGET-DAY-STALENESS-1 lands; mirror its offset+1 derivation. Tier 2-DB (arbitrage decision).
+- **Next:** Scope + plan (mirror the drain fix offset+1 derivation at energy_battery.py:2454/:2871), 1 plan review, build, 3 reviews, verify, deploy WITH dp-verypoor. Tier 2-DB.
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] At offset 0 the arbitrage gate pairs today with D+2 and skips the actual next day.
-- **Refs:** energy_battery.py:2454; energy_battery.py:2871; docs/planning/PLANNING_offpeak_drain_target_day_staleness.md
-- **Forensic keys (1):**
-  - `links`: related: DRAIN-TARGET-DAY-STALENESS-1
-
-### `DP-BATTERY-AUTHORITATIVE-TELEMETRY-1` - Surface DP + per-EVSE decision state as always-on authoritative telemetry (not disabled sensor / prose) — validation should read truth, not reconstruct it
-thread: **energy** - status: **planned** - approval: **implied**
-_created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
-- **Problem / Solution:**
-  - Problem: validating DP required reading pause_reason_human prose ('grid import cap', 'off-peak proactive turn-on') and next_action_estimate, which can be inaccurate or lag the real decision — the orchestrator mis-read 'grid import cap' a...
-  - Solution: expose the DP decision as first-class, non-prose telemetry — DP state (HOLD/eval/transitioned), the latched SOC, and the drain floor it settled on — so validation reads truth, not reconstructed prose. Consider enabling/surfacin...
-- **Origin:** 2026-08-25 - operator: 'terrible we have to rely on sensors vs better telemetry. They could be lying or inaccurate'
-- **Why:** Diagnosing a money/safety decision path off display strings that can lie is a verification hazard; the operator wants ground-truth telemetry.
-- **Next:** Plan: inventory the authoritative signals (command_trail, DP carrier to_attrs, solar_follow_*) vs what each disabled/prose surface hides; spec the always-on DP attrs + the per-EVSE structured state; sequence after midnight (or fold #2 in...
-- **Tags:** observability, no-fabrication-verify
-- **Depends on:** DRAIN-TARGET-DAY-STALENESS-1
+- **Refs:** energy_battery.py:2454; energy_battery.py:2871; docs/planning/PLANNING_offpeak_drain_target_day_staleness.md; {'rides-with': 'DP-VERYPOOR-DRAIN-VALIDATOR-1'}
 - **Forensic keys (2):**
-  - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
-  - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
+  - `links`: related: DRAIN-TARGET-DAY-STALENESS-1
+  - `GO_2026_08_26`: Operator: "build. Finish." Prereq DRAIN-TARGET-DAY-STALENESS-1 shipped v5.91.1. Full Tier-2-DB cycle: scope -> 1 adversarial plan review -> build -> 3 framing-disjoint reviews -> orchestrator verify -> deploy. DP-VERYPOOR-DRAIN-VALIDATOR...
 
 ### `FAN-TRANSITION-COINCIDENCE-GATE-1` - mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route to the existing recheck ladder instead of granting occupancy
 thread: **presence** - status: **planned** - approval: **implied**
@@ -731,8 +687,21 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (3)
 _under review_
+
+### `HVAC-EXCURSION-D1-BANKING-RELEASE-1` - HVAC banking excursions start and never end (2 open / 0 ended) — add a periodic auto-release sweep + stale-boot banking release so a borrowed thermostat always gets handed back
+thread: **hvac** - status: **review** - approval: **approved**
+_created 2026-08-26 03:20 · refined_
+- **Problem / Solution:**
+  - Problem: when HVAC banks a thermostat (pre-cool / pre-heat borrow), the borrow could be left open forever — measured 2 banking rows open with 0 ever ended. A stuck-open borrow means the zone keeps holding a setpoint URA thinks it already...
+- **Why:** The sound, well-tested part (D1) of the parked HVAC-EXCURSION-RESTORE-UNIFIED-1 cycle. Descoped and shipped alone (operator 2026-08-26) after D2/D3/D4 failed 4 Tier-3 reviews with 3 CRITICALs.
+- **Next:** Ships v5.91.2 (batched w/ arbitrage + dp-verypoor). Organic: confirm banking rows now CLOSE (hvac_excursion_events shows ended rows with trigger lease_expiry/stale_boot_release, not just open).
+- **Tags:** descope, tier-2, wire-in-anchor
+- **Refs:** docs/planning/PLANNING_hvac_excursion_restore_unified.md (D1); docs/reviews/code-review/hvac_excursion_restore_unified.md; feature/hvac-excursion-d1-only @ 48b06eaa7
+- **Forensic keys (2):**
+  - `DESCOPE_2026_08_26`: Built clean on feature/hvac-excursion-d1-only off develop (NOT off the failed unified build). Reviewed SHIP (1 read-only pass); 2 in-cycle fix-ups (boot-vs-sweep ordering to kill a bounded boot double-emit; restore_ok :no_entity discrimi...
+  - `KNOWN_GAP`: With D3 parked, a pre_preset==manual token closes with restore_ok=None and the zone stays manual — the PRE-EXISTING hazard the unified cycle was chartered to solve. D1 does NOT introduce new manual-stranding (strict improvement on develo...
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**
@@ -756,7 +725,23 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (45)
+### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
+thread: **energy** - status: **review** - approval: **implied**
+_created 2026-08-24 16:45 · initial_
+- **Problem / Solution:**
+  - Problem: the four "off-peak drain target" sliders let the operator tune how deep URA will drain the home battery to charge the EV, one per solar-forecast quality. But there are FIVE qualities in the code (excellent/good/moderate/poor/ver...
+- **Origin:** 2026-08-24 - DP drain-target plan §5 flagged this pre-existing gap and said it needs a card
+- **Why:** Pre-existing, but the DP drain-target cycle (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is what makes the very_poor target LOAD-BEARING for DP — before the fix DP never read the composed target at all. energy.py:8647 validates quality against {exc...
+- **Next:** Ride the arbitrage D2 ship: rebase/verify feature/dp-verypoor-drain-validator on current develop, confirm the 1-line + test still green, merge alongside arbitrage, deploy together. Then card -> done.
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [BUILD] A legal forecast class (very_poor) yields a drain target no live control can adjust.
+- **Refs:** docs/planning/PLANNING_dp_drain_target_mis_sourcing.md (§5); energy.py:8647; feature/dp-verypoor-drain-validator @ 87e047ac
+- **Forensic keys (3):**
+  - `links`: sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
+  - `BUILT_2026_08_25`: BUILT on branch feature/dp-verypoor-drain-validator @ 87e047ac (off develop). Surgical: energy.py 1-line (add very_poor to the accepted-qualities set at set_offpeak_drain) + 75-line test test_dp_verypoor_drain_validator.py. Reported 114 ...
+  - `RIDE_ALONG_2026_08_26`: Operator confirmed it must not drop. RIDING the ARBITRAGE-GATE-D2-OFFBYONE-1 ship (same energy.py surface) — merges + deploys together. Re-verify clean merge + tests at deploy.
+
+## 🚀 Shipped (organic open) (47)
 _live, awaiting proof_
 
 ### `EVSE-SOLAR-FOLLOW-AMPS-1` - Charge current is binary (48A or off) so solar charging yo-yos the house battery: add excess-following current modulation on the two L2 EVSEs
@@ -1479,8 +1464,62 @@ _created 2026-08-24 17:10 · initial_
 - **Forensic keys (1):**
   - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
 
-## ⏸️ Waiting on operator (4)
+### `DRAIN-TARGET-DAY-STALENESS-1` - Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far
+thread: **energy** - status: **shipped_organic** - approval: **explicit**
+_created 2026-08-24 18:10 · updated 2026-08-26 01:45 · initial_
+- **Problem / Solution:**
+  - Problem: the off-peak battery drain target (how deep URA will drain the battery overnight, chosen from the next daylight day's solar forecast) is keyed to CALENDAR tomorrow. The off-peak window crosses midnight (summer 21:00->14:00, wint...
+- **Origin:** 2026-08-24 - split out of the DP drain-target cycle; operator asked which day the drain target reflects and when it refreshes
+- **Why:** Surfaced while resolving the DP drain-target source. The DP cycle deliberately consumes current_offpeak_drain_target() UNCHANGED (to match the emitter exactly, avoiding divergence); this staleness is PRE-EXISTING in the strategy's own of...
+- **Next:** Organic close-out: on the next cross-midnight class-disagreement night with arbitrage_phase in {n/a,wait} + hold_depth==allow_discharge, confirm reason names TODAY class and current_offpeak_drain_target matches; then card -> done. Core f...
+- **Tags:** no-fabrication-verify, institutional-context
+- **Parsimony:** [BUILD] After local midnight in a cross-midnight off-peak window, the drain target forecasts a day too far.
+- **Refs:** energy_battery.py:1738; energy_battery.py:2395; energy_battery.py:5111; docs/planning/PLANNING_dp_drain_target_mis_sourcing.md; docs/readmes/README_v5.91.1.md
+- **Forensic keys (11):**
+  - `forensic_what_does_NOT_use_the_fix`: current_offpeak_drain_target() at energy_battery.py:1738 — calls self.classify_tomorrow_solar() (= solcast_tomorrow, calendar tomorrow). This is the DP release-floor accessor AND is consumed by compose_release_floor (:296), current_park_...
+  - `forensic_what_DOES_use_the_fix_precedent`: _classify_target_day(now) at energy_battery.py:2395 — peak-anchored: reads get_next_high_rate_transition(now), offset<=0 -> classify_solar_day() (today), offset==1 -> classify_tomorrow_solar() (tomorrow), offset>=2 -> classify_solar_day_...
+  - `fix`: Replace classify_tomorrow_solar() with _classify_target_day(now) for the DRAIN target selection in BOTH current_offpeak_drain_target() (:1738) and the off-peak emitter drain-class computation (:5111 / :5909 / the drain_class_for_target l...
+  - `PLAN_REVIEW_2026_08_24_FIX_PLAN_FIRST_BLAST_RADIUS`: Tier-3 plan review: FIX-PLAN-FIRST. BIG REFRAME (CRITICAL-1): the "midnight" name is wrong — the TOU table (energy_const.py:15-64) has DAYTIME off-peak (summer 0-14+21-24, shoulder 0-17+21-24, winter 0-5+9-17+21-24), so offset==0 (target...
+  - `ORCHESTRATOR_CONFIRMED_AND_RIGHTSIZED_2026_08_24`: Operator asked me to CONFIRM the offset-0 claim myself using the energy system note, not the reviewer. DONE via ENERGY_COORDINATOR_MANUAL §2.1/§2.2 + the TOU table (energy_const.py:15-64) read directly: off-peak DOES include daytime (sum...
+  - `REREVIEW_2026_08_24_4_EDITS_THEN_BUILD`: Focused re-review: FIX-PLAN-FIRST but only 4 surgical text edits, no re-architecture; all 5 prior flags RESOLVED (offset PROVEN in {0,1} via the TOU walk; TOU hours confirmed; D3 trust-site list COMPLETE — only 5 _get_offpeak_drain_targe...
+  - `PLAN_WRITTEN_2026_08_24`: Plan written to docs/planning/PLANNING_offpeak_drain_target_day_staleness.md (pure additive helper _resolve_target_day + one accessor signature change with default now=None; no new CONF_/sensor/knob). Tier-3 plan review DISPATCHED (tees ...
+  - `BUILD_PAUSED_PLAN_ONLY_2026_08_24`: Operator: "pause midnight. Just write the plan and review it and tee it up." So: ura-planner writes the Tier-3 plan (reserve-affecting; the subtle part is the multi-day max(d1,d2) re-pairing once the anchor moves from calendar-tomorrow t...
+  - `links`: related: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
+  - `PROBE_RESULT_2026_08_24_BITES`: Probe done (536 days of long-term solcast statistics 2025-03-07..2026-08-24; representative = forecast value nearest 06:00 when post-midnight off-peak decisions run). VERDICT: BITES OFTEN + MATERIALLY. class(D) != class(D+1) on 37.4% of ...
+  - `VALIDATED_2026_08_26`: SHIPPED v5.91.1, live-validated post-restart at 01:39 CDT (a post-midnight, class-disagreement read). target_day_source=solcast_today + target_day_class=excellent while tomorrow_solar_class=good — anchors to TODAY, not calendar-tomorrow ...
+
+### `DP-BATTERY-AUTHORITATIVE-TELEMETRY-1` - Surface DP + per-EVSE decision state as always-on authoritative telemetry (not disabled sensor / prose) — validation should read truth, not reconstruct it
+thread: **energy** - status: **shipped_organic** - approval: **implied**
+_created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
+- **Problem / Solution:**
+  - Problem: validating DP required reading pause_reason_human prose ('grid import cap', 'off-peak proactive turn-on') and next_action_estimate, which can be inaccurate or lag the real decision — the orchestrator mis-read 'grid import cap' a...
+  - Solution: expose the DP decision as first-class, non-prose telemetry — DP state (HOLD/eval/transitioned), the latched SOC, and the drain floor it settled on — so validation reads truth, not reconstructed prose. Consider enabling/surfacin...
+- **Origin:** 2026-08-25 - operator: 'terrible we have to rely on sensors vs better telemetry. They could be lying or inaccurate'
+- **Why:** Diagnosing a money/safety decision path off display strings that can lie is a verification hazard; the operator wants ground-truth telemetry.
+- **Next:** Plan: inventory the authoritative signals (command_trail, DP carrier to_attrs, solar_follow_*) vs what each disabled/prose surface hides; spec the always-on DP attrs + the per-EVSE structured state; sequence after midnight (or fold #2 in...
+- **Tags:** observability, no-fabrication-verify
+- **Depends on:** DRAIN-TARGET-DAY-STALENESS-1
+- **Forensic keys (2):**
+  - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
+  - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
+
+## ⏸️ Waiting on operator (5)
 _needs a human call_
+
+### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
+thread: **energy** - status: **waiting_operator** - approval: **implied**
+_created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
+- **Problem / Solution:**
+  - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
+- **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
+- **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
+- **Next:** WAITING ON OPERATOR — mechanism re-confirm (plan-review CRIT C1): the plan does discard-and-move (drop from _excess_solar_active + separate suppressed set), NOT your literal (b) keep-in-set. Discard-and-move is arguably sounder (avoids t...
+- **Tags:** tier-3, split-from-cycle, oscillator-hazard
+- **Refs:** docs/planning/PLANNING_evse_solar_stop_conditions.md (the plan under review); docs/planning/PLAN_REVIEW_evse_solar_stop_conditions.md (both plan reviews, FIX-PLAN-FIRST); docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); docs/planning/AUDIT_excess_solar_and_evse_prior_art.md (the coupling walkthrough the plan omitted); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
+- **Forensic keys (3):**
+  - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
+  - `REVIEW_FINDINGS_INHERITED`: Carried forward from the three Rev-20/21 plan reviews so they are not re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-w...
+  - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
@@ -1531,7 +1570,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (16)
+## 🅿️ Parked (17)
 _revisit-trigger set_
 
 ### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)
@@ -1542,6 +1581,21 @@ _created 2026-08-18 02:20 · initial_
 - **Why:** Fills the only actionable memory-coverage gap. But there is NO active problem needing it today, so its marginal benefit is low until an F2-shape divergence recurs.
 - **Next:** REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build the writer (plan is PLANNING_memory_writers.md).
 - **Refs:** docs/planning/PLANNING_memory_writers.md; custom_components/universal_room_automation/memory_writers.py:186
+
+### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
+thread: **hvac** - status: **parked** - approval: **needs_operator**
+_created 2026-08-26 02:20 · refined_
+- **Problem / Solution:**
+  - Problem: HVAC borrows the thermostat (banking pre-cool/heat, off-phase ceilings, manual overrides) but several paths never hand it back cleanly — banking excursions start and never end (measured: 2 open / 0 ended), and some setpoint writ...
+- **Next:** PARKED. Revive as a fresh Tier-3 D2/D3/D4 cycle after D1 ships and soaks. Rework the governance gate (file:function-keyed whitelist, credit begin/return anywhere in the lifecycle), govern/gate the S9 boot ramp-audit + S10 DPM writers, re...
+- **Tags:** tier-3, four-review, do-not-ship
+- **Refs:** docs/planning/PLANNING_hvac_excursion_restore_unified.md; docs/reviews/code-review/hvac_excursion_restore_unified.md; feature/hvac-excursion-restore @ da3ec8237 (reference build — do NOT ship); tag pre-review-hvac-excursion-restore
+- **Forensic keys (5):**
+  - `BUILD_2026_08_26`: Built on feature/hvac-excursion-restore @ da3ec8237 (branch off develop). 4 source + 3 test files, 17 new tests, 336/336 in-slice green. Baseline tag pre-review-hvac-excursion-restore.
+  - `REVIEW_2026_08_26_FOUR_FRAMING`: ALL FOUR framing-disjoint reviews (A local / B async-lifecycle / C test-authority-mutation / D adversarial-completeness) = FIX-REQUIRED. Record: docs/reviews/code-review/hvac_excursion_restore_unified.md. 3 CRITICAL (two are 3-way conver...
+  - `ORCHESTRATOR_RECOMMENDATION`: DESCOPE. D1 (auto-release sweep + banking close) is the valuable, mostly-sound, SEPARABLE part with a real measured driver; if D4/S14 is parked the CRIT-2 orphan interaction disappears and the sweep only closes banking tokens. Recommend:...
+  - `DESCOPE_DECISION_2026_08_26`: Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now, with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests +...
+  - `status_note`: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
 thread: **hvac** - status: **parked** - approval: **explicit**
