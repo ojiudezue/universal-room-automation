@@ -520,7 +520,7 @@ declared there, parsed in the coordinator-manager options step of `config_flow.p
 | `SOLAR_FOLLOW_STALE_GRACE_S` | 1 | 300 | blind declared |
 | `SOLAR_FOLLOW_BLIND_EXIT_S` | 1 | 900 | restore-and-go-quiet |
 | `SOLAR_POWER_FRESH_S` | 1 | 180 | max age of a per-EVSE power reading for DRAWING; that sensor's p90 is 250 s |
-| `SOLAR_FOLLOW_GRID_FRESH_S` | 1 | 300 | INV-SF-10. Max `last_reported` age of a grid source before it is treated as unavailable and the fallback is used. Generous vs the measured p90 (Emporia 120 s / Envoy 86 s). **DF-5 note (per reviewer C/D, OPTIONAL):** tightening to 180 s narrows the stale window (2× p90 vs 2.5× p90) at the cost of a slightly higher false-trip rate on a momentarily slow poll. Left at 300 s for the ship; revisit if live shows the fallback is under-triggered. |
+| `SOLAR_FOLLOW_GRID_FRESH_S` | 1 | 180 | INV-SF-10. Max `last_reported` age of a grid source before it is treated as unavailable and the fallback is used. Generous vs the measured p90 (Emporia 120 s / Envoy 86 s). **DF-5 note (per reviewer C/D, OPTIONAL):** tightening to 180 s narrows the stale window (2× p90 vs 2.5× p90) at the cost of a slightly higher false-trip rate on a momentarily slow poll. Left at 300 s for the ship; revisit if live shows the fallback is under-triggered. |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY` | 2 | — | primary grid entity |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY` | 2 | — | fallback grid entity |
 

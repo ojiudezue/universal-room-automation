@@ -928,7 +928,7 @@ SOLAR_FOLLOW_MAX_WRITES_PER_HOUR: Final[int] = 60
 SOLAR_FOLLOW_STALE_GRACE_S: Final[int] = 300     # blind grace before WARNING
 SOLAR_FOLLOW_BLIND_EXIT_S: Final[int] = 900      # restore-and-quiet after prolonged blind
 SOLAR_POWER_FRESH_S: Final[int] = 180            # per-EVSE power reading freshness (uses last_updated)
-SOLAR_FOLLOW_GRID_FRESH_S: Final[int] = 300      # grid source freshness (uses last_reported — INV-SF-10)
+SOLAR_FOLLOW_GRID_FRESH_S: Final[int] = 180      # grid source freshness, last_reported (INV-SF-10). 1.5x Emporia p90 (120s); tighter than 300 because a false-demote is a benign handoff to the fresher Envoy fallback, while too-high sizes on stale data (D-HIGH-4)
 # CF-5 fix-up: bound the STALE_POWER hold. Rung 1 (module constant — safety
 # knob, review-gated). After this many consecutive stale-power ticks the bay
 # stops being HELD at its current amps and is treated as non-drawing (targets
