@@ -1054,3 +1054,256 @@ def test_cf10_confirm_read_from_ec_at_construction():
     if _c2 is None:
         sf2._up_min_ticks = SOLAR_FOLLOW_UP_MIN_TICKS
     assert sf2._up_min_ticks == SOLAR_FOLLOW_UP_MIN_TICKS
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Round-2 fix-ups: enclosing-method + call-site + teardown + setter chain
+# (see docs/planning/PLANNING_evse_solar_follow_amps.md §10 Round-2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _async_setup_stub_for_energy():
+    """Build a stub reaching `_register_solar_follow_timer()` inside
+    `EnergyCoordinator.async_setup`. Everything the setup touches BEFORE
+    the register call OR after it (until return) is mocked; the register
+    helper itself is the REAL bound method so its side-effect
+    (setting `_solar_follow_timer_unsub`) actually fires.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import energy
+
+    stub = MagicMock()
+    stub._decision_timer_unsub = None
+    stub._solar_follow_timer_unsub = None
+    stub._optimizer_intent_unsub = None
+    stub._unsub_listeners = []
+    stub._decision_interval = 5
+    stub._battery = MagicMock()
+    stub._battery.reserve_soc = 0
+    stub._solar_follow = MagicMock()
+    stub._solar_follow._tick = MagicMock()
+
+    stub.hass = MagicMock()
+    stub.hass.data = {"universal_room_automation": {"database": None}}
+    stub.hass.is_running = True
+    stub.hass.async_create_task = MagicMock(return_value=MagicMock(cancel=lambda: None))
+    stub.hass.bus.async_listen_once = MagicMock(return_value=lambda: None)
+
+    async def _anoop(*a, **k):
+        return None
+
+    stub._restore_all_sequential = _anoop
+    stub._async_decision_cycle = _anoop
+    stub._arm_tou_boundary_listener = MagicMock()
+    stub._span_scope_migration_repass = _anoop
+    stub._handle_safety_hazard = MagicMock()
+    stub._on_optimizer_intent = MagicMock()
+
+    # Bind the REAL helper — neutering the call site in async_setup
+    # (i.e. deleting `self._register_solar_follow_timer()` at :1044)
+    # leaves `_solar_follow_timer_unsub` at None.
+    stub._register_solar_follow_timer = lambda: energy.EnergyCoordinator._register_solar_follow_timer(stub)
+    return stub, energy
+
+
+def test_e1_async_setup_call_site_binds_solar_follow_timer():
+    """E1 (enclosing method — call-neuter-detectable):
+    invoking `EnergyCoordinator.async_setup` must set
+    `_solar_follow_timer_unsub`. Neuter site:
+    energy.py `async_setup` line
+    `self._register_solar_follow_timer()` — deleting that line
+    (or the helper body) leaves the attr None → RED.
+    """
+    stub, energy = _async_setup_stub_for_energy()
+    _run(energy.EnergyCoordinator.async_setup(stub))
+    assert stub._solar_follow_timer_unsub is not None
+
+
+def test_e2_async_teardown_cancels_solar_follow_timer():
+    """E2: `async_teardown` invokes the stored `_solar_follow_timer_unsub`
+    and clears the handle. Neuter site: the two-line unsub block in
+    async_teardown (energy.py:8705-8712).
+    """
+    from custom_components.universal_room_automation.domain_coordinators import energy
+
+    unsub_calls = []
+    fake_unsub = lambda: unsub_calls.append(1)
+
+    stub = MagicMock()
+    stub._decision_timer_unsub = None
+    stub._solar_follow_timer_unsub = fake_unsub
+    stub._solar_follow = None
+    stub._tou_boundary_unsub = None
+    stub._peak_import_history = None
+    stub._optimizer_intent_unsub = MagicMock()
+    stub._write_verifier = None
+    stub._dp_eval_last_task = None
+
+    async def _anoop(*a, **k):
+        return None
+
+    stub._save_evse_state = _anoop
+    stub._save_circuit_state = _anoop
+    stub._save_energy_baselines = _anoop
+    stub._save_envoy_cache = _anoop
+    stub._save_midnight_snapshot = _anoop
+    stub._save_load_shedding_level = _anoop
+    stub._cancel_listeners = MagicMock()
+
+    _run(energy.EnergyCoordinator.async_teardown(stub))
+
+    assert unsub_calls == [1], "solar_follow_timer_unsub not invoked in teardown"
+    assert stub._solar_follow_timer_unsub is None
+
+
+def test_e3_async_teardown_invokes_solar_follow_cancel_all():
+    """E3: `async_teardown` invokes `_solar_follow.cancel_all()`.
+    Neuter site: the cancel_all block in async_teardown
+    (energy.py:8713-8720).
+    """
+    from custom_components.universal_room_automation.domain_coordinators import energy
+
+    sf = MagicMock()
+    sf.cancel_all = MagicMock()
+
+    stub = MagicMock()
+    stub._decision_timer_unsub = None
+    stub._solar_follow_timer_unsub = None
+    stub._solar_follow = sf
+    stub._tou_boundary_unsub = None
+    stub._peak_import_history = None
+    stub._optimizer_intent_unsub = MagicMock()
+    stub._write_verifier = None
+    stub._dp_eval_last_task = None
+
+    async def _anoop(*a, **k):
+        return None
+
+    stub._save_evse_state = _anoop
+    stub._save_circuit_state = _anoop
+    stub._save_energy_baselines = _anoop
+    stub._save_envoy_cache = _anoop
+    stub._save_midnight_snapshot = _anoop
+    stub._save_load_shedding_level = _anoop
+    stub._cancel_listeners = MagicMock()
+
+    _run(energy.EnergyCoordinator.async_teardown(stub))
+
+    assert sf.cancel_all.called, "SolarFollowController.cancel_all not invoked"
+
+
+def test_e6_set_solar_follow_confirm_writes_up_min_ticks():
+    """E6: `EnergyCoordinator.set_solar_follow_confirm(v)` writes
+    `_up_min_ticks` on the controller. Neuter site: energy.py:8893
+    `self._solar_follow._up_min_ticks = v`.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import energy
+
+    stub = MagicMock()
+    stub._solar_follow = MagicMock()
+    stub._solar_follow._up_min_ticks = 1
+
+    energy.EnergyCoordinator.set_solar_follow_confirm(stub, 5)
+
+    assert stub._solar_follow._up_min_ticks == 5
+
+
+def test_e6_set_solar_follow_confirm_clamps_range():
+    """E6 partner: values outside 1..10 are clamped."""
+    from custom_components.universal_room_automation.domain_coordinators import energy
+
+    stub = MagicMock()
+    stub._solar_follow = MagicMock()
+    stub._solar_follow._up_min_ticks = 5
+
+    energy.EnergyCoordinator.set_solar_follow_confirm(stub, 25)
+    assert stub._solar_follow._up_min_ticks == 10
+
+    energy.EnergyCoordinator.set_solar_follow_confirm(stub, 0)
+    assert stub._solar_follow._up_min_ticks == 1
+
+
+def test_e6_set_solar_follow_confirm_noop_when_controller_absent():
+    """E6 safety: no-op when `_solar_follow` is None."""
+    from custom_components.universal_room_automation.domain_coordinators import energy
+
+    stub = MagicMock()
+    stub._solar_follow = None
+    # Should not raise.
+    energy.EnergyCoordinator.set_solar_follow_confirm(stub, 5)
+
+
+def test_m18_blind_exit_invokes_restore_pass():
+    """M18: `_handle_blind` awaits `_restore_pass()` once elapsed
+    reaches BLIND_EXIT_S. Neuter site: energy_pool.py:4277
+    `await self._restore_pass()` inside the blind-exit branch.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_pool as _ep,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        SOLAR_FOLLOW_BLIND_EXIT_S,
+    )
+
+    h = _Harness()
+    # Seed the blind clock so this call crosses BLIND_EXIT_S.
+    h.sf._blind_since = _ep._sf_time.monotonic() - (SOLAR_FOLLOW_BLIND_EXIT_S + 5)
+    h.sf._blind_exit_logged = False
+
+    calls = []
+
+    async def _spy():
+        calls.append(1)
+
+    h.sf._restore_pass = _spy
+    _run(h.sf._handle_blind())
+
+    assert calls == [1], "_restore_pass not invoked on blind-exit"
+    assert h.sf._blind_exit_logged is True
+
+
+def test_m18_blind_exit_latched_only_once():
+    """M18 partner: latch prevents a second `_restore_pass` fire
+    while still blind. Neuter site: `_blind_exit_logged` latch guard.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_pool as _ep,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        SOLAR_FOLLOW_BLIND_EXIT_S,
+    )
+
+    h = _Harness()
+    h.sf._blind_since = _ep._sf_time.monotonic() - (SOLAR_FOLLOW_BLIND_EXIT_S + 5)
+    h.sf._blind_exit_logged = True  # already latched
+
+    calls = []
+
+    async def _spy():
+        calls.append(1)
+
+    h.sf._restore_pass = _spy
+    _run(h.sf._handle_blind())
+
+    assert calls == [], "restore_pass fired despite latch"
+
+
+def test_m19_boot_reconcile_skips_write_above_sanity_floor():
+    """M19: `_boot_reconcile` does NOT write when the bay's current is
+    already >= SOLAR_FOLLOW_CAPTURE_SANITY_A. Neuter site:
+    energy_pool.py:4331 `if a < SOLAR_FOLLOW_CAPTURE_SANITY_A:` — removing
+    the guard makes reconcile always write → this test goes RED.
+    """
+    h = _Harness(active=(), a_charging=False, b_charging=False,
+                 a_current=48, b_current=48)
+    # Mark garage_a as touched so boot_reconcile considers it. Bay is at
+    # 48A (well above sanity floor), so the guard must skip the write.
+    h.sf._touched = {"garage_a"}
+    h.sf._did_boot_reconcile = False
+
+    _run(h.sf._boot_reconcile())
+
+    # No write to garage_a's current-limit.
+    assert h.written("garage_a") == [], (
+        "boot_reconcile wrote to bay whose current was already >= sanity floor"
+    )
+    # Bay is discarded from _touched (above-sanity path).
+    assert "garage_a" not in h.sf._touched
