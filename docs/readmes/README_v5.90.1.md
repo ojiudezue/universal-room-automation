@@ -51,3 +51,19 @@ Read from `sensor.ura_energy_coordinator_battery_strategy` after the v5.90.1 res
 - **No release flap.** When the target goes `None` (drain window ends), the DP ledger shows the pause released after 2 ticks with no adjacent-tick pause↔release flip-flop (the INV-DP-DRAIN-1e 2-tick debounce).
 
 This closes day-0 validation. The card stays `shipped_organic` until the two organic criteria are observed on a plug-in evening.
+
+
+## Organic validation — Validated 2026-08-25 21:26–21:31 CDT (live DP exercise, ground truth)
+
+Operator plugged in the BMW (Garage A) at off-peak with SOC ~28% and drain target 15% (composed multi-day-max; static `reserve_soc`=10). Observed on authoritative telemetry (`command_trail`, actuator `switch.garage_a`, Enphase `cloud_oracle`) — NOT display prose:
+
+| Step | Observed | Evidence |
+|---|---|---|
+| Latch at current SOC on plug-in | ✅ | `command_trail.reserve_soc`: `hold_owner: "evse_battery_hold"`, `effective_desired: 28` (= SOC) |
+| Re-evaluate → release to composed floor | ✅ | `hold_owner` `evse_battery_hold` → `strategy`, `effective_desired` 28 → **15** (`live_desire: 15`) |
+| Floor is the composed target, NOT the static knob | ✅ **PASS** | commanded/`cloud_oracle` = **15.0** written to hardware; `reserve_soc` knob = 10. Draining toward 15, never 10. |
+| Battery drains toward the floor | ✅ | SOC 28 → 26 during the window, reason "Off-peak drain — SOC > target 15.0%" |
+
+**This is the discriminator the fix exists for:** pre-fix the drain floor coincided with the static reserve (10); post-fix DP consumes the value-stamped composed off-peak drain target (15). Confirmed live and hardware-acknowledged. Card closes `done`.
+
+**Sidecar finding (carded, not a DP defect):** `next_action_estimate` displayed "drain to 10.0%" (naive single-day class) while the real floor is 15 — a display-layer naive-vs-composed leak (`NEXT-ACTION-ESTIMATE-NAIVE-TARGET-1`), folded into the midnight drain-target cycle.
