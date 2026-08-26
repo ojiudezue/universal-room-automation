@@ -9773,14 +9773,113 @@ class EnergyEVChargingStatusSensor(AggregationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return per-EVSE details."""
+        """Return per-EVSE details.
+
+        DRAIN-TARGET-DAY-STALENESS-1 (D6): always-on DP carrier telemetry
+        (`dp_state`, `dp_hold_started_at`, `dp_last_eval_soc`,
+        `dp_drain_floor`, `dp_eval_age_min`) is merged onto the base
+        `energy.ev_status` dict — additive, read-only, no new carrier
+        state, no decision-path change.
+
+        DRAIN-TARGET-DAY-STALENESS-1 (D7): `per_bay_state` — per-EVSE
+        `{state, owner, commanded_amps, actual_kw}` derived from actuator
+        ground truth (switch + power sensor) + solar-follow commanded
+        amps + owner from the pause-set precedence. Kills the pause-vs-
+        throttle ambiguity of `pause_reason_human` prose.
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return {}
         energy = manager.coordinators.get("energy")
         if energy is None:
             return {}
-        return energy.ev_status
+        try:
+            attrs = dict(energy.ev_status)
+        except Exception:  # noqa: BLE001
+            return {}
+
+        # ------ D6: DP carrier telemetry ------------------------------
+        try:
+            from homeassistant.util import dt as dt_util
+            carrier = getattr(energy, "_dp_carrier", None)
+            if carrier is not None:
+                dp_attrs = carrier.to_attrs(now=dt_util.now())
+                snap = dp_attrs.get("last_eval_snapshot") or {}
+                inputs = snap.get("inputs") or {}
+                attrs["dp_state"] = dp_attrs.get("state")
+                attrs["dp_hold_started_at"] = dp_attrs.get("hold_started_at")
+                attrs["dp_last_eval_soc"] = inputs.get("soc")
+                attrs["dp_drain_floor"] = inputs.get("drain_target_soc")
+                attrs["dp_eval_age_min"] = dp_attrs.get("eval_age_min")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ev_charging_status: DP carrier telemetry read failed (swallowed)",
+                exc_info=True,
+            )
+
+        # ------ D7: per-bay structured state --------------------------
+        try:
+            per_bay: dict[str, dict] = {}
+            paused_sets = {
+                "fill_priority": set(attrs.get("paused_by_fill_priority") or []),
+                "battery_drain": set(attrs.get("paused_by_battery_drain") or []),
+                "grid_cap": set(attrs.get("paused_by_grid_cap") or []),
+                "arbitrage": set(attrs.get("paused_by_arbitrage") or []),
+                "energy": set(attrs.get("paused_by_energy") or []),
+            }
+            commanded_map = attrs.get("solar_follow_last_commanded") or {}
+            # Nameplate: SolarFollowController restore amps == 48 (see
+            # SOLAR_FOLLOW_RESTORE_AMPS). Any commanded < that reads as
+            # throttled inside an active session.
+            try:
+                from .domain_coordinators.energy_const import (
+                    SOLAR_FOLLOW_RESTORE_AMPS,
+                )
+                _nameplate_a = int(SOLAR_FOLLOW_RESTORE_AMPS)
+            except Exception:  # noqa: BLE001
+                _nameplate_a = 48
+            for evse_id, entry in attrs.items():
+                if not isinstance(entry, dict):
+                    continue
+                if not {"is_on", "charging"}.issubset(entry.keys()):
+                    continue  # skip non-bay dict entries
+                owner: str | None = None
+                for _owner, _members in paused_sets.items():
+                    if evse_id in _members:
+                        owner = _owner
+                        break
+                commanded_amps = commanded_map.get(evse_id)
+                actual_kw: float | None
+                try:
+                    actual_kw = round(float(entry.get("power") or 0.0) / 1000.0, 3)
+                except (TypeError, ValueError):
+                    actual_kw = None
+                if owner is not None or not entry.get("is_on"):
+                    state = "paused"
+                elif entry.get("charging"):
+                    if (
+                        commanded_amps is not None
+                        and float(commanded_amps) < _nameplate_a
+                    ):
+                        state = "throttled"
+                    else:
+                        state = "charging"
+                else:
+                    state = "idle"
+                per_bay[evse_id] = {
+                    "state": state,
+                    "owner": owner,
+                    "commanded_amps": commanded_amps,
+                    "actual_kw": actual_kw,
+                }
+            attrs["per_bay_state"] = per_bay
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ev_charging_status: per_bay_state derivation failed (swallowed)",
+                exc_info=True,
+            )
+
+        return attrs
 
 
 # ============================================================================

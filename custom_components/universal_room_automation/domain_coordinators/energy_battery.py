@@ -1732,28 +1732,54 @@ class BatteryStrategy:
         """Get the SOC drain target for off-peak based on tomorrow's solar class."""
         return self._drain_targets.get(tomorrow_class, DEFAULT_OFFPEAK_DRAIN_UNKNOWN)
 
-    def current_offpeak_drain_target(self) -> int:
-        """Return today's applicable off-peak drain target.
+    def _drain_target_for(self, now: datetime) -> int:
+        """Single source of truth for the peak-anchored drain target INCLUDING
+        the multi-day-horizon conservative max.
 
-        EV charge-start dead-band fix: the drain-target used by the emitter at
-        `_get_off_peak_decision` (see :3101-3114) picks the more conservative
-        (higher) target between D+1 and D+2 when `multi_day_horizon_enabled`.
-        This accessor mirrors that selection so the drain-release floor
-        (`max(reserve_soc, current_offpeak_drain_target())`) matches the
-        emitter and the two "floors" (static reserve vs live drain target)
-        are reconciled — Bug Class #53 (one-missed-site) closure at the
-        release-floor input.
+        DRAIN-TARGET-DAY-STALENESS-1 (H-1): replaces the two open-coded
+        max() copies previously in the accessor and the emitter. Every
+        drain-target consumer — accessor, emitter drain-fallback branch,
+        `_threshold_position`, `_next_action_estimate` — routes through
+        this helper. Do NOT open-code a second dict lookup or a second
+        max() elsewhere; that reintroduces the Bug-Class-#53 drift
+        surface this helper closes.
+
+        Peak-anchored: uses `_resolve_target_day(now)` (day of next
+        high-rate transition), NOT `classify_tomorrow_solar()`. Under
+        multi-day horizon the max is `max(d1, classify_solar_day_n(
+        offset+1))` — re-paired against the resolver's target day, not
+        hardcoded calendar D+2.
         """
-        tomorrow_class = self.classify_tomorrow_solar()
-        d1_target = self._get_offpeak_drain_target(tomorrow_class)
+        d1_class, d1_offset = self._resolve_target_day(now)
+        d1_target = self._get_offpeak_drain_target(d1_class)
         if not self._multi_day_horizon_enabled:
             return d1_target
         try:
-            d2_class = self.classify_solar_day_n(2)
+            d2_class = self.classify_solar_day_n(d1_offset + 1)
         except Exception:  # noqa: BLE001
             return d1_target
         d2_target = self._get_offpeak_drain_target(d2_class)
         return max(d1_target, d2_target)
+
+    def current_offpeak_drain_target(self, now: datetime | None = None) -> int:
+        """Return the applicable off-peak drain target for `now`.
+
+        DRAIN-TARGET-DAY-STALENESS-1: peak-anchored — the class driving
+        the target is the class of the day of the next high-rate
+        transition (governing authority `ENERGY_COORDINATOR_MANUAL.md`
+        §2.2 discharge-floor semantics). Delegates to `_drain_target_for`
+        (single source of truth incl. multi-day-horizon conservative
+        max). Prior behavior read `classify_tomorrow_solar()` — calendar
+        D+1 — which mis-selected today's target for the ~17 wall-clock
+        hours between midnight and the peak boundary on class-disagreement
+        days (probe: 37.4% of days). Emitter (`_get_off_peak_decision`
+        drain-fallback branch) uses the same helper; the two floors
+        (static reserve vs live drain target) stay reconciled.
+        """
+        if now is None:
+            from homeassistant.util import dt as dt_util
+            now = dt_util.now()
+        return self._drain_target_for(now)
 
     def current_park_floor(self) -> int | None:
         """Return the floor the battery is actually parking at RIGHT NOW.
@@ -2401,34 +2427,50 @@ class BatteryStrategy:
     # v4.5.0 D1: arbitrage four-phase state machine
     # ------------------------------------------------------------------
 
-    def _classify_target_day(self, now: datetime) -> str:
-        """Class of the day containing the next high-rate transition.
+    def _resolve_target_day(self, now: datetime) -> tuple[str, int]:
+        """Return (class, offset_days) for the day of the next high-rate transition.
 
-        Without this, the gate would always read "tomorrow" (D+1 of now),
-        which is wrong when the chunk crosses midnight: at 21:00 today
-        "tomorrow" is the right day to forecast (target window 14:00 the
-        next day), but at 08:00 the next morning the same chunk's target
-        is now TODAY at 14:00 — and the right entity to read is today's
-        Solcast, not tomorrow's.
+        DRAIN-TARGET-DAY-STALENESS-1 (D1): factor the class + offset out of
+        `_classify_target_day` so drain-path callers (the D1b shared
+        helper `_drain_target_for`) can re-pair the multi-day-max
+        against the resolver's target day (`classify_solar_day_n(
+        offset+1)`), not hardcoded calendar D+2.
 
-        Falls back to `classify_tomorrow_solar()` when the TOU engine
-        isn't wired (test path) or when no high-rate window is found in
-        the lookback window. Either case: the legacy "tomorrow=poor" gate
-        is a safe approximation.
+        Offset is clamped to >= 0 (offset<=0 means "today"). Falls back
+        to `(classify_tomorrow_solar(), 1)` when TOU is unwired or no
+        transition is found — byte-identical to the prior
+        `_classify_target_day` fallback shape, so all existing callers of
+        `_classify_target_day` (which now delegate to
+        `_resolve_target_day(now)[0]`) stay unchanged on the fallback
+        path. In production configuration `offset ∈ {0, 1}` (INV-DTDS-5).
         """
-        if self._tou is None:
-            return self.classify_tomorrow_solar()
-        nxt = self._tou.get_next_high_rate_transition(now)
+        _tou = getattr(self, "_tou", None)
+        if _tou is None:
+            return (self.classify_tomorrow_solar(), 1)
+        try:
+            nxt = _tou.get_next_high_rate_transition(now)
+        except Exception:  # noqa: BLE001 — MED-1 guarded fallback
+            return (self.classify_tomorrow_solar(), 1)
         if nxt is None:
-            return self.classify_tomorrow_solar()
+            return (self.classify_tomorrow_solar(), 1)
         target_dt, _ = nxt
         offset = (target_dt.date() - now.date()).days
         if offset <= 0:
-            return self.classify_solar_day()
+            return (self.classify_solar_day(), 0)
         if offset == 1:
-            return self.classify_tomorrow_solar()
+            return (self.classify_tomorrow_solar(), 1)
         # offset >= 2 — D3 multi-day path
-        return self.classify_solar_day_n(offset)
+        return (self.classify_solar_day_n(offset), offset)
+
+    def _classify_target_day(self, now: datetime) -> str:
+        """Class of the day containing the next high-rate transition.
+
+        Delegates to `_resolve_target_day(now)[0]`; kept as a thin alias
+        so arbitrage callers (`_recheck_forecast_on_charge_entry`,
+        `_evaluate_forecast_gate`, `_get_off_peak_decision`,
+        `get_status` render) remain byte-identical.
+        """
+        return self._resolve_target_day(now)[0]
 
     def _is_charge_window_open(self, now: datetime) -> bool:
         """True when (next_high_rate_transition - now) <= lead_time_min.
@@ -5314,20 +5356,30 @@ class BatteryStrategy:
                     f"charge needed)"
                 )
 
-        drain_class_for_target = tomorrow_class
-        # v4.5.0 D3: when multi_day_horizon enabled AND arbitrage is OFF,
-        # take the more conservative (higher) drain target between D+1
-        # and D+2. This widens the "hold charge for tomorrow's bad day"
-        # behavior across two days. When arbitrage is ON we never reach
-        # this branch — arbitrage path wins.
+        # DRAIN-TARGET-DAY-STALENESS-1 (D3): swap the drain-class
+        # derivation onto the shared, peak-anchored helper. The numeric
+        # `drain_target` is the SINGLE source-of-truth from
+        # `_drain_target_for(now)` — do NOT open-code a second dict
+        # lookup or a second multi-day max (Bug Class #53 closure).
+        # `drain_class_for_target` is retained only for the log/reason
+        # display strings below; it names the class of the target day
+        # (peak-anchored), and is bumped to the D+1 class only when the
+        # multi-day max legitimately flips (matches the display bump the
+        # old open-code did). When arbitrage is ON we never reach this
+        # branch — arbitrage path wins.
+        d1_class, d1_offset = self._resolve_target_day(now)
+        drain_class_for_target = d1_class
+        drain_target = self._drain_target_for(now)
         if self._multi_day_horizon_enabled:
-            d2_class = self.classify_solar_day_n(2)
-            d1_target = self._get_offpeak_drain_target(tomorrow_class)
-            d2_target = self._get_offpeak_drain_target(d2_class)
-            if d2_target > d1_target:
+            try:
+                d2_class = self.classify_solar_day_n(d1_offset + 1)
+            except Exception:  # noqa: BLE001
+                d2_class = d1_class
+            if (
+                self._get_offpeak_drain_target(d2_class)
+                > self._get_offpeak_drain_target(d1_class)
+            ):
                 drain_class_for_target = d2_class
-
-        drain_target = self._get_offpeak_drain_target(drain_class_for_target)
         # A-CRIT-1 — off_peak partial_hold floor enforcement. The off_peak
         # branch otherwise never reads effective_reserve (full_hold short-
         # circuits earlier; allow_discharge keeps effective_reserve ==
@@ -5693,12 +5745,17 @@ class BatteryStrategy:
             "charge_from_grid": bool(charge_from_grid),
         }
 
-    def _threshold_position(self, soc: float | None, tomorrow_class: str) -> str:
+    def _threshold_position(self, soc: float | None, now: datetime) -> str:
         """v4.3.0 D5 / v4.5.0 D1: narrate where SOC sits relative to thresholds.
 
-        Updated for the phased model: arbitrage_trigger no longer exists
-        as a separate gate — the gate is forecast-class only. Position
-        commentary is now relative to peak_buffer_target + drain_target.
+        DRAIN-TARGET-DAY-STALENESS-1 (D3, H-1): drain narration routes
+        through `_drain_target_for(now)` — the same shared helper the
+        accessor and emitter use — so a live read of `threshold_position`
+        never contradicts `current_offpeak_drain_target` on the same
+        sensor. The target-day class is named (`target=<class>`), not
+        `tomorrow=<class>`, to match the peak-anchored model.
+        NOT phase-gated; narrates a drain value on every tick (pre-existing
+        behavior, preserved by design — see INV-DTDS-3 M-3 scoping).
         """
         if soc is None:
             return "SOC unknown — Envoy not reporting"
@@ -5713,22 +5770,24 @@ class BatteryStrategy:
                 f"SOC={s:.0f}% at/above peak_buffer_target "
                 f"({self._peak_buffer_target}%) — buffer locked when arbitrage gate is open"
             )
-        drain = self._drain_targets.get(tomorrow_class, self._drain_targets.get("unknown", 40))
+        drain = self._drain_target_for(now)
+        target_class = self._resolve_target_day(now)[0]
         if s <= drain:
             return (
-                f"SOC={s:.0f}% at/below drain_target ({drain}%, tomorrow={tomorrow_class}) — "
+                f"SOC={s:.0f}% at/below drain_target ({drain}%, target={target_class}) — "
                 f"will hold at SOC during off-peak (when arbitrage gate closed)"
             )
         return (
-            f"SOC={s:.0f}% above drain_target ({drain}%, tomorrow={tomorrow_class}) — "
+            f"SOC={s:.0f}% above drain_target ({drain}%, target={target_class}) — "
             f"will drain to target during off-peak (when arbitrage gate closed)"
         )
 
-    def _next_action_estimate(self, soc: float | None, tomorrow_class: str) -> str:
+    def _next_action_estimate(self, soc: float | None, now: datetime) -> str:
         """v4.3.0 D5 / v4.5.0 D1: short narration of expected next-cycle action.
 
-        Phased model: estimate from current arbitrage_phase + gate state
-        rather than the v4.3.4 SOC-trigger logic.
+        DRAIN-TARGET-DAY-STALENESS-1 (D3, H-1): drain fallback routes
+        through `_drain_target_for(now)`; class name reflects the
+        peak-anchored target day, not calendar tomorrow.
         """
         if soc is None:
             return "no estimate — Envoy unavailable"
@@ -5755,9 +5814,10 @@ class BatteryStrategy:
         if phase == ARBITRAGE_PHASE_DISCHARGE:
             return "discharging during high-rate window"
         # Fallback (gate closed or n/a): drain-target narration
-        drain = self._drain_targets.get(tomorrow_class, self._drain_targets.get("unknown", 40))
+        drain = self._drain_target_for(now)
+        target_class = self._resolve_target_day(now)[0]
         if float(soc) > drain:
-            return f"drain to {drain}% during off-peak (tomorrow={tomorrow_class})"
+            return f"drain to {drain}% during off-peak (target={target_class})"
         return "hold at current SOC"
 
     async def force_redispatch(self, surface: str) -> None:
@@ -6067,7 +6127,7 @@ class BatteryStrategy:
             # both EV and plug drain-release gates. `drain_targets` above
             # already surfaces the per-class map; these two answer "which
             # entry is tonight's" and "what SOC does the EV release at".
-            "current_offpeak_drain_target": self.current_offpeak_drain_target(),
+            "current_offpeak_drain_target": self.current_offpeak_drain_target(now),
             # EV dead-band fix-up A-MED-1/A-LOW-2: honest label. This is the
             # floor the battery is ACTUALLY parking at (last commanded reserve,
             # captures inclement partial_hold + arbitrage/attain parks), not a
@@ -6103,8 +6163,8 @@ class BatteryStrategy:
                 int(self.current_park_floor() or self.reserve_soc or 0),
             ),
             "threshold_warning": warning,
-            "threshold_position": self._threshold_position(soc, tomorrow_class),
-            "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),
+            "threshold_position": self._threshold_position(soc, now),
+            "next_action_estimate": self._next_action_estimate(soc, now),
             # v5.15.x diagnostics
             "soc_source": self._soc_source_last,
             # v5.20.0 D2 — SOC read-side observability. Distinct

@@ -4381,4 +4381,8 @@ class SolarFollowController:
             "solar_follow_blind_since": self._blind_since,
             "solar_follow_grid_source": self._last_grid_source,
             "solar_follow_below_dp_l1_threshold": below_dp,
+            # DRAIN-TARGET-DAY-STALENESS-1 D7 dep: expose commanded amps
+            # so downstream `per_bay_state` on ev_charging_status can
+            # discriminate throttled (<48A) vs charging (48A / nameplate).
+            "solar_follow_last_commanded": dict(self._last_commanded),
         }
