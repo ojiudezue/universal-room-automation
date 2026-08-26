@@ -204,6 +204,18 @@ Run the three reviews in PARALLEL — different framings can't share blind spots
 
 **If the 4th pass (or any) finds a CRITICAL/HIGH:** fix, then re-verify the fixed site with its own mutation-anchored test AND re-run D's completeness enumeration (a fix can reveal an N+1th site). Do not ship until D's invariant holds across the whole surface.
 
+### Soak Exit — MANDATORY (operator-coined 2026-08-25)
+
+**`shipped_organic` is NOT a parking lot.** Operator: *"There are no exits to soaks... it's slow... we need to dispose these things one way or another and not just let them ride."* On 2026-08-25 the organic lane held **46 cards** — things ship, go organic, and never get disposed. That is a process failure, not a status.
+
+Every `shipped_organic` card carries a **binary, evaluable discriminator** (the README's organic acceptance criterion). The forcing function:
+
+1. **A card cannot ride organic indefinitely.** Each card gets a bounded window (default: dispose by the time ~2 more cycles ship, or ~1 week, whichever first). The exit is **VALIDATE → DISPOSE**, always binary: **done** (discriminator met — query the DB / ground truth, do not "watch") or **reopen** (met-with-a-residual → close the primary + card the residual; or not-met → back to build).
+2. **Dispose, don't watch** (sister to *No Soak Watching*). Validation is a one-shot query against the authoritative source (URA DB table, live entity, ground truth) at disposition time — NOT a calendar reminder. Tonight's HVAC-GOVERNED-EXCURSION-1 was disposed in one `ssh ha sqlite3` cross-tab (24 artifacts vs 4 real fails), not another week of soak.
+3. **If a discriminator can't be evaluated in its window**, that is itself a finding: convert it to a **code trip-wire** (anomaly wired to NM, per No-Soak) or **park it with an explicit revival trigger** — it does not stay organic.
+4. **Forcing hooks:** at every deploy (cycle close) AND at session start, sweep the OLDEST organic cards (bounded batch, e.g. 3–5) and dispose them via their discriminator. A `shipped_organic` card older than the window with no disposition attempt is a hygiene miss, logged like any other.
+5. **Met-with-a-residual is a clean disposition:** close the primary deliverable as done and card the residual (e.g. HVAC-GOVERNED-EXCURSION-1 done + the 4-restore-failure tail carded). Do NOT hold the whole card open for a small tail.
+
 ### Record Live Validation Back Into the README — MANDATORY
 
 **Operator-coined 2026-06-05 (v4.7.24).** The `README_v<version>.md` is written pre-deploy with *prospective* "Live" acceptance criteria. After Live Validation (Review 3 / Review D) runs against the restarted HA instance, the README is NOT done — you MUST write the *observed* results back into it before closing the cycle:
