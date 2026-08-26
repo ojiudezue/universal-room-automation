@@ -11190,9 +11190,9 @@ cards:
   title: Battery strategy next_action_estimate reports naive single-day drain target (10) while the real
     composed floor is 15
   thread: energy
-  status: planned
+  status: done
   created: 2026-08-25 21:30
-  updated: 2026-08-25 21:35
+  updated: 2026-08-25 21:40
   refinement_status: refined
   approval: implied
   tags:
@@ -11222,6 +11222,12 @@ cards:
     -> estimate must say ''drain to 15%'', not 10.'
   depends_on:
   - DRAIN-TARGET-DAY-STALENESS-1
+  DEDUPE_2026_08_25: DUPLICATE of PLANNING_offpeak_drain_target_day_staleness.md D3/H-1, which already
+    routes _next_action_estimate through _drain_target_for and has test_next_action_estimate_uses_shared_helper().
+    Not a new fix — folded into the midnight cycle (DRAIN-TARGET-DAY-STALENESS-1). Tonight's live sighting
+    (next_action_estimate=10 vs current_offpeak_drain_target=15 on the same sensor, 2026-08-25 21:25 CDT)
+    is the empirical repro of the H-1 divergence and is carried into that plan's D3 Live acceptance. Closing
+    as dedup-merged, not shipped-standalone.
 - id: DP-BATTERY-AUTHORITATIVE-TELEMETRY-1
   title: DP/battery decisions are only legible via human-readable display strings that can lie — expose
     authoritative floor + latch state as first-class telemetry

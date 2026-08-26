@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T21:31:35-05:00_ - _Data commit: `da9ea0e562b6`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-25T21:32:57-05:00_ - _Data commit: `4c9192450510`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,14 +14,14 @@ _Generated: 2026-08-25T21:31:35-05:00_ - _Data commit: `da9ea0e562b6`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 13 |
+| 📝 Planned | 12 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 45 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 16 |
-| ✅ Done | 44 |
+| ✅ Done | 45 |
 
 ## 📥 Inbox (26)
 _raw capture_
@@ -525,7 +525,7 @@ _created 2026-08-25 21:30 · initial_
 - **Next:** inventory the authoritative DP signals (command_trail, DP carrier, ledger) vs the prose display; scope a first-class DP-decision telemetry surface.
 - **Tags:** observability, no-fabrication-verify
 
-## 📝 Planned (13)
+## 📝 Planned (12)
 _has plan / acceptance_
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
@@ -712,20 +712,6 @@ _created 2026-08-24 19:20 · initial_
 - **Refs:** energy_battery.py:2454; energy_battery.py:2871; docs/planning/PLANNING_offpeak_drain_target_day_staleness.md
 - **Forensic keys (1):**
   - `links`: related: DRAIN-TARGET-DAY-STALENESS-1
-
-### `NEXT-ACTION-ESTIMATE-NAIVE-TARGET-1` - Battery strategy next_action_estimate reports naive single-day drain target (10) while the real composed floor is 15
-thread: **energy** - status: **planned** - approval: **implied**
-_created 2026-08-25 21:30 · updated 2026-08-25 21:35 · refined_
-- **Problem / Solution:**
-  - Problem: the battery strategy sensor's next_action_estimate says 'drain to 10.0% (tomorrow=excellent)' while the actual drain floor in use is 15% (the multi-day-composed target). It shows the single-day class target (excellent->10) inste...
-  - Solution: make next_action_estimate read the same composed drain target the decision uses (current_offpeak_drain_target / the value-stamp), not the naive per-day class lookup. Discriminator: on a day where D+1 and D+2 classes differ, the...
-- **Origin:** 2026-08-25 - operator: 'fix some sensor bugs' — spotted next_action_estimate=10 vs real 15 during DP validation
-- **Why:** A display that disagrees with the decision misleads diagnosis (operator caught it live). Same class as the DP mis-sourcing.
-- **Next:** Fold into the midnight drain-target-day-staleness cycle (same surface): one-line fix at :5759 + discriminating test (D+1!=D+2). Do NOT standalone-deploy tonight (avoids a redundant restart mid-DP-drain).
-- **Tags:** no-fabrication-verify, producer-consumer
-- **Depends on:** DRAIN-TARGET-DAY-STALENESS-1
-- **Forensic keys (1):**
-  - `forensic_fix`: energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class, ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max the decision + the c...
 
 ## 🔨 In progress (0)
 _being built_
@@ -1703,7 +1689,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-## ✅ Done (44)
+## ✅ Done (45)
 _closed, evidence in refs_
 
 ### `EVSE-DRAIN-PRECEDENCE-KNOB-80-1` - ROOT CAUSE (code-verified) — DP drain target MIS-SOURCED: drains toward static manual _ev_battery_drain_soc (80), NOT the forecast-based off-peak target (10) as designed
@@ -2277,6 +2263,21 @@ _created 2026-08-20 14:15 · initial_
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board, BACKLOG.md, planning docs, CLAUDE.md. This is the ACTUATOR-side twin of the known documented gap in CLAUDE.md's troubleshooting section: "sensor.<room>_unavailable_entities only tracks INPUT sensors, not actuators, so a dead...
   - `TRIAGED_BENIGN_2026_08_20`: CLOSED — NOT A PROBLEM. Operator scoped this "fix Zone 2 telemetry IF a problem"; triage says it is not. MY ERROR: I read `last_changed` as a freshness signal. It is not — it only moves when the STATE STRING changes. All THREE climate en...
   - `DURABLE_LESSON`: last_changed is NOT a liveness oracle for climate entities — last_reported / last_updated is. If an actuator stuck-poll trip-wire is ever built, it must key on last_reported AGE, not on attribute churn. Recording this so the same misread...
+
+### `NEXT-ACTION-ESTIMATE-NAIVE-TARGET-1` - Battery strategy next_action_estimate reports naive single-day drain target (10) while the real composed floor is 15
+thread: **energy** - status: **done** - approval: **implied**
+_created 2026-08-25 21:30 · updated 2026-08-25 21:40 · refined_
+- **Problem / Solution:**
+  - Problem: the battery strategy sensor's next_action_estimate says 'drain to 10.0% (tomorrow=excellent)' while the actual drain floor in use is 15% (the multi-day-composed target). It shows the single-day class target (excellent->10) inste...
+  - Solution: make next_action_estimate read the same composed drain target the decision uses (current_offpeak_drain_target / the value-stamp), not the naive per-day class lookup. Discriminator: on a day where D+1 and D+2 classes differ, the...
+- **Origin:** 2026-08-25 - operator: 'fix some sensor bugs' — spotted next_action_estimate=10 vs real 15 during DP validation
+- **Why:** A display that disagrees with the decision misleads diagnosis (operator caught it live). Same class as the DP mis-sourcing.
+- **Next:** Fold into the midnight drain-target-day-staleness cycle (same surface): one-line fix at :5759 + discriminating test (D+1!=D+2). Do NOT standalone-deploy tonight (avoids a redundant restart mid-DP-drain).
+- **Tags:** no-fabrication-verify, producer-consumer
+- **Depends on:** DRAIN-TARGET-DAY-STALENESS-1
+- **Forensic keys (2):**
+  - `forensic_fix`: energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class, ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max the decision + the c...
+  - `DEDUPE_2026_08_25`: DUPLICATE of PLANNING_offpeak_drain_target_day_staleness.md D3/H-1, which already routes _next_action_estimate through _drain_target_for and has test_next_action_estimate_uses_shared_helper(). Not a new fix — folded into the midnight cyc...
 
 ## 🅿️ Parked ideas (top-level list)
 
