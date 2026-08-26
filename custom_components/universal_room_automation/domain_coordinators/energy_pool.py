@@ -3703,6 +3703,7 @@ from .energy_const import (  # noqa: E402
     SOLAR_FOLLOW_BLIND_EXIT_S,
     SOLAR_POWER_FRESH_S,
     SOLAR_FOLLOW_GRID_FRESH_S,
+    SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS,
     CONF_ENERGY_SOLAR_NAMEPLATE_W,
     DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
     DP_L1_RATE_THRESHOLD_KW,
@@ -3750,7 +3751,20 @@ class SolarFollowController:
         self._last_surplus_kw = None
         self._last_grid_source = "unknown"
         self._last_state = {}
-        self._did_boot_reconcile = True
+        # CF-9 fix-up: default False so a restore-timeout (async_restore
+        # never runs → default stays) still lets the boot backstop fire on
+        # the first tick. Previous default True + restore-set-False meant a
+        # 15s wait_for timeout stranded the backstop off for the session.
+        self._did_boot_reconcile = False
+        # CF-2 fix-up: reentrancy guard on _tick. async_track_time_interval
+        # does not await the prior invocation; a >60 s tick could overlap
+        # itself and double-capture / halve the confirm gate.
+        self._tick_in_flight = False
+        # CF-5 fix-up: per-EVSE consecutive stale-power tick counter to
+        # bound the HOLD (see SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS).
+        self._stale_ticks = {}
+        # CF-13 fix-up: latch to suppress the every-tick blind-exit WARN.
+        self._blind_exit_logged = False
 
     # -- helpers (§5.1) --------------------------------------------------
     def _limit_entity(self, evse_id):
@@ -3840,16 +3854,17 @@ class SolarFollowController:
         else:
             return (None, "bad_unit")
         # INV-SF-10: last_reported freshness.
+        # CF-8 fix-up: reject a naive datetime rather than stamping UTC.
+        # `x.replace(tzinfo=utc)` on a naive LOCAL stamp read the stamp as
+        # UTC (+18000s in CDT) which permanently inflated the age →
+        # feature inert. Treat missing OR naive as stale (fail closed).
         try:
             lr = getattr(st, "last_reported", None)
-            if lr is None:
-                # No last_reported on the state object → treat as stale so a
-                # sensor lacking the freshness signal cannot silently size draw.
+            if lr is None or getattr(lr, "tzinfo", None) is None:
                 return (None, "stale")
             from datetime import datetime as _dt, timezone as _tz
             now_utc = _dt.now(_tz.utc)
-            lr_cmp = lr if getattr(lr, "tzinfo", None) else lr.replace(tzinfo=_tz.utc)
-            age = (now_utc - lr_cmp).total_seconds()
+            age = (now_utc - lr).total_seconds()
             if age > SOLAR_FOLLOW_GRID_FRESH_S:
                 return (None, "stale")
         except Exception:  # noqa: BLE001
@@ -3858,6 +3873,10 @@ class SolarFollowController:
 
     # -- restore pass (§5.2 step 1) ------------------------------------
     async def _restore_pass(self):
+        # CF-1 fix-up (CONVERGENT ×3): write FIRST, pop ONLY on success.
+        # Previously popping before the awaited _write_amps meant a
+        # transient write failure permanently lost the saved value and
+        # stranded the bay at the throttled amps forever.
         if not self._original_amps:
             return
         mutated = False
@@ -3870,20 +3889,30 @@ class SolarFollowController:
             if evse_id in self._ev._excess_solar_active:  # noqa: SLF001
                 continue
             entity = self._limit_entity(evse_id)
-            saved = self._original_amps.pop(evse_id, None)
-            mutated = True
+            saved = self._original_amps.get(evse_id)
             if entity is None or saved is None:
+                # Unresolvable — drop and continue.
+                self._original_amps.pop(evse_id, None)
+                mutated = True
                 continue
             try:
                 await self._write_amps(entity, saved)
-                self._last_commanded[evse_id] = float(saved)
-                self._last_state[evse_id] = "restored"
-                _LOGGER.info(
-                    "solar-follow: restored %s current_limit → %s A",
-                    evse_id, int(saved),
-                )
             except Exception:  # noqa: BLE001
-                _LOGGER.debug("solar-follow restore write raised", exc_info=True)
+                # DO NOT pop — leave for the next tick's retry.
+                _LOGGER.debug(
+                    "solar-follow restore write raised — retaining %s for retry",
+                    evse_id, exc_info=True,
+                )
+                continue
+            # Success — safe to pop.
+            self._original_amps.pop(evse_id, None)
+            mutated = True
+            self._last_commanded[evse_id] = float(saved)
+            self._last_state[evse_id] = "restored"
+            _LOGGER.info(
+                "solar-follow: restored %s current_limit → %s A",
+                evse_id, int(saved),
+            )
         if mutated:
             await self._persist()
 
@@ -3974,7 +4003,58 @@ class SolarFollowController:
 
     # -- per-tick control law (§5.2) ---------------------------------
     async def _tick(self, _now=None):
-        # 0. GATING (INV-SF-9) + SELF-PRUNE.
+        # CF-2 fix-up: reentrancy guard. async_track_time_interval will
+        # fire concurrently if a prior tick has not returned; suppress and
+        # log-once — a double-tick would double-capture and halve the
+        # confirm gate.
+        if self._tick_in_flight:
+            _LOGGER.debug("solar-follow tick reentry suppressed")
+            return
+        self._tick_in_flight = True
+        try:
+            await self._tick_body()
+        finally:
+            self._tick_in_flight = False
+
+    async def _tick_body(self):
+        # SELF-PRUNE first — used by every downstream path (also cancels
+        # verify handles for departed bays; CF-12).
+        try:
+            known = set(self._ev._evse)  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            known = set()
+        for d in (self._original_amps, self._up_streak, self._writes,
+                  self._last_commanded, self._last_state):
+            for gone in [k for k in d if k not in known]:
+                d.pop(gone, None)
+        # CF-12 fix-up: cancel pending verify handles before dropping the
+        # dict entry (Bug Class #38: untracked-async-handle leak).
+        for gone in [k for k in self._pending_verify if k not in known]:
+            try:
+                h = self._pending_verify.pop(gone, None)
+                if h is not None:
+                    h()
+            except Exception:  # noqa: BLE001
+                pass
+        self._touched &= known
+        # CF-5 fix-up: also prune stale-tick counter.
+        for gone in [k for k in self._stale_ticks if k not in known]:
+            self._stale_ticks.pop(gone, None)
+
+        # CF-4(c) fix-up: run boot reconciliation BEFORE the enabled gate.
+        # Previous order returned on the disabled path before the backstop
+        # could run, so a bay stranded at 6A after a >10h outage stayed
+        # stranded whenever the master switch was off at boot.
+        if not self._did_boot_reconcile:
+            await self._boot_reconcile()
+            # CF-4(b) fix-up: latch only when _touched is fully drained.
+            # A bay whose limit entity was unavailable at boot took the
+            # skip path — unconditionally latching stranded it at 6A
+            # forever. Retry on subsequent ticks until fully drained.
+            if not self._touched:
+                self._did_boot_reconcile = True
+
+        # 0. GATING (INV-SF-9).
         try:
             enabled = (
                 self._coord._excess_solar_enabled  # noqa: SLF001
@@ -3983,25 +4063,15 @@ class SolarFollowController:
         except Exception:  # noqa: BLE001
             enabled = False
         if not enabled:
-            if self._was_enabled:
+            # CF-3 fix-up: keep attempting restore while disabled AND
+            # _original_amps non-empty. A peer holding a bay on the
+            # single disable-edge tick previously stranded it forever;
+            # now the restore is deferred, not dropped.
+            if self._was_enabled or self._original_amps:
                 await self._restore_pass()
                 self._was_enabled = False
             return
         self._was_enabled = True
-
-        try:
-            known = set(self._ev._evse)  # noqa: SLF001
-        except Exception:  # noqa: BLE001
-            known = set()
-        for d in (self._original_amps, self._up_streak, self._writes,
-                  self._last_commanded, self._pending_verify, self._last_state):
-            for gone in [k for k in d if k not in known]:
-                d.pop(gone, None)
-        self._touched &= known
-
-        if not self._did_boot_reconcile:
-            await self._boot_reconcile()
-            self._did_boot_reconcile = True
 
         try:
             active = self._ev._excess_solar_active  # noqa: SLF001
@@ -4022,11 +4092,13 @@ class SolarFollowController:
         if self._blind_since is not None:
             _LOGGER.info("solar-follow: grid source recovered (%s)", source)
             self._blind_since = None
+            self._blind_exit_logged = False  # CF-13 reset latch
 
         # 3. ELIGIBLE / DRAWING / STALE_POWER (INV-SF-4).
         eligible = []
         drawing = []
         stale_power = set()
+        states_this_tick = {}
         for evse_id in list(active):
             try:
                 if self._ev._stronger_peer_holds(evse_id) or evse_id in self._ev._paused_by_dp:  # noqa: SLF001
@@ -4050,35 +4122,69 @@ class SolarFollowController:
             except (ValueError, TypeError):
                 continue
             eligible.append(evse_id)
+            # CF-7 fix-up: stash the state dict so add_back (below) does
+            # NOT re-call _get_evse_state — a re-read could straddle a
+            # power sensor going unavailable and re-hit the v4.2.19
+            # fabricated-7600W fallback, inflating S.
+            states_this_tick[evse_id] = state
             if state.get("charging"):
+                # CF-8 fix-up: fail CLOSED (STALE_POWER) on missing OR
+                # naive last_updated, and reject a naive stamp instead of
+                # `x.replace(tzinfo=utc)`-stamping it (naive-local read as
+                # UTC = permanently stale in CDT).
                 try:
                     from datetime import datetime as _dt, timezone as _tz
                     lu = getattr(pst, "last_updated", None)
-                    if lu is None:
-                        drawing.append(evse_id)
+                    if lu is None or getattr(lu, "tzinfo", None) is None:
+                        stale_power.add(evse_id)
                     else:
                         now_utc = _dt.now(_tz.utc)
-                        lu_cmp = lu if getattr(lu, "tzinfo", None) else lu.replace(tzinfo=_tz.utc)
-                        age = (now_utc - lu_cmp).total_seconds()
+                        age = (now_utc - lu).total_seconds()
                         if age <= SOLAR_POWER_FRESH_S:
                             drawing.append(evse_id)
                         else:
                             stale_power.add(evse_id)
                 except Exception:  # noqa: BLE001
-                    drawing.append(evse_id)
+                    stale_power.add(evse_id)
+
+        # CF-5 fix-up: bound the STALE_POWER hold. After
+        # SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS consecutive stale-power ticks
+        # the bay stops being HELD at current amps and is demoted to
+        # non-drawing (targets MIN below). Guards against a wedged Emporia
+        # pinning 48A at peak tariff.
+        for eid in list(stale_power):
+            self._stale_ticks[eid] = self._stale_ticks.get(eid, 0) + 1
+            if self._stale_ticks[eid] >= SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS:
+                stale_power.discard(eid)
+                _LOGGER.warning(
+                    "solar-follow: %s stale-power hold exceeded (%d ticks); "
+                    "demoting to non-drawing (target MIN)",
+                    eid, self._stale_ticks[eid],
+                )
+        # Reset counter for bays that recovered.
+        for eid in list(self._stale_ticks):
+            if eid not in stale_power:
+                self._stale_ticks.pop(eid, None)
 
         # 4. S_eligible + nameplate sanity clamp.
+        # CF-7 fix-up: reuse the stashed state dict, do NOT re-call
+        # _get_evse_state (would risk a mid-tick unavailable → 7600W
+        # fabricated fallback that inflates S).
         add_back = 0.0
         for eid in drawing:
             try:
-                add_back += float(self._ev._get_evse_state(eid).get("power", 0.0))  # noqa: SLF001
-            except Exception:  # noqa: BLE001
+                add_back += float(states_this_tick.get(eid, {}).get("power", 0.0))
+            except (TypeError, ValueError):
                 pass
         s_eligible = -float(grid_w) + add_back
         nameplate = self._nameplate_w()
-        if nameplate and s_eligible > nameplate * 1.15:
+        # CF-6 fix-up: sanity-clamp against -grid_W ALONE (exclude
+        # add_back). Battery discharge into DRAWING bays inflates
+        # add_back at peak; comparing (add_back + -grid) to a solar
+        # nameplate false-trips and kills modulation exactly at peak.
+        if nameplate and (-float(grid_w)) > nameplate * 1.15:
             _LOGGER.warning(
-                "solar-follow: implausible surplus %.0fW > 1.15*nameplate", s_eligible,
+                "solar-follow: implausible surplus %.0fW > 1.15*nameplate", -float(grid_w),
             )
             self._last_surplus_kw = None
             await self._handle_blind()
@@ -4086,9 +4192,11 @@ class SolarFollowController:
         self._last_surplus_kw = s_eligible / 1000.0
 
         # 5. ALLOCATE — parked-floor NET first (INV-SF-4).
+        # CF-11 fix-up: PHASES was missing from parked_w; broke INV-SF-4
+        # at PHASES=2. Include it for symmetry with a_total's divisor.
         n_eligible = len(eligible)
         n_drawing = len(drawing)
-        parked_w = (n_eligible - n_drawing) * SOLAR_FOLLOW_MIN_AMPS * 240
+        parked_w = (n_eligible - n_drawing) * SOLAR_FOLLOW_MIN_AMPS * 240 * SOLAR_FOLLOW_PHASES
         allocatable_w = max(0.0, s_eligible - parked_w)
         a_total = int(allocatable_w // (240 * SOLAR_FOLLOW_PHASES))
         n_denom = max(1, n_drawing)
@@ -4154,62 +4262,123 @@ class SolarFollowController:
             self._schedule_verify(evse_id, entity, a_target)
 
     async def _handle_blind(self):
+        # CF-13 fix-up: latch the blind-exit WARNING so it does not
+        # re-emit every tick after 900s. Reset the latch when the source
+        # recovers (see grid-recovery branch in _tick_body).
         now = _sf_time.monotonic()
         if self._blind_since is None:
             self._blind_since = now
+            self._blind_exit_logged = False
             return
         elapsed = now - self._blind_since
         if elapsed >= SOLAR_FOLLOW_BLIND_EXIT_S:
-            _LOGGER.warning(
-                "solar-follow: %ds blind — restore + quiet", int(elapsed),
-            )
-            await self._restore_pass()
+            if not self._blind_exit_logged:
+                _LOGGER.warning(
+                    "solar-follow: %ds blind — restore + quiet", int(elapsed),
+                )
+                self._blind_exit_logged = True
+                await self._restore_pass()
         elif elapsed >= SOLAR_FOLLOW_STALE_GRACE_S:
             _LOGGER.warning("solar-follow: blind for %ds", int(elapsed))
         for eid in list(self._last_state):
             self._last_state[eid] = "blind"
 
     async def _boot_reconcile(self):
-        """D1.6 un-throttle backstop."""
+        """D1.6 un-throttle backstop.
+
+        CF-4(a) fix-up: this is the ONLY write path with no peer/DP guard;
+        without it the backstop could write 48A into a load-shed-suppressed
+        bay (INV-SF-7 violation). Now guarded by _stronger_peer_holds and
+        _paused_by_dp — held bays are SKIPPED (not discarded) so the next
+        tick retries once the hold clears.
+
+        CF-1 / CF-4(b) fix-up: discard only after a SUCCESSFUL write (or
+        after establishing the bay is already above the sanity floor / not
+        in _touched-scope). A held bay or a bay whose limit reads None
+        (entity unavailable at boot) is skipped, not discarded — the tick
+        loop retries next round via the un-latched _did_boot_reconcile.
+
+        CF-15 fix-up: only persist when we actually mutated _touched.
+        """
         try:
             active = self._ev._excess_solar_active  # noqa: SLF001
         except Exception:  # noqa: BLE001
             active = set()
+        mutated = False
         for evse_id in list(self._touched):
             if evse_id in active:
+                # Session took it back — nothing for the backstop to do.
+                self._touched.discard(evse_id)
+                mutated = True
+                continue
+            # CF-4(a) fix-up: peer/DP guard on the backstop write path.
+            try:
+                if self._ev._stronger_peer_holds(evse_id) or evse_id in self._ev._paused_by_dp:  # noqa: SLF001
+                    # SKIP (do NOT discard) — retry next tick.
+                    continue
+            except Exception:  # noqa: BLE001
                 continue
             entity = self._limit_entity(evse_id)
             if entity is None:
                 self._touched.discard(evse_id)
+                mutated = True
                 continue
             a = self._read_amps(entity)
             if a is None:
+                # CF-4(b): entity unavailable at boot — retry next tick,
+                # do NOT discard.
                 continue
             if a < SOLAR_FOLLOW_CAPTURE_SANITY_A:
                 try:
                     await self._write_amps(entity, SOLAR_FOLLOW_RESTORE_AMPS)
-                    self._last_commanded[evse_id] = float(SOLAR_FOLLOW_RESTORE_AMPS)
-                    _LOGGER.info(
-                        "solar-follow boot-reconcile: %s %.0fA < %d → %d",
-                        evse_id, a, SOLAR_FOLLOW_CAPTURE_SANITY_A,
-                        SOLAR_FOLLOW_RESTORE_AMPS,
-                    )
                 except Exception:  # noqa: BLE001
-                    _LOGGER.debug("solar-follow boot-reconcile write raised", exc_info=True)
+                    # CF-1: write failed → retain _touched for retry.
+                    _LOGGER.debug(
+                        "solar-follow boot-reconcile write raised — retaining %s",
+                        evse_id, exc_info=True,
+                    )
+                    continue
+                self._last_commanded[evse_id] = float(SOLAR_FOLLOW_RESTORE_AMPS)
+                _LOGGER.info(
+                    "solar-follow boot-reconcile: %s %.0fA < %d → %d",
+                    evse_id, a, SOLAR_FOLLOW_CAPTURE_SANITY_A,
+                    SOLAR_FOLLOW_RESTORE_AMPS,
+                )
+            # Above sanity floor OR write succeeded — safe to discard.
             self._touched.discard(evse_id)
-        await self._persist()
+            mutated = True
+        # CF-15: only persist when _touched actually changed.
+        if mutated:
+            await self._persist()
 
     # -- observability (§6) -------------------------------------------
     def get_status(self):
-        below_dp = any(
-            a * 240 * SOLAR_FOLLOW_PHASES <= DP_L1_RATE_THRESHOLD_KW * 1000
-            for a in self._last_commanded.values()
-        )
+        # CF-14 fix-up: only consider bays that D1 actively commanded
+        # THIS tick (state in {"writing","deadband","up_gated","yielded",
+        # "hold_stale","budget"}). A bay whose last_commanded holds the
+        # 48A restore/boot value from a prior session must not report
+        # "below DP L1 threshold" — that would falsely accuse D1 of
+        # throttling something it isn't managing right now. Returns None
+        # when there is no active-session bay to report on.
+        _ACTIVE = {"writing", "deadband", "up_gated", "yielded",
+                   "hold_stale", "budget"}
+        active_bays = [
+            eid for eid, st in self._last_state.items() if st in _ACTIVE
+        ]
+        if not active_bays:
+            below_dp = None
+        else:
+            below_dp = any(
+                self._last_commanded.get(eid, 0.0) * 240 * SOLAR_FOLLOW_PHASES
+                <= DP_L1_RATE_THRESHOLD_KW * 1000
+                for eid in active_bays
+                if eid in self._last_commanded
+            ) if any(eid in self._last_commanded for eid in active_bays) else None
         return {
             "solar_follow_surplus_kw": self._last_surplus_kw,
             "solar_follow_original_amps": dict(self._original_amps),
             "solar_follow_state": dict(self._last_state),
             "solar_follow_blind_since": self._blind_since,
             "solar_follow_grid_source": self._last_grid_source,
-            "solar_follow_below_dp_l1_threshold": bool(below_dp),
+            "solar_follow_below_dp_l1_threshold": below_dp,
         }

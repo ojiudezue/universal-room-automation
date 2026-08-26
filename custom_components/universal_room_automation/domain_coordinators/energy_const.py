@@ -929,12 +929,25 @@ SOLAR_FOLLOW_STALE_GRACE_S: Final[int] = 300     # blind grace before WARNING
 SOLAR_FOLLOW_BLIND_EXIT_S: Final[int] = 900      # restore-and-quiet after prolonged blind
 SOLAR_POWER_FRESH_S: Final[int] = 180            # per-EVSE power reading freshness (uses last_updated)
 SOLAR_FOLLOW_GRID_FRESH_S: Final[int] = 300      # grid source freshness (uses last_reported — INV-SF-10)
+# CF-5 fix-up: bound the STALE_POWER hold. Rung 1 (module constant — safety
+# knob, review-gated). After this many consecutive stale-power ticks the bay
+# stops being HELD at its current amps and is treated as non-drawing (targets
+# MIN). Guards INV-SF-4 against a wedged Emporia power sensor pinning 48 A
+# indefinitely — a money leak at peak tariff. At 60 s tick × 5 = 5 min max
+# hold; comfortably above the p90-250 s power sensor lag but tight enough to
+# reject a truly stuck reading.
+SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS: Final[int] = 5
 
 # Grid entities for solar-follow (deliberately NOT reusing CONF_ENERGY_GRID_IMPORT_ENTITY).
 CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY: Final = "energy_solar_follow_grid_entity"
 CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "energy_solar_follow_grid_fallback_entity"
 DEFAULT_SOLAR_FOLLOW_GRID_ENTITY: Final = "sensor.mains_vue_3_power_minute_average"
 DEFAULT_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "sensor.envoy_482543015950_current_net_power_consumption"
+
+# CF-10 fix-up: the operator knob (rung 3) also lives here as a CONF key so
+# EnergyCoordinator can read the options value at __init__ time, making the
+# options-persisted value authoritative regardless of Number entity timing.
+CONF_ENERGY_EXCESS_SOLAR_CONFIRM: Final = "energy_excess_solar_confirm"
 
 # Load shedding defaults
 DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0

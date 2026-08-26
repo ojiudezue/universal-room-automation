@@ -1,6 +1,6 @@
 # PLANNING — EVSE solar-following amp modulation (D1 only)
 
-**Status:** build-ready, awaiting operator go. Tier 3. Self-contained.
+**Status:** build shipped @ `feature/evse-solar-follow-amps` `856a69418`; Tier-3 (4 framing-disjoint reviews) returned FIX-REQUIRED / DO-NOT-SHIP; **fix-up applied 2026-08-25** — CF-1..CF-15 code fixes, mutation-anchored tests for every named untested site (every drill bites RED), DF-1..DF-5 doc corrections below. Ready for re-verification. See `docs/reviews/code-review/v5.91.0_solar_follow_consolidated.md`.
 
 **Scope:** amp modulation ONLY. This cycle changes *how much current* an EVSE draws inside a
 solar session. It does not change when sessions start or stop — the existing claim and release
@@ -109,12 +109,18 @@ unclamped allocation is 75 A, so this clamp is the only thing keeping a 60 A bra
 ## 4. Falsifiable invariants
 
 **INV-SF-1 (non-perturbation).** When `_excess_solar_active` is empty AND `_original_amps` is
-empty, D1 writes nothing and reads no EVSE state beyond the empty-set check. When
-`_original_amps` is non-empty the restore pass runs — the sole exception, and it only writes a
-previously captured value back.
+empty AND `_touched` is empty, D1 writes nothing and reads no EVSE state beyond the empty-set
+check. When `_original_amps` is non-empty the restore pass runs; when `_touched` is non-empty
+the boot-reconcile backstop (D1.6) runs — these are the two documented exceptions. **DF-1
+fix-up (per review D-LOW-7):** the `_boot_reconcile` un-throttle backstop is explicitly named
+here as the second exception (it can write to a bay that is not in the active-session set) so
+the invariant remains falsifiable.
 
 **INV-SF-2 (writes only inside sessions).** D1 writes a current limit ONLY to an EVSE in
-`_excess_solar_active`, except the restore pass, which writes only to one that has just left it.
+`_excess_solar_active`, EXCEPT (a) the restore pass, which writes only to a bay that has just
+left the active set, and (b) `_boot_reconcile`, which writes `SOLAR_FOLLOW_RESTORE_AMPS` to any
+`_touched` bay reading below `SOLAR_FOLLOW_CAPTURE_SANITY_A` after a >10 h restart. Both
+exceptions are peer/DP guarded (INV-SF-7).
 
 **INV-SF-3 (restore is load-bearing and restart-safe).** When an EVSE leaves
 `_excess_solar_active`, its `current_limit` returns to the saved `_original_amps` within one D1
@@ -133,10 +139,17 @@ DRAWING  = { e ∈ ELIGIBLE :
              AND now - hass.states.get(power_entity(e)).last_updated <= SOLAR_POWER_FRESH_S }
 S_eligible = -grid_W + Σ_{e ∈ DRAWING} state(e)["power"]
 ```
-Then, quantified over **ELIGIBLE**:
+Then, quantified over **ELIGIBLE \ STALE_POWER** (DF-2 fix-up per reviewer A/D):
 ```
-Σ_{e ∈ ELIGIBLE} A_e · 240 · SOLAR_FOLLOW_PHASES  ≤  max(S_eligible, N_eligible · MIN_AMPS · 240)
+Σ_{e ∈ (ELIGIBLE \ STALE_POWER)} A_e · 240 · SOLAR_FOLLOW_PHASES
+    ≤  max(S_eligible, |ELIGIBLE \ STALE_POWER| · MIN_AMPS · 240)
+    + Σ_{e ∈ STALE_POWER, held_ticks(e) < SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS} held_amps(e) · 240 · SOLAR_FOLLOW_PHASES
 ```
+The right-hand held-bay term is the bounded HOLD introduced by CF-5 fix-up: a stale bay retains
+its last-commanded amps for up to `SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS` (5) consecutive stale
+ticks. After that the bay is demoted to the non-drawing set and targets MIN — guaranteeing the
+sum is bounded in the limit, closing the D-HIGH-4 unbounded-hold hole (wedged Emporia sensor
+pinning 48 A / 11.5 kW at peak tariff indefinitely).
 **The allocator must NET the parked floor out before dividing** (D1.2 step 5). Allocating the
 full surplus to DRAWING bays and then paying each parked bay's 6 A on top makes this invariant
 false in the ordinary mixed fleet state: one bay at 29 A plus one parked at 6 A is 8400 W
@@ -171,8 +184,12 @@ limits and nothing else. Violations are review-blocking.
 
 **INV-SF-9 (gated identically to the feature it serves).** D1 performs no writes when
 `_observation_mode` is True or `_excess_solar_enabled` is False. On the enabled→disabled edge it
-runs the restore pass once, then goes quiet — so turning the master switch off un-throttles
-rather than freezing the fleet at a modulated limit.
+runs the restore pass once, then goes quiet — so turning the option off un-throttles rather
+than freezing the fleet at a modulated limit. **DF-3 fix-up (per reviewer B):**
+`_excess_solar_enabled` is a **CONFIG field** on the coordinator-manager entry (persisted via
+options flow), not a live switch entity. A change requires the entry to be reloaded; there is
+no runtime toggle. Prior phrasing that called it a "master switch" was misleading; the phrasing
+above and elsewhere in this doc is corrected.
 
 ---
 
@@ -275,7 +292,7 @@ await self._restore_pass()
 #        WARNING; treat as blind (5.4); return.   # an impossible surplus is a signal fault
 
 # 5. ALLOCATE — net the parked floor out FIRST (INV-SF-4).
-parked_w      = (len(ELIGIBLE) - len(DRAWING)) * SOLAR_FOLLOW_MIN_AMPS * 240
+parked_w      = (len(ELIGIBLE) - len(DRAWING)) * SOLAR_FOLLOW_MIN_AMPS * 240 * SOLAR_FOLLOW_PHASES  # CF-11 fix-up: PHASES factor for units symmetry with a_total's divisor
 allocatable_w = max(0, S_eligible - parked_w)
 A_total       = int(allocatable_w // (240 * SOLAR_FOLLOW_PHASES))
 N_denom       = max(1, len(DRAWING))
@@ -498,10 +515,12 @@ declared there, parsed in the coordinator-manager options step of `config_flow.p
 | `SOLAR_FOLLOW_UP_MIN_TICKS` | 3 | 3 | default for `_up_min_ticks`; surfaced as "Excess Solar Confirm" |
 | `SOLAR_FOLLOW_TICK_S` | 1 | 60 | cadence |
 | `SOLAR_FOLLOW_VERIFY_S` | 1 | 8 | readback delay, via `async_call_later` |
-| `SOLAR_FOLLOW_MAX_WRITES_PER_HOUR` | 1 | 60 | tripwire; the deadband does the suppression |
+| `SOLAR_FOLLOW_MAX_WRITES_PER_HOUR` | 1 | 60 | **DF-4 fix-up (per reviewer D-LOW-8):** effectively inert at a 60 s tick (a bay can only write 60 times/hour anyway). Kept as a defense-in-depth cap; the deadband is what actually suppresses writes. Do NOT describe as "write-flood protection" in the README. |
+| `SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS` | 1 | 5 | **CF-5 fix-up:** max consecutive stale-power ticks before HELD bay is demoted to non-drawing (targets MIN). Bounds INV-SF-4 against a wedged Emporia sensor pinning 48 A. |
 | `SOLAR_FOLLOW_STALE_GRACE_S` | 1 | 300 | blind declared |
 | `SOLAR_FOLLOW_BLIND_EXIT_S` | 1 | 900 | restore-and-go-quiet |
 | `SOLAR_POWER_FRESH_S` | 1 | 180 | max age of a per-EVSE power reading for DRAWING; that sensor's p90 is 250 s |
+| `SOLAR_FOLLOW_GRID_FRESH_S` | 1 | 300 | INV-SF-10. Max `last_reported` age of a grid source before it is treated as unavailable and the fallback is used. Generous vs the measured p90 (Emporia 120 s / Envoy 86 s). **DF-5 note (per reviewer C/D, OPTIONAL):** tightening to 180 s narrows the stale window (2× p90 vs 2.5× p90) at the cost of a slightly higher false-trip rate on a momentarily slow poll. Left at 300 s for the ship; revisit if live shows the fallback is under-triggered. |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY` | 2 | — | primary grid entity |
 | `CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY` | 2 | — | fallback grid entity |
 

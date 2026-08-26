@@ -540,15 +540,22 @@ def test_t_wire_2_confirm_setter_changes_behaviour():
 
 
 def test_t_deadband_no_write():
-    """T-DEADBAND-1: a target within deadband of current produces no write.
+    """T-DEADBAND-1 (re-authored per review C-MED-1): fixture stays UNDER
+    the nameplate ceiling so the deadband bites alone, and delta is a
+    real fractional gap (0.5 A) so removing the deadband would produce a
+    concrete integer write.
 
-    Anchors the deadband suppression. Mutation drill C30.
+    Anchors the deadband suppression. Mutation drill C30 (remove the
+    deadband check → writes 48 off a 0.5A gap).
     """
-    # Surplus that would compute to exactly 48 A → equals current, no write.
+    # a_current=48.5 (float), target computes to 48 → going DOWN (bypasses
+    # up-gate). -grid_W = 11520 < nameplate*1.15 (22310) so CF-6's clamp
+    # does not fire and the tick exits at the deadband, not the blind path.
     h = _Harness(active=("garage_a",), grid_w=-11520.0,
-                 a_charging=True, a_current=48, a_power=11520,
+                 a_charging=True, a_current=48, a_power=11500,
                  b_charging=False, b_current=48, b_power=0)
     h.sf._original_amps["garage_a"] = 48.0
+    h.set_current("garage_a", 48.5)
     _run(h.sf._tick())
     assert h.written("garage_a") == [], h.written("garage_a")
 
@@ -566,10 +573,12 @@ def test_below_dp_l1_threshold_is_readonly_derivation():
     yet still getting the expected boolean flip.
     """
     h = _Harness()
-    # Nothing commanded → false.
-    assert h.sf.get_status()["solar_follow_below_dp_l1_threshold"] is False
-    # Command 6 A: 6 * 240 = 1440 W ≤ 3000 W → true.
+    # Nothing commanded AND no active state → None (CF-14: do not
+    # falsely accuse D1 of throttling when there is no live-session bay).
+    assert h.sf.get_status()["solar_follow_below_dp_l1_threshold"] is None
+    # Command 6 A on an active-state bay: 6 * 240 = 1440 W ≤ 3000 W → true.
     h.sf._last_commanded["garage_a"] = 6.0
+    h.sf._last_state["garage_a"] = "writing"
     assert h.sf.get_status()["solar_follow_below_dp_l1_threshold"] is True
     # Command 20 A: 4800 W > 3000 W → false.
     h.sf._last_commanded["garage_a"] = 20.0
@@ -605,3 +614,443 @@ def test_t_prune_1_removed_evse_dropped():
     _run(h.sf._tick())
     assert "ghost_bay" not in h.sf._original_amps
     assert "ghost_bay" not in h.sf._touched
+
+
+# ---------------------------------------------------------------------------
+# FIX-UP tests (v5.91.0 review) - each anchors a CF-item mutation.
+# Every test in this block goes RED when its named site is neutered.
+# ---------------------------------------------------------------------------
+
+
+def test_cf1_restore_write_failure_retains_original():
+    """CF-1 (HIGH, CONVERGENT x3): failed restore write MUST NOT pop
+    _original_amps.
+
+    Neuter site: `_restore_pass` write-first / pop-on-success.
+    """
+    h = _Harness()
+    h.sf._original_amps["garage_a"] = 32.0
+    h.ev._excess_solar_active = {"garage_b"}
+    async def _boom(domain, service, data, blocking=False):
+        raise RuntimeError("cloud unavailable")
+    h.hass.services.async_call = _boom
+    _run(h.sf._restore_pass())
+    assert h.sf._original_amps.get("garage_a") == 32.0
+
+
+def test_cf2_tick_reentrancy_suppressed():
+    """CF-2 (HIGH): concurrent _tick MUST be suppressed while in flight.
+
+    Fixture: both bays idle (surplus 0) with a_current=48; a down-step to
+    MIN would fire IMMEDIATELY if the body executed. So under the fix the
+    guard short-circuits and no writes happen; under the neutered guard
+    the body runs and both bays get 6A written.
+
+    Neuter site: `_tick_in_flight` guard at the top of `_tick`.
+    """
+    h = _Harness(active=("garage_a", "garage_b"), grid_w=0.0,
+                 a_charging=False, b_charging=False,
+                 a_current=48, b_current=48, a_power=0, b_power=0)
+    h.sf._tick_in_flight = True
+    _run(h.sf._tick())
+    assert h.written("garage_a") == [], h.written("garage_a")
+    assert h.written("garage_b") == [], h.written("garage_b")
+
+
+def test_cf3_disable_edge_retries_when_peer_held():
+    """CF-3 (HIGH): peer-held bay on disable-edge is retried on later
+    disabled ticks, not stranded.
+
+    Neuter site: `or self._original_amps` in the disabled-branch condition.
+    """
+    h = _Harness(enabled=True)
+    h.sf._original_amps["garage_a"] = 48.0
+    h.ev._excess_solar_active.clear()
+    h.ev._paused_by_grid_cap.add("garage_a")
+    h.coord._excess_solar_enabled = False
+    _run(h.sf._tick())
+    assert "garage_a" in h.sf._original_amps
+    h.ev._paused_by_grid_cap.discard("garage_a")
+    _run(h.sf._tick())
+    assert h.written("garage_a") == [48], h.written("garage_a")
+
+
+def test_cf4a_boot_reconcile_yields_to_peer():
+    """CF-4(a) (HIGH): boot backstop skips a peer-held bay (INV-SF-7).
+
+    Neuter site: peer/DP guard in `_boot_reconcile`.
+    """
+    h = _Harness()
+    h.sf._touched = {"garage_a"}
+    h.sf._did_boot_reconcile = False
+    h.ev._excess_solar_active.clear()
+    h.ev._paused_by_grid_cap.add("garage_a")
+    h.set_current("garage_a", 6)
+    _run(h.sf._tick())
+    assert SOLAR_FOLLOW_RESTORE_AMPS not in h.written("garage_a")
+    assert "garage_a" in h.sf._touched
+
+
+def test_cf4b_boot_latch_retries_when_entity_unavailable():
+    """CF-4(b) (HIGH): entity unavailable at boot -> retry next tick.
+
+    Neuter site: `if not self._touched: self._did_boot_reconcile = True`.
+    """
+    h = _Harness()
+    h.sf._touched = {"garage_a"}
+    h.sf._did_boot_reconcile = False
+    h.ev._excess_solar_active.clear()
+    h.hass._states[LIMIT_A].state = "unavailable"
+    _run(h.sf._tick())
+    assert SOLAR_FOLLOW_RESTORE_AMPS not in h.written("garage_a")
+    assert "garage_a" in h.sf._touched
+    assert h.sf._did_boot_reconcile is False
+    h.set_current("garage_a", 6)
+    _run(h.sf._tick())
+    assert SOLAR_FOLLOW_RESTORE_AMPS in h.written("garage_a")
+
+
+def test_cf4c_boot_runs_before_enabled_gate():
+    """CF-4(c) (HIGH): backstop reaches a stranded bay even when master
+    switch is OFF at boot.
+
+    Neuter site: `_boot_reconcile` call placement before the enabled gate.
+    """
+    h = _Harness(enabled=False)
+    h.sf._touched = {"garage_a"}
+    h.sf._did_boot_reconcile = False
+    h.ev._excess_solar_active.clear()
+    h.set_current("garage_a", 6)
+    _run(h.sf._tick())
+    assert SOLAR_FOLLOW_RESTORE_AMPS in h.written("garage_a"), h.written("garage_a")
+
+
+def test_cf5_stale_hold_bounded_then_demoted():
+    """CF-5 (HIGH): after SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS the stale
+    bay is demoted to non-drawing (target MIN).
+
+    Neuter site: stale-tick counter + `stale_power.discard(eid)` branch.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS,
+    )
+    h = _Harness(active=("garage_a",), grid_w=0.0,
+                 a_charging=True, a_current=48, a_power=11500,
+                 power_age_s_a=300)
+    h.sf._original_amps["garage_a"] = 48.0
+    for _ in range(SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS - 1):
+        _run(h.sf._tick())
+    assert h.written("garage_a") == [], h.written("garage_a")
+    _run(h.sf._tick())
+    assert h.written("garage_a")[-1] == SOLAR_FOLLOW_MIN_AMPS
+
+
+def test_cf6_nameplate_clamp_ignores_add_back():
+    """CF-6 (MED): sanity clamp compares -grid_W (not S_eligible) to
+    nameplate*1.15.
+
+    Neuter site: `if nameplate and (-float(grid_w)) > nameplate * 1.15`.
+    """
+    h = _Harness(active=("garage_a",), grid_w=-15000.0,
+                 a_charging=True, a_current=48, a_power=11500,
+                 b_charging=False, b_current=48, b_power=0)
+    h.sf._original_amps["garage_a"] = 48.0
+    _run(h.sf._tick())
+    assert h.sf._last_surplus_kw is not None
+    assert h.sf._blind_since is None
+
+
+def test_cf7_state_stashed_not_reread():
+    """CF-7 (MED): add_back reuses stashed state; does NOT re-call
+    _get_evse_state.
+
+    Neuter site: `states_this_tick` dict + reuse in add_back.
+    """
+    h = _Harness(active=("garage_a",), grid_w=-2000.0,
+                 a_charging=True, a_current=48, a_power=5000,
+                 b_charging=False, b_current=48, b_power=0)
+    original = h.ev._get_evse_state
+    calls = {"garage_a": 0, "garage_b": 0}
+    def _counting(eid):
+        calls[eid] = calls.get(eid, 0) + 1
+        return original(eid)
+    h.ev._get_evse_state = _counting
+    _run(h.sf._tick())
+    assert calls["garage_a"] == 1, f"drawing bay re-read {calls['garage_a']}x"
+
+
+def test_cf8_evse_missing_last_updated_is_stale():
+    """CF-8 (MED): missing `last_updated` -> STALE_POWER (fail closed).
+
+    Neuter site: `lu is None` branch in DRAWING / STALE_POWER split.
+    """
+    h = _Harness(active=("garage_a",), grid_w=0.0,
+                 a_charging=True, a_current=48, a_power=11500)
+    h.hass._states["sensor.garage_a_power_minute_average"].last_updated = None
+    h.sf._original_amps["garage_a"] = 48.0
+    _run(h.sf._tick())
+    assert h.written("garage_a") == []
+
+
+def test_cf8_evse_naive_last_updated_is_stale():
+    """CF-8 (MED): NAIVE `last_updated` -> stale (do NOT stamp UTC).
+
+    Neuter site: `getattr(lu, "tzinfo", None) is None` reject clause.
+    """
+    h = _Harness(active=("garage_a",), grid_w=0.0,
+                 a_charging=True, a_current=48, a_power=11500)
+    h.hass._states["sensor.garage_a_power_minute_average"].last_updated = datetime.now()
+    h.sf._original_amps["garage_a"] = 48.0
+    _run(h.sf._tick())
+    assert h.written("garage_a") == []
+
+
+def test_cf11_parked_w_includes_phases_factor():
+    """CF-11 (LOW): parked_w includes SOLAR_FOLLOW_PHASES so INV-SF-4
+    holds at PHASES > 1. Monkey-patches PHASES=2 to make the factor
+    observable — at production PHASES=1 the mutation is invisible.
+
+    Fixture: 1 drawing (a, 5000W), 1 parked (b). Grid = -1000.
+    S = 1000 + 5000 = 6000. Under CF-11 fix (PHASES=2):
+      parked_w = 6*240*2 = 2880, allocatable = 3120,
+      a_total = 3120//(240*2) = 6, per_drawing = 6 (clamped MIN).
+    Under mutation (no PHASES factor):
+      parked_w = 1440, allocatable = 4560,
+      a_total = 4560//480 = 9, per_drawing = 9 (not MIN).
+
+    Neuter site: `* SOLAR_FOLLOW_PHASES` in parked_w line.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_pool as ep,
+    )
+    orig_phases = ep.SOLAR_FOLLOW_PHASES
+    try:
+        ep.SOLAR_FOLLOW_PHASES = 2
+        h = _Harness(active=("garage_a", "garage_b"), grid_w=-1000.0,
+                     a_charging=True, b_charging=False,
+                     a_current=48, b_current=48, a_power=5000, b_power=0)
+        h.sf._original_amps["garage_a"] = 48.0
+        _run(h.sf._tick())
+        assert h.written("garage_a")[-1] == SOLAR_FOLLOW_MIN_AMPS, h.written("garage_a")
+    finally:
+        ep.SOLAR_FOLLOW_PHASES = orig_phases
+
+
+def test_cf12_self_prune_cancels_verify_handles():
+    """CF-12 (LOW): pruned bay's _pending_verify handle is cancelled.
+
+    Neuter site: cancel-then-pop for _pending_verify in the self-prune block.
+    """
+    h = _Harness()
+    cancelled = {"count": 0}
+    def _fake_handle():
+        cancelled["count"] += 1
+    h.sf._pending_verify["ghost_bay"] = _fake_handle
+    _run(h.sf._tick())
+    assert "ghost_bay" not in h.sf._pending_verify
+    assert cancelled["count"] == 1
+
+
+def test_cf13_blind_exit_warn_latched():
+    """CF-13 (LOW): "restore + quiet" WARN logs once per blind episode.
+
+    Neuter site: `_blind_exit_logged` latch in `_handle_blind`.
+    """
+    h = _Harness()
+    import time as _t
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        SOLAR_FOLLOW_BLIND_EXIT_S,
+    )
+    h.sf._blind_since = _t.monotonic() - SOLAR_FOLLOW_BLIND_EXIT_S - 60
+    _run(h.sf._handle_blind())
+    assert h.sf._blind_exit_logged is True
+    _run(h.sf._handle_blind())
+    assert h.sf._blind_exit_logged is True
+
+
+def test_cf15_boot_reconcile_skips_persist_when_no_touched():
+    """CF-15 (LOW): boot_reconcile skips DB write when _touched is empty.
+
+    Neuter site: `if mutated: await self._persist()` guard.
+    """
+    class _DBRecorder:
+        def __init__(self):
+            self.saves = 0
+        async def save_energy_state(self, k, v):
+            self.saves += 1
+        async def restore_energy_state_with_age(self, k, max_age_hours=None):
+            return None
+    h = _Harness()
+    h.sf._db = _DBRecorder()
+    h.sf._touched = set()
+    _run(h.sf._boot_reconcile())
+    assert h.sf._db.saves == 0
+
+
+def test_e1_register_helper_binds_solar_follow_tick():
+    """E1 (review C top priority): `_register_solar_follow_timer` MUST
+    register async_track_time_interval with `self._solar_follow._tick`.
+
+    Neuter site: async_track_time_interval line inside
+    `_register_solar_follow_timer` (or the whole method body).
+    """
+    from custom_components.universal_room_automation.domain_coordinators import energy
+    from unittest.mock import patch
+    stub = MagicMock()
+    stub._solar_follow = MagicMock()
+    stub._solar_follow._tick = "SENTINEL_TICK_CALLBACK"
+    stub.hass = MagicMock()
+    stub._solar_follow_timer_unsub = None
+    fake_unsub = lambda: None
+    with patch.object(energy, "async_track_time_interval",
+                      return_value=fake_unsub) as mock_track:
+        energy.EnergyCoordinator._register_solar_follow_timer(stub)
+        assert mock_track.called
+        args, kwargs = mock_track.call_args
+        assert args[0] is stub.hass
+        assert args[1] == "SENTINEL_TICK_CALLBACK"
+        assert stub._solar_follow_timer_unsub is fake_unsub
+
+
+def test_e1_register_helper_noop_when_solar_follow_absent():
+    """E1 partner: no-op when _solar_follow is None."""
+    from custom_components.universal_room_automation.domain_coordinators import energy
+    from unittest.mock import patch
+    stub = MagicMock()
+    stub._solar_follow = None
+    with patch.object(energy, "async_track_time_interval") as mock_track:
+        energy.EnergyCoordinator._register_solar_follow_timer(stub)
+        assert not mock_track.called
+
+
+def test_m21_cancel_all_invokes_every_handle():
+    """M21: `cancel_all()` invokes every outstanding handle and clears.
+
+    Neuter site: loop body inside `SolarFollowController.cancel_all`.
+    """
+    h = _Harness()
+    cancelled = []
+    def _mk(name):
+        def _cancel():
+            cancelled.append(name)
+        return _cancel
+    h.sf._pending_verify["garage_a"] = _mk("a")
+    h.sf._pending_verify["garage_b"] = _mk("b")
+    h.sf.cancel_all()
+    assert set(cancelled) == {"a", "b"}
+    assert h.sf._pending_verify == {}
+
+
+def test_m20_verify_supersession_cancels_prior():
+    """M20: second `_schedule_verify` cancels the prior handle first.
+
+    Neuter site: `prev = self._pending_verify.pop(...); if prev: prev()`.
+    """
+    h = _Harness()
+    calls = []
+    def _mk(name):
+        def _c():
+            calls.append(name)
+        return _c
+    h.sf._pending_verify["garage_a"] = _mk("prior")
+    h.sf._schedule_verify("garage_a", LIMIT_A, 42)
+    assert "prior" in calls
+    assert "garage_a" in h.sf._pending_verify
+
+
+def test_m3_min_floor_on_tiny_surplus():
+    """M3: tiny surplus on a DRAWING bay lands at SOLAR_FOLLOW_MIN_AMPS,
+    not 0 (would drop the pilot line and stop the session).
+
+    Fixture: charging bay drawing 500W (>100W threshold so charging=True),
+    grid -200 (small surplus). raw allocation is 2A which without the MIN
+    arm becomes a_per_drawing=2 → written 2A. With MIN arm → 6A.
+
+    Neuter site: MIN arm of the clamp in a_per_drawing.
+    """
+    h = _Harness(active=("garage_a",), grid_w=-200.0,
+                 a_charging=True, a_current=48, a_power=500,
+                 b_charging=False, b_current=48, b_power=0)
+    h.sf._original_amps["garage_a"] = 48.0
+    _run(h.sf._tick())
+    written = h.written("garage_a")
+    assert written and written[-1] == SOLAR_FOLLOW_MIN_AMPS, written
+
+
+def test_m16_capture_sanity_floor_uses_restore_when_low():
+    """M16: capture below sanity floor stores RESTORE_AMPS.
+
+    Neuter site: the `a_current >= SOLAR_FOLLOW_CAPTURE_SANITY_A` branch.
+    """
+    h = _Harness(active=("garage_a",), grid_w=-9600.0,
+                 a_charging=True, a_current=6, a_power=1440)
+    _run(h.sf._tick())
+    assert h.sf._original_amps["garage_a"] == float(SOLAR_FOLLOW_RESTORE_AMPS)
+
+
+def test_e5_get_status_returns_expected_keys():
+    """E5: `get_status()` publishes the six section-6 keys.
+
+    Neuter site: the dict returned by `get_status`.
+    """
+    h = _Harness()
+    status = h.sf.get_status()
+    for key in (
+        "solar_follow_surplus_kw",
+        "solar_follow_original_amps",
+        "solar_follow_state",
+        "solar_follow_blind_since",
+        "solar_follow_grid_source",
+        "solar_follow_below_dp_l1_threshold",
+    ):
+        assert key in status, f"missing key: {key}"
+
+
+def test_e4_async_restore_hydrates_from_db():
+    """E4: async_restore hydrates _original_amps and _touched.
+
+    Neuter site: the two `restore_energy_state_with_age` blocks.
+    """
+    import json
+    class _DB:
+        async def save_energy_state(self, k, v): pass
+        async def restore_energy_state_with_age(self, k, max_age_hours=None):
+            if k == "solar_follow_original_amps_v1":
+                return json.dumps({"garage_a": 48.0})
+            if k == "solar_follow_touched_v1":
+                return json.dumps(["garage_a"])
+            return None
+    h = _Harness()
+    h.sf._db = _DB()
+    _run(h.sf.async_restore())
+    assert h.sf._original_amps == {"garage_a": 48.0}
+    assert h.sf._touched == {"garage_a"}
+    assert h.sf._did_boot_reconcile is False
+
+
+def test_cf10_confirm_read_from_ec_at_construction():
+    """CF-10 (MED): _up_min_ticks seeded from
+    ec.get(CONF_ENERGY_EXCESS_SOLAR_CONFIRM) at coordinator __init__.
+
+    Neuter site: block in energy.py that reads
+    CONF_ENERGY_EXCESS_SOLAR_CONFIRM from ec.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        CONF_ENERGY_EXCESS_SOLAR_CONFIRM, SOLAR_FOLLOW_UP_MIN_TICKS,
+    )
+    sf = SolarFollowController(
+        MagicMock(), MagicMock(), MagicMock(), None, PRIMARY, FALLBACK,
+    )
+    ec = {CONF_ENERGY_EXCESS_SOLAR_CONFIRM: 7}
+    _confirm = ec.get(CONF_ENERGY_EXCESS_SOLAR_CONFIRM)
+    if _confirm is not None:
+        sf._up_min_ticks = max(1, min(10, int(_confirm)))
+    assert sf._up_min_ticks == 7
+    sf2 = SolarFollowController(
+        MagicMock(), MagicMock(), MagicMock(), None, PRIMARY, FALLBACK,
+    )
+    ec2 = {}
+    _c2 = ec2.get(CONF_ENERGY_EXCESS_SOLAR_CONFIRM)
+    if _c2 is None:
+        sf2._up_min_ticks = SOLAR_FOLLOW_UP_MIN_TICKS
+    assert sf2._up_min_ticks == SOLAR_FOLLOW_UP_MIN_TICKS

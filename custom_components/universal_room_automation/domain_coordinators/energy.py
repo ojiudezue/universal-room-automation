@@ -515,6 +515,24 @@ class EnergyCoordinator(BaseCoordinator):
             ),
         )
         self._solar_follow_timer_unsub = None
+        # CF-10 fix-up: read the persisted confirm value from options at
+        # coordinator __init__ so the operator-tunable rung-3 knob is
+        # authoritative regardless of Number entity timing. The Number's
+        # one-shot _push still overrides at runtime; this seeds startup so
+        # the first tick observes the persisted value even if the entity
+        # has not yet added_to_hass.
+        try:
+            from .energy_const import (
+                CONF_ENERGY_EXCESS_SOLAR_CONFIRM,
+                SOLAR_FOLLOW_UP_MIN_TICKS,
+            )
+            _confirm = ec.get(CONF_ENERGY_EXCESS_SOLAR_CONFIRM)
+            if _confirm is not None:
+                self._solar_follow._up_min_ticks = max(1, min(10, int(_confirm)))
+            else:
+                self._solar_follow._up_min_ticks = SOLAR_FOLLOW_UP_MIN_TICKS
+        except (TypeError, ValueError, ImportError):
+            pass
         self._billing = CostTracker(
             hass, self._tou,
             net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
@@ -986,6 +1004,19 @@ class EnergyCoordinator(BaseCoordinator):
         # Review fix: keep sequential (avoids concurrent DB/shared-state contention)
         # but add timeout so locked DB doesn't hang coordinator startup
         now = dt_util.now()
+        # CF-9 fix-up: attach _db to the solar-follow controller OUTSIDE
+        # the wait_for so a restore-timeout does not leave _db=None
+        # (which no-ops persist for the entire session, and combined with
+        # the pre-fix _did_boot_reconcile=True default disabled the
+        # un-throttle backstop). With _db attached first, _persist works
+        # and the backstop's default-False lets it fire on the first tick.
+        if self._solar_follow is not None:
+            try:
+                self._solar_follow._db = (
+                    self.hass.data.get("universal_room_automation", {}).get("database")
+                )
+            except Exception:  # noqa: BLE001
+                pass
         try:
             await asyncio.wait_for(
                 self._restore_all_sequential(now), timeout=15.0
@@ -1005,16 +1036,12 @@ class EnergyCoordinator(BaseCoordinator):
         # _unsub_listeners to avoid double-unsubscribe in async_teardown
 
         # SolarFollowController D1 — register the 60s modulation tick AFTER
-        # _restore_all_sequential has hydrated _original_amps/_touched, and
-        # store the unsub separately (same discipline as _decision_timer_unsub)
-        # so async_teardown cancels it before verify handles are cancelled.
-        if self._solar_follow is not None:
-            from .energy_const import SOLAR_FOLLOW_TICK_S
-            self._solar_follow_timer_unsub = async_track_time_interval(
-                self.hass,
-                self._solar_follow._tick,  # noqa: SLF001 — wire-in call site
-                timedelta(seconds=SOLAR_FOLLOW_TICK_S),
-            )
+        # _restore_all_sequential has hydrated _original_amps/_touched.
+        # Extracted to a helper so the wire-in has a call-neuter-anchored
+        # test (E1 in review C's untested-sites list — the recurring
+        # wire-in-anchor failure). Deleting the call BELOW OR deleting the
+        # method body both make test_e1_wire_in_registers_tick fail.
+        self._register_solar_follow_timer()
 
         # v3.22.0 D2: Subscribe to safety hazard signals
         self._unsub_listeners.append(
@@ -1288,6 +1315,25 @@ class EnergyCoordinator(BaseCoordinator):
         await self._restore_envoy_cache()
         await self._restore_load_shedding_level()
         await self._restore_solar_follow_state()
+
+    def _register_solar_follow_timer(self) -> None:
+        """Register the SolarFollowController 60s modulation tick.
+
+        Extracted from async_setup so the wire-in has a call-neuter-
+        detectable anchor (E1). Called ONCE from async_setup after DB
+        restore. Store the unsub separately (same discipline as
+        _decision_timer_unsub) so async_teardown cancels it before
+        verify handles are cancelled.
+        """
+        if self._solar_follow is None:
+            return
+        from datetime import timedelta
+        from .energy_const import SOLAR_FOLLOW_TICK_S
+        self._solar_follow_timer_unsub = async_track_time_interval(
+            self.hass,
+            self._solar_follow._tick,  # noqa: SLF001 — wire-in call site
+            timedelta(seconds=SOLAR_FOLLOW_TICK_S),
+        )
 
     async def _restore_solar_follow_state(self) -> None:
         """SolarFollowController D1.7 restore — MUST run before the timer
