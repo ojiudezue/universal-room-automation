@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-25T21:32:57-05:00_ - _Data commit: `4c9192450510`_ - _last_reconciled: 2026-08-25_
+_Generated: 2026-08-25T21:35:31-05:00_ - _Data commit: `144c7f1ff459`_ - _last_reconciled: 2026-08-25_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -514,16 +514,18 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-### `DP-BATTERY-AUTHORITATIVE-TELEMETRY-1` - DP/battery decisions are only legible via human-readable display strings that can lie — expose authoritative floor + latch state as first-class telemetry
+### `DP-BATTERY-AUTHORITATIVE-TELEMETRY-1` - Surface DP + per-EVSE decision state as always-on authoritative telemetry (not disabled sensor / prose) — validation should read truth, not reconstruct it
 thread: **energy** - status: **pre_planning** - approval: **implied**
-_created 2026-08-25 21:30 · initial_
+_created 2026-08-25 21:30 · updated 2026-08-25 21:45 · refined_
 - **Problem / Solution:**
   - Problem: validating DP required reading pause_reason_human prose ('grid import cap', 'off-peak proactive turn-on') and next_action_estimate, which can be inaccurate or lag the real decision — the orchestrator mis-read 'grid import cap' a...
   - Solution: expose the DP decision as first-class, non-prose telemetry — DP state (HOLD/eval/transitioned), the latched SOC, and the drain floor it settled on — so validation reads truth, not reconstructed prose. Consider enabling/surfacin...
 - **Origin:** 2026-08-25 - operator: 'terrible we have to rely on sensors vs better telemetry. They could be lying or inaccurate'
 - **Why:** Diagnosing a money/safety decision path off display strings that can lie is a verification hazard; the operator wants ground-truth telemetry.
-- **Next:** inventory the authoritative DP signals (command_trail, DP carrier, ledger) vs the prose display; scope a first-class DP-decision telemetry surface.
+- **Next:** Plan: inventory the authoritative signals (command_trail, DP carrier to_attrs, solar_follow_*) vs what each disabled/prose surface hides; spec the always-on DP attrs + the per-EVSE structured state; sequence after midnight (or fold #2 in...
 - **Tags:** observability, no-fabrication-verify
+- **Forensic keys (1):**
+  - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
 
 ## 📝 Planned (12)
 _has plan / acceptance_

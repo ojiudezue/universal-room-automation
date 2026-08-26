@@ -11229,13 +11229,13 @@ cards:
     is the empirical repro of the H-1 divergence and is carried into that plan's D3 Live acceptance. Closing
     as dedup-merged, not shipped-standalone.
 - id: DP-BATTERY-AUTHORITATIVE-TELEMETRY-1
-  title: DP/battery decisions are only legible via human-readable display strings that can lie — expose
-    authoritative floor + latch state as first-class telemetry
+  title: Surface DP + per-EVSE decision state as always-on authoritative telemetry (not disabled sensor
+    / prose) — validation should read truth, not reconstruct it
   thread: energy
   status: pre_planning
   created: 2026-08-25 21:30
-  updated: 2026-08-25 21:30
-  refinement_status: initial
+  updated: 2026-08-25 21:45
+  refinement_status: refined
   approval: implied
   tags:
   - observability
@@ -11256,8 +11256,23 @@ cards:
       inaccurate'''
   why: Diagnosing a money/safety decision path off display strings that can lie is a verification hazard;
     the operator wants ground-truth telemetry.
-  next: inventory the authoritative DP signals (command_trail, DP carrier, ledger) vs the prose display;
-    scope a first-class DP-decision telemetry surface.
+  next: 'Plan: inventory the authoritative signals (command_trail, DP carrier to_attrs, solar_follow_*)
+    vs what each disabled/prose surface hides; spec the always-on DP attrs + the per-EVSE structured state;
+    sequence after midnight (or fold #2 into the solar-follow follow-up).'
+  scope_refined_2026_08_25: 'Key insight: this is a SURFACING problem, not new instrumentation — the authoritative
+    data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier
+    state+drain_target_soc; solar_follow_* attrs). Ranked deliverables: (1) DP decision as ALWAYS-ON attributes
+    on sensor.ura_energy_coordinator_ev_charging_status (or battery_strategy): dp_state (HOLD_ONLY/HOLD_PRE_EVAL/TRANSITIONED),
+    dp_latched_soc, dp_drain_floor, dp_reason/gate, dp_eval_countdown_s — NOT via the disabled sensor.ura_energy_drain_precedence_state
+    (enabling it needs a reload -> restart -> warm-up hold, the exact trap on 2026-08-25). (2) Per-EVSE
+    STRUCTURED state, not pause_reason_human prose: {state: paused|throttled|charging, owner, commanded_amps,
+    actual_kw}. Kills the pause-vs-throttle ambiguity (orchestrator misread ''grid import cap'' as throttle
+    when it means paused) and is REQUIRED once solar-follow throttling is live (a bay at 24A is neither
+    paused nor charging; prose has no word for it). Same surface as solar-follow observability -> folds
+    with the solar-follow follow-up. (3) Display-reads-decision principle (H-1 in the midnight cycle)
+    — extend beyond drain-target. NON-GOALS: heavy telemetry framework; per-tick logging (write-flood
+    incident history); dashboards before the data model. Tier: likely Tier-2 (additive surfacing, no decision-path
+    change) — confirm at plan time.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
