@@ -3631,6 +3631,56 @@ cards:
     ''instantaneous read is authoritative'' design) and only 4 are real failures (immediate=0 AND delayed=0,
     ~4%). Primary deliverable proven; the 4-failure tail carded separately. Disposed per soak-exit rule
     — soaked since 08-23, discriminator now evaluable and met.'
+- id: HVAC-EXCURSION-RESTORE-UNIFIED-1
+  title: Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2),
+    manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
+  thread: hvac
+  status: review
+  created: '2026-08-26 02:20'
+  updated: '2026-08-26 02:20'
+  refinement_status: refined
+  approval: needs_operator
+  tags:
+  - tier-3
+  - four-review
+  - do-not-ship
+  problem_solution:
+  - 'Problem: HVAC borrows the thermostat (banking pre-cool/heat, off-phase ceilings, manual overrides)
+    but several paths never hand it back cleanly — banking excursions start and never end (measured: 2
+    open / 0 ended), and some setpoint writes bypass the governed-excursion primitive so a zone can be
+    left stranded. Solution: a periodic auto-release sweep that closes expired borrows (D1), a build-time
+    gate that proves every setpoint write is governed (D2), an opt-in recovery that returns a stuck-manual
+    zone to its house-state preset (D3, ships OFF), and governance for the off-phase ceiling write (D4).'
+  BUILD_2026_08_26: 'Built on feature/hvac-excursion-restore @ da3ec8237 (branch off develop). 4 source
+    + 3 test files, 17 new tests, 336/336 in-slice green. Baseline tag pre-review-hvac-excursion-restore.'
+  REVIEW_2026_08_26_FOUR_FRAMING: 'ALL FOUR framing-disjoint reviews (A local / B async-lifecycle / C
+    test-authority-mutation / D adversarial-completeness) = FIX-REQUIRED. Record:
+    docs/reviews/code-review/hvac_excursion_restore_unified.md. 3 CRITICAL (two are 3-way convergent):
+    (1) S14 orphans its off-phase-ceiling token after the lease-expiry sweep -> per-tick UNGOVERNED
+    rewrite / D3-ON flap [A-HIGH-2=B2=D-CRIT-2]; (2) D4 one-shot anti-flap guard is DEAD CODE (added
+    then cleared same block) [A-CRIT-1=B5=D-CRIT-3]; (3) the D2 AST governance gate is HOLLOW — governs
+    1 of 11 setpoint writers, whitelist keyed on bare fn-name across modules, which INVALIDATES the D3-ON
+    interlock [D-CRIT-1, C-1]. Plus 7 HIGH incl. two PRE-EXISTING live ungoverned writers D3 would stomp
+    (S9 boot ramp-audit, S10 DPM), async-create-task-no-await discharge, CM bypass, sweep re-entrancy
+    double-emit, D3 consumer untested both positions, bare OVERRIDE_NORMAL_DELTA misclassification.
+    CLEARED: D3 OFF-path byte-identity HOLDS (3 reviewers); D1 stale-boot BANKING release genuinely fixes
+    the measured 2-open/0-ended. D1/D3 helper layers are tested; D4 is untested end-to-end.'
+  ORCHESTRATOR_RECOMMENDATION: 'DESCOPE. D1 (auto-release sweep + banking close) is the valuable, mostly-sound,
+    SEPARABLE part with a real measured driver; if D4/S14 is parked the CRIT-2 orphan interaction disappears
+    and the sweep only closes banking tokens. Recommend: ship a narrow D1-only cycle after fixing its
+    sweep re-entrancy (B3) + untracked task (B4) + wire-in test (C-8); PARK D2/D3/D4 (off-phase-ceiling
+    governance + recovery + gate) for a dedicated rework where all 3 CRITICALs live and the gate/interlock
+    design needs reconsidering. Mirrors the operator EVSE-split preference: do not let the ready deliverable
+    (D1) wait behind the unready one (D4). AWAITING OPERATOR: full-fix-up vs descope vs re-plan.'
+  next: 'OPERATOR CHECKPOINT (Tier-3, do-not-ship): choose approach — (A) full fix-up of all 3 CRIT + 7
+    HIGH across D1-D4 + write ~10 deferred tests, then re-run 4 framings; (B, RECOMMENDED) descope to
+    ship D1-only after 3 fixes + park D2/D3/D4 for rework; (C) re-plan. Branch da3ec8237 held at baseline,
+    no fix-up dispatched pending the decision.'
+  refs:
+  - docs/planning/PLANNING_hvac_excursion_restore_unified.md
+  - docs/reviews/code-review/hvac_excursion_restore_unified.md
+  - feature/hvac-excursion-restore @ da3ec8237
+  - tag pre-review-hvac-excursion-restore
 - id: RESTART-SAFETY-DOCTRINE-1
   title: URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no
     shared standard, and at least three detectors that can never reach their own threshold
@@ -7946,6 +7996,15 @@ cards:
   next: Fold into the next platform/coordinator cycle that already edits the target files.
   refs: AUDIT_roadmap_undone_worthwhile.md
 - id: SUITE-ORDER-POLLUTION-1
+  INSTANCE_2026_08_26_WALLCLOCK_ALT_MECHANISM: 'FOURTH sighting + a MECHANISM CORRECTION from the
+    HVAC-excursion Tier-3 reviewer C. The SAME two test_evse_drain_precedence_session_b2c2_fixup.py
+    tests (+ 4 in test_dp_drain_target_value_stamp.py) go RED near 02:00 LOCAL wall-clock and GREEN
+    at 01:56 and GREEN in isolation — root cause is must_start_by(06:00) minus now() dropping under
+    drain+charge+margin as local midnight approaches, i.e. DAY-BOUNDARY / WALL-CLOCK-COUPLED tests,
+    NOT (only) sys.modules import-order. The order-pollution framing above may be a mis-attribution
+    for these specific tests. Whoever fixes this must test the wall-clock hypothesis first (freeze
+    the clock in the fixture) before chasing import order. Bug family: wall-clock-coupled test
+    (memory: the two worst recent bug families both lived at state-machine x time seams).'
   INSTANCE_2026_08_22_EVSE_DP_CARRIER: 'THIRD INSTANCE. Two tests in test_evse_drain_precedence_session_b2c2_fixup.py
     — test_transition_entry_pauses_actual_configured_evse_id and test_transition_entry_pauses_only_charging_evse_ids_multi_evse
     — FAIL in the full suite and PASS in isolation, on BOTH develop and any branch. Deterministic across

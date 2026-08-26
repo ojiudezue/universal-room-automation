@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T01:48:13-05:00_ - _Data commit: `39e91ab00b45`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T01:59:47-05:00_ - _Data commit: `a20bb4f09523`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -16,7 +16,7 @@ _Generated: 2026-08-26T01:48:13-05:00_ - _Data commit: `39e91ab00b45`_ - _last_r
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 11 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 47 |
 | ⏸️ Waiting on operator | 5 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -185,7 +185,8 @@ _created 2026-08-18 02:30 · initial_
 thread: **platform** - status: **inbox**
 _created 2026-08-18 03:00 · updated 2026-08-19 07:45 · initial_
 - **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `INSTANCE_2026_08_26_WALLCLOCK_ALT_MECHANISM`: FOURTH sighting + a MECHANISM CORRECTION from the HVAC-excursion Tier-3 reviewer C. The SAME two test_evse_drain_precedence_session_b2c2_fixup.py tests (+ 4 in test_dp_drain_target_value_stamp.py) go RED near 02:00 LOCAL wall-clock and G...
   - `INSTANCE_2026_08_22_EVSE_DP_CARRIER`: THIRD INSTANCE. Two tests in test_evse_drain_precedence_session_b2c2_fixup.py — test_transition_entry_pauses_actual_configured_evse_id and test_transition_entry_pauses_only_charging_evse_ids_multi_evse — FAIL in the full suite and PASS i...
   - `INSTANCE_2026_08_21_GATE_BLOCKER_FIXED`: SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not jus...
   - `INSTANCE_2026_08_21_EXCURSION_CYCLE`: CONCRETE MEASURED INSTANCE, found during the HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority). SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion test files produces...
@@ -679,8 +680,21 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
+
+### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
+thread: **hvac** - status: **review** - approval: **needs_operator**
+_created 2026-08-26 02:20 · refined_
+- **Problem / Solution:**
+  - Problem: HVAC borrows the thermostat (banking pre-cool/heat, off-phase ceilings, manual overrides) but several paths never hand it back cleanly — banking excursions start and never end (measured: 2 open / 0 ended), and some setpoint writ...
+- **Next:** OPERATOR CHECKPOINT (Tier-3, do-not-ship): choose approach — (A) full fix-up of all 3 CRIT + 7 HIGH across D1-D4 + write ~10 deferred tests, then re-run 4 framings; (B, RECOMMENDED) descope to ship D1-only after 3 fixes + park D2/D3/D4 f...
+- **Tags:** tier-3, four-review, do-not-ship
+- **Refs:** docs/planning/PLANNING_hvac_excursion_restore_unified.md; docs/reviews/code-review/hvac_excursion_restore_unified.md; feature/hvac-excursion-restore @ da3ec8237; tag pre-review-hvac-excursion-restore
+- **Forensic keys (3):**
+  - `BUILD_2026_08_26`: Built on feature/hvac-excursion-restore @ da3ec8237 (branch off develop). 4 source + 3 test files, 17 new tests, 336/336 in-slice green. Baseline tag pre-review-hvac-excursion-restore.
+  - `REVIEW_2026_08_26_FOUR_FRAMING`: ALL FOUR framing-disjoint reviews (A local / B async-lifecycle / C test-authority-mutation / D adversarial-completeness) = FIX-REQUIRED. Record: docs/reviews/code-review/hvac_excursion_restore_unified.md. 3 CRITICAL (two are 3-way conver...
+  - `ORCHESTRATOR_RECOMMENDATION`: DESCOPE. D1 (auto-release sweep + banking close) is the valuable, mostly-sound, SEPARABLE part with a real measured driver; if D4/S14 is parked the CRIT-2 orphan interaction disappears and the sweep only closes banking tokens. Recommend:...
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**
