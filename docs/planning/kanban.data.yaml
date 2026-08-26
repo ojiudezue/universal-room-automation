@@ -3635,7 +3635,7 @@ cards:
   title: Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2),
     manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
   thread: hvac
-  status: review
+  status: parked
   created: '2026-08-26 02:20'
   updated: '2026-08-26 02:20'
   refinement_status: refined
@@ -3672,14 +3672,26 @@ cards:
     governance + recovery + gate) for a dedicated rework where all 3 CRITICALs live and the gate/interlock
     design needs reconsidering. Mirrors the operator EVSE-split preference: do not let the ready deliverable
     (D1) wait behind the unready one (D4). AWAITING OPERATOR: full-fix-up vs descope vs re-plan.'
-  next: 'OPERATOR CHECKPOINT (Tier-3, do-not-ship): choose approach — (A) full fix-up of all 3 CRIT + 7
-    HIGH across D1-D4 + write ~10 deferred tests, then re-run 4 framings; (B, RECOMMENDED) descope to
-    ship D1-only after 3 fixes + park D2/D3/D4 for rework; (C) re-plan. Branch da3ec8237 held at baseline,
-    no fix-up dispatched pending the decision.'
+  DESCOPE_DECISION_2026_08_26: 'Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking
+    release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now,
+    with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests + C-8 wire-in anchor). THIS card now
+    tracks the PARKED D2/D3/D4 rework. Parked because all 3 CRITICALs live here: D2 AST gate is hollow
+    (governs 1/11 writers, module-agnostic whitelist -> invalidates the D3-ON interlock); D4 S14 orphans
+    its token after the sweep (per-tick ungoverned rewrite / flap) + the D4 one-shot is dead code; plus
+    the pre-existing S9/S10 ungoverned writers D3 would stomp. The gate + interlock DESIGN needs
+    reconsidering, not just patching. Reference build (do NOT ship): feature/hvac-excursion-restore @
+    da3ec8237. Revival trigger: after D1 ships + soaks, re-plan D2/D3/D4 as a fresh Tier-3 cycle starting
+    from a sound governance-gate design (key whitelist by file:function; govern or gate S9/S10 before D3
+    can ever flip ON).'
+  status_note: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
+  next: 'PARKED. Revive as a fresh Tier-3 D2/D3/D4 cycle after D1 ships and soaks. Rework the governance
+    gate (file:function-keyed whitelist, credit begin/return anywhere in the lifecycle), govern/gate the
+    S9 boot ramp-audit + S10 DPM writers, redesign the S14 token lifecycle so the sweep cannot orphan it,
+    make the one-shot real, and only then re-enable a D3 interlock. All 4 review records apply.'
   refs:
   - docs/planning/PLANNING_hvac_excursion_restore_unified.md
   - docs/reviews/code-review/hvac_excursion_restore_unified.md
-  - feature/hvac-excursion-restore @ da3ec8237
+  - feature/hvac-excursion-restore @ da3ec8237 (reference build — do NOT ship)
   - tag pre-review-hvac-excursion-restore
 - id: RESTART-SAFETY-DOCTRINE-1
   title: URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no
@@ -10961,11 +10973,11 @@ cards:
   title: On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change
     — the live-update validator accepts only 4 of the 5 forecast qualities
   thread: energy
-  status: planned
+  status: review
   created: 2026-08-24 16:45
   updated: 2026-08-24 16:45
   refinement_status: initial
-  approval: unreviewed
+  approval: implied
   tags:
   - no-fabrication-verify
   problem_solution:
@@ -10991,11 +11003,18 @@ cards:
   parsimony:
     problem: A legal forecast class (very_poor) yields a drain target no live control can adjust.
     verdict: BUILD
-  next: Add very_poor to the accepted-qualities set at energy.py:8647; test that setting the very_poor
-    off-peak drain Number live-applies. Tier 1 (single validator surface).
+  BUILT_2026_08_25: 'BUILT on branch feature/dp-verypoor-drain-validator @ 87e047ac (off develop). Surgical:
+    energy.py 1-line (add very_poor to the accepted-qualities set at set_offpeak_drain) + 75-line test
+    test_dp_verypoor_drain_validator.py. Reported 114 tests pass, mutation drill bites. NOT batched into
+    v5.91.1 (operator said "Ship midnight" only). Ride risk flagged by operator 2026-08-26.'
+  RIDE_ALONG_2026_08_26: 'Operator confirmed it must not drop. RIDING the ARBITRAGE-GATE-D2-OFFBYONE-1
+    ship (same energy.py surface) — merges + deploys together. Re-verify clean merge + tests at deploy.'
+  next: 'Ride the arbitrage D2 ship: rebase/verify feature/dp-verypoor-drain-validator on current develop,
+    confirm the 1-line + test still green, merge alongside arbitrage, deploy together. Then card -> done.'
   refs:
   - docs/planning/PLANNING_dp_drain_target_mis_sourcing.md (§5)
   - energy.py:8647
+  - feature/dp-verypoor-drain-validator @ 87e047ac
 - id: EC-SOC-LADDER-XVALIDATE-1
   title: No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity
     and oscillate EV pause/resume; the parked fix's trigger has now fired
@@ -11303,7 +11322,7 @@ cards:
   created: 2026-08-24 19:20
   updated: 2026-08-24 19:20
   refinement_status: initial
-  approval: unreviewed
+  approval: approved
   tags:
   - no-fabrication-verify
   problem_solution:
@@ -11327,12 +11346,17 @@ cards:
   parsimony:
     problem: At offset 0 the arbitrage gate pairs today with D+2 and skips the actual next day.
     verdict: BUILD
-  next: Scope after DRAIN-TARGET-DAY-STALENESS-1 lands; mirror its offset+1 derivation. Tier 2-DB (arbitrage
-    decision).
+  GO_2026_08_26: 'Operator: "build. Finish." Prereq DRAIN-TARGET-DAY-STALENESS-1 shipped v5.91.1. Full
+    Tier-2-DB cycle: scope -> 1 adversarial plan review -> build -> 3 framing-disjoint reviews -> orchestrator
+    verify -> deploy. DP-VERYPOOR-DRAIN-VALIDATOR-1 RIDES this ship (same energy surface). Starts once the
+    HVAC-D1 suite lane clears (no concurrent pytest).'
+  next: 'Scope + plan (mirror the drain fix offset+1 derivation at energy_battery.py:2454/:2871), 1 plan
+    review, build, 3 reviews, verify, deploy WITH dp-verypoor. Tier 2-DB.'
   refs:
   - energy_battery.py:2454
   - energy_battery.py:2871
   - docs/planning/PLANNING_offpeak_drain_target_day_staleness.md
+  - rides-with: DP-VERYPOOR-DRAIN-VALIDATOR-1
 - id: NEXT-ACTION-ESTIMATE-NAIVE-TARGET-1
   title: Battery strategy next_action_estimate reports naive single-day drain target (10) while the real
     composed floor is 15

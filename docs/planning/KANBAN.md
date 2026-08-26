@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T01:59:47-05:00_ - _Data commit: `a20bb4f09523`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T02:21:37-05:00_ - _Data commit: `4903968f49ea`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,13 +14,13 @@ _Generated: 2026-08-26T01:59:47-05:00_ - _Data commit: `a20bb4f09523`_ - _last_r
 | 📥 Inbox | 26 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 11 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 47 |
 | ⏸️ Waiting on operator | 5 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 16 |
+| 🅿️ Parked | 17 |
 | ✅ Done | 47 |
 
 ## 📥 Inbox (26)
@@ -512,7 +512,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (11)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
@@ -625,33 +625,20 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · initial_
-- **Problem / Solution:**
-  - Problem: the four "off-peak drain target" sliders let the operator tune how deep URA will drain the home battery to charge the EV, one per solar-forecast quality. But there are FIVE qualities in the code (excellent/good/moderate/poor/ver...
-- **Origin:** 2026-08-24 - DP drain-target plan §5 flagged this pre-existing gap and said it needs a card
-- **Why:** Pre-existing, but the DP drain-target cycle (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is what makes the very_poor target LOAD-BEARING for DP — before the fix DP never read the composed target at all. energy.py:8647 validates quality against {exc...
-- **Next:** Add very_poor to the accepted-qualities set at energy.py:8647; test that setting the very_poor off-peak drain Number live-applies. Tier 1 (single validator surface).
-- **Tags:** no-fabrication-verify
-- **Parsimony:** [BUILD] A legal forecast class (very_poor) yields a drain target no live control can adjust.
-- **Refs:** docs/planning/PLANNING_dp_drain_target_mis_sourcing.md (§5); energy.py:8647
-- **Forensic keys (1):**
-  - `links`: sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
-
 ### `ARBITRAGE-GATE-D2-OFFBYONE-1` - Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing
-thread: **energy** - status: **planned** - approval: **unreviewed**
+thread: **energy** - status: **planned** - approval: **approved**
 _created 2026-08-24 19:20 · initial_
 - **Problem / Solution:**
   - Problem: the arbitrage gate decides whether to grid-charge for the coming peak using the correct (peak-anchored) target day for D+1 but a HARDCODED "2 days ahead" for its second day — so when the target day is today (offset 0), it compar...
 - **Origin:** 2026-08-24 - found by the midnight-plan review (MED-2) as an analogous off-by-one; declared non-goal of that cycle
 - **Why:** Declared out-of-scope for the drain-staleness cycle to keep it surgical, but it is a real analogous defect a framing-D reviewer would otherwise flag mid-cycle. Card it now.
-- **Next:** Scope after DRAIN-TARGET-DAY-STALENESS-1 lands; mirror its offset+1 derivation. Tier 2-DB (arbitrage decision).
+- **Next:** Scope + plan (mirror the drain fix offset+1 derivation at energy_battery.py:2454/:2871), 1 plan review, build, 3 reviews, verify, deploy WITH dp-verypoor. Tier 2-DB.
 - **Tags:** no-fabrication-verify
 - **Parsimony:** [BUILD] At offset 0 the arbitrage gate pairs today with D+2 and skips the actual next day.
-- **Refs:** energy_battery.py:2454; energy_battery.py:2871; docs/planning/PLANNING_offpeak_drain_target_day_staleness.md
-- **Forensic keys (1):**
+- **Refs:** energy_battery.py:2454; energy_battery.py:2871; docs/planning/PLANNING_offpeak_drain_target_day_staleness.md; {'rides-with': 'DP-VERYPOOR-DRAIN-VALIDATOR-1'}
+- **Forensic keys (2):**
   - `links`: related: DRAIN-TARGET-DAY-STALENESS-1
+  - `GO_2026_08_26`: Operator: "build. Finish." Prereq DRAIN-TARGET-DAY-STALENESS-1 shipped v5.91.1. Full Tier-2-DB cycle: scope -> 1 adversarial plan review -> build -> 3 framing-disjoint reviews -> orchestrator verify -> deploy. DP-VERYPOOR-DRAIN-VALIDATOR...
 
 ### `FAN-TRANSITION-COINCIDENCE-GATE-1` - mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route to the existing recheck ladder instead of granting occupancy
 thread: **presence** - status: **planned** - approval: **implied**
@@ -683,19 +670,6 @@ _(none)_
 ## 🔍 Review (2)
 _under review_
 
-### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
-thread: **hvac** - status: **review** - approval: **needs_operator**
-_created 2026-08-26 02:20 · refined_
-- **Problem / Solution:**
-  - Problem: HVAC borrows the thermostat (banking pre-cool/heat, off-phase ceilings, manual overrides) but several paths never hand it back cleanly — banking excursions start and never end (measured: 2 open / 0 ended), and some setpoint writ...
-- **Next:** OPERATOR CHECKPOINT (Tier-3, do-not-ship): choose approach — (A) full fix-up of all 3 CRIT + 7 HIGH across D1-D4 + write ~10 deferred tests, then re-run 4 framings; (B, RECOMMENDED) descope to ship D1-only after 3 fixes + park D2/D3/D4 f...
-- **Tags:** tier-3, four-review, do-not-ship
-- **Refs:** docs/planning/PLANNING_hvac_excursion_restore_unified.md; docs/reviews/code-review/hvac_excursion_restore_unified.md; feature/hvac-excursion-restore @ da3ec8237; tag pre-review-hvac-excursion-restore
-- **Forensic keys (3):**
-  - `BUILD_2026_08_26`: Built on feature/hvac-excursion-restore @ da3ec8237 (branch off develop). 4 source + 3 test files, 17 new tests, 336/336 in-slice green. Baseline tag pre-review-hvac-excursion-restore.
-  - `REVIEW_2026_08_26_FOUR_FRAMING`: ALL FOUR framing-disjoint reviews (A local / B async-lifecycle / C test-authority-mutation / D adversarial-completeness) = FIX-REQUIRED. Record: docs/reviews/code-review/hvac_excursion_restore_unified.md. 3 CRITICAL (two are 3-way conver...
-  - `ORCHESTRATOR_RECOMMENDATION`: DESCOPE. D1 (auto-release sweep + banking close) is the valuable, mostly-sound, SEPARABLE part with a real measured driver; if D4/S14 is parked the CRIT-2 orphan interaction disappears and the sweep only closes banking tokens. Recommend:...
-
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**
 _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
@@ -717,6 +691,22 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `fixture_decision_2026_08_19`: OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1. STEP fix-up proceeds: de-hollow the C-CRIT tests (extr...
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
+
+### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
+thread: **energy** - status: **review** - approval: **implied**
+_created 2026-08-24 16:45 · initial_
+- **Problem / Solution:**
+  - Problem: the four "off-peak drain target" sliders let the operator tune how deep URA will drain the home battery to charge the EV, one per solar-forecast quality. But there are FIVE qualities in the code (excellent/good/moderate/poor/ver...
+- **Origin:** 2026-08-24 - DP drain-target plan §5 flagged this pre-existing gap and said it needs a card
+- **Why:** Pre-existing, but the DP drain-target cycle (EVSE-DRAIN-PRECEDENCE-KNOB-80-1) is what makes the very_poor target LOAD-BEARING for DP — before the fix DP never read the composed target at all. energy.py:8647 validates quality against {exc...
+- **Next:** Ride the arbitrage D2 ship: rebase/verify feature/dp-verypoor-drain-validator on current develop, confirm the 1-line + test still green, merge alongside arbitrage, deploy together. Then card -> done.
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [BUILD] A legal forecast class (very_poor) yields a drain target no live control can adjust.
+- **Refs:** docs/planning/PLANNING_dp_drain_target_mis_sourcing.md (§5); energy.py:8647; feature/dp-verypoor-drain-validator @ 87e047ac
+- **Forensic keys (3):**
+  - `links`: sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
+  - `BUILT_2026_08_25`: BUILT on branch feature/dp-verypoor-drain-validator @ 87e047ac (off develop). Surgical: energy.py 1-line (add very_poor to the accepted-qualities set at set_offpeak_drain) + 75-line test test_dp_verypoor_drain_validator.py. Reported 114 ...
+  - `RIDE_ALONG_2026_08_26`: Operator confirmed it must not drop. RIDING the ARBITRAGE-GATE-D2-OFFBYONE-1 ship (same energy.py surface) — merges + deploys together. Re-verify clean merge + tests at deploy.
 
 ## 🚀 Shipped (organic open) (47)
 _live, awaiting proof_
@@ -1547,7 +1537,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (16)
+## 🅿️ Parked (17)
 _revisit-trigger set_
 
 ### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)
@@ -1558,6 +1548,21 @@ _created 2026-08-18 02:20 · initial_
 - **Why:** Fills the only actionable memory-coverage gap. But there is NO active problem needing it today, so its marginal benefit is low until an F2-shape divergence recurs.
 - **Next:** REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build the writer (plan is PLANNING_memory_writers.md).
 - **Refs:** docs/planning/PLANNING_memory_writers.md; custom_components/universal_room_automation/memory_writers.py:186
+
+### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
+thread: **hvac** - status: **parked** - approval: **needs_operator**
+_created 2026-08-26 02:20 · refined_
+- **Problem / Solution:**
+  - Problem: HVAC borrows the thermostat (banking pre-cool/heat, off-phase ceilings, manual overrides) but several paths never hand it back cleanly — banking excursions start and never end (measured: 2 open / 0 ended), and some setpoint writ...
+- **Next:** PARKED. Revive as a fresh Tier-3 D2/D3/D4 cycle after D1 ships and soaks. Rework the governance gate (file:function-keyed whitelist, credit begin/return anywhere in the lifecycle), govern/gate the S9 boot ramp-audit + S10 DPM writers, re...
+- **Tags:** tier-3, four-review, do-not-ship
+- **Refs:** docs/planning/PLANNING_hvac_excursion_restore_unified.md; docs/reviews/code-review/hvac_excursion_restore_unified.md; feature/hvac-excursion-restore @ da3ec8237 (reference build — do NOT ship); tag pre-review-hvac-excursion-restore
+- **Forensic keys (5):**
+  - `BUILD_2026_08_26`: Built on feature/hvac-excursion-restore @ da3ec8237 (branch off develop). 4 source + 3 test files, 17 new tests, 336/336 in-slice green. Baseline tag pre-review-hvac-excursion-restore.
+  - `REVIEW_2026_08_26_FOUR_FRAMING`: ALL FOUR framing-disjoint reviews (A local / B async-lifecycle / C test-authority-mutation / D adversarial-completeness) = FIX-REQUIRED. Record: docs/reviews/code-review/hvac_excursion_restore_unified.md. 3 CRITICAL (two are 3-way conver...
+  - `ORCHESTRATOR_RECOMMENDATION`: DESCOPE. D1 (auto-release sweep + banking close) is the valuable, mostly-sound, SEPARABLE part with a real measured driver; if D4/S14 is parked the CRIT-2 orphan interaction disappears and the sweep only closes banking tokens. Recommend:...
+  - `DESCOPE_DECISION_2026_08_26`: Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now, with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests +...
+  - `status_note`: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
 
 ### `HVAC-PRESET-FLAP-1` - HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B removal)
 thread: **hvac** - status: **parked** - approval: **explicit**
