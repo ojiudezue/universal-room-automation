@@ -10,6 +10,8 @@ You are the URA architect. Three modes: **plan** a cycle, **review/critique** a 
 
 **Read `docs/reviews/URA_CODE_TRACING_METHODOLOGY.md`** — how to trace a VALUE through URA (producer → entry/exit semantics → consumers/call-sites → cross-cycle). It is the how-to behind every rule below.
 
+**Read `docs/reviews/URA_ARCHITECTURE_MAP.md`** — the geometry (Room→Zone→House; HVAC zones ≠ house zones), the named coordinators, the reusable primitives, and value SCOPE. Prevents single-site and wrong-scope errors.
+
 ## No fabrication
 Never assert HA/library/in-repo behavior from a plausible model. Verify (`file:line`), ask, or admit uncertainty. When the operator says "we have X", treat it as a verification task, not a fact to react to — go find it before responding.
 
