@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T10:38:22-05:00_ - _Data commit: `c4f611d3ca40`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T17:23:05-05:00_ - _Data commit: `f58737804000`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,13 +14,13 @@ _Generated: 2026-08-26T10:38:22-05:00_ - _Data commit: `c4f611d3ca40`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 50 |
-| ⏸️ Waiting on operator | 5 |
+| ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 17 |
+| 🅿️ Parked | 18 |
 | ✅ Done | 47 |
 
 ## 📥 Inbox (29)
@@ -30,12 +30,14 @@ _raw capture_
 thread: **notifications** - status: **inbox** - approval: **unreviewed**
 _created 2026-08-26 11:00 · initial_
 - **Problem / Solution:**
-  - Problem: NM sends via bluebubbles.send_message by ADDRESS, which can route a message to the operator's own iMessage thread (sending to self). Solution: BlueBubbles v0.7.0 (2026, per operator release notes) adds an optional chat_guid arg ...
+  - Problem: NM can route an alert to the operator's own iMessage thread (self-send). Solution to VERIFY: BlueBubbles v0.7.0 adds an optional chat_guid addressing arg to bluebubbles.send_message (exactly one of addresses OR chat_guid; addres...
 - **Origin:** 2026-08-26 - operator: BlueBubbles v0.7.0 may have a way to decouple messages from the imessage user; check release notes
 - **Why:** A durable fix for the self-send footgun in NM iMessage delivery, if the recipient chats can be pinned by GUID. Verify NM's send path + how a chat_guid is obtained before scoping.
-- **Next:** Upgrade BlueBubbles to 0.7.0 (HACS -> reload). Verify how NM calls bluebubbles.send_message (grep notification_manager for send_message/addresses), whether a stable chat_guid per recipient can be resolved, and whether switching to chat_g...
+- **Next:** SMALL CYCLE (operator: "should be a small cycle"). Operator is upgrading to 0.7.0. (1) First reproduce/confirm the self-send cause in NM send path (grep notification_manager for send_message + how recipients/addresses are built). (2) Det...
 - **Tags:** nm, no-fabrication-verify
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; ~/Code/bluebubbles-integration-guide.md
+- **Forensic keys (1):**
+  - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
 
 ### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
 thread: **energy** - status: **inbox** - approval: **unreviewed**
@@ -543,8 +545,18 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
+
+### `EVSE-SOLAR-IDLE-DERESERVE-1` - A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
+thread: **energy** - status: **planned** - approval: **approved**
+_created 2026-08-26 11:10 · refined_
+- **Problem / Solution:**
+  - Problem: solar-follow reserves a 6A floor for every claimed bay that is not currently drawing. A car that finished (or a claimed bay with no car) keeps that ~1.44-2.88 kW reservation, which is subtracted from the surplus given to a sibli...
+- **Why:** The marginal-benefit test isolated this as the ONLY real dollar value of the parked Tier-3 stop-conditions plan. The expensive discard-and-move machinery existed only to solve the oscillator that discarding creates; not discarding sidest...
+- **Next:** Build per PLANNING_evse_solar_idle_dereserve.md: _notdraw_ticks counter (mirrors _stale_ticks), exclude long_idle from parked_w, skip their write churn, knob + discriminating tests + claim-leg byte-identity. Tier 2, 2 framing-disjoint re...
+- **Tags:** tier-2, marginal-benefit-narrowed, forward-looking
+- **Refs:** docs/planning/PLANNING_evse_solar_idle_dereserve.md; energy_pool.py:4199 (parked_w allocator); sibling_of EVSE-SOLAR-STOP-CONDITIONS-1
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
 thread: **hvac** - status: **planned** - approval: **needs_operator**
@@ -1514,24 +1526,8 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
   - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
   - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
 
-## ⏸️ Waiting on operator (5)
+## ⏸️ Waiting on operator (4)
 _needs a human call_
-
-### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
-thread: **energy** - status: **waiting_operator** - approval: **implied**
-_created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
-- **Problem / Solution:**
-  - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
-- **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
-- **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
-- **Next:** WAITING ON OPERATOR — marginal-benefit decision: build the NARROW parked-reservation fix (exclude long-idle bays from parked_w + skip their write, no discard, no oscillator, Tier-2) instead of the full Tier-3 discard-and-move? Measure-fi...
-- **Tags:** tier-3, split-from-cycle, oscillator-hazard
-- **Refs:** docs/planning/PLANNING_evse_solar_stop_conditions.md (the plan under review); docs/planning/PLAN_REVIEW_evse_solar_stop_conditions.md (both plan reviews, FIX-PLAN-FIRST); docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); docs/planning/AUDIT_excess_solar_and_evse_prior_art.md (the coupling walkthrough the plan omitted); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
-- **Forensic keys (4):**
-  - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
-  - `REVIEW_FINDINGS_INHERITED`: Carried forward from the three Rev-20/21 plan reviews so they are not re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-w...
-  - `MARGINAL_BENEFIT_2026_08_26`: Operator asked to run the marginal-benefit test + isolate IF/WHY we need it, context-wide on solar-follow goals. RESULT: the value is REAL but NARROW, and the PLAN SCOPE is disproportionate. Grounding: solar-follow is REACTIVE (energy_po...
-  - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
@@ -1582,8 +1578,24 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (17)
+## 🅿️ Parked (18)
 _revisit-trigger set_
+
+### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
+thread: **energy** - status: **parked** - approval: **implied**
+_created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
+- **Problem / Solution:**
+  - Problem: an excess-solar charging session ends only when the whole-house conditions end — the battery drops below its threshold or the day's remaining solar forecast runs out. If the car finishes charging at 2pm on a sunny day, or someon...
+- **Origin:** 2026-08-24 - split out of EVSE-SOLAR-FOLLOW-AMPS-1 after three framing-disjoint plan reviews put every design-level critical in this half and none in amp modulation
+- **Why:** Amp modulation (EVSE-SOLAR-FOLLOW-AMPS-1) is shippable on its own and is where the value is. The start/stop rework is where all the risk turned out to be. Keeping them together meant a ready deliverable waited behind an unready one.
+- **Next:** WAITING ON OPERATOR — marginal-benefit decision: build the NARROW parked-reservation fix (exclude long-idle bays from parked_w + skip their write, no discard, no oscillator, Tier-2) instead of the full Tier-3 discard-and-move? Measure-fi...
+- **Tags:** tier-3, split-from-cycle, oscillator-hazard
+- **Refs:** docs/planning/PLANNING_evse_solar_stop_conditions.md (the plan under review); docs/planning/PLAN_REVIEW_evse_solar_stop_conditions.md (both plan reviews, FIX-PLAN-FIRST); docs/planning/PLANNING_evse_solar_follow_amps.md (the amp-modulation cycle this was split from); docs/planning/AUDIT_excess_solar_and_evse_prior_art.md (the coupling walkthrough the plan omitted); energy_pool.py:1318-1702 (determine_excess_solar_actions); energy_pool_owners.py:245-252 (excess_solar owner declaration)
+- **Forensic keys (4):**
+  - `FOUNDING_DESIGN_PROBLEM_THE_OSCILLATOR`: Any per-EVSE stop must fire while the fleet conditions are still GOOD — that is the entire point (a finished car on a sunny afternoon). But determine_excess_solar_actions claims every EVSE not already in _excess_solar_active, and the cla...
+  - `REVIEW_FINDINGS_INHERITED`: Carried forward from the three Rev-20/21 plan reviews so they are not re-derived. (1) INV-STOP-2 ("a peer hold is never a stop") is FALSE against untouched pre-existing code: the peak-clear path (energy_pool.py:1357-1374) and the blind-w...
+  - `MARGINAL_BENEFIT_2026_08_26`: Operator asked to run the marginal-benefit test + isolate IF/WHY we need it, context-wide on solar-follow goals. RESULT: the value is REAL but NARROW, and the PLAN SCOPE is disproportionate. Grounding: solar-follow is REACTIVE (energy_po...
+  - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
 ### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses)
 thread: **memory** - status: **parked** - approval: **unreviewed**

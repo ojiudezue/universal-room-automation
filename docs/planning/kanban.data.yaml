@@ -37,26 +37,66 @@ cards:
   approval: unreviewed
   tags: [nm, no-fabrication-verify]
   problem_solution:
-  - 'Problem: NM sends via bluebubbles.send_message by ADDRESS, which can route a message to the operator''s
-    own iMessage thread (sending to self). Solution: BlueBubbles v0.7.0 (2026, per operator release notes)
-    adds an optional chat_guid arg (exactly one of addresses OR chat_guid) so NM can target a specific
-    chat by GUID and decouple from the iMessage user. Address-based sends unchanged (back-compat).'
+  - 'Problem: NM can route an alert to the operator''s own iMessage thread (self-send). Solution to VERIFY:
+    BlueBubbles v0.7.0 adds an optional chat_guid addressing arg to bluebubbles.send_message (exactly one
+    of addresses OR chat_guid; address sends unchanged). The release notes describe ONLY this addressing
+    option — they do NOT claim to fix self-send or decouple from the iMessage user (that was the operator
+    hypothesis, not a documented mechanism). Whether chat_guid fixes the self-send depends on (a) what
+    actually causes the current self-send and (b) whether NM can resolve a stable NON-self chat_guid per
+    recipient. Verify before wiring.'
+  ACCURACY_NOTE: 'Orchestrator over-restated the operator hypothesis as documented fact on first pass;
+    corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.'
   origin:
     date: '2026-08-26'
     gist: 'operator: BlueBubbles v0.7.0 may have a way to decouple messages from the imessage user; check release notes'
   why: A durable fix for the self-send footgun in NM iMessage delivery, if the recipient chats can be
     pinned by GUID. Verify NM's send path + how a chat_guid is obtained before scoping.
-  next: 'Upgrade BlueBubbles to 0.7.0 (HACS -> reload). Verify how NM calls bluebubbles.send_message (grep
-    notification_manager for send_message/addresses), whether a stable chat_guid per recipient can be
-    resolved, and whether switching to chat_guid fixes the self-send. Then scope. Tier 1-2.'
+  next: 'SMALL CYCLE (operator: "should be a small cycle"). Operator is upgrading to 0.7.0. (1) First
+    reproduce/confirm the self-send cause in NM send path (grep notification_manager for send_message +
+    how recipients/addresses are built). (2) Determine if a stable non-self chat_guid is resolvable per
+    recipient. (3) If yes, wire chat_guid; if the self-send has a different cause, fix that instead. Do
+    NOT assume chat_guid is the fix until (1)+(2) confirm it.'
   refs:
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
   - '~/Code/bluebubbles-integration-guide.md'
+- id: EVSE-SOLAR-IDLE-DERESERVE-1
+  title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
+    long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
+  thread: energy
+  status: planned
+  created: '2026-08-26 11:10'
+  updated: '2026-08-26 11:10'
+  refinement_status: refined
+  approval: approved
+  approved_by: 'operator 2026-08-26 ("I like the narrowing of stop conditions") — narrow fix approved,
+    forward-looking (no probe gate; garage_b idle now but will come online).'
+  tags: [tier-2, marginal-benefit-narrowed, forward-looking]
+  problem_solution:
+  - 'Problem: solar-follow reserves a 6A floor for every claimed bay that is not currently drawing. A car
+    that finished (or a claimed bay with no car) keeps that ~1.44-2.88 kW reservation, which is subtracted
+    from the surplus given to a sibling bay that IS charging — so on a sunny afternoon a live car gets
+    throttled by a dead one. Solution: once a bay has drawn ~0 for ~10 min, stop counting it in the parked
+    floor (and stop re-writing it), so the charging sibling gets the full surplus. The bay STAYS claimed
+    (no discard) so nothing else changes and the re-claim oscillator never arises.'
+  why: The marginal-benefit test isolated this as the ONLY real dollar value of the parked Tier-3
+    stop-conditions plan. The expensive discard-and-move machinery existed only to solve the oscillator
+    that discarding creates; not discarding sidesteps it entirely. See MARGINAL_BENEFIT note on
+    EVSE-SOLAR-STOP-CONDITIONS-1.
+  knobs:
+  - SOLAR_FOLLOW_IDLE_DERESERVE_TICKS (module const, default 10 ~= 10min; kill-switch = huge value reverts
+    to today) — de-reserve only after a bay is idle long enough to be presumed finished, not mid-ramp.
+  next: 'Build per PLANNING_evse_solar_idle_dereserve.md: _notdraw_ticks counter (mirrors _stale_ticks),
+    exclude long_idle from parked_w, skip their write churn, knob + discriminating tests + claim-leg
+    byte-identity. Tier 2, 2 framing-disjoint reviews + orchestrator mutation-verify.'
+  refs:
+  - docs/planning/PLANNING_evse_solar_idle_dereserve.md
+  - energy_pool.py:4199 (parked_w allocator)
+  - sibling_of EVSE-SOLAR-STOP-CONDITIONS-1
 - id: EVSE-SOLAR-STOP-CONDITIONS-1
   title: Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged
     car holds its claim until the fleet conditions end
   thread: energy
-  status: waiting_operator
+  status: parked
   created: 2026-08-24 22:30
   updated: 2026-08-26 02:15
   refinement_status: refined
