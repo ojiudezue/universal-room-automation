@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-25'
+  last_reconciled: '2026-08-26'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -11047,7 +11047,8 @@ cards:
   title: Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target
     day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.91.1
   created: 2026-08-24 18:10
   updated: 2026-08-24 18:10
   refinement_status: initial
@@ -11283,7 +11284,8 @@ cards:
   title: Surface DP + per-EVSE decision state as always-on authoritative telemetry (not disabled sensor
     / prose) — validation should read truth, not reconstruct it
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.91.1
   created: 2026-08-25 21:30
   updated: 2026-08-25 21:50
   refinement_status: refined
