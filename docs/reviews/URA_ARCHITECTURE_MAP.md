@@ -75,3 +75,28 @@ Before changing a value, classify its SCOPE and make sure you change every site 
 - **Cross-cutting** — **fans** (room-resident, house-governed via the Fan Policy Oracle), presence fusion (room→zone→house), notifications, signals, anomaly/diagnostics. These span the geometry; a change here ripples across scopes — enumerate every scope it touches (context-wide scoping), not just the tier you're standing in.
 
 **The two errors this map exists to kill:** (1) editing one emission/decision site of a multi-site value (pair this with the tracing methodology's emission-site enumeration and Bug Class #53); (2) reasoning about a value at the wrong scope — treating an HVAC zone as a house zone, a house-scoped floor as a room knob, or a cross-cutting fan as room-local. When in doubt, name the coordinator that OWNS the value and the scope it decides at, before you touch it.
+
+---
+
+## 5. Infrastructure layer — anomaly, Bayesian belief, and DB/WAL governance
+
+Cross-cutting machinery that every domain leans on. Get these wrong and you get silent blindness (anomaly), stale predictions (Bayesian), or the write-flood/lock/bloat incident class (DB).
+
+### Anomaly detection — the in-code trip-wire (replaces soak-watching)
+`AnomalyDetector` (`coordinator_diagnostics.py:862`). Coordinators feed it observations (`record_observation`); it matures a metric before scoring (`minimum_samples`, or a **per-metric** override `minimum_samples_by_metric` — HVAC-ANOMALY-BLIND-1 D1a, e.g. short_cycle_rate at 14 vs the global 336) and, once mature, raises worst-severity that reaches the sensor surface and **fires NM**. Consumed by hvac / security / presence / safety / music_following.
+- **The failure mode: a metric declared but never produced reads "nominal" while blind** — always confirm a metric is being *fed* (`record_observation` on a live path), not just declared. A metric in `*_SUPPRESSED_FROM_PERSISTENCE` won't reach severity — de-suppress to make a fire visible.
+- This is why "No Soak Watching" works: regression trip-wires live HERE, wired to NM, not on a calendar.
+
+### Bayesian belief — predictive occupancy / next-room
+`BayesianPredictor` (`bayesian_predictor.py:132`). Discretised state **cells** carry beliefs updated on transitions; periodic save, a guest listener, and an accuracy-eval loop (wired in `__init__.py:2429-2490`); `ClearBayesianBeliefsButton` resets it.
+- **Cell-staleness governance:** `CONF_BAYESIAN_CELL_STALENESS_DAYS` ages out old cells so a belief matured on a stale regime doesn't dominate (sibling of the HVAC-baseline-max-samples "accumulators never forget" concern). When touching prediction accuracy, check the staleness knob before adding new cells.
+
+### Database & WAL governance — how we prevent the DB incident class
+`database.py`. The rules that keep SQLite healthy under HA:
+- **WAL mode** (`PRAGMA journal_mode=WAL`, `busy_timeout=30000`) — added v3.3.1.2 to kill `database is locked`; WAL allows concurrent reads alongside the single writer.
+- **One serialized writer:** every write goes through `_write_queue` (an `asyncio.Queue`) drained by a single loop — NEVER write ad-hoc from a coordinator. This is the write-flood governance (the v4.7.33 optimizer write-flood incident was per-row persist saturating the queue → watchdog; the fix was BATCH writes + suppress boot-transient). **Batch, don't per-row.**
+- **Bloat control:** `PRAGMA auto_vacuum=INCREMENTAL` (declared BEFORE `journal_mode=WAL` — order matters on a fresh file, and it's INERT until one full `VACUUM` runs), an `incremental_vacuum()` DAO wired nightly, and a supervised full-`VACUUM` button (DB incremental-vacuum cycle, v5.5.7 — ~900MB reclaim awaits the button press).
+- **Graceful stop windows:** during a deliberate writer stop (e.g. VACUUM), writes **buffer on `_write_queue` silently** (v5.16.2) instead of raising, so a maintenance window never errors callers. A "missing table"/lock diagnosis from an MCP tool must be cross-validated against the LIVE instance before acting (stale Samba cache is a known trap).
+- **Schema changes need a migration path** in the plan, and behavioral test fixtures must extract schema from production source, never hand-copy DDL.
+
+**Rule of thumb for all three:** they are shared infrastructure — add a NEW metric / cell-type / table by routing through the existing machinery (the detector's feed, the predictor's cell model, the write-queue), not a parallel path. A second writer or an un-fed metric is the defect.
