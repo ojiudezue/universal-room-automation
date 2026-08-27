@@ -63,7 +63,8 @@ cards:
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.91.3
   created: '2026-08-26 11:10'
   updated: '2026-08-26 11:10'
   refinement_status: refined

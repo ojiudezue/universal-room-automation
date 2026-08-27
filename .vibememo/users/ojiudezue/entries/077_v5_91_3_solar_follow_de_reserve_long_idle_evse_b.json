@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "077",
+  "author": "ojiudezue",
+  "session_id": "claude_20260827_001401_ship_v5_91_3",
+  "timestamp": "2026-08-27T00:14:01Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.91.3 shipped: Solar-follow: de-reserve long-idle EVSE bays so a finished bay stops starving a charging sibling",
+  "summary": "Solar-follow: de-reserve long-idle EVSE bays so a finished bay stops starving a charging sibling",
+  "why": "The marginal-benefit test on the full Tier-3 stop-conditions plan isolated this parked-floor sibling-starvation as the only real dollar value; the expensive discard-and-move machinery existed only to solve the oscillator that discarding creates, so not discarding sidesteps it. Built forward-looking because garage_b is idle now (no history to probe) and we don't want a code change when it comes online. 2 framing-disjoint reviews + fix-up (deleted the harmful D3 latch) + orchestrator mutation-verify.",
+  "implications": "Shipped EVSE-SOLAR-IDLE-DERESERVE-1 at v5.91.3; card(s) sit shipped_organic pending validation. Acceptance in README_v5.91.3.md (Live criteria).",
+  "revisit_trigger": "When garage_b comes online with 2 bays claimed and one finishing on a sunny afternoon, confirm the charging bay's commanded amps are NOT reduced by the finished bay's parked reservation. Single-bay case has no observable change. Dispose when observed or when garage_b usage begins.",
+  "refs": {
+    "cards": [
+      "EVSE-SOLAR-IDLE-DERESERVE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.91.3.md"
+    ],
+    "release_notes": "Narrow marginal-benefit-scoped replacement for the parked Tier-3 stop-conditions plan: a bay idle ~10min stops counting in the solar-follow parked floor, freeing ~1.44-2.88kW for a charging sibling. Stays claimed (no discard, no oscillator). Reviews stripped an over-engineered write-churn latch (D3) that risked control-abdication for no benefit."
+  }
+}
