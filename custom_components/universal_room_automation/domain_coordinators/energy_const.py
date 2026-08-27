@@ -938,6 +938,33 @@ SOLAR_FOLLOW_GRID_FRESH_S: Final[int] = 180      # grid source freshness, last_r
 # reject a truly stuck reading.
 SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS: Final[int] = 5
 
+# EVSE-SOLAR-IDLE-DERESERVE-1: after this many consecutive ticks in which a
+# bay is `eligible` but not `drawing` and not in `stale_power`, drop its
+# MIN-amp reservation from `parked_w`. Prevents a finished/absent bay from
+# starving a charging sibling of surplus (parked_w inflates by
+# SOLAR_FOLLOW_MIN_AMPS * 240 * PHASES per idle bay). At 60 s tick × 10 =
+# ~10 min — comfortably above plug-in ramp-up (a bay still ramping from
+# claim should NOT be de-reserved; a too-LOW value here would starve a
+# just-plugged bay of its foothold).
+#
+# stale-power exemption is BOUNDED, not unconditional: a bay with a wedged
+# power sensor is exempt from idle-counting only while it remains in the
+# stale_power set, and CF-5 demotes it after SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS
+# consecutive stale-power ticks. So a wedged charging bay CAN be de-reserved
+# after roughly SOLAR_FOLLOW_STALE_HOLD_MAX_TICKS + SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
+# ticks total (~15 ticks at defaults) — the exemption defers de-reserve, it
+# does not veto it (A-MED-2).
+#
+# Kill-switch: set to a very large value (e.g. 100000) to disable de-reserve
+# entirely and revert to pre-cycle behavior. NEVER set to <= 0 — the counter
+# comparison is `>=`, so a value of 0 (or negative) trivially puts every
+# eligible bay (including drawing bays whose counter is the default 0) into
+# `long_idle`, breaking the eligible/drawing/idle distinction the allocator
+# depends on (A-LOW-1).
+# Rung: module constant — behavioral allocation bound whose change should
+# require review.
+SOLAR_FOLLOW_IDLE_DERESERVE_TICKS: Final[int] = 10
+
 # Grid entities for solar-follow (deliberately NOT reusing CONF_ENERGY_GRID_IMPORT_ENTITY).
 CONF_ENERGY_SOLAR_FOLLOW_GRID_ENTITY: Final = "energy_solar_follow_grid_entity"
 CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY: Final = "energy_solar_follow_grid_fallback_entity"

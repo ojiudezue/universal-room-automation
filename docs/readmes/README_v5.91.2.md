@@ -36,4 +36,19 @@ On a "very poor" solar-forecast night the off-peak drain target came from a hard
 - **Live (arbitrage):** `sensor.ura_energy_coordinator_battery_strategy` `forecast_outlook.d2_class` at offset 0 tracks tomorrow's class, and `arbitrage_gate` decisions use the correct next day.
 - **Live (dp):** `sensor.ura_energy_coordinator_battery_strategy` `drain_targets` includes `very_poor` and the accessor honors it.
 
-## Post-deploy validation — (to be written back after restart)
+## Validated 2026-08-26 (post-restart, 10:42–10:45 CDT)
+
+Live-validated against the restarted instance. Deploy chain confirmed: PR #531 merged, release `v5.91.2` tagged, `origin/master` manifest = v5.91.2 with all three code changes present (arbitrage `offset+1` ×2, D1 `_auto_release_sweep` ×2, `very_poor` in the accepted set ×2), HACS installed v5.91.2, config check valid.
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| **HVAC-D1** — banking excursions now CLOSE (was 2 open / 0 ended) | `hvac_excursion_events` row `event_id=8`: `kind=banking`, `excursion_id=banking:zone_1`, `site=S12_pre_cool`, `started_ts=2026-08-26T13:49:42Z`, `ended_ts=2026-08-26T15:42:09Z` (the restart), **`trigger=stale_boot_release`**, `duration_actual_s=6747`. A pre-cool borrow left open since 08:49 CDT was released with an ended-event on the v5.91.2 restart. | **PASS** (the measured driver fixed, live) |
+| **DP very_poor** — accepted-quality set includes very_poor | `sensor.ura_energy_coordinator_battery_strategy` `drain_targets = {excellent:10, good:15, moderate:20, poor:30, very_poor:30, unknown:40}` — `very_poor` now present (was a 4-set). | **PASS** (direct, boot-independent) |
+| **Arbitrage** — gate pairs target day with offset+1 (not hardcoded n=2) | Code verified on master (2 decision sites + display attr use `classify_solar_day_n(target_offset+1)`; zero hardcoded `n=2` remain); mutation-anchored (orchestrator re-ran the `_gate_is_open` neuter by hand → the named test goes RED). Live-consistent: at offset 0 (peak today 14:00) `forecast_outlook.d2_class=moderate` = `tomorrow_solar_class=moderate` — the second day tracks tomorrow. | **PASS in code+test+orchestrator-verify**; live-consistent |
+| No new URA errors post-restart | `error_log` scan: zero `custom_components.universal_room_automation … ERROR`. All URA lines are boot-transient WARNINGs (sensors holding 60s, Envoy unavailable→cloud-fallback). The one ERROR is the unrelated pre-existing `wiim` dup-ID. | **PASS** |
+
+**Deferred to an organic window (strict live discriminator):** the arbitrage gate's live *decision* at offset 0 with a `tomorrow != day_3` class-disagreement could not be observed this restart because (a) the Envoy was still in post-restart warmup (`envoy_available=false`, mode held `unknown` — a known Envoy boot behavior, not caused by this cycle), so the gate was in `n/a`/holding, and (b) today `tomorrow`==`d2`==moderate coincide. Revisit on a class-disagreement day with the Envoy up — same organic pattern as the v5.91.1 drain discriminator.
+
+**Boot transient dismissed:** the strategy sensor read `unknown` with `envoy_available=false` for the first several minutes post-restart (cloud-SOC fallback 13.9%). Expected Envoy warmup, not a defect — v5.91.2 does not touch Envoy setup.
+
+**Organic watches (per the deploy `--revisit`):** (1) HVAC-D1 — confirm the *periodic* sweep also closes a live borrow via `trigger=lease_expiry` (stale-boot path already proven); (2) arbitrage — the offset-0 gate-decision discriminator above; (3) DP — a `very_poor` night honoring the 30 target. Dispose each when observed.
