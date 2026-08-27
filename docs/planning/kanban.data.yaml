@@ -76,10 +76,22 @@ cards:
   - person_entry_exit_events (URA DB) — 0/7010 person_id
   - reference_egress_face_coverage_7pct_not_a_ceiling (memory)
 - id: PERSON-VISITS-WRITE-PAUSE-1
+  REFUTED_BENIGN_2026_08_27: 'REFUTED — not a stall, QUIET-BENIGN. The writer/coordinator/DB are all
+    healthy (jaya/oji_location updating every ~min at 12:53 UTC; occupancy_events/environmental_data/
+    census_snapshots/house_state_log all writing normally; no writer exception in the log). person_visits
+    stopped because every BLE-resolvable named resident DEPARTED to Away at ~07:43 CDT (Jaya + Oji phones
+    flipped home->not_home ~12:48 UTC; Ezinne/Ziri BLE dead since 00:20). By design person_coordinator.py:915
+    only opens a visit when new_room not in (away,unknown,home) — all-Away => no INSERT. The ~5h gap was
+    also a timezone false alarm (person_visits stores naive-local CDT vs room_transitions tz-aware — same
+    last event). The ~900-row drop = nightly prune. No code action. RESIDUAL (gap, not fault): interior
+    identity is structurally BLE-phone-dependent — house is occupied+active now (motion everywhere) yet URA
+    shows all residents Away and records zero interior identity. Same identity-coverage theme as
+    EGRESS-IDENTITY-JOIN-GAP-1 (identity depends on a source not always present).'
+  status_note: 'CLOSED as refuted/benign 2026-08-27; residual BLE-blindness folded into the identity-coverage theme.'
   title: person_visits writes appear to have paused ~5h while egress events keep flowing — latest
     entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
   thread: presence
-  status: inbox
+  status: done
   created: '2026-08-26 20:45'
   updated: '2026-08-26 20:45'
   refinement_status: initial

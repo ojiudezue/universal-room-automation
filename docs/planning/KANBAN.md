@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T21:04:10-05:00_ - _Data commit: `2c6cfbfba058`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-27T07:53:30-05:00_ - _Data commit: `0dc42fd70198`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-26T21:04:10-05:00_ - _Data commit: `2c6cfbfba058`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
+| 📥 Inbox | 29 |
 | 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 9 |
@@ -21,20 +21,10 @@ _Generated: 2026-08-26T21:04:10-05:00_ - _Data commit: `2c6cfbfba058`_ - _last_r
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 18 |
-| ✅ Done | 47 |
+| ✅ Done | 48 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (29)
 _raw capture_
-
-### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-_created 2026-08-26 20:45 · initial_
-- **Problem / Solution:**
-  - Problem: during the Frigate re-check, the newest person_visits.entry_time was ~20:59 UTC while egress events continued to 01:26 UTC — interior room-visit writes seem to have stopped ~5h earlier while other identity writes continue. Could...
-- **Why:** Surfaced as a side-observation in the egress measurement; flagged not diagnosed. Interior identity is the healthy control for the egress gap, so a stall there would matter.
-- **Next:** Verify: is person_visits stalled or just quiet? Compare recent interior occupancy activity to person_visits write cadence; check the writer path for an error/exception since ~21:00 UTC.
-- **Tags:** no-fabrication-verify
-- **Refs:** person_visits (URA DB)
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
 thread: **notifications** - status: **inbox** - approval: **unreviewed**
@@ -1838,8 +1828,21 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-## ✅ Done (47)
+## ✅ Done (48)
 _closed, evidence in refs_
+
+### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
+thread: **presence** - status: **done** - approval: **unreviewed**
+_created 2026-08-26 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: during the Frigate re-check, the newest person_visits.entry_time was ~20:59 UTC while egress events continued to 01:26 UTC — interior room-visit writes seem to have stopped ~5h earlier while other identity writes continue. Could...
+- **Why:** Surfaced as a side-observation in the egress measurement; flagged not diagnosed. Interior identity is the healthy control for the egress gap, so a stall there would matter.
+- **Next:** Verify: is person_visits stalled or just quiet? Compare recent interior occupancy activity to person_visits write cadence; check the writer path for an error/exception since ~21:00 UTC.
+- **Tags:** no-fabrication-verify
+- **Refs:** person_visits (URA DB)
+- **Forensic keys (2):**
+  - `REFUTED_BENIGN_2026_08_27`: REFUTED — not a stall, QUIET-BENIGN. The writer/coordinator/DB are all healthy (jaya/oji_location updating every ~min at 12:53 UTC; occupancy_events/environmental_data/ census_snapshots/house_state_log all writing normally; no writer exc...
+  - `status_note`: CLOSED as refuted/benign 2026-08-27; residual BLE-blindness folded into the identity-coverage theme.
 
 ### `DOC-DRIFT-ZONE-AWAY-1` - Coordinator manuals stale vs code on zone-away / away-veto (PRESENCE_COORDINATOR.md badly stale)
 thread: **docs** - status: **done** - approval: **unreviewed**
