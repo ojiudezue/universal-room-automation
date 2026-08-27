@@ -26,4 +26,16 @@ The marginal-benefit-narrowed replacement for the parked Tier-3 discard-and-move
 - **Verify:** kill-switch — a huge `SOLAR_FOLLOW_IDLE_DERESERVE_TICKS` reverts to the pre-cycle parked_w.
 - **Live (forward-looking):** when garage_b comes online and both bays are claimed with one finishing on a sunny afternoon, the still-charging bay is not throttled by the finished bay. Until then, validated in-suite (single-bay case has no observable behavior change — surplus flows to battery/grid regardless).
 
-## Post-deploy validation — (to be written back after restart)
+## Validated 2026-08-26 (post-restart, 19:20 CDT)
+
+Deploy chain: PR #532 merged, release `v5.91.3` tagged, `origin/master` manifest = v5.91.3 with the idle-dereserve code present (`long_idle`/`_notdraw_ticks` ×11) and the D3 latch absent (`_long_idle_written` ×0 — the deletion shipped), HACS installed v5.91.3, config valid.
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Clean boot, no new URA errors | `error_log` scan post-restart: zero `universal_room_automation … ERROR`, no tracebacks, no solar-follow errors. Only benign pre-existing WARNINGs (Study A fan-wiring, bermuda registry matches, smarthub meters). | **PASS** |
+| SolarFollowController loaded with the new code | `sensor.ura_energy_coordinator_ev_charging_status` is live and publishes the full solar-follow surface (`solar_follow_surplus_kw`, `solar_follow_state`, `solar_follow_grid_source`, `solar_follow_last_commanded`). Controller running. | **PASS** |
+| Functional (parked_w de-reserve) | Forward-looking. Mutation-anchored in-suite: dropping `- len(long_idle)` reverts the drawing bay 20→14 A (orchestrator re-verified by hand → the named test goes RED). No live multi-bay observation available tonight — solar-follow is idle (19:20, no surplus, `excess_solar_active=false`; garage bays off) and garage_b is not in use. | **PASS in-suite**; live is forward-looking |
+
+**Single-bay = no observable change (by design):** with only one bay charging, or no surplus, the de-reserve changes nothing — the surplus flows to the battery/grid regardless of any phantom parked reservation. So there is intentionally nothing to see live in the current config; the value materializes only when garage_b is charging while another bay finishes on a sunny afternoon.
+
+**Organic watch (per `--revisit`):** when garage_b comes online with 2 bays claimed and one finishing on a sunny afternoon, confirm the charging bay's commanded amps are NOT reduced by the finished bay's parked reservation. Dispose when observed or when garage_b usage begins.
