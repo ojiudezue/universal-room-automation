@@ -3768,13 +3768,10 @@ class SolarFollowController:
         # in which the bay was `eligible` but not `drawing` and not in
         # `stale_power`. When it crosses SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
         # the bay's MIN-amp reservation is dropped from parked_w so a
-        # charging sibling gets the surplus. Lifecycle mirrors _stale_ticks.
+        # charging sibling gets the surplus. Lifecycle mirrors _stale_ticks;
+        # also cleared on claim-loss (see prune site) so a re-claimed bay
+        # gets a fresh observation window before being de-reserved.
         self._notdraw_ticks: dict[str, int] = {}
-        # EVSE-SOLAR-IDLE-DERESERVE-1: track bays currently in long-idle so
-        # we can skip the idempotent per-tick MIN re-write while they stay
-        # idle (D3 — kills 6A safe-park churn). Cleared when the bay leaves
-        # long-idle.
-        self._long_idle_written: set[str] = set()
         # CF-13 fix-up: latch to suppress the every-tick blind-exit WARN.
         self._blind_exit_logged = False
 
@@ -4052,11 +4049,21 @@ class SolarFollowController:
         # CF-5 fix-up: also prune stale-tick counter.
         for gone in [k for k in self._stale_ticks if k not in known]:
             self._stale_ticks.pop(gone, None)
-        # EVSE-SOLAR-IDLE-DERESERVE-1: prune idle counters for gone bays.
-        for gone in [k for k in self._notdraw_ticks if k not in known]:
+        # EVSE-SOLAR-IDLE-DERESERVE-1 (A-MED-1 / B-MED-2 fix-up): clear the
+        # idle counter for bays that (a) have no limit entity, OR (b) are
+        # not currently claimed via _excess_solar_active. This runs BEFORE
+        # the disabled/blind/nameplate early returns, so a bay that
+        # de-claims (peak-drop) and re-claims arrives with a FRESH counter
+        # and gets a full observation window before being de-reserved.
+        try:
+            _active_now = self._ev._excess_solar_active  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            _active_now = set()
+        for gone in [
+            k for k in list(self._notdraw_ticks)
+            if k not in known or k not in _active_now
+        ]:
             self._notdraw_ticks.pop(gone, None)
-        for gone in [k for k in list(self._long_idle_written) if k not in known]:
-            self._long_idle_written.discard(gone)
 
         # CF-4(c) fix-up: run boot reconciliation BEFORE the enabled gate.
         # Previous order returned on the disabled path before the backstop
@@ -4236,10 +4243,6 @@ class SolarFollowController:
             eid for eid in eligible_set
             if self._notdraw_ticks.get(eid, 0) >= SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
         }
-        # Clear the write-suppression latch for bays that left long-idle.
-        for eid in list(self._long_idle_written):
-            if eid not in long_idle:
-                self._long_idle_written.discard(eid)
         n_reserved = n_eligible - n_drawing - len(long_idle)
         if n_reserved < 0:  # defensive; long_idle ⊆ (eligible − drawing).
             n_reserved = 0
@@ -4278,13 +4281,6 @@ class SolarFollowController:
                 a_target = a_per_drawing
             else:
                 a_target = SOLAR_FOLLOW_MIN_AMPS
-            # EVSE-SOLAR-IDLE-DERESERVE-1 (D3): once a long-idle bay has
-            # been safe-parked at MIN, skip the idempotent per-tick
-            # re-write. The deadband would usually swallow it too, but
-            # this makes the "no churn while long-idle" contract explicit.
-            if evse_id in long_idle and evse_id in self._long_idle_written:
-                self._last_state[evse_id] = "long_idle_parked"
-                continue
             if a_target > a_current:  # INV-SF-5 up-gate.
                 self._up_streak[evse_id] = self._up_streak.get(evse_id, 0) + 1
                 if self._up_streak[evse_id] < self._up_min_ticks:
@@ -4312,9 +4308,6 @@ class SolarFollowController:
                 continue
             self._stamp_write(evse_id)
             self._last_commanded[evse_id] = float(a_target)
-            # EVSE-SOLAR-IDLE-DERESERVE-1 (D3): latch long-idle safe-park.
-            if evse_id in long_idle:
-                self._long_idle_written.add(evse_id)
             self._last_state[evse_id] = "writing"
             self._schedule_verify(evse_id, entity, a_target)
 

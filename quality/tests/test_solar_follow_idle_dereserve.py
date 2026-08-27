@@ -1,6 +1,9 @@
 """EVSE-SOLAR-IDLE-DERESERVE-1 — narrow parked-reservation fix.
 
-Anchors D1-D4 of docs/planning/PLANNING_evse_solar_idle_dereserve.md.
+Anchors D1 / D2 / D4 of docs/planning/PLANNING_evse_solar_idle_dereserve.md
+(D3 write-churn latch was removed per Reviewer A: harmful — abdicated
+control if a long-idle bay's limit was externally raised — and useless —
+the deadband already swallows the idempotent MIN re-write).
 
 Fixtures/harness are reused from test_solar_follow_amps (same MockHass/
 MockState + _Harness contract). Import that module first so the sys.modules
@@ -157,8 +160,6 @@ def test_counter_resets_when_idle_bay_resumes_drawing():
     _run(h.sf._tick())
     # Counter cleared for A.
     assert h.sf._notdraw_ticks.get("garage_a", 0) == 0
-    # And the long-idle write-suppression latch is dropped.
-    assert "garage_a" not in h.sf._long_idle_written
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +272,69 @@ def test_stale_power_bay_is_not_dereserved():
 
     # Idle counter for B is 0 while it's in stale_power.
     assert h.sf._notdraw_ticks.get("garage_b", 0) == 0
+
+
+# ---------------------------------------------------------------------------
+# B-MED-2 — claim-loss clears the idle counter (re-eligibility fresh window).
+# ---------------------------------------------------------------------------
+
+
+def test_reclaimed_bay_gets_fresh_idle_observation_window():
+    """A bay driven past the idle threshold, then removed from
+    _excess_solar_active (claim loss — e.g. a peak-drop de-claim), then
+    re-added, MUST start its counter from 0 so it gets the full
+    SOLAR_FOLLOW_IDLE_DERESERVE_TICKS observation window before being
+    de-reserved again. Otherwise a re-plugged car would be de-reserved
+    instantly, starved before it can ramp — the exact hazard the
+    knob's comment warns against.
+
+    Anchors the claim-loss prune inside `_notdraw_ticks` maintenance.
+    Mutation-anchor: neuter the `k not in _active_now` clause of the
+    prune → this test goes RED (counter stays at threshold, bay
+    arrives instantly long-idle on tick 1 after re-claim).
+    """
+    h = _Harness(
+        active=("garage_a", "garage_b"),
+        grid_w=-2000.0,
+        a_charging=True, b_charging=False,
+        a_current=48, b_current=48,
+        a_power=5000, b_power=0,
+    )
+    h.sf._original_amps["garage_a"] = 48.0
+
+    # Drive B past the threshold — it is now long-idle.
+    for _ in range(SOLAR_FOLLOW_IDLE_DERESERVE_TICKS + 1):
+        _refresh_grid(h, -2000.0)
+        _refresh_power(h, "garage_a", 5000)
+        _refresh_power(h, "garage_b", 0)
+        _run(h.sf._tick())
+    assert h.sf._notdraw_ticks.get("garage_b", 0) >= SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
+
+    # Claim loss: B leaves _excess_solar_active. To EXCLUSIVELY exercise
+    # the early-safe-site claim-loss prune (and not the downstream
+    # eligible-set prune that runs later in _tick), we also force the tick
+    # to take an early-return path — mark the grid sensor unavailable so
+    # `_read_grid_watts` returns None and _tick returns via _handle_blind.
+    # Under the fix, the early prune runs BEFORE the grid read, so the
+    # counter is cleared. Under a mutation that drops the claim-loss
+    # clause from the early prune, the counter persists through this
+    # tick (there's no later eligible-set prune, since we early-return).
+    h.ev._excess_solar_active.discard("garage_b")
+    primary_state = h.hass._states["sensor.mains_test_primary"]
+    primary_state.state = "unavailable"
+    _refresh_power(h, "garage_a", 5000)
+    _refresh_power(h, "garage_b", 0)
+    _run(h.sf._tick())
+    # Counter cleared by the CLAIM-LOSS prune at the early-safe site.
+    assert h.sf._notdraw_ticks.get("garage_b", 0) == 0
+
+    # Grid recovers; B is re-claimed. On this first tick back, it must
+    # NOT already be long-idle (counter starts at 0 → 1, well below
+    # threshold). This is the ramp-up-hazard guard.
+    h.ev._excess_solar_active.add("garage_b")
+    _refresh_grid(h, -2000.0)
+    _refresh_power(h, "garage_a", 5000)
+    _refresh_power(h, "garage_b", 0)
+    _run(h.sf._tick())
+    assert h.sf._notdraw_ticks.get("garage_b", 0) == 1
+    assert h.sf._notdraw_ticks["garage_b"] < SOLAR_FOLLOW_IDLE_DERESERVE_TICKS
