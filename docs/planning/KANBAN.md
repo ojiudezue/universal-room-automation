@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T19:14:01-05:00_ - _Data commit: `70e1f87e9065`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T21:02:29-05:00_ - _Data commit: `376d27d7d266`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,8 +11,8 @@ _Generated: 2026-08-26T19:14:01-05:00_ - _Data commit: `70e1f87e9065`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
-| 🔬 Investigating | 6 |
+| 📥 Inbox | 30 |
+| 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 0 |
@@ -23,8 +23,18 @@ _Generated: 2026-08-26T19:14:01-05:00_ - _Data commit: `70e1f87e9065`_ - _last_r
 | 🅿️ Parked | 18 |
 | ✅ Done | 47 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
+
+### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
+thread: **presence** - status: **inbox** - approval: **unreviewed**
+_created 2026-08-26 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: during the Frigate re-check, the newest person_visits.entry_time was ~20:59 UTC while egress events continued to 01:26 UTC — interior room-visit writes seem to have stopped ~5h earlier while other identity writes continue. Could...
+- **Why:** Surfaced as a side-observation in the egress measurement; flagged not diagnosed. Interior identity is the healthy control for the egress gap, so a stall there would matter.
+- **Next:** Verify: is person_visits stalled or just quiet? Compare recent interior occupancy activity to person_visits write cadence; check the writer path for an error/exception since ~21:00 UTC.
+- **Tags:** no-fabrication-verify
+- **Refs:** person_visits (URA DB)
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
 thread: **notifications** - status: **inbox** - approval: **unreviewed**
@@ -325,8 +335,18 @@ _created 2026-08-26 03:10 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** energy_battery.py:6119 (get_status d2_class)
 
-## 🔬 Investigating (6)
+## 🔬 Investigating (7)
 _measuring; truth not yet known_
+
+### `EGRESS-IDENTITY-JOIN-GAP-1` - Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
+thread: **security** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-26 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: the house recognizes faces fine (interior person_visits 91616/91616 named; main-entry madrone_g6_entry now produces named faces post-reconfig, 0->3 in 6h) — but when a person crosses a door/garage, the egress event is logged wit...
+- **Why:** Measured twice this session (pre- and post-Frigate-2 reconfig) — egress person_id stays 0/7010. The operator hardware reconfig improved recognition (esp. main entry) but the join is unwired. This is THE blocker for 6.0.0 (egress keyed to...
+- **Next:** INVESTIGATE the producer: read the person_entry_exit_events writer (grep the egress-event insert), determine whether it (a) never receives the recognized identity or (b) receives it but drops it on a time-window/confidence join. Then sco...
+- **Tags:** no-fabrication-verify, producer-consumer, gate-6.0.0
+- **Refs:** person_entry_exit_events (URA DB) — 0/7010 person_id; reference_egress_face_coverage_7pct_not_a_ceiling (memory)
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
 thread: **presence** - status: **investigating** - approval: **operator_directed**

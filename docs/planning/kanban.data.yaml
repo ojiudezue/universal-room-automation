@@ -26,6 +26,56 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: EGRESS-IDENTITY-JOIN-GAP-1
+  title: Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id
+    is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
+  thread: security
+  status: investigating
+  created: '2026-08-26 20:45'
+  updated: '2026-08-26 20:45'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify, producer-consumer, gate-6.0.0]
+  problem_solution:
+  - 'Problem: the house recognizes faces fine (interior person_visits 91616/91616 named; main-entry
+    madrone_g6_entry now produces named faces post-reconfig, 0->3 in 6h) — but when a person crosses a
+    door/garage, the egress event is logged with NO person_id (0 of 7010 rows all-time, 0 of 62 in the
+    last 6h). Identity is recognized but never ATTACHED to the crossing. Solution: wire the recognized
+    identity onto the egress-event writer (a producer/join fix), so a door crossing carries who crossed.
+    This is the 6.0.0 identity-driven-autonomy gate — it is a CODE gap, NOT the hardware (the reconfig
+    did not change it).'
+  why: 'Measured twice this session (pre- and post-Frigate-2 reconfig) — egress person_id stays 0/7010.
+    The operator hardware reconfig improved recognition (esp. main entry) but the join is unwired. This
+    is THE blocker for 6.0.0 (egress keyed to person_id).'
+  next: 'INVESTIGATE the producer: read the person_entry_exit_events writer (grep the egress-event insert),
+    determine whether it (a) never receives the recognized identity or (b) receives it but drops it on a
+    time-window/confidence join. Then scope the join fix. Measure the real recognition rate at egress cams
+    to bound the achievable join rate first (measure-before-build).'
+  refs:
+  - person_entry_exit_events (URA DB) — 0/7010 person_id
+  - reference_egress_face_coverage_7pct_not_a_ceiling (memory)
+- id: PERSON-VISITS-WRITE-PAUSE-1
+  title: person_visits writes appear to have paused ~5h while egress events keep flowing — latest
+    entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
+  thread: presence
+  status: inbox
+  created: '2026-08-26 20:45'
+  updated: '2026-08-26 20:45'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: during the Frigate re-check, the newest person_visits.entry_time was ~20:59 UTC while
+    egress events continued to 01:26 UTC — interior room-visit writes seem to have stopped ~5h earlier
+    while other identity writes continue. Could be benign (quiet interior, everyone settled) or a stalled
+    writer. Solution: verify whether person_visits is genuinely stalled or just quiet — check the writer
+    path and recent activity vs occupancy.'
+  why: Surfaced as a side-observation in the egress measurement; flagged not diagnosed. Interior identity
+    is the healthy control for the egress gap, so a stall there would matter.
+  next: 'Verify: is person_visits stalled or just quiet? Compare recent interior occupancy activity to
+    person_visits write cadence; check the writer path for an error/exception since ~21:00 UTC.'
+  refs:
+  - person_visits (URA DB)
 - id: NM-BB-CHATGUID-SELFSEND-1
   title: BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address,
     decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
