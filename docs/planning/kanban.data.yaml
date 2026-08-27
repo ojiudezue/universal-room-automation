@@ -27,6 +27,27 @@ meta:
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EGRESS-IDENTITY-JOIN-GAP-1
+  ROOT_CAUSE_2026_08_27: 'FOUND (subagent, cited to source). NOT a wiring defect — the person_id producer
+    exists and is passed to the writer, but it drops to None at a mis-keyed join. Chain: writer
+    database.py:3903 log_entry_exit_event (writes whatever it is handed) <- caller transit_validator.py:1336
+    (passes person_id) <- PRODUCER transit_validator.py:1279 _resolve_egress_face_identity (def :1120, the
+    drop site). That resolver requires a Frigate recognized-face on the SAME camera stem as the crossing
+    camera, fresh within FACE_MATCH_WINDOW_S=60s (const.py:2162). But crossings fire on EXTERIOR cams
+    (doorbell_lite / front_door_aerial / madrone_g6_entry) — overhead/doorbell/back-of-head cams that
+    produce ~3 named faces/week each — so the same-stem 60s join virtually never has a face -> None ->
+    NULL on all 7021 rows. Historical layer: the resolver is recent (EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1,
+    2026-08-18); pre-08-18 rows had no producer at all. Why interior person_visits is 100% named: it uses
+    a person slug backed by BLE/GPS/WiFi device trackers (phones, always identified), never a camera face.
+    Quantified ceiling ~2% (4 named / 229 crossing episodes / 7.6d); post-08-18: 112 crossings, 0 faces
+    in the 60s window.'
+  FIX_PATH_MEASURE_FIRST: 'The join is keyed WRONG for the geometry: it looks for a face on the DOOR cam
+    (which rarely recognizes) when it should fuse an INTERIOR face near the crossing (family-room/hallway
+    cams: 68 / 30 named/week). Adjacency helper _get_interior_cameras_near exists (:1348, currently returns
+    ALL interior). BUT the freshness window must be re-derived from a SIGNED face-vs-crossing lag (a person
+    is recognized in the family room BEFORE a garage-EXIT and AFTER a garage-ENTRY; the current age<0->stale
+    rule at :1194 rejects the entry case). GATE: (1) measure-first probe of the signed lag before touching
+    the resolver; (2) marginal-benefit decomposition — even fused, the ceiling is bounded by interior
+    coverage + the window, so the value is modest. This is the 6.0.0 producer gate.'
   title: Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id
     is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
   thread: security
