@@ -44,6 +44,17 @@ cards:
     hypothesis, not a documented mechanism). Whether chat_guid fixes the self-send depends on (a) what
     actually causes the current self-send and (b) whether NM can resolve a stable NON-self chat_guid per
     recipient. Verify before wiring.'
+  VERIFIED_CAUSE_2026_08_26: 'Confirmed the self-send mechanism from source: NM _send_imessage
+    (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message}
+    where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When the operator is a recipient, handle
+    is his own number; BlueBubbles runs on his Mac under his Apple ID -> sends to self -> note-to-self
+    thread. chat_guid (v0.7.0) targets a specific CHAT instead of an address; per the BB integration guide
+    (:62) it fixes self-send ONLY if a NON-self chat exists to target (e.g. a dedicated URA-alerts group
+    chat), and group GUIDs change on participant change (cache w/ expiry, guide :221). It does NOT decouple
+    from the Apple ID. OPEN QUESTION for operator: is there a non-self chat + resolvable GUID? If yes ->
+    optional per-recipient CONF_NM_PERSON_IMESSAGE_CHAT_GUID, send {chat_guid} when set else {addresses}.
+    If no non-self chat -> chat_guid cannot help; fix differently (suppress self-send, or route own alerts
+    to a different channel).'
   ACCURACY_NOTE: 'Orchestrator over-restated the operator hypothesis as documented fact on first pass;
     corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.'
   origin:

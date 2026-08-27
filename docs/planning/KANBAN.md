@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-26T17:23:05-05:00_ - _Data commit: `f58737804000`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-26T19:14:01-05:00_ - _Data commit: `70e1f87e9065`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,10 +14,10 @@ _Generated: 2026-08-26T17:23:05-05:00_ - _Data commit: `f58737804000`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 10 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 50 |
+| 🚀 Shipped (organic open) | 51 |
 | ⏸️ Waiting on operator | 4 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 18 |
@@ -36,7 +36,8 @@ _created 2026-08-26 11:00 · initial_
 - **Next:** SMALL CYCLE (operator: "should be a small cycle"). Operator is upgrading to 0.7.0. (1) First reproduce/confirm the self-send cause in NM send path (grep notification_manager for send_message + how recipients/addresses are built). (2) Det...
 - **Tags:** nm, no-fabrication-verify
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; ~/Code/bluebubbles-integration-guide.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `VERIFIED_CAUSE_2026_08_26`: Confirmed the self-send mechanism from source: NM _send_imessage (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message} where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When th...
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
 
 ### `BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1` - MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle flap pollutes write-verify diagnostics
@@ -545,18 +546,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
-
-### `EVSE-SOLAR-IDLE-DERESERVE-1` - A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
-thread: **energy** - status: **planned** - approval: **approved**
-_created 2026-08-26 11:10 · refined_
-- **Problem / Solution:**
-  - Problem: solar-follow reserves a 6A floor for every claimed bay that is not currently drawing. A car that finished (or a claimed bay with no car) keeps that ~1.44-2.88 kW reservation, which is subtracted from the surplus given to a sibli...
-- **Why:** The marginal-benefit test isolated this as the ONLY real dollar value of the parked Tier-3 stop-conditions plan. The expensive discard-and-move machinery existed only to solve the oscillator that discarding creates; not discarding sidest...
-- **Next:** Build per PLANNING_evse_solar_idle_dereserve.md: _notdraw_ticks counter (mirrors _stale_ticks), exclude long_idle from parked_w, skip their write churn, knob + discriminating tests + claim-leg byte-identity. Tier 2, 2 framing-disjoint re...
-- **Tags:** tier-2, marginal-benefit-narrowed, forward-looking
-- **Refs:** docs/planning/PLANNING_evse_solar_idle_dereserve.md; energy_pool.py:4199 (parked_w allocator); sibling_of EVSE-SOLAR-STOP-CONDITIONS-1
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
 thread: **hvac** - status: **planned** - approval: **needs_operator**
@@ -720,8 +711,18 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (50)
+## 🚀 Shipped (organic open) (51)
 _live, awaiting proof_
+
+### `EVSE-SOLAR-IDLE-DERESERVE-1` - A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
+thread: **energy** - status: **shipped_organic** - approval: **approved**
+_created 2026-08-26 11:10 · refined_
+- **Problem / Solution:**
+  - Problem: solar-follow reserves a 6A floor for every claimed bay that is not currently drawing. A car that finished (or a claimed bay with no car) keeps that ~1.44-2.88 kW reservation, which is subtracted from the surplus given to a sibli...
+- **Why:** The marginal-benefit test isolated this as the ONLY real dollar value of the parked Tier-3 stop-conditions plan. The expensive discard-and-move machinery existed only to solve the oscillator that discarding creates; not discarding sidest...
+- **Next:** Build per PLANNING_evse_solar_idle_dereserve.md: _notdraw_ticks counter (mirrors _stale_ticks), exclude long_idle from parked_w, skip their write churn, knob + discriminating tests + claim-leg byte-identity. Tier 2, 2 framing-disjoint re...
+- **Tags:** tier-2, marginal-benefit-narrowed, forward-looking
+- **Refs:** docs/planning/PLANNING_evse_solar_idle_dereserve.md; energy_pool.py:4199 (parked_w allocator); sibling_of EVSE-SOLAR-STOP-CONDITIONS-1
 
 ### `EVSE-SOLAR-FOLLOW-AMPS-1` - Charge current is binary (48A or off) so solar charging yo-yos the house battery: add excess-following current modulation on the two L2 EVSEs
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
