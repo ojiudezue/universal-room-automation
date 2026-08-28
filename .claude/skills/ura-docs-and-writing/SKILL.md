@@ -47,6 +47,7 @@ The `docs/` tree has real sprawl (verified 2026-07-02). Do not add to it. Put ne
 | Code review (per framing) | `docs/reviews/code-review/v<ver>_<name>_review<A-D>_<framing>.md` | See §3 for naming rules. |
 | Release notes / cycle README | `docs/readmes/README_v<version>.md` | Written BEFORE deploy. Live-validation table written back AFTER restart. |
 | Coordinator design doc | `docs/Coordinator/<NAME>_COORDINATOR_DESIGN.md` (or `<NAME>_COORDINATOR.md`) | Update when scope of that coordinator materially shifts. Do NOT create a copy — see sprawl warning below. |
+| Identity / fusion / cameras manual | `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` | Canonical for identity / fusion / cameras — sibling of EC / HC / CM / Presence manuals. |
 | Bug class catalog | Append to `docs/QUALITY_CONTEXT.md` § Bug Classes | See §5 for the trigger. |
 | Backlog item | `docs/BACKLOG.md` with a `## <slug> — YYYY-MM-DD` header | Include tier hint + trigger. |
 | Long-lived shortcut | `docs/TECH_DEBT.md` (Where / Shortcut / Why acceptable / Trigger to revisit). | Update in place when resolved — do not delete history. |

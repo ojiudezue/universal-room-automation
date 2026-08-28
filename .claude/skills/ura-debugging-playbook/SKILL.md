@@ -190,6 +190,10 @@ If these attrs are missing → the veto code path never wired up. Re-verify by g
 
 "Camera fires → move must be a person." No. Frigate person-classifier false-positives on shadows/objects were the direct cause of the empty-house `away → arriving` oscillation. **Always** check the phone tracker in parallel before believing a camera.
 
+### Camera / face / identity — canonical playbook
+
+See `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` §2.2 (Frigate face-fault signatures: person-normal + face-zero = face-subsystem fault) and §5 (egress-identity JOIN observability: person_id null-ratio, `_face_lookup_missing_count`, kill switch, `person.<slug>=not_home` veto).
+
 ---
 
 ## S3: House stuck in `sleep` / sleep-wake deadlock

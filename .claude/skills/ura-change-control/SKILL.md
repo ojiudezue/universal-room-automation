@@ -45,6 +45,8 @@ Classify BEFORE build starts. Record the tier in the planning doc. When in doubt
 | Threads a value (reserve floor, clamp, gate, precedence) through a state machine or shared primitive where failure mode = ONE missed emission site; cost-AND-safety-impacting (battery reserve, load-shed, HVAC safety); operator flags "delicate"; area has multi-fix-up history | **Tier 3** | 4 framing-disjoint incl. adversarial-completeness pass D with real source-mutation testing |
 | Operator explicitly elevates ("run Tier 2-DB on this") | as-stated | as-stated |
 
+**Identity / fusion / cameras:** any change touching `camera_census.py` / `camera_resolver.py` / `transit_validator.py` / face recognition / `person_id` on `person_entry_exit_events` is regression-prone (identity → guest → HVAC/security trust ripple). Elevate per Tier 2-DB; consult `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`.
+
 **Standing policy (2026-06-08):** the "DB" in Tier 2-DB is historical. What the protocol buys is three disjoint framings so blind spots cannot converge. Default to elevating regression-prone work; the only work that stays Tier 1 / Tier 2 is pure docs, isolated additive sensors, or hotfixes with no ripple.
 
 **Historical incidents that mint each rule:**

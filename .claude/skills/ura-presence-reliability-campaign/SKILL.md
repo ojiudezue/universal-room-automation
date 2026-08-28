@@ -10,6 +10,8 @@ Assumes you are a single Sonnet-class session with grep, MCP tools (`ha_get_stat
 `ha_get_history`, `ha_get_logs`), Samba mount, and no subagent fleet. Fleet is an
 optional accelerator, not a prerequisite.
 
+**Read first:** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` — the identity/fusion/cameras oracle; supersedes local guidance on Frigate/Protect roles, `_2` suffix, or egress-identity coverage.
+
 **Ground rule.** Every claim about file:line, constant, table, or entity in this doc
 was verified against the tree at commit tip of `develop` on 2026-07-02. If you are
 running later, re-verify per the "Provenance and maintenance" section at the bottom

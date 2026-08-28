@@ -99,6 +99,8 @@ The chronicle of URA's expensive lessons. Every entry is a battle already fought
 | Status | Closed at v3.4.4. `deploy.sh` now stages `*.json`, `translations/`, `quality/tests/`. |
 | **Fence** | When adding a config-flow field: strings.json AND translations/en.json required, verified BEFORE deploy. Do NOT assume `deploy.sh` picks up new file types — check `scripts/deploy.sh` staging list explicitly. When selecting camera-adjacent entities, select the `camera` domain and resolve companions via device registry — not `binary_sensor`. |
 
+**Consolidated camera history:** Frigate-1 retirement / ghost-detection evidence chain and the Protect Alarm Manager webhook status are consolidated in `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` §1.1, §1.3, §2.3.
+
 ---
 
 ## 3. v3.18.x – v3.22.x DB-lock crisis and thread-safety cascade
