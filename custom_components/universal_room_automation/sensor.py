@@ -3695,6 +3695,63 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                 attrs["peak_age_seconds"] = int(
                     getattr(census, "_last_peak_age_seconds", 0) or 0
                 )
+                # EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) D3 attrs.
+                # Producer: census._egress_identity_outcomes deque + counters.
+                # All math is SYNCHRONOUS — no await, no DAO — the deque
+                # snapshot is copied to a local before iteration.
+                try:
+                    outcomes_deque = getattr(
+                        census, "_egress_identity_outcomes", None,
+                    )
+                    if outcomes_deque is not None:
+                        # Snapshot to a tuple; deque iteration is O(n).
+                        snap = tuple(outcomes_deque)
+                        # Denominator EXCLUDES 'disabled' (kill-switch
+                        # traffic does not pollute rate math).
+                        denom = 0
+                        attached = 0
+                        ambiguous = 0
+                        for _ts, out in snap:
+                            if out == "disabled":
+                                continue
+                            denom += 1
+                            if out == "attached":
+                                attached += 1
+                            elif out == "ambiguous":
+                                ambiguous += 1
+                        if denom > 0:
+                            attrs["egress_identity_attach_rate_24h"] = (
+                                attached / denom
+                            )
+                            attrs["egress_identity_ambiguity_rate_24h"] = (
+                                ambiguous / denom
+                            )
+                        else:
+                            attrs["egress_identity_attach_rate_24h"] = 0.0
+                            attrs["egress_identity_ambiguity_rate_24h"] = 0.0
+                    else:
+                        attrs["egress_identity_attach_rate_24h"] = 0.0
+                        attrs["egress_identity_ambiguity_rate_24h"] = 0.0
+                    attrs["egress_identity_abstain_rate_24h"] = int(
+                        getattr(census, "_egress_identity_abstain_count", 0) or 0
+                    )
+                    boost_deque = getattr(
+                        census, "_egress_identity_boost_events", None,
+                    )
+                    attrs["egress_identity_correlated_boost_count_24h"] = (
+                        len(boost_deque) if boost_deque is not None else 0
+                    )
+                    attrs["egress_identity_last_attach"] = dict(
+                        getattr(census, "_egress_identity_last_attach", {}) or {}
+                    )
+                    attrs["egress_identity_agreement_class_last"] = getattr(
+                        census, "_egress_identity_agreement_class_last", None,
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Failed to attach egress-identity D3 attrs",
+                        exc_info=True,
+                    )
         except Exception:  # pragma: no cover - defensive
             _LOGGER.debug("Failed to attach v5.9.0 census observability attrs", exc_info=True)
         return attrs

@@ -220,7 +220,7 @@ def test_resolver_returns_none_when_no_face_sensor():
     tracker = EgressDirectionTracker(hass)
 
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         "binary_sensor.front_door_person_occupancy", now,
     )
     assert got is None
@@ -232,7 +232,7 @@ def test_resolver_returns_none_on_bad_state(bad_value):
     face_id = f"sensor.{stem}_last_recognized_face"
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
     tracker, *_ = _make_tracker_with_census(face_id, bad_value, now)
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
     )
     assert got is None
@@ -244,7 +244,7 @@ def test_resolver_returns_fresh_name_as_canonical_slug():
     face_id = f"sensor.{stem}_last_recognized_face"
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", now)
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
     )
     assert got == "oji_udezue"
@@ -254,24 +254,28 @@ def test_resolver_returns_none_when_stale():
     stem = "front_door"
     face_id = f"sensor.{stem}_last_recognized_face"
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
-    old = now - timedelta(seconds=ura_const.FACE_MATCH_WINDOW_S + 1)
+    # EGRESS-IDENTITY-JOIN-GAP-1 D2b: exit window is [-180s, +30s]; use
+    # older-than-EXIT_BEFORE to remain "stale" under the new semantics.
+    old = now - timedelta(seconds=ura_const.FACE_MATCH_EXIT_WINDOW_BEFORE_S + 1)
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", old)
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
     )
     assert got is None
 
 
 def test_resolver_returns_none_on_future_dated_face():
-    """A-LOW-1 / C-LOW-3: face recognized AFTER the crossing time (age<0)
-    is treated as stale, not fresh-in-the-future."""
+    """EGRESS-IDENTITY-JOIN-GAP-1 D2b: exit window is [-180s, +30s]; a
+    face timestamped MORE THAN 30s AFTER the crossing (delta > +30) is
+    outside the exit AFTER bound and rejected."""
     stem = "front_door"
     face_id = f"sensor.{stem}_last_recognized_face"
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
-    # Face last_changed is 5s in the FUTURE relative to the crossing.
-    future = now + timedelta(seconds=5)
+    future = now + timedelta(
+        seconds=ura_const.FACE_MATCH_EXIT_WINDOW_AFTER_S + 1,
+    )
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", future)
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
     )
     assert got is None
@@ -299,7 +303,7 @@ def test_resolver_vetoes_when_person_not_home_oracle_independent():
         person_entity="person.oji_udezue",  # HAND-PICKED, not re-derived.
         person_state="not_home",
     )
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
     )
     assert got is None, (
@@ -314,7 +318,7 @@ def test_resolver_fail_open_when_person_missing():
     face_id = f"sensor.{stem}_last_recognized_face"
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", now)
-    got = tracker._resolve_egress_face_identity(
+    got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
     )
     assert got == "oji_udezue"
@@ -497,10 +501,21 @@ async def test_behavioral_egress_event_carries_person_id_then_expires():
     hass.bus = MagicMock()
     hass.bus.async_fire = lambda topic, payload: fired.append((topic, payload))
 
+    # EGRESS-IDENTITY-JOIN-GAP-1 D2b: gate direction=entry via an
+    # interior event so the identity resolver is engaged (ambiguous
+    # direction now abstains, per the DB-write gate).
     crossing_1 = face_ts + timedelta(seconds=3)
-    await tracker._resolve_direction(
-        f"binary_sensor.{stem}_person_occupancy", crossing_1,
-    )
+    tracker._recent_interior_events[
+        "binary_sensor.foyer_person_occupancy"
+    ] = [crossing_1 + timedelta(seconds=2)]
+    from unittest.mock import patch as _patch
+    with _patch.object(
+        tracker, "_get_interior_cameras_near",
+        return_value=["binary_sensor.foyer_person_occupancy"],
+    ):
+        await tracker._resolve_direction(
+            f"binary_sensor.{stem}_person_occupancy", crossing_1,
+        )
     assert fired
     topic, payload = fired[-1]
     assert topic == "ura_person_egress_event"
@@ -508,12 +523,21 @@ async def test_behavioral_egress_event_carries_person_id_then_expires():
 
     tracker._last_resolved.clear()
 
+    # Move crossing beyond the entry window's AFTER bound so the face
+    # (fixed at face_ts) is no longer in-window.
     crossing_2 = face_ts + timedelta(
-        seconds=ura_const.FACE_MATCH_WINDOW_S + 1,
+        seconds=ura_const.FACE_MATCH_ENTRY_WINDOW_BEFORE_S + 1,
     )
-    await tracker._resolve_direction(
-        f"binary_sensor.{stem}_person_occupancy", crossing_2,
-    )
+    tracker._recent_interior_events[
+        "binary_sensor.foyer_person_occupancy"
+    ] = [crossing_2 + timedelta(seconds=2)]
+    with _patch.object(
+        tracker, "_get_interior_cameras_near",
+        return_value=["binary_sensor.foyer_person_occupancy"],
+    ):
+        await tracker._resolve_direction(
+            f"binary_sensor.{stem}_person_occupancy", crossing_2,
+        )
     topic2, payload2 = fired[-1]
     assert payload2["person_id"] is None
 

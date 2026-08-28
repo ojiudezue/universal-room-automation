@@ -42,6 +42,19 @@ from .const import (
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
     DEFAULT_FACE_RECOGNITION_ENABLED,
     FACE_MATCH_WINDOW_S,
+    FACE_MATCH_EXIT_WINDOW_BEFORE_S,
+    FACE_MATCH_EXIT_WINDOW_AFTER_S,
+    FACE_MATCH_ENTRY_WINDOW_BEFORE_S,
+    FACE_MATCH_ENTRY_WINDOW_AFTER_S,
+    FACE_MATCH_ABSTAIN_MARGIN_S,
+    FACE_MATCH_MIN_CONFIDENCE,
+    FACE_MATCH_CORRELATED_BOOST,
+    CONFIDENCE_HIGH,
+    CONFIDENCE_MEDIUM,
+    CENSUS_AGREEMENT_BOTH,
+    CENSUS_AGREEMENT_SINGLE,
+    CENSUS_AGREEMENT_DISAGREE,
+    CENSUS_AGREEMENT_DISABLED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1118,112 +1131,215 @@ class EgressDirectionTracker:
         return CameraIntegrationManager._extract_camera_stem(entity_id)
 
     def _resolve_egress_face_identity(
-        self, egress_camera_id: str, timestamp: datetime,
-    ) -> str | None:
-        """EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1: resolve the freshest
-        recognized-face NAME on the egress camera's stem within
-        ``FACE_MATCH_WINDOW_S`` of ``timestamp``. Returns the name (as
-        published by the Frigate ``_last_recognized_face`` sensor — e.g.
-        ``"Oji"``) or ``None``.
+        self,
+        egress_camera_id: str,
+        timestamp: datetime,
+        direction: str = "exit",
+    ) -> tuple[str | None, float | None, str]:
+        """EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) D2b: corroborated
+        identity from the evaluation leg-set. Returns
+        ``(canonical_slug_or_None, identity_confidence_or_None, agreement_class)``.
 
-        Uses the REUSED census face readers so a single face-resolver
-        implementation stays authoritative:
-          - ``camera_census._resolve_face_entity_id`` for `_2`-suffix
-            tolerant entity_id lookup.
-          - Direct state read on the resolved entity_id filtered by stem
-            (the census's `_get_face_recognized_persons_fresh` scans all
-            cameras; here we want just this one crossing's stem).
+        Extends the shipped EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 helper
+        (single-camera / signed-lag / URA canonicalization / not_home
+        veto) with:
+          - **Leg-set union** = egress-cam's own stem ∪ interior-adjacent
+            camera stems (via ``_get_interior_cameras_near`` +
+            ``_extract_camera_stem``).
+          - **Direction-keyed asymmetric signed-lag window** on
+            ``delta = T_face - T_crossing`` (exit ``[-180, +30]``, entry
+            ``[-60, +300]``); ambiguous direction returns
+            ``(None, None, DISAGREE)``.
+          - **Corroboration classifier** across ALL in-window named legs:
+            distinct slugs -> DISAGREE (strict abstain, judgement-call #7);
+            single slug on legs spanning different physical cameras ->
+            ``(slug, CONFIDENCE_HIGH, BOTH)``; single slug on legs sharing
+            the same physical camera via different engines ->
+            ``(slug, FACE_MATCH_CORRELATED_BOOST, BOTH)``; single leg ->
+            ``(slug, CONFIDENCE_MEDIUM, SINGLE)``.
 
-        Mirrors the fail-open ``person.<slug> == not_home`` veto that
-        ``camera_census._get_face_recognized_person_names`` applies at
-        `:3346-3366` (plan-review C-LOW-2): if the person tracker says
-        not_home, drop the recognition even if the face sensor is
-        currently reporting the name (stale-face latch guard). Fail-open
-        on missing/unknown/unavailable person state.
+        The DB ``confidence`` column and the bus ``confidence`` field
+        continue to carry the pre-cycle platforms-fired crossing/direction
+        value at the caller site (unmodified) — no bus-vs-DB split.
+        Identity confidence is a SEPARATE observability field.
 
-        Returns ``None`` on any error — I3: no identity without evidence.
+        Kill-switch: when ``_is_egress_identity_enabled`` is False the
+        resolver returns ``(None, None, CENSUS_AGREEMENT_DISABLED)``
+        BEFORE any leg read — INV byte-identity on the no-name path.
         """
-        if not egress_camera_id:
-            return None
-        stem = self._extract_camera_stem(egress_camera_id)
-        if not stem:
-            return None
+        # Kill-switch first — before any leg read.
         census = self.hass.data.get(DOMAIN, {}).get("census")
         if census is None:
-            return None
-        # Kill-switch (2026-08-18): dormant by default. When False the
-        # resolver returns None immediately so no identity is stamped and
-        # no census register call fires downstream.
+            return (None, None, CENSUS_AGREEMENT_DISABLED)
         try:
             if not census._is_egress_identity_enabled():
-                return None
+                return (None, None, CENSUS_AGREEMENT_DISABLED)
         except Exception:  # noqa: BLE001 — defensive; unknown census shape
-            return None
+            return (None, None, CENSUS_AGREEMENT_DISABLED)
+
+        # Ambiguous direction: mirror the DB-write gate below and abstain.
+        if direction == "ambiguous":
+            return (None, None, CENSUS_AGREEMENT_DISAGREE)
+
+        if not egress_camera_id:
+            return (None, None, CENSUS_AGREEMENT_SINGLE)
+        egress_stem = self._extract_camera_stem(egress_camera_id)
+        if not egress_stem:
+            return (None, None, CENSUS_AGREEMENT_SINGLE)
+
+        # Assemble the leg-set (stems): egress-cam ∪ interior-adjacent
+        # camera stems, deduplicated. `_get_interior_cameras_near`
+        # returns full ENTITY_IDs — normalize each via `_extract_camera_stem`.
+        stems: list[str] = [egress_stem]
+        seen_stems = {egress_stem}
         try:
-            face_sensor_id = census._resolve_face_entity_id(stem)
-        except Exception:  # noqa: BLE001 — defensive; helper is fail-CLOSED
-            _LOGGER.debug(
-                "egress-face: _resolve_face_entity_id raised for stem=%s",
-                stem, exc_info=True,
+            near = self._get_interior_cameras_near(egress_camera_id) or []
+        except Exception:  # noqa: BLE001 — defensive
+            near = []
+        for eid in near:
+            try:
+                s = self._extract_camera_stem(eid)
+            except Exception:  # noqa: BLE001
+                s = None
+            if s and s not in seen_stems:
+                seen_stems.add(s)
+                stems.append(s)
+
+        # Collect all NAME-carrying face legs across the leg-set.
+        all_legs: list = []
+        for stem in stems:
+            try:
+                legs = census._resolve_face_legs(stem)
+            except Exception:  # noqa: BLE001 — defensive; accessor is fail-CLOSED
+                _LOGGER.debug(
+                    "egress-identity: _resolve_face_legs raised for stem=%s",
+                    stem, exc_info=True,
+                )
+                continue
+            if not legs:
+                continue
+            all_legs.extend(legs)
+
+        # Direction-keyed asymmetric signed-lag window; drop bad legs.
+        if direction == "exit":
+            lo = -float(FACE_MATCH_EXIT_WINDOW_BEFORE_S)
+            hi = float(FACE_MATCH_EXIT_WINDOW_AFTER_S)
+        else:  # entry
+            lo = -float(FACE_MATCH_ENTRY_WINDOW_BEFORE_S)
+            hi = float(FACE_MATCH_ENTRY_WINDOW_AFTER_S)
+
+        in_window: list = []
+        for leg in all_legs:
+            if leg.canonical_slug is None:
+                continue
+            if (
+                leg.confidence is not None
+                and leg.confidence < FACE_MATCH_MIN_CONFIDENCE
+            ):
+                continue
+            lc = leg.last_changed
+            if lc is None:
+                continue
+            try:
+                if lc.tzinfo is None:
+                    lc = lc.replace(tzinfo=dt_util.UTC)
+                delta = (lc - timestamp).total_seconds()
+            except (TypeError, AttributeError):
+                continue
+            if delta < lo or delta > hi:
+                continue
+            in_window.append((leg, delta))
+
+        if not in_window:
+            # No in-window named legs: caller notes outcome "no_leg".
+            return (None, None, CENSUS_AGREEMENT_SINGLE)
+
+        # Agreement classification.
+        slugs = {leg.canonical_slug for leg, _ in in_window}
+        if len(slugs) >= 2:
+            # DISAGREE — strict abstain (judgement-call #7). Observability
+            # split (abstain vs ambiguity) computed inline for the caller.
+            deltas_by_slug: dict[str, list[float]] = {}
+            for leg, d in in_window:
+                deltas_by_slug.setdefault(leg.canonical_slug, []).append(d)
+            # Min pair separation across DIFFERENT slugs.
+            min_sep = None
+            slug_list = list(deltas_by_slug.keys())
+            for i in range(len(slug_list)):
+                for j in range(i + 1, len(slug_list)):
+                    for d1 in deltas_by_slug[slug_list[i]]:
+                        for d2 in deltas_by_slug[slug_list[j]]:
+                            sep = abs(d1 - d2)
+                            if min_sep is None or sep < min_sep:
+                                min_sep = sep
+            if min_sep is not None and min_sep <= FACE_MATCH_ABSTAIN_MARGIN_S:
+                # Bump the day-scoped abstain counter (Reset at UTC day).
+                try:
+                    today = dt_util.utcnow().date().isoformat()
+                    if census._egress_identity_abstain_day != today:
+                        census._egress_identity_abstain_day = today
+                        census._egress_identity_abstain_count = 0
+                    census._egress_identity_abstain_count += 1
+                except Exception:  # noqa: BLE001 — defensive
+                    pass
+            _LOGGER.info(
+                "egress-identity: DISAGREE across %d slugs %r "
+                "-> strict abstain",
+                len(slugs), sorted(slugs),
             )
-            return None
-        if face_sensor_id is None:
-            return None
+            return (None, None, CENSUS_AGREEMENT_DISAGREE)
+
+        # |slugs| == 1.
+        slug = next(iter(slugs))
+
+        # Fail-open person-tracker veto (mirrors camera_census.py canonical
+        # not_home veto). Preserved from the D1 helper.
         try:
-            state = self.hass.states.get(face_sensor_id)
-        except Exception:  # noqa: BLE001
-            return None
-        if state is None:
-            return None
-        val = state.state.strip() if isinstance(state.state, str) else ""
-        if val.lower() in ("unavailable", "unknown", "", "none", "no_match"):
-            return None
-        # Freshness: state.last_changed must be within FACE_MATCH_WINDOW_S
-        # of the crossing timestamp (I3).
-        last_changed = getattr(state, "last_changed", None)
-        if last_changed is None:
-            return None
-        try:
-            if last_changed.tzinfo is None:
-                last_changed = last_changed.replace(tzinfo=dt_util.UTC)
-            # A-LOW-1 / C-LOW-3 (2026-08-18): sign-symmetric with the
-            # census's `_get_egress_face_ids_fresh` — `age < 0` (face
-            # recognized AFTER the crossing time; clock skew / future
-            # timestamp) is treated as stale, not "fresh in the future".
-            age = (timestamp - last_changed).total_seconds()
-        except (TypeError, AttributeError):
-            return None
-        if age < 0 or age > FACE_MATCH_WINDOW_S:
-            _LOGGER.debug(
-                "egress-face %s dropped: age=%.1fs outside [0, %ds]",
-                val, age, FACE_MATCH_WINDOW_S,
-            )
-            return None
-        # A-HIGH-1 fix: canonicalize to the URA person-slug namespace via
-        # the census (uses tracked_persons config). Same namespace as
-        # `_get_face_recognized_person_names`, `ble_persons`,
-        # `census.identified_persons`, the DB `person_id` column, and
-        # `person.<slug>` — so veto, DB write, census union, and any
-        # downstream joins all agree.
-        canonical = census._canonical_person_slug(val)
-        if not canonical:
-            return None
-        # Fail-open person-tracker veto (mirrors camera_census.py:3456).
-        # Uses the CANONICAL URA slug so it queries the real HA entity
-        # (`person.oji_udezue`), not a first-name slug that never exists.
-        person_entity_id = f"person.{canonical}"
-        try:
-            person_state = self.hass.states.get(person_entity_id)
+            person_state = self.hass.states.get(f"person.{slug}")
         except Exception:  # noqa: BLE001
             person_state = None
-        if person_state is not None and person_state.state == "not_home":
+        if person_state is not None and getattr(person_state, "state", None) == "not_home":
             _LOGGER.debug(
-                "egress-face %s dropped: %s=not_home "
-                "(stale-face veto, mirrors census)",
-                canonical, person_entity_id,
+                "egress-identity: %s vetoed by person.%s=not_home",
+                slug, slug,
             )
-            return None
-        return canonical
+            return (None, None, CENSUS_AGREEMENT_SINGLE)
+
+        # Independence predicate: any pair with distinct device_id
+        # (falling back to distinct base_stem when either device_id is
+        # None) makes the pair INDEPENDENT (different physical cameras).
+        legs_only = [leg for leg, _ in in_window]
+
+        def _independent(h_i, h_j) -> bool:
+            di, dj = h_i.device_id, h_j.device_id
+            if di is not None and dj is not None:
+                return di != dj
+            return h_i.base_stem != h_j.base_stem
+
+        has_independent_pair = False
+        n = len(legs_only)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if _independent(legs_only[i], legs_only[j]):
+                    has_independent_pair = True
+                    break
+            if has_independent_pair:
+                break
+
+        if has_independent_pair:
+            return (slug, CONFIDENCE_HIGH, CENSUS_AGREEMENT_BOTH)
+        if n >= 2:
+            # All pairs share the same physical camera (or same base_stem
+            # when device_id is None): BOOST, strictly < HIGH.
+            try:
+                census._egress_identity_boost_events.append(
+                    dt_util.utcnow().timestamp()
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return (slug, FACE_MATCH_CORRELATED_BOOST, CENSUS_AGREEMENT_BOTH)
+        # Single leg.
+        return (slug, CONFIDENCE_MEDIUM, CENSUS_AGREEMENT_SINGLE)
 
     async def _resolve_direction(
         self, egress_camera_id: str, egress_timestamp: datetime
@@ -1271,22 +1387,32 @@ class EgressDirectionTracker:
         else:
             confidence = 0.4 if platforms_fired >= 2 else 0.3
 
-        # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1: stamp person_id from the
-        # egress-camera's face sensor at emit time. None when no fresh
-        # face within FACE_MATCH_WINDOW_S (I3: no identity without
-        # evidence). Single resolution call reused for the bus event
-        # AND the DB row so both sites always agree.
-        person_id = self._resolve_egress_face_identity(
-            egress_camera_id, egress_timestamp,
+        # EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) D2b: corroborated
+        # identity across the leg-set (egress-cam stem + interior-adjacent
+        # cameras), direction-keyed signed-lag window, agreement
+        # classifier. Returns (slug_or_None, identity_confidence_or_None,
+        # agreement_class). The bus/DB `confidence` field continues to
+        # carry the pre-cycle platforms-fired crossing/direction value
+        # (unmodified). Identity confidence goes into D3 attrs.
+        (
+            person_id,
+            identity_confidence,
+            agreement_class,
+        ) = self._resolve_egress_face_identity(
+            egress_camera_id, egress_timestamp, direction,
         )
 
-        # Fire event on HA bus
+        # Fire event on HA bus (pre-cycle `confidence` semantics preserved).
         self.hass.bus.async_fire("ura_person_egress_event", {
             "direction": direction,
             "egress_camera": egress_camera_id,
             "timestamp": egress_timestamp.isoformat(),
             "person_id": person_id,
             "confidence": confidence,
+            # Additive observability fields (D3). Consumers on the bus
+            # that never referenced these keys are unaffected.
+            "identity_confidence": identity_confidence,
+            "agreement_class": agreement_class,
         })
 
         _LOGGER.debug(
@@ -1313,20 +1439,75 @@ class EgressDirectionTracker:
         # into the census union for EGRESS_FACE_UNION_TTL_S after every
         # legitimate departure — surfacing as a phantom guest via
         # `identified_count`/`total_persons` → `_get_guest_count`.
+        census_ref = self.hass.data.get(DOMAIN, {}).get("census")
         if person_id and direction in ("entry", "exit"):
-            census = self.hass.data.get(DOMAIN, {}).get("census")
-            if census is not None:
+            if census_ref is not None:
                 try:
                     if direction == "entry":
-                        census.register_egress_face(person_id, egress_timestamp)
+                        census_ref.register_egress_face(person_id, egress_timestamp)
                     else:  # direction == "exit"
-                        census.evict_egress_face(person_id)
+                        census_ref.evict_egress_face(person_id)
                 except Exception:  # noqa: BLE001 — census register is
                     # best-effort; do not fail the egress emit path.
                     _LOGGER.debug(
                         "egress-face census %s failed for %s",
                         direction, person_id, exc_info=True,
                     )
+
+        # EGRESS-IDENTITY-JOIN-GAP-1 D3 observability append.
+        # Classify: disabled | attached | ambiguous | no_leg.
+        if census_ref is not None:
+            try:
+                if agreement_class == CENSUS_AGREEMENT_DISABLED:
+                    outcome = "disabled"
+                elif agreement_class == CENSUS_AGREEMENT_DISAGREE:
+                    outcome = "ambiguous"
+                elif person_id is not None:
+                    outcome = "attached"
+                else:
+                    outcome = "no_leg"
+                census_ref._note_egress_identity_outcome(outcome)
+                census_ref._egress_identity_agreement_class_last = agreement_class
+                if outcome == "attached":
+                    try:
+                        delta_s = None
+                        # Compute signed-lag delta from the crossing to
+                        # the newest attached leg's last_changed. Read
+                        # afresh to keep the observability field honest.
+                        stem_ec = self._extract_camera_stem(egress_camera_id)
+                        newest_lc = None
+                        contributor_engines: list[str] = []
+                        legs_here = census_ref._resolve_face_legs(stem_ec) if stem_ec else []
+                        for leg in legs_here:
+                            if leg.canonical_slug == person_id and leg.last_changed is not None:
+                                lc = leg.last_changed
+                                if lc.tzinfo is None:
+                                    lc = lc.replace(tzinfo=dt_util.UTC)
+                                if newest_lc is None or lc > newest_lc:
+                                    newest_lc = lc
+                                if leg.engine not in contributor_engines:
+                                    contributor_engines.append(leg.engine)
+                        if newest_lc is not None:
+                            delta_s = (newest_lc - egress_timestamp).total_seconds()
+                        census_ref._egress_identity_last_attach = {
+                            "person": person_id,
+                            "camera": egress_camera_id,
+                            "identity_confidence": identity_confidence,
+                            "signed_lag_delta_seconds": delta_s,
+                            "direction": direction,
+                            "agreement_class": agreement_class,
+                            "contributor_engines": contributor_engines,
+                        }
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "egress-identity: last_attach populate failed",
+                            exc_info=True,
+                        )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "egress-identity: observability append failed",
+                    exc_info=True,
+                )
 
         # Log to database if not ambiguous
         if direction != "ambiguous":
