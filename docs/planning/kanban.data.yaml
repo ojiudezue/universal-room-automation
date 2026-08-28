@@ -40,6 +40,24 @@ cards:
     a person slug backed by BLE/GPS/WiFi device trackers (phones, always identified), never a camera face.
     Quantified ceiling ~2% (4 named / 229 crossing episodes / 7.6d); post-08-18: 112 crossings, 0 faces
     in the 60s window.'
+  PROBE_RESULT_2026_08_27_BUILD: 'Signed-lag measure-first probe DONE (340 crossings/7d, 133 exit/207
+    entry; 125 interior named-face events). VERDICT: BUILD — interior-fusion lifts the identity attach
+    rate from ~0 to ~63-66% (48h re-tuned regime). Signed-lag hypothesis confirmed: EXITS face-leads
+    (median +53s), ENTRIES face-trails (median -14s) -> ASYMMETRIC direction-keyed window, not symmetric.
+    Recommended window: exit [-30s,+180s], entry [-300s,+60s] -> 63% yield at ~28% ambiguity (vs symmetric
+    +/-300 = 48% ambiguity for the same yield; +/-600 buys ~20pts but ~68% ambiguity -> do NOT). AMBIGUITY
+    is the real cap: ~28% of attaches have >=2 distinct resident names in-window -> a tie-break/ABSTAIN is
+    LOAD-BEARING (nearest-in-time + confidence margin, else emit NO identity — never guess). TRUST: yield
+    tracks face-rec health (7d floor ~27-31%, 48h ceiling ~63%) -> person_id is ADVISORY not authoritative;
+    consumers must degrade gracefully when sparse. Timezone: person_entry_exit_events.timestamp is
+    naive-UTC (confirmed), recorder ts is UTC epoch.'
+  BUILD_SCOPE: '(1) Re-key _resolve_egress_face_identity (transit_validator.py:1120) from same-stem to
+    INTERIOR-adjacent recognizers (_get_interior_cameras_near :1348, or the interior set). (2) Replace the
+    [0,60s] window with the asymmetric direction-keyed window (exit [-30,+180], entry [-300,+60]). (3) ADD
+    the tie-break/abstain on >=2 distinct in-window names — LOAD-BEARING (~28%). (4) Keep the existing
+    not_home veto + kill-switch (switch.ura_name_people_at_doors). (5) Mark person_id advisory; downstream
+    6.0.0 consumers (guest gate, arrival/departure) degrade gracefully on sparse. Tier 2 (identity-affecting
+    read-side resolver, additive, kill-switched) -> framing-disjoint reviews.'
   FACE_REC_24H_2026_08_27: 'Post-tuning 24h face-rec (operator re-tuned F2): 71 named events across 11
     cameras. family_room 29 (the strongest interior recognizer — the source the fix fuses from; up from
     ~68/week to ~29/day), master_hallway 20, staircase 7; EGRESS: garage_a 5, doorbell_lite 3, garage_b 1.
