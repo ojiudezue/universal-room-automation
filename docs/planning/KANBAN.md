@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-27T20:45:10-05:00_ - _Data commit: `649891a84af0`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-27T20:48:22-05:00_ - _Data commit: `ebea4f44f09f`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,9 +12,9 @@ _Generated: 2026-08-27T20:45:10-05:00_ - _Data commit: `649891a84af0`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 7 |
+| 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 51 |
@@ -325,24 +325,8 @@ _created 2026-08-26 03:10 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** energy_battery.py:6119 (get_status d2_class)
 
-## 🔬 Investigating (7)
+## 🔬 Investigating (6)
 _measuring; truth not yet known_
-
-### `EGRESS-IDENTITY-JOIN-GAP-1` - Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
-thread: **security** - status: **investigating** - approval: **unreviewed**
-_created 2026-08-26 20:45 · initial_
-- **Problem / Solution:**
-  - Problem: the house recognizes faces fine (interior person_visits 91616/91616 named; main-entry madrone_g6_entry now produces named faces post-reconfig, 0->3 in 6h) — but when a person crosses a door/garage, the egress event is logged wit...
-- **Why:** Measured twice this session (pre- and post-Frigate-2 reconfig) — egress person_id stays 0/7010. The operator hardware reconfig improved recognition (esp. main entry) but the join is unwired. This is THE blocker for 6.0.0 (egress keyed to...
-- **Next:** INVESTIGATE the producer: read the person_entry_exit_events writer (grep the egress-event insert), determine whether it (a) never receives the recognized identity or (b) receives it but drops it on a time-window/confidence join. Then sco...
-- **Tags:** no-fabrication-verify, producer-consumer, gate-6.0.0
-- **Refs:** person_entry_exit_events (URA DB) — 0/7010 person_id; reference_egress_face_coverage_7pct_not_a_ceiling (memory)
-- **Forensic keys (5):**
-  - `ROOT_CAUSE_2026_08_27`: FOUND (subagent, cited to source). NOT a wiring defect — the person_id producer exists and is passed to the writer, but it drops to None at a mis-keyed join. Chain: writer database.py:3903 log_entry_exit_event (writes whatever it is hand...
-  - `PROBE_RESULT_2026_08_27_BUILD`: Signed-lag measure-first probe DONE (340 crossings/7d, 133 exit/207 entry; 125 interior named-face events). VERDICT: BUILD — interior-fusion lifts the identity attach rate from ~0 to ~63-66% (48h re-tuned regime). Signed-lag hypothesis c...
-  - `BUILD_SCOPE`: (1) Re-key _resolve_egress_face_identity (transit_validator.py:1120) from same-stem to INTERIOR-adjacent recognizers (_get_interior_cameras_near :1348, or the interior set). (2) Replace the [0,60s] window with the asymmetric direction-ke...
-  - `FACE_REC_24H_2026_08_27`: Post-tuning 24h face-rec (operator re-tuned F2): 71 named events across 11 cameras. family_room 29 (the strongest interior recognizer — the source the fix fuses from; up from ~68/week to ~29/day), master_hallway 20, staircase 7; EGRESS: ...
-  - `FIX_PATH_MEASURE_FIRST`: The join is keyed WRONG for the geometry: it looks for a face on the DOOR cam (which rarely recognizes) when it should fuse an INTERIOR face near the crossing (family-room/hallway cams: 68 / 30 named/week). Adjacency helper _get_interior...
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
 thread: **presence** - status: **investigating** - approval: **operator_directed**
@@ -562,8 +546,24 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
+
+### `EGRESS-IDENTITY-JOIN-GAP-1` - Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
+thread: **security** - status: **planned** - approval: **unreviewed**
+_created 2026-08-26 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: the house recognizes faces fine (interior person_visits 91616/91616 named; main-entry madrone_g6_entry now produces named faces post-reconfig, 0->3 in 6h) — but when a person crosses a door/garage, the egress event is logged wit...
+- **Why:** Measured twice this session (pre- and post-Frigate-2 reconfig) — egress person_id stays 0/7010. The operator hardware reconfig improved recognition (esp. main entry) but the join is unwired. This is THE blocker for 6.0.0 (egress keyed to...
+- **Next:** INVESTIGATE the producer: read the person_entry_exit_events writer (grep the egress-event insert), determine whether it (a) never receives the recognized identity or (b) receives it but drops it on a time-window/confidence join. Then sco...
+- **Tags:** no-fabrication-verify, producer-consumer, gate-6.0.0
+- **Refs:** person_entry_exit_events (URA DB) — 0/7010 person_id; reference_egress_face_coverage_7pct_not_a_ceiling (memory)
+- **Forensic keys (5):**
+  - `ROOT_CAUSE_2026_08_27`: FOUND (subagent, cited to source). NOT a wiring defect — the person_id producer exists and is passed to the writer, but it drops to None at a mis-keyed join. Chain: writer database.py:3903 log_entry_exit_event (writes whatever it is hand...
+  - `PROBE_RESULT_2026_08_27_BUILD`: Signed-lag measure-first probe DONE (340 crossings/7d, 133 exit/207 entry; 125 interior named-face events). VERDICT: BUILD — interior-fusion lifts the identity attach rate from ~0 to ~63-66% (48h re-tuned regime). Signed-lag hypothesis c...
+  - `BUILD_SCOPE`: (1) Re-key _resolve_egress_face_identity (transit_validator.py:1120) from same-stem to INTERIOR-adjacent recognizers (_get_interior_cameras_near :1348, or the interior set). (2) Replace the [0,60s] window with the asymmetric direction-ke...
+  - `FACE_REC_24H_2026_08_27`: Post-tuning 24h face-rec (operator re-tuned F2): 71 named events across 11 cameras. family_room 29 (the strongest interior recognizer — the source the fix fuses from; up from ~68/week to ~29/day), master_hallway 20, staircase 7; EGRESS: ...
+  - `FIX_PATH_MEASURE_FIRST`: The join is keyed WRONG for the geometry: it looks for a face on the DOOR cam (which rarely recognizes) when it should fuse an INTERIOR face near the crossing (family-room/hallway cams: 68 / 30 named/week). Adjacency helper _get_interior...
 
 ### `BORROW-BANKING-LEASE-NOT-RELEASED-1` - A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly, banking did not
 thread: **hvac** - status: **planned** - approval: **needs_operator**

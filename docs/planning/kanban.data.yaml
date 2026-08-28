@@ -74,7 +74,7 @@ cards:
   title: Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id
     is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
   thread: security
-  status: investigating
+  status: planned
   created: '2026-08-26 20:45'
   updated: '2026-08-26 20:45'
   refinement_status: initial
