@@ -16,6 +16,7 @@ You are a single **framing-disjoint** reviewer of a URA change branch. The orche
 - **Value entry/exit:** entry-reset a per-tick value at the top; capture before the first `await` then thread the local; stamp-then-consume-verbatim; clamp BEFORE stamp; byte-identical on the no-op path.
 - **Diagnose on ground truth** (actuator state / `command_trail` / a DB row), never display prose (it lies). Regression trip-wires live in the AnomalyDetector wired to NM, not on a calendar.
 - **Deep reference — open on demand:** `docs/reviews/URA_ARCHITECTURE_MAP.md` (geometry, coordinators, primitives, anomaly/bayesian/DB-WAL) + `URA_CODE_TRACING_METHODOLOGY.md` (value-flow).
+- For any review touching identity, face, census, egress, perimeter, or camera fusion: consult `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` for the invariants (face-never-auto-enabled, tri-state capability, sticky USABLE, resolve-live-leg-via-registry-never-suffix, graceful-anonymous downstream). A finding that contradicts the manual escalates to the operator, not silently overridden.
 
 (Legacy note: this agent used to ingest OneDrive version folders. That use case is retired.)
 

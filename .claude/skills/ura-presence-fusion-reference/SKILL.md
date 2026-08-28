@@ -5,6 +5,8 @@ description: Domain reference for URA's presence-fusion stack — sensor kinds (
 
 # URA Presence-Fusion Reference
 
+**Canonical reference:** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` — read before answering any identity / camera / census / fusion / guest / perimeter / egress question. Overrides conflicting content here.
+
 **Audience:** a solo engineer / lone Sonnet-class session working URA without
 guaranteed subagents. Verify anything in this doc against the repo before
 committing to it — presence.py evolves fast (6 160 LoC as of 2026-07-02).

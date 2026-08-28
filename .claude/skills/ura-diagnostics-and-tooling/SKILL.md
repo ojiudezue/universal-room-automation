@@ -216,7 +216,14 @@ FROM decision_log d
 LEFT JOIN outcome_log o ON o.decision_id = d.id
 WHERE d.timestamp > datetime('now','-1 day') AND o.id IS NULL
 GROUP BY 1 ORDER BY 2 DESC;
+
+-- Egress identity coverage: person_id populated-vs-null on crossings
+SELECT COUNT(*), COUNT(person_id)
+FROM person_entry_exit_events
+WHERE timestamp > datetime('now','-1 day');
 ```
+
+Egress identity coverage oracle: `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` §5.
 
 ### Sentinels-only = payload shape broken
 

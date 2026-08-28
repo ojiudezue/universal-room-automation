@@ -78,6 +78,7 @@ Before proposing any new CONF_*, sensor, helper, constant, signal, or config-flo
 3. **`sensor.py`**, **`binary_sensor.py`**, **`number.py`**, **`switch.py`**, **`select.py`**, **`button.py`** — grep for similar entities
 4. **`domain_coordinators/*.py`** — grep for similar helpers, signals, and dispatch sites
 5. **Per-coordinator design doc at `docs/Coordinator/<NAME>.md`** — read before scoping changes to that coordinator
+5a. **For identity / camera / census / fusion / guest / perimeter / egress work — `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` is the CANONICAL reference** (platform roles, `_2`-suffix rules, identity-source coverage, fusion doctrine, egress-identity JOIN + 6.0.0 gate). Read it before proposing any change in this domain; if another doc contradicts it, verify against the cited code and update the manual — do not open a new investigation.
 6. **Prior planning docs in `docs/planning/`** — at minimum skim filenames + headers for the affected coordinator area; pull bodies for any cycle that clearly touches the surface
 7. **Memory bodies (not just `MEMORY.md` index lines)** — pull the full file for related backlog / live / shipped memos
 
@@ -249,7 +250,7 @@ Every planning doc MUST include an "Institutional context verified" section at t
 1. **Greps run + results** — for every proposed addition (CONF_*, sensor, helper, constant), either "REUSED <existing> at file:line" or "NEW because no equivalent found after grep of <surfaces>"
 2. **Prior planning docs consulted** — filename + relevance (skim or full read)
 3. **Memory bodies pulled** — filename + relevance
-4. **Design docs read** — `docs/Coordinator/<NAME>.md` if the coordinator is affected
+4. **Design docs read** — `docs/Coordinator/<NAME>.md` if the coordinator is affected (for identity / camera / census / fusion / guest / perimeter / egress work, this MUST include `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`, the canonical manual for that domain)
 5. **Code locations surveyed** — files read end-to-end during scoping
 
 Planners that omit this section produce plans that propose duplicate or conflicting work. The discipline materially reduces builder churn — empirically validated 2026-05-30 (three planners caught ~14 institutional errors before build).
