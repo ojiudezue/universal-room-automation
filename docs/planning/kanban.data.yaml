@@ -51,6 +51,19 @@ cards:
     tracks face-rec health (7d floor ~27-31%, 48h ceiling ~63%) -> person_id is ADVISORY not authoritative;
     consumers must degrade gracefully when sparse. Timezone: person_entry_exit_events.timestamp is
     naive-UTC (confirmed), recorder ts is UTC epoch.'
+  PROTECT_FACE_SOURCE_2026_08_28: 'Operator: why lean on Frigate alone — Protect face rec is wired via a
+    webhook. VERIFIED: (1) the named faces URA consumes (sensor.<cam>_last_recognized_face_2) are FRIGATE
+    (entity-registry platform=frigate), matching names confirmed (family_room: Jaya/Oji/Ezinne). (2) HA
+    unifiprotect integration is LIMITED — exposes face DETECTION (event_type=face on g6) but NOT the name.
+    (3) The operator DID wire UniFi Protect Alarm Manager -> HA webhook ura_kp_face_probe (automation URA
+    KP Face Webhook Probe, KP-ANNOTATION-1). It IS firing (06:47:37 in lockstep w/ the g6 Protect face
+    event) BUT the captured payloads are EMPTY {} — every ura_kp_face_probe_received event has shared_data
+    {}. So the pipe triggers but the face name/confidence is NOT in the parsed POST body (likely Alarm
+    Manager action not POSTing a JSON body, or form/query-encoded that trigger.json misses). => Protect
+    face NAMES are NOT usable yet. FINISH-THE-PROBE task (not a URA build): extend the probe to log raw
+    body+headers+trigger.query, fix the Alarm Manager action to POST {name,confidence,camera,ts} JSON,
+    confirm names match, THEN fuse Protect as a 2nd egress-identity source alongside Frigate (Protect is
+    the better DETECTOR at door angles where Frigate is weak). Until then the egress join is Frigate-only.'
   BUILD_SCOPE: '(1) Re-key _resolve_egress_face_identity (transit_validator.py:1120) from same-stem to
     INTERIOR-adjacent recognizers (_get_interior_cameras_near :1348, or the interior set). (2) Replace the
     [0,60s] window with the asymmetric direction-keyed window (exit [-30,+180], entry [-300,+60]). (3) ADD
