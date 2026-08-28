@@ -137,13 +137,15 @@ The only NAMED-face source URA can currently join to a crossing.
   junk face states case-sensitively; excluded `"unknown"` but the
   live state is `"Unknown"`). Post-fix rates 08-17..08-19 were
   53/16/26 house-wide daily, not the 131/118 that circulated.
-- **Current fault (as of 2026-08-24):** face recognition is DOWN
-  house-wide. Daily named-face counts 08-21:3, 08-22:0, 08-23:4,
-  08-24:2, against 53–68 when healthy. Person detections stayed
-  healthy (08-21:1575, 08-24:596) — person-normal + face-zero is the
-  signature of a face-subsystem fault, not storage. Storage fix
-  2026-08-23 did NOT restore it. Fault is upstream in Frigate, not
-  URA.
+- **RECOVERED as of 2026-08-28** (operator Frigate-2 hardware re-tune
+  ~08-26/27). Measured 71 named-face events / 24h across 11 cameras:
+  family_room 29, master_hallway 20, staircase 7, garage_a 5,
+  doorbell_lite 3, others 1–2. The 08-21..08-24 house-wide face-DOWN
+  fault (daily counts 3/0/4/2 while person-detection stayed healthy)
+  is resolved. **Keep the diagnostic lesson:** person-detections-normal
+  + face-recognitions-zero is the signature of a face-subsystem fault
+  (upstream in Frigate, not URA, and not fixed by a storage change) —
+  use it next time face rate collapses while person counts hold.
 
 ### 2.3 UniFi Protect Alarm Manager webhook (`ura_kp_face_probe`)
 
@@ -159,8 +161,13 @@ rule → local HA webhook `ura_kp_face_probe`, listener
   fires and logs the payload). Production PROTECT-SIDE rule is
   **delivering empty payloads** as of the last known session — the
   bridge is unwired for real data.
-- **Would unblock:** consuming Protect-named interior faces
-  (family_room, front doorbell) into the census/identity union.
+- **Scope (durable):** Protect face recognition is enabled on exactly
+  **two cameras** — `living_room_family_room` and
+  `front_porch_madrone_g6_entry` (the only two producing Protect
+  `event_type: face` smart-detections; verified 2026-08-28, 38 + 2
+  over 48h). Any Protect-face fusion is bounded to those two.
+- **Would unblock:** consuming Protect-named faces from those two
+  cameras into the census/identity union.
 
 ---
 
@@ -337,10 +344,15 @@ real actuation — guest gate consuming door-identity, arrival/departure
 keyed to `person_id`, egress identity) is anchored on this JOIN
 working. It currently doesn't.
 
-### 5.1 The measured reality (as of 2026-08-24)
+### 5.1 The measured reality (as of 2026-08-28)
 
-- `person_entry_exit_events`: **6,883 rows all-time, 0 with a
-  populated `person_id`.** Never once populated since 2026-03-04.
+- `person_entry_exit_events`: **7,010 rows all-time, 0 with a
+  populated `person_id`** (was 6,883 on 08-24; grew, still 0/all).
+  Never once populated since 2026-03-04. The signed-lag measure-first
+  probe (2026-08-28) put the achievable attach rate at **~63%** under
+  an interior-fusion + asymmetric window (exit `[-30,+180s]`, entry
+  `[-300,+60s]`) with abstain-on-ambiguity (~28% of attaches have ≥2
+  in-window names) — vs today's ~0. `person_id` stays ADVISORY.
 - Post-arm (2026-08-18+): **112 crossings, zero with a face inside
   the 60s match window** — no opportunity to stamp even once.
 - **This is not a wiring bug.** `egress_identity_enabled = True` on
@@ -402,7 +414,7 @@ lives on cards:
 
 | Card | What |
 |---|---|
-| **`EGRESS-IDENTITY-JOIN-GAP-1`** | Face recognition works but egress crossings carry no identity — `person_entry_exit_events.person_id` is 0 of 6,883 rows all-time. Blocks all identity consumers. See `docs/planning/KANBAN.md:552`. |
+| **`EGRESS-IDENTITY-JOIN-GAP-1`** | Face recognition works but egress crossings carry no identity — `person_entry_exit_events.person_id` is 0 of ~7,010 rows all-time. Root cause: same-stem 60s face-join never matches (door cams rarely recognize). Fix = interior-fusion + asymmetric signed-lag window (~63% ceiling, measured). Blocks all identity consumers. |
 | **`EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1`** | Blocking parent for the eight identity-consumer cards below — the producer emits nothing to consume today. |
 | **`PERIMETER-ALERT-NAME-PERSON-1`** | Perimeter alerts still say "person detected" when identity is known. |
 | **`GUEST-GATE-DOOR-IDENTITY-1`** | Guest gate ignores door-identity. |
