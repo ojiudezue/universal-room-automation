@@ -1201,13 +1201,10 @@ class PersonCensus:
         # outcome in {"attached", "ambiguous", "no_leg", "disabled"}.
         # Pruned on every append: pop-left while now - ts > 24h.
         self._egress_identity_outcomes: deque[tuple[float, str]] = deque(maxlen=8192)
-        # Abstain counter (subset of DISAGREE where the min in-window
-        # pair-separation is within FACE_MATCH_ABSTAIN_MARGIN_S). Kept
-        # separate because it needs pair-separation detail D2b computes
-        # inline. Reset at UTC-day boundary.
-        self._egress_identity_abstain_count: int = 0
-        self._egress_identity_abstain_day: str | None = None
-        # BOTH stamped at BOOST (not HIGH) counter, rolling 24h.
+        # MED-3 (2026-08-28): abstain is now a deque-derived rate — the
+        # separate int counter + broken day-rollover has been removed;
+        # "abstain" is a distinct outcome label in the SAME deque.
+        # BOTH stamped at BOOST (not HIGH) event ledger, 24h-filtered.
         self._egress_identity_boost_events: deque[float] = deque(maxlen=1024)
         # Last successful attach + last agreement class.
         self._egress_identity_last_attach: dict[str, Any] = {}
@@ -2668,19 +2665,17 @@ class PersonCensus:
         (camera_resolver.py:317-327). Does NOT construct Frigate
         unique_ids — that format is external and not derivable.
         """
-        # EGRESS-IDENTITY-JOIN-GAP-1 D2a (2026-08-28): candidate set widened
-        # to also cover the Protect D1 bridge (_face_recognized[_2]).
-        # Selection returns the first candidate whose live state is a
-        # named non-sentinel value AND — if the candidate carries a
-        # ``confidence`` attribute (Protect bridge exposes; Frigate does
-        # not) — meets FACE_MATCH_MIN_CONFIDENCE. Absent attr passes.
-        candidates = (
-            f"sensor.{base_name}_last_recognized_face",
-            f"sensor.{base_name}_last_recognized_face_2",
-            f"sensor.{base_name}_face_recognized",
-            f"sensor.{base_name}_face_recognized_2",
-        )
-        for candidate in candidates:
+        # EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) B-HIGH-1 revert: this
+        # helper stays byte-identical to the pre-cycle behaviour. Protect
+        # coupling lives ONLY in `_resolve_face_legs` under the D2b kill
+        # switch. Widening this helper to include `_face_recognized[_2]`
+        # would feed Protect names into 4 pre-existing surfaces (guest
+        # count, corroboration bundle, presence pre-arrival) OUTSIDE the
+        # cycle's kill switch. Adding Protect to the census fresh-set is
+        # a separate, kill-switch-gated cycle.
+        canonical = f"sensor.{base_name}_last_recognized_face"
+        suffixed = f"sensor.{base_name}_last_recognized_face_2"
+        for candidate in (canonical, suffixed):
             try:
                 state = self.hass.states.get(candidate)
             except Exception:  # noqa: BLE001 — defensive
@@ -2689,17 +2684,10 @@ class PersonCensus:
                 continue
             val = state.state if isinstance(state.state, str) else ""
             if val.strip().lower() in (
-                "unavailable", "unknown", "", "none", "no_match",
+                "unavailable", "unknown", "", "none",
             ):
                 # State exists but unusable — try the next variant.
                 continue
-            try:
-                attrs = getattr(state, "attributes", None) or {}
-                conf = attrs.get("confidence") if isinstance(attrs, dict) else None
-                if conf is not None and float(conf) < FACE_MATCH_MIN_CONFIDENCE:
-                    continue
-            except Exception:  # noqa: BLE001 — defensive; treat as absent
-                pass
             return candidate
         # Neither variant resolved to a usable state. Fail-CLOSED: caller
         # gets None -> no `-1` credit. Measure it so operators can tell.

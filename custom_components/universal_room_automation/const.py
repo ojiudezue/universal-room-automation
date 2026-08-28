@@ -2181,6 +2181,12 @@ FACE_MATCH_MIN_CONFIDENCE: Final = 0.60
 # Bounded confidence for same-camera / cross-engine agreement;
 # strictly > CONFIDENCE_MEDIUM (0.6) and < CONFIDENCE_HIGH (0.9).
 FACE_MATCH_CORRELATED_BOOST: Final = 0.75
+# C-LOW-2 (2026-08-28): pin the boost-ordering invariant at import time
+# so an ambiguity-hiding number change fails immediately, not silently.
+assert CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH, (
+    "FACE_MATCH_CORRELATED_BOOST must sit strictly between "
+    "CONFIDENCE_MEDIUM and CONFIDENCE_HIGH"
+)
 
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per

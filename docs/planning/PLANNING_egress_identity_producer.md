@@ -11,6 +11,86 @@ prior-art surfaces already carrying the multi-platform substrate.
 
 ---
 
+## POST-REVIEW ADDENDA (2026-08-28, applied on top of the reviewed spec)
+
+The three Tier-2-DB code reviews returned FIX-REQUIRED. These addenda
+supersede the corresponding paragraphs below and are the true build
+spec. Section anchors in parentheses.
+
+- **HIGH-1 (§0 falsifier #5, §D2b step 7 independence predicate).**
+  The independence predicate is **base_stem ONLY**: two legs `h_i, h_j`
+  are INDEPENDENT iff `h_i.base_stem != h_j.base_stem`. The device_id
+  branch has been **DELETED**. Rationale: Protect + Frigate on the SAME
+  physical camera have DIFFERENT device_ids but the SAME base_stem, so
+  the earlier device_id-first predicate misfired on the cycle's
+  headline correlated case (false HIGH 0.9). `FaceLeg.device_id` is
+  retained for observability only. Falsifier #5 is unchanged in intent.
+- **HIGH-2 (§D2a, §1.1 row for `_resolve_face_entity_id`, §1.5 caller
+  list).** The old `_resolve_face_entity_id` helper stays
+  **byte-identical to pre-cycle** — the candidate set is NOT widened to
+  cover `_face_recognized[_2]` and there is NO confidence-attr floor
+  drop. Protect coupling lives ONLY inside `_resolve_face_legs` under
+  the D2b kill switch. Adding Protect to the census fresh-set is a
+  separate, kill-switch-gated cycle (deferred; carded).
+- **MED-3 / MED-4 / A5 (§D2b step 8, §D3).** Observability outcome
+  labels form a fixed vocabulary written EXCLUSIVELY by the resolver:
+  `disabled`, `direction_ambiguous`, `no_leg`, `abstain`, `ambiguous`,
+  `vetoed`, `attached`. `disabled` and `direction_ambiguous` are
+  EXCLUDED from all rate denominators; `abstain` and `ambiguous` both
+  count toward `ambiguity_rate_24h`, `abstain` also feeds its own
+  `abstain_rate_24h`. The separate int abstain counter with a broken
+  day-rollover has been REMOVED; abstain is deque-derived from the
+  same `_egress_identity_outcomes` deque as attach/ambiguity.
+- **MED-1 / MED-2 (§D3).** BOTH the outcomes rate reader AND the
+  BOOST-event count reader in `sensor.py` filter by a 24h wall-clock
+  cutoff at read time (`ts >= now - 86400`), in addition to the
+  producer-side prune. An idle producer never keeps dividing over
+  stale rows and BOOST count is not lifetime.
+- **MED-5 (§D3 `last_attach`).** `contributor_engines` and
+  `signed_lag_delta_seconds` are computed at the same site as the
+  agreement decision, from the SAME `in_window` leg-set, and written
+  by the resolver directly onto `census._egress_identity_last_attach`.
+  The caller does not re-read legs.
+- **MED-6 / adjacency doctrine (§5 Non-goals + §4 acceptance
+  addendum).** `_get_interior_cameras_near` continues to return ALL
+  interior cameras (explicit non-goal to add adjacency). Two accepted
+  consequences that are documented here as live-validation watches,
+  not code changes:
+    (a) Same-slug cross-camera corroboration is window-bounded and
+        same-person, and is accepted even when the interior camera is
+        physically far from the egress camera.
+    (b) Strict-abstain #7 makes DISAGREE common in a multi-resident
+        house; abstain-dominance in observability is the accepted cost
+        and is discriminable from producer-death via L1 (both attach
+        AND ambiguity flat at 0 => producer dead).
+- **C-LOW-1 (§D2b step 5).** The defence-in-depth
+  `FACE_MATCH_MIN_CONFIDENCE` re-check inside the in-window filter has
+  been REMOVED — the sole producer `_resolve_face_legs` already floors.
+- **C-LOW-2 (§3).** `const.py` asserts
+  `CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH`
+  at import time to pin the boost-ordering invariant.
+- **C-LOW-3 (§4).** The D3-sync source-grep test has been replaced
+  with an AST test: parse `sensor.py`, locate the D3 marker line, and
+  assert the enclosing function is a plain `FunctionDef` with zero
+  `Await` nodes. Path derived via `importlib.util.find_spec`.
+- **B-LOW (§D2b signature).** The `direction` parameter is REQUIRED
+  (no `"exit"` default) so a future caller cannot silently get the
+  wrong window.
+- **HIGH-3 (§4 acceptance, wire-in anchor).** A behavioral test drives
+  `_resolve_direction` end-to-end for a real crossing and asserts both
+  (a) the fired `ura_person_egress_event` payload carries the real
+  `identity_confidence` + `agreement_class`, and (b) the SAME reader
+  code the sensor uses reports a non-zero `egress_identity_attach_rate_24h`
+  after the crossing. Neutering the resolver's `_record("attached", ...)`
+  site or hard-coding the bus fields to `None` turns this test RED
+  (mutation-verified).
+
+The paragraphs below that predate these addenda are retained for
+review provenance; where they conflict with the addenda, THE ADDENDA
+WIN.
+
+---
+
 ## 0. Falsifiable invariant (the property this cycle must guarantee)
 
 > **INV-EGRESS-ID:** No row in `person_entry_exit_events` is stamped with

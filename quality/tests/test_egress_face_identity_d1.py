@@ -222,6 +222,7 @@ def test_resolver_returns_none_when_no_face_sensor():
     now = datetime(2026, 8, 18, 12, 0, 0, tzinfo=UTC)
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         "binary_sensor.front_door_person_occupancy", now,
+        "exit",
     )
     assert got is None
 
@@ -234,6 +235,7 @@ def test_resolver_returns_none_on_bad_state(bad_value):
     tracker, *_ = _make_tracker_with_census(face_id, bad_value, now)
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
+        "exit",
     )
     assert got is None
 
@@ -246,6 +248,7 @@ def test_resolver_returns_fresh_name_as_canonical_slug():
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", now)
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
+        "exit",
     )
     assert got == "oji_udezue"
 
@@ -260,6 +263,7 @@ def test_resolver_returns_none_when_stale():
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", old)
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
+        "exit",
     )
     assert got is None
 
@@ -277,6 +281,7 @@ def test_resolver_returns_none_on_future_dated_face():
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", future)
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
+        "exit",
     )
     assert got is None
 
@@ -305,6 +310,7 @@ def test_resolver_vetoes_when_person_not_home_oracle_independent():
     )
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
+        "exit",
     )
     assert got is None, (
         "person.oji_udezue=not_home must suppress; canonicalizer must map "
@@ -320,6 +326,7 @@ def test_resolver_fail_open_when_person_missing():
     tracker, *_ = _make_tracker_with_census(face_id, "Oji", now)
     got, _idc, _agc = tracker._resolve_egress_face_identity(
         f"binary_sensor.{stem}_person_occupancy", now,
+        "exit",
     )
     assert got == "oji_udezue"
 
