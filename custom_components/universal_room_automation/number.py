@@ -68,6 +68,9 @@ async def async_setup_entry(
             OffPeakDrainNumber(hass, entry, "good", 15, 5, 60),
             OffPeakDrainNumber(hass, entry, "moderate", 20, 5, 70),
             OffPeakDrainNumber(hass, entry, "poor", 30, 5, 80),
+            # OFFPEAK-DRAIN-VERYPOOR-SLIDER-1: 5th quality bucket. Default
+            # 30 mirrors `poor`; operator may tune toward 40 by observation.
+            OffPeakDrainNumber(hass, entry, "very_poor", 30, 5, 80),
             # v4.5.0 D2: Peak buffer target replaces arbitrage_target slider.
             # The arbitrage_trigger slider is removed entirely — the gate is
             # now forecast-class only (no SOC trigger).
@@ -1079,12 +1082,14 @@ class OffPeakDrainNumber(NumberEntity):
             CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
             CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
             CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+            CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
         )
         conf_map = {
             "excellent": CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
             "good": CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
             "moderate": CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
             "poor": CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+            "very_poor": CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
         }
         config = {**entry.data, **entry.options}
         self._value = config.get(conf_map.get(quality, ""), default)
@@ -1134,12 +1139,14 @@ class OffPeakDrainNumber(NumberEntity):
                 CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
                 CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
                 CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
             )
             conf_map = {
                 "excellent": CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
                 "good": CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
                 "moderate": CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
                 "poor": CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                "very_poor": CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
             }
             conf_key = conf_map.get(self._quality)
             if conf_key is not None:

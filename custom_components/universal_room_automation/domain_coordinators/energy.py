@@ -82,6 +82,7 @@ from .energy_const import (
     CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
     CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
     CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+    CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
     CONF_ENERGY_PREHEAT_TEMP_THRESHOLD,
     CONF_ENERGY_RESERVE_SOC_ENTITY,
     CONF_ENERGY_SOLAR_ENTITY,
@@ -107,6 +108,7 @@ from .energy_const import (
     DEFAULT_OFFPEAK_DRAIN_GOOD,
     DEFAULT_OFFPEAK_DRAIN_MODERATE,
     DEFAULT_OFFPEAK_DRAIN_POOR,
+    DEFAULT_OFFPEAK_DRAIN_VERY_POOR,
     DEFAULT_PREHEAT_TEMP_THRESHOLD,
     DEFAULT_RESERVE_SOC,
     EVSE_CHARGING_POWER_THRESHOLD,
@@ -202,6 +204,11 @@ class EnergyCoordinator(BaseCoordinator):
             "good": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_GOOD, DEFAULT_OFFPEAK_DRAIN_GOOD),
             "moderate": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_MODERATE, DEFAULT_OFFPEAK_DRAIN_MODERATE),
             "poor": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_POOR, DEFAULT_OFFPEAK_DRAIN_POOR),
+            # 5th quality bucket — OFFPEAK-DRAIN-VERYPOOR-SLIDER-1.
+            # Slider default mirrors `poor` (30). The Number entity feeds
+            # this key via entry.options; strategy consumer already accepts
+            # `very_poor` (energy_battery.py:470, energy.py:8866).
+            "very_poor": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR, DEFAULT_OFFPEAK_DRAIN_VERY_POOR),
         }
 
         # v4.5.0 D1/D2: peak_buffer_target is the new live-tunable; falls

@@ -33,6 +33,7 @@ from .energy_const import (
     DEFAULT_OFFPEAK_DRAIN_GOOD,
     DEFAULT_OFFPEAK_DRAIN_MODERATE,
     DEFAULT_OFFPEAK_DRAIN_POOR,
+    DEFAULT_OFFPEAK_DRAIN_VERY_POOR,
     DEFAULT_OFFPEAK_DRAIN_UNKNOWN,
     DEFAULT_PEAK_BUFFER_TARGET,
     DEFAULT_RESERVE_SOC,
@@ -467,7 +468,10 @@ class BatteryStrategy:
             "good": dt.get("good", DEFAULT_OFFPEAK_DRAIN_GOOD),
             "moderate": dt.get("moderate", DEFAULT_OFFPEAK_DRAIN_MODERATE),
             "poor": dt.get("poor", DEFAULT_OFFPEAK_DRAIN_POOR),
-            "very_poor": dt.get("very_poor", dt.get("poor", DEFAULT_OFFPEAK_DRAIN_POOR)),
+            # OFFPEAK-DRAIN-VERYPOOR-SLIDER-1: dedicated default (mirrors
+            # poor at 30 by default; operator-tunable via Number entity).
+            # Legacy fallback to `poor` retained for pre-slider entries.
+            "very_poor": dt.get("very_poor", dt.get("poor", DEFAULT_OFFPEAK_DRAIN_VERY_POOR)),
             "unknown": dt.get("unknown", DEFAULT_OFFPEAK_DRAIN_UNKNOWN),
         }
 

@@ -240,6 +240,7 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_OFFPEAK_DRAIN_GOOD":        "energy_offpeak_drain_good",
         "_CONF_ENERGY_OFFPEAK_DRAIN_MODERATE":    "energy_offpeak_drain_moderate",
         "_CONF_ENERGY_OFFPEAK_DRAIN_POOR":        "energy_offpeak_drain_poor",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR":   "energy_offpeak_drain_very_poor",
         "_CONF_ENERGY_PEAK_BUFFER_TARGET":        "energy_peak_buffer_target",
         "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN": "energy_arbitrage_charge_lead_time_min",
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
