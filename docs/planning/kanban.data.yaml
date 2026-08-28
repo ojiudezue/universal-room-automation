@@ -40,6 +40,11 @@ cards:
     a person slug backed by BLE/GPS/WiFi device trackers (phones, always identified), never a camera face.
     Quantified ceiling ~2% (4 named / 229 crossing episodes / 7.6d); post-08-18: 112 crossings, 0 faces
     in the 60s window.'
+  FACE_REC_24H_2026_08_27: 'Post-tuning 24h face-rec (operator re-tuned F2): 71 named events across 11
+    cameras. family_room 29 (the strongest interior recognizer — the source the fix fuses from; up from
+    ~68/week to ~29/day), master_hallway 20, staircase 7; EGRESS: garage_a 5, doorbell_lite 3, garage_b 1.
+    So the tuning strengthened exactly the interior source the interior-fusion join depends on. Signed-lag
+    measure-first probe DISPATCHED to size the achievable join rate + window before any build.'
   FIX_PATH_MEASURE_FIRST: 'The join is keyed WRONG for the geometry: it looks for a face on the DOOR cam
     (which rarely recognizes) when it should fuse an INTERIOR face near the crossing (family-room/hallway
     cams: 68 / 30 named/week). Adjacency helper _get_interior_cameras_near exists (:1348, currently returns
