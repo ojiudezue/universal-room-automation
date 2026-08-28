@@ -157,15 +157,24 @@ rule → local HA webhook `ura_kp_face_probe`, listener
 `automation.ura_kp_face_webhook_probe` which fires
 `ura_kp_face_probe_received` events + logs the payload.
 
-- **Status (verified 2026-08-28 on a live crossing):** HA receiving
-  side WORKS — the probe (`ura_kp_face_probe`, enhanced to capture
-  `json`/`form`/`query`/`content_type` separately) captured a synthetic
-  JSON POST perfectly. But a REAL Protect Alarm Manager POST on a live
-  face crossing (07:27:28) delivered an **empty payload** — Protect is
-  firing the webhook but sending no parseable JSON/form body. **The fix
-  is Protect-side:** the Alarm Manager rule's webhook *action* must POST
-  an explicit `Content-Type: application/json` body carrying the face
-  name + confidence. Until then, egress identity is Frigate-only.
+- **Status (verified 2026-08-28):** the Alarm Manager WEBHOOK is a dead
+  end — it fires on a real crossing but POSTs an empty/unparseable body
+  (live crossing 07:27:28 → `{}`). **Use the Protect API instead** (the
+  `unifi-protect` MCP: `protect_list_smart_detections` /
+  `protect_list_events` / `protect_get_event`), which returns
+  `recognized_person_id` + `recognized_person_name` +
+  `recognized_person_confidence` for enrolled Known Faces — proven live
+  (Oji named 82% at 21:32). No HA-integration limit; reachable now.
+- **The bottleneck is ENROLLMENT, not access** (`protect_list_known_faces`):
+  only 4 named (Oji 46-det + Ziri 40-det strong; Ade/Shola marginal),
+  **Jaya + Ezinne NOT enrolled**, ~90+ unnamed auto-clusters. Many real
+  crossings match an unnamed cluster (the 07:27 crossing → `face_265`,
+  90% conf, no name). Protect and Frigate have COMPLEMENTARY coverage
+  (Frigate names Jaya/Ezinne/Oji; Protect names Oji/Ziri + stronger at
+  door angles) — so the egress producer should FUSE Protect-API + Frigate
+  (keyed camera+time, higher-confidence named hit), not pick one.
+- **Operator-side unlock:** enroll Jaya + Ezinne; merge recurring
+  unnamed clusters into the right person in the Protect app.
 - **Scope (durable):** Protect face recognition is enabled on exactly
   **two cameras** — `living_room_family_room` and
   `front_porch_madrone_g6_entry` (the only two producing Protect
