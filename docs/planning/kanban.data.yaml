@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-26'
+  last_reconciled: '2026-08-28'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -112,12 +112,24 @@ cards:
   title: Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id
     is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
   thread: security
-  status: planned
+  status: in_progress
   created: '2026-08-26 20:45'
-  updated: '2026-08-26 20:45'
-  refinement_status: initial
+  updated: '2026-08-28 22:00'
+  refinement_status: refined
   approval: unreviewed
-  tags: [no-fabrication-verify, producer-consumer, gate-6.0.0]
+  tags: [no-fabrication-verify, producer-consumer, gate-6.0.0, tier-2db]
+  DEDUPE_2026_08_28: 'Folded in EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1 (was status=investigating) — same defect (person_id never stamped on egress crossings). Findings inherited verbatim: (a) 0 of 6,883 rows all-time; (b) 08-23 case-sensitive _JUNK probe bug over-counted "Unknown" transitions as recognitions, corrected series shows face rec DOWN house-wide since ~08-21 (not just egress); (c) 08-23 storage fix did NOT restore face rec; (d) subsystem-not-storage signature (person detections healthy, face rec ~0); (e) join-window hypothesis UNTESTED because producer was dead; (f) two pre-registered predictions NEITHER fired. Corollary: reason in memory reference_egress_face_coverage_7pct_not_a_ceiling is WRONG — not a geometry ceiling, a live fault. This card now inherits both the geometry re-key + asymmetric-signed-lag window PLUS the pre-existing face-rec-recovery watch.'
+  links:
+    blocks:
+    - PERIMETER-ALERT-NAME-PERSON-1
+    - GUEST-GATE-DOOR-IDENTITY-1
+    - ARRIVAL-DEPARTURE-NOTIFY-1
+    - SECURITY-CENSUS-UNKNOWN-WIRE-1
+    - EXTERIOR-GUEST-EGRESS-1
+    - KP-ANNOTATION-1
+    - EGRESS-INTERIOR-COUNT-REINFORCE-1
+    - UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
+    context: 'This card is the 6.0.0 producer gate — the consumer cards read person_id which is currently 0/7010 all-time. Folded in EGRESS-IDENTITY-PRODUCER-EMITS-NOTHING-1 (see DEDUPE_2026_08_28).'
   problem_solution:
   - 'Problem: the house recognizes faces fine (interior person_visits 91616/91616 named; main-entry
     madrone_g6_entry now produces named faces post-reconfig, 0->3 in 6h) — but when a person crosses a
@@ -136,6 +148,7 @@ cards:
   refs:
   - person_entry_exit_events (URA DB) — 0/7010 person_id
   - reference_egress_face_coverage_7pct_not_a_ceiling (memory)
+  - docs/planning/PLANNING_egress_identity_producer.md
 - id: PERSON-VISITS-WRITE-PAUSE-1
   REFUTED_BENIGN_2026_08_27: 'REFUTED — not a stall, QUIET-BENIGN. The writer/coordinator/DB are all
     healthy (jaya/oji_location updating every ~min at 12:53 UTC; occupancy_events/environmental_data/
@@ -174,20 +187,24 @@ cards:
   title: BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address,
     decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
   thread: notifications
-  status: inbox
+  status: investigating
   created: '2026-08-26 11:00'
-  updated: '2026-08-26 11:00'
-  refinement_status: initial
+  updated: '2026-08-28 22:00'
+  refinement_status: refined
   approval: unreviewed
   tags: [nm, no-fabrication-verify]
   problem_solution:
-  - 'Problem: NM can route an alert to the operator''s own iMessage thread (self-send). Solution to VERIFY:
-    BlueBubbles v0.7.0 adds an optional chat_guid addressing arg to bluebubbles.send_message (exactly one
-    of addresses OR chat_guid; address sends unchanged). The release notes describe ONLY this addressing
-    option — they do NOT claim to fix self-send or decouple from the iMessage user (that was the operator
-    hypothesis, not a documented mechanism). Whether chat_guid fixes the self-send depends on (a) what
-    actually causes the current self-send and (b) whether NM can resolve a stable NON-self chat_guid per
-    recipient. Verify before wiring.'
+  - 'Problem: a message URA sends me shows up TWICE in my iMessage — once when it is sent (my Mac sending
+    as me) and once when it arrives (my phone/Mac receiving as me), so every URA alert reads as a duplicate.
+    Solution to VERIFY (do NOT assert): three plausible options — (a) route the send through a dedicated
+    non-self chat GUID (BlueBubbles v0.7.0 chat_guid addressing) so the message is not addressed to my own
+    handle; (b) route my own alerts to a non-iMessage channel (Pushover / Companion) and keep iMessage for
+    others; (c) suppress the inbound echo on the HA side so the received copy does not re-fire. Which is
+    the correct fix depends on what actually causes the self-echo in the BB integration — read
+    ~/Code/bluebubbles-integration-guide.md and the v0.7.0 release notes before scoping.'
+  refinement:
+  - 'operator gave the REAL symptom (2026-08-28): "A message to myself shows up twice — once when I send
+    it and once when I receive it." Card reframed on the observation, not the hypothesized chat_guid mechanism.'
   VERIFIED_CAUSE_2026_08_26: 'Confirmed the self-send mechanism from source: NM _send_imessage
     (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message}
     where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When the operator is a recipient, handle
@@ -1505,10 +1522,11 @@ cards:
   - CHATTER-OBSERVE-CONTROL-D7-1
 - id: ROADMAP-STALE-AGENTIC-LAYER-1
   thread: planning
-  status: inbox
+  status: waiting_operator
   approval: unreviewed
   created: 2026-08-18 02:45
-  updated: 2026-08-18 02:30
+  updated: '2026-08-28 22:00'
+  lane_note_2026_08_28: 'ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waiting_operator.'
   refinement_status: initial
   title: Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
   problem_solution:
@@ -3174,9 +3192,11 @@ cards:
   title: A banking borrow sat 2h past its lease expiry without release — nudge borrows return cleanly,
     banking did not
   thread: hvac
-  status: planned
+  status: done
+  shipped_version: v5.91.2
+  disposition_2026_08_28: 'SHIPPED v5.91.2 (HVAC-D1 _auto_release_sweep at hvac.py:1241, wired via backref at :391). Lease-expiry auto-release for kind=banking now exists — mirrors nudge. Only residual is the live observation of a real lease_expiry firing, which rides HVAC-D1 organic watch (not a separate card). Closing.'
   approval: needs_operator
-  updated: 2026-08-25 22:25
+  updated: '2026-08-28 22:00'
   tags:
   - operator-observed
   - live-instance
@@ -8037,10 +8057,10 @@ cards:
   updated: 2026-08-17 23:30
 - id: MEMORY-ROADMAP-1
   title: Memory epic — forward roadmap + critique + what-survives
-  status: planned
+  status: waiting_operator
   thread: memory
   created: 2026-08-18 02:00
-  updated: 2026-08-18 02:35
+  updated: '2026-08-28 22:00'
   refinement_status: refined
   problem: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor).
     Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which
@@ -8051,10 +8071,10 @@ cards:
   refs: docs/planning/PLANNING_memory_roadmap_and_critique.md
 - id: ROADMAP-UNDONE-REVIEW-1
   title: Review ROADMAP/VISION — surface undone-but-worthwhile
-  status: planned
+  status: waiting_operator
   thread: planning
   created: 2026-08-18 02:00
-  updated: 2026-08-18 02:35
+  updated: '2026-08-28 22:00'
   refinement_status: refined
   problem: 'Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0
     while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that
@@ -9455,9 +9475,10 @@ cards:
   title: person_id has NEVER been populated — 0 of 6,763 rows across 5.5 months. The eight identity-consumer
     cards are blocked on a producer that emits nothing, not a sparse one. NO-GO.
   thread: presence
-  status: investigating
+  status: done
   created: 2026-08-21 19:10
-  updated: 2026-08-21 19:10
+  updated: '2026-08-28 22:00'
+  disposition_2026_08_28: 'MERGED into EGRESS-IDENTITY-JOIN-GAP-1 as the canonical producer card. Reason: same defect (person_id 0/7010 on egress crossings). All measured findings on this card carried across verbatim in DEDUPE_2026_08_28 on the survivor. Do NOT reopen; work continues on EGRESS-IDENTITY-JOIN-GAP-1 per PLANNING_egress_identity_producer.md.'
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -11874,6 +11895,61 @@ cards:
   - __init__.py:6635 (_OFFPEAK_DRAIN_QUALITY)
   - energy.py:8866 (validator, now 5-set)
   - DP-VERYPOOR-DRAIN-VALIDATOR-1
+- id: OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
+  title: Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup / cooldown on the notification path spams the operator
+  thread: notifications
+  status: inbox
+  created: '2026-08-28 22:00'
+  updated: '2026-08-28 22:00'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [operator-observed, live-instance, nm, numbers-get-knobs]
+  problem_solution:
+  - 'Problem: tonight the operator screenshotted 8+ back-to-back identical iMessage alerts from URA Optimizer — comfort ("Multiple rooms assigned to same thermostat zone climate.thermostat_bryant_wifi_studyb_zone_1 in Study A, Study B, Master Bedroom prevents independent zonal control and violates comfort goal"). The optimizer emits the SAME finding repeatedly with no per-finding dedup or cooldown on the notification path. Solution: add per-finding dedup (keyed on finding-identity — coordinator + finding type + subject entity/zone) and a cooldown (a knob: minimum interval between re-fires of the same finding, e.g. 6h default). Reuse the existing NM cooldown / dedup primitives if present; do not build a parallel one.'
+  origin:
+    date: '2026-08-28'
+    gist: operator screenshotted 8+ identical iMessage comfort alerts back-to-back
+  why: 'A notifier that repeats the same finding is worse than one that fires once — the operator starts tuning out real alerts. This is a hygiene-critical NM path change and interacts with the false-positive comfort finding (see OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1) — the two together produced tonight''s flood.'
+  constraints:
+  - 'Verify prior art in NM before adding new dedup: notification_manager.py already has per-day dedup on stuck-sensor rule (_fire_stuck_sensor_nm) and severity routing / ack/cooldown/re-fire (v3.6.29-v3.6.35). Reuse; do not add a parallel cooldown surface.'
+  knobs:
+  - 'NM_OPTIMIZER_FINDING_COOLDOWN_S (rung 3 Number entity, default 21600 = 6h, live-tunable — operator legitimately tunes this by observation)'
+  next: 'Grep notification_manager.py for existing cooldown / dedup primitives (severity routing + per-recipient cooldown are already there). Determine the RIGHT surface for finding-level dedup (optimizer-side coalesce vs NM-side dedup). Scope small (~50 LoC).'
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
+  - OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
+  parsimony:
+    problem: an optimizer finding fires N times in a row instead of once + a cooldown
+    verdict: BUILD
+- id: OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
+  title: Optimizer flags Study A + Study B + Master Bedroom on one thermostat zone as a comfort VIOLATION — but multiple house rooms on one HVAC zone is BY DESIGN
+  thread: optimization
+  status: inbox
+  created: '2026-08-28 22:00'
+  updated: '2026-08-28 22:00'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [operator-observed, live-instance, false-positive, architecture-doctrine]
+  problem_solution:
+  - 'Problem: URA Optimizer — comfort emits a violation whenever >=2 house rooms share one thermostat zone, on the grounds that this "prevents independent zonal control." But per operator-owned architecture (memory project_house_zones_vs_hvac_zones), one thermostat-keyed HVAC zone maps to MULTIPLE house rooms BY DESIGN — the house has 3 Carrier zones and ~40 rooms. So the check is flagging the intended architecture as a defect, and did so 8+ times in a row tonight (see OPTIMIZER-NOTIFY-FLOOD-DEDUP-1). Solution: teach the optimizer comfort check that HVAC-zone -> multiple house-room is legitimate (either drop the check, or gate it on an operator-configured "these rooms should have independent zones" list). SUBORDINATE VERIFY: the specific instance names Master Bedroom on climate.thermostat_bryant_wifi_studyb_zone_1 — the operator is the oracle on the physical mapping; flag for operator confirm before the fix, because if Master IS on studyb_zone_1 that MAY be a real misconfig separate from the general check.'
+  origin:
+    date: '2026-08-28'
+    gist: 'operator screenshotted the alert: Multiple rooms assigned to same thermostat zone (studyb_zone_1 in Study A, Study B, Master Bedroom) prevents independent zonal control and violates comfort goal'
+  why: 'The check has been silently emitting a false-positive against intended architecture — any operator following the recommendation would go rip apart working zoning. This is a producer-side defect (the check itself), not a consumer-side notification defect (that is OPTIMIZER-NOTIFY-FLOOD-DEDUP-1); the two shipped together tonight.'
+  constraints:
+  - 'Do NOT delete the check without confirming with the operator that Master Bedroom on studyb_zone_1 is intentional and not a real misconfig. The operator is the oracle on the physical HVAC->room mapping (memory reference_hvac_zone_tonnage doctrine).'
+  next: 'Two-step. (1) Operator-verify: is Master Bedroom actually served by studyb_zone_1 physical duct, or is it config drift? (2a) If BY DESIGN: change the comfort check to accept multiple rooms per HVAC zone as legitimate (grep the optimizer comfort-check source for the emitter). (2b) If MISCONFIG: fix the Master-Bedroom config and keep the check.'
+  refs:
+  - memory project_house_zones_vs_hvac_zones
+  - memory reference_hvac_zone_tonnage
+  - OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
+  parsimony:
+    problem: the optimizer emits a comfort violation for an intended architecture pattern
+    verdict: INVESTIGATE
+  links:
+    related:
+    - OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
+    context: 'These two shipped together tonight — the FP finding (this card) is what got flooded (dedup card).'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
