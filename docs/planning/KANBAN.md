@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-27T20:49:01-05:00_ - _Data commit: `05cd3018ee1b`_ - _last_reconciled: 2026-08-26_
+_Generated: 2026-08-28T07:04:34-05:00_ - _Data commit: `5282226a1068`_ - _last_reconciled: 2026-08-26_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -558,7 +558,8 @@ _created 2026-08-26 20:45 · initial_
 - **Next:** INVESTIGATE the producer: read the person_entry_exit_events writer (grep the egress-event insert), determine whether it (a) never receives the recognized identity or (b) receives it but drops it on a time-window/confidence join. Then sco...
 - **Tags:** no-fabrication-verify, producer-consumer, gate-6.0.0
 - **Refs:** person_entry_exit_events (URA DB) — 0/7010 person_id; reference_egress_face_coverage_7pct_not_a_ceiling (memory)
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `PROTECT_API_2026_08_28`: Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the Protect API DOES expose named face recognition — protect_list_smart_detections / protect_list_events / protect_get_event return recognized_person_id + recogniz...
   - `ROOT_CAUSE_2026_08_27`: FOUND (subagent, cited to source). NOT a wiring defect — the person_id producer exists and is passed to the writer, but it drops to None at a mis-keyed join. Chain: writer database.py:3903 log_entry_exit_event (writes whatever it is hand...
   - `PROBE_RESULT_2026_08_27_BUILD`: Signed-lag measure-first probe DONE (340 crossings/7d, 133 exit/207 entry; 125 interior named-face events). VERDICT: BUILD — interior-fusion lifts the identity attach rate from ~0 to ~63-66% (48h re-tuned regime). Signed-lag hypothesis c...
   - `PROTECT_FACE_SOURCE_2026_08_28`: Operator: why lean on Frigate alone — Protect face rec is wired via a webhook. VERIFIED: (1) the named faces URA consumes (sensor.<cam>_last_recognized_face_2) are FRIGATE (entity-registry platform=frigate), matching names confirmed (fam...

@@ -27,6 +27,17 @@ meta:
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EGRESS-IDENTITY-JOIN-GAP-1
+  PROTECT_API_2026_08_28: 'Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the
+    Protect API DOES expose named face recognition — protect_list_smart_detections / protect_list_events /
+    protect_get_event return recognized_person_id + recognized_person_name + recognized_person_confidence
+    when the face is an enrolled Known Face. Proven live: Oji named 82% at 21:32. So the empty Alarm-Manager
+    webhook is the WRONG path; the API is the right one (reachable now, no HA-integration limit). BUT
+    enrollment is the bottleneck (protect_list_known_faces): only 4 named (Oji 46-det + Ziri 40-det strong;
+    Ade/Shola 1-2 det marginal), JAYA + EZINNE NOT enrolled, and ~90+ unnamed auto-clusters (face_103..265).
+    The operator 07:27 crossing matched face_265 (UNNAMED cluster, 90% conf) not the Oji Known Face -> no
+    name. COMPLEMENTARY COVERAGE: Frigate names Jaya/Ezinne/Oji; Protect names Oji/Ziri + is stronger at
+    door angles. DESIGN IMPLICATION: fuse Protect-API + Frigate (keyed camera+time, higher-conf named hit)
+    — beats either alone. OPERATOR-SIDE unlock: enroll Jaya+Ezinne, merge recurring unnamed clusters.'
   ROOT_CAUSE_2026_08_27: 'FOUND (subagent, cited to source). NOT a wiring defect — the person_id producer
     exists and is passed to the writer, but it drops to None at a mis-keyed join. Chain: writer
     database.py:3903 log_entry_exit_event (writes whatever it is handed) <- caller transit_validator.py:1336
