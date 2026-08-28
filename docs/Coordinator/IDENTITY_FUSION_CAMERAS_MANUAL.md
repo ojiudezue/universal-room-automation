@@ -157,10 +157,15 @@ rule → local HA webhook `ura_kp_face_probe`, listener
 `automation.ura_kp_face_webhook_probe` which fires
 `ura_kp_face_probe_received` events + logs the payload.
 
-- **Status:** RECEIVING SIDE VERIFIED (test POSTs return 200, event
-  fires and logs the payload). Production PROTECT-SIDE rule is
-  **delivering empty payloads** as of the last known session — the
-  bridge is unwired for real data.
+- **Status (verified 2026-08-28 on a live crossing):** HA receiving
+  side WORKS — the probe (`ura_kp_face_probe`, enhanced to capture
+  `json`/`form`/`query`/`content_type` separately) captured a synthetic
+  JSON POST perfectly. But a REAL Protect Alarm Manager POST on a live
+  face crossing (07:27:28) delivered an **empty payload** — Protect is
+  firing the webhook but sending no parseable JSON/form body. **The fix
+  is Protect-side:** the Alarm Manager rule's webhook *action* must POST
+  an explicit `Content-Type: application/json` body carrying the face
+  name + confidence. Until then, egress identity is Frigate-only.
 - **Scope (durable):** Protect face recognition is enabled on exactly
   **two cameras** — `living_room_family_room` and
   `front_porch_madrone_g6_entry` (the only two producing Protect
