@@ -75,6 +75,20 @@ cards:
     body+headers+trigger.query, fix the Alarm Manager action to POST {name,confidence,camera,ts} JSON,
     confirm names match, THEN fuse Protect as a 2nd egress-identity source alongside Frigate (Protect is
     the better DETECTOR at door angles where Frigate is weak). Until then the egress join is Frigate-only.'
+  ARCHITECTURE_2026_08_28_EXTEND_NOT_REBUILD: 'Operator: reuse fusion prior art, do not build a new fusion
+    layer. VERIFIED in code — the substrate already exists: camera_resolver.py DetectionLeg (:165) already
+    correlates a physical camera Frigate + Protect legs by engine tag; FACE_SUFFIXES (:247-251) already
+    includes the Protect suffixes (_smart_detect_face/_face_recognized) alongside Frigate _last_recognized_face
+    — the face-capability scan is already multi-platform; the census already does the identity UNION
+    (union-cardinality-not-sum, divergence-downgrade). The ONLY Frigate-only spot is the face-NAME reader
+    _resolve_face_entity_id (camera_census.py:2615). EXTEND, do not rebuild: (1) a normalized Protect
+    face-NAME HA entity via a bridge (webhook-fixed OR poll — URA stays vendor-agnostic, does NOT call the
+    Protect API at runtime; coupling lives in the bridge, transport swappable); (2) extend
+    _resolve_face_entity_id to read ACROSS the camera legs (Frigate+Protect), highest-confidence named hit,
+    reusing DetectionLeg/engine + the census union; (3) extend (not rewrite) _resolve_egress_face_identity
+    for the egress geometry (interior-adjacent stems + asymmetric signed-lag window). Net: 1 new HA entity
+    (bridge) + extend 2 existing readers + reuse census union. Nuance: Protect _smart_detect_face carries
+    DETECTION not NAME today, so the extension still needs the bridge to publish a named Protect entity.'
   BUILD_SCOPE: '(1) Re-key _resolve_egress_face_identity (transit_validator.py:1120) from same-stem to
     INTERIOR-adjacent recognizers (_get_interior_cameras_near :1348, or the interior set). (2) Replace the
     [0,60s] window with the asymmetric direction-keyed window (exit [-30,+180], entry [-300,+60]). (3) ADD
