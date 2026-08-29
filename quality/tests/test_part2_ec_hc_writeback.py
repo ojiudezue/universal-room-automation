@@ -66,6 +66,7 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_GOOD"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_MODERATE"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_POOR"),
+    _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_PEAK_BUFFER_TARGET"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EV_BATTERY_DRAIN_SOC"),
@@ -329,7 +330,9 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    the membership comparison and self-track. Only direct literals need
     #    a manual bump. That distinction is why this ledger stayed correct
     #    through v5.89.0 but broke on v5.85.0.
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 92
+    # +1 CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR (OFFPEAK-DRAIN-VERYPOOR-SLIDER-1,
+    #    2026-08-28): 5th operator-tunable off-peak drain slider -> 93
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 93
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +451,7 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_OFFPEAK_DRAIN_GOOD":        "energy_offpeak_drain_good",
         "_CONF_ENERGY_OFFPEAK_DRAIN_MODERATE":    "energy_offpeak_drain_moderate",
         "_CONF_ENERGY_OFFPEAK_DRAIN_POOR":        "energy_offpeak_drain_poor",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR":   "energy_offpeak_drain_very_poor",
         "_CONF_ENERGY_PEAK_BUFFER_TARGET":        "energy_peak_buffer_target",
         "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN": "energy_arbitrage_charge_lead_time_min",
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
@@ -741,11 +745,84 @@ def test_d1_offpeak_drain_dispatch_uses_set_offpeak_drain_setter():
 
 
 def test_d1_offpeak_drain_quality_mapping_complete():
-    """All four quality buckets must be in the dispatch map."""
+    """All FIVE quality buckets must be in the dispatch map.
+
+    OFFPEAK-DRAIN-VERYPOOR-SLIDER-1 added `very_poor` as the 5th knob.
+    Mutation-anchor: removing `very_poor` from `_OFFPEAK_DRAIN_QUALITY`
+    in `__init__.py` fails THIS test.
+    """
     ns = _load_init_dispatch_namespace()
     assert set(ns["_OFFPEAK_DRAIN_QUALITY"].values()) == {
-        "excellent", "good", "moderate", "poor",
+        "excellent", "good", "moderate", "poor", "very_poor",
     }
+
+
+def test_d1_offpeak_drain_verypoor_slider_roundtrip():
+    """OFFPEAK-DRAIN-VERYPOOR-SLIDER-1: end-to-end knob wiring.
+
+    Asserts the 5th slider is present at every mirror site:
+      - CONF constant in energy_const.py
+      - Default constant in energy_const.py (mirrors poor at 30)
+      - Number entity instantiated in async_setup_entry (number.py)
+      - Number entity's _conf_map dict entries (both __init__ + setter)
+      - config_flow form field
+      - __init__.py _OFFPEAK_DRAIN_QUALITY dispatch mapping
+      - __init__.py reload-suppression allowlist
+      - Setter accepts "very_poor" quality (energy.py:set_offpeak_drain)
+
+    Mutation-anchor: removing the `very_poor` _conf_map entry (either
+    site in number.py) breaks the round-trip and this test fails.
+    """
+    # 1. CONF + DEFAULT constants
+    assert "energy_offpeak_drain_very_poor" == _extract_conf(
+        ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR",
+    )
+    assert "DEFAULT_OFFPEAK_DRAIN_VERY_POOR" in ENERGY_CONST_SRC
+
+    # 2. Number entity instantiated in async_setup_entry
+    assert 'OffPeakDrainNumber(hass, entry, "very_poor"' in NUMBER_SRC, (
+        "async_setup_entry missing the very_poor OffPeakDrainNumber "
+        "instantiation (number.py)"
+    )
+
+    # 3. Both _conf_map dicts (constructor + setter) must map very_poor
+    assert NUMBER_SRC.count(
+        '"very_poor": CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR'
+    ) == 2, (
+        "OffPeakDrainNumber must reference very_poor in BOTH the "
+        "constructor _conf_map AND the setter _conf_map (number.py)"
+    )
+    # And both import blocks must include the CONF
+    assert NUMBER_SRC.count("CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,") >= 2
+
+    # 4. config_flow: form field with CONF + DEFAULT
+    with open(_repo_root() / "custom_components/universal_room_automation/config_flow.py") as f:
+        cf_src = f.read()
+    assert "CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR" in cf_src, (
+        "config_flow.py missing the very_poor selector"
+    )
+    assert "DEFAULT_OFFPEAK_DRAIN_VERY_POOR" in cf_src
+
+    # 5. __init__.py dispatch map + allowlist
+    ns = _load_init_dispatch_namespace()
+    assert "very_poor" in set(ns["_OFFPEAK_DRAIN_QUALITY"].values())
+
+    # 6. energy.py consumer wiring — offpeak_drain_targets["very_poor"]
+    with open(_repo_root() / "custom_components/universal_room_automation/domain_coordinators/energy.py") as f:
+        energy_src = f.read()
+    assert 'CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR' in energy_src, (
+        "energy.py must read CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR into "
+        "offpeak_drain_targets so the Number entity feeds the strategy"
+    )
+    # Setter already accepts very_poor (added in v5.91.2, guarded by the
+    # {'excellent','good','moderate','poor','very_poor'} valid set).
+    assert '"very_poor"' in energy_src
+
+
+def _repo_root():
+    """Repo root helper (this file lives at quality/tests/)."""
+    import pathlib
+    return pathlib.Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
@@ -1081,7 +1158,7 @@ def test_d1_apply_in_place_routes_offpeak_drain_to_setter():
     assert applied == {"energy_offpeak_drain_excellent"}
 
 
-def test_d1_apply_in_place_routes_all_four_offpeak_quality_buckets():
+def test_d1_apply_in_place_routes_all_five_offpeak_quality_buckets():
     ns = _load_init_dispatch_namespace()
     energy = _FakeEnergy()
     hass = _FakeHassFull(hvac=_FakeHvacFull(), energy=energy)
@@ -1090,12 +1167,16 @@ def test_d1_apply_in_place_routes_all_four_offpeak_quality_buckets():
         "energy_offpeak_drain_good":      45,
         "energy_offpeak_drain_moderate":  55,
         "energy_offpeak_drain_poor":      65,
+        # OFFPEAK-DRAIN-VERYPOOR-SLIDER-1: 5th bucket.
+        "energy_offpeak_drain_very_poor": 40,
     }
     applied = ns["_apply_in_place"](
         hass, _FakeEntry(options=new), set(new.keys()), new,
     )
     qualities_called = {q for q, _ in energy.set_offpeak_drain_calls}
-    assert qualities_called == {"excellent", "good", "moderate", "poor"}
+    assert qualities_called == {
+        "excellent", "good", "moderate", "poor", "very_poor",
+    }
     assert applied == set(new.keys())
 
 

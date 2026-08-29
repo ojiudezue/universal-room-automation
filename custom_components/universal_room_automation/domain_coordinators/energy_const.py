@@ -721,12 +721,16 @@ DEFAULT_OFFPEAK_DRAIN_EXCELLENT: Final = 10
 DEFAULT_OFFPEAK_DRAIN_GOOD: Final = 15
 DEFAULT_OFFPEAK_DRAIN_MODERATE: Final = 20
 DEFAULT_OFFPEAK_DRAIN_POOR: Final = 30
+# 5th quality bucket — mirrors `poor` default (30) per the OFFPEAK-DRAIN-
+# VERYPOOR-SLIDER-1 card. Operator may tune toward 40 by observation.
+DEFAULT_OFFPEAK_DRAIN_VERY_POOR: Final = 30
 DEFAULT_OFFPEAK_DRAIN_UNKNOWN: Final = 40
 
 CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT: Final = "energy_offpeak_drain_excellent"
 CONF_ENERGY_OFFPEAK_DRAIN_GOOD: Final = "energy_offpeak_drain_good"
 CONF_ENERGY_OFFPEAK_DRAIN_MODERATE: Final = "energy_offpeak_drain_moderate"
 CONF_ENERGY_OFFPEAK_DRAIN_POOR: Final = "energy_offpeak_drain_poor"
+CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR: Final = "energy_offpeak_drain_very_poor"
 
 # ============================================================================
 # Grid Charge Arbitrage

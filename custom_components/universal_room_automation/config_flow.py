@@ -3681,10 +3681,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
             CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
             CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+            CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
             DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
             DEFAULT_OFFPEAK_DRAIN_GOOD,
             DEFAULT_OFFPEAK_DRAIN_MODERATE,
             DEFAULT_OFFPEAK_DRAIN_POOR,
+            DEFAULT_OFFPEAK_DRAIN_VERY_POOR,
             CONF_ENERGY_ARBITRAGE_ENABLED,
             CONF_ENERGY_ARBITRAGE_SOC_TARGET,
             DEFAULT_ARBITRAGE_SOC_TARGET,
@@ -4328,6 +4330,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_ENERGY_OFFPEAK_DRAIN_POOR,
                 default=self._get_current(CONF_ENERGY_OFFPEAK_DRAIN_POOR, DEFAULT_OFFPEAK_DRAIN_POOR),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=15, max=80, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # OFFPEAK-DRAIN-VERYPOOR-SLIDER-1: 5th quality bucket. Default
+            # mirrors `poor` (30); range mirrors `poor` (15-80/5).
+            vol.Optional(
+                CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
+                default=self._get_current(CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR, DEFAULT_OFFPEAK_DRAIN_VERY_POOR),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=15, max=80, step=5,
