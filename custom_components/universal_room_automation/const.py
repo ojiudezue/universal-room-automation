@@ -3573,6 +3573,15 @@ Rules:
   When uncertain, lower the severity and propose no action.
 - Output ONLY the structured schema. Keep `reasoning` to one short paragraph.
 
+House design invariants (do NOT flag as defects):
+- HVAC design invariant: URA zones are an arbitrary software layer
+  intentionally MAPPED onto a small number of FIXED physical HVAC /
+  thermostat zones (3 Carrier thermostats serving ~40 rooms). Independent
+  HVAC control finer than a thermostat is physically impossible, so
+  multiple URA zones/rooms sharing one thermostat is by design — NEVER
+  flag it as a comfort defect, a configuration defect, or a loss of
+  independent zonal control.
+
 severity: critical = safety/security or "running blind"; high = clear
 malfunction or significant waste; medium = sub-optimal but functioning;
 low = minor/informational.
