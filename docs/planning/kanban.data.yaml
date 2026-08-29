@@ -112,7 +112,8 @@ cards:
   title: Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id
     is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
   thread: security
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.91.4
   created: '2026-08-26 20:45'
   updated: '2026-08-28 22:00'
   refinement_status: refined
@@ -11925,7 +11926,8 @@ cards:
   title: No very_poor off-peak-drain Number entity — the 5th quality target is tunable via the validator
     now (DP-VERYPOOR) but has no operator slider
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.91.4
   created: 2026-08-26 09:45
   updated: 2026-08-26 09:45
   refinement_status: initial
@@ -11979,7 +11981,8 @@ cards:
 - id: OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
   title: Optimizer flags Study A + Study B + Master Bedroom on one thermostat zone as a comfort VIOLATION — but multiple house rooms on one HVAC zone is BY DESIGN
   thread: optimization
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.91.4
   created: '2026-08-28 22:00'
   updated: '2026-08-28 22:00'
   refinement_status: initial

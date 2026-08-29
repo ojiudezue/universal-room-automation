@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "078",
+  "author": "ojiudezue",
+  "session_id": "claude_20260829_014958_ship_v5_91_4",
+  "timestamp": "2026-08-29T01:49:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.91.4 shipped: v5.91.4 \u2014 egress-identity producer + very_poor drain slider + optimizer zone-truth",
+  "summary": "v5.91.4 \u2014 egress-identity producer + very_poor drain slider + optimizer zone-truth",
+  "why": "Batched three disjoint-surface cycles into one restart (camera-census+transit / energy config-number / optimizer LLM-context \u2014 zero interaction) to minimize the parent-reload-watchdog outage. Egress is a producer-only, kill-switch-gated, advisory-person_id cycle: person_id was NULL on all 7010 crossings for 5.5 months because the old code demanded the door camera itself recognize a face; the fix fuses an INTERIOR face near the crossing via a direction-keyed asymmetric window with a base_stem independence predicate (HIGH 0.9 only across different physical cameras \u2014 chose base_stem over device_id after review proved Protect+Frigate on one camera carry distinct device_ids). Reverted the reviewer-flagged old-helper widening so nothing leaks into guest-count/presence. Drain slider completes the 5th of the 4 existing sliders. Optimizer stops fabricating a zonal-control comfort defect by feeding it the real thermostat fan-out (corpus.zones was never populated). Ships as PATCH \u2014 a producer, a knob, a fix; not the 6.0.0 milestone.",
+  "implications": "Shipped EGRESS-IDENTITY-JOIN-GAP-1, OFFPEAK-DRAIN-VERYPOOR-SLIDER-1, OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 at v5.91.4; card(s) sit shipped_organic pending validation. Acceptance in README_v5.91.4.md (Live criteria).",
+  "revisit_trigger": "Post-restart: run the face-rate probe on the garage/family-room path; confirm person_id begins populating and egress_identity_attach_rate_24h moves (or attach+ambiguity ~0 = producer-dead, not a bug); verify the multi-zone comfort alert stopped firing; confirm the very_poor drain slider live-applies.",
+  "refs": {
+    "cards": [
+      "EGRESS-IDENTITY-JOIN-GAP-1",
+      "OFFPEAK-DRAIN-VERYPOOR-SLIDER-1",
+      "OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.91.4.md"
+    ],
+    "release_notes": "- Egress-identity producer: stamps advisory person_id + confidence on egress crossings via interior-face fusion (base_stem independence, abstain on conflict, kill-switch-gated). The 6.0.0 foundation.\n- very_poor off-peak drain slider (5th quality tier, default 30).\n- Optimizer zone-truth: prompt invariant + real thermostat fan-out in corpus.zones, kills the multi-zone comfort false-positive."
+  }
+}
