@@ -653,6 +653,43 @@ class OptimizationLLMTier:
             pass
         corpus.rooms = rooms
 
+        # HVAC zones — thermostat→rooms fan-out (OPTIMIZER-CORPUS-ZONES-EMPTY-1).
+        # Ground truth for zonal control is the HVAC coordinator's ZoneManager
+        # (domain_coordinators/hvac_zones.py:189). Each merged ZoneState carries
+        # a (possibly compound) `zone_name`, its member rooms, and the
+        # thermostat entity. Serialising that fan-out lets the LLM SEE that
+        # one thermostat serves multiple rooms/zones by design — combined
+        # with the prompt invariant on this branch, this removes the
+        # ground-truth gap that produced the false "loss of zonal control"
+        # finding. Fail-safe: any read failure leaves `corpus.zones = []`
+        # (trims last per `to_prompt_body`).
+        zones_out: list[dict] = []
+        try:
+            for zone_id, zone in self.coordinator._iter_hvac_zones():
+                if len(zones_out) >= _MAX_ZONES_SERIALIZED:
+                    break
+                try:
+                    thermostat = getattr(zone, "climate_entity", None)
+                    if isinstance(thermostat, str) and "." in thermostat:
+                        self._corpus_entity_ids.add(thermostat)
+                    self._corpus_target_ids.add(zone_id)
+                    zones_out.append({
+                        "zone_id": zone_id,
+                        "hvac_zone": getattr(zone, "zone_name", None),
+                        "thermostat": thermostat,
+                        "rooms": list(getattr(zone, "rooms", []) or []),
+                    })
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            zones_out = []
+        if not zones_out:
+            _LOGGER.debug(
+                "OptimizerContextCorpus: no HVAC zones available at "
+                "assembly time — corpus.zones left empty"
+            )
+        corpus.zones = zones_out
+
         # Recent findings — last 24h, capped at _MAX_RECENT_FINDINGS.
         # OPT-META-BOOT-TRANSIENT-1 (2026-08-15): if the RAM cache
         # `_last_findings` is empty (post-restart transient — the
