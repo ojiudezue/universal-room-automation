@@ -1432,6 +1432,10 @@ CENSUS_AGREEMENT_BOTH: Final = "both_agree"
 CENSUS_AGREEMENT_CLOSE: Final = "close"
 CENSUS_AGREEMENT_DISAGREE: Final = "disagree"
 CENSUS_AGREEMENT_SINGLE: Final = "single_source"
+# EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28): distinct sentinel for
+# kill-switch traffic so it does NOT pollute abstain/ambiguity
+# observability (L3 discriminator).
+CENSUS_AGREEMENT_DISABLED: Final = "disabled"
 
 CONF_CENSUS_CROSS_VALIDATION: Final = "census_cross_validation"
 
@@ -2161,6 +2165,28 @@ EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
 #   too high inflates identified_count past reality.
 FACE_MATCH_WINDOW_S: Final = 60
 EGRESS_FACE_UNION_TTL_S: Final = 300
+
+# EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28): direction-keyed signed-lag
+# windows for `transit_validator._resolve_egress_face_identity`.
+# Sign convention: delta = (T_face - T_crossing). Probe medians:
+#   exit  ~ -53s (face leads); entry ~ +14s (face trails).
+FACE_MATCH_EXIT_WINDOW_BEFORE_S: Final = 180
+FACE_MATCH_EXIT_WINDOW_AFTER_S: Final = 30
+FACE_MATCH_ENTRY_WINDOW_BEFORE_S: Final = 60
+FACE_MATCH_ENTRY_WINDOW_AFTER_S: Final = 300
+# Observability split only; does NOT gate the abstain decision.
+FACE_MATCH_ABSTAIN_MARGIN_S: Final = 15
+# Per-leg admission floor (byte-equal to CONFIDENCE_MEDIUM is incidental).
+FACE_MATCH_MIN_CONFIDENCE: Final = 0.60
+# Bounded confidence for same-camera / cross-engine agreement;
+# strictly > CONFIDENCE_MEDIUM (0.6) and < CONFIDENCE_HIGH (0.9).
+FACE_MATCH_CORRELATED_BOOST: Final = 0.75
+# C-LOW-2 (2026-08-28): pin the boost-ordering invariant at import time
+# so an ambiguity-hiding number change fails immediately, not silently.
+assert CONFIDENCE_MEDIUM < FACE_MATCH_CORRELATED_BOOST < CONFIDENCE_HIGH, (
+    "FACE_MATCH_CORRELATED_BOOST must sit strictly between "
+    "CONFIDENCE_MEDIUM and CONFIDENCE_HIGH"
+)
 
 # EGRESS_IDENTITY_ENABLED: options-flow kill switch for the D1 egress-face
 # identity fuse (2026-08-18). DEFAULT False — feature ships dormant per
