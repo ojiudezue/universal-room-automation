@@ -26,6 +26,7 @@ Then extract failing names: `grep '^FAILED' /tmp/suite.txt | sed 's/FAILED //' |
 
 ## Live validation mode (post-deploy)
 When asked to validate a running HA instance: read the target entities/attributes (via the home-assistant MCP or SSH), scan logs for new URA ERRORs, confirm the acceptance criterion's OBSERVABLE (an entity attr value / DB row), and cite the authoritative signal actually used — never "looks fine". Sentinels/None where a real value is expected = payload shape broken.
+- Identity / egress cycles: use `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` §5 as the acceptance oracle — query `person_entry_exit_events` for `person_id` populated-vs-null ratios, check `switch.ura_name_people_at_doors`, check `_face_lookup_missing_count`, verify Frigate face health (person-normal + face-zero = face-subsystem fault).
 
 ## Output
 ```

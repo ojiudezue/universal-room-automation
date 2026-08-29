@@ -216,6 +216,12 @@ See CLAUDE.md § "Troubleshooting — room automation broke" for the on-call run
 
 ---
 
+## 8.5 Camera entity-suffix resolution (Frigate `_2` disambiguation)
+
+Frigate / UniFi Protect / Reolink / Amcrest / Dahua entity-suffix rules and `_2` disambiguation are in `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` §1. Never string-build Frigate entity ids — resolve via `_has_any_suffix_stripped` / `_resolve_face_entity_id`.
+
+---
+
 ## 9. `manifest.json` — `after_dependencies` stranding
 
 **Failure mode.** `after_dependencies: ["<domain>"]` blocks URA setup until that integration finishes. If the named integration HANGS (dead device, network partition), HA fires *"Setup timed out for stage 2 — moving forward"* and **cancels queued URA entry setups**. All URA entries stay `not_loaded`; whole-house automation down; zero URA code runs; zero URA errors logged.

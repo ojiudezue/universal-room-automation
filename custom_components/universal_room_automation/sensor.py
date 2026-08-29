@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.91.3
+# Universal Room Automation vv5.91.4
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3695,6 +3695,81 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                 attrs["peak_age_seconds"] = int(
                     getattr(census, "_last_peak_age_seconds", 0) or 0
                 )
+                # EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) D3 attrs.
+                # Producer: census._egress_identity_outcomes deque
+                # (single owner: transit_validator._resolve_egress_face_identity).
+                # All math is SYNCHRONOUS — no await, no DAO — the deque
+                # snapshot is copied to a local before iteration.
+                #
+                # Outcome vocabulary and rate math:
+                #   - "disabled" and "direction_ambiguous" are EXCLUDED from
+                #     rate denominators (kill-switch traffic + ambiguous-
+                #     direction crossings never read a leg).           [MED-4]
+                #   - "abstain" and "ambiguous" both count toward the
+                #     ambiguity_rate; "abstain" also feeds its own rate. [MED-3]
+                #   - "no_leg", "vetoed" count toward denom but not to any
+                #     positive-signal rate.                              [A5]
+                # MED-2: the reader filters snapshot entries by 24h cutoff
+                # so an idle producer cannot keep dividing over stale rows.
+                try:
+                    from homeassistant.util import dt as _dt_util
+                    _now_ts = _dt_util.utcnow().timestamp()
+                    _cutoff = _now_ts - 86400.0
+
+                    outcomes_deque = getattr(
+                        census, "_egress_identity_outcomes", None,
+                    )
+                    denom = 0
+                    attached = 0
+                    ambiguous = 0
+                    abstain = 0
+                    if outcomes_deque is not None:
+                        snap = tuple(outcomes_deque)
+                        for _ts, out in snap:
+                            if _ts < _cutoff:
+                                continue
+                            if out in ("disabled", "direction_ambiguous"):
+                                continue
+                            denom += 1
+                            if out == "attached":
+                                attached += 1
+                            elif out == "abstain":
+                                abstain += 1
+                                ambiguous += 1
+                            elif out == "ambiguous":
+                                ambiguous += 1
+                    if denom > 0:
+                        attrs["egress_identity_attach_rate_24h"] = attached / denom
+                        attrs["egress_identity_ambiguity_rate_24h"] = ambiguous / denom
+                        attrs["egress_identity_abstain_rate_24h"] = abstain / denom
+                    else:
+                        attrs["egress_identity_attach_rate_24h"] = 0.0
+                        attrs["egress_identity_ambiguity_rate_24h"] = 0.0
+                        attrs["egress_identity_abstain_rate_24h"] = 0.0
+
+                    # MED-1: BOOST count is 24h-filtered at the reader, not
+                    # lifetime len(deque).
+                    boost_deque = getattr(
+                        census, "_egress_identity_boost_events", None,
+                    )
+                    if boost_deque is not None:
+                        b_snap = tuple(boost_deque)
+                        attrs["egress_identity_correlated_boost_count_24h"] = sum(
+                            1 for _t in b_snap if _t >= _cutoff
+                        )
+                    else:
+                        attrs["egress_identity_correlated_boost_count_24h"] = 0
+                    attrs["egress_identity_last_attach"] = dict(
+                        getattr(census, "_egress_identity_last_attach", {}) or {}
+                    )
+                    attrs["egress_identity_agreement_class_last"] = getattr(
+                        census, "_egress_identity_agreement_class_last", None,
+                    )
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Failed to attach egress-identity D3 attrs",
+                        exc_info=True,
+                    )
         except Exception:  # pragma: no cover - defensive
             _LOGGER.debug("Failed to attach v5.9.0 census observability attrs", exc_info=True)
         return attrs

@@ -15,3 +15,4 @@ The load-bearing facts that prevent single-site and wrong-scope errors. This is 
 - **Diagnose on ground truth** (actuator state / `command_trail` / a DB row), never display prose (it lies). Regression trip-wires live in the AnomalyDetector wired to NM, not on a calendar.
 
 - **Deep reference — open on demand:** `docs/reviews/URA_ARCHITECTURE_MAP.md` (geometry, coordinators, primitives, anomaly/bayesian/DB-WAL) + `docs/reviews/URA_CODE_TRACING_METHODOLOGY.md` (value-flow: producer → entry/exit → consumers → cross-cycle).
+- **Face recognition / identity / camera fusion / census / guest / egress → `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`.**

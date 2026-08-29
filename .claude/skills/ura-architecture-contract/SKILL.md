@@ -264,6 +264,8 @@ manager / signals / base
 
 Cross-cutting root files: `aggregation.py`, `bayesian_predictor.py`, `transitions.py`, `person_coordinator.py`, `pattern_learning.py`.
 
+**Identity / Fusion / Cameras domain manual:** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`. Sibling of EC / HC / CM / Presence manuals. Canonical for camera platform roles, `_2` suffix, identity source coverage, the census + resolver + transit_validator architecture, and the egress-identity JOIN.
+
 **Rule:** before changing a signal payload or coordinator interface, run:
 
 ```bash

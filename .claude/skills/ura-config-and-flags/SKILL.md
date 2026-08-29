@@ -105,6 +105,8 @@ Empirical rule: constants added AFTER a version band are appended at the
 band's tail, NOT inserted mid-band. When adding, find the correct band and
 append; do not scatter siblings across bands.
 
+**Identity / fusion / cameras config surface:** `switch.ura_name_people_at_doors` (runtime kill), `egress_identity_enabled` (options default), `FACE_MATCH_WINDOW_S`, `EGRESS_FACE_UNION_TTL_S`, `CENSUS_USE_NEW_RESOLVER`, `FRIGATE_CROSS_HOST_CORROBORATION_ENABLED`, `CAMERA_AUTOENABLE_DRY_RUN` — semantics in `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` §3, §5.3.
+
 ## Config-entry scope: per-room vs zone vs zone_manager vs coordinator_manager vs integration
 
 Ask this question FIRST when adding a CONF_*: "which entry type stores this?"

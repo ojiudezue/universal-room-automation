@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.91.3
+# Universal Room Automation vv5.91.4
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -77,6 +78,7 @@ from .const import (
     CENSUS_PEAK_SUSTAIN_SECONDS,
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     EGRESS_FACE_UNION_TTL_S,
+    FACE_MATCH_MIN_CONFIDENCE,
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
     PHONE_HOSTNAME_PREFIXES,
@@ -183,6 +185,26 @@ class FullCensusResult:
     face_persons: list[str]                  # Face-recognized person IDs (all zones)
     persons_outside: int                     # property_exterior.total (convenience)
     timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass(frozen=True)
+class FaceLeg:
+    """EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28): a single NAME-carrying
+    face leg for the corroboration classifier in
+    ``transit_validator._resolve_egress_face_identity``.
+
+    Additive sibling of ``camera_resolver.DetectionLeg`` — shares the
+    engine vocabulary (frigate / frigate2 / protect / protect2 / ...)
+    so cross-camera + cross-engine agreement can be classified at the
+    decision site.
+    """
+    entity_id: str
+    engine: str
+    device_id: str | None
+    base_stem: str
+    canonical_slug: str | None
+    last_changed: datetime | None
+    confidence: float | None
 
 
 # ============================================================================
@@ -1170,6 +1192,23 @@ class PersonCensus:
         # tracked_persons has >1 matching slug; we warn on the first
         # collision, then fail-CLOSED silently for subsequent lookups.
         self._canonicalizer_ambiguity_warned: set[str] = set()
+
+        # EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28): D3 observability.
+        # Bounded rolling window of egress-identity outcomes for
+        # attach_rate_24h / ambiguity_rate_24h math read synchronously
+        # from the census sensor (sensor.py cannot await a DAO).
+        # entries: (monotonic-or-wall ts_seconds, outcome_str).
+        # outcome in {"attached", "ambiguous", "no_leg", "disabled"}.
+        # Pruned on every append: pop-left while now - ts > 24h.
+        self._egress_identity_outcomes: deque[tuple[float, str]] = deque(maxlen=8192)
+        # MED-3 (2026-08-28): abstain is now a deque-derived rate — the
+        # separate int counter + broken day-rollover has been removed;
+        # "abstain" is a distinct outcome label in the SAME deque.
+        # BOTH stamped at BOOST (not HIGH) event ledger, 24h-filtered.
+        self._egress_identity_boost_events: deque[float] = deque(maxlen=1024)
+        # Last successful attach + last agreement class.
+        self._egress_identity_last_attach: dict[str, Any] = {}
+        self._egress_identity_agreement_class_last: str | None = None
 
         # ------------------------------------------------------------------
         # Stuck-Signal Watchdog D1 (v5.35.0). Per-Frigate-camera state for the
@@ -2626,6 +2665,14 @@ class PersonCensus:
         (camera_resolver.py:317-327). Does NOT construct Frigate
         unique_ids — that format is external and not derivable.
         """
+        # EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) B-HIGH-1 revert: this
+        # helper stays byte-identical to the pre-cycle behaviour. Protect
+        # coupling lives ONLY in `_resolve_face_legs` under the D2b kill
+        # switch. Widening this helper to include `_face_recognized[_2]`
+        # would feed Protect names into 4 pre-existing surfaces (guest
+        # count, corroboration bundle, presence pre-arrival) OUTSIDE the
+        # cycle's kill switch. Adding Protect to the census fresh-set is
+        # a separate, kill-switch-gated cycle.
         canonical = f"sensor.{base_name}_last_recognized_face"
         suffixed = f"sensor.{base_name}_last_recognized_face_2"
         for candidate in (canonical, suffixed):
@@ -2646,6 +2693,143 @@ class PersonCensus:
         # gets None -> no `-1` credit. Measure it so operators can tell.
         self._face_lookup_missing_count += 1
         return None
+
+    def _resolve_face_legs(self, base_name: str) -> list["FaceLeg"]:
+        """EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28): additive sibling of
+        ``_resolve_face_entity_id`` returning ALL live NAME-carrying face
+        legs for a camera stem so the D2b classifier can reason about
+        cross-camera / cross-engine corroboration at the decision site.
+
+        Enumerates the two NAME-carrying suffixes directly on ``sensor.*``:
+          - ``sensor.<base>_last_recognized_face[_2]`` — Frigate.
+          - ``sensor.<base>_face_recognized[_2]``      — Protect (D1 bridge).
+
+        DETECTION-only suffixes (``_face_detected`` / ``_smart_detect_face``
+        / ``_ai_face``) carry no recognized name and are NOT enumerated
+        (they would produce ``canonical_slug is None`` and be dropped
+        downstream anyway).
+
+        For each present entity: reads ``state`` + ``last_changed`` +
+        optional ``confidence`` attr; drops sentinel states; drops below-
+        floor confidences; populates ``canonical_slug`` via the census
+        canonicalizer; resolves ``device_id`` via ``CameraResolver``; tags
+        ``engine`` via the ``CameraResolver._engine_tag`` path (``_2``
+        maps to the disambiguated engine, e.g. ``frigate2`` / ``protect2``).
+
+        On any lookup error the accessor returns ``[]`` and increments
+        ``_face_lookup_missing_count`` (mirrors the old helper's telemetry).
+        Used ONLY by ``transit_validator._resolve_egress_face_identity``.
+        """
+        results: list[FaceLeg] = []
+        try:
+            # Build the (entity_id, engine_integration_hint) enumeration.
+            candidates: list[tuple[str, str]] = [
+                (f"sensor.{base_name}_last_recognized_face", "frigate"),
+                (f"sensor.{base_name}_last_recognized_face_2", "frigate"),
+                (f"sensor.{base_name}_face_recognized", "protect"),
+                (f"sensor.{base_name}_face_recognized_2", "protect"),
+            ]
+            resolver = None
+            try:
+                if hasattr(self._camera_manager, "_get_resolver"):
+                    resolver = self._camera_manager._get_resolver()
+            except Exception:  # noqa: BLE001 — resolver optional
+                resolver = None
+
+            for entity_id, integration_hint in candidates:
+                try:
+                    state = self.hass.states.get(entity_id)
+                except Exception:  # noqa: BLE001 — defensive
+                    continue
+                if state is None:
+                    continue
+                raw = state.state if isinstance(state.state, str) else ""
+                val = raw.strip()
+                if val.lower() in (
+                    "unavailable", "unknown", "", "none", "no_match",
+                ):
+                    continue
+                # Optional confidence attribute (Protect bridge exposes;
+                # Frigate does not — treat absent as passing the floor).
+                conf: float | None = None
+                try:
+                    attrs = getattr(state, "attributes", None) or {}
+                    if "confidence" in attrs and attrs["confidence"] is not None:
+                        conf = float(attrs["confidence"])
+                except Exception:  # noqa: BLE001
+                    conf = None
+                if conf is not None and conf < FACE_MATCH_MIN_CONFIDENCE:
+                    continue
+                # Canonicalize the recognized name to the URA slug.
+                try:
+                    canonical = self._canonical_person_slug(val)
+                except Exception:  # noqa: BLE001
+                    canonical = ""
+                canonical_slug = canonical or None
+                # Resolve device_id + engine tag via the shared resolver.
+                device_id: str | None = None
+                engine: str = integration_hint
+                if resolver is not None:
+                    try:
+                        device_id = resolver.resolve_entity_to_device_id(entity_id)
+                    except Exception:  # noqa: BLE001
+                        device_id = None
+                    try:
+                        dev = resolver._device(device_id) if device_id else None
+                        integration = resolver._infer_integration(dev) or ""
+                        # Reuse `_engine_tag` so the `_2` disambiguation
+                        # maps to `frigate2` / `protect2` exactly like
+                        # DetectionLeg (camera_resolver.py:174-176).
+                        name_part = entity_id.split(".", 1)[-1] if "." in entity_id else entity_id
+                        engine = resolver._engine_tag(
+                            integration or integration_hint, name_part, device_id,
+                        ) or integration_hint
+                    except Exception:  # noqa: BLE001
+                        # Fall back to a suffix-anchored tag so `_2`
+                        # still disambiguates when the resolver fails.
+                        engine = (
+                            f"{integration_hint}2"
+                            if entity_id.endswith("_2") else integration_hint
+                        )
+                else:
+                    engine = (
+                        f"{integration_hint}2"
+                        if entity_id.endswith("_2") else integration_hint
+                    )
+                last_changed = getattr(state, "last_changed", None)
+                results.append(FaceLeg(
+                    entity_id=entity_id,
+                    engine=engine,
+                    device_id=device_id,
+                    base_stem=base_name,
+                    canonical_slug=canonical_slug,
+                    last_changed=last_changed,
+                    confidence=conf,
+                ))
+        except Exception:  # noqa: BLE001 — fail-CLOSED: measure + return []
+            self._face_lookup_missing_count += 1
+            _LOGGER.debug(
+                "_resolve_face_legs: unexpected error for base=%s",
+                base_name, exc_info=True,
+            )
+            return []
+        return results
+
+    def _note_egress_identity_outcome(self, outcome: str) -> None:
+        """EGRESS-IDENTITY-JOIN-GAP-1 (2026-08-28) D3: append one
+        outcome to the rolling 24h deque, pruning older-than-24h entries
+        on every append. Called by
+        ``transit_validator._resolve_direction`` post-decision.
+        """
+        try:
+            now_ts = dt_util.utcnow().timestamp()
+        except Exception:  # noqa: BLE001
+            now_ts = datetime.utcnow().timestamp()
+        self._egress_identity_outcomes.append((now_ts, outcome))
+        cutoff = now_ts - 86400.0
+        d = self._egress_identity_outcomes
+        while d and d[0][0] < cutoff:
+            d.popleft()
 
     def _build_frigate_person_last_camera_map(self) -> dict[str, str]:
         """Build (once, memoised) a `frigate_person_key -> entity_id` map

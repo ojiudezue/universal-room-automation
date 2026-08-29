@@ -2206,6 +2206,44 @@ async def test_optimizer_llm_prompt_resolution_falls_back_to_const():
     assert tier4._resolve_system_prompt(tier4._read_cm_config()) == custom
 
 
+def test_optimizer_llm_prompt_carries_thermostat_fanout_invariant():
+    """OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 (2026-08-28).
+
+    The Tier-2 LLM optimizer was emitting a false-positive comfort finding
+    ("multiple rooms share the same thermostat ... prevents independent
+    zonal control") because the system prompt never told it that this
+    fan-out is by design. Guard: the resolved prompt MUST carry the
+    HVAC thermostat fan-out invariant. Mutation anchor — remove the
+    invariant paragraph from OPTIMIZER_LLM_SYSTEM_PROMPT in const.py and
+    this test goes RED.
+    """
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_LLM_SYSTEM_PROMPT,
+        OPTIMIZER_LLM_SYSTEM_PROMPT_MAX_CHARS,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    prompt_l = OPTIMIZER_LLM_SYSTEM_PROMPT.lower()
+    assert "design invariant" in prompt_l
+    assert "thermostat" in prompt_l
+    assert "multiple" in prompt_l and "rooms" in prompt_l
+    assert "by design" in prompt_l or "intended architecture" in prompt_l
+    assert len(OPTIMIZER_LLM_SYSTEM_PROMPT) <= (
+        OPTIMIZER_LLM_SYSTEM_PROMPT_MAX_CHARS
+    )
+    # Resolver path (options-empty) surfaces the same invariant text.
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    tier = OptimizationLLMTier(hass, coord)
+    resolved = tier._resolve_system_prompt(tier._read_cm_config())
+    r_l = resolved.lower()
+    assert "design invariant" in r_l and "thermostat" in r_l
+
+
 def test_options_reload_suppress_includes_optimizer_llm_keys():
     """All four new LLM CONF keys MUST be in OPTIONS_RELOAD_SUPPRESS_KEYS
     so editing them never triggers a full CM reload (C-CRIT-1 guardrail)."""
@@ -3889,3 +3927,77 @@ async def test_optimizer_prediction_accuracy_handles_missing_occupancy_brier():
     findings = await coord._evaluate_prediction_accuracy_dimension()
     assert [f for f in findings
             if f.dimension == OptimizationDimension.PREDICTION_ACCURACY] == []
+
+
+# ---------------------------------------------------------------------------
+# OPTIMIZER-CORPUS-ZONES-EMPTY-1: thermostat->rooms fan-out in corpus.zones
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_optimizer_corpus_populates_hvac_zone_fanout():
+    """corpus.zones exposes the thermostat->rooms fan-out so the LLM sees
+    that one thermostat can serve multiple rooms/zones by design."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    from types import SimpleNamespace
+
+    hass, _ = _make_hass()
+
+    def _zs(zid, zname, therm, rooms):
+        # Local stand-in for ZoneState — avoids importing hvac_zones at
+        # test time (which would drag hvac.py's homeassistant.helpers.storage
+        # import into a test-only sys.modules stub and break sibling
+        # runtime_smoke tests). Only the fields _assemble_corpus reads.
+        return SimpleNamespace(
+            zone_id=zid, zone_name=zname,
+            climate_entity=therm, rooms=list(rooms),
+        )
+
+    class _FakeZM:
+        def __init__(self):
+            self.zones = {
+                "zone_1": _zs(
+                    "zone_1", "Entertainment + Master Suite",
+                    "climate.zone_1_thermostat",
+                    ["entertainment", "master_bedroom"],
+                ),
+                "zone_2": _zs(
+                    "zone_2", "Guest",
+                    "climate.zone_2_thermostat",
+                    ["guest_bedroom"],
+                ),
+            }
+
+    class _FakeHVAC:
+        def __init__(self):
+            self.zone_manager = _FakeZM()
+
+    fake_hvac = _FakeHVAC()
+    coord = OptimizationCoordinator(hass)
+    # Patch the coordinator's HVAC handle directly — avoids toggling
+    # `_optimizer_test_mode` (a legacy back-compat gate whose sibling
+    # side effects can perturb unrelated sys.modules state during a
+    # full-suite run).
+    coord._get_hvac_coordinator = lambda: fake_hvac  # type: ignore[assignment]
+    tier = OptimizationLLMTier(hass, coord)
+    corpus = tier._assemble_corpus(tier1_findings=[])
+
+    by_id = {z["zone_id"]: z for z in corpus.zones}
+    assert "zone_1" in by_id and "zone_2" in by_id, corpus.zones
+    z1 = by_id["zone_1"]
+    assert z1["thermostat"] == "climate.zone_1_thermostat"
+    assert z1["hvac_zone"] == "Entertainment + Master Suite"
+    assert set(z1["rooms"]) == {"entertainment", "master_bedroom"}
+    z2 = by_id["zone_2"]
+    assert z2["thermostat"] == "climate.zone_2_thermostat"
+    assert z2["rooms"] == ["guest_bedroom"]
+
+    body = corpus.to_prompt_body()
+    assert "climate.zone_1_thermostat" in body
+    assert "entertainment" in body and "master_bedroom" in body
+    assert "Entertainment + Master Suite" in body

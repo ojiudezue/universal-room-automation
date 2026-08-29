@@ -43,6 +43,8 @@ Each is a `BaseCoordinator` (`base.py`) with a `coordinator_id` and a priority, 
 | diagnostics | `coordinator_diagnostics.py`, `anomaly_event.py` | Anomaly detection wired to NM (the in-code trip-wires that replace soak-watching). | **Cross-cutting** |
 | `coordinator_manager` | `manager.py` | Constructs/registers/sequences the domains; the setup-order authority (Envoy-boot-incident territory). | — |
 
+**Identity / Fusion / Cameras** — canonical manual `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`. Modules: `camera_census.py`, `camera_resolver.py`, `transit_validator.py`, `person_coordinator.py`, `perimeter_*.py`. Tables: `person_entry_exit_events`, `person_visits`.
+
 (Not every file is a registered coordinator — many are machinery of the domains above. `signals.py` is the dispatcher bus, not a coordinator.)
 
 ---

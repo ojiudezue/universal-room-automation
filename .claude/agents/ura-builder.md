@@ -24,6 +24,7 @@ Never describe HA APIs, library behavior, or in-repo patterns from a plausible m
 1. Read the **card + the current cycle planning doc** — the card's working code + the plan ARE the spec. Prefer additive deltas; extend existing, never rebuild (enumerate what already works first).
 2. Read `docs/QUALITY_CONTEXT.md` — the numbered bug classes (incl. #53 computed-but-not-consumed, #62 hollow test anchor, #63 coincidental-equality). Name the bug class you're guarding against.
 3. Read the actual source you're changing, end to end, before proposing the change.
+4. If the change touches `camera_census.py`, `camera_resolver.py`, `transit_validator.py`, `person_coordinator.py`, `perimeter_*.py`, or any face / `person_id` / `_2`-suffix / egress code, read `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` first — canonical for platform roles, suffix rules, identity-source coverage.
 
 ## Hot files (the REAL caution surface — 2026)
 | Area | Files | Caution |

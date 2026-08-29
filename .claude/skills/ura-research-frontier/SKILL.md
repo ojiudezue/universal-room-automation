@@ -119,6 +119,8 @@ Z, W, B are operator-set before the experiment. If you cannot pick them because 
 
 ## Frontier 3 — Presence-fusion substrate
 
+The identity/fusion/cameras manual (`docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md`) is the canonical starting point for the cross-modal fusion paper + OSS library work.
+
 ### The claim
 A per-room / per-kind provenance layer with an explicit trust hierarchy and adversarial vetoes generalises across smart-home stacks and is publishable as a substrate, not just a URA feature.
 
