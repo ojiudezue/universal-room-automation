@@ -7,8 +7,11 @@ egress/perimeter pipeline.
 platform roles, identity sources and their real coverage, the
 cross-modal fusion doctrine, the census + resolver architecture, the
 egress-identity JOIN and the 6.0.0 gate that depends on it.
-**Current through:** URA v5.91.3 (`camera_census.py:3`).
-**Ground truth verified:** 2026-08-28 (code + memory bodies).
+**Current through:** URA v5.91.3 (`camera_census.py:3`); the egress-identity
+PRODUCER is **built on `feature/egress-identity-producer`, shipped pending
+deploy as v5.91.4** (orchestrator confirms the final version at deploy).
+**Ground truth verified:** 2026-08-28 (code + memory bodies + post-ship
+consumer-gap audit).
 
 This is NOT a code walkthrough. Sibling of
 `ENERGY_COORDINATOR_MANUAL.md`, `HVAC_COORDINATOR_MANUAL.md`,
@@ -356,7 +359,9 @@ egress-identity JOIN work (§5), no schema change required.
 `v6.0.0 IDENTITY-DRIVEN AUTONOMY` (the census/identity arc reaching
 real actuation — guest gate consuming door-identity, arrival/departure
 keyed to `person_id`, egress identity) is anchored on this JOIN
-working. It currently doesn't.
+working. The PRODUCER is now BUILT (§5.2, v5.91.4 pending deploy);
+consumer wiring stays coverage-gated on the measured post-deploy yield
+(§5.5).
 
 ### 5.1 The measured reality (as of 2026-08-28)
 
@@ -385,26 +390,54 @@ Two producer facts explain it:
    since ~2026-08-21 (see §2.2). Person detections stayed healthy —
    this is a face-subsystem fault, not storage/ingest.
 
-### 5.2 The producer redesign under design
+### 5.2 The producer redesign — BUILT (v5.91.4, pending deploy)
 
-Same-stem + 60s is too tight. Two shipped/pending elements form the
-join upgrade:
+Same-stem + 60s was too tight. The producer is now built on
+`feature/egress-identity-producer` (ships as v5.91.4, "shipped pending
+deploy" — orchestrator confirms the version). It stamps `person_id`
+(canonical URA slug via `_canonical_person_slug`) **plus an advisory
+identity confidence** on both `person_entry_exit_events` (the DB row,
+reusing the existing `confidence REAL` column — no migration) and the
+`ura_person_egress_event` bus event. The capability:
 
-- **Interior-fusion:** consult freshest interior face across all
-  cameras near the crossing (family_room has the strongest Frigate
-  named-face signal), not just the egress-camera stem.
-- **Asymmetric signed-lag window:** allow a wider positive lag
-  (interior face BEFORE egress) than negative (interior face AFTER
-  egress) — reflects "person walked past family_room, then out the
-  door" being much more common than the inverse.
-- **Measured ceiling of the fix:** ~63% when face recognition is
-  healthy.
+- **Interior-fusion:** consults the freshest interior recognized-face
+  across cameras near the crossing (family_room has the strongest
+  Frigate named-face signal), not just the egress-camera stem.
+- **Direction-keyed asymmetric window:** a wider positive lag (interior
+  face BEFORE egress) than negative — "person walked past family_room,
+  then out the door" is far more common than the inverse (probe:
+  exits face-lead median +53s, entries face-trail median −14s).
+  Measured window exit `[-30,+180s]`, entry `[-300,+60s]`.
+- **`base_stem` independence predicate:** two legs count as
+  independent corroboration only when they resolve to DIFFERENT
+  physical cameras (distinct base stem), so two engines on ONE camera
+  do not masquerade as two witnesses.
+- **Abstain on conflicting names:** when ≥2 distinct resident names sit
+  in-window (~28% of attaches), the producer emits NO identity rather
+  than guess (nearest-in-time + confidence-margin tie-break, else
+  abstain). This ABSTAIN is load-bearing.
+- **Measured ceiling of the fix:** ~63% attach when face recognition is
+  healthy (7d floor ~27–31%, 48h re-tuned ceiling ~63%).
 
-`person_id` on `person_entry_exit_events` remains **ADVISORY** — it
-is not a hard trust input. Downstream identity consumers should use
-the graceful-anonymous rule (§3).
+`person_id` remains **ADVISORY** — not a hard trust input. Downstream
+identity consumers MUST accept NULL and use the graceful-anonymous rule
+(§3), and MUST honor the confidence thresholds in §5.5.
 
-### 5.3 Observability + control surface
+### 5.3 The confidence model (v5.91.4)
+
+The advisory confidence stamped alongside `person_id` encodes HOW the
+identity was corroborated:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `CONFIDENCE_HIGH` | **0.9** | ≥2 legs resolving to the SAME canonical slug on DIFFERENT physical cameras (distinct `base_stem`) — genuine multi-camera corroboration. |
+| `FACE_MATCH_CORRELATED_BOOST` | **0.75** | Same physical camera, two engines agree (e.g. Frigate + Protect leg on one camera). Correlated evidence, not independent. |
+| `CONFIDENCE_MEDIUM` | **0.6** | A single leg — one recognizer, no corroboration. |
+
+`person_id` is ADVISORY at every level; even 0.9 is not authoritative
+(consumers still accept NULL and degrade gracefully).
+
+### 5.4 Observability + control surface
 
 - **Kill switch:** `switch.ura_name_people_at_doors` (fresh-read at
   every call; `switch.py:190`, `camera_census.py:2969`).
@@ -418,6 +451,49 @@ the graceful-anonymous rule (§3).
   operators can distinguish "no face" from "face resolver broken".
 - **`person.<slug>` = `not_home` veto** (see §4.3) — mirrored in
   `camera_census._get_face_recognized_person_names` (~`:3346-3366`).
+
+### 5.5 Consumer map + doctrine
+
+Post-ship consumer-gap audit 2026-08-28 (`AUDIT_census_identity_supersession_and_consumers.md`).
+
+**The REAL consumers today (v5.91.4):** exactly four DISPLAY sensors read
+`person_id` off the `ura_person_egress_event` bus event, each falling
+back to `"unidentified"` when it is NULL:
+
+| Sensor | file:line | Reads |
+|---|---|---|
+| `PersonsEnteredTodaySensor` | `sensor.py:4268` | `person_id` → entries list / count |
+| `PersonsExitedTodaySensor` | `sensor.py:4386` | `person_id` → exits list / count |
+| `LastPersonEntrySensor` | `sensor.py:4464` | `person_id` → last-entry name |
+| `LastPersonExitSensor` | `sensor.py:4512` | `person_id` → last-exit name |
+
+**NOTHING reads `identity_confidence` / `agreement_class` yet.** The
+confidence tier is produced and persisted but has zero live consumers —
+every consumer below is a *should-be-consuming gap*, not shipped wiring.
+
+**(a) SAFETY DOCTRINE — the invariant for any identity consumer.**
+Egress identity may only **DE-ESCALATE or ANNOTATE** a security
+decision, and only at confidence **≥0.9**. It may NEVER **escalate or
+actuate** from identity, and NEVER **suppress** a security action at
+0.6/0.75. Rationale: `person_id` is advisory and coverage-sparse; a
+wrong-but-confident name that could arm, lock, or unlock is a footgun
+(the arc's own double-count history). Naming a KNOWN resident to soften
+an alert is safe; acting because a name appeared is not.
+
+**(b) Confidence-threshold-by-consumer-class:**
+
+| Consumer class | Min confidence to act | Direction of effect |
+|---|---|---|
+| **Security suppress / de-escalate** | **≥0.9** | de-escalate/annotate only — never escalate, never suppress below 0.9 |
+| **Notification naming** | **≥0.75** | name the person in the message; anonymous below |
+| **Display** | **none** | show name-or-"unidentified"; never a trust decision |
+
+**(c) MEASURE-BEFORE-BUILD gate.** Before building ANY new consumer,
+re-measure the REAL production rate of `person_id` on the live
+producer (garage / family-room entry path, per the signed-lag probe),
+NOT the old front-door figure. A sparse producer caps every consumer's
+value and may argue for a better producer, not more consumers. Every
+consumer card carries this gate.
 
 ---
 
