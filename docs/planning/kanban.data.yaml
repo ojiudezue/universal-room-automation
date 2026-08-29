@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-28'
+  last_reconciled: '2026-08-29'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -27,6 +27,7 @@ meta:
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
 - id: EGRESS-IDENTITY-JOIN-GAP-1
+  consumer_link_note_2026_08_29: 'consumers linked behind D1-PROTECT-FACE-BRIDGE-ADDON-1; all thresholds PROVISIONAL pending operator confirm; re-measure attach rate after D1 before building any consumer.'
   PROTECT_API_2026_08_28: 'Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the
     Protect API DOES expose named face recognition — protect_list_smart_detections / protect_list_events /
     protect_get_event return recognized_person_id + recognized_person_name + recognized_person_confidence
@@ -115,7 +116,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.91.4
   created: '2026-08-26 20:45'
-  updated: '2026-08-28 22:00'
+  updated: '2026-08-29 13:20'
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify, producer-consumer, gate-6.0.0, tier-2db]
@@ -1252,9 +1253,11 @@ cards:
     flip-flop (next off_peak->exit or peak boundary). Then dispose to done.'
 - id: BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1
   thread: energy
-  status: inbox
+  status: done
   approval: unreviewed
   created: 2026-08-20 00:00
+  updated: '2026-08-29 13:20'
+  disposition_2026_08_29: 'operator DECLINED 2026-08-29 — not pursued (board-button decline applied from pending-disposition queue). Card was already the misdiagnosis-corrected framing (37% reserve is the correct EV-hold, not a stuck write) so declining = close; nothing to build.'
   title: MISDIAGNOSIS CORRECTED — 37% reserve is CORRECT EV-hold, not a stuck write; real residual = cloud-oracle
     flap pollutes write-verify diagnostics
   problem_solution:
@@ -1668,10 +1671,11 @@ cards:
     guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
-  status: inbox
+  status: investigating
   approval: unreviewed
   created: 2026-08-18 00:34
-  updated: 2026-08-18 01:10
+  updated: '2026-08-29 13:20'
+  disposition_2026_08_29: 'operator sent to INVESTIGATE 2026-08-29 (board-button investigate applied from pending-disposition queue). Discriminator remains: on occupancy, confirm face_lookup_missing_count DROPS when residents are present + recognized; if it stays high with recognized residents home, that is the real resolution gap (not the empty-house benign case already explained in interpretation_2026_08_18).'
   refinement_status: initial
   title: Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
   problem_solution:
@@ -8500,11 +8504,14 @@ cards:
   status: inbox
   thread: security
   created: 2026-08-18 09:45
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — operator to confirm the >=0.75 confidence gate before build'
+  sequence: 1  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   confidence_gate: '>=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate
     only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT
     (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316
     (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION
@@ -8535,12 +8542,15 @@ cards:
   status: inbox
   thread: presence
   created: 2026-08-18 09:45
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — operator to confirm the >=0.9 confidence gate before build'
+  sequence: 2  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   confidence_gate: '>=0.9. Suppressing the guest gate on a WRONG identity UNDER-secures the house (a
     mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera
     corroboration, not a single leg. Suppress-only at >=0.9; never suppress at 0.6/0.75 (§5.5 doctrine).'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
     Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location).
     A resident door-identified at >=0.9 should firm up the guest gate / cancel a nascent guest FP. Because
@@ -8569,12 +8579,15 @@ cards:
   status: inbox
   thread: notifications
   created: 2026-08-18 09:45
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build'
+  sequence: 1  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   confidence_gate: 'None gating the FIRE (graceful-anonymous — notify on every crossing, name when known),
     though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or
     actuate, so no safety gate applies.'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
     LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in
     site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an
@@ -8683,12 +8696,15 @@ cards:
   status: inbox
   thread: security
   created: 2026-08-18 11:20
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — operator to confirm the >=0.9 confidence gate before build'
+  sequence: 2  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   confidence_gate: '>=0.9 and SUPPRESS-ONLY for any identity role here. Escalation must come from the census
     unidentified_count (an UNKNOWN present), NOT from egress identity — identity only DE-ESCALATES ("that
     unknown is actually resident Oji, do not lock"). Never actuate the lock off identity (§5.5 doctrine).'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is
     DORMANT/UNWIRED today — _build_context never sets a "census" key, no census_update intent is emitted
     anywhere, and security is not a SIGNAL_CENSUS_UPDATED subscriber. So this is not just "identity not
@@ -8717,12 +8733,15 @@ cards:
   status: inbox
   thread: security
   created: 2026-08-18 14:40
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — operator to confirm the >=0.9 confidence gate before build'
+  sequence: 2  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   confidence_gate: '>=0.9 for egress person_id used as CORROBORATION. This is a live ALERT path (drives NM),
     so a wrong identity that subtracts a real unknown would suppress a genuine alert — highest bar,
     corroboration-only, never sole authority (§5.5 doctrine).'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded,
     egress person_id at >=0.9 can serve as CORROBORATION to subtract a phone-left-behind resident from the
     "unexpected person" count (a resident whose phone stayed home reads as camera>ble => false unexpected;
@@ -12015,7 +12034,9 @@ cards:
   status: inbox
   tier: 1-2
   created: '2026-08-28 12:00'
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — no confidence gate today (arrival signal, not egress producer); operator to confirm before build'
+  sequence: 1  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   refinement_status: initial
   origin: 2026-08-28 post-ship egress-identity consumer-gap audit — adjacency sweep (arrival side)
   confidence_gate: 'None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer;
@@ -12045,7 +12066,9 @@ cards:
   status: inbox
   tier: 2
   created: '2026-08-28 12:00'
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — operator to confirm the >=0.75 confidence gate before build (name gate; must never downgrade an ALERT)'
+  sequence: 2  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   refinement_status: initial
   origin: 2026-08-28 post-ship egress-identity consumer-gap audit — adjacency sweep
   confidence_gate: '>=0.75 to NAME the person in the message. Naming is a notification-class effect, not a
@@ -12053,6 +12076,7 @@ cards:
     only; per the §5.5 safety doctrine identity may not suppress a security action below 0.9.'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   problem_solution:
   - 'Problem: the security entry-verdict messages — security.py:1480 NOTIFY ("known person, unusual timing")
     and security.py:1573 ALERT — name the DOOR entity that was crossed but never the PERSON, even though the
@@ -12080,7 +12104,9 @@ cards:
   tier: 2-DB
   priority: low
   created: '2026-08-28 12:00'
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — operator to confirm the >=0.9 confidence gate before build and CONFIRM-ONLY; census residents_home==0 stays sole authority'
+  sequence: 3  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   refinement_status: initial
   origin: 2026-08-28 post-ship egress-identity consumer-gap audit — adjacency sweep
   confidence_gate: '>=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition;
@@ -12088,6 +12114,7 @@ cards:
     departure while a resident is still inside would arm the house on an occupant (false-alarm footgun).'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   problem_solution:
   - 'Problem: security arms away off an occupancy timeout (security.py:1114-1360) — it waits out a
     no-occupancy window before arming. But the last named resident crossing OUT a door (census
@@ -12114,13 +12141,16 @@ cards:
   status: inbox
   tier: 1
   created: '2026-08-28 12:00'
-  updated: '2026-08-28 12:00'
+  updated: '2026-08-29 13:20'
+  threshold_status: 'PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build'
+  sequence: 1  # gating order among identity consumers (post-D1 + measured-coverage-gated)
   refinement_status: initial
   origin: 2026-08-28 post-ship egress-identity consumer-gap audit — gap G5
   confidence_gate: 'None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5
     display consumers carry no confidence threshold.'
   depends_on:
   - EGRESS-IDENTITY-JOIN-GAP-1
+  - D1-PROTECT-FACE-BRIDGE-ADDON-1
   problem_solution:
   - 'Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped
     on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals —
@@ -12161,6 +12191,55 @@ cards:
   refs:
   - TRANSIT-1 (traversal checkpoints, shipped v5.60.0)
   - AUDIT_census_identity_supersession_and_consumers.md
+- id: D1-PROTECT-FACE-BRIDGE-ADDON-1
+  title: Build a Home Assistant ADD-ON that bridges UniFi Protect recognized-face NAMES into sensor.<cam>_face_recognized for the egress-identity producer to consume
+  thread: identity
+  status: in_progress
+  tier: 2
+  created: '2026-08-29 13:20'
+  updated: '2026-08-29 13:20'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify, institutional-context, measure-before-build]
+  depends_on:
+  - EGRESS-IDENTITY-JOIN-GAP-1
+  links:
+    parent: EGRESS-IDENTITY-JOIN-GAP-1
+    blocks:
+    - PERIMETER-ALERT-NAME-PERSON-1
+    - ARRIVAL-DEPARTURE-NOTIFY-1
+    - GUEST-GATE-DOOR-IDENTITY-1
+    - SECURITY-CENSUS-UNKNOWN-WIRE-1
+    - UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
+    - SECURITY-ENTRY-VERDICT-NAME-1
+    - LAST-RESIDENT-EGRESS-ARM-1
+    - EGRESS-IDENTITY-DASHBOARD-TILE-1
+    related:
+    - HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1
+    context: 'D1 is the Protect NAME producer for the identity-consumer cluster. Each consumer is coverage-gated on D1 producing named Protect events at the measured rate needed to justify the wire-in. HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1 is related, not blocked — it consumes an arrival signal, not the egress producer.'
+  problem_solution:
+  - 'Problem: URA egress identity needs the NAME of a face UniFi Protect recognized, but the Home Assistant unifiprotect integration exposes face DETECTION events without the person NAME, and the operator wired an Alarm-Manager -> HA webhook whose payload comes through empty {}. So even though Protect DOES recognize named faces (verified: Oji at 82% at 21:32 via the Protect API), URA cannot see the name and the egress-identity join stays Frigate-only. Solution: build a small Home Assistant ADD-ON (Supervisor container) that polls / subscribes to the UniFi Protect API using ONE local Protect user, and publishes a normalized sensor.<cam>_face_recognized entity per camera carrying the recognized person name + confidence + timestamp. URA reads it through the existing multi-platform face resolver (camera_resolver.DetectionLeg + FACE_SUFFIXES already includes Protect suffixes), no URA API coupling — vendor coupling stays in the bridge, transport swappable.'
+  why: 'This is the shortest path to unblocking the identity-consumer cluster without rebuilding fusion (per the ARCHITECTURE_2026_08_28_EXTEND_NOT_REBUILD ruling on EGRESS-IDENTITY-JOIN-GAP-1). Feasibility was verified vs HA developer docs and the uiprotect library — an add-on with a local Protect user can call the same list_smart_detections / list_events endpoints the MCP tool proved out live. SSO is unsupported for the API path and the public API-key path cannot return names, so a LOCAL Protect user is required.'
+  constraints:
+  - 'One LOCAL Protect user provisioned by the operator (SSO cannot be used; public API-key cannot return recognized names).'
+  - 'Reachable NVR from the HA host (192.168.15.173 is reachable today; the api key the operator gave earlier returned 401 and is not the answer).'
+  - 'URA does NOT call the Protect API directly at runtime — coupling stays in the add-on so the transport is swappable and URA remains vendor-agnostic (per §5.5 EXTEND-NOT-REBUILD doctrine).'
+  - 'Phased build with a probe first: D0 probe -> Phase 1 REST poller -> Phase 2 websocket standard -> Phase 3 hardening. Do NOT jump straight to websocket.'
+  research_2026_08_28: 'Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST poller add-on publishing sensor.<cam>_face_recognized, Phase 2 = migrate to the Protect websocket for lower latency, Phase 3 = hardening (reconnect, backoff, health entity, kill switch).'
+  blocked_on_2026_08_29: 'BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key returned 401 and is not sufficient). Until both land, D0 cannot run.'
+  knobs:
+  - 'PROTECT_NVR_HOST (add-on option, operator-set) — the NVR the add-on connects to.'
+  - 'PROTECT_LOCAL_USER / PROTECT_LOCAL_PASS (add-on option, operator-set) — local Protect credentials.'
+  - 'PROTECT_POLL_INTERVAL_S (add-on option, default TBD post-D0 probe) — REST poll cadence for Phase 1; retired when Phase 2 websocket lands.'
+  - 'PROTECT_BRIDGE_KILL_SWITCH (HA input_boolean, default ON) — operator can disable the bridge without uninstalling the add-on.'
+  parsimony: {problem: 'Protect names faces but URA cannot see the name today — every identity consumer is blocked on this ONE producer', verdict: BUILD}
+  next: 'WAITING on operator: provision one local Protect user + confirm the NVR host/port. Then run D0 (one-shot API probe) to confirm the local user returns named smart-detection events, measure the real per-camera named-event rate, and only then start Phase 1 REST poller add-on. Do NOT build Phase 1 before D0 answers yes.'
+  refs:
+  - docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md (§5.5 consumer doctrine + EXTEND-NOT-REBUILD)
+  - EGRESS-IDENTITY-JOIN-GAP-1 (shipped v5.91.4 — the producer this bridge feeds through the census resolver)
+  - camera_resolver.py DetectionLeg (:165) + FACE_SUFFIXES (:247-251) already multi-platform
+  - camera_census.py _resolve_face_entity_id (:2615) — the single Frigate-only face-NAME reader that the bridge lets us extend to Protect
+
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
