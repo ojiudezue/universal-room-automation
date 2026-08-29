@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-28T20:49:58-05:00_ - _Data commit: `1d97498104e3`_ - _last_reconciled: 2026-08-29_
+_Generated: 2026-08-29T15:58:24-05:00_ - _Data commit: `01136bead164`_ - _last_reconciled: 2026-08-29_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,12 +15,12 @@ _Generated: 2026-08-28T20:49:58-05:00_ - _Data commit: `1d97498104e3`_ - _last_r
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 5 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 54 |
 | ⏸️ Waiting on operator | 7 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 19 |
+| 🅿️ Parked | 20 |
 | ✅ Done | 51 |
 
 ## 📥 Inbox (29)
@@ -699,25 +699,10 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `D1-PROTECT-FACE-BRIDGE-ADDON-1` - Build a Home Assistant ADD-ON that bridges UniFi Protect recognized-face NAMES into sensor.<cam>_face_recognized for the egress-identity producer to consume
-thread: **identity** - status: **in_progress** - approval: **unreviewed**
-_created 2026-08-29 13:20 · initial_
-- **Problem / Solution:**
-  - Problem: URA egress identity needs the NAME of a face UniFi Protect recognized, but the Home Assistant unifiprotect integration exposes face DETECTION events without the person NAME, and the operator wired an Alarm-Manager -> HA webhook ...
-- **Why:** This is the shortest path to unblocking the identity-consumer cluster without rebuilding fusion (per the ARCHITECTURE_2026_08_28_EXTEND_NOT_REBUILD ruling on EGRESS-IDENTITY-JOIN-GAP-1). Feasibility was verified vs HA developer docs and ...
-- **Next:** WAITING on operator: provision one local Protect user + confirm the NVR host/port. Then run D0 (one-shot API probe) to confirm the local user returns named smart-detection events, measure the real per-camera named-event rate, and only th...
-- **Tags:** no-fabrication-verify, institutional-context, measure-before-build
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1
-- **Parsimony:** [BUILD] Protect names faces but URA cannot see the name today — every identity consumer is blocked on this ONE producer
-- **Refs:** docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md (§5.5 consumer doctrine + EXTEND-NOT-REBUILD); EGRESS-IDENTITY-JOIN-GAP-1 (shipped v5.91.4 — the producer this bridge feeds through the census resolver); camera_resolver.py DetectionLeg (:165) + FACE_SUFFIXES (:247-251) already multi-platform; camera_census.py _resolve_face_entity_id (:2615) — the single Frigate-only face-NAME reader that the bridge lets us extend to Protect
-- **Forensic keys (4):**
-  - `tier`: 2
-  - `links`: parent: EGRESS-IDENTITY-JOIN-GAP-1
-  - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
-  - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
+_(none)_
 
 ## 🔍 Review (1)
 _under review_
@@ -1686,7 +1671,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (19)
+## 🅿️ Parked (20)
 _revisit-trigger set_
 
 ### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
@@ -1935,6 +1920,24 @@ _created 2026-08-28 12:00 · initial_
   - `tier`: 2
   - `revisit_if`: the agentic room-to-room layer is scoped
   - `confidence_gate`: >=0.9 for any per-person path attribution (a mis-keyed checkpoint corrupts a movement path); advisory/annotate only until the agentic layer defines how paths are consumed.
+
+### `D1-PROTECT-FACE-BRIDGE-ADDON-1` - Build a Home Assistant ADD-ON that bridges UniFi Protect recognized-face NAMES into sensor.<cam>_face_recognized for the egress-identity producer to consume
+thread: **identity** - status: **parked** - approval: **unreviewed**
+_created 2026-08-29 13:20 · initial_
+- **Problem / Solution:**
+  - Problem: URA egress identity needs the NAME of a face UniFi Protect recognized, but the Home Assistant unifiprotect integration exposes face DETECTION events without the person NAME, and the operator wired an Alarm-Manager -> HA webhook ...
+- **Why:** This is the shortest path to unblocking the identity-consumer cluster without rebuilding fusion (per the ARCHITECTURE_2026_08_28_EXTEND_NOT_REBUILD ruling on EGRESS-IDENTITY-JOIN-GAP-1). Feasibility was verified vs HA developer docs and ...
+- **Next:** WAITING on operator: provision one local Protect user + confirm the NVR host/port. Then run D0 (one-shot API probe) to confirm the local user returns named smart-detection events, measure the real per-camera named-event rate, and only th...
+- **Tags:** no-fabrication-verify, institutional-context, measure-before-build
+- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1
+- **Parsimony:** [BUILD] Protect names faces but URA cannot see the name today — every identity consumer is blocked on this ONE producer
+- **Refs:** docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md (§5.5 consumer doctrine + EXTEND-NOT-REBUILD); EGRESS-IDENTITY-JOIN-GAP-1 (shipped v5.91.4 — the producer this bridge feeds through the census resolver); camera_resolver.py DetectionLeg (:165) + FACE_SUFFIXES (:247-251) already multi-platform; camera_census.py _resolve_face_entity_id (:2615) — the single Frigate-only face-NAME reader that the bridge lets us extend to Protect
+- **Forensic keys (5):**
+  - `parked_2026_08_29`: PARKED (operator marginal-benefit call 2026-08-29). Frigate 0.17 recognizes ALL 4 residents on ALL 23 cameras in near-real-time; Protect covers only 2 cameras with ~60-80s async latency — so a full Protect add-on buys only a DISCOUNTED s...
+  - `tier`: 2
+  - `links`: parent: EGRESS-IDENTITY-JOIN-GAP-1
+  - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
+  - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
 ## ✅ Done (51)
 _closed, evidence in refs_

@@ -12194,7 +12194,8 @@ cards:
 - id: D1-PROTECT-FACE-BRIDGE-ADDON-1
   title: Build a Home Assistant ADD-ON that bridges UniFi Protect recognized-face NAMES into sensor.<cam>_face_recognized for the egress-identity producer to consume
   thread: identity
-  status: in_progress
+  status: parked
+  parked_2026_08_29: 'PARKED (operator marginal-benefit call 2026-08-29). Frigate 0.17 recognizes ALL 4 residents on ALL 23 cameras in near-real-time; Protect covers only 2 cameras with ~60-80s async latency — so a full Protect add-on buys only a DISCOUNTED same-camera corroboration leg (0.75 tier) for large effort. Not worth it now. Scaffold preserved at ~/Code/ura-protect-face-bridge (D0 knowledge banked: name at metadata.detectedThumbnails[].group.matchedName, ~60-80s async, back-fills at original timestamp). REVIVE only if same-camera Protect+Frigate corroboration boost is wanted. PRIMARY PATH is now Frigate face consumption pending the sub_label-promotion research.'
   tier: 2
   created: '2026-08-29 13:20'
   updated: '2026-08-29 13:20'
