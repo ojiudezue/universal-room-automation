@@ -53,5 +53,19 @@ Three disjoint-surface cycles batched into one restart (camera-census+transit / 
 ## Pre-deploy gate
 0 conflict markers; py_compile clean on all changed modules; 250 cycle tests pass; full-suite name-diff = 0 new FAILED/ERROR vs develop (the ~61 pre-existing wall-clock/order-pollution failures unchanged).
 
-## Live Validation — to be recorded post-restart (Validated <date>)
-_This section is replaced with the observed results table after the HA restart, per the validation-ledger rule._
+## Validated 2026-08-28 (post-restart, ~20:54 CDT)
+
+Deploy chain confirmed: PR #533 merged, release `v5.91.4` tagged, `origin/master` manifest = v5.91.4 with all three cycles' code present (egress `_resolve_face_legs`/`FACE_MATCH_CORRELATED_BOOST` ×5, `VERY_POOR` ×2, `corpus.zones`/`zones_out` ×8), HACS installed v5.91.4, restarted.
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Clean boot, no new URA errors | `error_log` structured scan: **zero `custom_components.universal_room_automation … ERROR`**; all URA lines are WARNING (Envoy warmup, the known stuck Guest-Bedroom sensor being ignored, offline front-door lock, standard "custom integration" notice). No tracebacks. | **PASS** |
+| **Drain slider** — 5th tunable exists + honored | `number.ura_energy_coordinator_off_peak_drain_very_poor` = **30** (min 5 / max 80, mirrors `poor`); `sensor.ura_energy_coordinator_battery_strategy` `drain_targets = {excellent:10, good:15, moderate:20, poor:30, very_poor:30, unknown:40}` — the accessor honors the tunable. | **PASS** (live) |
+| **Egress producer** — shipped + armed | Code present on master; clean boot; kill-switch-gated path live. `person_entry_exit_events` last 24h = **7,123 crossings, 0 with `person_id`**. | **PASS (armed); attach=0 — see below** |
+| **Egress attach rate** — measure-before-build gate | **Face recognition is DOWN house-wide.** All 23 `sensor.*_last_recognized_face_2` entities are stuck at `Unknown`/`None` since 06:30 CDT (92 state changes in 24h, **every one a sentinel, zero real names**). The producer has nothing to fuse → `person_id` stays NULL. This is the anticipated **"producer alive, upstream face-rec dead"** L1 state (attach≈0 AND ambiguity≈0), **not a producer defect**. | **As-expected (blocked upstream)** |
+| **Optimizer zone-truth** — FP suppressed | Prompt invariant + `corpus.zones` fan-out present on master; review SHIP + mutation-anchored. Live "no comfort-FP alert of that class over a full optimizer cycle" is a short **organic watch** (can't be observed at the boot instant). | **Code+review PASS; live = organic** |
+
+### The real blocker (flagged)
+The egress producer is correct and shipped, but **its value — and every downstream identity consumer — is gated on Frigate face recognition, which has been down house-wide for ~a week** (all cameras stuck `Unknown`/`None` since 06:30). This is a homelab/enrollment-side fault, not a URA defect. Restoring face rec is the actual next step for the identity arc; until then, `person_id` production stays ~0 by design (graceful-anonymous — nothing breaks, the 4 display consumers just keep showing "unidentified").
+
+**Organic watches (per `--revisit`):** (1) re-run the face-rate probe once face rec is restored and confirm `egress_identity_attach_rate_24h` moves; (2) confirm the multi-zone comfort alert no longer fires over an optimizer cycle; (3) very_poor drain slider live-applies on a `very_poor` night.
