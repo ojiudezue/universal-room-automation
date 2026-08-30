@@ -12241,6 +12241,35 @@ cards:
   - camera_resolver.py DetectionLeg (:165) + FACE_SUFFIXES (:247-251) already multi-platform
   - camera_census.py _resolve_face_entity_id (:2615) — the single Frigate-only face-NAME reader that the bridge lets us extend to Protect
 
+- id: EVSE-CHARGE-ONSET-TIME-1
+  title: EVSE charge-onset gate — hold EV charging until the battery drain target is reached AND a configurable onset hour has passed (whichever is later)
+  thread: energy
+  status: inbox
+  created: '2026-08-29 20:30'
+  updated: '2026-08-29 20:30'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-08-29 (high-priority request); asked for plan outline'
+  priority: high
+  tags: [tier-2db, numbers-get-knobs, day-boundary, cross-coordinator, extend-existing]
+  problem_solution:
+  - 'Problem: EV charging currently begins as soon as the off-peak drain gate allows, but the operator wants to control WHEN charging starts overnight — the car should not start charging until BOTH (a) the home battery has drained to its off-peak drain target AND (b) a configurable onset hour has passed. Solution: add a charge-onset time gate. Charge start = the LATER of (drain-target-reached time, onset hour). If the drain target is reached before the onset hour, wait to the onset. If the onset hour passes before the drain target is reached, start as soon as the drain target is reached after that time. Onset hours commonly cross the midnight boundary (e.g. 11pm, 1am, 2am).'
+  origin:
+    date: '2026-08-29'
+    gist: 'operator: add EVSE charge onset time to (maybe) the DP code; charge starts after drain target reached AND a set hour, whichever later; crosses midnight'
+  why: 'Lets the operator align EV charging with the cheapest/latest TOU window and sequence it AFTER the battery has extracted its overnight discharge value, instead of the car charging too early or competing with battery drain.'
+  constraints:
+  - 'MUST be midnight-boundary safe (onset 23:00-02:00 spans the day boundary) — reuse the day-boundary-safe TOU period logic (Bug Class #51).'
+  - 'MUST NOT starve the car: keep/compose with a must-start-by backstop so an onset that never clears (drain target never reached) still charges before departure.'
+  - 'Kill-switch: onset unset = current behavior byte-identical.'
+  knobs:
+  - 'CONF_EVSE_CHARGE_ONSET_TIME (rung: config/options or a time entity — operator tunes by observation; time-of-day, kill-switch = unset)'
+  parsimony: {problem: 'EV charging starts before the operator-preferred hour / before battery drain completes', verdict: BUILD}
+  next: 'PLAN: institutional-context verify the drain-target-reached signal (energy_pool.py:622-651, consumed at :849/:954-962) + the EVSE start gate; design the onset-time gate composed with the existing drain gate; midnight-boundary handling; must-start-by backstop; discriminating acceptance criteria (onset-before-drain, onset-after-drain, midnight-cross, kill-switch). Tier 2-DB min (time x state-machine seam, battery<->EVSE<->TOU cross-coordinator).'
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_pool.py (drain-target-reached :622-651; EVSE determine_actions :849)
+  - memory project_ev_drain_precedence_cycle (adjacent must-start-by machinery)
+
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

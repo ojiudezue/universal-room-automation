@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-29T15:58:24-05:00_ - _Data commit: `01136bead164`_ - _last_reconciled: 2026-08-29_
+_Generated: 2026-08-29T16:30:12-05:00_ - _Data commit: `419cd3d017bd`_ - _last_reconciled: 2026-08-29_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-08-29T15:58:24-05:00_ - _Data commit: `01136bead164`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 5 |
@@ -23,7 +23,7 @@ _Generated: 2026-08-29T15:58:24-05:00_ - _Data commit: `01136bead164`_ - _last_r
 | 🅿️ Parked | 20 |
 | ✅ Done | 51 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
@@ -357,6 +357,20 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
+
+### `EVSE-CHARGE-ONSET-TIME-1` - EVSE charge-onset gate — hold EV charging until the battery drain target is reached AND a configurable onset hour has passed (whichever is later)
+thread: **energy** - status: **inbox** - approval: **explicit**
+_created 2026-08-29 20:30 · initial_
+- **Problem / Solution:**
+  - Problem: EV charging currently begins as soon as the off-peak drain gate allows, but the operator wants to control WHEN charging starts overnight — the car should not start charging until BOTH (a) the home battery has drained to its off-...
+- **Origin:** 2026-08-29 - operator: add EVSE charge onset time to (maybe) the DP code; charge starts after drain target reached AND a set hour, whichever later; crosses midnight
+- **Why:** Lets the operator align EV charging with the cheapest/latest TOU window and sequence it AFTER the battery has extracted its overnight discharge value, instead of the car charging too early or competing with battery drain.
+- **Next:** PLAN: institutional-context verify the drain-target-reached signal (energy_pool.py:622-651, consumed at :849/:954-962) + the EVSE start gate; design the onset-time gate composed with the existing drain gate; midnight-boundary handling; m...
+- **Tags:** tier-2db, numbers-get-knobs, day-boundary, cross-coordinator, extend-existing
+- **Parsimony:** [BUILD] EV charging starts before the operator-preferred hour / before battery drain completes
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_pool.py (drain-target-reached :622-651; EVSE determine_actions :849); memory project_ev_drain_precedence_cycle (adjacent must-start-by machinery)
+- **Forensic keys (1):**
+  - `priority`: high
 
 ## 🔬 Investigating (8)
 _measuring; truth not yet known_
