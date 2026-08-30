@@ -208,6 +208,8 @@ def _load_ns(*, kill_switch: bool = True,
             "_CONF_ENERGY_PEAK_BUFFER_TARGET",
             "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN",
             "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC",
+            # evse-charge-onset cycle knob.
+            "_CONF_ENERGY_EVSE_CHARGE_ONSET_TIME",
             "_CONF_ENERGY_FILL_PRIORITY_SOC",
             "_CONF_ENERGY_EXCESS_SOLAR_SOC",
             "_CONF_ENERGY_MAINS_EXPORT_ENTITY",

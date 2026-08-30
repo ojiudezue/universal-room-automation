@@ -666,6 +666,17 @@ CONF_ENERGY_SOLAR_THRESHOLD_GOOD: Final = "energy_solar_threshold_good"
 CONF_ENERGY_SOLAR_THRESHOLD_MODERATE: Final = "energy_solar_threshold_moderate"
 CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
 
+# EVSE charge-onset gate (evse-charge-onset cycle). HH:MM string; blank ⇒
+# disabled (baseline: overnight `battery_out_of_capacity` release fires
+# as soon as SOC hits reserve, regardless of wall-clock). When set (default
+# "01:00"), the OVERNIGHT-reserve leg of `determine_battery_drain_actions`
+# holds until the session-anchored onset instant is reached (see
+# EVChargerController._charge_onset_reached). The daytime-solar
+# `soc_recovered` leg is UNGATED. Persisted on entry.options (sole source
+# of truth); no RestoreEntity — re-seed pattern.
+CONF_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "energy_evse_charge_onset_time"
+DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "01:00"
+
 CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
 CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"
 # v5.12.0 SPAN circuit-identity re-key (companion to circuit baseline scope

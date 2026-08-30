@@ -353,6 +353,24 @@ def try_transition(
     return True
 
 
+def next_occurrence_of_hhmm(now: datetime, hh: int, mm: int) -> datetime:
+    """Next-occurring wall-clock instant for HH:MM relative to `now`.
+
+    STRICTLY-after semantics: if `now` is BEFORE today's HH:MM, the answer
+    is today's HH:MM. If `now` is AT-OR-AFTER, the answer is tomorrow's
+    HH:MM. Uses `now`'s tzinfo (caller controls tz-awareness).
+
+    Extracted from `compute_must_start_by` for reuse by
+    `EVChargerController._charge_onset_reached` (charge-onset session gate).
+    """
+    today_target = now.replace(
+        hour=hh, minute=mm, second=0, microsecond=0,
+    )
+    if now < today_target:
+        return today_target
+    return today_target + timedelta(days=1)
+
+
 def compute_must_start_by(
     now: datetime,
     *,
@@ -365,12 +383,7 @@ def compute_must_start_by(
     deadline is tomorrow. Uses `now`'s tzinfo — caller controls tz-awareness.
     """
     hour, minute = divmod(minutes_past_midnight, 60)
-    today_target = now.replace(
-        hour=hour, minute=minute, second=0, microsecond=0,
-    )
-    if now < today_target:
-        return today_target
-    return today_target + timedelta(days=1)
+    return next_occurrence_of_hhmm(now, hour, minute)
 
 
 # ==========================================================================

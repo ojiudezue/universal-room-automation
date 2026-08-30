@@ -449,6 +449,26 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD))
 
+        # evse-charge-onset cycle — seed the onset knob from entry.options
+        # (single source of truth per plan; no RestoreEntity). The setter
+        # fan-out (`set_ev_charge_onset_time`) is invoked once controllers
+        # are constructed further down; store the raw value here.
+        from .energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
+        )
+        self._ev_charge_onset_time_seed: str | None = ec.get(
+            CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
+        )
+        # Fan out to controllers immediately (they were constructed above).
+        try:
+            self.set_ev_charge_onset_time(self._ev_charge_onset_time_seed)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EV charge-onset seed apply failed (swallowed)", exc_info=True,
+            )
+
         # v4.7.6 D2/D3.2: EV fill-priority pause SOC threshold (runtime-tunable
         # via number.ura_energy_coordinator_fill_priority_soc). Seeded from
         # entry.options on first install; RestoreEntity is canonical thereafter.
@@ -1521,6 +1541,62 @@ class EnergyCoordinator(BaseCoordinator):
                     sorted(self._ev._paused_by_blind_window),
                     epoch_dt.isoformat(),
                 )
+            # evse-charge-onset cycle — restore the EV drain session
+            # anchor. Only reanchor when the pause set is non-empty
+            # (a persisted anchor with empty pause set is a stale KV
+            # from a prior session; ignore it — the fresh session will
+            # stamp on next add).
+            if self._ev._paused_by_battery_drain:
+                _ev_iso = await db.restore_energy_state_with_age(
+                    "evse_drain_session_started_at",
+                    max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                _ev_dt = None
+                if _ev_iso:
+                    try:
+                        _ev_dt = dt_util.parse_datetime(_ev_iso)
+                        if _ev_dt is not None and _ev_dt.tzinfo is None:
+                            _ev_dt = _ev_dt.replace(tzinfo=dt_util.UTC)
+                    except (ValueError, TypeError):
+                        _ev_dt = None
+                # Missing anchor with non-empty set: anchor to now (best
+                # effort — costs at most one onset-window's worth of
+                # extra hold, not correctness).
+                if _ev_dt is None:
+                    _ev_dt = dt_util.utcnow()
+                self._ev.mark_drain_session_from_restore(_ev_dt)
+                _LOGGER.info(
+                    "EV drain session: re-anchored from restore (anchor=%s)",
+                    _ev_dt.isoformat(),
+                )
+            # Plug side — parallel; plug tier does NOT currently persist
+            # its `_paused_by_battery_drain` (declared without
+            # persistence_kind), so on restore the set is empty and this
+            # block is a no-op unless a future plug-persistence cycle
+            # opts in. Still restore the anchor if present so a plug
+            # session that HAD been open pre-restart at least logs its
+            # last known anchor for observability.
+            _plug_ctrl = getattr(self, "_smart_plugs", None)
+            if _plug_ctrl is not None and getattr(_plug_ctrl, "_paused_by_battery_drain", None):
+                _plug_iso = await db.restore_energy_state_with_age(
+                    "plug_drain_session_started_at",
+                    max_age_hours=STALE_MAX_AGE_HOURS,
+                )
+                _plug_dt = None
+                if _plug_iso:
+                    try:
+                        _plug_dt = dt_util.parse_datetime(_plug_iso)
+                        if _plug_dt is not None and _plug_dt.tzinfo is None:
+                            _plug_dt = _plug_dt.replace(tzinfo=dt_util.UTC)
+                    except (ValueError, TypeError):
+                        _plug_dt = None
+                if _plug_dt is None:
+                    _plug_dt = dt_util.utcnow()
+                _plug_ctrl.mark_drain_session_from_restore(_plug_dt)
+                _LOGGER.info(
+                    "Smart plug drain session: re-anchored from restore (anchor=%s)",
+                    _plug_dt.isoformat(),
+                )
             # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
             # F8 (review): Switch RestoreEntity (`switch.py:802-854`) is the
             # fresher fast-path (~15s attribute flush) and wins when present;
@@ -1718,6 +1794,16 @@ class EnergyCoordinator(BaseCoordinator):
             # per-id closure). Declared here so the assertion below
             # allows it — the helper itself is a no-op for that hook.
             "blind_window_epoch_and_pre_engaged",
+            # evse-charge-onset cycle — session-anchor restore for the
+            # EV and plug drain controllers. Same idiom as blind_window:
+            # per-id list is registry-driven (adds ids back into the
+            # pause set) and the sibling epoch KV
+            # ("evse_drain_session_started_at" /
+            #  "plug_drain_session_started_at") is applied INLINE in
+            # `_restore_evse_state` after this helper returns, via
+            # `mark_drain_session_from_restore` on each controller.
+            "drain_session_epoch_ev",
+            "drain_session_epoch_plug",
         }
         for _decl in _EV_REG.iter_persisted_lists():
             _payload = await db.restore_energy_state_with_age(
@@ -1972,6 +2058,40 @@ class EnergyCoordinator(BaseCoordinator):
                 await db.save_energy_state(
                     "evse_blind_window_epoch_started_at",
                     "",
+                )
+            # evse-charge-onset cycle — persist the EV and plug drain
+            # session anchors alongside the pause-set list. Restart
+            # mid-session otherwise re-anchors to post-restart now(),
+            # which for a 22:00 session breaking at 23:30 flips the
+            # onset-instant resolution (LOOKBACK shift is anchored to
+            # the session's ACTUAL start, not the restart). Same "" =
+            # None sentinel as the blind_window pattern above.
+            _ev_epoch = getattr(self._ev, "_drain_session_started_at", None)
+            if _ev_epoch is not None:
+                if _ev_epoch.tzinfo is None:
+                    _ev_epoch = _ev_epoch.replace(tzinfo=dt_util.UTC)
+                await db.save_energy_state(
+                    "evse_drain_session_started_at",
+                    _ev_epoch.isoformat(),
+                )
+            else:
+                await db.save_energy_state(
+                    "evse_drain_session_started_at", "",
+                )
+            _plug_epoch = getattr(
+                getattr(self, "_smart_plugs", None),
+                "_drain_session_started_at", None,
+            )
+            if _plug_epoch is not None:
+                if _plug_epoch.tzinfo is None:
+                    _plug_epoch = _plug_epoch.replace(tzinfo=dt_util.UTC)
+                await db.save_energy_state(
+                    "plug_drain_session_started_at",
+                    _plug_epoch.isoformat(),
+                )
+            else:
+                await db.save_energy_state(
+                    "plug_drain_session_started_at", "",
                 )
             # D5 (blind-window guard): persist LKG SOC snapshot (value +
             # timestamp). Consumed by the SOCEnvelope decay math on restart.
@@ -6045,6 +6165,17 @@ class EnergyCoordinator(BaseCoordinator):
                 # helper the mutation-anchored tests drive (Fix 5).
                 from .energy_battery import compose_release_floor as _crf
                 _release_floor, _is_offpeak = _crf(self._battery, period)
+                # evse-charge-onset cycle — dp_forcing threads the DP
+                # MUST_START_FORCED signal through so the DP timer fire
+                # overrides the onset hold (a plane already flying beats
+                # a scheduled departure).
+                from .energy_drain_precedence import DPState as _DPState_gate
+                _dp_forcing = (
+                    self._dp_carrier is not None
+                    and getattr(self._dp_carrier, "state", None)
+                    == _DPState_gate.MUST_START_FORCED
+                )
+                _now = dt_util.now()
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
@@ -6052,6 +6183,8 @@ class EnergyCoordinator(BaseCoordinator):
                     reserve_soc=_release_floor,
                     solar_replenishing=solar_replenishing,
                     is_offpeak=_is_offpeak,
+                    dp_forcing=_dp_forcing,
+                    now_local=_now,
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
@@ -6180,6 +6313,14 @@ class EnergyCoordinator(BaseCoordinator):
                 # kwarg previously defaulted to False, so the plug's
                 # `soc_recovered` gate could never fire and release was
                 # reserve-only).
+                # evse-charge-onset cycle mirror — same dp_forcing + now.
+                from .energy_drain_precedence import DPState as _DPState_gate2
+                _dp_forcing_plug = (
+                    self._dp_carrier is not None
+                    and getattr(self._dp_carrier, "state", None)
+                    == _DPState_gate2.MUST_START_FORCED
+                )
+                _now_plug = dt_util.now()
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
@@ -6188,6 +6329,8 @@ class EnergyCoordinator(BaseCoordinator):
                     force_charge_active=force_charge_active,
                     solar_replenishing=solar_replenishing,
                     is_offpeak=_is_offpeak,
+                    dp_forcing=_dp_forcing_plug,
+                    now_local=_now_plug,
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
@@ -8976,6 +9119,28 @@ class EnergyCoordinator(BaseCoordinator):
     def ev_battery_drain_soc(self) -> int:
         """Current EV battery-drain pause threshold (v4.3.3)."""
         return self._ev_battery_drain_soc
+
+    def set_ev_charge_onset_time(self, value: str | None) -> None:
+        """Set the overnight EV charge-onset gate HH:MM (evse-charge-onset).
+
+        Fans out to both `EVChargerController` and `SmartPlugController`;
+        both consume it in `_charge_onset_reached` (session-anchored gate
+        on the OVERNIGHT `battery_out_of_capacity` leg only — daytime
+        `soc_recovered` leg stays ungated). Blank/None ⇒ gate disabled,
+        baseline byte-identical behavior. Routed via `_EC_SETTER_DISPATCH`.
+        """
+        v = value if value else None
+        try:
+            if self._ev is not None:
+                self._ev.set_ev_charge_onset_time(v)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("EV set_ev_charge_onset_time swallowed", exc_info=True)
+        try:
+            if getattr(self, "_smart_plugs", None) is not None:
+                self._smart_plugs.set_ev_charge_onset_time(v)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Plug set_ev_charge_onset_time swallowed", exc_info=True)
+        _LOGGER.info("EV charge-onset time (fan-out) set to %r", v)
 
     def set_ev_battery_drain_soc(self, value: int) -> None:
         """Update EV battery-drain pause threshold at runtime (v4.3.3).

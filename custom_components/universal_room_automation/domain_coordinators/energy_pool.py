@@ -43,6 +43,49 @@ DEFAULT_POOL_PUMP_POWER_ENTITY = "sensor.pentair_pool_variable_speed_pump_1_powe
 DEFAULT_POOL_INFINITY_EDGE_ENTITY = "switch.pentair_feature_7"
 DEFAULT_POOL_HEATER_ENTITY = "switch.pentair_heater_solar_preferred"
 
+# evse-charge-onset cycle — session lookback for `_charge_onset_reached`.
+# The onset instant is `next_occurrence_of_hhmm(anchor - LOOKBACK, hh, mm)`
+# where anchor = `_drain_session_started_at` (the wall-clock the drain-pause
+# session opened). The 6h lookback ensures that a session opened before the
+# onset (say 22:00 with onset 01:00) resolves to the NEXT 01:00 relative
+# to (22:00 - 6h) = 16:00, i.e. tomorrow's 01:00 — NOT today's already-past
+# 01:00. Sessions opened AFTER the onset (say 02:15 with onset 01:00)
+# resolve immediately (onset_reached=True). See helper docstring.
+ONSET_SESSION_LOOKBACK_H = 6
+
+
+def _dt_util_now_or_none():
+    """Return `dt_util.now()` or None if HA import fails.
+
+    Used in the drain gate as a fallback when the caller did not pass
+    `now=` (test paths always pass `now`; production caller wires it).
+    """
+    try:
+        from homeassistant.util import dt as dt_util
+        return dt_util.now()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _parse_hhmm(value: str) -> tuple[int, int] | None:
+    """Parse "HH:MM" into (hh, mm) or return None on any malformation.
+
+    Accepts "H:MM" too. Rejects anything outside 0..23 / 0..59.
+    """
+    if not isinstance(value, str):
+        return None
+    parts = value.strip().split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hh = int(parts[0])
+        mm = int(parts[1])
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        return None
+    return hh, mm
+
 # Pool speed settings (GPM)
 POOL_NORMAL_SPEED = 75
 POOL_REDUCED_SPEED = 30
@@ -205,6 +248,19 @@ class EVChargerController:
         self._excess_solar_active: set[str] = set()
         self._paused_by_grid_cap: set[str] = set()
         self._paused_by_battery_drain: set[str] = set()
+        # evse-charge-onset cycle — per-controller session anchor for the
+        # OVERNIGHT reserve leg of `determine_battery_drain_actions`. Set
+        # when `_paused_by_battery_drain` first admits an evse_id (session
+        # open), cleared on terminal release (session close) or teardown.
+        # Consumed by `_charge_onset_reached`. Persisted alongside the
+        # `evse_battery_drain_paused` KV so a mid-session restart
+        # re-anchors correctly. Mirrors `_blind_window_epoch_started_at`.
+        self._drain_session_started_at: datetime | None = None
+        # evse-charge-onset cycle — HH:MM onset (or None ⇒ gate disabled,
+        # baseline byte-identical). Written by
+        # `EnergyCoordinator.set_ev_charge_onset_time` (setter routed via
+        # `_EC_SETTER_DISPATCH`); read by `_charge_onset_reached`.
+        self._ev_charge_onset_time: str | None = None
         # EVSE drain-precedence (Session B2b-i): dedicated pause-owner set,
         # peer of `_paused_by_battery_drain` / `_paused_by_arbitrage` /
         # `_paused_by_load_shed`. Mirrors the v5.3.9 pattern of one set per
@@ -592,6 +648,92 @@ class EVChargerController:
         """
         self._blind_window_epoch_started_at = epoch_started_at
         self._blind_window_pre_engaged = True
+
+    # ------------------------------------------------------------------
+    # evse-charge-onset cycle — onset knob + session anchor + gate helper.
+    # ------------------------------------------------------------------
+    def set_ev_charge_onset_time(self, value: str | None) -> None:
+        """Set the overnight charge-onset gate HH:MM.
+
+        `value` = "HH:MM" ⇒ gate active; None/""/malformed ⇒ gate disabled
+        (baseline byte-identical behavior: overnight
+        `battery_out_of_capacity` releases immediately). Routed by
+        `EnergyCoordinator.set_ev_charge_onset_time` (which fans out to
+        both EV + plug controllers).
+        """
+        old = self._ev_charge_onset_time
+        if not value:
+            self._ev_charge_onset_time = None
+        else:
+            parsed = _parse_hhmm(value)
+            self._ev_charge_onset_time = value if parsed is not None else None
+        if old != self._ev_charge_onset_time:
+            _LOGGER.info(
+                "EV charge-onset time set to %r (was %r)",
+                self._ev_charge_onset_time, old,
+            )
+
+    def mark_drain_session_from_restore(
+        self, epoch_started_at: "datetime | None",
+    ) -> None:
+        """Re-anchor `_drain_session_started_at` from persisted KV.
+
+        Called by `EnergyCoordinator._restore_evse_state` after the
+        `_paused_by_battery_drain` list is rehydrated. Without this,
+        a restart mid-session would reset the anchor to post-restart
+        now(), and `_charge_onset_reached` would evaluate against the
+        wrong wall-clock (e.g. session opened at 22:00, restarted at
+        23:30 — a fresh anchor of 23:30 with LOOKBACK=6h still resolves
+        to tomorrow's 01:00, but if it were reset to 00:30 the answer
+        would flip; anchoring to the ACTUAL session start preserves
+        the intended overnight hold). Idempotent.
+        """
+        self._drain_session_started_at = epoch_started_at
+
+    def _charge_onset_reached(self, now: "datetime") -> bool:
+        """True when the overnight onset instant has been reached.
+
+        Session-anchored + day-boundary safe. Definition:
+          onset_instant = next_occurrence_of_hhmm(
+              anchor_local - ONSET_SESSION_LOOKBACK_H, hh, mm)
+          reached = now_local >= onset_instant
+
+        The LOOKBACK shift is what makes a session opened BEFORE the
+        onset (e.g. anchor 22:00, onset 01:00) resolve to tomorrow's
+        onset instead of today's already-past one, and a session opened
+        AFTER the onset (e.g. anchor 02:15, onset 01:00) resolve to
+        NOW → immediately reached. A naive `now.hour >= onset.hour`
+        (the review's kill target) misfires at anchor 22:00: now=22:00,
+        onset=01:00 → False; now=23:00 → False; now=00:30 → False;
+        even though the intent is "hold until 01:00 d2".
+
+        Returns True (permissive) when:
+          * onset knob unset (baseline) — gate disabled;
+          * session anchor is None (no session yet) — gate does not hold.
+        """
+        onset_str = self._ev_charge_onset_time
+        if not onset_str:
+            return True  # gate disabled ⇒ do not hold
+        parsed = _parse_hhmm(onset_str)
+        if parsed is None:
+            return True  # malformed ⇒ safe: do not hold
+        hh, mm = parsed
+        anchor = self._drain_session_started_at
+        if anchor is None:
+            # No session anchor — nothing to gate against; permissive.
+            return True
+        # Localize both anchor and now to the same tz so arithmetic is
+        # honest. Callers pass tz-aware `now` (dt_util.now()). Anchor
+        # may be UTC-persisted; convert to `now`'s tz.
+        if anchor.tzinfo is None:
+            # Defensive — treat naive as `now`'s tz.
+            anchor = anchor.replace(tzinfo=now.tzinfo)
+        if now.tzinfo is not None and anchor.tzinfo != now.tzinfo:
+            anchor = anchor.astimezone(now.tzinfo)
+        from .energy_drain_precedence import next_occurrence_of_hhmm
+        shifted = anchor - timedelta(hours=ONSET_SESSION_LOOKBACK_H)
+        onset_instant = next_occurrence_of_hhmm(shifted, hh, mm)
+        return now >= onset_instant
 
     def _blind_window_max_defer_exceeded(self) -> bool:
         """True when the current epoch has exceeded the max-defer bound.
@@ -1784,6 +1926,8 @@ class EVChargerController:
         reserve_soc: int | None = None,
         solar_replenishing: bool = False,
         is_offpeak: bool = False,
+        dp_forcing: bool = False,
+        now_local: "datetime | None" = None,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs draining the home battery. Resume on recovery.
 
@@ -1960,6 +2104,20 @@ class EVChargerController:
                     "data": {},
                 })
                 self._paused_by_battery_drain.add(evse_id)
+                # evse-charge-onset cycle — session anchor. Stamp ONLY on
+                # the transition from empty→non-empty pause set (the
+                # SESSION open); do not restamp on idempotent re-adds
+                # (a mid-session re-dispatch is still the same session).
+                if self._drain_session_started_at is None:
+                    try:
+                        from homeassistant.util import dt as dt_util
+                        self._drain_session_started_at = dt_util.now()
+                    except Exception:  # noqa: BLE001
+                        self._drain_session_started_at = None
+                    _LOGGER.info(
+                        "EV drain session opened (anchor=%s)",
+                        self._drain_session_started_at,
+                    )
                 # Re-stamp dispatch ts and reset observed_off on every
                 # dispatch so the grace window is honored cycle-to-cycle.
                 self._pause_dispatch_ts[evse_id] = now
@@ -2005,7 +2163,23 @@ class EVChargerController:
                     and battery_soc >= soc_threshold + 5
                 )
 
-                if battery_out_of_capacity or soc_recovered:
+                # evse-charge-onset cycle — REASSOCIATED release clause.
+                # The overnight `battery_out_of_capacity` leg is gated on
+                # `onset_reached OR dp_forcing`; the daytime `soc_recovered`
+                # leg is UNGATED (solar refilled the battery — release
+                # regardless of wall-clock). CRITICAL: the AND must NOT be
+                # distributed across both legs; a distributive form
+                # `(bat_out or soc_recovered) and (onset or dp)` would
+                # break the daytime solar release (the review's kill).
+                _now_local = now_local if now_local is not None else _dt_util_now_or_none()
+                onset_reached = (
+                    _now_local is not None
+                    and self._charge_onset_reached(_now_local)
+                )
+                if (
+                    (battery_out_of_capacity and (onset_reached or dp_forcing))
+                    or soc_recovered
+                ):
                     if not state["is_on"]:
                         # Don't resume if another pause reason is active.
                         # v4.7.6 fix-up A-H2: release drain's claim only —
@@ -2045,6 +2219,16 @@ class EVChargerController:
                     # if no other owner remains, dispatch tracking is wiped.
                     self._release_pause_dispatch_owner(evse_id, "battery_drain")
 
+        # evse-charge-onset cycle — session close. When the pause set has
+        # fully drained (no evse held by drain), the session is over.
+        # Clearing the anchor is required so the NEXT drain session
+        # (potentially the next day) gets a fresh anchor stamp above.
+        if not self._paused_by_battery_drain and self._drain_session_started_at is not None:
+            _LOGGER.info(
+                "EV drain session closed (was anchored at %s)",
+                self._drain_session_started_at,
+            )
+            self._drain_session_started_at = None
         return actions
 
     # ------------------------------------------------------------------
@@ -2880,6 +3064,10 @@ class SmartPlugController:
         self._plug_config: dict[str, dict[str, Any]] = plug_config or {}
         self._paused_by_us: set[str] = set()
         self._paused_by_battery_drain: set[str] = set()
+        # evse-charge-onset cycle mirror of EVChargerController — per-
+        # controller session anchor and onset HH:MM. See EV docstring.
+        self._drain_session_started_at: datetime | None = None
+        self._ev_charge_onset_time: str | None = None
 
         # v4.7.6 D1 mirror: hybrid manual-override detection state.
         self._pause_dispatch_ts: dict[str, float] = {}
@@ -2919,6 +3107,49 @@ class SmartPlugController:
         # SmartPlugController from scratch via `async_setup_entry`, so
         # this is defense-in-depth for any future in-place reconfig path.
         self.prune_removed_plugs()
+
+    # ------------------------------------------------------------------
+    # evse-charge-onset cycle mirror — plug-tier onset gate helpers.
+    # Identical semantics + doc as EVChargerController; duplicated (not
+    # extracted to a mixin) so per-controller state stays encapsulated.
+    # ------------------------------------------------------------------
+    def set_ev_charge_onset_time(self, value: str | None) -> None:
+        old = self._ev_charge_onset_time
+        if not value:
+            self._ev_charge_onset_time = None
+        else:
+            parsed = _parse_hhmm(value)
+            self._ev_charge_onset_time = value if parsed is not None else None
+        if old != self._ev_charge_onset_time:
+            _LOGGER.info(
+                "Smart plug charge-onset time set to %r (was %r)",
+                self._ev_charge_onset_time, old,
+            )
+
+    def mark_drain_session_from_restore(
+        self, epoch_started_at: "datetime | None",
+    ) -> None:
+        self._drain_session_started_at = epoch_started_at
+
+    def _charge_onset_reached(self, now: "datetime") -> bool:
+        onset_str = self._ev_charge_onset_time
+        if not onset_str:
+            return True
+        parsed = _parse_hhmm(onset_str)
+        if parsed is None:
+            return True
+        hh, mm = parsed
+        anchor = self._drain_session_started_at
+        if anchor is None:
+            return True
+        if anchor.tzinfo is None:
+            anchor = anchor.replace(tzinfo=now.tzinfo)
+        if now.tzinfo is not None and anchor.tzinfo != now.tzinfo:
+            anchor = anchor.astimezone(now.tzinfo)
+        from .energy_drain_precedence import next_occurrence_of_hhmm
+        shifted = anchor - timedelta(hours=ONSET_SESSION_LOOKBACK_H)
+        onset_instant = next_occurrence_of_hhmm(shifted, hh, mm)
+        return now >= onset_instant
 
     # ------------------------------------------------------------------
     # v4.7.6 helpers
@@ -3198,6 +3429,8 @@ class SmartPlugController:
         force_charge_active: bool = False,
         solar_replenishing: bool = False,
         is_offpeak: bool = False,
+        dp_forcing: bool = False,
+        now_local: "datetime | None" = None,
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
 
@@ -3314,6 +3547,18 @@ class SmartPlugController:
                     "data": {},
                 })
                 self._paused_by_battery_drain.add(entity_id)
+                # evse-charge-onset cycle mirror — session anchor on
+                # empty→non-empty pause-set transition. See EV docstring.
+                if self._drain_session_started_at is None:
+                    try:
+                        from homeassistant.util import dt as dt_util
+                        self._drain_session_started_at = dt_util.now()
+                    except Exception:  # noqa: BLE001
+                        self._drain_session_started_at = None
+                    _LOGGER.info(
+                        "Smart plug drain session opened (anchor=%s)",
+                        self._drain_session_started_at,
+                    )
                 self._pause_dispatch_ts[entity_id] = now
                 self._observed_off_since_pause[entity_id] = False
                 # v4.7.6 fix-up A-H2 mirror: claim drain ownership.
@@ -3340,7 +3585,17 @@ class SmartPlugController:
                     and battery_soc >= soc_threshold + 5
                 )
 
-                if battery_out_of_capacity or soc_recovered:
+                # evse-charge-onset cycle mirror — REASSOCIATED release
+                # clause; identical semantics to EV path (see docstring).
+                _now_local = now_local if now_local is not None else _dt_util_now_or_none()
+                onset_reached = (
+                    _now_local is not None
+                    and self._charge_onset_reached(_now_local)
+                )
+                if (
+                    (battery_out_of_capacity and (onset_reached or dp_forcing))
+                    or soc_recovered
+                ):
                     # Don't resume if TOU pause or fill-priority is active.
                     # v4.7.6 fix-up A-H2 mirror: release drain claim only.
                     # load-shedding-correctness D1: also defer to load_shed.
@@ -3372,6 +3627,13 @@ class SmartPlugController:
                     self._paused_by_battery_drain.discard(entity_id)
                     self._release_pause_dispatch_owner(entity_id, "battery_drain")
 
+        # evse-charge-onset cycle mirror — session close on empty set.
+        if not self._paused_by_battery_drain and self._drain_session_started_at is not None:
+            _LOGGER.info(
+                "Smart plug drain session closed (was anchored at %s)",
+                self._drain_session_started_at,
+            )
+            self._drain_session_started_at = None
         return actions
 
     def determine_fill_priority_actions(

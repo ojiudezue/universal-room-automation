@@ -5581,6 +5581,8 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_PEAK_BUFFER_TARGET as _CONF_ENERGY_PEAK_BUFFER_TARGET,
     CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN as _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     CONF_ENERGY_EV_BATTERY_DRAIN_SOC as _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+    # evse-charge-onset cycle — overnight release-onset HH:MM knob.
+    CONF_ENERGY_EVSE_CHARGE_ONSET_TIME as _CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
     CONF_ENERGY_FILL_PRIORITY_SOC as _CONF_ENERGY_FILL_PRIORITY_SOC,
     CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
     # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
@@ -6010,6 +6012,8 @@ _EC_SETTER_DISPATCH: dict[str, tuple[str, type]] = {
     _CONF_ENERGY_PEAK_BUFFER_TARGET:               ("set_peak_buffer_target",         int),
     _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN:   ("set_arbitrage_charge_lead_time", int),
     _CONF_ENERGY_EV_BATTERY_DRAIN_SOC:             ("set_ev_battery_drain_soc",       int),
+    # evse-charge-onset cycle — HH:MM string; blank ⇒ gate disabled.
+    _CONF_ENERGY_EVSE_CHARGE_ONSET_TIME:           ("set_ev_charge_onset_time",       str),
     _CONF_ENERGY_FILL_PRIORITY_SOC:                ("set_fill_priority_soc",          int),
     _CONF_ENERGY_EXCESS_SOLAR_SOC:                 ("set_excess_solar_soc",           int),
     # Session B1 — EVSE Drain-Precedence Number + Select entities.

@@ -244,6 +244,8 @@ def _load_init_listener_helpers():
         "_CONF_ENERGY_PEAK_BUFFER_TARGET":        "energy_peak_buffer_target",
         "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN": "energy_arbitrage_charge_lead_time_min",
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
+        # evse-charge-onset cycle — HH:MM overnight release gate knob.
+        "_CONF_ENERGY_EVSE_CHARGE_ONSET_TIME":    "energy_evse_charge_onset_time",
         "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
         # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
