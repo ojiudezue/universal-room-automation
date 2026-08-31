@@ -689,7 +689,7 @@ DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "01:00"
 # intent). Fanned out to BOTH controllers by
 # `EnergyCoordinator.set_ev_charge_onset_enabled`.
 CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = "energy_evse_charge_onset_enabled"
-DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = True
+DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = False  # v3 (funnel) — SHIP DORMANT; operator enables deliberately
 
 # evse-charge-onset Rev 6 (D-B) — BOUNDED HOLD WINDOW replaces the Rev-5
 # session-anchor + lookback mechanism. Hold the overnight leg ONLY when

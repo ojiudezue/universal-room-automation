@@ -57,3 +57,7 @@ This is where the money/safety leaks live. When a value is produced inside a per
 ---
 
 **In one line:** trace the value, not the file — produced (which derivation wins, are its inputs alive), carried (entry-reset, capture-before-await, stamp-then-consume, ordering, no-op byte-identity), consumed (every call site, trust-vs-display), across cycles (who else lives in this branch, re-enumerate the whole surface), and prove it with a discriminating observation on ground truth.
+
+## Case study: "who turns the EVSE charger on?"
+
+There are **~15 turn-on emission sites** for the EVSE/plug charger — none singular. Two prior cycles (v1 drain-release only, v2 ensure-on only) shipped a fix at a single site and left charge-onset broken through the other paths. The v3 charge-onset cycle enumerated the full surface (P0 live paths, P1 best-effort, escapes that BYPASS) and wrapped emissions in a shared `_charge_on_or_defer` funnel. When tracing a value that gets THROUGH the charger — cost, load, safety — start with this map (see `docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md#charge-onset--the-turn-on-surface-v3-funnel--ship-dormant`), not the first-hit site.

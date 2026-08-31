@@ -1198,7 +1198,7 @@ ECArbitrageSwitch = _ec_switch_factory(
 # Default True — feature ships ACTIVE (matches "01:00" onset default).
 ECEVChargeOnsetEnabledSwitch = _ec_switch_factory(
     "_ev_charge_onset_enabled", "ev_charge_onset_enabled",
-    "EV Charge Onset (Overnight)", "mdi:ev-station", default=True,
+    "EV Charge Onset (Overnight)", "mdi:ev-station", default=False,  # v3 (funnel) ship dormant
 )
 
 ECDrainPrecedenceEnableSwitch = _ec_switch_factory(

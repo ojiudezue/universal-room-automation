@@ -5276,9 +5276,46 @@ class EnergyCoordinator(BaseCoordinator):
                 continue
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
             # About to release cleanly (dispatch turn_on OR already on).
+            # B8 ORDERING: the discards below MUST run before the onset
+            # guard — the H-2 sticky machinery depends on that order.
+            # Do NOT `continue` before them.
             self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
             self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
             if not state.get("is_on"):
+                # v3 (funnel P0-#3) — inline onset gate for the DP
+                # reversion turn-on. #3 has NEVER fired live (audit:
+                # DP `TRANSITIONED`=0 over 21 nights), so this is cheap
+                # latent insurance rather than a live-critical path.
+                # In-suite test only; no direct funnel call because
+                # `_apply_dp_reversion` uses `hass.services.async_call`
+                # rather than the controller's action-emission shape.
+                from homeassistant.util import dt as dt_util
+                from .energy_pool import (
+                    _evaluate_onset_gate,
+                    _DEFAULT_ONSET_MAX_HOLD_H,
+                )
+                onset_permits, must_start_by_reached = _evaluate_onset_gate(
+                    dt_util.now(),
+                    getattr(self._ev, "_ev_charge_onset_enabled", False),  # noqa: SLF001
+                    getattr(self._ev, "_ev_charge_onset_time", None),  # noqa: SLF001
+                    _DEFAULT_ONSET_MAX_HOLD_H,
+                    getattr(self, "_dp_must_start_by_min", None),
+                )
+                if not (onset_permits or must_start_by_reached):
+                    # Held by onset — record the deferral and skip.
+                    if not hasattr(self._ev, "_onset_deferred"):  # noqa: SLF001
+                        self._ev._onset_deferred = set()  # noqa: SLF001
+                    self._ev._onset_deferred.add(evse_id)  # noqa: SLF001
+                    _LOGGER.info(
+                        "charge-onset: deferring DP reversion turn-on "
+                        "for %s (onset %r)",
+                        evse_id,
+                        getattr(self._ev, "_ev_charge_onset_time", None),  # noqa: SLF001
+                    )
+                    continue
+                _od = getattr(self._ev, "_onset_deferred", None)  # noqa: SLF001
+                if _od is not None:
+                    _od.discard(evse_id)
                 self.hass.async_create_task(
                     self.hass.services.async_call(
                         "switch", "turn_on",
@@ -6241,6 +6278,10 @@ class EnergyCoordinator(BaseCoordinator):
                         period,
                         force_charge_active=_fc_active,
                         grid_charge_on=bool(grid_charge_intent),
+                        # v3 (funnel) — thread must-start-by so plug
+                        # onset funnel has the backstop (plug tier has
+                        # no DP participation; this is its only escape).
+                        must_start_by_min=self._dp_must_start_by_min,
                     )
                     for action_spec in plug_actions:
                         await self._execute_service_action(action_spec)

@@ -158,6 +158,8 @@ async def async_setup_entry(
             # evse-charge-onset §10 — aggregate gate-open sensor with
             # soc_recovered_active attribute for the daytime discriminator.
             EVChargeOnsetGateOpenBinarySensor(hass, entry),
+            # v3 (funnel) — observability of the funnel's deferrals.
+            EVChargeOnsetActiveBinarySensor(hass, entry),
             # v4.7.x D2: EC sub-switch sync health sensor
             ECSubSwitchesSyncedSensor(hass, entry),
             # v4.7.x Cycle A: WeatherProviderManager divergence flag
@@ -2622,6 +2624,71 @@ class EVChargeOnsetGateOpenBinarySensor(AggregationEntity, BinarySensorEntity):
             energy, "_last_soc_recovered", None,
         ) if energy is not None else None
         return out
+
+
+class EVChargeOnsetActiveBinarySensor(AggregationEntity, BinarySensorEntity):
+    """v3 (funnel) — union of both controllers' `_onset_deferred` sets.
+
+    `binary_sensor.ura_ev_charge_onset_active` — True when the funnel
+    is currently HOLDING at least one charger (EVSE or plug) inside
+    the onset hold window. Distinct from `..._gate_open` (which reports
+    whether the GATE would permit right now, based on `now` + onset);
+    this sensor reflects the observed deferral state actually recorded
+    by the funnel calls at P0 sites.
+
+    Note: only meaningful for chargers that reach a routed site. A
+    DP/blind-window `continue` upstream leaves the set empty.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-pause"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_ev_charge_onset_active"
+        self._attr_name = "EV Charge-Onset Active (deferred)"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _deferred_union(self) -> set[str] | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        ev = getattr(energy, "_ev", None)
+        plug = getattr(energy, "_smart_plugs", None)
+        out: set[str] = set()
+        for ctrl in (ev, plug):
+            if ctrl is None:
+                continue
+            try:
+                out |= set(getattr(ctrl, "_onset_deferred", set()) or set())
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+
+    @property
+    def is_on(self) -> bool | None:
+        u = self._deferred_union()
+        if u is None:
+            return None
+        return len(u) > 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        u = self._deferred_union() or set()
+        return {"deferred": sorted(u), "count": len(u)}
 
 
 class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):

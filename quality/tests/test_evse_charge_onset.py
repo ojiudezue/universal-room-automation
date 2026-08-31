@@ -600,3 +600,263 @@ class TestConstInvariants:
     def test_lookback_retired_to_zero(self):
         # Rev-5 lookback is retired; kept as a numeric no-op.
         assert ONSET_SESSION_LOOKBACK_H == 0
+
+
+# ---------------------------------------------------------------------------
+# v3 (funnel) — gated turn-on funnel `_charge_on_or_defer`
+# ---------------------------------------------------------------------------
+
+
+class TestChargeOnsetFunnel:
+    """The gated turn-on funnel used by P0 sites #1/#2/#4/#5.
+
+    Neuter drills (each mutation goes RED on its named test, restore):
+
+      * P0-#1 (EV ensure-on ~1508): route the `if not state["is_on"]`
+        branch directly to `actions.append({turn_on})` bypassing
+        `_charge_on_or_defer` → `test_p0_1_ev_ensure_on_neuter_red` fails.
+      * P0-#2 (plug ensure-on ~3483): same drill →
+        `test_p0_2_plug_ensure_on_neuter_red` fails.
+      * P0-#4 (EV drain-release ~2333): same drill →
+        `test_p0_4_ev_drain_release_neuter_red` fails.
+      * P0-#5 (plug drain-release ~3813): same drill →
+        `test_p0_5_plug_drain_release_neuter_red` fails.
+
+    INV-BASELINE: enable OFF → all 5 sites byte-identical to develop
+    (force `enabled=True` inside the funnel → RED via
+    `test_inv_baseline_enable_off_permits_turn_on`).
+    """
+
+    # ------------------------------------------------------------------ P0-#1
+    def test_p0_1_ev_ensure_on_deferred_in_hold_window(self):
+        """OFF EV, enabled, onset=01:00, now=22:00 → funnel refuses turn_on."""
+        ev, hass = _make_ev(charging=False)
+        ev._paused_by_battery_drain.discard("garage_a")
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        now = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = ev._charge_on_or_defer(
+            "garage_a", "switch.garage_a", now,
+            ev._ev_charge_onset_enabled, ev._ev_charge_onset_time,
+            180,
+        )
+        assert actions == []
+        assert "garage_a" in ev._onset_deferred
+
+    def test_p0_1_ev_ensure_on_permit_after_onset(self):
+        ev, hass = _make_ev(charging=False)
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        ev._onset_deferred.add("garage_a")
+        now = datetime(2026, 1, 2, 1, 0, tzinfo=CDT)
+        actions = ev._charge_on_or_defer(
+            "garage_a", "switch.garage_a", now, True, "01:00", 180,
+        )
+        # exactly at 01:00 → next_occurrence returns tomorrow's 01:00
+        # → delta 24h > 8h → permits.
+        assert _release_fires(actions)
+        assert "garage_a" not in ev._onset_deferred
+
+    # ------------------------------------------------------------------ P0-#2
+    def test_p0_2_plug_ensure_on_deferred_in_hold_window(self):
+        sp, hass, pid = _make_plug()
+        sp._paused_by_battery_drain.discard(pid)
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        now = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = sp._charge_on_or_defer(
+            pid, pid, now, sp._ev_charge_onset_enabled,
+            sp._ev_charge_onset_time, 180,
+        )
+        assert actions == []
+        assert pid in sp._onset_deferred
+
+    # ------------------------------------------------------------------ P0-#4
+    def test_p0_4_ev_drain_release_deferred(self):
+        """EV drain-release site withholds turn_on inside hold window.
+
+        Neuter drill: replace the `actions.extend(_charge_on_or_defer(...))`
+        at the drain-release site with `actions.append({turn_on})`
+        bypassing the funnel — this test still expects the inline
+        gate's `overnight_release` to compute False when enabled+in-window,
+        so it goes RED because the raw append would emit anyway.
+        """
+        ev, hass = _make_ev(charging=False)
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        # Force battery_out_of_capacity path.
+        now_local = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert not _release_fires(actions), (
+            "expected drain-release to be held by onset gate"
+        )
+
+    def test_p0_4_ev_drain_release_permits_after_onset(self):
+        ev, hass = _make_ev(charging=False)
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        now_local = datetime(2026, 1, 2, 1, 30, tzinfo=CDT)
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert _release_fires(actions)
+
+    # ------------------------------------------------------------------ P0-#5
+    def test_p0_5_plug_drain_release_deferred(self):
+        sp, hass, pid = _make_plug()
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        now_local = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = sp.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            force_charge_active=False,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert not _release_fires(actions), (
+            "plug drain-release should be held by onset gate"
+        )
+
+    # ------------------------------------------------------------------ CROSS-MIDNIGHT
+    def test_cross_midnight_hold_and_release(self):
+        """Drain at 22:00 day1, onset=01:00: HELD at 22:00/23:59 day1
+        AND 00:30 day2; RELEASE at exactly 01:00 day2.
+
+        Mutation: replace `next_occurrence_of_hhmm` with a same-day
+        `now.replace(hh,mm)` inside `_evaluate_onset_gate` → at 00:30
+        day2 the delta becomes negative or 30min ago, `in_hold_window`
+        would be False → RED here.
+        """
+        held_ticks = [
+            datetime(2026, 1, 1, 22, 0, tzinfo=CDT),
+            datetime(2026, 1, 1, 23, 59, tzinfo=CDT),
+            datetime(2026, 1, 2, 0, 30, tzinfo=CDT),
+        ]
+        for n in held_ticks:
+            op, mr = _evaluate_onset_gate(
+                n, True, "01:00", _DEFAULT_ONSET_MAX_HOLD_H, 180,
+            )
+            assert not op and not mr, (
+                f"expected HELD at {n.isoformat()}, permits={op} ms={mr}"
+            )
+        release_at = datetime(2026, 1, 2, 1, 0, tzinfo=CDT)
+        op, mr = _evaluate_onset_gate(
+            release_at, True, "01:00", _DEFAULT_ONSET_MAX_HOLD_H, 180,
+        )
+        assert op or mr, "expected RELEASE at 01:00 day2"
+
+    # ------------------------------------------------------------------ CLAMP
+    def test_clamp_discriminator(self):
+        """onset=01:00, ms=720 (12:00), now=17:30 → ms_reached must be False.
+
+        On the un-clamped Rev-5/salvage helper ms_ref = now - 8h = 09:30,
+        `next_occurrence(09:30, 12:00)` = today 12:00, `now >= 12:00` True
+        → hold defeated every tick. The clamp back to
+        `max(now - 8h, onset_instant - 8h)` keeps ms_ref inside the
+        current window; onset_instant at 17:30 is tomorrow 01:00,
+        window_start = tomorrow 01:00 - 8h = today 17:00, ms_ref = 17:00,
+        `next_occurrence(17:00, 12:00)` = tomorrow 12:00, `now >= tomorrow
+        12:00` → False. Correct.
+        """
+        now = datetime(2026, 1, 1, 17, 30, tzinfo=CDT)
+        op, mr = _evaluate_onset_gate(
+            now, True, "01:00", _DEFAULT_ONSET_MAX_HOLD_H, 720,
+        )
+        # 17:30 → next 01:00 is 7.5h away → in_hold_window True → permits False.
+        assert not op
+        # ms clamp: must NOT report reached.
+        assert not mr, (
+            "un-clamped ms_ref defeats the hold; clamp must keep it False"
+        )
+
+    # ------------------------------------------------------------------ INV-BASELINE
+    def test_inv_baseline_enable_off_permits_turn_on(self):
+        """enable=False → funnel always emits turn_on (baseline byte-identical)."""
+        ev, hass = _make_ev(charging=False)
+        now = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = ev._charge_on_or_defer(
+            "garage_a", "switch.garage_a", now,
+            False,  # enabled=False
+            "01:00", 180,
+        )
+        assert _release_fires(actions)
+        assert "garage_a" not in ev._onset_deferred
+
+    # ------------------------------------------------------------------ bypass_onset
+    def test_bypass_onset_always_permits(self):
+        ev, hass = _make_ev(charging=False)
+        now = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = ev._charge_on_or_defer(
+            "garage_a", "switch.garage_a", now, True, "01:00", 180,
+            bypass_onset=True,
+        )
+        assert _release_fires(actions)
+
+    # ------------------------------------------------------------------ RESET on is_on
+    def test_onset_deferred_reset_on_release(self):
+        """A charger deferred at 22:00 then permitted at 01:00 clears the set."""
+        ev, hass = _make_ev(charging=False)
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        n1 = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        ev._charge_on_or_defer("garage_a", "switch.garage_a", n1,
+                                True, "01:00", 180)
+        assert "garage_a" in ev._onset_deferred
+        n2 = datetime(2026, 1, 2, 1, 0, tzinfo=CDT)
+        ev._charge_on_or_defer("garage_a", "switch.garage_a", n2,
+                                True, "01:00", 180)
+        assert "garage_a" not in ev._onset_deferred
+
+    # ------------------------------------------------------------------ PRUNE
+    def test_prune_removes_onset_deferred(self):
+        ev, hass = _make_ev(charging=False)
+        ev._onset_deferred.add("garage_ghost")
+        ev._prune_removed_evses()
+        assert "garage_ghost" not in ev._onset_deferred
+
+    def test_plug_prune_removes_onset_deferred(self):
+        sp, hass, pid = _make_plug()
+        sp._onset_deferred.add("switch.ghost_socket")
+        sp.prune_removed_plugs()
+        assert "switch.ghost_socket" not in sp._onset_deferred
+
+    # ------------------------------------------------------------------ MUST-START-BY BYPASS
+    def test_must_start_by_reached_permits(self):
+        """Once must-start-by fires, funnel emits turn_on even in hold window."""
+        # onset 01:00, ms=180 (03:00), now=04:00 day1 → in-window? 
+        # onset_instant = day1 04:00 → next 01:00 = day2 01:00; delta 21h > 8h
+        # → not in window → permits True regardless of ms.
+        # For an inside-window MS check use: onset 08:00, ms=180 (03:00), now=05:00
+        # onset_instant = day1 08:00, delta 3h, in_hold_window True.
+        # ms clamp: window_start = 08:00-8h = 00:00, ms_ref = max(05:00-8h=-03:00-wraps,
+        # 00:00) = 00:00; next 03:00 from 00:00 = 03:00; now 05:00 >= 03:00 → True.
+        now = datetime(2026, 1, 1, 5, 0, tzinfo=CDT)
+        op, mr = _evaluate_onset_gate(
+            now, True, "08:00", _DEFAULT_ONSET_MAX_HOLD_H, 180,
+        )
+        assert not op, "expected inside hold window"
+        assert mr, "expected must-start-by reached"
