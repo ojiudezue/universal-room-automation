@@ -860,3 +860,344 @@ class TestChargeOnsetFunnel:
         )
         assert not op, "expected inside hold window"
         assert mr, "expected must-start-by reached"
+
+
+# ---------------------------------------------------------------------------
+# v3 (funnel) — REAL WIRE-IN behavioral tests (FIX-REQUIRED from orchestrator)
+#
+# The `TestChargeOnsetFunnel` block above tests the FUNNEL/HELPER in isolation.
+# It does NOT prove the funnel is WIRED IN at the P0 sites. This block drives
+# the actual `determine_actions(...)` / `_apply_dp_reversion(...)` code paths
+# end-to-end with the onset held, so a future edit reverting any P0 wire-in
+# to a raw `switch.turn_on` cannot ship green.
+#
+# Neuter drills (each: EDIT the WIRE-IN in production source to bypass the
+# funnel, run the NAMED test, confirm RED, restore):
+#   * P0-#1 (energy_pool.py :1533): replace
+#         `actions.extend(self._charge_on_or_defer(...))`
+#     with a direct `actions.append({"service":"switch.turn_on", ...})` →
+#     `test_wirein_ev_ensure_on_off_peak_held` goes RED.
+#   * P0-#2 (energy_pool.py :3515 area, plug ensure-on): same drill →
+#     `test_wirein_plug_ensure_on_off_peak_held` goes RED.
+#   * P0-#3 (energy.py :5304 area, DP reversion): change
+#         `if not (onset_permits or must_start_by_reached):`
+#     to `if False:` → `test_wirein_dp_reversion_held` goes RED.
+# ---------------------------------------------------------------------------
+
+
+import custom_components.universal_room_automation.domain_coordinators.energy_pool as _epool_mod  # noqa: E402
+
+
+class _StubCoord:
+    """Minimal `attach_coord` target — the EV ensure-on funnel call
+    reads `getattr(coord, "_dp_must_start_by_min", None)` and nothing else."""
+    def __init__(self, dp_ms_min=None):
+        self._dp_must_start_by_min = dp_ms_min
+
+
+class TestChargeOnsetWireIns:
+    """End-to-end behavioral wire-in anchors for the P0 turn-on sites.
+
+    These drive the ACTUAL production entry points (`determine_actions`
+    / `_apply_dp_reversion`) — not the funnel in isolation — so a
+    revert of the wire-in call itself is caught (fixes the hollow-anchor
+    class of miss).
+    """
+
+    # ------------------------------------------------------------------ #1
+    def test_wirein_ev_ensure_on_off_peak_held(self, monkeypatch):
+        """Drive EVSE `determine_actions("off_peak")` with onset held.
+
+        Preconditions: charger OFF, no peer-owner set, enabled=True,
+        onset="01:00", `now=22:00 local`. Expected: NO `switch.turn_on`
+        in the returned actions for `garage_a`.
+
+        Wire-in neuter: at energy_pool.py :1533 replace
+            `actions.extend(self._charge_on_or_defer(...))`
+        with `actions.append({"service":"switch.turn_on", "target":
+        switch_entity, "data": {}})` — this test goes RED.
+        """
+        ev, hass = _make_ev(charging=False)
+        # Ensure NO peer-owner set carries over (fixture adds drain).
+        ev._paused_by_battery_drain.discard("garage_a")
+        assert not ev._stronger_peer_holds("garage_a")
+        # Enable onset gate, set held wall-clock.
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        ev.attach_coord(_StubCoord(dp_ms_min=180))
+        monkeypatch.setattr(
+            _epool_mod,
+            "_dt_util_now_or_none",
+            lambda: datetime(2026, 1, 1, 22, 0, tzinfo=CDT),
+        )
+        actions = ev.determine_actions("off_peak")
+        turn_ons = [
+            a for a in actions
+            if a.get("service") == "switch.turn_on"
+            and a.get("target") == "switch.garage_a"
+        ]
+        assert turn_ons == [], (
+            "wire-in broken: EV ensure-on turned garage_a on inside "
+            f"onset hold window (actions={actions})"
+        )
+        # Sensor observability: the deferral MUST be recorded.
+        assert "garage_a" in ev._onset_deferred
+
+    def test_wirein_ev_ensure_on_off_peak_permits_outside_window(
+        self, monkeypatch,
+    ):
+        """Companion test — enabled=True but now=10:00 (outside 8h
+        window) → ensure-on DOES emit turn_on. Guards against a naive
+        neuter that always defers."""
+        ev, hass = _make_ev(charging=False)
+        ev._paused_by_battery_drain.discard("garage_a")
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        ev.attach_coord(_StubCoord(dp_ms_min=180))
+        monkeypatch.setattr(
+            _epool_mod,
+            "_dt_util_now_or_none",
+            lambda: datetime(2026, 1, 1, 10, 0, tzinfo=CDT),
+        )
+        actions = ev.determine_actions("off_peak")
+        assert any(
+            a.get("service") == "switch.turn_on"
+            and a.get("target") == "switch.garage_a"
+            for a in actions
+        ), f"ensure-on should fire outside hold window; actions={actions}"
+
+    # ------------------------------------------------------------------ #2
+    def test_wirein_plug_ensure_on_off_peak_held(self, monkeypatch):
+        """Drive plug `determine_actions("off_peak", must_start_by_min=180)`.
+
+        Wire-in neuter: at the plug ensure-on site (~ :3515) replace
+        the `actions.extend(self._charge_on_or_defer(...))` with a
+        direct `actions.append({"service":"switch.turn_on", ...})` —
+        this test goes RED.
+        """
+        sp, hass, pid = _make_plug()
+        sp._paused_by_battery_drain.discard(pid)
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        monkeypatch.setattr(
+            _epool_mod,
+            "_dt_util_now_or_none",
+            lambda: datetime(2026, 1, 1, 22, 0, tzinfo=CDT),
+        )
+        actions = sp.determine_actions(
+            "off_peak",
+            force_charge_active=False,
+            grid_charge_on=False,
+            must_start_by_min=180,
+        )
+        turn_ons = [
+            a for a in actions
+            if a.get("service") == "switch.turn_on" and a.get("target") == pid
+        ]
+        assert turn_ons == [], (
+            f"wire-in broken: plug ensure-on turned {pid} on inside "
+            f"onset hold window"
+        )
+        assert pid in sp._onset_deferred
+
+    def test_wirein_plug_ensure_on_off_peak_permits_outside_window(
+        self, monkeypatch,
+    ):
+        sp, hass, pid = _make_plug()
+        sp._paused_by_battery_drain.discard(pid)
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        monkeypatch.setattr(
+            _epool_mod,
+            "_dt_util_now_or_none",
+            lambda: datetime(2026, 1, 1, 10, 0, tzinfo=CDT),
+        )
+        actions = sp.determine_actions(
+            "off_peak", force_charge_active=False,
+            grid_charge_on=False, must_start_by_min=180,
+        )
+        assert any(
+            a.get("service") == "switch.turn_on" and a.get("target") == pid
+            for a in actions
+        ), f"plug ensure-on should fire outside hold window; actions={actions}"
+
+    # ------------------------------------------------------------------ #4  (drain-release, live path — WIRE-IN via inline gate at :2318)
+    def test_wirein_ev_drain_release_held_via_determine_actions(
+        self, monkeypatch,
+    ):
+        """Drive `determine_battery_drain_actions` end-to-end with
+        `battery_out_of_capacity=True` and onset held.
+
+        This is the SAME entry point production uses (energy.py :6048).
+        Wire-in neuter: at the inline gate (~ :2316) change
+            `overnight_release = battery_out_of_capacity and (`
+                `onset_permits or dp_forcing or must_start_by_reached`
+            `)`
+        to
+            `overnight_release = battery_out_of_capacity`
+        — this test goes RED. The `bypass_onset=True` funnel call at
+        :2355 is stylistic (funnel wrapper) so neutering it alone will
+        NOT change behavior — the load-bearing wire-in for #4 IS the
+        inline gate, and this test anchors it via the true production
+        method.
+        """
+        ev, hass = _make_ev(charging=False)
+        # keep _paused_by_battery_drain (fixture adds it — required for release path).
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        now_local = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert not any(
+            a.get("service") == "switch.turn_on" for a in actions
+        ), f"drain-release must be held by onset gate; actions={actions}"
+
+    # ------------------------------------------------------------------ #5  (plug drain-release, live path — inline gate)
+    def test_wirein_plug_drain_release_held_via_determine_actions(self):
+        sp, hass, pid = _make_plug()
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        now_local = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = sp.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            force_charge_active=False,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert not any(
+            a.get("service") == "switch.turn_on" for a in actions
+        ), f"plug drain-release must be held; actions={actions}"
+
+    # ------------------------------------------------------------------ #3  (DP reversion — in-suite anchor per plan)
+    def test_wirein_dp_reversion_held(self, monkeypatch):
+        """Drive `EnergyCoordinator._apply_dp_reversion("off_peak")`
+        with a DP-paused EVSE and onset held. Expected: no `switch.turn_on`
+        dispatched.
+
+        Wire-in neuter (energy.py :5304 area): change
+            `if not (onset_permits or must_start_by_reached):`
+        to `if False:` — this test goes RED.
+
+        Uses the same AST-extraction pattern as
+        `test_evse_drain_precedence_session_b2b_ii.py` so we drive the
+        real `_apply_dp_reversion` bytecode from energy.py (not a
+        re-implementation).
+        """
+        # Local AST-extract of `_apply_dp_reversion` (mirrors
+        # test_evse_drain_precedence_session_b2b_ii.py). Kept local so
+        # this test module has no cross-file test dependency.
+        import ast as _ast
+        import asyncio as _asyncio
+        import os as _os
+        from unittest.mock import MagicMock as _MM
+        _dc = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(
+                _os.path.abspath(__file__)))),
+            "custom_components",
+            "universal_room_automation",
+            "domain_coordinators",
+        )
+        with open(_os.path.join(_dc, "energy.py"), "r", encoding="utf-8") as fh:
+            src = fh.read()
+        tree = _ast.parse(src)
+        src_lines = src.splitlines()
+        method_src: str | None = None
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.ClassDef) or node.name != "EnergyCoordinator":
+                continue
+            for child in node.body:
+                if (isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+                        and child.name == "_apply_dp_reversion"):
+                    seg = "\n".join(
+                        src_lines[child.lineno - 1: child.end_lineno]
+                    )
+                    method_src = "\n".join(
+                        line[4:] if line.startswith("    ") else line
+                        for line in seg.splitlines()
+                    )
+        assert method_src is not None, "_apply_dp_reversion not found"
+
+        import logging as _logging
+        ns: dict = {
+            "_LOGGER": _logging.getLogger("test_dp_reversion_wirein"),
+            "Any": object,
+            "__name__": "custom_components.universal_room_automation.domain_coordinators.energy",
+            "__package__": "custom_components.universal_room_automation.domain_coordinators",
+        }
+        exec(compile(method_src, "<energy.py-extract-onset-#3>", "exec"), ns)
+
+        # Build the fake coord + captured dispatch.
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        loop = _asyncio.new_event_loop()
+        calls: list[tuple[str, str, dict]] = []
+
+        def _run_task(coro):
+            loop.run_until_complete(coro)
+            return _MM()
+
+        async def _svc(*a, **kw):
+            calls.append((a[0], a[1], dict(a[2]) if len(a) > 2 else {}))
+
+        hass.async_create_task = _run_task
+        hass.services = _MM()
+        hass.services.async_call = _svc
+
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {
+                "switch": "switch.garage_a",
+                "power": "sensor.garage_a_power",
+                "energy_today": "sensor.garage_a_energy_today",
+                "energy_month": "sensor.garage_a_energy_month",
+            },
+        })
+        ev._paused_by_dp.add("garage_a")
+        ev._claim_pause_dispatch_owner("garage_a", "dp")
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+
+        class _Coord:
+            pass
+        coord = _Coord()
+        coord.hass = hass
+        coord._ev = ev
+        coord._dp_decision_soc = 30
+        coord._dp_must_start_by_min = 180
+        # Bind the extracted method to the fake coord instance.
+        coord._cancel_dp_must_start_by_timer = lambda: None
+        coord._apply_dp_reversion = ns["_apply_dp_reversion"].__get__(coord)
+
+        # Freeze `now` inside the extracted code so the onset gate holds.
+        # The extracted `_apply_dp_reversion` imports `dt_util` from the
+        # `homeassistant.util` package at call time; monkeypatch to return
+        # a controlled 22:00 local.
+        import homeassistant.util.dt as _dt_util_mod
+        monkeypatch.setattr(
+            _dt_util_mod, "now",
+            lambda: datetime(2026, 1, 1, 22, 0, tzinfo=CDT),
+        )
+
+        coord._apply_dp_reversion(tou_period="off_peak")
+
+        assert calls == [], (
+            "wire-in broken: DP reversion dispatched a turn_on inside "
+            f"onset hold window; calls={calls}"
+        )
+        assert "garage_a" in ev._onset_deferred, (
+            "sensor observability: _onset_deferred must record the defer"
+        )
