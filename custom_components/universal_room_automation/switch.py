@@ -298,6 +298,8 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECDrainPrecedenceEnableSwitch(hass, entry),  # Session B1
+            # evse-charge-onset Rev 6 D-A — overnight charge-onset enable.
+            ECEVChargeOnsetEnabledSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
             # v5.7.1 — Energy Saver Pre-Cool master toggle (EC device).
             # Replaces the retired ECSolarBankingSwitch; gates the unified
@@ -1187,6 +1189,18 @@ ECArbitrageSwitch = _ec_switch_factory(
 # behavior, KILL: false disables all transition eval + actuation per
 # plan §74). Factory RestoreEntity/timer/signal machinery gives us
 # restart-safe restore identical to ECGridImportCapSwitch etc.
+# evse-charge-onset Rev 6 D-A — dedicated enable toggle. Mirrors the
+# ECDrainPrecedenceEnableSwitch pattern (RestoreEntity + deferred restore
+# + SIGNAL_ENERGY_ENTITIES_UPDATE re-read comes for free via the
+# factory). Coord attr `_ev_charge_onset_enabled` is fanned out from
+# `EnergyCoordinator.set_ev_charge_onset_enabled` to BOTH controllers,
+# so a toggle here lands on both EV and plug tiers.
+# Default True — feature ships ACTIVE (matches "01:00" onset default).
+ECEVChargeOnsetEnabledSwitch = _ec_switch_factory(
+    "_ev_charge_onset_enabled", "ev_charge_onset_enabled",
+    "EV Charge Onset (Overnight)", "mdi:ev-station", default=True,
+)
+
 ECDrainPrecedenceEnableSwitch = _ec_switch_factory(
     "_dp_enabled", "drain_precedence_enable",
     # B2c-2 item 6 rename (operator ratification 2026-07-17, planning

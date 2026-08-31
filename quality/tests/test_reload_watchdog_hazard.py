@@ -210,6 +210,8 @@ def _load_ns(*, kill_switch: bool = True,
             "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC",
             # evse-charge-onset cycle knob.
             "_CONF_ENERGY_EVSE_CHARGE_ONSET_TIME",
+            # Rev 6 D-A - dedicated enable toggle.
+            "_CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED",
             "_CONF_ENERGY_FILL_PRIORITY_SOC",
             "_CONF_ENERGY_EXCESS_SOLAR_SOC",
             "_CONF_ENERGY_MAINS_EXPORT_ENTITY",

@@ -10,10 +10,15 @@ post-v4.7.26 pattern (number.py:1036+):
     so the next decision tick sees the new value even if the options
     listener is still in flight.
   * CONF key is in the CM reload-suppression allowlist
-    (`_EC_SETTER_DISPATCH` in `__init__.py`), so an options edit —
-    whether from THIS entity or from the config-flow TimeSelector —
-    lands via `set_ev_charge_onset_time` on the coord without a full
-    CM reload. The two surfaces stay in sync automatically.
+    (`OPTIONS_RELOAD_SUPPRESS_KEYS` in `__init__.py`) AND routed via
+    `_EC_SETTER_DISPATCH`, so an options edit — whether from THIS
+    entity or from the config-flow TimeSelector — lands via
+    `set_ev_charge_onset_time` on the coord without a full CM reload.
+    Rev-6 B-MED-1 fix: this entity ALSO subscribes to
+    `SIGNAL_ENERGY_ENTITIES_UPDATE` and re-reads `entry.options` on
+    signal so a config-flow-form edit propagates back to THIS entity's
+    displayed value (otherwise the entity would be stale while the
+    coord was correctly updated).
 
 The blank / disabled state is represented as `native_value = None`
 (HA renders empty on the dashboard). Setting `None` clears the onset
@@ -46,21 +51,31 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _parse_hhmm_to_time(value: str | None) -> _dt.time | None:
-    """Parse "HH:MM" into `datetime.time` or return None on any malformation.
+    """Parse "HH:MM" or "HH:MM:SS" into `datetime.time`, else None.
 
-    Kept local to time.py so this platform has no cross-module coupling on
-    the parser other than through the coord setter itself. Same accept
-    grammar as `energy_pool._parse_hhmm` (both accept "H:MM" and reject
-    out-of-range/malformed).
+    Rev-6 A-HIGH-1 / C-HIGH-3 fix: HA's `selector.TimeSelector` and
+    `TimeEntity.set_value` both emit the value as a 3-part "HH:MM:SS"
+    string (core `helpers/selector.py::TimeSelector` returns
+    `time.isoformat()` which always includes seconds). The Rev-5 parser
+    rejected any string with a seconds component, silently disabling the
+    feature the moment an operator saved the config-flow form. Kept
+    local to time.py (mirror of `energy_pool._parse_hhmm`) so this
+    platform has no cross-module coupling on the parser beyond the
+    coord setter itself. Seconds are DROPPED — drain releases are
+    minute-precision.
     """
     if not value or not isinstance(value, str):
         return None
     parts = value.strip().split(":")
-    if len(parts) != 2:
+    if len(parts) not in (2, 3):
         return None
     try:
         hh = int(parts[0])
         mm = int(parts[1])
+        if len(parts) == 3:
+            ss = int(parts[2])
+            if not (0 <= ss <= 59):
+                return None
     except (TypeError, ValueError):
         return None
     if not (0 <= hh <= 23 and 0 <= mm <= 59):
@@ -138,7 +153,13 @@ class EVChargeOnsetTimeEntity(TimeEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Push the seeded value into the live coord if reachable."""
+        """Push the seeded value into the live coord if reachable.
+
+        Also subscribes to `SIGNAL_ENERGY_ENTITIES_UPDATE` (Rev-6 B-MED-1)
+        so a config-flow-form edit — which lands in `entry.options` and
+        pushes to the coord via `_EC_SETTER_DISPATCH` — refreshes THIS
+        entity's displayed value too (otherwise dashboard shows stale).
+        """
         await super().async_added_to_hass()
         energy = self._get_energy()
         if energy is not None:
@@ -149,6 +170,32 @@ class EVChargeOnsetTimeEntity(TimeEntity):
                 _LOGGER.debug(
                     "EVChargeOnsetTime seed-push deferred", exc_info=True,
                 )
+
+        # B-MED-1: re-read entry.options on the shared EC entities signal
+        # (mirrors the DP-enable precedent in __init__.py ~:6690 that
+        # pings all switch subscribers). Any options-flow edit that
+        # landed via _apply_in_place will already have pushed to the
+        # coord; here we just refresh our local display.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+
+            def _refresh(*_args) -> None:
+                opts = self._entry.options or {}
+                raw = opts.get(CONF_ENERGY_EVSE_CHARGE_ONSET_TIME)
+                self._value = _parse_hhmm_to_time(raw) if raw else None
+                self.async_write_ha_state()
+
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _refresh,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EVChargeOnsetTime signal wire-up failed (swallowed)",
+                exc_info=True,
+            )
 
     async def async_set_value(self, value: _dt.time | None) -> None:
         """Persist a new onset. `value=None` disables the gate.

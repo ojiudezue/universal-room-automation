@@ -676,11 +676,34 @@ CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
 # of truth); no RestoreEntity — re-seed pattern.
 CONF_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "energy_evse_charge_onset_time"
 DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "01:00"
-# evse-charge-onset — restart contract (plan D2). A restored drain-session
-# anchor older than this bound is treated as None: the gate becomes
-# permissive on the next tick and the next empty→non-empty transition
-# stamps a fresh anchor. Rung 1 — safety bound, not a policy knob.
-DRAIN_SESSION_MAX_RESTORE_AGE_H: Final = 24
+
+# Rev-5 session-anchor age bound RETIRED in Rev 6 (no anchor to age).
+# Retained here as a comment for grep-anchor: DRAIN_SESSION_MAX_RESTORE_AGE_H.
+
+# evse-charge-onset Rev 6 (D-A) — dedicated ENABLE toggle. Reviewers
+# proved HA TimeSelector + `time.set_value` both REJECT blank/None, so
+# the Rev-5 "blank = off" kill was unreachable. A separate boolean gives
+# the operator a real off switch that survives restart via the
+# `EVChargeOnsetEnabledSwitch` (RestoreEntity + coord attr write-through).
+# Default True — feature ships ACTIVE (matches the "01:00" onset default
+# intent). Fanned out to BOTH controllers by
+# `EnergyCoordinator.set_ev_charge_onset_enabled`.
+CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = "energy_evse_charge_onset_enabled"
+DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = True
+
+# evse-charge-onset Rev 6 (D-B) — BOUNDED HOLD WINDOW replaces the Rev-5
+# session-anchor + lookback mechanism. Hold the overnight leg ONLY when
+# `now < onset_instant AND (onset_instant - now) <= ONSET_MAX_HOLD_H`.
+# 8h anchors to the operator's real overnight span (reserve-hit typically
+# 20:00-01:00 = 5h ahead of a 01:00 onset). A daytime reserve-hit at
+# 10:00 with onset 01:00 is 15h ahead of NEXT 01:00 → outside the window
+# → NOT held, byte-identical to baseline (kills the Rev-5 "18h daytime
+# hold" review finding, kills the LOOKBACK cliff). After tonight's onset
+# (say now=02:00, onset=01:00) → next 01:00 is 23h away → also NOT held.
+# Rung-1 safety/allocation bound — CODE tunable only. Setting to a very
+# large value (e.g. 24) effectively disables the ceiling; the sane KILL
+# is the ENABLE toggle above.
+ONSET_MAX_HOLD_H: Final = 8.0
 
 CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
 CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"

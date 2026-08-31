@@ -8444,7 +8444,18 @@ class EVChargeOnsetL1OverHoldSecondsSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> int:
-        """Seconds beyond onset the L1 plug has been held. 0 if not held."""
+        """Seconds past the onset the L1 plug has been HELD BY THE GATE.
+
+        Rev-6 B-MED-3 fix: counts only when the release CONDITION is met
+        (`battery_out_of_capacity`, which for the plug tier means SOC
+        near the reserve floor with battery not discharging) AND the
+        onset gate is what's holding it. Without this gate, the sensor
+        false-positived on every ordinary drain pause (any plug in
+        `_paused_by_battery_drain` for any reason would clock up
+        seconds), which is not what "over-hold" means. Intra-tick /
+        intra-session only — the plug pause set is not persisted, so
+        the counter resets naturally on restart (documented).
+        """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return 0
@@ -8454,19 +8465,32 @@ class EVChargeOnsetL1OverHoldSecondsSensor(AggregationEntity, SensorEntity):
         plug = getattr(energy, "_smart_plugs", None)
         if plug is None:
             return 0
-        # No active drain session ⇒ nothing to over-hold.
         if not getattr(plug, "_paused_by_battery_drain", None):
             return 0
-        anchor = getattr(plug, "_drain_session_started_at", None)
         onset_raw = getattr(plug, "_ev_charge_onset_time", None)
-        if anchor is None or not onset_raw:
+        enabled = bool(getattr(plug, "_ev_charge_onset_enabled", True))
+        if not enabled or not onset_raw:
+            return 0
+        # B-MED-3 — require the release CONDITION so we only count when
+        # the gate is what's holding, not any drain pause.
+        try:
+            battery = getattr(energy, "_battery", None)
+            soc = getattr(battery, "battery_soc", None) if battery else None
+            bp = getattr(battery, "battery_power_w", None) if battery else None
+            # Best-effort reserve floor read; if unavailable, fall back
+            # to a permissive "gate could be holding" of False → 0.
+            reserve = getattr(battery, "_reserve_soc", None) if battery else None
+            if soc is None or bp is None or reserve is None:
+                return 0
+            battery_ok = bp >= 0
+            bat_out_of_cap = battery_ok and soc <= reserve + 2
+            if not bat_out_of_cap:
+                return 0
+        except Exception:  # noqa: BLE001
             return 0
         try:
             from homeassistant.util import dt as dt_util
-            from .domain_coordinators.energy_pool import (
-                _parse_hhmm,
-                ONSET_SESSION_LOOKBACK_H,
-            )
+            from .domain_coordinators.energy_pool import _parse_hhmm
             from .domain_coordinators.energy_drain_precedence import (
                 next_occurrence_of_hhmm,
             )
@@ -8475,18 +8499,16 @@ class EVChargeOnsetL1OverHoldSecondsSensor(AggregationEntity, SensorEntity):
                 return 0
             hh, mm = parsed
             now_local = dt_util.now()
-            anchor_local = (
-                anchor.astimezone(now_local.tzinfo)
-                if anchor.tzinfo is not None else anchor.replace(
-                    tzinfo=now_local.tzinfo,
-                )
-            )
-            from datetime import timedelta
-            shifted = anchor_local - timedelta(hours=ONSET_SESSION_LOOKBACK_H)
-            onset_instant = next_occurrence_of_hhmm(shifted, hh, mm)
-            if now_local < onset_instant:
-                return 0  # still pre-onset (waiting, not over-holding)
-            return int((now_local - onset_instant).total_seconds())
+            onset_instant = next_occurrence_of_hhmm(now_local, hh, mm)
+            # STRICTLY-after: at now==HH:MM the resolver returns tomorrow,
+            # delta ~24h > 8h window → NOT held. Over-hold accrues iff
+            # last-past onset instant exists AND we're still in the pause
+            # set. Compute the LAST-PAST occurrence explicitly:
+            from datetime import timedelta as _td
+            last_past = onset_instant - _td(days=1)
+            if now_local < last_past:
+                return 0
+            return int((now_local - last_past).total_seconds())
         except Exception:  # noqa: BLE001
             return 0
 

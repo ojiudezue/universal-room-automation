@@ -2551,28 +2551,38 @@ class EVChargeOnsetGateOpenBinarySensor(AggregationEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """True when the onset gate is OPEN for at least one controller.
 
-        Reading `_charge_onset_reached(dt_util.now())` mirrors what the
-        drain-release site itself computes at decision time. Permissive
-        default when coord not yet up — we do not want a diagnostic
-        sensor to itself misleadingly report a hold that isn't happening.
+        Rev-6 rewrite: no session anchor. The gate is fully derivable
+        from `now` + the controller's enable + onset string via the
+        shared `_evaluate_onset_gate` helper (same one the drain-release
+        sites call). Reports OPEN when `onset_permits or
+        must_start_by_reached` for AT LEAST ONE controller. Permissive
+        None when coord not yet up.
         """
         ev, plug = self._controllers()
         if ev is None and plug is None:
             return None
         try:
             from homeassistant.util import dt as dt_util
+            from .domain_coordinators.energy_pool import (
+                _evaluate_onset_gate,
+                _DEFAULT_ONSET_MAX_HOLD_H,
+            )
             now = dt_util.now()
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            energy = manager.coordinators.get("energy") if manager else None
+            ms_min = getattr(energy, "_dp_must_start_by_min", None)
             open_for_any = False
             for ctrl in (ev, plug):
                 if ctrl is None:
                     continue
-                # If no session is active, the gate is trivially "open"
-                # (the caller-side outer `if _paused_by_battery_drain`
-                # is False in that case anyway); mirror that logic.
-                if not getattr(ctrl, "_paused_by_battery_drain", None):
-                    open_for_any = True
-                    continue
-                if ctrl._charge_onset_reached(now):
+                permits, ms_reached = _evaluate_onset_gate(
+                    now,
+                    getattr(ctrl, "_ev_charge_onset_enabled", True),
+                    getattr(ctrl, "_ev_charge_onset_time", None),
+                    _DEFAULT_ONSET_MAX_HOLD_H,
+                    ms_min,
+                )
+                if permits or ms_reached:
                     open_for_any = True
             return open_for_any
         except Exception:  # noqa: BLE001
@@ -2591,9 +2601,9 @@ class EVChargeOnsetGateOpenBinarySensor(AggregationEntity, BinarySensorEntity):
         for ctrl, label in ((ev, "ev"), (plug, "plug")):
             if ctrl is None:
                 continue
-            anchor = getattr(ctrl, "_drain_session_started_at", None)
-            out[f"{label}_drain_session_started_at"] = (
-                anchor.isoformat() if anchor is not None else None
+            # Rev 6 — anchor retired; expose enable + onset + pause set.
+            out[f"{label}_onset_enabled"] = bool(
+                getattr(ctrl, "_ev_charge_onset_enabled", True)
             )
             out[f"{label}_onset_time"] = getattr(
                 ctrl, "_ev_charge_onset_time", None,

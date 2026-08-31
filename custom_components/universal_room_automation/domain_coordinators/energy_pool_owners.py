@@ -260,17 +260,13 @@ EV_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
         reason_human="grid import cap",
     ),
     # Row 4: Battery-drain protection.
-    # evse-charge-onset cycle — `restore_hook="drain_session_epoch_ev"`
-    # is a no-op inside `_restore_registry_owner_lists` (same idiom as
-    # `blind_window_epoch_and_pre_engaged`). The sibling epoch KV
-    # `evse_drain_session_started_at` is applied INLINE in
-    # `_restore_evse_state` after the registry loop returns, via
-    # `EVChargerController.mark_drain_session_from_restore`.
+    # evse-charge-onset Rev 6 — the Rev-5 `restore_hook=
+    # "drain_session_epoch_ev"` sentinel is REMOVED (D-B bounded-window
+    # predicate no longer needs a per-session anchor).
     OwnerDeclaration(
         name="battery_drain", attr="_paused_by_battery_drain", tier="evse",
         kind="set", precedence_row=4,
         persistence_key="evse_battery_drain_paused", persistence_kind="list",
-        restore_hook="drain_session_epoch_ev",
         peer_holds_member=True, dispatch_tag="battery_drain",
         classifier_priority=2, reason_token="battery_drain_paused",
         reason_human="battery drain protection (paused)",
