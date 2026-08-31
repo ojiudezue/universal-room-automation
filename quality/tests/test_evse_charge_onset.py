@@ -470,3 +470,71 @@ class TestParseHHMM:
 class TestLookbackConstant:
     def test_lookback_is_6h(self):
         assert ONSET_SESSION_LOOKBACK_H == 6
+
+
+# ---------------------------------------------------------------------------
+# TASK 1 — Structural-split discriminator (one per site)
+# ---------------------------------------------------------------------------
+
+
+class TestNamedLegSplitDiscriminator:
+    """After TASK 1 (structural split), the release condition is:
+
+        daytime_release   = soc_recovered
+        overnight_release = battery_out_of_capacity and (onset_reached or dp_forcing)
+        if daytime_release or overnight_release: ...
+
+    These per-site discriminators pin the property that WITH onset SET
+    but NOT yet reached, the DAYTIME leg alone MUST still fire — because
+    `soc_recovered` never appears inside the AND. This is the exact
+    scenario that would silently regress if a future edit accidentally
+    distributed the AND across both legs, or accidentally collapsed the
+    two named booleans back into `if daytime and overnight`.
+
+    Distinct from `TestDaytimeSolarLegUngated`: that class fires with
+    onset_reached=True (session anchor stamped BEFORE the wall-clock
+    onset instant — the gate would technically be open at test-time).
+    Here we deliberately arrange `overnight_release=False AND
+    onset_reached=False AND battery_out_of_capacity=False` so the ONLY
+    way to fire is via `daytime_release=True`.
+    """
+
+    def test_ev_daytime_leg_fires_when_overnight_leg_dark(self):
+        ev, _hass = _make_ev()
+        ev.set_ev_charge_onset_time("01:00")
+        # Session anchor at 22:00 day-1 → onset resolves to 01:00 day-2
+        ev._drain_session_started_at = datetime(2026, 1, 15, 22, 0, tzinfo=CDT)
+        # Force overnight_release=False: battery_out_of_capacity=False
+        # (SOC well above reserve+2). onset_reached is IRRELEVANT to
+        # daytime_release; asserting the split by construction.
+        acts = ev.determine_battery_drain_actions(
+            battery_power_w=+200.0,     # not discharging
+            battery_soc=80.0,            # >>reserve+2 → bat_out_of_cap=False
+            soc_threshold=50,            # SOC>=55 → soc_recovered=True
+            reserve_soc=20,
+            solar_replenishing=True,     # daytime, solar on
+            is_offpeak=False,
+            now_local=datetime(2026, 1, 15, 22, 30, tzinfo=CDT),
+        )
+        # Even at 22:30 (well before the 01:00 d2 onset), daytime fires.
+        assert _release_fires(acts), (
+            "TASK 1 named-leg split: daytime_release must fire alone "
+            "when overnight_release is dark, regardless of onset state"
+        )
+
+    def test_plug_daytime_leg_fires_when_overnight_leg_dark(self):
+        sp, _hass, _plug_id = _make_plug()
+        sp.set_ev_charge_onset_time("01:00")
+        sp._drain_session_started_at = datetime(2026, 1, 15, 22, 0, tzinfo=CDT)
+        acts = sp.determine_battery_drain_actions(
+            battery_power_w=+200.0,
+            battery_soc=80.0,
+            soc_threshold=50,
+            reserve_soc=20,
+            solar_replenishing=True,
+            is_offpeak=False,
+            now_local=datetime(2026, 1, 15, 22, 30, tzinfo=CDT),
+        )
+        assert _release_fires(acts), (
+            "TASK 1 named-leg split (plug mirror): daytime_release fires alone"
+        )

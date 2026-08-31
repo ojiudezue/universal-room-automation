@@ -461,6 +461,11 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
             DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
         )
+        # evse-charge-onset §10 — attribute-only daytime discriminator
+        # snapshot, published to `binary_sensor.ura_ev_charge_onset_gate_open`
+        # via `extra_state_attributes`. Read side must tolerate None
+        # (pre-first-tick), which is why we initialize it here.
+        self._last_soc_recovered: bool | None = None
         # Fan out to controllers immediately (they were constructed above).
         try:
             self.set_ev_charge_onset_time(self._ev_charge_onset_time_seed)
@@ -1564,6 +1569,25 @@ class EnergyCoordinator(BaseCoordinator):
                 # extra hold, not correctness).
                 if _ev_dt is None:
                     _ev_dt = dt_util.utcnow()
+                # evse-charge-onset D2 restart-contract — an anchor older
+                # than DRAIN_SESSION_MAX_RESTORE_AGE_H is treated as None
+                # (fail-safe re-anchor on next transition). Prevents a
+                # persisted anchor from a prior day silently biasing
+                # tonight's onset resolver.
+                try:
+                    from .energy_const import DRAIN_SESSION_MAX_RESTORE_AGE_H
+                    _age_h = (
+                        dt_util.utcnow() - _ev_dt
+                    ).total_seconds() / 3600.0
+                    if _age_h > float(DRAIN_SESSION_MAX_RESTORE_AGE_H):
+                        _LOGGER.info(
+                            "EV drain session anchor stale (%.1fh > %sh) — "
+                            "dropping to force fresh re-anchor",
+                            _age_h, DRAIN_SESSION_MAX_RESTORE_AGE_H,
+                        )
+                        _ev_dt = None
+                except Exception:  # noqa: BLE001
+                    pass
                 self._ev.mark_drain_session_from_restore(_ev_dt)
                 _LOGGER.info(
                     "EV drain session: re-anchored from restore (anchor=%s)",
@@ -6176,6 +6200,21 @@ class EnergyCoordinator(BaseCoordinator):
                     == _DPState_gate.MUST_START_FORCED
                 )
                 _now = dt_util.now()
+                # evse-charge-onset §10 — publish the daytime-solar
+                # discriminator so the gate-open binary sensor's
+                # `soc_recovered_active` attribute has a real value.
+                # Attribute-only signal (informational; NEVER a trust-
+                # decision input); mirrors the EV-side controller's
+                # own recompute inside determine_battery_drain_actions.
+                try:
+                    _soc_thr = int(self._ev_battery_drain_soc)
+                    self._last_soc_recovered = bool(
+                        solar_replenishing
+                        and self._battery.battery_soc is not None
+                        and self._battery.battery_soc >= _soc_thr + 5
+                    )
+                except Exception:  # noqa: BLE001
+                    self._last_soc_recovered = None
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,

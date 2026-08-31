@@ -676,6 +676,11 @@ CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
 # of truth); no RestoreEntity — re-seed pattern.
 CONF_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "energy_evse_charge_onset_time"
 DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "01:00"
+# evse-charge-onset — restart contract (plan D2). A restored drain-session
+# anchor older than this bound is treated as None: the gate becomes
+# permissive on the next tick and the next empty→non-empty transition
+# stamps a fresh anchor. Rung 1 — safety bound, not a policy knob.
+DRAIN_SESSION_MAX_RESTORE_AGE_H: Final = 24
 
 CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
 CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"

@@ -2163,23 +2163,43 @@ class EVChargerController:
                     and battery_soc >= soc_threshold + 5
                 )
 
-                # evse-charge-onset cycle — REASSOCIATED release clause.
-                # The overnight `battery_out_of_capacity` leg is gated on
-                # `onset_reached OR dp_forcing`; the daytime `soc_recovered`
-                # leg is UNGATED (solar refilled the battery — release
-                # regardless of wall-clock). CRITICAL: the AND must NOT be
-                # distributed across both legs; a distributive form
-                # `(bat_out or soc_recovered) and (onset or dp)` would
-                # break the daytime solar release (the review's kill).
+                # evse-charge-onset — STRUCTURAL SPLIT (operator-chosen,
+                # safer form; TASK 1 refactor). Two named release legs;
+                # a SINGLE shared body below. `onset_reached` appears ONLY
+                # in `overnight_release`, so BY CONSTRUCTION the charge-
+                # onset gate can never affect the daytime solar release.
+                #
+                #   daytime_release   — solar refilled the battery
+                #                       (`soc_recovered`): release regardless
+                #                       of wall-clock. NEVER gated by onset;
+                #                       byte-identical to pre-onset behavior.
+                #   overnight_release — battery drained to reserve: hold
+                #                       until the operator's charge-onset
+                #                       time, unless DP is force-starting the
+                #                       car (`dp_forcing`). This is the ONLY
+                #                       leg the onset gate touches.
+                #
+                # WHY named booleans, not `if daytime: ... elif overnight:`:
+                # the shared body below contains a loop `continue` (the
+                # "other pause active" early-out). Duplicating that body
+                # across two branches — or extracting it into a helper —
+                # would change control flow and is the larger error risk.
+                # Confining `onset_reached` to `overnight_release` is the
+                # structural separation the operator asked for, at lower
+                # risk. DO NOT distribute the AND across both legs:
+                # `(bat_out or soc_recovered) and (onset or dp)` breaks
+                # the daytime release and is the regression the daytime
+                # test (`TestDaytimeSolarLegUngated`) kills at both sites.
                 _now_local = now_local if now_local is not None else _dt_util_now_or_none()
                 onset_reached = (
                     _now_local is not None
                     and self._charge_onset_reached(_now_local)
                 )
-                if (
-                    (battery_out_of_capacity and (onset_reached or dp_forcing))
-                    or soc_recovered
-                ):
+                daytime_release = soc_recovered
+                overnight_release = battery_out_of_capacity and (
+                    onset_reached or dp_forcing
+                )
+                if daytime_release or overnight_release:
                     if not state["is_on"]:
                         # Don't resume if another pause reason is active.
                         # v4.7.6 fix-up A-H2: release drain's claim only —
@@ -3585,17 +3605,24 @@ class SmartPlugController:
                     and battery_soc >= soc_threshold + 5
                 )
 
-                # evse-charge-onset cycle mirror — REASSOCIATED release
-                # clause; identical semantics to EV path (see docstring).
+                # evse-charge-onset — STRUCTURAL SPLIT mirror of EV site
+                # (see EV docstring for the full "why named booleans" note).
+                # L1 has NO DP participation today, so `dp_forcing` is
+                # always False on this leg — kept present as a no-op for
+                # symmetry with EV + future extensibility. `daytime_release`
+                # is soc_recovered (solar refilled the battery); it is
+                # NEVER gated by onset. `overnight_release` is the ONLY
+                # leg the onset gate touches.
                 _now_local = now_local if now_local is not None else _dt_util_now_or_none()
                 onset_reached = (
                     _now_local is not None
                     and self._charge_onset_reached(_now_local)
                 )
-                if (
-                    (battery_out_of_capacity and (onset_reached or dp_forcing))
-                    or soc_recovered
-                ):
+                daytime_release = soc_recovered
+                overnight_release = battery_out_of_capacity and (
+                    onset_reached or dp_forcing
+                )
+                if daytime_release or overnight_release:
                     # Don't resume if TOU pause or fill-priority is active.
                     # v4.7.6 fix-up A-H2 mirror: release drain claim only.
                     # load-shedding-correctness D1: also defer to load_shed.

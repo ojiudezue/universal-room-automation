@@ -333,6 +333,11 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
+    # evse-charge-onset D1b — TIME platform hosts the live-tunable
+    # `EVChargeOnsetTimeEntity` (dashboard companion to the config-flow
+    # TimeSelector). Today the only URA time entity; scaffolding is
+    # additive — room/zone entries emit nothing on this platform.
+    Platform.TIME,
 ]
 
 # Platforms for integration entry (aggregation sensors + select for house state + switches)

@@ -255,6 +255,8 @@ async def async_setup_entry(
             # v3.7.0-E1: Energy Coordinator sensors
             EnergyTOUPeriodSensor(hass, entry),
             EnergyTOURateSensor(hass, entry),
+            # evse-charge-onset §10 — L1 over-hold trip-wire sensor.
+            EVChargeOnsetL1OverHoldSecondsSensor(hass, entry),
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
             # Session B1 — EVSE drain-precedence state machine observability.
@@ -8401,6 +8403,92 @@ class EnergyTOUPeriodSensor(AggregationEntity, SensorEntity):
             "hours_until_transition": next_t.get("hours_until"),
             "rate_source": info.get("rate_source"),
         }
+
+
+class EVChargeOnsetL1OverHoldSecondsSensor(AggregationEntity, SensorEntity):
+    """evse-charge-onset §10 — L1 over-hold observability counter.
+
+    Entity: `sensor.ura_ev_charge_onset_l1_over_hold_seconds`
+    Device: URA: Energy Coordinator
+
+    Why L1-only (per plan D3 + D2 acceptance): the EV leg has a HARD
+    BACKSTOP — the DP `_apply_dp_must_start_release` timer dispatches
+    `switch.turn_on` DIRECTLY (`energy.py:5330-5336`), bypassing the
+    gate entirely, so an EV can NEVER be held over its must-start-by
+    deadline even if `dp_forcing` were wired inertly. L1 has NO DP
+    participation today — a mis-set onset on L1 is the only way this
+    cycle can silently strand a charger past the intended time. This
+    sensor is the visible trip-wire for that operator-error surface.
+
+    Semantics: while the L1 plug controller has an active drain session
+    AND its onset instant has been reached AND at least one plug is
+    still in `_paused_by_battery_drain`, this counter reports the
+    number of seconds beyond the onset instant that the hold has
+    persisted. Otherwise 0.
+
+    Design note: computed FRESH on each state read from live controller
+    fields (no accumulator, no persistence). If the operator asks "how
+    long is the L1 stuck past onset RIGHT NOW", this is the number.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clock-alert-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "s"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_ev_charge_onset_l1_over_hold_seconds"
+        self._attr_name = "EV Charge-Onset L1 Over-Hold Seconds"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> int:
+        """Seconds beyond onset the L1 plug has been held. 0 if not held."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return 0
+        plug = getattr(energy, "_smart_plugs", None)
+        if plug is None:
+            return 0
+        # No active drain session ⇒ nothing to over-hold.
+        if not getattr(plug, "_paused_by_battery_drain", None):
+            return 0
+        anchor = getattr(plug, "_drain_session_started_at", None)
+        onset_raw = getattr(plug, "_ev_charge_onset_time", None)
+        if anchor is None or not onset_raw:
+            return 0
+        try:
+            from homeassistant.util import dt as dt_util
+            from .domain_coordinators.energy_pool import (
+                _parse_hhmm,
+                ONSET_SESSION_LOOKBACK_H,
+            )
+            from .domain_coordinators.energy_drain_precedence import (
+                next_occurrence_of_hhmm,
+            )
+            parsed = _parse_hhmm(onset_raw)
+            if parsed is None:
+                return 0
+            hh, mm = parsed
+            now_local = dt_util.now()
+            anchor_local = (
+                anchor.astimezone(now_local.tzinfo)
+                if anchor.tzinfo is not None else anchor.replace(
+                    tzinfo=now_local.tzinfo,
+                )
+            )
+            from datetime import timedelta
+            shifted = anchor_local - timedelta(hours=ONSET_SESSION_LOOKBACK_H)
+            onset_instant = next_occurrence_of_hhmm(shifted, hh, mm)
+            if now_local < onset_instant:
+                return 0  # still pre-onset (waiting, not over-holding)
+            return int((now_local - onset_instant).total_seconds())
+        except Exception:  # noqa: BLE001
+            return 0
 
 
 class EnergyTOURateSensor(AggregationEntity, SensorEntity):
