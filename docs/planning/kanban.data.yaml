@@ -4668,7 +4668,7 @@ cards:
     + live entities) is.'
   title: Override arrester reverts occupant manual cooling requests with no comfort exemption
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.69.0
   approval: approved
   review_state: 'Cycle A built (18b491e01, 28 tests, kids-replay authentic). Tier-3 4x reviews: B SHIP;
@@ -4746,7 +4746,16 @@ cards:
   title: BLE re-creates bathroom occupancy inside the 10-min warm window on every toilet visit (v5.22.0
     left this open by design)
   thread: presence
-  status: shipped_organic
+  status: investigating
+  REOPEN_2026_08_31: 'Soak-exit sweep REOPENED (was mislabeled shipped_organic). The DELETE-leg-(b)
+    fix was investigated, operator-approved, and passed 4 Tier-3 reviews on 2026-08-10 (branch
+    c37d155c3) but was NEVER MERGED to develop — no warm-window guard exists in running code, and the
+    recorder shows 57 warm-window re-creates (occupancy_source=ble, tier1_provenance all-False, within
+    600s of a timeout) over 15 days (08-24..08-31), the founding case still firing. LIKELY the cause of
+    the operator''s 2026-08-31 report that the Master Bath LED is on at night: the warm-strobe re-creates
+    occupancy overnight -> entry/light actions fire. NEXT: confirm branch c37d155c3 status; if intact,
+    land the approved DELETE-leg-(b) hotfix; if stale, rebuild from the 08-10 reviews. Separate hotfix
+    (occupancy reviews stay pointed at one change), queued behind charge-onset.'
   shipped_version: v5.66.0
   approval: unreviewed
   tags:
@@ -4948,7 +4957,7 @@ cards:
       hypothesis for BOTH the manual-ON revert and the fans_on=0 reading on this card.
   title: 'Fans have no manual-ON override: room temp logic reverts a hand-switched fan ("below threshold")'
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.68.0
   approval: explicit
   approved_by: operator 2026-08-10 ("If there is no manual override, design one after considering all
@@ -6931,7 +6940,7 @@ cards:
   title: Kill the order-dependent flake families (sys.modules pollution) — every cycle pays a classification
     tax
   thread: quality
-  status: shipped_organic
+  status: done
   shipped_version: v5.72.0
   approval: approved
   origin:
@@ -6950,7 +6959,7 @@ cards:
 - id: NM-IMAGE-1
   title: NM image attachments not landing (WhatsApp + iMessage) — operator automation images DO land
   thread: notifications
-  status: shipped_organic
+  status: done
   shipped_version: v5.71.0
   approval: unreviewed
   origin:
@@ -6972,7 +6981,7 @@ cards:
 - id: DP-OBSERVABILITY-1
   title: DP plan sensor presents stale eval snapshot as current (misled 2 diagnoses in one day)
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.71.0
   approval: unreviewed
   origin:
@@ -11312,14 +11321,25 @@ cards:
   title: Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
-  status: investigating
+  status: planned
   created: 2026-08-24 16:45
-  updated: 2026-08-24 16:45
-  refinement_status: initial
+  updated: 2026-08-31 18:10
+  refinement_status: refined
   approval: unreviewed
   tags:
   - measure-before-build
   - no-fabrication-verify
+  - tier-2db
+  investigation_result: 'CONFIRMED (read-only probe 2026-08-31). The frozen entity is
+    sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES
+    at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_power climbs to
+    ~17 kW; self-heals within a day (NO reload). 08-29->30 event = 16.2h, matches the symptom. Not a
+    device drop (siblings keep updating) — entity-subset-specific to the Enphase current_* aggregate.
+    BLAST RADIUS (real): _read_power_w (energy_battery.py:1572) rejects only unknown/unavailable, so a
+    frozen 0.0 is TRUSTED as "0 W producing" AND poisons _solar_prod_lkg_w->0 (stamped every non-None
+    read, energy_battery.py:1614); the Envoy-blind envelope only fires on None so it never engages for
+    frozen-0. Consumers: excess-solar admit (energy_pool.py:1483) + battery strategy. Existing stale
+    detector + NM Envoy-offline alert both miss it (fire only on unavailable).'
   problem_solution:
   - 'Problem: the sensor that reports how much power the solar panels are making went stuck at zero for
     about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the
@@ -11337,12 +11357,21 @@ cards:
     whether any EC decision path reads the DERIVED value was flagged as an open question not chased this
     session.
   constraints: []
-  next: 'Producer/consumer check: grep every reader of CONF_ENERGY_SOLAR_ENTITY / the derived production
-    value; for each, is it a trust decision or display? Compare against the live export reading as ground
-    truth. ONE read-only measurement, then verdict.'
+  next: 'BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix:
+    (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the
+    battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S, energy_battery.py:~887) — a
+    frozen production reading older than ~2 decision intervals returns None so the built
+    solar_production_w_envelope()/LKG fallback engages instead of trusting frozen 0. (2) trip-wire
+    anomaly->NM: production frozen/0 while production_ct_power>0 (the discriminating signal — sibling
+    live while primary frozen). NO periodic reload (self-heals; reload = watchdog hazard).
+    Acceptance (discriminating): inject frozen current_power_production=0.0 with last_updated 30 min old
+    while production_ct_power=15 kW -> solar_production_w returns None (not 0.0) and excess-solar admit
+    falls through to the LKG envelope, not "0 solar".'
   refs:
-  - docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault
+  - docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault)
   - __init__.py:3026
+  - 'PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1)'
+  - 'BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483'
 - id: DP-VERYPOOR-DRAIN-VALIDATOR-1
   title: On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change
     — the live-update validator accepts only 4 of the 5 forecast qualities
