@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-29T20:10:22-05:00_ - _Data commit: `6a5eef13e260`_ - _last_reconciled: 2026-08-29_
+_Generated: 2026-08-31T18:34:20-05:00_ - _Data commit: `f18cdc88725f`_ - _last_reconciled: 2026-08-29_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,7 +13,7 @@ _Generated: 2026-08-29T20:10:22-05:00_ - _Data commit: `6a5eef13e260`_ - _last_r
 |---|---:|
 | 📥 Inbox | 30 |
 | 🔬 Investigating | 8 |
-| 🧭 Pre-planning | 11 |
+| 🧭 Pre-planning | 12 |
 | 📝 Planned | 6 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
@@ -495,7 +495,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 3
   - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
-## 🧭 Pre-planning (11)
+## 🧭 Pre-planning (12)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -540,6 +540,17 @@ _created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
   - `PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23`: Card said "detector running" -- it was NOT. The 08-22 15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not survive the session. So it expired ~15:57 on 08-22 having produced NO recorded...
   - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
   - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep
+thread: **presence** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-08-31 18:20 · initial_
+- **Problem / Solution:**
+  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
+- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
+- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
+- **Next:** Design a body-corroboration requirement for BLE EXTEND during sleep (mirror the corroboration-gated approach in STUCK-SENSOR-1 / the fusion doctrine); OR scope the bedroom-adjacent scanner out of the bath sustain set. Coordinate with BLE...
+- **Tags:** no-fabrication-verify, measure-before-build
+- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
