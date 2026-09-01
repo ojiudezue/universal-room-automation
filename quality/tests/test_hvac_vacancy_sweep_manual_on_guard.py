@@ -521,3 +521,129 @@ def test_vacancy_sweep_sweeps_lights_regardless_of_fan_hold():
         "Scoping: manual-ON hold is FAN-scoped; the held room's LIGHT "
         f"must still be swept off (light_off_targets={light_off_targets})"
     )
+
+
+# ---------------------------------------------------------------------------
+# NIGHT-LIGHT-NO-OFF-PATH-1 (D5, H1): HVAC vacancy sweep sleep-gated widen
+# to CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS (non-sleep) / CONF_LIGHTS-only (sleep).
+# Mutation anchor: neuter D5 union → non-sleep test RED; neuter D5 sleep gate
+# → sleep test RED (a hallway night light gets swept off at 02:00).
+# ---------------------------------------------------------------------------
+
+
+def _make_hvac_coord_with_night_lights(room: str, sleep: bool):
+    """Extended fixture: one room with a night-only entity + sleep predicate.
+
+    Injects a `.automation.is_sleep_mode_active()` accessor on the stub
+    room coordinator so the D5 sleep-gate read succeeds.
+    """
+    from custom_components.universal_room_automation.const import (
+        CONF_NIGHT_LIGHTS,
+    )
+
+    coord = HVACCoordinator.__new__(HVACCoordinator)
+    coord._observation_mode = False
+
+    hass = MagicMock()
+    hass.data = {DOMAIN: {}}
+    log: list = []
+
+    async def _svc_call(domain, service, data=None, blocking=False):
+        log.append((domain, service, dict(data or {})))
+
+    hass.services = MagicMock()
+    hass.services.async_call = _svc_call
+
+    night_entity = f"switch.{room.lower()}_night"
+    entry = _StubEntry(
+        room_name=room, fans=[], lights=[],
+        entry_id=f"entry_{room}",
+    )
+    entry.data[CONF_NIGHT_LIGHTS] = [night_entity]
+
+    states = {}
+    st = MagicMock()
+    st.state = "on"
+    states[night_entity] = st
+
+    room_coord = _StubRoomCoordinator(entry)
+    _auto = MagicMock()
+    _auto.is_sleep_mode_active = lambda: sleep
+    room_coord.automation = _auto
+    hass.data[DOMAIN][entry.entry_id] = room_coord
+
+    def _states_get(eid):
+        return states.get(eid)
+
+    hass.states = MagicMock()
+    hass.states.get = _states_get
+
+    def _entries(domain):
+        assert domain == DOMAIN
+        return [entry]
+
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries = _entries
+    coord.hass = hass
+
+    fc = MagicMock()
+    fc.is_room_in_manual_on_hold = lambda _r: False
+    coord._fan_controller = fc
+
+    return coord, log, night_entity
+
+
+def test_D5_hvac_sweep_nonsleep_turns_off_night_only_entity():
+    """D5: non-sleep zone-vacancy sweep turns off a night-only entity
+    (the widen)."""
+    base = datetime(2026, 8, 10, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(base)
+
+    coord, log, night_entity = _make_hvac_coord_with_night_lights(
+        "Hall", sleep=False,
+    )
+    zone = _StubZone(zone_name="ZoneA", rooms=["Hall"])
+
+    _run(coord._execute_vacancy_sweep(zone))
+
+    off_targets = set()
+    for (_dom, svc, d) in log:
+        if svc != "turn_off":
+            continue
+        eid = d.get("entity_id")
+        if eid == night_entity:
+            off_targets.add(eid)
+
+    assert night_entity in off_targets, (
+        f"D5 non-sleep sweep MUST turn off night-only entity {night_entity}. "
+        f"log={log}"
+    )
+
+
+def test_D5_hvac_sweep_sleep_does_NOT_turn_off_night_only_entity():
+    """D5 DISCRIMINATING: sleep zone-vacancy sweep MUST NOT turn off a
+    night-only entity (invariant #2 — the 02:00-kills-hallway-night-light
+    anti-regression). Neutering the sleep gate turns this RED.
+    """
+    base = datetime(2026, 8, 10, 2, 0, 0, tzinfo=timezone.utc)
+    _set_now(base)
+
+    coord, log, night_entity = _make_hvac_coord_with_night_lights(
+        "Hall", sleep=True,
+    )
+    zone = _StubZone(zone_name="ZoneA", rooms=["Hall"])
+
+    _run(coord._execute_vacancy_sweep(zone))
+
+    off_targets = set()
+    for (_dom, svc, d) in log:
+        if svc != "turn_off":
+            continue
+        eid = d.get("entity_id")
+        if eid == night_entity:
+            off_targets.add(eid)
+
+    assert night_entity not in off_targets, (
+        f"D5 sleep gate: sweep MUST NOT turn off night-only entity "
+        f"{night_entity} during sleep. log={log}"
+    )

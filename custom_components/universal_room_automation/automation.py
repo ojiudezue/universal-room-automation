@@ -966,35 +966,57 @@ class RoomAutomation:
     async def _control_lights_entry(self, state_data: dict[str, Any]) -> None:
         """Control lights on entry with night light support."""
         room_name = self.config.get('room_name', 'Unknown')
-        
+
         action = self.config.get(CONF_ENTRY_LIGHT_ACTION, LIGHT_ACTION_NONE)
         _LOGGER.debug("Entry light control [%s]: action=%s", room_name, action)
-        
+
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (D4 — LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1):
+        # Hoist the sleep-mode night-light ON block ABOVE the action==NONE
+        # and empty-lights early returns so canonical aligns with reconciler
+        # sleep branch (F2/F3 rooms: Master Bedroom, Patio, Game Room).
+        # H2: do NOT call _turn_off_non_night_lights() here — that would
+        # newly turn off regular lights during sleep for entry=none rooms
+        # (unintended widening). The pre-existing :995 call site handles
+        # the "regular lights get off during sleep entry" case for
+        # dual-listed rooms via reconcile-on-next-tick (reconciler sleep
+        # branch returns sleep_non_night_off for a regular light).
+        is_sleep_hours = self.is_sleep_mode_active()
+        night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
+        if is_sleep_hours and night_lights:
+            _LOGGER.info(
+                "Sleep mode active [%s] - turning on night lights (hoisted, "
+                "entry_action=%s)",
+                room_name, action,
+            )
+            await self._turn_on_night_lights(mode="sleep")
+            return
+
         if action == LIGHT_ACTION_NONE:
             _LOGGER.debug("Entry light control [%s]: action is NONE, skipping", room_name)
             return
 
         lights = self.config.get(CONF_LIGHTS, [])
         _LOGGER.debug("Entry light control [%s]: lights=%s (count=%d)", room_name, lights, len(lights))
-        
+
         if not lights:
             _LOGGER.debug("Entry light control [%s]: no lights configured, skipping", room_name)
             return
 
-        # === v3.2.2.5: Check if we're in sleep hours ===
-        is_sleep_hours = self.is_sleep_mode_active()
-        night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
-        
-        _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s", 
+        # === v3.2.2.5: sleep-hours entry — dual-listed rooms path ===
+        # (Retained for byte-identical behavior on tuples where the hoisted
+        # block did not fire — currently unreachable because the hoist
+        # returned above when night_lights was populated; kept as a
+        # defensive parity anchor for the invariant #4 snapshot.)
+        _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s",
                        room_name, is_sleep_hours, night_lights)
-        
+
         if is_sleep_hours and night_lights:
             # SLEEP MODE: Only night lights, no darkness check
             _LOGGER.info("Sleep mode active - turning on night lights only")
             await self._turn_on_night_lights(mode="sleep")
             await self._turn_off_non_night_lights()
             return
-        
+
         # NORMAL MODE: Check darkness if needed
         illuminance = state_data.get(STATE_ILLUMINANCE)
         is_dark = self.is_dark(illuminance)
@@ -1037,14 +1059,25 @@ class RoomAutomation:
         if action != LIGHT_ACTION_TURN_OFF:
             return
 
-        lights = self.config.get(CONF_LIGHTS, [])
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (D1): sleep-gated off_set.
+        # Non-sleep: turn_off both CONF_LIGHTS and night-only entities.
+        # Sleep: collapse to CONF_LIGHTS only (invariant #2 — protect the
+        # night-only entity from the sleep-bypass vacancy path). The gate
+        # matches D2 (reconciler vacant), D3 (shared-space), D5 (HVAC sweep).
+        regular = self.config.get(CONF_LIGHTS, []) or []
+        night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+        if self.is_sleep_mode_active():
+            off_set = list(regular)
+        else:
+            off_set = list(regular) + [e for e in night if e not in regular]
+        lights = off_set
         if not lights:
             return
 
         # v3.2.0.8: Separate light.* entities from switch.* entities
         actual_lights = []
         switches_as_lights = []
-        
+
         for entity_id in lights:
             if entity_id.startswith("light."):
                 actual_lights.append(entity_id)
@@ -3224,7 +3257,16 @@ class RoomAutomation:
             # suppressed the warning + flash for rooms whose lights are
             # entirely on switches — extend to include switch-as-light
             # states so the warning path fires there too.
-            lights = self.config.get(CONF_LIGHTS, [])
+            # NIGHT-LIGHT-NO-OFF-PATH-1 (D3b): widen to sleep-gated off_set
+            # so the T-5 warning fires for rooms whose ONLY on-lights are
+            # night-only entities (non-sleep). Sleep collapses to CONF_LIGHTS
+            # matching pre-cycle behavior.
+            _regular = self.config.get(CONF_LIGHTS, []) or []
+            _night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+            if self.is_sleep_mode_active():
+                lights = list(_regular)
+            else:
+                lights = list(_regular) + [e for e in _night if e not in _regular]
             lights_on = any(
                 (s := self.hass.states.get(lid)) is not None and s.state == STATE_ON
                 for lid in lights
@@ -3263,7 +3305,14 @@ class RoomAutomation:
         keeping the existing dim-restore path for light.* entries.
         Rooms with NO entries still no-op (nothing to flash).
         """
-        lights = self.config.get(CONF_LIGHTS, [])
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (D3b flash): sleep-gated off_set widen
+        # to match check_auto_off_warning above.
+        _regular = self.config.get(CONF_LIGHTS, []) or []
+        _night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+        if self.is_sleep_mode_active():
+            lights = list(_regular)
+        else:
+            lights = list(_regular) + [e for e in _night if e not in _regular]
         if not lights:
             return
 
@@ -3315,7 +3364,14 @@ class RoomAutomation:
     async def _shared_space_turn_off_all(self) -> None:
         """Turn off all devices in shared space."""
         # Turn off lights — Bug Class #4 fix: separate domains
-        lights = self.config.get(CONF_LIGHTS, [])
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (D3a): sleep-gated off_set. Non-sleep
+        # includes night-only entities; sleep collapses to CONF_LIGHTS.
+        regular = self.config.get(CONF_LIGHTS, []) or []
+        night_ = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+        if self.is_sleep_mode_active():
+            lights = list(regular)
+        else:
+            lights = list(regular) + [e for e in night_ if e not in regular]
         if lights:
             actual_lights = [e for e in lights if e.startswith("light.")]
             switches_as_lights = [e for e in lights if e.startswith("switch.")]

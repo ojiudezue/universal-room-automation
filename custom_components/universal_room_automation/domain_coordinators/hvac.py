@@ -3281,7 +3281,7 @@ class HVACCoordinator(BaseCoordinator):
             _LOGGER.debug("HVAC: Vacancy sweep suppressed by observation mode for %s", zone.zone_name)
             return
 
-        from ..const import CONF_LIGHTS, CONF_FANS
+        from ..const import CONF_LIGHTS, CONF_FANS, CONF_NIGHT_LIGHTS
 
         swept_count = 0
         for room_name in zone.rooms:
@@ -3293,7 +3293,28 @@ class HVACCoordinator(BaseCoordinator):
                 **coordinator.config_entry.options,
             }
 
-            lights = config.get(CONF_LIGHTS, [])
+            # NIGHT-LIGHT-NO-OFF-PATH-1 (D5, H1): sleep-gated off_set.
+            # Non-sleep: sweep BOTH regular + night-only entities on zone
+            # vacancy (consistent with D1/D2/D3). Sleep: collapse to
+            # CONF_LIGHTS — a 02:00 sweep must NOT kill hallway night
+            # lights (invariant #2). Sleep predicate is read from the
+            # room-tier automation (same one D1/D2/D3 use).
+            regular = config.get(CONF_LIGHTS, []) or []
+            night = config.get(CONF_NIGHT_LIGHTS, []) or []
+            sleep = False
+            try:
+                _auto = getattr(coordinator, "automation", None)
+                if _auto is not None and hasattr(_auto, "is_sleep_mode_active"):
+                    sleep = bool(_auto.is_sleep_mode_active())
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC: sweep sleep-predicate read failed for %s (%s)",
+                    room_name, exc,
+                )
+            if sleep:
+                lights = list(regular)
+            else:
+                lights = list(regular) + [e for e in night if e not in regular]
             fans = config.get(CONF_FANS, [])
 
             for entity_id in lights:

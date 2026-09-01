@@ -686,12 +686,12 @@ def test_resolver_none_for_alert_lights_only_entity():
     assert r.resolve_desired_state("light.alert") is None
 
 
-def test_resolver_none_for_night_light_only_entity_on_vacant_exit():
-    """A-HIGH-1 gate: canonical _control_lights_exit turns off CONF_LIGHTS only.
+def test_resolver_off_for_night_light_only_entity_on_vacant_exit_nonsleep():
+    """NIGHT-LIGHT-NO-OFF-PATH-1 (D2): canonical _control_lights_exit now
+    turns off the sleep-gated union CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS.
 
-    A night_lights-only entity (NOT in CONF_LIGHTS) is never turned off on exit
-    by canonical, so the resolver must return None (not 'off') for it when the
-    room is vacant.
+    Reconciler vacant branch mirrors that. Non-sleep + vacant + night-only
+    entity now returns "off" (previously None per A-HIGH-1; superseded).
     """
     hass, coord, r = make_env(
         data={
@@ -701,11 +701,36 @@ def test_resolver_none_for_night_light_only_entity_on_vacant_exit():
         },
         coordinator_data={STATE_OCCUPIED: False, STATE_ILLUMINANCE: 5},
     )
-    # night-only entity on vacant exit -> None (canonical doesn't touch it).
-    assert r.resolve_desired_state("light.night") is None
-    # regular light (in CONF_LIGHTS) on vacant exit -> off.
+    coord.automation._sleep = False
+    # non-sleep: night-only entity on vacant exit -> off (D2 fix).
+    desired = r.resolve_desired_state("light.night")
+    assert desired is not None and desired.state == "off"
+    assert desired.reason == "exit_light_off"
+    # regular light (in CONF_LIGHTS) on vacant exit -> off (unchanged).
     desired = r.resolve_desired_state("light.regular")
     assert desired is not None and desired.state == "off"
+
+
+def test_resolver_night_only_sleep_vacant_stays_on_via_sleep_branch():
+    """D2 sleep-gate: under sleep, a night-only entity is ON via sleep branch.
+
+    The vacant branch is not reached (sleep branch returns first). This
+    guards invariant #2 — the sleep-gated off_set collapses to CONF_LIGHTS
+    under sleep so the vacant branch NEVER emits off_desired for a
+    night-only entity.
+    """
+    hass, coord, r = make_env(
+        data={
+            CONF_LIGHTS: [],
+            CONF_NIGHT_LIGHTS: ["light.night"],
+            CONF_EXIT_LIGHT_ACTION: LIGHT_ACTION_TURN_OFF,
+        },
+        coordinator_data={STATE_OCCUPIED: False, STATE_ILLUMINANCE: 5},
+    )
+    coord.automation._sleep = True
+    desired = r.resolve_desired_state("light.night")
+    assert desired is not None and desired.state == "on"
+    assert desired.reason == "sleep_night_light"
 
 
 def _canonical_fan_decision(occupied, temp_above, hvac_managing, fan_enabled,

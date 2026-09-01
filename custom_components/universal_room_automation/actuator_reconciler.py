@@ -791,12 +791,25 @@ class ActuatorReconciler:
                 params=params, reason="entry_light_on",
             )
 
-        # Vacant. Canonical _control_lights_exit (automation.py:699) turns off
-        # CONF_LIGHTS ONLY — a night_lights-only entity is NEVER turned off on
-        # exit by canonical. Mirror that set membership (A-HIGH-1): only assert
-        # OFF for an entity that is actually in CONF_LIGHTS.
+        # Vacant. NIGHT-LIGHT-NO-OFF-PATH-1 (D2, D2.10 parity):
+        # canonical _control_lights_exit now turns off
+        # CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS when NOT sleep, and CONF_LIGHTS
+        # only under sleep (sleep-safety gate — see automation.py
+        # _control_lights_exit + planning doc D1/D2 invariant #2).
+        # Mirror the SAME sleep-gated off_set here so canonical exit and
+        # reconciler vacant branch clear IDENTICAL sets.
+        # Note: under sleep, the sleep branch above (:747) already
+        # returned sleep_night_light ON for any night_lights entity, so
+        # off_set = regular under sleep is the only reachable set for
+        # this branch under sleep.
         regular_lights = cfg.get(CONF_LIGHTS) or []
-        if exit_action == LIGHT_ACTION_TURN_OFF and entity_id in regular_lights:
+        if sleep:
+            off_set = list(regular_lights)
+        else:
+            off_set = list(regular_lights) + [
+                e for e in night_lights if e not in regular_lights
+            ]
+        if exit_action == LIGHT_ACTION_TURN_OFF and entity_id in off_set:
             return DesiredState(
                 state="off", domain=domain, service="turn_off",
                 reason="exit_light_off",
