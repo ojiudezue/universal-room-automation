@@ -2745,7 +2745,15 @@ cards:
   title: 'EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia
     recovered) — next-deploy items, committed not parked'
   thread: energy
-  status: shipped_organic
+  status: planned
+  operator_correction_2026_09_01: 'REVERSED the remove-the-dupes approach. Do NOT delete
+    sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the
+    ev_charging_status per-bay power calc so the data is SURFACED on named sensors instead of buried in
+    ev_charging_status attributes. Keep ev_charging_status AS IS (unchanged). Net: the two ev_charge_rate
+    sensors stop reading unknown and show live per-bay charge rate (from ev_charging_status.garage_{a,b}.power);
+    the standalone entities are reused, not tombstoned. (Emporia per-plug real-power wiring already shipped
+    v5.78.0.) Build: repoint the ev_charge_rate sensor native_value to the ev_charging_status source; add a
+    small test that each populated sensor reflects the corresponding bay power. Tier 1/2 (additive display).'
   shipped_version: v5.78.0
   approval: implied
   origin:

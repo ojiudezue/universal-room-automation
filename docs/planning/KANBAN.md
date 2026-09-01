@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T12:40:18-05:00_ - _Data commit: `1659814b0345`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T16:18:29-05:00_ - _Data commit: `985f5fd5d112`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,10 +14,10 @@ _Generated: 2026-09-01T12:40:18-05:00_ - _Data commit: `1659814b0345`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 14 |
-| 📝 Planned | 6 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 52 |
+| 🚀 Shipped (organic open) | 51 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 20 |
@@ -649,8 +649,18 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (6)
+## 📝 Planned (7)
 _has plan / acceptance_
+
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked
+thread: **energy** - status: **planned** - approval: **implied**
+- **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
+- **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
+- **Next:** Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.
+- **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
+- **Forensic keys (2):**
+  - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -792,7 +802,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (52)
+## 🚀 Shipped (organic open) (51)
 _live, awaiting proof_
 
 ### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
@@ -1041,15 +1051,6 @@ _updated 2026-08-23 14:30_
   - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
   - `organic_evidence`: 2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm drop is recorded in planning doc...
-
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked
-thread: **energy** - status: **shipped_organic** - approval: **implied**
-- **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
-- **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
-- **Next:** Ride the PATH-ALPHA cycle deploy: Tier-1 removal + per-plug wiring, per audit specs.
-- **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
-- **Forensic keys (1):**
-  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ### `EGRESS-CAMERA-DEAD-CONFIG-1` - Two of five egress cameras are configured under dead Frigate-1 names — Garage A and Garage B contribute nothing to egress detection, on the house's primary entry path
 thread: **camera** - status: **shipped_organic** - approval: **needs_operator**
