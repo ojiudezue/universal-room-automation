@@ -67,9 +67,14 @@ cards:
     and dissolves HIGH-1 (_solar_forecast_error_baseline keeps reading the unchanged pct_error). Also: recompute
     bounded metric from stored predicted/actual on restore (not clamp); fix STALE_EVAL_DAYS >= /=1; real
     POOR_THRESHOLD_PCT (~50); verify live entity id in D0.'
-  next: 'Revise plan to Rev 2 (split-metric, display-only). Planner resumable (task ac7c6c69882c02fd6). Then it
-    is a Tier 1-2 display fix — one plan-review confirm, then build D1 mask + D3 stale-visibility + bounded
-    sensor-only metric. Control path untouched.'
+  - 'Rev 2 WRITTEN + CONFIRM-REVIEWED: split is CLEAN (control path genuinely isolated via return-dict
+    energy_forecast.py:862; restore split sound; no decision leak; no schema migration; Tier 1-2). One small
+    plan-level gap being fixed: M1 — the byte-identity test must drive the PRODUCTION evaluate_accuracy
+    (assert pct_error==44900 while pct_error_bounded==200) so it goes RED if line 850 is mutated; test 7 alone
+    stays green on an in-place clamp. + L1 (eval_age_days None>=2 ordering) / L2 (invariant wording: signature
+    not value) / L3 (complete rolling_accuracy consumer map). No design re-review needed after.'
+  next: 'Planner applying M1/L1/L2/L3 (ac7c6c69882c02fd6). Then BUILD-READY: D1 mask + D3 stale-visibility +
+    bounded sensor-only metric + 9 tests incl. the production-computation byte-identity anchor. Control path untouched.'
   refs: ['docs/planning/PLANNING_forecast_accuracy_fix.md', 'sensor.py:11344/11373', 'energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy', 'energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property', 'PLANNING_v4.7.x_advanced_energy_management.md E5 origin']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
@@ -5055,9 +5060,18 @@ cards:
   - 'BLE_HOLD_CAP_DURATIONS (rung 1 module const, room_type->seconds) — NEW per review C1-MED-3; MAY default to
     ROOM_TYPE_FAILSAFE_DURATIONS but named separately so the BLE-cap policy can diverge (operator said "long cap"
     — 60min bath is the shortest, not long). Recommend own longer bath default, tunable.'
-  next: 'Rev 4: fold operator per-room toggle + room-type-default-on-at-setup + own duration knob, AND the
-    review must-fixes (freshness/no-PIR handling, distinct NM message, executable D2 harness, discriminating L4).
-    Then re-plan-review (config surface changed). Plan: PLANNING_ble_bleed_extend_corroboration.md.'
+  - 'Rev 4 WRITTEN (2026-09-01): per-room CONF_BLE_HOLD_CAP_ENABLED toggle + ROOM_TYPE_BLE_HOLD_CAP_DEFAULT
+    (bath/closet ON, all else incl. 6 no-PIR rooms OFF -> C1-HIGH-2 resolved by construction) + separate
+    BLE_HOLD_CAP_DURATIONS map. Prior art confirmed: mirrors CONF_FAN_CONTROL_ENABLED (const.py:958,
+    config_flow.py:1902/1914); reuses the ROOM_TYPE_TIMEOUTS.get setup-default pattern (config_flow.py:991-996);
+    options flow lives IN config_flow.py (no separate options_flow.py). Decisions: F1 (no freshness conjunct,
+    matches "long cap" brief, self-heals on next Tier-1 fire); N1 (distinct kind="ble_hold_cap" + new
+    _fire_ble_hold_cap_nm, drops P24 dedup for diagnostic honesty). Test harness fixed (exec-ns injection,
+    mutation anchor #3 re-homed to a real-coordinator unit test, T-CAP-6 replaced with two-path observation);
+    L3 targets a real no-PIR room (Master Bedroom, default-OFF) as the non-eviction discriminator; L4 measures
+    Tier-1-unprovenanced occupied minutes. New invariant C (setup-default correctness) + config round-trip tests.'
+  next: 'AWAITING OPERATOR duration confirm (recommended: bathroom 90min, closet 60min, default 2h). On
+    confirm -> fresh plan-review (config surface changed, Tier 2-DB+) -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).'
   refs:
   - 'Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min
     hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF'

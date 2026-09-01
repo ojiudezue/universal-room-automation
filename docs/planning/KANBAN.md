@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T16:44:43-05:00_ - _Data commit: `5be1c7761799`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T16:47:36-05:00_ - _Data commit: `d4bd353d86c4`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -630,12 +630,12 @@ _has plan / acceptance_
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
 thread: **energy** - status: **planned** - approval: **implied**
-_created 2026-09-01 16:15 · updated 2026-09-01 17:05 · refined ×1_
+_created 2026-09-01 16:15 · updated 2026-09-01 17:05 · refined ×2_
 - **Problem / Solution:**
   - Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy computed to zero-or-negative, and t...
 - **Origin:** 2026-09-01 - operator side-quest — why is forecast_accuracy unknown
 - **Why:** Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30. Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value returns None when accuracy<=0 (...
-- **Next:** Revise plan to Rev 2 (split-metric, display-only). Planner resumable (task ac7c6c69882c02fd6). Then it is a Tier 1-2 display fix — one plan-review confirm, then build D1 mask + D3 stale-visibility + bounded sensor-only metric. Control pa...
+- **Next:** Planner applying M1/L1/L2/L3 (ac7c6c69882c02fd6). Then BUILD-READY: D1 mask + D3 stale-visibility + bounded sensor-only metric + 9 tests incl. the production-computation byte-identity anchor. Control path untouched.
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** docs/planning/PLANNING_forecast_accuracy_fix.md; sensor.py:11344/11373; energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy; energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property; PLANNING_v4.7.x_advanced_energy_management.md E5 origin
 
@@ -656,7 +656,7 @@ _created 2026-08-31 18:20 · updated 2026-09-01 17:05 · refined ×4_
   - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
 - **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
 - **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
-- **Next:** Rev 4: fold operator per-room toggle + room-type-default-on-at-setup + own duration knob, AND the review must-fixes (freshness/no-PIR handling, distinct NM message, executable D2 harness, discriminating L4). Then re-plan-review (config s...
+- **Next:** AWAITING OPERATOR duration confirm (recommended: bathroom 90min, closet 60min, default 2h). On confirm -> fresh plan-review (config surface changed, Tier 2-DB+) -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
 - **Forensic keys (1):**
