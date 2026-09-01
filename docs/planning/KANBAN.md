@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-31T20:39:30-05:00_ - _Data commit: `af072bf56db2`_ - _last_reconciled: 2026-08-31_
+_Generated: 2026-08-31T20:44:04-05:00_ - _Data commit: `f5838af99c60`_ - _last_reconciled: 2026-08-31_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-31T20:39:30-05:00_ - _Data commit: `af072bf56db2`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 8 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
@@ -359,8 +359,19 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
+
+### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-01 00:40 · initial_
+- **Problem / Solution:**
+  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
+- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
+- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
+- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
+- **Tags:** no-fabrication-verify
+- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
 
 ### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
 thread: **presence** - status: **investigating** - approval: **unreviewed**
@@ -655,7 +666,7 @@ _has plan / acceptance_
 
 ### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
 thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-08-31 19:15 · updated 2026-08-31 19:45 · initial_
+_created 2026-08-31 19:15 · updated 2026-09-01 00:40 · initial_
 - **Problem / Solution:**
   - Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently references dead handles. These are the only true URA-side items in the room-entity audit (everything else is offline hardware). Solution: re...
 - **Origin:** 2026-08-31 - room device unknown/unavailable audit — STALE section
@@ -663,6 +674,8 @@ _created 2026-08-31 19:15 · updated 2026-08-31 19:45 · initial_
 - **Next:** Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via ha_config). Low-risk config, no code, no review tier.
 - **Tags:** no-fabrication-verify
 - **Refs:** room device audit 2026-08-31 (STALE CONFIG section)
+- **Forensic keys (1):**
+  - `verified_and_locked_2026_09_01`: Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO fields (data.fans + options.manual_switches) -> repoint BOTH to...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**

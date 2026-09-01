@@ -26,13 +26,42 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
+  title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+  thread: presence
+  status: investigating
+  created: 2026-09-01 00:40
+  updated: 2026-09-01 00:40
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: every room''s Automation Mode control (select.<room>_automation_mode) reads unavailable across
+     all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead
+     house-wide. Solution: find why the select platform / the automation_mode entity''s available property (or
+     restore path) fails to come up, and fix so the control is usable again.'
+  origin: {date: '2026-09-01', gist: URA-created output-entity unavailable/unknown audit — Group 1a}
+  why: 'CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since
+    2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest
+    finding of the URA-output audit; sibling sensors in the same rooms are available, so it is select-platform
+    /availability-specific, not an unloaded entry.'
+  next: 'Investigate select platform setup + the automation_mode entity available/restore path; determine why
+    all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?'
+  refs: ['URA-output unavailable/unknown audit 2026-09-01', 'select.<room>_automation_mode x38']
 - id: ROOM-ENTITY-STALE-CONFIG-1
   title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
   thread: presence
   status: planned
+  verified_and_locked_2026_09_01: 'Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint
+    room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO
+    fields (data.fans + options.manual_switches) -> repoint BOTH to fan.ceilingfan_fanimaton_rf_masterbedroom.
+    Jaya dead contact is in Jaya door_sensor AND the CM security_entry_sensors (audit missed the security ref).
+    OPERATOR DECISION 2026-09-01: REMOVE Jaya door_sensor entirely; REPOINT the CM security_entry_sensors dead
+    contact -> ..._contact_2 (live). Mechanism: .storage config edits take effect on RESTART (reload uses
+    in-memory) -> apply all edits as a controlled step in the NIGHT-LIGHT deploy-restart (batched, clobber-free).'
   batch: 'With NIGHT-LIGHT-NO-OFF-PATH-1 (operator 2026-08-31) — same room-config/light surface.'
   created: 2026-08-31 19:15
-  updated: 2026-08-31 19:45
+  updated: 2026-09-01 00:40
   refinement_status: initial
   approval: unreviewed
   tags: [no-fabrication-verify]
