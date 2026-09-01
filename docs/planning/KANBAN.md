@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-31T20:44:04-05:00_ - _Data commit: `f5838af99c60`_ - _last_reconciled: 2026-08-31_
+_Generated: 2026-09-01T08:59:52-05:00_ - _Data commit: `cd1a17ccd8ff`_ - _last_reconciled: 2026-08-31_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-08-31T20:44:04-05:00_ - _Data commit: `f5838af99c60`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 9 |
+| 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
@@ -21,7 +21,7 @@ _Generated: 2026-08-31T20:44:04-05:00_ - _Data commit: `f5838af99c60`_ - _last_r
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 20 |
-| ✅ Done | 57 |
+| ✅ Done | 58 |
 
 ## 📥 Inbox (29)
 _raw capture_
@@ -359,19 +359,8 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (9)
+## 🔬 Investigating (8)
 _measuring; truth not yet known_
-
-### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
-thread: **presence** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-01 00:40 · initial_
-- **Problem / Solution:**
-  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
-- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
-- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
-- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
-- **Tags:** no-fabrication-verify
-- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
 
 ### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
 thread: **presence** - status: **investigating** - approval: **unreviewed**
@@ -1972,8 +1961,21 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (57)
+## ✅ Done (58)
 _closed, evidence in refs_
+
+### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+thread: **presence** - status: **done** - approval: **unreviewed**
+_created 2026-09-01 00:40 · updated 2026-09-01 01:30 · initial_
+- **Problem / Solution:**
+  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
+- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
+- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
+- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
+- **Tags:** no-fabrication-verify
+- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
+- **Forensic keys (1):**
+  - `resolution_2026_09_01`: NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**

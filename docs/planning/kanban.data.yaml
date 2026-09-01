@@ -29,9 +29,10 @@ cards:
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
-  status: investigating
+  status: done
+  resolution_2026_09_01: 'NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry entries from code) the integration intentionally does NOT auto-clean them, so the 38 select.<room>_automation_mode rows persist as unavailable/restored. FIX = optional one-time registry cleanup (remove the 38 orphaned rows) — offered to operator; no code. Closed.'
   created: 2026-09-01 00:40
-  updated: 2026-09-01 00:40
+  updated: 2026-09-01 01:30
   refinement_status: initial
   approval: unreviewed
   tags: [no-fabrication-verify]
