@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-31T18:43:06-05:00_ - _Data commit: `c76c4b491983`_ - _last_reconciled: 2026-08-29_
+_Generated: 2026-08-31T18:43:50-05:00_ - _Data commit: `f38c5cbfd461`_ - _last_reconciled: 2026-08-29_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,12 +13,12 @@ _Generated: 2026-08-31T18:43:06-05:00_ - _Data commit: `c76c4b491983`_ - _last_r
 |---|---:|
 | 📥 Inbox | 30 |
 | 🔬 Investigating | 7 |
-| 🧭 Pre-planning | 13 |
+| 🧭 Pre-planning | 14 |
 | 📝 Planned | 6 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 48 |
-| ⏸️ Waiting on operator | 7 |
+| ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 20 |
 | ✅ Done | 57 |
@@ -36,6 +36,7 @@ _created 2026-08-19 13:15_
 - **Refs:** docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/database.py; ZIRI-COLLEGE-PERSISTENT-AWAY-1
 
 ### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
+> **⚡ OPERATOR: investigate — pending apply** (at 2026-08-31T23:42:35.547Z)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
 _created 2026-08-19 13:00 · initial_
 - **Problem / Solution:**
@@ -472,7 +473,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 3
   - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -531,7 +532,7 @@ _created 2026-08-31 18:20 · initial_
 
 ### `NIGHT-LIGHT-NO-OFF-PATH-1` - A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light stays on 20-29h (all night AND day) until a human/device clears it
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-31 18:35 · initial_
+_created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
 - **Problem / Solution:**
   - Problem: the Master Bath under-cabinet light (a Sonoff switch configured as the room's night light only, not a regular light) turns ON when someone enters in the dark, then NEVER turns off — it stays lit for 20-29 hours straight, across ...
 - **Origin:** 2026-08-31 - operator report — Master Bath LED (the Sonoff under-cabinet night light) seems always on at night, and holds during days too
@@ -539,8 +540,20 @@ _created 2026-08-31 18:35 · initial_
 - **Next:** Operator picks intent (A vs B). Then add the night_lights OFF path mirroring the CONF_LIGHTS exit logic (+ reconciler parity), gated to preserve the sleep-dim behavior. Tier 2-DB. Queue behind charge-onset.
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment); Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31 16:19
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `audit_result`: AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms: Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1), Garage Hallway, Master Bedroom. 15 rooms dual-list (ri...
   - `operator_intent_question`: Design intent for the under-cabinet night light: (A) off on VACANCY like a dim regular light, or (B) stay on through the night and off at WAKE/dark->bright? Determines which off-trigger to add. NEEDS OPERATOR.
+
+### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break)
+thread: **presence** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-08-31 19:05 · initial_
+- **Problem / Solution:**
+  - Problem: for rooms whose entry-light action is none (e.g. Master Bedroom, Patio, Game Room), the two light controllers disagree during sleep: the reconciler would turn the night light ON (its sleep branch runs before the entry-action che...
+- **Origin:** 2026-08-31 - light automation audit F2/F3
+- **Why:** AUDIT_room_light_automation.md F2 (MED) + F3 (MED). Predates the night-light off-path cycle; must be resolved as part of, or before, the NIGHT-LIGHT-NO-OFF-PATH-1 build so the fix does not entrench the split.
+- **Next:** Operator/orchestrator decision on the intended entry=none+sleep night-light behavior; then align both canonical + reconciler. Coordinate with NIGHT-LIGHT-NO-OFF-PATH-1 (same files). Tier 2-DB.
+- **Tags:** no-fabrication-verify
+- **Refs:** docs/planning/AUDIT_room_light_automation.md F2/F3; automation.py:973/980; actuator_reconciler.py:746
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -1553,7 +1566,7 @@ _created 2026-08-28 22:00 · initial_
 - **Forensic keys (1):**
   - `links`: related: OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
 
-## ⏸️ Waiting on operator (7)
+## ⏸️ Waiting on operator (8)
 _needs a human call_
 
 ### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
@@ -1584,6 +1597,17 @@ thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
   - `followup_candidate`: retrofit conditional rendering to the Battery Strategy Detail card (same section group, same defect, ~30 min) — only if the operator endorses this card's style
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
+
+### `KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1` - Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely a config mistake
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-08-31 19:05 · initial_
+- **Problem / Solution:**
+  - Problem: the Kitchen room lists its range-hood light (switch_tapo_wifi_kitchenrange) as the room night light. Once the night-light off-path fix lands, URA will start turning the RANGE light on at dark entry and off on vacancy as if it we...
+- **Origin:** 2026-08-31 - light automation audit F4
+- **Why:** AUDIT_room_light_automation.md F4. Surfaced now because the off-path fix changes how this entity behaves; better to correct the config before the fix ships than to drive the range light unexpectedly.
+- **Next:** Operator: is switch_tapo_wifi_kitchenrange the intended Kitchen night light? If not, fix the room config.
+- **Tags:** no-fabrication-verify
+- **Refs:** docs/planning/AUDIT_room_light_automation.md F4
 
 ### `ZIRI3-UNCONFIG-1` - RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
