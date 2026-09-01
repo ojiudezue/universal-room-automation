@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -35,6 +35,13 @@ AVERAGE_CHARGE_RATE_KW = 3.5
 
 # Rolling window for accuracy tracking
 ACCURACY_WINDOW_DAYS = 30
+
+# --- Forecast-accuracy display constants (rung 1 — module constants) ---
+# Bounded pct-error metric floor + cap; see PLANNING_forecast_accuracy_fix.md.
+MIN_DENOMINATOR_KWH = 5.0
+PCT_ERROR_BOUND = 200.0
+POOR_THRESHOLD_PCT = 50.0
+STALE_EVAL_DAYS = 2
 
 # Comfort midpoint for temperature regression (°F)
 COMFORT_MIDPOINT_F = 72.0
@@ -815,12 +822,22 @@ class AccuracyTracker:
             pct_error = row.get("prediction_error_pct")
             date_str = row.get("date", "")
             if actual is not None and predicted is not None and pct_error is not None:
+                # Rev 2: pct_error restored verbatim (control-path byte-identity);
+                # pct_error_bounded recomputed from (predicted, actual) — no schema
+                # migration, homogeneous deque post-restore.
+                error_kwh = actual - predicted
+                denom = max(abs(predicted), abs(actual), MIN_DENOMINATOR_KWH)
+                raw_bounded = (error_kwh / denom) * 100
+                pct_error_bounded = max(
+                    -PCT_ERROR_BOUND, min(PCT_ERROR_BOUND, raw_bounded)
+                )
                 self._daily_errors.append({
                     "date": date_str,
                     "predicted": predicted,
                     "actual": actual,
-                    "error": round(actual - predicted, 2),
+                    "error": round(error_kwh, 2),
                     "pct_error": round(pct_error, 1),
+                    "pct_error_bounded": round(pct_error_bounded, 1),
                 })
                 restored += 1
                 self._last_eval_date = date_str
@@ -849,14 +866,25 @@ class AccuracyTracker:
         error = actual_kwh - predicted_kwh
         pct_error = (error / max(abs(predicted_kwh), 0.1)) * 100
 
+        # Rev 2: parallel bounded metric — display-only. Never read by the
+        # control path (get_adjustment_factor, energy_daily.prediction_error_pct
+        # DAO write, _solar_forecast_error_baseline). See planning doc.
+        denom = max(abs(predicted_kwh), abs(actual_kwh), MIN_DENOMINATOR_KWH)
+        raw_bounded = (error / denom) * 100
+        pct_error_bounded = max(
+            -PCT_ERROR_BOUND, min(PCT_ERROR_BOUND, raw_bounded)
+        )
+
         self._daily_errors.append({
             "date": prediction_date,
             "predicted": predicted_kwh,
             "actual": actual_kwh,
             "error": round(error, 2),
             "pct_error": round(pct_error, 1),
+            "pct_error_bounded": round(pct_error_bounded, 1),
         })
 
+        # Return dict is UNCHANGED — control-path consumers keep reading pct_error.
         return {
             "error_kwh": round(error, 2),
             "pct_error": round(pct_error, 1),
@@ -880,11 +908,18 @@ class AccuracyTracker:
 
     @property
     def rolling_accuracy(self) -> float:
-        """Rolling accuracy percentage (100 - abs(avg_pct_error))."""
+        """Rolling accuracy percentage (100 - abs(avg_bounded_pct_error)).
+
+        Rev 2: reads ``pct_error_bounded`` (SMAPE-style, clamped ±PCT_ERROR_BOUND)
+        so a single near-zero-prediction row cannot pin the sensor to 0. The
+        control-path ``pct_error`` key is deliberately NOT read here.
+        """
         if not self._daily_errors:
             return 0.0
         recent = list(self._daily_errors)[-7:]
-        avg_abs_error = sum(abs(e["pct_error"]) for e in recent) / len(recent)
+        avg_abs_error = sum(
+            abs(e.get("pct_error_bounded", e["pct_error"])) for e in recent
+        ) / len(recent)
         return round(max(0, 100 - avg_abs_error), 1)
 
     def get_status(self) -> dict[str, Any]:
@@ -894,7 +929,26 @@ class AccuracyTracker:
             "samples": len(self._daily_errors),
             "adjustment_factor": round(self.get_adjustment_factor(), 3),
             "last_eval_date": self._last_eval_date,
+            "eval_age_days": self._eval_age_days(),
         }
+
+    def _eval_age_days(self) -> int | None:
+        """Days since ``_last_eval_date`` (defensive parse).
+
+        Returns None when never evaluated OR the stored date string is
+        unparseable — the caller renders unparseable as ``status="stale"``.
+        """
+        if not self._last_eval_date:
+            return None
+        try:
+            last = date.fromisoformat(self._last_eval_date)
+        except (ValueError, TypeError):
+            return None
+        try:
+            today = dt_util.now().date()
+        except Exception:  # noqa: BLE001 - dt_util.now() shouldn't fail; be safe
+            today = datetime.utcnow().date()
+        return (today - last).days
 
 
 # Minimum observations per (room, time_bin, day_type) cell before profile is trusted
