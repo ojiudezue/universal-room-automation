@@ -255,6 +255,8 @@ async def async_setup_entry(
             # v3.7.0-E1: Energy Coordinator sensors
             EnergyTOUPeriodSensor(hass, entry),
             EnergyTOURateSensor(hass, entry),
+            # evse-charge-onset §10 — L1 over-hold trip-wire sensor.
+            EVChargeOnsetL1OverHoldSecondsSensor(hass, entry),
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
             # Session B1 — EVSE drain-precedence state machine observability.
@@ -8401,6 +8403,114 @@ class EnergyTOUPeriodSensor(AggregationEntity, SensorEntity):
             "hours_until_transition": next_t.get("hours_until"),
             "rate_source": info.get("rate_source"),
         }
+
+
+class EVChargeOnsetL1OverHoldSecondsSensor(AggregationEntity, SensorEntity):
+    """evse-charge-onset §10 — L1 over-hold observability counter.
+
+    Entity: `sensor.ura_ev_charge_onset_l1_over_hold_seconds`
+    Device: URA: Energy Coordinator
+
+    Why L1-only (per plan D3 + D2 acceptance): the EV leg has a HARD
+    BACKSTOP — the DP `_apply_dp_must_start_release` timer dispatches
+    `switch.turn_on` DIRECTLY (`energy.py:5330-5336`), bypassing the
+    gate entirely, so an EV can NEVER be held over its must-start-by
+    deadline even if `dp_forcing` were wired inertly. L1 has NO DP
+    participation today — a mis-set onset on L1 is the only way this
+    cycle can silently strand a charger past the intended time. This
+    sensor is the visible trip-wire for that operator-error surface.
+
+    Semantics: while the L1 plug controller has an active drain session
+    AND its onset instant has been reached AND at least one plug is
+    still in `_paused_by_battery_drain`, this counter reports the
+    number of seconds beyond the onset instant that the hold has
+    persisted. Otherwise 0.
+
+    Design note: computed FRESH on each state read from live controller
+    fields (no accumulator, no persistence). If the operator asks "how
+    long is the L1 stuck past onset RIGHT NOW", this is the number.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clock-alert-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "s"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_ev_charge_onset_l1_over_hold_seconds"
+        self._attr_name = "EV Charge-Onset L1 Over-Hold Seconds"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> int:
+        """Seconds past the onset the L1 plug has been HELD BY THE GATE.
+
+        Rev-6 B-MED-3 fix: counts only when the release CONDITION is met
+        (`battery_out_of_capacity`, which for the plug tier means SOC
+        near the reserve floor with battery not discharging) AND the
+        onset gate is what's holding it. Without this gate, the sensor
+        false-positived on every ordinary drain pause (any plug in
+        `_paused_by_battery_drain` for any reason would clock up
+        seconds), which is not what "over-hold" means. Intra-tick /
+        intra-session only — the plug pause set is not persisted, so
+        the counter resets naturally on restart (documented).
+        """
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return 0
+        plug = getattr(energy, "_smart_plugs", None)
+        if plug is None:
+            return 0
+        if not getattr(plug, "_paused_by_battery_drain", None):
+            return 0
+        onset_raw = getattr(plug, "_ev_charge_onset_time", None)
+        enabled = bool(getattr(plug, "_ev_charge_onset_enabled", True))
+        if not enabled or not onset_raw:
+            return 0
+        # B-MED-3 — require the release CONDITION so we only count when
+        # the gate is what's holding, not any drain pause.
+        try:
+            battery = getattr(energy, "_battery", None)
+            soc = getattr(battery, "battery_soc", None) if battery else None
+            bp = getattr(battery, "battery_power_w", None) if battery else None
+            # Best-effort reserve floor read; if unavailable, fall back
+            # to a permissive "gate could be holding" of False → 0.
+            reserve = getattr(battery, "_reserve_soc", None) if battery else None
+            if soc is None or bp is None or reserve is None:
+                return 0
+            battery_ok = bp >= 0
+            bat_out_of_cap = battery_ok and soc <= reserve + 2
+            if not bat_out_of_cap:
+                return 0
+        except Exception:  # noqa: BLE001
+            return 0
+        try:
+            from homeassistant.util import dt as dt_util
+            from .domain_coordinators.energy_pool import _parse_hhmm
+            from .domain_coordinators.energy_drain_precedence import (
+                next_occurrence_of_hhmm,
+            )
+            parsed = _parse_hhmm(onset_raw)
+            if parsed is None:
+                return 0
+            hh, mm = parsed
+            now_local = dt_util.now()
+            onset_instant = next_occurrence_of_hhmm(now_local, hh, mm)
+            # STRICTLY-after: at now==HH:MM the resolver returns tomorrow,
+            # delta ~24h > 8h window → NOT held. Over-hold accrues iff
+            # last-past onset instant exists AND we're still in the pause
+            # set. Compute the LAST-PAST occurrence explicitly:
+            from datetime import timedelta as _td
+            last_past = onset_instant - _td(days=1)
+            if now_local < last_past:
+                return 0
+            return int((now_local - last_past).total_seconds())
+        except Exception:  # noqa: BLE001
+            return 0
 
 
 class EnergyTOURateSensor(AggregationEntity, SensorEntity):

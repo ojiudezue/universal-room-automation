@@ -498,3 +498,44 @@ Tuning one does not move the other.
 | v5.20.0 | Cloud-reliance D2 (soc_resolution tiers, divergence + cloud-lag detection) + Battery-Aware EV Charging shipped dormant (Tier-3: 2 CRIT + 7 HIGH found/fixed pre-deploy). Dead-accumulator recorder exclusion. |
 | v5.21.0 | BAEC control surface: options-flow section (live-apply both directions), cognitive-simplicity renames, device slim-down, shadow eval, D2 detection knobs promoted to options. **BAEC ACTIVATED by operator 2026-07-17 ~20:47.** |
 | v5.18.0 | R1 consumption estimator v1 in SHADOW (regression + EV term; 14-day observation; `predicted_consumption_source` marker). R7 projection unification (single `EnergyProjector`; kill switch; no behavior change). |
+
+## Charge-onset & the turn-on surface (v3 funnel — SHIP DORMANT)
+
+Card: **EVSE-CHARGE-ONSET-TIME-1**. Plan: `docs/planning/PLANNING_evse_charge_onset_time_v3_funnel.md`. Ships with `DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED = False`; operator flips it on via `switch.ura_ev_charge_onset_enabled` after live checkpoint.
+
+### The turn-on surface — canonical map (~15 sites, none singular)
+
+| # | Site | Class | v3 |
+|---|---|---|---|
+| 1 | `energy_pool.py` EVSE off-peak ensure-on (~1508) | START grid — LIVE | **P0 funnel-routed** |
+| 2 | `energy_pool.py` Plug off-peak ensure-on (~3488) | START grid — LIVE | **P0 funnel-routed** |
+| 3 | `energy.py` DP reversion (`_apply_dp_reversion` ~5234) | START grid — latent (0 fires in 21 nights) | **P0 inline guard** (in-suite test only) |
+| 4 | `energy_pool.py` EVSE drain-release (`determine_battery_drain_actions`) | START grid | **P0** inline gate + funnel-routed |
+| 5 | `energy_pool.py` Plug drain-release (mirror) | START grid | **P0** inline gate + funnel-routed |
+| 6 | `energy_pool.py:2454` Arbitrage release | START grid (off-peak-gated) | **GATED** via `_proactive_offpeak_holds` peer (v3 fix-up D-HIGH-1) |
+| 7 | `energy.py:7568/7663` Load-shed release | START grid (rare) | P1 — LEFT UN-GATED (v3) |
+| 10 | `energy_pool.py:2604` EVSE FP resume (incl. `forecast_decayed` dusk-grid leg) | START grid | **GATED** via funnel (v3 fix-up D-HIGH-2) |
+| 10b | `energy_pool.py:4021` Plug FP resume | START grid | **GATED** via funnel + threaded `must_start_by_min` (v3 fix-up D-HIGH-2) |
+| 11 | `energy_pool.py:1767` Grid-cap resume | situational | P1 — LEFT UN-GATED (v3) |
+| 12 | `release_all_*` toggle-OFF paths | config/edge | P1 — LEFT UN-GATED (v3) |
+| 8 | `energy.py:5332` DP must-start-by | ESCAPE (03:00) | BYPASS |
+| 9 | `energy_pool.py:1655` Excess-solar | SOLAR (true) | BYPASS |
+| — | force-charge (`_force_charge_until`) | admin override | BYPASS |
+
+### The funnel
+
+`_charge_on_or_defer(self, evse_id, switch_entity, now, enabled, onset_str, must_start_by_min, *, bypass_onset=False, proactive_log=False)` on both `EVChargerController` and `SmartPlugController` (`energy_pool.py`). Returns `[turn_on]` or `[]`; refuses turn-on inside the onset hold window. `_evaluate_onset_gate` (shared free helper) evaluates gate + clamped must-start-by. Deferrals recorded per-controller in `_onset_deferred` (union published as `binary_sensor.ura_ev_charge_onset_active`).
+
+### P1 rationale (LEFT UN-GATED in v3)
+
+Each P1 site was reviewed and left un-gated in v3 to keep the ship surgical: fill-priority (#10/#10b) resume includes multi-leg forecast logic, arbitrage (#6) has TOU gating semantics, load-shed (#7) is rare and fires from `energy.py` with a distinct emission shape, `release_all_tou` (#12) is a bulk drain path. Follow-up cards should route each through the funnel once the surface stabilizes; per operator directive, an un-gated charger that starts early is left running (INV-NO-INTERRUPT).
+
+
+### v3 fix-up notes (post-review)
+
+- **B-CRIT-A**: `ECEVChargeOnsetEnabledSwitch` is a bespoke subclass that overrides `async_turn_on/off`, `_retry_restore`, `_handle_ec_ready`, and `async_added_to_hass` to route through `EnergyCoordinator.set_ev_charge_onset_enabled` (fan-out to both controllers). Never revert to a bare factory — the drain gate reads controller attrs, so the mirror-only setattr shipped by the factory leaves the gate inert.
+- **D-HIGH-1** (arbitrage): peer check on `_proactive_offpeak_holds` at the arbitrage release site blocks the exit-CHARGE turn-on when the charger is onset-deferred.
+- **D-HIGH-2** (fill-priority): both tiers' FP resume paths now route the turn-on through `_charge_on_or_defer`. Plug FP gains a `must_start_by_min` kwarg threaded from `_dp_must_start_by_min` (mirrors the drain kwarg).
+- **D-MED-2** (drain-site sensor): drain-site inline gate marks `_onset_deferred` when held (`battery_out_of_capacity and not overnight_release and not daytime_release`) so `binary_sensor.ura_ev_charge_onset_active` reflects drain-site holds. Daytime `soc_recovered` leg remains INTENTIONALLY ungated (baseline preservation).
+- **C-MEDIUM-1 future-edit hazard**: #4/#5 (drain-release) gate via an INLINE boolean (`overnight_release = battery_out_of_capacity and (onset_permits or dp_forcing or must_start_by_reached)`), NOT via a funnel call. A future edit to the funnel WILL NOT reach them. Tests `test_wirein_ev_drain_release_held_via_determine_actions` / plug companion anchor this.
+- **`release_all_*` (#12)** — `release_all_grid_cap` (both tiers) and `release_all_fill_priority` (both tiers) remain un-gated in v3 (rare edge paths; follow-up card recommended).

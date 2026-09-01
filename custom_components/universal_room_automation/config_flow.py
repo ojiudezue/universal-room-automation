@@ -3714,6 +3714,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
+            # evse-charge-onset — dual-surface knob (config-flow default +
+            # live `time.` entity). See D1 in
+            # docs/planning/PLANNING_evse_charge_onset_time.md
+            CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
+            # Rev 6 D-A — the dedicated enable toggle (replaces the
+            # broken "blank onset = off" kill; HA TimeSelector rejects
+            # blank input, so the Rev-5 mechanism was unreachable).
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
             # LKG wave 1 D2 — solar production upper-envelope nameplate.
             CONF_ENERGY_SOLAR_NAMEPLATE_W,
             DEFAULT_ENERGY_SOLAR_NAMEPLATE_W,
@@ -4493,6 +4503,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # evse-charge-onset — dual-surface HH:MM knob. Field is the
+            # PERSISTENT default (entry.options is the sole source of
+            # truth per plan D1b — no RestoreEntity). The live `time.`
+            # entity (see time.py) writes back through the coord setter
+            # `set_ev_charge_onset_time` and both stay in sync via
+            # `_EC_SETTER_DISPATCH`. Blank ("") disables the overnight
+            # release gate; default "01:00" holds until 01:00 local.
+            # Mirrors the NM digest TimeSelector pattern at
+            # config_flow.py:6520 (selector kind + string HH:MM default).
+            vol.Optional(
+                CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+                default=self._get_current(
+                    CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+                    DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
+                ),
+            ): selector.TimeSelector(),
+            # v3 enable toggle (BooleanSelector). Ships DORMANT
+            # (default False); operator enables via this field or via
+            # `switch.ura_ev_charge_onset_enabled` (they stay in sync
+            # via `_EC_SETTER_DISPATCH` + `OPTIONS_RELOAD_SUPPRESS_KEYS`).
+            vol.Optional(
+                CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+                default=self._get_current(
+                    CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+                    DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
             # LKG wave 1 D2 — solar array nameplate for the production
             # upper-envelope. Rung-2 (config-flow) per operator ruling
             # 2026-07-23: per-install physical structure, set once at

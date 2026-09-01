@@ -155,6 +155,11 @@ async def async_setup_entry(
             EnergyEnvoyAvailableBinarySensor(hass, entry),
             # v3.7.7: L1 Charger status
             EnergyL1ChargerBinarySensor(hass, entry),
+            # evse-charge-onset §10 — aggregate gate-open sensor with
+            # soc_recovered_active attribute for the daytime discriminator.
+            EVChargeOnsetGateOpenBinarySensor(hass, entry),
+            # v3 (funnel) — observability of the funnel's deferrals.
+            EVChargeOnsetActiveBinarySensor(hass, entry),
             # v4.7.x D2: EC sub-switch sync health sensor
             ECSubSwitchesSyncedSensor(hass, entry),
             # v4.7.x Cycle A: WeatherProviderManager divergence flag
@@ -2494,6 +2499,196 @@ class EnergyEnvoyAvailableBinarySensor(AggregationEntity, BinarySensorEntity):
             "unavailable_count": summary.get("envoy_unavailable_count", 0),
             "last_available": summary.get("envoy_last_available"),
         }
+
+
+class EVChargeOnsetGateOpenBinarySensor(AggregationEntity, BinarySensorEntity):
+    """evse-charge-onset §10 — aggregate view of the onset gate.
+
+    Entity: `binary_sensor.ura_ev_charge_onset_gate_open`
+    Device: URA: Energy Coordinator
+
+    `is_on = True` when the onset gate would ALLOW the overnight release
+    for AT LEAST ONE controller (EV or plug) right now, i.e. the drain
+    session has passed its onset instant OR no session is active OR the
+    feature is disabled. `is_on = False` iff BOTH controllers have an
+    active drain session AND are being held by the onset gate.
+
+    The `soc_recovered_active` attribute exposes the daytime bypass
+    signal so the operator can see AT A GLANCE whether the release
+    that just fired came through the daytime leg (`soc_recovered=True`)
+    or the overnight leg (`onset_reached=True`) — the visible
+    discriminator for the Rev-5 structural split.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:gate"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_ev_charge_onset_gate_open"
+        self._attr_name = "EV Charge-Onset Gate Open"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _controllers(self):
+        """Return (ev_controller, plug_controller) or (None, None)."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None, None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None, None
+        return getattr(energy, "_ev", None), getattr(energy, "_smart_plugs", None)
+
+    @property
+    def is_on(self) -> bool | None:
+        """True when the onset gate is OPEN for at least one controller.
+
+        Rev-6 rewrite: no session anchor. The gate is fully derivable
+        from `now` + the controller's enable + onset string via the
+        shared `_evaluate_onset_gate` helper (same one the drain-release
+        sites call). Reports OPEN when `onset_permits or
+        must_start_by_reached` for AT LEAST ONE controller. Permissive
+        None when coord not yet up.
+        """
+        ev, plug = self._controllers()
+        if ev is None and plug is None:
+            return None
+        try:
+            from homeassistant.util import dt as dt_util
+            from .domain_coordinators.energy_pool import (
+                _evaluate_onset_gate,
+                _DEFAULT_ONSET_MAX_HOLD_H,
+            )
+            now = dt_util.now()
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            energy = manager.coordinators.get("energy") if manager else None
+            ms_min = getattr(energy, "_dp_must_start_by_min", None)
+            open_for_any = False
+            for ctrl in (ev, plug):
+                if ctrl is None:
+                    continue
+                permits, ms_reached = _evaluate_onset_gate(
+                    now,
+                    getattr(ctrl, "_ev_charge_onset_enabled", True),
+                    getattr(ctrl, "_ev_charge_onset_time", None),
+                    _DEFAULT_ONSET_MAX_HOLD_H,
+                    ms_min,
+                )
+                if permits or ms_reached:
+                    open_for_any = True
+            return open_for_any
+        except Exception:  # noqa: BLE001
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Per-controller anchor + onset visibility for operators.
+
+        `soc_recovered_active` reflects the DAYTIME-solar release path
+        (the leg that is NEVER gated by onset). Attribute-only — no
+        automation should trust-decision off it; it's a debug hint.
+        """
+        ev, plug = self._controllers()
+        out: dict = {}
+        for ctrl, label in ((ev, "ev"), (plug, "plug")):
+            if ctrl is None:
+                continue
+            # Rev 6 — anchor retired; expose enable + onset + pause set.
+            out[f"{label}_onset_enabled"] = bool(
+                getattr(ctrl, "_ev_charge_onset_enabled", True)
+            )
+            out[f"{label}_onset_time"] = getattr(
+                ctrl, "_ev_charge_onset_time", None,
+            )
+            out[f"{label}_paused_by_battery_drain"] = sorted(
+                getattr(ctrl, "_paused_by_battery_drain", set()) or set()
+            )
+        # soc_recovered_active is per-tick and computed by the caller
+        # (energy.py) at each decision cycle; expose the last-known
+        # value via a coord-side attribute if the coord chose to publish
+        # it. Absent that (today), report None as an honest signal that
+        # the discriminator is not persisted (attribute is informational).
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        energy = manager.coordinators.get("energy") if manager else None
+        out["soc_recovered_active"] = getattr(
+            energy, "_last_soc_recovered", None,
+        ) if energy is not None else None
+        return out
+
+
+class EVChargeOnsetActiveBinarySensor(AggregationEntity, BinarySensorEntity):
+    """v3 (funnel) — union of both controllers' `_onset_deferred` sets.
+
+    `binary_sensor.ura_ev_charge_onset_active` — True when the funnel
+    is currently HOLDING at least one charger (EVSE or plug) inside
+    the onset hold window. Distinct from `..._gate_open` (which reports
+    whether the GATE would permit right now, based on `now` + onset);
+    this sensor reflects the observed deferral state actually recorded
+    by the funnel calls at P0 sites.
+
+    Note: only meaningful for chargers that reach a routed site. A
+    DP/blind-window `continue` upstream leaves the set empty.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-pause"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_ev_charge_onset_active"
+        self._attr_name = "EV Charge-Onset Active (deferred)"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _deferred_union(self) -> set[str] | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        ev = getattr(energy, "_ev", None)
+        plug = getattr(energy, "_smart_plugs", None)
+        out: set[str] = set()
+        for ctrl in (ev, plug):
+            if ctrl is None:
+                continue
+            try:
+                out |= set(getattr(ctrl, "_onset_deferred", set()) or set())
+            except Exception:  # noqa: BLE001
+                continue
+        return out
+
+    @property
+    def is_on(self) -> bool | None:
+        u = self._deferred_union()
+        if u is None:
+            return None
+        return len(u) > 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        u = self._deferred_union() or set()
+        return {"deferred": sorted(u), "count": len(u)}
 
 
 class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):

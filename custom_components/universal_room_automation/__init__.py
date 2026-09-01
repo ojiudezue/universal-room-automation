@@ -342,6 +342,11 @@ INTEGRATION_PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SWITCH,  # v3.6.0-c2.5: DomainCoordinatorsSwitch, CoordinatorEnabledSwitch
     Platform.BUTTON,  # v4.0.0-B1: ClearBayesianBeliefsButton + NMAcknowledgeButton
+    # evse-charge-onset Rev 6 (D1b, B-CRIT-1 fix) — the live-tunable
+    # `EVChargeOnsetTimeEntity` is on the CM device. Must be here (not
+    # in room PLATFORMS) so the CM-entry setup at :4160 forwards it
+    # and the unload at :4818/:4835 tears it down cleanly.
+    Platform.TIME,
 ]
 
 
@@ -5581,6 +5586,10 @@ from .domain_coordinators.energy_const import (
     CONF_ENERGY_PEAK_BUFFER_TARGET as _CONF_ENERGY_PEAK_BUFFER_TARGET,
     CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN as _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
     CONF_ENERGY_EV_BATTERY_DRAIN_SOC as _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+    # evse-charge-onset cycle — overnight release-onset HH:MM knob.
+    CONF_ENERGY_EVSE_CHARGE_ONSET_TIME as _CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+    # Rev 6 D-A — dedicated ENABLE toggle (config-flow boolean).
+    CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
     CONF_ENERGY_FILL_PRIORITY_SOC as _CONF_ENERGY_FILL_PRIORITY_SOC,
     CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
     # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
@@ -6010,6 +6019,10 @@ _EC_SETTER_DISPATCH: dict[str, tuple[str, type]] = {
     _CONF_ENERGY_PEAK_BUFFER_TARGET:               ("set_peak_buffer_target",         int),
     _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN:   ("set_arbitrage_charge_lead_time", int),
     _CONF_ENERGY_EV_BATTERY_DRAIN_SOC:             ("set_ev_battery_drain_soc",       int),
+    # evse-charge-onset cycle — HH:MM string; blank ⇒ gate disabled.
+    _CONF_ENERGY_EVSE_CHARGE_ONSET_TIME:           ("set_ev_charge_onset_time",       str),
+    # Rev 6 D-A — enable toggle dispatched live via set_ev_charge_onset_enabled.
+    _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED:        ("set_ev_charge_onset_enabled",    bool),
     _CONF_ENERGY_FILL_PRIORITY_SOC:                ("set_fill_priority_soc",          int),
     _CONF_ENERGY_EXCESS_SOLAR_SOC:                 ("set_excess_solar_soc",           int),
     # Session B1 — EVSE Drain-Precedence Number + Select entities.
@@ -6160,6 +6173,12 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
     _CONF_ENERGY_FILL_PRIORITY_SOC,
     _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    # evse-charge-onset Rev 6 B-CRIT-2 — both onset knobs are pushed
+    # live to the coord via `_EC_SETTER_DISPATCH`; a full CM reload
+    # for a knob-turn is the reload-watchdog hazard (see
+    # `feedback_parent_reload_watchdog_hazard`). Suppress here.
+    _CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+    _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
     # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
     # Read at every excess-solar tick via `EnergyCoordinator.mains_export_active`,
     # so a change takes effect without a full CM reload.
