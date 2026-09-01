@@ -606,9 +606,17 @@ def _canonical_light_decision(occupied, sleep, is_dark, entry_action,
     Returns "on" / "off" / None.
     """
     if sleep:
-        # night-lights-only branch requires at least one night light; our
-        # parity cells always have night_lights present when is_night True.
-        return "on" if is_night else "off"
+        # Rev 3 D2b: sleep branch is now OCCUPANCY-AWARE.
+        # night_light + occupied -> ON (sleep_night_light).
+        # night_light + vacant  -> falls through to vacant branch (D2a),
+        #                          which asserts OFF via the unconditional
+        #                          union when exit_action == TURN_OFF.
+        # not-a-night-light -> OFF (sleep_non_night_off, unchanged).
+        if is_night:
+            if occupied:
+                return "on"
+            return "off" if exit_action == LIGHT_ACTION_TURN_OFF else None
+        return "off"
     if occupied:
         if entry_action == LIGHT_ACTION_NONE:
             return None
@@ -686,12 +694,12 @@ def test_resolver_none_for_alert_lights_only_entity():
     assert r.resolve_desired_state("light.alert") is None
 
 
-def test_resolver_none_for_night_light_only_entity_on_vacant_exit():
-    """A-HIGH-1 gate: canonical _control_lights_exit turns off CONF_LIGHTS only.
+def test_resolver_off_for_night_light_only_entity_on_vacant_exit_nonsleep():
+    """NIGHT-LIGHT-NO-OFF-PATH-1 (D2): canonical _control_lights_exit now
+    turns off the sleep-gated union CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS.
 
-    A night_lights-only entity (NOT in CONF_LIGHTS) is never turned off on exit
-    by canonical, so the resolver must return None (not 'off') for it when the
-    room is vacant.
+    Reconciler vacant branch mirrors that. Non-sleep + vacant + night-only
+    entity now returns "off" (previously None per A-HIGH-1; superseded).
     """
     hass, coord, r = make_env(
         data={
@@ -701,11 +709,92 @@ def test_resolver_none_for_night_light_only_entity_on_vacant_exit():
         },
         coordinator_data={STATE_OCCUPIED: False, STATE_ILLUMINANCE: 5},
     )
-    # night-only entity on vacant exit -> None (canonical doesn't touch it).
-    assert r.resolve_desired_state("light.night") is None
-    # regular light (in CONF_LIGHTS) on vacant exit -> off.
+    coord.automation._sleep = False
+    # non-sleep: night-only entity on vacant exit -> off (D2 fix).
+    desired = r.resolve_desired_state("light.night")
+    assert desired is not None and desired.state == "off"
+    assert desired.reason == "exit_light_off"
+    # regular light (in CONF_LIGHTS) on vacant exit -> off (unchanged).
     desired = r.resolve_desired_state("light.regular")
     assert desired is not None and desired.state == "off"
+
+
+def test_resolver_night_only_sleep_VACANT_falls_through_to_off():
+    """Rev 3 D2b: sleep branch is now OCCUPANCY-AWARE. Sleep + vacant +
+    night-only entity falls through to the vacant branch (D2a) and the
+    unconditional union asserts OFF. Rev 2 would have returned
+    sleep_night_light ON here — this test discriminates Rev 3 from Rev 2.
+
+    Mutation drills:
+    - Revert D2b's occupancy gate (return ON regardless of occupied) →
+      this test turns RED with a competing ON DesiredState.
+    - Revert D2a's union → this test turns RED (no OFF returned).
+    """
+    hass, coord, r = make_env(
+        data={
+            CONF_LIGHTS: [],
+            CONF_NIGHT_LIGHTS: ["light.night"],
+            CONF_EXIT_LIGHT_ACTION: LIGHT_ACTION_TURN_OFF,
+        },
+        coordinator_data={STATE_OCCUPIED: False, STATE_ILLUMINANCE: 5},
+    )
+    coord.automation._sleep = True
+    desired = r.resolve_desired_state("light.night")
+    assert desired is not None, (
+        "Rev 3 D2b: sleep+vacant+night-only MUST fall through to vacant "
+        "branch and return an OFF DesiredState, got None"
+    )
+    assert desired.state == "off", (
+        f"Rev 3 D2b: expected OFF (fall-through to D2a union), got "
+        f"{desired.state} reason={desired.reason}"
+    )
+    assert desired.reason == "exit_light_off", (
+        f"Rev 3 D2b: expected reason=exit_light_off (vacant branch), "
+        f"got {desired.reason}"
+    )
+
+
+def test_resolver_night_only_sleep_OCCUPIED_returns_sleep_on():
+    """Rev 3 D2b: sleep + OCCUPIED + night-only entity returns
+    sleep_night_light ON — byte-identical to pre-cycle for the ON leg
+    the operator explicitly keeps ("ON when occupied AND dark, incl.
+    sleep-dim while occupied+sleep").
+    """
+    hass, coord, r = make_env(
+        data={
+            CONF_LIGHTS: [],
+            CONF_NIGHT_LIGHTS: ["light.night"],
+            CONF_EXIT_LIGHT_ACTION: LIGHT_ACTION_TURN_OFF,
+        },
+        coordinator_data={STATE_OCCUPIED: True, STATE_ILLUMINANCE: 5},
+    )
+    coord.automation._sleep = True
+    desired = r.resolve_desired_state("light.night")
+    assert desired is not None and desired.state == "on"
+    assert desired.reason == "sleep_night_light", (
+        f"Rev 3 D2b: sleep+occupied+night-only MUST return "
+        f"sleep_night_light ON, got {desired.reason}"
+    )
+
+
+def test_resolver_sleep_non_night_still_returns_off_via_else_arm():
+    """Rev 3 D2b structural change: the `sleep + not-a-night-light -> off`
+    return moved into an else arm. Byte-identical behavior for a regular
+    (non-night) light under sleep — asserts sleep_non_night_off OFF
+    regardless of occupancy.
+    """
+    hass, coord, r = make_env(
+        data={
+            CONF_LIGHTS: ["light.regular"],
+            CONF_NIGHT_LIGHTS: ["light.night"],
+            CONF_EXIT_LIGHT_ACTION: LIGHT_ACTION_TURN_OFF,
+        },
+        coordinator_data={STATE_OCCUPIED: True, STATE_ILLUMINANCE: 5},
+    )
+    coord.automation._sleep = True
+    desired = r.resolve_desired_state("light.regular")
+    assert desired is not None and desired.state == "off"
+    assert desired.reason == "sleep_non_night_off", desired.reason
 
 
 def _canonical_fan_decision(occupied, temp_above, hvac_managing, fan_enabled,

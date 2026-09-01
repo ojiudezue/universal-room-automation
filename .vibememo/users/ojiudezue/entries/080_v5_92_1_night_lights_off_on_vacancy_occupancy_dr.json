@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "080",
+  "author": "ojiudezue",
+  "session_id": "claude_20260901_173649_ship_v5_92_1",
+  "timestamp": "2026-09-01T17:36:49Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.92.1 shipped: Night lights off on vacancy (occupancy-driven) + stale room-config repoints + automation_mode registry cleanup",
+  "summary": "Night lights off on vacancy (occupancy-driven) + stale room-config repoints + automation_mode registry cleanup",
+  "why": "Night-lights-only entities had no URA off-path (all 3 off-paths were CONF_LIGHTS-scoped) so 5 rooms' night lights stayed on 20-29h until manually cleared. Operator corrected the premise mid-cycle: night lights must behave like any occupancy light (on when occupied+dark, off when vacant, always) \u2014 which SIMPLIFIED the fix to an unconditional union and voided the sleep-gate reviews. Verified: no canonical-reconciler flap, safe boot, 11 neuter-anchored tests, 0 new suite fails. Batched the two config-hygiene items (stale repoints + orphaned select cleanup) since they ride the same restart.",
+  "implications": "Shipped NIGHT-LIGHT-NO-OFF-PATH-1, ROOM-ENTITY-STALE-CONFIG-1, ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 at v5.92.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.92.1.md (Live criteria).",
+  "revisit_trigger": "switch.sonoff_1002197ef7_1 (Master Bath under-cabinet) turns OFF within a tick of the bath going vacant, including during sleep \u2014 query its state history for a sub-hour on-episode ending at a vacancy transition (no more 20-29h holds).",
+  "refs": {
+    "cards": [
+      "NIGHT-LIGHT-NO-OFF-PATH-1",
+      "ROOM-ENTITY-STALE-CONFIG-1",
+      "ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.92.1.md"
+    ],
+    "release_notes": "night_lights-only entities now turn off on vacancy always (unconditional CONF_LIGHTS union at all 4 off-sites; reconciler sleep branch occupancy-aware; warning-flash excludes night-only both domains; sleep-dim on-entry untouched). 5 rooms fixed. Plus 4 stale room-config repoints and removal of 38 orphaned automation_mode select rows, both applied as .storage edits at the restart."
+  }
+}

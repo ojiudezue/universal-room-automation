@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-31T19:10:32-05:00_ - _Data commit: `7bfc3518594d`_ - _last_reconciled: 2026-08-29_
+_Generated: 2026-09-01T09:40:57-05:00_ - _Data commit: `ffd918bf090f`_ - _last_reconciled: 2026-08-31_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-08-31T19:10:32-05:00_ - _Data commit: `7bfc3518594d`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
+| 📥 Inbox | 29 |
 | 🔬 Investigating | 8 |
-| 🧭 Pre-planning | 14 |
+| 🧭 Pre-planning | 15 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 48 |
+| 🚀 Shipped (organic open) | 49 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 20 |
-| ✅ Done | 57 |
+| ✅ Done | 58 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (29)
 _raw capture_
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
@@ -359,20 +359,6 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-### `EVSE-CHARGE-ONSET-TIME-1` - EVSE charge-onset gate — hold EV charging until the battery drain target is reached AND a configurable onset hour has passed (whichever is later)
-thread: **energy** - status: **inbox** - approval: **explicit**
-_created 2026-08-29 20:30 · initial_
-- **Problem / Solution:**
-  - Problem: EV charging currently begins as soon as the off-peak drain gate allows, but the operator wants to control WHEN charging starts overnight — the car should not start charging until BOTH (a) the home battery has drained to its off-...
-- **Origin:** 2026-08-29 - operator: add EVSE charge onset time to (maybe) the DP code; charge starts after drain target reached AND a set hour, whichever later; crosses midnight
-- **Why:** Lets the operator align EV charging with the cheapest/latest TOU window and sequence it AFTER the battery has extracted its overnight discharge value, instead of the car charging too early or competing with battery drain.
-- **Next:** PLAN: institutional-context verify the drain-target-reached signal (energy_pool.py:622-651, consumed at :849/:954-962) + the EVSE start gate; design the onset-time gate composed with the existing drain gate; midnight-boundary handling; m...
-- **Tags:** tier-2db, numbers-get-knobs, day-boundary, cross-coordinator, extend-existing
-- **Parsimony:** [BUILD] EV charging starts before the operator-preferred hour / before battery drain completes
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_pool.py (drain-target-reached :622-651; EVSE determine_actions :849); memory project_ev_drain_precedence_cycle (adjacent must-start-by machinery)
-- **Forensic keys (1):**
-  - `priority`: high
-
 ## 🔬 Investigating (8)
 _measuring; truth not yet known_
 
@@ -484,7 +470,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 3
   - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (15)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -625,6 +611,17 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
+### `FROZEN-POWER-READ-STALENESS-CLASS-1` - 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
+thread: **energy** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-08-31 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions: net grid power, battery power, and ...
+- **Origin:** 2026-08-31 - Envoy no-duplication audit — adjacencies section
+- **Why:** The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary SOC). Highest-value = primary...
+- **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
+
 ### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-24 16:45 · initial_
@@ -658,7 +655,7 @@ _has plan / acceptance_
 
 ### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
 thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-08-31 19:15 · initial_
+_created 2026-08-31 19:15 · updated 2026-09-01 00:40 · initial_
 - **Problem / Solution:**
   - Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently references dead handles. These are the only true URA-side items in the room-entity audit (everything else is offline hardware). Solution: re...
 - **Origin:** 2026-08-31 - room device unknown/unavailable audit — STALE section
@@ -666,6 +663,8 @@ _created 2026-08-31 19:15 · initial_
 - **Next:** Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via ha_config). Low-risk config, no code, no review tier.
 - **Tags:** no-fabrication-verify
 - **Refs:** room device audit 2026-08-31 (STALE CONFIG section)
+- **Forensic keys (1):**
+  - `verified_and_locked_2026_09_01`: Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO fields (data.fans + options.manual_switches) -> repoint BOTH to...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -752,7 +751,7 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_
 
 ### `ENVOY-PRODUCTION-STALE-1` - Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale live sensor that URA's solar entity derives from; does any decision path trust it?
 thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · updated 2026-08-31 18:10 · refined_
+_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined_
 - **Problem / Solution:**
   - Problem: the sensor that reports how much power the solar panels are making went stuck at zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the grid at the time. If any part of the ...
 - **Origin:** 2026-08-24 - session handoff live-fault
@@ -760,7 +759,10 @@ _created 2026-08-24 16:45 · updated 2026-08-31 18:10 · refined_
 - **Next:** BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix: (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALL...
 - **Tags:** measure-before-build, no-fabrication-verify, tier-2db
 - **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault); __init__.py:3026; PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1); BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483
-- **Forensic keys (1):**
+- **Forensic keys (4):**
+  - `consolidate_decision_2026_09_01`: Operator: CONSOLIDATE. Scope expanded from solar-only to a shared staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads — solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — fol...
+  - `consumer_check_2026_09_01`: Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status 'stale') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check, energy.py:3025), consumed by no decision. The TRUST flag envoy_availa...
+  - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
   - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
 
 ### `FAN-TRANSITION-COINCIDENCE-GATE-1` - mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route to the existing recheck ladder instead of granting occupancy
@@ -804,7 +806,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (48)
+## 🚀 Shipped (organic open) (49)
 _live, awaiting proof_
 
 ### `EGRESS-IDENTITY-JOIN-GAP-1` - Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
@@ -1588,6 +1590,20 @@ _created 2026-08-28 22:00 · initial_
 - **Forensic keys (1):**
   - `links`: related: OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
 
+### `EVSE-CHARGE-ONSET-TIME-1` - EVSE charge-onset gate — hold EV charging until the battery drain target is reached AND a configurable onset hour has passed (whichever is later)
+thread: **energy** - status: **shipped_organic** - approval: **explicit**
+_created 2026-08-29 20:30 · initial_
+- **Problem / Solution:**
+  - Problem: EV charging currently begins as soon as the off-peak drain gate allows, but the operator wants to control WHEN charging starts overnight — the car should not start charging until BOTH (a) the home battery has drained to its off-...
+- **Origin:** 2026-08-29 - operator: add EVSE charge onset time to (maybe) the DP code; charge starts after drain target reached AND a set hour, whichever later; crosses midnight
+- **Why:** Lets the operator align EV charging with the cheapest/latest TOU window and sequence it AFTER the battery has extracted its overnight discharge value, instead of the car charging too early or competing with battery drain.
+- **Next:** PLAN: institutional-context verify the drain-target-reached signal (energy_pool.py:622-651, consumed at :849/:954-962) + the EVSE start gate; design the onset-time gate composed with the existing drain gate; midnight-boundary handling; m...
+- **Tags:** tier-2db, numbers-get-knobs, day-boundary, cross-coordinator, extend-existing
+- **Parsimony:** [BUILD] EV charging starts before the operator-preferred hour / before battery drain completes
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/energy_pool.py (drain-target-reached :622-651; EVSE determine_actions :849); memory project_ev_drain_precedence_cycle (adjacent must-start-by machinery)
+- **Forensic keys (1):**
+  - `priority`: high
+
 ## ⏸️ Waiting on operator (8)
 _needs a human call_
 
@@ -1945,8 +1961,21 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (57)
+## ✅ Done (58)
 _closed, evidence in refs_
+
+### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+thread: **presence** - status: **done** - approval: **unreviewed**
+_created 2026-09-01 00:40 · updated 2026-09-01 01:30 · initial_
+- **Problem / Solution:**
+  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
+- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
+- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
+- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
+- **Tags:** no-fabrication-verify
+- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
+- **Forensic keys (1):**
+  - `resolution_2026_09_01`: NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**

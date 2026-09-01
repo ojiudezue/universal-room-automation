@@ -966,17 +966,17 @@ class RoomAutomation:
     async def _control_lights_entry(self, state_data: dict[str, Any]) -> None:
         """Control lights on entry with night light support."""
         room_name = self.config.get('room_name', 'Unknown')
-        
+
         action = self.config.get(CONF_ENTRY_LIGHT_ACTION, LIGHT_ACTION_NONE)
         _LOGGER.debug("Entry light control [%s]: action=%s", room_name, action)
-        
+
         if action == LIGHT_ACTION_NONE:
             _LOGGER.debug("Entry light control [%s]: action is NONE, skipping", room_name)
             return
 
         lights = self.config.get(CONF_LIGHTS, [])
         _LOGGER.debug("Entry light control [%s]: lights=%s (count=%d)", room_name, lights, len(lights))
-        
+
         if not lights:
             _LOGGER.debug("Entry light control [%s]: no lights configured, skipping", room_name)
             return
@@ -984,17 +984,17 @@ class RoomAutomation:
         # === v3.2.2.5: Check if we're in sleep hours ===
         is_sleep_hours = self.is_sleep_mode_active()
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
-        
-        _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s", 
+
+        _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s",
                        room_name, is_sleep_hours, night_lights)
-        
+
         if is_sleep_hours and night_lights:
             # SLEEP MODE: Only night lights, no darkness check
             _LOGGER.info("Sleep mode active - turning on night lights only")
             await self._turn_on_night_lights(mode="sleep")
             await self._turn_off_non_night_lights()
             return
-        
+
         # NORMAL MODE: Check darkness if needed
         illuminance = state_data.get(STATE_ILLUMINANCE)
         is_dark = self.is_dark(illuminance)
@@ -1037,14 +1037,24 @@ class RoomAutomation:
         if action != LIGHT_ACTION_TURN_OFF:
             return
 
-        lights = self.config.get(CONF_LIGHTS, [])
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D1): UNCONDITIONAL union.
+        # Night lights behave like any occupancy light — OFF on vacancy
+        # ALWAYS, including under sleep (operator correction 2026-09-01).
+        # The reconciler sleep branch is made occupancy-aware in D2b so no
+        # sleep gate is needed here; both sides agree OFF-when-vacant.
+        # Bug Class #4: the widened set still passes through the domain
+        # split below so light.* and switch.* are batched separately.
+        regular = self.config.get(CONF_LIGHTS, []) or []
+        night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+        off_set = list(regular) + [e for e in night if e not in regular]
+        lights = off_set
         if not lights:
             return
 
         # v3.2.0.8: Separate light.* entities from switch.* entities
         actual_lights = []
         switches_as_lights = []
-        
+
         for entity_id in lights:
             if entity_id.startswith("light."):
                 actual_lights.append(entity_id)
@@ -3224,7 +3234,12 @@ class RoomAutomation:
             # suppressed the warning + flash for rooms whose lights are
             # entirely on switches — extend to include switch-as-light
             # states so the warning path fires there too.
-            lights = self.config.get(CONF_LIGHTS, [])
+            # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D3b): unconditional union
+            # so the T-5 warning fires for rooms whose ONLY on-lights are
+            # night-only entities.
+            _regular = self.config.get(CONF_LIGHTS, []) or []
+            _night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+            lights = list(_regular) + [e for e in _night if e not in _regular]
             lights_on = any(
                 (s := self.hass.states.get(lid)) is not None and s.state == STATE_ON
                 for lid in lights
@@ -3263,12 +3278,31 @@ class RoomAutomation:
         keeping the existing dim-restore path for light.* entries.
         Rooms with NO entries still no-op (nothing to flash).
         """
-        lights = self.config.get(CONF_LIGHTS, [])
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D3b flash): unconditional union
+        # for the "any lights to flash?" check. A2-gate: exclude
+        # switch-domain night-only entities from the ON-cycle (they would
+        # get flashed at full mains brightness, potentially jarring in
+        # low-light hours). They ARE still turned OFF by D3a.
+        _regular = self.config.get(CONF_LIGHTS, []) or []
+        _night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+        lights = list(_regular) + [e for e in _night if e not in _regular]
         if not lights:
             return
 
-        actual_lights = [e for e in lights if e.startswith("light.")]
-        switches_as_lights = [e for e in lights if e.startswith("switch.")]
+        # A2-gate (B-M1 fix): night-only entries are excluded from the
+        # warning-flash ON-cycle IN BOTH DOMAINS. A light-domain night
+        # entity currently at sleep brightness (e.g. 15) would otherwise be
+        # blasted to hard-coded `brightness: 255` for the pre-auto-off
+        # warning — same UX problem as the switch-domain mains-blast. The
+        # night-only set is still turned OFF at auto-off time by D3a
+        # (`_shared_space_turn_off_all`); only the flash actuation
+        # excludes them. Regular-list entries (light.* or switch.*)
+        # continue to flash as pre-cycle.
+        _night_only = {e for e in _night if e not in _regular}
+        flash_targets = [e for e in lights if e not in _night_only]
+
+        actual_lights = [e for e in flash_targets if e.startswith("light.")]
+        switches_as_lights = [e for e in flash_targets if e.startswith("switch.")]
         if not actual_lights and not switches_as_lights:
             return
 
@@ -3315,7 +3349,11 @@ class RoomAutomation:
     async def _shared_space_turn_off_all(self) -> None:
         """Turn off all devices in shared space."""
         # Turn off lights — Bug Class #4 fix: separate domains
-        lights = self.config.get(CONF_LIGHTS, [])
+        # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D3a): unconditional union —
+        # night lights OFF on vacancy always, matching D1.
+        regular = self.config.get(CONF_LIGHTS, []) or []
+        night_ = self.config.get(CONF_NIGHT_LIGHTS, []) or []
+        lights = list(regular) + [e for e in night_ if e not in regular]
         if lights:
             actual_lights = [e for e in lights if e.startswith("light.")]
             switches_as_lights = [e for e in lights if e.startswith("switch.")]

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-31'
+  last_reconciled: '2026-09-01'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -26,12 +26,45 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
+  title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+  thread: presence
+  status: shipped_organic
+  shipped_version: v5.92.1
+  resolution_2026_09_01: 'NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry entries from code) the integration intentionally does NOT auto-clean them, so the 38 select.<room>_automation_mode rows persist as unavailable/restored. FIX = optional one-time registry cleanup (remove the 38 orphaned rows) — offered to operator; no code. Closed.'
+  created: 2026-09-01 00:40
+  updated: 2026-09-01 01:30
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: every room''s Automation Mode control (select.<room>_automation_mode) reads unavailable across
+     all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead
+     house-wide. Solution: find why the select platform / the automation_mode entity''s available property (or
+     restore path) fails to come up, and fix so the control is usable again.'
+  origin: {date: '2026-09-01', gist: URA-created output-entity unavailable/unknown audit — Group 1a}
+  why: 'CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since
+    2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest
+    finding of the URA-output audit; sibling sensors in the same rooms are available, so it is select-platform
+    /availability-specific, not an unloaded entry.'
+  next: 'Investigate select platform setup + the automation_mode entity available/restore path; determine why
+    all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?'
+  refs: ['URA-output unavailable/unknown audit 2026-09-01', 'select.<room>_automation_mode x38']
 - id: ROOM-ENTITY-STALE-CONFIG-1
   title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.92.1
+  verified_and_locked_2026_09_01: 'Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint
+    room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO
+    fields (data.fans + options.manual_switches) -> repoint BOTH to fan.ceilingfan_fanimaton_rf_masterbedroom.
+    Jaya dead contact is in Jaya door_sensor AND the CM security_entry_sensors (audit missed the security ref).
+    OPERATOR DECISION 2026-09-01: REMOVE Jaya door_sensor entirely; REPOINT the CM security_entry_sensors dead
+    contact -> ..._contact_2 (live). Mechanism: .storage config edits take effect on RESTART (reload uses
+    in-memory) -> apply all edits as a controlled step in the NIGHT-LIGHT deploy-restart (batched, clobber-free).'
+  batch: 'With NIGHT-LIGHT-NO-OFF-PATH-1 (operator 2026-08-31) — same room-config/light surface.'
   created: 2026-08-31 19:15
-  updated: 2026-08-31 19:15
+  updated: 2026-09-01 00:40
   refinement_status: initial
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -4941,7 +4974,8 @@ cards:
   title: A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light
     stays on 20-29h (all night AND day) until a human/device clears it
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.92.1
   audit_result: 'AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms:
     Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1),
     Garage Hallway, Master Bedroom. 15 rooms dual-list (ride the existing CONF_LIGHTS exit — this is why
@@ -11503,8 +11537,30 @@ cards:
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
   status: planned
+  consolidate_decision_2026_09_01: 'Operator: CONSOLIDATE. Scope expanded from solar-only to a shared
+    staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads —
+    solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — folding in the 4 existing
+    hand-rolled gates. FROZEN-POWER-READ-STALENESS-CLASS-1 merged in here. One Tier-2-DB cycle.'
+  consumer_check_2026_09_01: 'Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status
+    ''stale'') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check,
+    energy.py:3025), consumed by no decision. The TRUST flag envoy_available IS consumed by blind_hold
+    (DP+EVSE guard, energy.py:3753 / energy_pool.py:571) + NM offline alert (energy.py:2934), but it is
+    computed from SOC+storage_mode ONLY, NOT solar — so a frozen-0 solar read never reaches it. The frozen
+    value is trusted DIRECTLY by _read_power_w consumers (excess-solar admit + battery strategy). DESIGN:
+    the helper must GATE THE READ (return None -> LKG envelope engages), NOT add an unconsumed staleness
+    sensor. Optionally annotate envoy_status per-source.'
+  no_dup_audit_2026_08_31: 'Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent
+    after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists
+    — 4 hand-rolled per-site gates (battery_soc cloud-fallback A1 energy_battery.py:895-925; EVSE per-bay
+    SOLAR_POWER_FRESH_S energy_pool.py:4691; grid SOLAR_FOLLOW_GRID_FRESH_S :4401; AC-kWh sensor.py:12488).
+    Reuse the v5.17.5 A1 last_updated PATTERN (not verbatim — it gates the cloud tier, not a primary read);
+    place the gate in _read_power_w/solar_production_w (energy_battery.py:1572/1599); NEW const
+    DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S joins the MAX_AGE family (energy_const.py ~318-326/974-975), rung-1.
+    All 4 existing stale-detection surfaces (envoy_available, NM offline alert, EnvoyStatusSensor stale,
+    solar_production_w_envelope) MISS the frozen-valid-0 case — gap confirmed. Bug Class #7 is process-scoped;
+    this is a candidate NEW class (frozen-valid-value trusted).'
   created: 2026-08-24 16:45
-  updated: 2026-08-31 18:10
+  updated: 2026-09-01 00:15
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -11553,6 +11609,33 @@ cards:
   - __init__.py:3026
   - 'PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1)'
   - 'BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483'
+- id: FROZEN-POWER-READ-STALENESS-CLASS-1
+  title: 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
+  thread: energy
+  status: pre_planning
+  created: 2026-08-31 20:45
+  updated: 2026-08-31 20:45
+  refinement_status: initial
+  approval: unreviewed
+  sibling_of: ENVOY-PRODUCTION-STALE-1
+  tags: [no-fabrication-verify, tier-2db]
+  problem_solution:
+  - 'Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because
+     only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions:
+     net grid power, battery power, and the PRIMARY battery SOC (the v5.17.5 gate only protects the cloud
+     FALLBACK SOC, not the primary). Fixing solar alone leaves these three, and hand-rolling a 5th, 6th, 7th
+     staleness gate duplicates code. Solution: build ONE shared staleness helper (_state_age_s / read-with-
+     freshness) and apply it to all frozen-read power sites at once — consolidating the 4 existing hand-rolled
+     gates too — instead of N one-off copies.'
+  origin: {date: '2026-08-31', gist: Envoy no-duplication audit — adjacencies section}
+  why: 'The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads
+    with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary
+    SOC). Highest-value = primary SOC (frozen SOC re-stamps LKG, poisons battery strategy). Consolidating avoids
+    the exact duplication the operator flagged.'
+  constraints: ['Energy trust path -> Tier 2-DB. A shared helper touching 4+ decision reads is regression-prone.']
+  next: 'Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness
+    helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.'
+  refs: ['Envoy no-dup audit 2026-08-31', 'energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975']
 - id: DP-VERYPOOR-DRAIN-VALIDATOR-1
   title: On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change
     — the live-update validator accepts only 4 of the 5 forecast qualities
