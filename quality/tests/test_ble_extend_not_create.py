@@ -111,6 +111,28 @@ class _FakeSelf:
         self._became_occupied_time = None
         self._last_occupied_state = False
         self._last_occupied_time = None
+        # ble-bleed-extend-corroboration cap harness stubs. Default:
+        # room_type unknown → cap default False → gate never fires.
+        # Callers that want to exercise the cap set _room_type on the
+        # instance BEFORE running the block AND populate
+        # _became_occupied_time in the past.
+        self._room_type = "generic"
+
+    def _get_config(self, key, default=None):
+        # Match production _get_config: options-then-data-then-default.
+        # Tests do not populate an entry; every read falls through to
+        # the default — this preserves the extend-never-create behavior
+        # of existing tests (cap default is room_type-keyed, generic=False).
+        return default
+
+    def _get_ble_hold_cap_seconds(self):
+        from custom_components.universal_room_automation.const import (
+            BLE_HOLD_CAP_DURATIONS,
+            DEFAULT_BLE_HOLD_CAP_SECONDS,
+        )
+        return BLE_HOLD_CAP_DURATIONS.get(
+            self._room_type, DEFAULT_BLE_HOLD_CAP_SECONDS,
+        )
 
 
 def _run_ble_block(
@@ -143,7 +165,15 @@ def _run_ble_block(
         "STATE_TIMEOUT_REMAINING": STATE_TIMEOUT_REMAINING,
         "BLE_CHAIN_HOLD_ENABLED": _enabled,
         "_LOGGER": logging.getLogger("ble_block_test"),
+        # ble-bleed-extend-corroboration: the extracted block does a
+        # local `from .const import (...)` for the cap symbols. Seed
+        # __name__/__package__ so the relative import can resolve.
+        "__name__": "custom_components.universal_room_automation.coordinator",
+        "__package__": "custom_components.universal_room_automation",
     }
+    # The BLE block calls the module-level NM fire helper on cap eviction.
+    from custom_components.universal_room_automation import coordinator as _cm  # noqa: PLC0415
+    ns["_fire_ble_hold_cap_nm"] = _cm._fire_ble_hold_cap_nm
     exec(_BLE_BLOCK_CODE, ns)
 
 

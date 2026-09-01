@@ -237,6 +237,42 @@ async def _fire_max_active_failsafe_nm(
         ),
     )
 
+async def _fire_ble_hold_cap_nm(
+    hass: HomeAssistant, room_name: str, cap_seconds: int,
+) -> None:
+    """ble-bleed-extend-corroboration NM emit via shared helper.
+
+    Fires once per (kind='ble_hold_cap', room_name) per calendar day when
+    the room's BLE-only chain-extend is refused because the current
+    occupancy session has exceeded the per-type BLE hold cap without any
+    body corroboration (PIR/mmwave/occupancy). Distinct kind from the
+    P24 max_active_failsafe latch so the two NMs do not collide.
+    """
+    from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
+    minutes = cap_seconds / 60
+    diag = (
+        f"room {room_name}: BLE-hold cap fired — pure-BLE hold ended "
+        f"without body corroboration after {minutes:.0f} min "
+        "(adjacent-room BLE bleed suspected)"
+    )
+    remedy = (
+        "raise BLE_HOLD_CAP_DURATIONS or turn CONF_BLE_HOLD_CAP_ENABLED "
+        "off for this room; if nobody home investigate adjacent-room "
+        "BLE bleed (scanner placement / phone location)"
+    )
+    await fire_stuck_signal(
+        hass,
+        kind="ble_hold_cap",
+        key=(room_name,),
+        diagnosis=diag,
+        remedy=remedy,
+        title_override=(
+            f"Stuck signal: ble_hold_cap — {room_name} "
+            f"({minutes:.0f} min)"
+        ),
+    )
+
+
 # v4.5.15: 4-hour failsafe constant moved to const.DEFAULT_FAILSAFE_DURATION_SECONDS.
 # Room-type-keyed durations in const.ROOM_TYPE_FAILSAFE_DURATIONS;
 # resolved at runtime by `_get_failsafe_duration_seconds`.
@@ -644,7 +680,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         return ROOM_TYPE_FAILSAFE_DURATIONS.get(
             self._room_type, DEFAULT_FAILSAFE_DURATION_SECONDS,
         )
-    
+
+    def _get_ble_hold_cap_seconds(self) -> int:
+        """Return the max seconds a BLE-only hold can sustain occupancy
+        before the BLE chain-extend is refused (ble-bleed-extend-
+        corroboration cycle). Room-type-keyed lookup that mirrors
+        :meth:`_get_failsafe_duration_seconds`.
+        """
+        from .const import (
+            BLE_HOLD_CAP_DURATIONS,
+            DEFAULT_BLE_HOLD_CAP_SECONDS,
+        )
+        return BLE_HOLD_CAP_DURATIONS.get(
+            self._room_type, DEFAULT_BLE_HOLD_CAP_SECONDS,
+        )
+
     # =========================================================================
     # v3.10.0 TRIGGER DETECTION & AUTOMATION CHAINING
     # =========================================================================
@@ -3704,6 +3754,45 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     if BLE_CHAIN_HOLD_ENABLED:
                         chain_unbroken = self._last_occupied_state
                         ble_allowed = chain_unbroken
+
+                    # ble-bleed-extend-corroboration: per-room BLE hold
+                    # cap. If enabled AND the current occupancy session
+                    # has been sustained past the per-type cap without
+                    # body corroboration, REFUSE the BLE extend and
+                    # fire an ble_hold_cap NM (per-day latched).
+                    # Fail-OPEN when _became_occupied_time is None
+                    # (preserves restart pin — no session anchor to
+                    # measure against).
+                    if ble_allowed:
+                        from .const import (  # noqa: PLC0415
+                            CONF_BLE_HOLD_CAP_ENABLED,
+                            ROOM_TYPE_BLE_HOLD_CAP_DEFAULT,
+                        )
+                        cap_default = ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(
+                            self._room_type, False,
+                        )
+                        cap_enabled = self._get_config(
+                            CONF_BLE_HOLD_CAP_ENABLED, cap_default,
+                        )
+                        if cap_enabled and self._became_occupied_time is not None:
+                            cap_seconds = self._get_ble_hold_cap_seconds()
+                            duration = (
+                                now - self._became_occupied_time
+                            ).total_seconds()
+                            if duration > cap_seconds:
+                                _LOGGER.info(
+                                    "Room %s: BLE hold cap fired after "
+                                    "%.0f min (cap %.0f min) — refusing "
+                                    "BLE extend without body corroboration",
+                                    room_name, duration / 60,
+                                    cap_seconds / 60,
+                                )
+                                ble_allowed = False
+                                self.hass.async_create_task(  # noqa: untracked-ok
+                                    _fire_ble_hold_cap_nm(
+                                        self.hass, room_name, cap_seconds,
+                                    )
+                                )
 
                     if ble_allowed:
                         data[STATE_OCCUPIED] = True
