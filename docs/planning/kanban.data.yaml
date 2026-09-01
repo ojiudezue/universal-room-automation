@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-29'
+  last_reconciled: '2026-08-31'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -12454,7 +12454,8 @@ cards:
 - id: EVSE-CHARGE-ONSET-TIME-1
   title: EVSE charge-onset gate — hold EV charging until the battery drain target is reached AND a configurable onset hour has passed (whichever is later)
   thread: energy
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.92.0
   created: '2026-08-29 20:30'
   updated: '2026-08-29 20:30'
   refinement_status: initial

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "079",
+  "author": "ojiudezue",
+  "session_id": "claude_20260901_012147_ship_v5_92_0",
+  "timestamp": "2026-09-01T01:21:47Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.92.0 shipped: EVSE/L1 charge-onset gate (ships dormant, enable OFF)",
+  "summary": "EVSE/L1 charge-onset gate (ships dormant, enable OFF)",
+  "why": "Operator wants EV/L1 charging held until a cheap overnight onset time. Two prior attempts failed by gating a single wrong/incomplete site (drain-release, then ensure-on) \u2014 there is no single turn-on site; a charger is started by ~15 paths. v3 wraps the turn-on emission in a shared funnel and gates every real start path, with must-start-by/solar/force-charge as bypass. Ships DORMANT (enable OFF) so the operator can enable-and-test deliberately with zero deploy-time behavior change. Delicate energy code: built and verified to leave DP/drain/arbitrage/solar decision logic byte-identical.",
+  "implications": "Shipped EVSE-CHARGE-ONSET-TIME-1 at v5.92.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.92.0.md (Live criteria).",
+  "revisit_trigger": "With switch.ura_ev_charge_onset_enabled ON before 01:00 on an off-peak night: binary_sensor.ura_ev_charge_onset_active==on AND garage_a/garage_b + smartplug_moes_wifi_garagealeftfront sockets all off, then all switch to on at ~01:00 (query ev_charging_status + switch history).",
+  "refs": {
+    "cards": [
+      "EVSE-CHARGE-ONSET-TIME-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.92.0.md"
+    ],
+    "release_notes": "Gated turn-on funnel holds EV/L1 charging until a configurable onset time (default 01:00, 8h bounded window) across all real start paths (ensure-on, DP reversion, arbitrage release, fill-priority dusk, drain-release); must-start-by 03:00 + excess-solar + force-charge bypass; enable switch defaults OFF so deploy is byte-identical to v5.91.4 until the operator turns it on. Tier-3: 4 framing-disjoint reviews + orchestrator neuter re-verify."
+  }
+}
