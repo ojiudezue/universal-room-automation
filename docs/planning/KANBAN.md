@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T16:34:17-05:00_ - _Data commit: `486cd1cd380f`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T16:40:58-05:00_ - _Data commit: `56bacc023603`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -635,7 +635,7 @@ _created 2026-09-01 16:15 · updated 2026-09-01 17:05 · refined ×1_
   - Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy computed to zero-or-negative, and t...
 - **Origin:** 2026-09-01 - operator side-quest — why is forecast_accuracy unknown
 - **Why:** Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30. Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value returns None when accuracy<=0 (...
-- **Next:** Tier-2-DB PLAN-REVIEW in flight (data-integrity + DP-ripple framing) — make-or-break is whether D2's bounded SMAPE metric silently shifts adjustment_factor and therefore DP house-load. On SHIP, build D0 probe -> D1 mask fix -> D2 bounded...
+- **Next:** Revise plan to Rev 2 (split-metric, display-only). Planner resumable (task ac7c6c69882c02fd6). Then it is a Tier 1-2 display fix — one plan-review confirm, then build D1 mask + D3 stale-visibility + bounded sensor-only metric. Control pa...
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** docs/planning/PLANNING_forecast_accuracy_fix.md; sensor.py:11344/11373; energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy; energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property; PLANNING_v4.7.x_advanced_energy_management.md E5 origin
 
@@ -651,12 +651,12 @@ thread: **energy** - status: **planned** - approval: **implied**
 
 ### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep
 thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-08-31 18:20 · updated 2026-09-01 17:05 · refined ×2_
+_created 2026-08-31 18:20 · updated 2026-09-01 17:05 · refined ×4_
 - **Problem / Solution:**
   - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
 - **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
 - **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
-- **Next:** Tier-2 PLAN-REVIEW in flight — critical risk it must clear: does the reused 60-min bathroom duration force-vacate a REAL stationary occupant (long soak, mmwave dropped, BLE-only)? On SHIP, build the single duration cap inside the BLE cha...
+- **Next:** Rev 4: fold operator per-room toggle + room-type-default-on-at-setup + own duration knob, AND the review must-fixes (freshness/no-PIR handling, distinct NM message, executable D2 harness, discriminating L4). Then re-plan-review (config s...
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
 - **Forensic keys (1):**

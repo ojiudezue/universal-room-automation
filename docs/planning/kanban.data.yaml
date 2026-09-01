@@ -56,9 +56,20 @@ cards:
   why: 'Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30.
     Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value
     returns None when accuracy<=0 (sensor.py:11373); pct_error=error/max(abs(predicted),0.1)*100 (energy_forecast.py:850)'
-  next: 'Tier-2-DB PLAN-REVIEW in flight (data-integrity + DP-ripple framing) — make-or-break is whether D2''s
-    bounded SMAPE metric silently shifts adjustment_factor and therefore DP house-load. On SHIP, build D0 probe
-    -> D1 mask fix -> D2 bounded metric -> D3 stale visibility.'
+  refinement:
+  - 'PLAN-REVIEW = FIX-REQUIRED (correct catch): pct_error feeds BOTH the sensor AND adjustment_factor (the DP
+    house-load controller), so D2''s new denominator is a CONTROL-LOOP change, not a display fix — it
+    asymmetrically damps under-prediction correction (the exact arm get_adjustment_factor exists to boost) ->
+    systematic downward bias in DP house_load, plus a >10% first-boot step breaching the plan''s own gate.
+    RESOLUTION (reviewer-recommended, adopted): SPLIT THE METRICS — keep pct_error (control) byte-identical, add
+    pct_error_bounded consumed ONLY by rolling_accuracy + the sensor. This delivers the operator''s ask (unmask
+    the real accuracy signal) with ZERO control-path change -> drops from Tier 2-DB to a Tier 1-2 display fix,
+    and dissolves HIGH-1 (_solar_forecast_error_baseline keeps reading the unchanged pct_error). Also: recompute
+    bounded metric from stored predicted/actual on restore (not clamp); fix STALE_EVAL_DAYS >= /=1; real
+    POOR_THRESHOLD_PCT (~50); verify live entity id in D0.'
+  next: 'Revise plan to Rev 2 (split-metric, display-only). Planner resumable (task ac7c6c69882c02fd6). Then it
+    is a Tier 1-2 display fix — one plan-review confirm, then build D1 mask + D3 stale-visibility + bounded
+    sensor-only metric. Control path untouched.'
   refs: ['docs/planning/PLANNING_forecast_accuracy_fix.md', 'sensor.py:11344/11373', 'energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy', 'energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property', 'PLANNING_v4.7.x_advanced_energy_management.md E5 origin']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
@@ -5020,10 +5031,33 @@ cards:
     DELIBERATELY exempts BLE-sourced occupancy (comment: a BLE chain-hold is "evidence of presence, not a stuck
     sensor"; force-vacate+latch would lock a visible person out). Confirmed by two disjoint reads (orchestrator
     + plan agent). So the failsafe BLOCK cannot be the cap; the cap must live INSIDE the BLE chain-extend block.
-    Rev 3 reuses the failsafe DURATION (_get_failsafe_duration_seconds) + NM-fire path there, P24 block byte-preserved.'
-  next: 'Tier-2 PLAN-REVIEW in flight — critical risk it must clear: does the reused 60-min bathroom duration
-    force-vacate a REAL stationary occupant (long soak, mmwave dropped, BLE-only)? On SHIP, build the single
-    duration cap inside the BLE chain-extend block. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 3).'
+    Rev 3 reused the failsafe DURATION (_get_failsafe_duration_seconds) + NM-fire path there, P24 block byte-preserved.'
+  - 'Rev-3 PLAN-REVIEW = FIX-REQUIRED, and it CONVERGES with the operator: a BLANKET cap reusing the 60-min
+    bathroom failsafe duration would FALSE-EVICT real occupants — (C1-HIGH-1) a real bather on a >60min still
+    soak (mmwave loses the still torso, BLE-only), and (C1-HIGH-2, worse) the SIX no-PIR rooms incl. Master
+    Bedroom + Jaya Bedroom where a sleeper''s mmwave drops on a still body — the exact nightly-eviction the P24
+    leg-(i) has-PIR exemption was written to prevent. Also: 60min is the SHORTEST number in the table, not the
+    operator''s "long cap"; reusing the NUMBER without P24''s three GUARD conjuncts is a Class #63 re-scope; and
+    the D2 test harness is not executable (NameError + false-green mutation anchors + hollow T-CAP-6).'
+  - 'OPERATOR DESIGN (2026-09-01): BLE extend is legitimately valuable in bedrooms + shared living spaces
+    (living/dining) where people are genuinely still for long stretches, so a blanket cap is wrong there. Make
+    the cap a PER-ROOM TOGGLE in the room config (config flow + mirrored in options flow), default OFF, but
+    default ON for certain room types at SETUP (bathrooms, closets, ...). This directly resolves C1-HIGH-2
+    (bedrooms default OFF -> sleepers never evicted) and C1-HIGH-1 (bathrooms opt in, accepting the soak trade).
+    Prior art clean: per-room CONF_*_ENABLED toggles are the dominant pattern (fan_control/humidity_fan/sleep_
+    protection_enabled); config_flow ALREADY sets per-room-type defaults at setup (occupancy_timeout via
+    ROOM_TYPE_TIMEOUTS, config_flow.py:991-995) — the room-type-default-on machinery is REUSED, not new.'
+  knobs:
+  - 'CONF_BLE_HOLD_CAP_ENABLED (rung 2 config/options flow, per-room bool) — NEW; mirrors the many per-room
+    CONF_*_ENABLED toggles. Kill-switch semantics: OFF => BLE extends freely (today''s behavior).'
+  - 'ROOM_TYPE_BLE_HOLD_CAP_DEFAULT (rung 1 module const, room_type->bool) — NEW; applied at config-flow setup
+    like ROOM_TYPE_TIMEOUTS. bathroom/closet => True, else False.'
+  - 'BLE_HOLD_CAP_DURATIONS (rung 1 module const, room_type->seconds) — NEW per review C1-MED-3; MAY default to
+    ROOM_TYPE_FAILSAFE_DURATIONS but named separately so the BLE-cap policy can diverge (operator said "long cap"
+    — 60min bath is the shortest, not long). Recommend own longer bath default, tunable.'
+  next: 'Rev 4: fold operator per-room toggle + room-type-default-on-at-setup + own duration knob, AND the
+    review must-fixes (freshness/no-PIR handling, distinct NM message, executable D2 harness, discriminating L4).
+    Then re-plan-review (config surface changed). Plan: PLANNING_ble_bleed_extend_corroboration.md.'
   refs:
   - 'Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min
     hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF'
