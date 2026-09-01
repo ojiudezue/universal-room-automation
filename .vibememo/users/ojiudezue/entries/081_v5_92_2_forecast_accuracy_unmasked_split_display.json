@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "081",
+  "author": "ojiudezue",
+  "session_id": "claude_20260901_222848_ship_v5_92_2",
+  "timestamp": "2026-09-01T22:28:48Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.92.2 shipped: forecast_accuracy unmasked (split display metric; energy control path byte-identical)",
+  "summary": "forecast_accuracy unmasked (split display metric; energy control path byte-identical)",
+  "why": "forecast_accuracy read 'unknown' whenever rolling accuracy hit <=0, conflating no-data with a genuinely inaccurate forecaster and hiding a real operator signal; plan-review caught that the naive denominator fix would have altered the DP house-load control loop (pct_error feeds adjustment_factor), so Rev 2 SPLITS the metric \u2014 pct_error byte-identical (control untouched), a new bounded SMAPE consumed only by the sensor \u2014 keeping this a true display fix while surfacing learning/active/poor/stale states that never share a (value,status) signature.",
+  "implications": "Shipped FORECAST-ACCURACY-UNKNOWN-MASK-1 at v5.92.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.92.2.md (Live criteria).",
+  "revisit_trigger": "sensor.ura_energy_coordinator_forecast_accuracy renders a numeric value with a status attribute (learning/active/poor/stale), NOT bare unknown, and exposes eval_age_days; DP house_load_kw / adjustment_factor show no measurable shift post-restart.",
+  "refs": {
+    "cards": [
+      "FORECAST-ACCURACY-UNKNOWN-MASK-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.92.2.md"
+    ],
+    "release_notes": "The forecast_accuracy sensor now surfaces a real numeric value with a status attribute (learning/active/poor/stale) instead of masking rolling accuracy <=0 as 'unknown'. Split-metric fix: pct_error stays byte-identical so the DP house-load control path (adjustment_factor) is untouched; a new sensor-only bounded SMAPE metric drives rolling_accuracy + the three discriminated states + a stale overlay (eval_age_days). 14 tests, two RED drills (native_value neuter, ladder reorder), validator full-suite name-diff clean."
+  }
+}

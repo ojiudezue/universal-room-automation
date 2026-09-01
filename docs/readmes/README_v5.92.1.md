@@ -34,8 +34,15 @@ The 38 `select.<room>_automation_mode` entities were deliberately deleted from c
 ## Pre-deploy gate
 0 conflict markers; py_compile clean; 75 cycle tests pass; full-suite name-diff 0 new vs develop.
 
-## Live Validation
-(prospective — written back after restart)
-- Night lights: Master Bath Sonoff OFF on vacancy incl sleep; no new URA errors; clean boot.
-- Repoints: kitchen_3 / up_guest_room_3 / rf_masterbedroom resolve; Jaya door_sensor absent, security on contact_2.
-- automation_mode: the 38 select rows gone from the registry.
+## Validated 2026-09-01 (post-restart)
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Clean boot, no new URA errors | `error_log` ERROR-level scan (06:28–12:49 window): **0** `universal_room_automation` ERROR entries / tracebacks (7106 URA lines, all below ERROR). house_state=home_day, ev_charging_status=idle. | **PASS** |
+| Stale-config repoints applied | `.storage/core.config_entries` post-restart: Kitchen `room_media_player`=`media_player.kitchen_3`; Master Bedroom `fans`=`[…rf_masterbedroom]` (no `rf304`); Jaya `door_sensor` key **absent** (data+options). (Up-guest media + CM security→contact_2 applied in the same write.) | **PASS** |
+| automation_mode selects removed | `.storage` edit was **clobbered** by an HA in-memory registry flush before the restart (config_entries survived, entity_registry did not — the live-`.storage`-edit hazard). Re-done via the proper API `ha_remove_entity` (bulk 38): removed 38 / skipped 0 / errors 0. Confirmed `select.kitchen_automation_mode` + `select.master_bathroom_automation_mode` now return 404. | **PASS** (via API, not `.storage`) |
+| Night lights off on vacancy | `switch.sonoff_1002197ef7_1` = off at validation. The off-*on-vacancy* behavior is event-driven — **organic watch** (per `--revisit`): confirm a sub-hour on-episode ending at a Master-Bath vacancy transition, no more 20–29h holds. | **Code+review PASS; live = organic** |
+
+**Process note:** editing `core.entity_registry` directly in `.storage` on a running HA is unsafe — HA flushed its in-memory copy over the edit before the restart read it (the `core.config_entries` edit survived only because it isn't flushed on that cadence). Entity-registry changes must go through `ha_remove_entity` / the registry API, not a `.storage` hand-edit. Recorded so this isn't repeated.
+
+**Organic watch (per `--revisit`):** Master Bath under-cabinet Sonoff turns OFF within a tick of the bath going vacant (incl. during sleep) — query its state history for a short on-episode ending at a vacancy transition.

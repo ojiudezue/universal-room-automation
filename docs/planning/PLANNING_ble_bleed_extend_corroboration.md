@@ -1,236 +1,421 @@
-# PLANNING — BLE-BLEED-EXTEND-SLEEP-1: Body-corroborated BLE extend during sleep window
+# PLANNING — BLE-BLEED-EXTEND-SLEEP-1: opt-in per-room BLE-hold cap (read-site default, CONF_WET_ROOM schema mirror)
 
 **Card:** `BLE-BLEED-EXTEND-SLEEP-1`
-**Thread:** presence-fusion
-**Tier:** **2-DB** (elevated — trust-hierarchy ripple, presence fusion is regression-prone; op-coined standing policy)
-**Precedent:** BLE-WARM-CREATE-1 (v5.66.0) — this cycle addresses the EXTEND path; that cycle addressed the CREATE path. Distinct legs, distinct code region, but the same block and the same bug class (adjacent-room BLE bleed corrupting occupancy truth).
-**Bug classes:** Coincidental Equality Masks a Concept Split (Class #63) — "person present" and "person present AND animate in this room" collapsed into one signal at extend-time; Trust-Hierarchy Ripple (unbounded BLE-solo extend refreshes the timeout that other consumers trust).
+**Thread:** presence-fusion + per-room config surface
+**Tier:** **2-DB+** (config surface + presence-fusion path; config-entry options round-trip — NOT RestoreEntity).
+**Precedent:** BLE-WARM-CREATE-1 (v5.66.0) fixed the CREATE path; this cycle fixes the EXTEND path.
+**Bug classes:** Coincidental Equality Masks a Concept Split (Class #63) — a shared duration was reused across separate policies; ALSO — Rev-4 uncovered the SAME class in production config-flow defaults: the `if CONF_* not in user_input` template at `config_flow.py:991-996` for `ROOM_TYPE_TIMEOUTS` is DEAD (voluptuous fills the Optional schema default BEFORE the step re-enters). Trust-Hierarchy Ripple — unbounded BLE-solo extend refreshes a timeout other consumers trust. Suppression Needs a Discharge — P24 leg (ii) exempts BLE from the failsafe knock-down.
+
+> **Rev 5 (2026-09-01) — SUPERSEDES Rev 1, Rev 2, Rev 3, Rev 4. Build-ready.**
+>
+> Rev 4's design (per-room toggle, room-type default) is correct. Two CRITICALs on HOW the default is applied were the last blocker:
+>
+> **CRIT-1** — the setup-default template we were mirroring (`config_flow.py:991-996`, the `if CONF_OCCUPANCY_TIMEOUT not in user_input` block) is **dead code**. voluptuous fills the `vol.Optional(..., default=DEFAULT_OCCUPANCY_TIMEOUT)` schema slot before the step re-enters, so `not in user_input` is always False. Ground truth: `sensor.laundry_closet_occupancy_timeout_remaining` and `sensor.guest_bedroom_1_occupancy_timeout_remaining` both peak at 300.0 (the raw `DEFAULT_OCCUPANCY_TIMEOUT`), not their `ROOM_TYPE_TIMEOUTS` values (closet=120, bedroom=900). Bathrooms coincidentally read 300 because that happens to be their `ROOM_TYPE_TIMEOUTS` value too — the coincidence masked the bug. **`ROOM_TYPE_BLE_HOLD_CAP_DEFAULT` applied through that template would never fire.**
+>
+> **CRIT-2** — the ~40 EXISTING rooms predate the new field; `_get_config(CONF_BLE_HOLD_CAP_ENABLED, False)` returns False for all of them, so the founding Master Bathroom case ships INERT and L2 fails. And an options-flow default of False actively PINS the wrong value if a bathroom entry is opened+saved untouched.
+>
+> **One fix collapses both:** apply the room-type default at the **read site** (`_get_config(..., ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(self._room_type, False))`), and mirror the **`CONF_WET_ROOM` schema-default pattern** (`config_flow.py:1909, :1927, :10520-10525`) in setup + options for the pure OVERRIDE surface. The toggle becomes an override, not a stored default; existing rooms activate immediately, no migration.
+>
+> This is the last revision. Read-only outside this plan doc.
 
 ---
 
 ## 1. Institutional context verified
 
-### 1.1 Greps run + results (producer / consumer / prior art)
+### 1.1 The pinned root cause (unchanged)
 
-**Extend-path producer (the code this cycle changes):**
-- `custom_components/universal_room_automation/coordinator.py:3613-3752` — the `=== v3.8.8: BLE/Bermuda extends room occupancy ===` block. Post BLE-WARM-CREATE-1 the admission is CHAIN-ONLY:
-  - `:3703-3706` — `ble_allowed = False; if BLE_CHAIN_HOLD_ENABLED: chain_unbroken = self._last_occupied_state; ble_allowed = chain_unbroken`
-  - `:3708-3712` — on admit: `data[STATE_OCCUPIED]=True`, `STATE_OCCUPANCY_SOURCE="ble"`, `STATE_BLE_PERSONS`, `STATE_TIMEOUT_REMAINING=self._occupancy_timeout` (this is the refresh — the mechanism the bleed exploits).
-  - `:3668-3680` (comment) — explicitly documents the FOUND problem: *"A still-body BLE hold extends INDEFINITELY through this leg while the BLE person keeps being reported present. The 4-hour failsafe does NOT bound BLE-sustained occupancy."*
-- **This is the extend path, distinct from the create path** BLE-WARM-CREATE-1 fixed. Do NOT re-open the create leg. (Verified against `quality/tests/test_ble_extend_not_create.py::test_sleep_hold_pin_chain_extends_past_motion_window` — the sleep-hold pin is the intended extend behavior; we are constraining, not deleting it.)
+Master Bathroom's 7.3 h BLE phantom evaded the 60-min P24 failsafe because of **leg (ii)** at `coordinator.py:4180-4182`:
 
-**Body-signal producers (what corroboration reads):**
-- `self._last_pir_motion_time` — coordinator.py:416 (init `_now`), :3524 (updated when PIR fires). REUSED as body signal — this is exactly what the D2 demotion block reads for the analogous "no real body signal" gate at :3797.
-- mmWave: mmwave sensors already fold into `data[STATE_OCCUPIED]` upstream — a fresh mmwave hit ⇒ `_last_pir_motion_time` OR upstream occupancy already keeps the chain unbroken through the non-BLE path. The corroboration signal is *"has a body sensor produced evidence for this room within the corroboration window."* The probe on this card already established that the master-bath PIR+mmWave went **correctly quiet** during phantom holds — the discriminator is available and healthy.
+```python
+and data.get(STATE_OCCUPANCY_SOURCE) not in ("camera", "ble")
+```
 
-**House-state producer (the "sleep / low-activity window" gate):**
-- `coordinator.py:1960-1985` — `_d2_house_state_allows()` reads `presence.house_state` and identifies the sleep family as `HouseState.SLEEP`, `HouseState.WAKING`, `HouseState.HOME_NIGHT`. REUSED for the sleep-window gate on this cycle (semantically identical: "expected-stillness period where BLE bleed dominates real body signal").
+with the intent-comment at `:4120-4127`: *"a BLE chain-hold is *evidence of presence*, not a stuck sensor, and force-vacating them AND latching `_failsafe_fired` would lock the visibly-present person out of subsequent override ticks."* All the arithmetic is present (`_became_occupied_time` accumulates across BLE overrides; `_get_failsafe_duration_seconds()` returns 3600 s for `bathroom`); only leg (ii) prevents the check. The BLE chain-extend site: `ble_allowed = False` initializer at `coordinator.py:3713`; `if BLE_CHAIN_HOLD_ENABLED:` at `:3714`; `chain_unbroken = ...` at `:3715`; `ble_allowed = chain_unbroken` at `:3716`; admit at `:3719-3722`; seed-if-None at `:3738-3739`; else at `:3751`.
 
-**Kill / config knobs already in the region:**
-- `const.py:575` — `BLE_CHAIN_HOLD_ENABLED: Final = True` (module constant, kill-switch semantics, reviewed-change rung — precedent for this cycle's new constant).
-- `const.py:586` — `D2_PIR_STALENESS_MULTIPLIER: Final = 2` (staleness multiplier over `occupancy_timeout` — precedent for reusing the same *shape* of knob).
+### 1.2 Why Rev-4's setup-default application would not have fired (CRIT-1, class #63 in the config-flow template itself)
 
-**Consumers of `data[STATE_OCCUPIED]` when source == "ble" (blast-radius map for the fix):**
-- Zone `_room_occupied` roll-up (presence coordinator) → house-state contribution → HVAC preset selection, load-shed gates, guest-mode gates.
-- Analytics / anomaly rows keyed to occupancy transitions (regime_detector, duty-cycle detector).
-- Any occupancy-gated actuation on the master bath itself (lights, exhaust fan). Probe already measured ~zero *direct* actuation cost in this room; the operator's driver is truth-corruption reaching sibling consumers.
-- `test_extend_path_ble_holds_still_body_when_chain_unbroken`, `test_sleep_hold_pin_chain_extends_past_motion_window` — anchor tests that must stay green outside the sleep window and must be joined by new tests INSIDE the sleep window.
+The template at `config_flow.py:991-996`:
 
-**REUSED vs NEW summary:**
-- REUSED: `_last_pir_motion_time` (body signal), `_d2_house_state_allows` house-state read pattern, `HouseState.{SLEEP,WAKING,HOME_NIGHT}` enum, existing `_run_ble_block` extraction harness for testing, `BLE_CHAIN_HOLD_ENABLED` knob-placement precedent.
-- NEW (justified): **one** new module constant — `BLE_SOLO_EXTEND_CORROBORATION_WINDOW_S` — grep of `const.py` for `BLE_*`, `CORROBORATION_*`, `EXTEND_*` returned no equivalent. Placed at the module-constant rung (per Numbers-Get-Knobs) because it is a fusion-safety threshold whose change must go through review, not a per-deployment tunable.
+```python
+if CONF_OCCUPANCY_TIMEOUT not in user_input:
+    room_type = user_input.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
+    self._data[CONF_OCCUPANCY_TIMEOUT] = ROOM_TYPE_TIMEOUTS.get(
+        room_type, DEFAULT_OCCUPANCY_TIMEOUT,
+    )
+```
 
-### 1.2 Prior planning docs consulted
-- `docs/planning/PLANNING_ble_extend_not_create.md` — full read. Sibling cycle; defines the invariant surface and the mutation harness this cycle inherits.
-- `docs/readmes/README_v5.66.0.md` — full read. BLE-WARM-CREATE-1 acceptance criteria and the D-MEDIUM-1 restart-pin carveout must remain intact.
-- `docs/planning/AUDIT_shipped_organic_prune_2026_08_17.md` — skim (context on the state of BLE-related shipped work).
+is **dead**. `CONF_OCCUPANCY_TIMEOUT` is declared as a `vol.Optional(..., default=DEFAULT_OCCUPANCY_TIMEOUT)` earlier in the schema — voluptuous fills the field to `DEFAULT_OCCUPANCY_TIMEOUT` before the step's `user_input is not None` branch runs, so `not in user_input` never evaluates True. Ground truth: `sensor.laundry_closet_occupancy_timeout_remaining=300.0` and `sensor.guest_bedroom_1_occupancy_timeout_remaining=300.0` — both peak at the raw default (300), not their type-keyed `ROOM_TYPE_TIMEOUTS` values (closet=120, bedroom=900). The bathroom case masks the bug because `ROOM_TYPE_TIMEOUTS[bathroom]` also happens to be 300 (Class #63 in the wild).
 
-### 1.3 Memory bodies pulled
-- `feedback_coincidental_equality_masks_concept_split.md` — this cycle's bug shape. "BLE person present" and "room actually occupied" are collapsed at extend-time; the fix restores the concept split.
-- `feedback_suppression_needs_discharge.md` — the corroboration-window gate is a *conditional refresh*, not a suppression, but we must specify the DISCHARGE (see §5) so a genuine occupant with intermittent body signal does not fall off.
-- `reference_ble_frigate*` and `feedback_disjoint_framings.md` — reviewer framing guidance.
-- `feedback_marginal_benefit_pushback.md` — applied in §3 (why option A, not B or C).
+Consequence for Rev 4: `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(...)` inside a mirrored `if CONF_BLE_HOLD_CAP_ENABLED not in user_input` block would ALSO be dead. Rev-4's T-CAP-CONFIG-DEFAULT was a hollow anchor — it hand-built a dict bypassing voluptuous, so it would pass in-suite while production was broken. Fixed in Rev 5 §3.2 + §5 D4.
 
-### 1.4 Design docs read
-- `docs/Coordinator/HOUSE_MANUAL.md` — sleep-family house-state semantics.
-- Skimmed the extend block's own inline history at coordinator.py:3613-3752 (the doctrinal comment already anticipates this cycle's motivation).
+### 1.3 Why Rev-4's stored default of False on existing rooms is wrong (CRIT-2)
 
-### 1.5 Code locations surveyed end-to-end
-- `coordinator.py:3413-3752` (entry actions, camera override, BLE extend block — read as one unit; the fix ONLY edits the BLE block).
-- `coordinator.py:1960-1985` (`_d2_house_state_allows`).
-- `const.py:560-600` (BLE / D2 knob region).
-- `quality/tests/test_ble_extend_not_create.py` (full — this is the harness this cycle extends).
+The ~40 rooms already on disk have no `CONF_BLE_HOLD_CAP_ENABLED` in either `entry.data` or `entry.options`. Rev-4 `_get_config(CONF_BLE_HOLD_CAP_ENABLED, False)` returns False for all of them → the cap is inert on the founding Master Bathroom → L2 fails at ship. And a bathroom entry opened in options and saved untouched with a `default=False` schema slot would persist False, pinning the wrong policy.
+
+**The fix is to apply the room-type default at the READ SITE:**
+
+```python
+self._get_config(
+    CONF_BLE_HOLD_CAP_ENABLED,
+    ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(self._room_type, False),
+)
+```
+
+- Existing rooms: no key set anywhere → `_get_config` returns the room-type default. Master Bathroom becomes cap-ON immediately. Bedrooms remain cap-OFF (`bedroom` not in the default map). Zero migration.
+- New rooms: same read-site fallback until the operator explicitly overrides.
+- Options-flow save: the schema uses the same room-type-aware default (per §3.2), so an untouched save writes the room-type default explicitly — but even if the operator saves the field absent, the read site still resolves correctly.
+
+### 1.4 The correct config-flow template (CONF_WET_ROOM), verified live
+
+Grep for room-type-aware Boolean schema defaults returned `CONF_WET_ROOM`, which uses the **schema-default** approach (not the dead `if not in user_input` approach). Verified in source:
+
+- **Setup step** (`config_flow.py:1908-1909`):
+  ```python
+  room_type = self._data.get(CONF_ROOM_TYPE)
+  wet_default = (room_type == ROOM_TYPE_BATHROOM)
+  ```
+  and at `:1927`: `vol.Optional(CONF_WET_ROOM, default=wet_default): selector.BooleanSelector(),`
+- **Options step** (`config_flow.py:10519-10525`):
+  ```python
+  room_type = self._get_current(CONF_ROOM_TYPE)
+  wet_default = bool(
+      self._get_current(
+          CONF_WET_ROOM,
+          room_type == ROOM_TYPE_BATHROOM,
+      )
+  )
+  ```
+
+Rev 5 mirrors this pattern for `CONF_BLE_HOLD_CAP_ENABLED` (with `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False)` where the wet template writes `room_type == ROOM_TYPE_BATHROOM`).
+
+### 1.5 Institutional greps for the three new symbols (unchanged from Rev 4)
+
+- `CONF_BLE_HOLD_CAP_ENABLED` — NEW. Prior-art template: `CONF_WET_ROOM` (per §1.4) is the correct shape; the CONF_FAN_CONTROL_ENABLED / CONF_HUMIDITY_FAN_CONTROL_ENABLED family (`const.py:958,1022,1051`) is the naming shape.
+- `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT` — NEW. No prior art for a room-type→bool default map (`CONF_WET_ROOM` inlines the check as `room_type == ROOM_TYPE_BATHROOM`; a MAP is more explicit and supports closet). Structural sibling: `ROOM_TYPE_FAILSAFE_DURATIONS` at `const.py:1183`.
+- `BLE_HOLD_CAP_DURATIONS` — NEW. Structural sibling: `ROOM_TYPE_FAILSAFE_DURATIONS`.
+
+**REUSED:**
+- `_became_occupied_time` — set `coordinator.py:3543`, seeded on BLE admit `:3738-3739`, cleared at TRUE VACANCY FINALIZE `:4249`.
+- `_get_config(key, default)` — `coordinator.py:617-627` — the canonical options→data→default read; used to compute the effective toggle at cap-check time.
+- `BLE_CHAIN_HOLD_ENABLED` kill-switch — `const.py:575`.
+- `_fire_max_active_failsafe_nm` shape — `coordinator.py:218-239`. We do NOT reuse the function; a sibling `_fire_ble_hold_cap_nm` with `kind="ble_hold_cap"` mirrors the shape.
+
+### 1.6 Prior docs / memories consulted
+- `docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md:41-53` — six no-PIR rooms (Game Room, Jaya Bedroom, Living Room, Study A, Study B, Master Bedroom) — none are bathroom/closet, so the room-type-default-ON set never intersects the no-PIR-eviction risk.
+- `docs/planning/PLANNING_ble_extend_not_create.md`, `docs/readmes/README_v5.66.0.md` — BLE-WARM-CREATE-1 D-MEDIUM-1 restart-pin.
+- `docs/readmes/README_v4.5.15.md` — failsafe per-room-type lookup precedent.
+- `docs/planning/AUDIT_detector_silence_and_restart_causes.md` — P24 leg (i)/(ii)/(iii) derivation.
+- Memories: `feedback_coincidental_equality_masks_concept_split`, `feedback_suppression_needs_discharge`, `feedback_do_robust_fix_not_bandaid_and_card`, `feedback_hollow_test_anchors`, `feedback_mutation_verification_pycache_staleness`, `feedback_parsimonious_room_config` (per-room toggle only; durations stay module-const), `feedback_read_consumers_before_asserting_function` (the CRIT-1 dead-template diagnosis).
+
+### 1.7 Design docs read
+- `docs/Coordinator/HOUSE_MANUAL.md` §107-108 (per-room-type failsafe durations). Rev 5 requires a one-paragraph manual delta.
+
+### 1.8 Code locations surveyed end-to-end
+- `coordinator.py:3175-3226` (source assembly), `:3510-3570` (primary occupancy), `:3623-3760` (BLE chain-extend — surgery site), `:4106-4249` (P24 + TRUE VACANCY FINALIZE), `:218-247`, `:617-627`, `:629-647`.
+- `config_flow.py:985-997` (dead template — documented), `:1908-1909, :1927` (CONF_WET_ROOM setup template — CORRECT), `:10519-10525` (CONF_WET_ROOM options template — CORRECT).
+- `const.py:575, :958, :1022, :1051, :1177-1188`.
+- `quality/tests/test_ble_extend_not_create.py` (full — extended; harness-injection fix per D4).
+- `quality/tests/test_hvac_vacancy_sweep_manual_on_guard.py:373` (`HVACCoordinator.__new__(HVACCoordinator)` bare-instantiation precedent — used by the T-CAP-READ-SITE-DEFAULT harness to instantiate a real `UniversalRoomCoordinator` without triggering `async_config_entry_first_refresh`).
 
 ---
 
-## 2. Problem statement (probe-confirmed)
+## 2. Problem statement
 
-**Symptom:** Master Bathroom reads `STATE_OCCUPIED=True, STATE_OCCUPANCY_SOURCE="ble"` for hours across a sleep window with NO body signal in the room (`_last_pir_motion_time` and mmwave both quiet). Measured: ~7h continuous pure-BLE hold; ~2 nights in 11.
+Master Bathroom held `STATE_OCCUPIED=True, STATE_OCCUPANCY_SOURCE="ble"` for ~7.3 h across 08-29 with no body signal — root cause per §1.1. Blast: truth corruption reaches zone roll-up → HVAC/load-shed/guest-mode; regime_detector rows.
 
-**Mechanism (verified in source at coordinator.py:3703-3712):**
-1. Sleeping phone in the adjacent master bedroom is within the master bath's BLE scanner footprint (a floor-plan artifact of THIS room; not house-wide).
-2. Each `_async_update_data` tick, `person_coordinator.get_persons_in_room("Master Bathroom")` returns the sleeper.
-3. `chain_unbroken = self._last_occupied_state` is True (last tick was True), so `ble_allowed = True`.
-4. `data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout` — refresh. The vacancy timer never expires.
-5. Loop closes: this tick's True becomes next tick's `_last_occupied_state`, ad infinitum.
-
-**Blast:** ~zero direct actuation cost in-room, but truth corruption reaches every consumer of Master-Bath occupancy (zone roll-up, HVAC contribution, anomaly rows). Operator: *"might show up in other ways."*
+**Non-regression contract:** no eviction of the six no-PIR-room sleepers, no eviction of a real bather on a still soak. Rev 5 satisfies both by construction: no-PIR rooms are exclusively non-bathroom/closet types (audit-verified) and default cap-OFF; bathroom cap duration is chosen long enough for real soaks (§5 D1).
 
 ---
 
-## 3. Fix — lever comparison (marginal-benefit decomposition)
+## 3. Fix
 
-Three candidate levers, ordered by scope:
+### 3.1 Surgery — `coordinator.py:3713-3716`
 
-| # | Lever | Delta | Risk / Why NOT |
-|---|---|---|---|
-| A | Require a body signal (PIR or mmwave) within a corroboration window for a BLE-only tick to REFRESH the timeout, **gated to sleep-family house_state**. Genuine occupant with periodic movement keeps refreshing; a bleed-only signal with no body decays out ~one `occupancy_timeout` after the last real body signal. | ~15 lines in one block; one new module constant; sleep-gate via reused helper pattern. | **Recommended.** Smallest correct fix. Directly addresses the concept split (BLE-present ≠ occupied-here). Reuses body signal already confirmed healthy in the probe. Reuses house-state pattern. No geometry, no per-room config. |
-| B | Max BLE-solo-extend duration (hard cap on continuous chain-only BLE). | Similar LoC; one duration knob. | REJECTED as sole fix. A hard cap ALSO drops genuine sleepers (a still-body sleeper is exactly the case v5.22.0 protected). Discriminator "body vs no body" is what we have and what distinguishes bleed from real. A duration cap discriminates on nothing. |
-| C | Exclude the bedroom-adjacent scanner from sustaining the bath's BLE. | Larger LoC; per-room config surface; new resolver semantics. | REJECTED as first move (marginal-benefit). Requires modelling BLE scanner adjacency per room; touches PersonCoordinator's room-resolution machinery; larger blast radius than the operator wants ("small + room-scoped"). Park for revisit if A does not eliminate the phantom holds. |
+Replace the `ble_allowed = False` initializer + `if BLE_CHAIN_HOLD_ENABLED: ... ble_allowed = chain_unbroken` block. Builder writes final wording; reviewer verifies against the invariant in §4.
 
-**Recommendation: A.** Sleep-window body-corroborated refresh — outside the sleep window, extend behaviour is byte-preserved (BLE-WARM-CREATE-1's sleep-hold pin unchanged); inside the sleep window, BLE-only refresh requires a body signal within `BLE_SOLO_EXTEND_CORROBORATION_WINDOW_S`.
+```python
+ble_allowed = False
+if BLE_CHAIN_HOLD_ENABLED:
+    chain_unbroken = self._last_occupied_state
+    if chain_unbroken:
+        # BLE-BLEED-EXTEND-SLEEP-1 (Rev 5): per-room opt-in BLE-hold cap.
+        # Read-site room-type default: existing rooms (no field on disk)
+        # resolve to ROOM_TYPE_BLE_HOLD_CAP_DEFAULT[room_type] with no
+        # migration. Config/options surface (config_flow.py) is a pure
+        # OVERRIDE with a matching schema default (CONF_WET_ROOM template).
+        cap_enabled = self._get_config(
+            CONF_BLE_HOLD_CAP_ENABLED,
+            ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(self._room_type, False),
+        )
+        if not cap_enabled:
+            ble_allowed = True                              # today's behavior
+        elif self._became_occupied_time is None:
+            ble_allowed = True                              # D-MEDIUM-1 fail-open
+        else:
+            duration = (now - self._became_occupied_time).total_seconds()
+            cap_seconds = self._get_ble_hold_cap_seconds()
+            ble_allowed = duration <= cap_seconds
+            if not ble_allowed:
+                self.hass.async_create_task(                # noqa: untracked-ok
+                    _fire_ble_hold_cap_nm(
+                        self.hass, room_name,
+                        duration / 60, cap_seconds / 60,
+                    ),
+                )
+```
+
+**Reviewer anchors:**
+- Inside `if BLE_CHAIN_HOLD_ENABLED:` — top-level kill preserved.
+- `_get_config(...)` (`coordinator.py:617-627`) with room-type-default fallback resolves existing rooms + new rooms + explicit overrides uniformly.
+- `_became_occupied_time is None` → admit (D-MEDIUM-1 pin).
+- Rejection path falls through to the existing `else` at `:3751` — `data[STATE_BLE_PERSONS]` still populated for diagnostics.
+- `ble_allowed=False` → next tick `_last_occupied_state=False` → `chain_unbroken=False` → cap self-arms via chain break.
+- **No `_failsafe_fired` write.** Cap is refusal-to-refresh; Tier-1 fire re-asserts occupancy cleanly.
+- **P24 block byte-preserved** at `:4106-4235`.
+
+### 3.2 Config-flow + options-flow (CONF_WET_ROOM schema-default template)
+
+Drop any `if CONF_* not in user_input` mirror (the `:991-996` template is dead — §1.2). Use schema-default:
+
+- **Setup** (adjacent to `CONF_WET_ROOM` block starting at `:1908`):
+  ```python
+  room_type = self._data.get(CONF_ROOM_TYPE)
+  ble_cap_default = ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False)
+  # ...
+  vol.Optional(
+      CONF_BLE_HOLD_CAP_ENABLED, default=ble_cap_default,
+  ): selector.BooleanSelector(),
+  ```
+- **Options** (adjacent to `CONF_WET_ROOM` options block at `:10519`):
+  ```python
+  room_type = self._get_current(CONF_ROOM_TYPE)
+  ble_cap_default = bool(
+      self._get_current(
+          CONF_BLE_HOLD_CAP_ENABLED,
+          ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False),
+      )
+  )
+  # ...
+  vol.Optional(
+      CONF_BLE_HOLD_CAP_ENABLED, default=ble_cap_default,
+  ): selector.BooleanSelector(),
+  ```
+
+An untouched save writes the room-type default explicitly; the READ SITE remains the source of truth because it uses the same fallback.
+
+### 3.3 Freshness — DECIDED (no conjunct)
+
+The cap has NO PIR-freshness conjunct. Operator brief: "long cap" substitutes for freshness. No-PIR rooms are protected by the toggle defaulting OFF for their room types. Too-short cap self-heals on any next Tier-1 fire (primary branch re-occupies). See §11 for the rejected alternative.
+
+### 3.4 NM `kind` — DECIDED (`ble_hold_cap`)
+
+New helper `_fire_ble_hold_cap_nm(hass, room_name, minutes, limit_min)` — sibling of `_fire_max_active_failsafe_nm` at `:218-239`, `kind="ble_hold_cap"`, distinct diagnosis (*"room {name}: BLE-hold cap fired after {minutes:.0f} min ({limit_min:.0f} min limit) — pure-BLE-source hold ended without body-signal corroboration"*), distinct remedy (*"if the room is expected to hold BLE-only presence for longer periods (e.g. still bather), raise `BLE_HOLD_CAP_DURATIONS` or set `CONF_BLE_HOLD_CAP_ENABLED=False` in options; if this fires while the room is empty, investigate adjacent-room BLE bleed (scanner topology)"*), `title_override` carrying room + duration for audit-row attributability (preserves the P24 diagnosability pattern). Per-day latch is keyed on `(kind, room_name)`, so BLE-cap fires do NOT suppress a same-day P24 knock-down NM on the same room. See §11 for the rejected shared-kind alternative.
 
 ---
 
 ## 4. Falsifiable invariant
 
-**INVARIANT (the property the cycle must guarantee, in falsifiable form):**
+Let `E := self._get_config(CONF_BLE_HOLD_CAP_ENABLED, ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(self._room_type, False))`.
 
-> During the sleep-family house_state (`SLEEP`, `WAKING`, `HOME_NIGHT`), the BLE chain-extend leg MUST NOT refresh `STATE_TIMEOUT_REMAINING` for a room unless a body signal (`_last_pir_motion_time` fresher than `now − BLE_SOLO_EXTEND_CORROBORATION_WINDOW_S`, or upstream `_last_occupied_state=True` from a non-BLE source within the same window) exists for that room. Outside the sleep family, the chain-extend behaviour is byte-preserved from BLE-WARM-CREATE-1.
+**(A) When `E == False`:** the BLE chain-extend leg's refresh behavior is byte-identical to pre-cycle code (`ble_allowed = chain_unbroken`).
 
-**Falsification observation:** in any sleep-family window, a room whose only tick-to-tick signal is BLE (no PIR fires, no mmwave fires) MUST time out approximately `occupancy_timeout` after its last body signal. If it holds indefinitely under those conditions, the invariant is broken.
+**(B) When `E == True`:** the leg MUST NOT refresh `STATE_TIMEOUT_REMAINING` when `(now - self._became_occupied_time) > _get_ble_hold_cap_seconds()`. Restart mid-hold with `_became_occupied_time is None` fails OPEN (admit). A room with any Tier-1 sensor firing this tick is NEVER evaluated by the cap (primary branch owns the tick).
 
-**Key discriminator (per Producer/Consumer rule — the acceptance must DISCRIMINATE fix from new-failure):**
-- **Bleed shape (the phantom):** `_last_pir_motion_time` older than window, `_last_mmwave` older than window, BLE persons continuously present → MUST exit ~`occupancy_timeout` after last body signal.
-- **Real sleeper shape (must NOT regress):** BLE persons continuously present AND PIR/mmwave fires at least once every `BLE_SOLO_EXTEND_CORROBORATION_WINDOW_S` (real occupants roll over, breathe past mmwave, brief bathroom trips, etc.) → hold sustains indefinitely (existing sleep-hold pin behaviour).
-- **Restart mid-hold (D-MEDIUM-1 pin from BLE-WARM-CREATE-1):** re-admit on first post-restart tick regardless — the pin is untouched. This cycle's gate ONLY applies to REFRESH ticks that would otherwise sustain hold; it does not block chain re-admission at boot.
+**(C) READ-SITE DEFAULT resolves correctly.** For an existing room whose config entry has NO `CONF_BLE_HOLD_CAP_ENABLED` key in either `entry.data` or `entry.options`, `E == ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(self._room_type, False)`. This must be observable at read time without any migration or options-flow visit. Corollary: on the shipping fleet, all bathroom + closet rooms present as cap-ON on the first tick post-restart; all other room types (including the six no-PIR rooms) present as cap-OFF.
 
-These three shapes are OBSERVATIONALLY DISTINCT — the acceptance test in §7 exercises each.
+**(D) SCHEMA DEFAULT** mirrors the CONF_WET_ROOM template — the schema `default=` slot for `CONF_BLE_HOLD_CAP_ENABLED` in setup AND options resolves to `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False)`. Not the dead `if CONF_* not in user_input` template.
+
+**Falsifiers:**
+- **A:** toggle OFF sensor-trace replay differs from pre-cycle baseline in the BLE-extend `STATE_TIMEOUT_REMAINING` writes.
+- **B (phantom):** 08-29 Master Bath replay does NOT drop within one polling interval after `_became_occupied_time + cap_seconds`.
+- **B (real-bather):** cap-ON room with periodic Tier-1 fires drops at cap.
+- **C:** any existing bathroom entry reads `E == False` at first tick post-restart; any existing bedroom/study/media/common-area entry reads `E == True`.
+- **D:** the config-flow schema shows the wrong default for a chosen room_type when the form is presented (bathroom shows unchecked; bedroom shows checked).
 
 ---
 
 ## 5. Deliverables
 
-### D1 — New module constant
-
-`const.py`, adjacent to `BLE_CHAIN_HOLD_ENABLED`:
+### D1 — Constants (`const.py`)
 
 ```python
-# Sleep-window body-corroboration window for BLE chain-extend
-# (BLE-BLEED-EXTEND-SLEEP-1). During sleep-family house_state, a
-# BLE-only tick may refresh the vacancy timer ONLY if a body signal
-# (PIR/mmwave) has fired within this window. Outside sleep the
-# window is not consulted (byte-preserved extend behaviour).
-BLE_SOLO_EXTEND_CORROBORATION_WINDOW_S: Final = 900  # 15 min — 3x default occupancy_timeout
+CONF_BLE_HOLD_CAP_ENABLED: Final = "ble_hold_cap_enabled"
+
+# Room-type default resolved AT READ SITE (coordinator._get_config
+# fallback) AND at schema-default slot (config_flow + options, using
+# the CONF_WET_ROOM template, NOT the dead :991-996 if-not-in-user_input
+# template). Existing rooms activate immediately without migration.
+ROOM_TYPE_BLE_HOLD_CAP_DEFAULT: Final = {
+    ROOM_TYPE_BATHROOM: True,
+    ROOM_TYPE_CLOSET:   True,
+    # bedroom / common area / study / media / garage / utility / generic
+    # / infrastructure: default False (protects no-PIR sleepers per
+    # AUDIT_mmwave_only_rooms_2026-07-31.md:41-53).
+}
+
+# Per-room-type cap duration. DECOUPLED from ROOM_TYPE_FAILSAFE_DURATIONS
+# (Class #63 defense — separate policy shapes).
+DEFAULT_BLE_HOLD_CAP_SECONDS: Final = 2 * 3600  # 120 min
+BLE_HOLD_CAP_DURATIONS: Final = {
+    ROOM_TYPE_BATHROOM: 2 * 3600,   # 120 min
+    ROOM_TYPE_CLOSET:   2 * 3600,   # 120 min
+    # Other room types fall through to DEFAULT_BLE_HOLD_CAP_SECONDS
+    # if a future operator opts the toggle ON for them.
+}
 ```
 
-**Rung:** module constant. Change-requires-review (fusion-safety threshold). Default 15 min chosen as ~3× the default occupancy_timeout (300s) so a genuine sleeper with any of {roll-over, bathroom trip, mmwave breathing tick} inside a 15-min window is preserved.
+**Duration policy — 120 min for bathroom, closet, and default (operator-decided).** A phantom is bounded to ~120 min instead of the observed 7.3 h (~73% reduction of the observed excess). A too-short cap self-heals on any next Tier-1 fire (primary branch re-occupies) — the harm is a transient off during perfect stillness, not a lockout. Uniform 120 min keeps the mental model simple and gives real bathers headroom.
 
-### D2 — Gated BLE-extend refresh
+**Rung** (per `feedback_numbers_get_knobs`): toggle at the config/options rung (per-room, operator-settable); durations at the module rung (change-requires-review — per-room dial would balloon config per `feedback_parsimonious_room_config`).
 
-`coordinator.py:3703-3712`. Replace:
-```python
-ble_allowed = False
-if BLE_CHAIN_HOLD_ENABLED:
-    chain_unbroken = self._last_occupied_state
-    ble_allowed = chain_unbroken
-```
-with a body-corroborated variant that ONLY takes effect in the sleep-family house_state. Sketch (final wording is a builder deliverable — reviewer verifies against invariant, not text):
+### D2 — Config-flow + options-flow (`config_flow.py`)
 
-```python
-ble_allowed = False
-if BLE_CHAIN_HOLD_ENABLED:
-    chain_unbroken = self._last_occupied_state
-    if chain_unbroken and self._in_sleep_family_house_state():
-        # Sleep-window: require body corroboration within the window.
-        body_fresh = self._body_signal_within(
-            now, BLE_SOLO_EXTEND_CORROBORATION_WINDOW_S
-        )
-        ble_allowed = body_fresh
-    else:
-        ble_allowed = chain_unbroken
-```
+- Setup: room-type-aware schema-default per §3.2, adjacent to the `CONF_WET_ROOM` block at `:1908-1927`.
+- Options: schema-default with `self._get_current(...)` fallback to the same room-type default, adjacent to the `CONF_WET_ROOM` options block at `:10519-10525`.
+- **Do NOT add an `if CONF_BLE_HOLD_CAP_ENABLED not in user_input` block** (that template is dead — §1.2).
 
-- `_in_sleep_family_house_state()` — small helper mirroring `_d2_house_state_allows` (inverted membership); pulled out for testability and reuse.
-- `_body_signal_within(now, window_s)` — reads `self._last_pir_motion_time` (already tracked) and — if trivially available — the most recent mmwave observation. Fail-safe: **fail-open** on missing data (return True) so a boot-transient does not drop a real hold — matches the D-MEDIUM-1 restart-pin philosophy.
+### D3 — Coordinator surgery (`coordinator.py`)
 
-### D3 — Test authority additions
+- Add `_get_ble_hold_cap_seconds(self) -> int` — structural mirror of `_get_failsafe_duration_seconds` at `:629-647`:
+  ```python
+  def _get_ble_hold_cap_seconds(self) -> int:
+      from .const import (
+          BLE_HOLD_CAP_DURATIONS, DEFAULT_BLE_HOLD_CAP_SECONDS,
+      )
+      return BLE_HOLD_CAP_DURATIONS.get(
+          self._room_type, DEFAULT_BLE_HOLD_CAP_SECONDS,
+      )
+  ```
+- Add `_fire_ble_hold_cap_nm(hass, room_name, minutes, limit_min)` — sibling of `_fire_max_active_failsafe_nm` per §3.4.
+- Replace the block at `:3713-3716` per §3.1 sketch.
 
-Extend `quality/tests/test_ble_extend_not_create.py` (same harness, same source-extraction pattern):
+### D4 — Test authority additions (`quality/tests/test_ble_extend_not_create.py` + siblings)
 
-- **T-BLEED-1 (fixture):** master-bath 08-29 phantom-hold replay. Sleep-family state, chain-unbroken, BLE present continuously, no PIR/mmwave firings → occupancy MUST drop within ~one occupancy_timeout after the last body signal.
-- **T-BLEED-2 (real-sleeper regression pin):** sleep-family state, chain-unbroken, BLE present, PIR fires once every `WINDOW/2` → hold MUST persist across ≥8 timeouts (sleep-hold preserved).
-- **T-BLEED-3 (non-sleep byte-identity):** house_state = `HOME_DAY` / `AWAY_STATE`, all other inputs as T-BLEED-1 → hold MUST persist (extend behaviour byte-preserved outside sleep).
-- **T-BLEED-4 (restart-pin unchanged):** re-run `test_pin_restart_midhold_chain_readmits_without_inprocess_tier1` with sleep_family state — MUST stay green (fail-open on unset body signal).
-- **T-MUTATION-BLEED:** mutate the sleep-family gate to always-True (i.e., always apply the corroboration check) — T-BLEED-3 MUST go red. Mutate the corroboration check to always-True — T-BLEED-1 MUST go red. Two anchors, two mutations, subprocess-isolated with pycache-clear (per Reviewer-C authority + `feedback_mutation_verification_pycache_staleness`).
+**Harness fixes (C1-HIGH-4 remediated):**
+- The source-extraction exec must inject `_fire_ble_hold_cap_nm` AND `_get_ble_hold_cap_seconds` AND the read-site fallback (`CONF_BLE_HOLD_CAP_ENABLED`, `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT`) into the exec namespace. Deliberately omit one in a scratch run to confirm the tests error out (proves the injection is load-bearing).
+- Extend `_FakeSelf` (`:110-`) with `_get_ble_hold_cap_seconds()` returning a fixture-injected seconds value AND a `_get_config` that returns fixture-injected bools per key.
 
-### D4 — Producer / Consumer map for the changed value
+**New tests (durations in `_get_ble_hold_cap_seconds` are INJECTED — the literal 5400 / 7200 / etc. is arbitrary, chosen for test speed, and the const-value assertion below anchors the production number separately):**
 
-Written into the README pre-deploy (per Producer/Consumer rule): the extend-refresh producer arithmetic (§5 D2), the body-signal dependency and its healthy-observed evidence (probe), and the enumerated consumers of Master-Bath occupancy (zone roll-up, HVAC contribution, analytics rows) with a note on which see the fix and which are indirect beneficiaries.
+- **T-CAP-OFF (invariant A):** cap OFF, session `_became_occupied_time = now - 10 h`, BLE continuous, no Tier-1 → admit. Byte-identity vs pre-cycle.
+- **T-CAP-ON-EVICT (invariant B, phantom replay):** `room_type="bathroom"`, cap ON, injected `_get_ble_hold_cap_seconds` returns e.g. 5400 (test-injected — literal arbitrary), `_became_occupied_time = now - (5400+1)`, BLE continuous, no Tier-1 → reject. Next tick with `_last_occupied_state=False` also rejects.
+- **T-CAP-ON-SUSTAIN (invariant B, just-under):** same setup, `_became_occupied_time = now - (5400-1)` → admit.
+- **T-CAP-DEFAULT-DURATION (per-room-type fallthrough):** `room_type="bedroom"`, cap ON (test-forced), no bedroom entry in `BLE_HOLD_CAP_DURATIONS` → helper returns `DEFAULT_BLE_HOLD_CAP_SECONDS`. Past → reject; under → admit.
+- **T-CAP-RESTART (D-MEDIUM-1 pin):** cap ON, `_became_occupied_time is None`, `chain_unbroken=True`, BLE present → admit; seed at `:3738-3739` populates `_became_occupied_time = now`.
+- **T-CAP-NM-DISTINCT (two-path observation, replaces hollow anchor):** on the T-CAP-ON-EVICT edge, capture both NM stubs' call histories (`_fire_ble_hold_cap_nm` AND `_fire_max_active_failsafe_nm`). Assert only `_fire_ble_hold_cap_nm` was invoked and its args carry room+minutes+limit; then orchestrate a separate P24-knock-down of the same room the same day (via the `_fire_max_active_failsafe_nm` stub) and assert distinct latch keys (`(kind, room_name)`) — no suppression collision.
+- **T-CAP-READ-SITE-DEFAULT (invariant C, real-coordinator unit test — NEW SIBLING FILE `quality/tests/test_ble_hold_cap_read_site_default.py`).** **Precedent (corrected):** the previously-cited `test_v4515_closet_bathroom_failsafe.py:64-86` block is `_load_const_dict()` — an importlib `spec_from_file_location` const-loader that instantiates NO coordinator (Bug Class #62 — a hollow-anchor shape, exactly what Rev 5 repudiates). It cannot exercise `_get_config` (which reads `self.entry.data` / `self.entry.options`) and would force a fallback to a `_FakeSelf`, reproducing the Rev-4 CRIT-2 hollow anchor. **Use `test_hvac_vacancy_sweep_manual_on_guard.py:373` as the real-coordinator instantiation precedent** — `HVACCoordinator.__new__(HVACCoordinator)` bare-alloc, then hand-populate the minimum attribute surface a method-under-test reads. Mirror it here:
+  ```python
+  # Real coordinator, no async_config_entry_first_refresh cost.
+  coord = UniversalRoomCoordinator.__new__(UniversalRoomCoordinator)
+  coord.entry = _StubEntry(data={}, options={})  # existing-room case
+  coord._room_type = ROOM_TYPE_BATHROOM
+  # Real _get_config method (from coordinator.py:617-627) reads
+  # entry.options → entry.data → default fallback.
+  assert coord._get_config(
+      CONF_BLE_HOLD_CAP_ENABLED,
+      ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(coord._room_type, False),
+  ) is True
+  ```
+  Repeat with `_room_type = ROOM_TYPE_BEDROOM` (data={}, options={}) → assert False. Repeat with `_room_type = ROOM_TYPE_BATHROOM` and `entry.options = {CONF_BLE_HOLD_CAP_ENABLED: False}` → assert False (explicit override respected). The assertion MUST call `coord._get_config(...)` on the real coordinator — a `_FakeSelf` here fails Review C.
+- **T-CAP-SCHEMA-DEFAULT (invariant D — sibling file `quality/tests/test_ble_hold_cap_schema_default.py`):** DRIVE THE VOLUPTUOUS SCHEMA to prove the schema-default actually reaches production, not a hand-built dict. Construct the setup step's `data_schema` with `self._data[CONF_ROOM_TYPE] = ROOM_TYPE_BATHROOM` and assert `data_schema({})[CONF_BLE_HOLD_CAP_ENABLED] is True`; with `ROOM_TYPE_BEDROOM` assert False. Repeat for the options-flow schema using the `self._get_current(...)` fallback. Additionally validate the OLD template's deadness: hand-build a fake step where `CONF_BLE_HOLD_CAP_ENABLED` is `vol.Optional(..., default=False)` and call `if CONF_BLE_HOLD_CAP_ENABLED not in user_input` — assert the branch is never taken (regression pin against the dead-template class of bug — one anchor is enough).
+- **T-CAP-OPTIONS-ROUNDTRIP (config-entry, NOT RestoreEntity):** existing entry with cap ON, opened in options and saved untouched → entry.options gets `CONF_BLE_HOLD_CAP_ENABLED=True` explicitly (schema-default wrote it). Toggled False and saved → coordinator's next `_get_config` read returns False. HA restart (config-entry reload) preserves the value.
+- **T-CAP-DURATION-CONST (real-dict anchor for mutation anchor #3):** `assert BLE_HOLD_CAP_DURATIONS[ROOM_TYPE_BATHROOM] == 7200` and `assert BLE_HOLD_CAP_DURATIONS[ROOM_TYPE_CLOSET] == 7200` and `assert DEFAULT_BLE_HOLD_CAP_SECONDS == 7200`. Real dict, no `_FakeSelf`.
+
+**Mutation anchors (subprocess-isolated with `.pyc` cleared per `feedback_mutation_verification_pycache_staleness`):**
+1. Mutate the read-site default fallback to `False` (drop the `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(...)` argument) → T-CAP-READ-SITE-DEFAULT bathroom-True assertion MUST go red.
+2. Mutate the schema `default=ble_cap_default` to `default=False` (setup step) → T-CAP-SCHEMA-DEFAULT setup bathroom assertion MUST go red.
+3. Mutate `BLE_HOLD_CAP_DURATIONS[ROOM_TYPE_BATHROOM]` to a different value → T-CAP-DURATION-CONST MUST go red (real-dict anchor, no `_FakeSelf` masking).
+4. Mutate the duration comparator to always False (`ble_allowed = False` when cap ON) → T-CAP-ON-SUSTAIN MUST go red.
+5. Mutate the `_fire_ble_hold_cap_nm` call to a no-op → T-CAP-NM-DISTINCT MUST go red.
+
+**Regression pins (unchanged, MUST stay green):** `test_extend_path_ble_holds_still_body_when_chain_unbroken`, `test_sleep_hold_pin_chain_extends_past_motion_window`, `test_pin_restart_midhold_chain_readmits_without_inprocess_tier1`, `test_ble_block_skipped_when_failsafe_fired`.
+
+### D5 — Producer / Consumer map (README pre-deploy)
+
+**Producer:** the gated `ble_allowed` at `coordinator.py:3713-…`. Dependencies: read-site `_get_config` with room-type default (`CONF_BLE_HOLD_CAP_ENABLED` per-room override + `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT` type default), `_became_occupied_time` (P24-maintained), `_get_ble_hold_cap_seconds()`. **Consumers of `STATE_OCCUPIED` when source would have been `"ble"`:** zone `_room_occupied` roll-up → house-state contribution → HVAC preset selection, load-shed gates, guest-mode gates; regime_detector / duty-cycle detector rows; in-room actuation. Direct beneficiaries: cap-ON rooms; indirect: their zone/house rollups.
+
+### D6 — Doc deltas
+- `docs/Coordinator/HOUSE_MANUAL.md` — one paragraph adjacent to the failsafe section documenting the BLE-hold cap, its toggle, its distinct duration map, and its distinctness from P24.
+- `docs/readmes/README_v<version>.md` — pre-deploy write + Live-table write-back per the mandatory rule.
 
 ---
 
 ## 6. Non-goals
 
-- **Not touching BLE-CREATE.** The chain-only admission at :3703-3706 stays chain-only. This cycle constrains the REFRESH; it does not re-open the create leg.
-- **Not house-wide.** The knob is a global constant and the mechanism is house-state-gated, but the deployment consequence is room-scoped in effect (the master bath is the observed offender; other rooms without a floor-plan bleed will simply have body signal every tick they would have had before).
-- **Not scanner-topology changes.** Option C (bedroom-scanner exclusion for the bath) is parked, not built.
-- **Not touching D2 mmWave-fan demotion.** That block (coordinator.py:3753+) is byte-preserved.
-- **Not the 4-hour failsafe.** Explicit non-goal — that path is unchanged.
-- **Not per-room config surface.** No new options-flow field.
+- P24 failsafe block byte-preserved (`coordinator.py:4106-4235`).
+- BLE CREATE path unchanged (`:3714-3716` remains chain-only).
+- No `_failsafe_fired` write on cap edge.
+- No sleep/house-state coupling.
+- No `_last_mmwave_time` tracker.
+- No per-room DURATION field (module-const only).
+- No camera-extend leg change (`:3592-3621` — no phantom shape observed).
+- **Not migrating existing config entries.** Read-site default handles them.
 
 ---
 
 ## 7. Acceptance criteria (DISCRIMINATING)
 
 ### Verify (in-suite)
-- T-BLEED-1 green → phantom-hold shape exits ~occupancy_timeout after last body signal.
-- T-BLEED-2 green → real-sleeper shape holds through the sleep window.
-- T-BLEED-3 green → non-sleep windows are byte-preserved.
-- T-BLEED-4 green → restart-pin behaviour preserved.
-- Existing BLE-WARM-CREATE-1 suite (T1-T8, mutation anchors M1/M2/M3, sleep-hold pin, restart pin) ALL still green — regression proof.
-- Mutation anchors: killing the sleep-family gate → T-BLEED-3 red; killing the corroboration check → T-BLEED-1 red.
+All T-CAP-* tests green. All five mutation anchors flip the specified test red under subprocess isolation with `.pyc` cleared. Existing BLE-WARM-CREATE-1 suite green.
 
 ### Live (post-deploy)
 | # | Criterion | How to check |
 |---|---|---|
 | L1 | Integration loads, zero URA errors post-restart. | HA `system_log` search. |
-| L2 | **Founding case:** replay a sleep-window night in the Master Bathroom. Recorder MUST show `STATE_OCCUPIED` transition to `off` within ~`occupancy_timeout + WINDOW` of the last PIR/mmwave firing, even while `person_coordinator.get_persons_in_room("Master Bathroom")` continued to return a sleeper. Concretely: the ~7h all-night hold shape MUST NOT reappear. | recorder query on `sensor.master_bathroom_occupancy_source`, `_last_pir_motion_time`, timeout_remaining across the sleep window; cross-check with BLE persons attribute. |
-| L3 | **Real-sleeper preservation (discriminator):** the master BEDROOM (where the sleeper actually is, has body signal from mmwave/PIR) MUST retain its BLE hold across the same night. | recorder query on Master Bedroom occupancy across the same window — MUST show continuous hold. If both bedroom AND bathroom drop, we broke the discriminator. |
-| L4 | No other room regresses to phantom drops in the sleep window. Sweep 24h of recorder for any room whose occupancy dropped-while-BLE-present-and-in-sleep — expected outcome: only bleed rooms (bath) drop, sleep-held bedrooms retain. | recorder cross-tab: per-room, in-sleep, ble-present, occupied_transitioned_false counts. Zero for bedrooms; nonzero only for known-bleed rooms. |
-| L5 | Restart mid-hold: after next HA restart during a sleep window, BLE-held rooms re-admit on first post-restart tick (BLE-WARM-CREATE-1 D-MEDIUM-1 pin preserved). | recorder around next restart. |
+| L2 | **Founding case (Master Bathroom, cap ON via read-site default — no options visit).** Recorder MUST show `binary_sensor.master_bathroom_occupied` transition off within one polling interval of `_became_occupied_time + BLE_HOLD_CAP_DURATIONS[bathroom]` while `person_coordinator.get_persons_in_room("Master Bathroom")` continues to return a sleeper. ~7 h all-night hold shape MUST NOT reappear. **Cross-check:** the room's config entry has NO `CONF_BLE_HOLD_CAP_ENABLED` key in `entry.data` or `entry.options` — the read-site default fired. | Recorder + `.storage/core.config_entries`. |
+| L3 | **No-PIR-room non-eviction discriminator.** Master Bedroom (no PIR, `bedroom` type → cap defaults OFF at read site). Recorder MUST show continuous occupancy across the same sleep window. **Cross-check:** entry has no `CONF_BLE_HOLD_CAP_ENABLED` and coordinator's runtime `_get_config` returns False (bedroom not in the default map). If Master Bedroom drops, the read-site default policy is broken. | Recorder + config entry + coordinator introspection. |
+| L4 | **Tier-1-unprovenanced occupied-time sweep.** 7 days post-deploy, per room, total occupied minutes where `STATE_OCCUPANCY_SOURCE ∈ {"ble","timeout"}` AND no Tier-1 sensor fired inside the last `2 × occupancy_timeout`. For cap-ON rooms this MUST NOT exceed the room's `BLE_HOLD_CAP_DURATIONS` in any single continuous span. Cap-OFF rooms: diagnostic-only baseline. | Recorder cross-tab. |
+| L5 | **Real-occupant preservation (cap ON, Tier-1 active).** Cap-ON rooms with periodic Tier-1 firings retain occupancy across the cap duration; source stays in {"motion","mmwave","occupancy_sensor","timeout"}. | Recorder sweep. |
+| L6 | **NM diagnostic honesty.** Any BLE-cap NM shows `kind=ble_hold_cap` with distinct diagnosis/remedy (NOT the PIR-stale text). Any same-day P24 knock-down NM in the same room fires INDEPENDENTLY. | NM audit table on `kind`. |
+| L7 | **Restart mid-hold** (D-MEDIUM-1 pin). Post next HA restart, BLE-held rooms re-admit on first tick. | Recorder around next restart. |
+| L8 | **Config-entry options round-trip** (config-entry storage, NOT RestoreEntity). For a bathroom whose options are opened and saved untouched, `entry.options[CONF_BLE_HOLD_CAP_ENABLED]` is written True by the schema-default. For a bathroom whose options were saved False before deploy, `entry.options[CONF_BLE_HOLD_CAP_ENABLED]` remains False after restart (explicit override respected). | `.storage/core.config_entries`. |
 
-Every "PASS" row cites the observed entity/attribute value or DB row — per README write-back rule.
-
----
-
-## 8. Tier 2-DB review plan (three framing-disjoint reviews + live)
-
-Elevated to Tier 2-DB per operator standing policy for regression-prone work; framings adapted to a strategy/fusion change (not a schema change):
-
-- **Review A — local correctness + edge cases + concept-split integrity.** Verify the sleep-family gate and body-corroboration predicate implement the invariant in §4 for every combination of {house_state ∈ sleep-family / not}, {chain_unbroken T/F}, {body signal fresh / stale / None}, {BLE person present T/F}, {restart T/F}. Fail-open behaviour on missing body signal is intentional — verify it matches the D-MEDIUM-1 pin's rationale.
-- **Review B — cross-coordinator + precedence + no-flap.** Enumerate every consumer of `STATE_OCCUPIED` and `STATE_OCCUPANCY_SOURCE=="ble"` for master-bath and confirm the fix does not induce flap (drops followed by re-creates within seconds), does not fight the D2 fan block, and does not interact adversely with zone roll-up, HVAC preset selection, or regime_detector rows. Confirm the sleep-family boundary (`HOME_DAY→HOME_NIGHT`, `HOME_NIGHT→WAKING`, `WAKING→HOME_DAY`) does not cause an artificial hold-drop at the transition tick.
-- **Review C — test authority + day/cycle boundary + mutation.** Verify every new test drives production source (source-extracted block per existing harness). Verify mutation anchors go red on the specified mutations, subprocess-isolated with `.pyc` cleared. Verify no test couples to wall-clock. Verify T-BLEED-3 (byte-identity outside sleep) is a REAL discriminator, not a tautology of the fixture setup.
-
-**Orchestrator independent verification before ship (per §Tier-3 discipline borrowed as belt-and-braces):** re-run grep for `data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout` — MUST show only the BLE-extend site inside the sleep-gated branch. Re-run the two mutation drills by hand.
-
-**Live Validation (Review D):** post-restart, run L1-L5 in §7 against the running instance; write results back into `README_v<version>.md` per the mandatory write-back rule.
+Each PASS row cites the observed entity/attribute value or DB row per README write-back.
 
 ---
 
-## 9. Files touched (all others read-only)
+## 8. Tier 2-DB+ review plan — BUILD-READY
 
-- `custom_components/universal_room_automation/const.py` — one new constant.
-- `custom_components/universal_room_automation/coordinator.py` — the BLE-extend block at :3703-3712 plus two small helper methods (`_in_sleep_family_house_state`, `_body_signal_within`) placed near `_d2_house_state_allows`.
-- `quality/tests/test_ble_extend_not_create.py` — extend with T-BLEED-1..4 and two mutation anchors. (No new test file — same harness authority.)
-- `docs/readmes/README_v<version>.md` — pre-deploy write, post-deploy Live table write-back.
+**Design cleared** (Rev 5 confirm-review: CRIT-1, CRIT-2, and the HIGH on the T-CAP-READ-SITE-DEFAULT precedent all resolved). Remaining risk lives in the build, not the design. No further plan-review required.
 
-Read-only during this plan (verified surfaces only): `person_coordinator.py`, `presence_coordinator.py`, `regime_detector.py`, `presence_fan_recheck.py`, `house_state.py`.
+- **Review A — local correctness + P24 non-interference + read-site default.** Verify toggle-OFF is byte-identical to pre-cycle code. Verify `_get_ble_hold_cap_seconds()` reads the per-room-type map with the correct default fallthrough. Verify fail-open on `_became_occupied_time is None`. No `_failsafe_fired` write. P24 block unchanged. **Verify the READ-SITE FALLBACK is passed to `_get_config` on EVERY invocation** — a bare `_get_config(CONF_BLE_HOLD_CAP_ENABLED, False)` slip would silently regress every existing room to cap-OFF (CRIT-2 shape).
+- **Review B — config surface + cross-coordinator + no-flap + boundary (config-entry storage, NOT RestoreEntity).** Verify setup + options both use the CONF_WET_ROOM schema-default template (`:1909, :1927, :10520-10525`), not the dead `:991-996` template. Verify config-entry options round-trip: coordinator's next `_get_config` read reflects the saved value. Enumerate `STATE_OCCUPIED` / source=`ble` consumers; confirm cap-triggered drops present as clean vacancy transitions, no flap (chain-break-next-tick), no camera-extend or `_failsafe_fired` skip interference. **Do NOT frame this as RestoreEntity** — the value lives in `entry.options`/`entry.data`, read via `_get_config`.
+- **Review C — test authority + mutation + real-vs-mock discriminator + schema-driven anchor.** Verify T-CAP-SCHEMA-DEFAULT actually invokes voluptuous (`data_schema({})`), not a hand-built dict — a hand-built assertion is exactly what CRIT-1 says is a hollow anchor. **Verify T-CAP-READ-SITE-DEFAULT instantiates a REAL coordinator via the `UniversalRoomCoordinator.__new__` pattern (mirror `test_hvac_vacancy_sweep_manual_on_guard.py:373`) and asserts through the real `coord._get_config(...)` method — a `_FakeSelf` at this test point is an automatic Review-C fail** (that was the exact hollow-anchor shape the previously-cited `test_v4515_closet_bathroom_failsafe.py:64-86` const-loader would have forced). Verify all five mutation anchors flip the specified test red under subprocess isolation with `.pyc` cleared. Verify no test couples to wall-clock. Verify `_FakeSelf` gains both new methods so no attribute access silently short-circuits in the tests that DO use it (T-CAP-OFF / T-CAP-ON-EVICT / T-CAP-ON-SUSTAIN / T-CAP-DEFAULT-DURATION / T-CAP-RESTART / T-CAP-NM-DISTINCT).
+
+**Orchestrator independent verification before ship:** grep `data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout` — the BLE-block site inside the gated branch is the only match in the extend region. Grep callers of `_fire_max_active_failsafe_nm` — exactly one (P24 block at `:4224`). Grep callers of `_fire_ble_hold_cap_nm` — exactly one (new cap site). Grep `_get_config(CONF_BLE_HOLD_CAP_ENABLED` — exactly one, and it MUST pass the `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(...)` fallback (regex-check for the identifier in the second argument). Re-run mutation anchor #1 by hand.
+
+**Live Validation (Review D):** post-restart, run L1-L8; write results into `README_v<version>.md`.
 
 ---
 
-## 10. Open questions for the operator (before build dispatch)
+## 9. Files touched
 
-1. **Window default (15 min / 900s).** Pick or ratify. Sensitivity: too short (≤ occupancy_timeout) risks dropping a genuine sleeper who happens not to twitch through mmwave for a spell; too long (≥ 1h) preserves multi-hour phantom holds. Recommendation: 15 min based on default occupancy_timeout of 300s.
-2. **Body-signal set.** Confirmed: `_last_pir_motion_time`. Should mmwave age be tracked separately as a second admissible signal? Probe already showed the bath's mmwave went quiet during phantom holds — so in the founding case both agree. For robustness across rooms, add a `_last_mmwave_time` tracker if not already there (check during build).
-3. **Fail-open on missing body-signal state (boot/restart).** Recommended, matches D-MEDIUM-1 restart-pin philosophy. Confirm.
+- `custom_components/universal_room_automation/const.py` — three new symbols per D1.
+- `custom_components/universal_room_automation/coordinator.py` — surgery at `:3713-3716`; new helpers `_get_ble_hold_cap_seconds` (near `:629`) and `_fire_ble_hold_cap_nm` (near `:218`).
+- `custom_components/universal_room_automation/config_flow.py` — setup + options schema-default per §3.2 (CONF_WET_ROOM template).
+- `quality/tests/test_ble_extend_not_create.py` — new T-CAP-OFF, T-CAP-ON-EVICT, T-CAP-ON-SUSTAIN, T-CAP-DEFAULT-DURATION, T-CAP-RESTART, T-CAP-NM-DISTINCT; harness-injection fixes.
+- `quality/tests/test_ble_hold_cap_read_site_default.py` — NEW sibling. Real-coordinator T-CAP-READ-SITE-DEFAULT via `UniversalRoomCoordinator.__new__` (`test_hvac_vacancy_sweep_manual_on_guard.py:373` precedent). Also carries T-CAP-DURATION-CONST.
+- `quality/tests/test_ble_hold_cap_schema_default.py` — NEW sibling, voluptuous-driven T-CAP-SCHEMA-DEFAULT + dead-template regression pin.
+- `quality/tests/test_ble_hold_cap_options_roundtrip.py` — NEW sibling (or extend existing config-entry test harness if grep finds one) — T-CAP-OPTIONS-ROUNDTRIP.
+- `docs/Coordinator/HOUSE_MANUAL.md` — one-paragraph delta per D6.
+- `docs/readmes/README_v<version>.md` — pre-deploy write + Live-table write-back.
+
+Read-only during this plan: `person_coordinator.py`, `presence_coordinator.py`, `regime_detector.py`, `house_state.py`, `domain_coordinators/_stuck_signal_nm.py` (verify `(kind, key)` dedup shape only).
+
+---
+
+## 10. Camera-override leg — noted, out of scope
+
+`coordinator.py:3592-3621` has the same structural exposure (source="camera" also exempt from P24 leg (ii)); no phantom shape observed on that path. If observed later, the same opt-in-cap pattern extends trivially.
+
+---
+
+## 11. Superseded designs / rejected alternatives
+
+- **Rev 1** — sleep-window body-corroboration alone.
+- **Rev 2** — belt-and-suspenders A + B.
+- **Rev 3** — blanket reuse of `_get_failsafe_duration_seconds()` (false-evicts no-PIR sleepers + long-soak bathers; test harness defects).
+- **Rev 4** — per-room toggle + room-type default via the `if CONF_* not in user_input` template — **dead in production** (CRIT-1); stored default False strands existing rooms (CRIT-2).
+- **T-CAP-READ-SITE-DEFAULT via `test_v4515_closet_bathroom_failsafe.py:64-86` precedent** — rejected. That block is `_load_const_dict()`, an importlib const-loader with NO coordinator (Bug Class #62 hollow-anchor shape); builder would fall back to `_FakeSelf` and reproduce Rev-4 CRIT-2. Correct precedent is the `UniversalRoomCoordinator.__new__` pattern mirrored from `test_hvac_vacancy_sweep_manual_on_guard.py:373`.
+- **Freshness Option F2** (leg-(iii)-style PIR-freshness spare inside the cap): rejected — operator brief is "long cap," no-PIR rooms already default OFF; F2 adds a second predicate + test branch for no measurable gain.
+- **NM Option N2** (shared `kind="max_active_failsafe"` latch): rejected — misleading diagnostics (MED-1) + per-day suppression collision with P24 (MED-2).
