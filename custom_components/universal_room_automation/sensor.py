@@ -11363,14 +11363,26 @@ class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
+        # Rev 2: unmask POOR — only NO-DATA (samples<3) renders `unknown`;
+        # HEALTHY / POOR / STALE all render the numeric rolling accuracy so
+        # NO-DATA and POOR do NOT share the same rendered state.
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
             return None
         energy = manager.coordinators.get("energy")
         if energy is None:
             return None
-        accuracy = energy.forecast_accuracy
-        return accuracy if accuracy > 0 else None
+        try:
+            status = energy._accuracy.get_status()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "EnergyForecastAccuracySensor.native_value: get_status() "
+                "failed (%s) -> rendering unknown", exc,
+            )
+            return None
+        if status.get("samples", 0) < 3:
+            return None
+        return status.get("rolling_accuracy_pct")
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -11380,13 +11392,41 @@ class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return None
-        status = energy._accuracy.get_status()
+        try:
+            status = energy._accuracy.get_status()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "EnergyForecastAccuracySensor.extra_state_attributes: "
+                "get_status() failed (%s) -> attrs unavailable", exc,
+            )
+            return None
+        # Local import — avoids top-level churn; module already imported for
+        # the AccuracyTracker across this coordinator surface.
+        from .domain_coordinators.energy_forecast import (
+            POOR_THRESHOLD_PCT,
+            STALE_EVAL_DAYS,
+        )
         samples = status.get("samples", 0)
+        eval_age_days = status.get("eval_age_days")
+        rolling = status.get("rolling_accuracy_pct", 0.0)
+        # Ordering matters — samples<3 FIRST so a None>=STALE_EVAL_DAYS
+        # branch (unparseable / never-evaluated) cannot fire while learning.
+        if samples < 3:
+            state = "learning"
+        elif eval_age_days is None or eval_age_days >= STALE_EVAL_DAYS:
+            # `None` (never-evaluated OR unparseable date) is treated as stale
+            # per the defensive-parse contract in AccuracyTracker._eval_age_days.
+            state = "stale"
+        elif rolling <= POOR_THRESHOLD_PCT:
+            state = "poor"
+        else:
+            state = "active"
         return {
             "samples": samples,
-            "status": "learning" if samples < 3 else "active",
+            "status": state,
             "adjustment_factor": status.get("adjustment_factor", 1.0),
             "last_eval_date": status.get("last_eval_date", ""),
+            "eval_age_days": eval_age_days,
         }
 
 
