@@ -30,8 +30,9 @@ cards:
   title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
   thread: presence
   status: planned
+  batch: 'With NIGHT-LIGHT-NO-OFF-PATH-1 (operator 2026-08-31) — same room-config/light surface.'
   created: 2026-08-31 19:15
-  updated: 2026-08-31 19:15
+  updated: 2026-08-31 19:45
   refinement_status: initial
   approval: unreviewed
   tags: [no-fabrication-verify]
