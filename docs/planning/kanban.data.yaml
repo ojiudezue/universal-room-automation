@@ -11629,6 +11629,23 @@ cards:
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
   status: planned
+  refinement:
+  - 'Rev-3 PLAN-REVIEW = FIX-REQUIRED, two make-or-break CRITICALs — the key lesson: GATING A READ TO None
+    IS NOT UNIVERSALLY SAFE; the None-fallback direction (fail-open vs fail-closed) is per-CONSUMER, and
+    several TRUST consumers treat None as "no problem" (fail-OPEN), catastrophic for safety guards.
+    CRIT-1: gating battery_power_w -> drain-protection (energy_pool.py:2207/3711) reads None -> discharging=False
+    -> EVSE drain-pause NEVER fires -> EV drains house battery through the floor (WORSE than the freeze bug).
+    CRIT-2: net_power_w consumer enum incomplete -> the 12kW breaker guard (_grid_import_guard_triggered
+    returns False on None) + load-shedding (energy.py:7381 early-returns) fail OPEN -> breaker guard silently
+    disarmed. HIGH-3: cloud-SOC fold (energy_battery.py:891) silently flips fail-open->closed on a trust path.
+    HIGH-4: D-OBS marks UNCONFIGURED sources stale -> envoy_status pinned "stale" forever on installs where
+    net_power/battery_power are unset. MED-5: plan named classes that don''t exist (BatteryStrategy not
+    EnergyBatteryCoordinator; CostTracker not EnergyBillingCoordinator). MED-6: a 6th in-family gate
+    (energy_battery.py:1136) unlisted + drops a shipped negative-age clamp. CLEARED: last_reported semantics,
+    zero .state decision consumers (D-OBS display-safe), union closes the 16h window, knobs/invariant OK.'
+  - 'Rev 4 in flight (ura-planner): add a per-VALUE per-CONSUMER None-handling table with safety guards
+    (breaker, drain-protection, load-shed) explicitly fail-CLOSED; fix class names; add max(0.0,...) age clamp;
+    split unconfigured vs stale. Then FRESH plan-review before build.'
   consolidate_decision_2026_09_01: 'Operator: CONSOLIDATE. Scope expanded from solar-only to a shared
     staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads —
     solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — folding in the 4 existing

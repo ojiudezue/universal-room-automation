@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T16:40:58-05:00_ - _Data commit: `56bacc023603`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T16:44:43-05:00_ - _Data commit: `5be1c7761799`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -747,7 +747,7 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_
 
 ### `ENVOY-PRODUCTION-STALE-1` - Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale live sensor that URA's solar entity derives from; does any decision path trust it?
 thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined_
+_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
 - **Problem / Solution:**
   - Problem: the sensor that reports how much power the solar panels are making went stuck at zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the grid at the time. If any part of the ...
 - **Origin:** 2026-08-24 - session handoff live-fault
