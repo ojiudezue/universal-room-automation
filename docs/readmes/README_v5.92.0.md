@@ -36,7 +36,17 @@ A shared `_charge_on_or_defer(...)` funnel wraps the `switch.turn_on` emission a
 - **Live (operator-gated test):** flip `switch.ura_ev_charge_onset_enabled` ON on an off-peak evening before 01:00 → garage_a/b + the Moes L1 sockets stay OFF (deferred), then turn ON at 01:00; flip OFF → they start immediately. `binary_sensor.ura_ev_charge_onset_active` reflects the held set.
 - **Test:** 75 cycle tests; per-site neuter→RED for all gated sites + the switch.
 
-## Live Validation
-(prospective — to be written back after restart)
-- Dormant boot table: switch off / time 01:00 / active off / no new ERRORs / byte-identical.
-- Enable-and-test result recorded when the operator runs it.
+## Validated 2026-08-31 (post-restart, dormant boot)
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Entities registered on the CM entry | `switch.ura_energy_coordinator_ev_charge_onset_overnight`, `time.ura_energy_coordinator_ev_charge_onset_time`, `binary_sensor...ev_charge_onset_active_deferred`, `..._gate_open`, `sensor...ev_charge_onset_l1_over_hold_seconds` all present (B-CRIT-1 concern cleared live) | **PASS** |
+| Ships dormant (enable OFF) | gate sensor attrs: `ev_onset_enabled=false`, `plug_onset_enabled=false`; `switch...overnight`=off | **PASS** |
+| Functional onset time defaulted | gate sensor attrs: `ev_onset_time="01:00"`, `plug_onset_time="01:00"` (controller value — what the gate reads) | **PASS** |
+| No spurious deferrals / holds | `binary_sensor...active_deferred`=off; `ev/plug_paused_by_battery_drain`=[]; `l1_over_hold_seconds`=0 | **PASS** |
+| Byte-identical behavior (dormant) | `sensor.ura_energy_coordinator_ev_charging_status`=idle; house_state=home_evening; charger behavior unchanged | **PASS** |
+| No new URA ERRORs | `error_log` structured scan (14:18–20:30): **zero ERROR/tracebacks**, zero onset-related lines; all URA entries WARNING + pre-existing (dead energy sensors per room-audit, FanPolicyOracle boot-lifecycle fallback, camera-census boot reconnect, Envoy warmup, SOC divergence) | **PASS** |
+
+**Boot-only transient noted + dismissed:** `time.ura_energy_coordinator_ev_charge_onset_time` displays `unknown` on first boot (RestoreEntity, never set via the entity) while the *functional* onset value (controller attr `ev_onset_time`) is correctly `01:00`. The gate reads the controller attr, not the entity, so behavior is correct; the entity display is cosmetic. Polish candidate: seed the time entity's displayed value from the coord on boot (low-priority, non-blocking).
+
+**Operator-gated live test (pending — the organic discriminator, per `--revisit`):** with `switch...ev_charge_onset_overnight` ON before 01:00 on an off-peak night → garage_a/garage_b + the Moes L1 sockets stay OFF (deferred), then all turn ON at ~01:00; flip OFF → start immediately. To be recorded when the operator runs it.
