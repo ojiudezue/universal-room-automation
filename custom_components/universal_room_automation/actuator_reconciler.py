@@ -709,13 +709,17 @@ class ActuatorReconciler:
         A ``None`` is only legal where the canonical handler would ALSO not
         act on this entity (D2.10 parity).
 
-        Truth table (lights):
-          sleep + entity in night_lights            -> on (night brightness)
-          sleep + entity not in night_lights        -> off
+        Truth table (lights) — Rev 3 (D2b occupancy-aware sleep branch):
+          sleep + night_light + occupied            -> on (night brightness)
+          sleep + night_light + vacant              -> off (falls through
+              to vacant branch; D2a asserts the exit_light_off OFF via
+              the unconditional CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS union)
+          sleep + entity not in night_lights        -> off (sleep_non_night_off)
           non-sleep + occupied + dark + action in
               {TURN_ON, TURN_ON_IF_DARK}            -> on
           non-sleep + occupied + action == TURN_ON  -> on (no dark gate)
-          non-sleep + vacant + exit == TURN_OFF     -> off
+          non-sleep + vacant + exit == TURN_OFF     -> off (union: regular
+              lights AND night-only entities)
           otherwise                                 -> None
         """
         data = self.coordinator.data or {}

@@ -316,11 +316,15 @@ def test_D3b_check_auto_off_warning_fires_for_night_only_on_light():
     )
 
 
-def test_D3b_warning_flash_targets_include_light_domain_night_only():
-    """D3b + A2: _warning_flash targets include LIGHT.* night-only entries
-    (safe to flash via dim-then-restore). Mutation drill: revert flash's
-    widen → this test turns RED because light.night_dim never receives an
-    on-cycle service call.
+def test_D3b_A2_gate_warning_flash_EXCLUDES_light_domain_night_only():
+    """B-M1 fix: A2-gate exclusion is DOMAIN-SYMMETRIC. A LIGHT.* night-only
+    entity is also excluded from the flash ON-cycle — otherwise it would be
+    blasted from sleep brightness (e.g. 15) to hard-coded brightness=255
+    for the pre-auto-off warning (same UX bug as the switch-domain
+    mains-blast). The entity is still turned OFF by D3a at auto-off time.
+
+    Mutation drill: revert the A2 exclusion (include night-only in flash
+    target) → this test AND the switch-domain sibling test both go RED.
     """
     room, calls = _make_room(
         {
@@ -333,12 +337,35 @@ def test_D3b_warning_flash_targets_include_light_domain_night_only():
         _run(asyncio.wait_for(room._warning_flash(), timeout=5))
     except asyncio.TimeoutError:
         pass
-    # The flash cycles brightness ON. light.night_dim MUST have received
-    # at least one turn_on (dim-then-restore).
-    on_for_night = _turn_ons_for(calls, "light.night_dim")
-    assert on_for_night, (
-        f"D3b: _warning_flash MUST target LIGHT.* night-only entities. "
-        f"calls={calls}"
+    # A2-gate: light.night_dim (night-only, light domain) is EXCLUDED
+    # from the flash ON cycle.
+    on_for_light_night = _turn_ons_for(calls, "light.night_dim")
+    assert not on_for_light_night, (
+        f"A2-gate (B-M1): light-domain night-only entity light.night_dim "
+        f"MUST NOT receive a turn_on from the warning flash (would blast "
+        f"from sleep brightness to 255). calls={calls}"
+    )
+    # And no turn_off from flash either (flash only cycles).
+    # (D3a auto-off handles the OFF separately.)
+
+
+def test_D3b_A2_gate_regular_light_STILL_flashes():
+    """Positive control: regular-list light.* entities STILL flash — the
+    A2 gate only excludes NIGHT-ONLY entities. Mutation drill: broadening
+    the exclusion to all lights would break this test."""
+    room, calls = _make_room(
+        {
+            CONF_LIGHTS: ["light.regular"],
+            CONF_NIGHT_LIGHTS: [],
+        },
+        sleep=False,
+    )
+    try:
+        _run(asyncio.wait_for(room._warning_flash(), timeout=5))
+    except asyncio.TimeoutError:
+        pass
+    assert _turn_ons_for(calls, "light.regular"), (
+        f"regular light.* MUST still flash. calls={calls}"
     )
 
 
@@ -360,16 +387,14 @@ def test_D3b_A2_gate_warning_flash_EXCLUDES_switch_domain_night_only():
         _run(asyncio.wait_for(room._warning_flash(), timeout=5))
     except asyncio.TimeoutError:
         pass
-    # A2-gate: switch.night_relay is EXCLUDED from the flash ON cycle.
-    on_for_switch = _turn_ons_for(calls, "switch.night_relay")
-    assert not on_for_switch, (
-        f"A2-gate: switch-domain night-only entity switch.night_relay "
-        f"MUST NOT receive a turn_on from the warning flash. calls={calls}"
+    # A2-gate (B-M1): BOTH switch.* AND light.* night-only entities are
+    # excluded from the flash ON cycle (domain-symmetric).
+    assert not _turn_ons_for(calls, "switch.night_relay"), (
+        f"A2-gate: switch-domain night-only MUST NOT flash. calls={calls}"
     )
-    # But light.night_dim IS included (safe to flash via light domain).
-    assert _turn_ons_for(calls, "light.night_dim"), (
-        f"A2-gate: light-domain night-only entity SHOULD still flash. "
-        f"calls={calls}"
+    assert not _turn_ons_for(calls, "light.night_dim"), (
+        f"A2-gate (B-M1): light-domain night-only MUST NOT flash either "
+        f"(would blast dim night light to 255). calls={calls}"
     )
 
 

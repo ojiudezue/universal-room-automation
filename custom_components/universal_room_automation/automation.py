@@ -3289,13 +3289,17 @@ class RoomAutomation:
         if not lights:
             return
 
-        # A2-gate: night-only switch.* entries are excluded from the flash
-        # target set. All light.* entries (regular OR night-only) are safe
-        # to flash via dim-then-restore. All switch.* regular-list entries
+        # A2-gate (B-M1 fix): night-only entries are excluded from the
+        # warning-flash ON-cycle IN BOTH DOMAINS. A light-domain night
+        # entity currently at sleep brightness (e.g. 15) would otherwise be
+        # blasted to hard-coded `brightness: 255` for the pre-auto-off
+        # warning — same UX problem as the switch-domain mains-blast. The
+        # night-only set is still turned OFF at auto-off time by D3a
+        # (`_shared_space_turn_off_all`); only the flash actuation
+        # excludes them. Regular-list entries (light.* or switch.*)
         # continue to flash as pre-cycle.
-        _night_only = [e for e in _night if e not in _regular]
-        _night_only_switch_domain = {e for e in _night_only if e.startswith("switch.")}
-        flash_targets = [e for e in lights if e not in _night_only_switch_domain]
+        _night_only = {e for e in _night if e not in _regular}
+        flash_targets = [e for e in lights if e not in _night_only]
 
         actual_lights = [e for e in flash_targets if e.startswith("light.")]
         switches_as_lights = [e for e in flash_targets if e.startswith("switch.")]
