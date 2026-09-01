@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-08-31'
+  last_reconciled: '2026-09-01'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -29,7 +29,8 @@ cards:
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
-  status: done
+  status: shipped_organic
+  shipped_version: v5.92.1
   resolution_2026_09_01: 'NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry entries from code) the integration intentionally does NOT auto-clean them, so the 38 select.<room>_automation_mode rows persist as unavailable/restored. FIX = optional one-time registry cleanup (remove the 38 orphaned rows) — offered to operator; no code. Closed.'
   created: 2026-09-01 00:40
   updated: 2026-09-01 01:30
@@ -52,7 +53,8 @@ cards:
 - id: ROOM-ENTITY-STALE-CONFIG-1
   title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.92.1
   verified_and_locked_2026_09_01: 'Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint
     room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO
     fields (data.fans + options.manual_switches) -> repoint BOTH to fan.ceilingfan_fanimaton_rf_masterbedroom.
@@ -4972,7 +4974,8 @@ cards:
   title: A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light
     stays on 20-29h (all night AND day) until a human/device clears it
   thread: presence
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.92.1
   audit_result: 'AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms:
     Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1),
     Garage Hallway, Master Bedroom. 15 rooms dual-list (ride the existing CONF_LIGHTS exit — this is why
