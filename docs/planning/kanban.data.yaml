@@ -29,8 +29,12 @@ cards:
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.92.2
+  disposition_2026_09_01: 'DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_
+    coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2;
+    adjustment_factor=1.3 unchanged (control path byte-identical); 0 new URA errors. README_v5.92.2 carries
+    the validation table. Soak-exit binary: discriminator met -> dispose done, no lingering organic.'
   build_review_2026_09_01: 'Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED
     verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff).
     Build-review A (correctness) = FIX-REQUIRED, one HIGH: the sensor.py mask fix has ZERO test coverage (all
