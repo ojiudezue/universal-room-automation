@@ -11504,6 +11504,18 @@ cards:
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
   status: planned
+  consolidate_decision_2026_09_01: 'Operator: CONSOLIDATE. Scope expanded from solar-only to a shared
+    staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads —
+    solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — folding in the 4 existing
+    hand-rolled gates. FROZEN-POWER-READ-STALENESS-CLASS-1 merged in here. One Tier-2-DB cycle.'
+  consumer_check_2026_09_01: 'Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status
+    ''stale'') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check,
+    energy.py:3025), consumed by no decision. The TRUST flag envoy_available IS consumed by blind_hold
+    (DP+EVSE guard, energy.py:3753 / energy_pool.py:571) + NM offline alert (energy.py:2934), but it is
+    computed from SOC+storage_mode ONLY, NOT solar — so a frozen-0 solar read never reaches it. The frozen
+    value is trusted DIRECTLY by _read_power_w consumers (excess-solar admit + battery strategy). DESIGN:
+    the helper must GATE THE READ (return None -> LKG envelope engages), NOT add an unconsumed staleness
+    sensor. Optionally annotate envoy_status per-source.'
   no_dup_audit_2026_08_31: 'Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent
     after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists
     — 4 hand-rolled per-site gates (battery_soc cloud-fallback A1 energy_battery.py:895-925; EVSE per-bay
@@ -11515,7 +11527,7 @@ cards:
     solar_production_w_envelope) MISS the frozen-valid-0 case — gap confirmed. Bug Class #7 is process-scoped;
     this is a candidate NEW class (frozen-valid-value trusted).'
   created: 2026-08-24 16:45
-  updated: 2026-08-31 20:45
+  updated: 2026-09-01 00:15
   refinement_status: refined
   approval: unreviewed
   tags:
