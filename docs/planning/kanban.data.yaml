@@ -4935,8 +4935,14 @@ cards:
     zero body corroboration — a genuine vacancy EXTEND while residents sleep
   thread: presence
   status: pre_planning
+  refinement_2026_09_01: 'Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body-
+    corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on
+    BLE-extend-since-last-body (independent of sleep) as a backstop, so the protection generalizes beyond
+    the sleep window. B can be a long timeout. Plan must add lever B alongside A (the plan currently picks
+    A-only) before plan-review/build. Two knobs: the sleep-corroboration window + the general max-BLE-extend-
+    since-body timeout (both module-const rung).'
   created: 2026-08-31 18:20
-  updated: 2026-08-31 18:20
+  updated: 2026-09-01 07:55
   refinement_status: initial
   approval: unreviewed
   sibling_of: BLE-WARM-CREATE-1

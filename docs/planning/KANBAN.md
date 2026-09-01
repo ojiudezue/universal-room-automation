@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T09:40:57-05:00_ - _Data commit: `ffd918bf090f`_ - _last_reconciled: 2026-08-31_
+_Generated: 2026-09-01T12:36:49-05:00_ - _Data commit: `4f2de4076633`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,15 +13,15 @@ _Generated: 2026-09-01T09:40:57-05:00_ - _Data commit: `ffd918bf090f`_ - _last_r
 |---|---:|
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 8 |
-| 🧭 Pre-planning | 15 |
-| 📝 Planned | 7 |
+| 🧭 Pre-planning | 14 |
+| 📝 Planned | 6 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 49 |
+| 🚀 Shipped (organic open) | 52 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 20 |
-| ✅ Done | 58 |
+| ✅ Done | 57 |
 
 ## 📥 Inbox (29)
 _raw capture_
@@ -470,7 +470,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 3
   - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
-## 🧭 Pre-planning (15)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -518,7 +518,7 @@ _created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
 
 ### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-31 18:20 · initial_
+_created 2026-08-31 18:20 · updated 2026-09-01 07:55 · initial_
 - **Problem / Solution:**
   - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
 - **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
@@ -526,20 +526,8 @@ _created 2026-08-31 18:20 · initial_
 - **Next:** Design a body-corroboration requirement for BLE EXTEND during sleep (mirror the corroboration-gated approach in STUCK-SENSOR-1 / the fusion doctrine); OR scope the bedroom-adjacent scanner out of the bath sustain set. Coordinate with BLE...
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
-
-### `NIGHT-LIGHT-NO-OFF-PATH-1` - A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light stays on 20-29h (all night AND day) until a human/device clears it
-thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
-- **Problem / Solution:**
-  - Problem: the Master Bath under-cabinet light (a Sonoff switch configured as the room's night light only, not a regular light) turns ON when someone enters in the dark, then NEVER turns off — it stays lit for 20-29 hours straight, across ...
-- **Origin:** 2026-08-31 - operator report — Master Bath LED (the Sonoff under-cabinet night light) seems always on at night, and holds during days too
-- **Why:** ROOT-CAUSED (read-only probe 2026-08-31). switch.sonoff_1002197ef7_1 is in night_lights ONLY (not CONF_LIGHTS). URA ON-paths act on night_lights (_control_lights_entry -> _turn_on_night_lights, automation.py:991/1021/1133); all THREE OFF...
-- **Next:** Operator picks intent (A vs B). Then add the night_lights OFF path mirroring the CONF_LIGHTS exit logic (+ reconciler parity), gated to preserve the sleep-dim behavior. Tier 2-DB. Queue behind charge-onset.
-- **Tags:** no-fabrication-verify, tier-2db
-- **Refs:** automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment); Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31 16:19
-- **Forensic keys (2):**
-  - `audit_result`: AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms: Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1), Garage Hallway, Master Bedroom. 15 rooms dual-list (ri...
-  - `operator_intent_question`: Design intent for the under-cabinet night light: (A) off on VACANCY like a dim regular light, or (B) stay on through the night and off at WAKE/dark->bright? Determines which off-trigger to add. NEEDS OPERATOR.
+- **Forensic keys (1):**
+  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
 ### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -650,21 +638,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (6)
 _has plan / acceptance_
-
-### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
-thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-08-31 19:15 · updated 2026-09-01 00:40 · initial_
-- **Problem / Solution:**
-  - Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently references dead handles. These are the only true URA-side items in the room-entity audit (everything else is offline hardware). Solution: re...
-- **Origin:** 2026-08-31 - room device unknown/unavailable audit — STALE section
-- **Why:** Live audit (ssh ha) found 4 config refs returning 404, each with a clean target: Kitchen room_media_player media_player.kitchen_2 -> kitchen_3; Upstairs Guestroom up_guest_room_2 -> up_guest_room_3; Master Bedroom manual_switches fan.cei...
-- **Next:** Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via ha_config). Low-risk config, no code, no review tier.
-- **Tags:** no-fabrication-verify
-- **Refs:** room device audit 2026-08-31 (STALE CONFIG section)
-- **Forensic keys (1):**
-  - `verified_and_locked_2026_09_01`: Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO fields (data.fans + options.manual_switches) -> repoint BOTH to...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -806,8 +781,34 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (49)
+## 🚀 Shipped (organic open) (52)
 _live, awaiting proof_
+
+### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-01 00:40 · updated 2026-09-01 01:30 · initial_
+- **Problem / Solution:**
+  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
+- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
+- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
+- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
+- **Tags:** no-fabrication-verify
+- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
+- **Forensic keys (1):**
+  - `resolution_2026_09_01`: NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry...
+
+### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-31 19:15 · updated 2026-09-01 00:40 · initial_
+- **Problem / Solution:**
+  - Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently references dead handles. These are the only true URA-side items in the room-entity audit (everything else is offline hardware). Solution: re...
+- **Origin:** 2026-08-31 - room device unknown/unavailable audit — STALE section
+- **Why:** Live audit (ssh ha) found 4 config refs returning 404, each with a clean target: Kitchen room_media_player media_player.kitchen_2 -> kitchen_3; Upstairs Guestroom up_guest_room_2 -> up_guest_room_3; Master Bedroom manual_switches fan.cei...
+- **Next:** Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via ha_config). Low-risk config, no code, no review tier.
+- **Tags:** no-fabrication-verify
+- **Refs:** room device audit 2026-08-31 (STALE CONFIG section)
+- **Forensic keys (1):**
+  - `verified_and_locked_2026_09_01`: Read-only verify done. kitchen_2 + up_guest_room_2 = 404 dead (repoint room_media_player -> kitchen_3 / up_guest_room_3, both live idle). MBR fan rf304_25 is dead AND in TWO fields (data.fans + options.manual_switches) -> repoint BOTH to...
 
 ### `EGRESS-IDENTITY-JOIN-GAP-1` - Face recognition works but egress crossings carry NO identity — person_entry_exit_events.person_id is 0 of 7010 rows all-time even post-Frigate-2-reconfig; the recognition->egress-event JOIN is unwired
 thread: **security** - status: **shipped_organic** - approval: **unreviewed**
@@ -1137,6 +1138,20 @@ _updated 2026-08-21 12:30_
   - `MECHANISM_CORRECTED_2026_08_21`: ⚠️ MY "NOTHING SEEDS IT" FRAMING WAS WRONG IN DETAIL — corrected by the builder, which is what the blocking deliverable-1 question was for. A seeding path DOES exist: number.py:2187 `async_added_to_hass -> _push_to_controller()` sets the...
   - `ZONE_TUNABLES_FAIL_UNSAFE_2026_08_21`: SECOND, WORSE INSTANCE — found while checking whether the threshold turn was actually unblocked. It was not. The per-zone kWh threshold does NOT use the sub-controller path and is NOT in `_HVAC_TUNABLE_DISPATCH`, so the fix above does no...
   - `TEST_PROTECTION_GAP_2026_08_21`: Noted, not actioned: the builder reports quality/tests/test_part2_ec_hc_writeback.py at 38 failed / 29 passed BOTH with and without the change — pre-existing, zero delta. But that is the suite covering this exact dispatch/writeback mecha...
+
+### `NIGHT-LIGHT-NO-OFF-PATH-1` - A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light stays on 20-29h (all night AND day) until a human/device clears it
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
+- **Problem / Solution:**
+  - Problem: the Master Bath under-cabinet light (a Sonoff switch configured as the room's night light only, not a regular light) turns ON when someone enters in the dark, then NEVER turns off — it stays lit for 20-29 hours straight, across ...
+- **Origin:** 2026-08-31 - operator report — Master Bath LED (the Sonoff under-cabinet night light) seems always on at night, and holds during days too
+- **Why:** ROOT-CAUSED (read-only probe 2026-08-31). switch.sonoff_1002197ef7_1 is in night_lights ONLY (not CONF_LIGHTS). URA ON-paths act on night_lights (_control_lights_entry -> _turn_on_night_lights, automation.py:991/1021/1133); all THREE OFF...
+- **Next:** Operator picks intent (A vs B). Then add the night_lights OFF path mirroring the CONF_LIGHTS exit logic (+ reconciler parity), gated to preserve the sleep-dim behavior. Tier 2-DB. Queue behind charge-onset.
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment); Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31 16:19
+- **Forensic keys (2):**
+  - `audit_result`: AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms: Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1), Garage Hallway, Master Bedroom. 15 rooms dual-list (ri...
+  - `operator_intent_question`: Design intent for the under-cabinet night light: (A) off on VACANCY like a dim regular light, or (B) stay on through the night and off at WAKE/dark->bright? Determines which off-trigger to add. NEEDS OPERATOR.
 
 ### `KHOST-2` - Operator disposition buttons + drag-between-states on the hosted board
 thread: **tooling** - status: **shipped_organic** - approval: **approved**
@@ -1961,21 +1976,8 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (58)
+## ✅ Done (57)
 _closed, evidence in refs_
-
-### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
-thread: **presence** - status: **done** - approval: **unreviewed**
-_created 2026-09-01 00:40 · updated 2026-09-01 01:30 · initial_
-- **Problem / Solution:**
-  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
-- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
-- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
-- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
-- **Tags:** no-fabrication-verify
-- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
-- **Forensic keys (1):**
-  - `resolution_2026_09_01`: NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**
