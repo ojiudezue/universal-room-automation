@@ -449,6 +449,49 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD))
 
+        # evse-charge-onset cycle — seed the onset knob from entry.options
+        # (single source of truth per plan; no RestoreEntity). The setter
+        # fan-out (`set_ev_charge_onset_time`) is invoked once controllers
+        # are constructed further down; store the raw value here.
+        from .energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
+        )
+        self._ev_charge_onset_time_seed: str | None = ec.get(
+            CONF_ENERGY_EVSE_CHARGE_ONSET_TIME,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
+        )
+        # evse-charge-onset §10 — attribute-only daytime discriminator
+        # snapshot, published to `binary_sensor.ura_ev_charge_onset_gate_open`
+        # via `extra_state_attributes`. Read side must tolerate None
+        # (pre-first-tick), which is why we initialize it here.
+        self._last_soc_recovered: bool | None = None
+        # Fan out to controllers immediately (they were constructed above).
+        try:
+            self.set_ev_charge_onset_time(self._ev_charge_onset_time_seed)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EV charge-onset seed apply failed (swallowed)", exc_info=True,
+            )
+        # Rev 6 D-A — seed the enable toggle from entry.options too.
+        from .energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+        )
+        self._ev_charge_onset_enabled_seed: bool = bool(ec.get(
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+            DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+        ))
+        # Rev 6 D-A — coord-level mirror (see setter docstring; the
+        # switch factory's `is_on` reads this attribute directly).
+        self._ev_charge_onset_enabled: bool = self._ev_charge_onset_enabled_seed
+        try:
+            self.set_ev_charge_onset_enabled(self._ev_charge_onset_enabled_seed)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EV charge-onset enable seed apply failed", exc_info=True,
+            )
+
         # v4.7.6 D2/D3.2: EV fill-priority pause SOC threshold (runtime-tunable
         # via number.ura_energy_coordinator_fill_priority_soc). Seeded from
         # entry.options on first install; RestoreEntity is canonical thereafter.
@@ -1521,6 +1564,12 @@ class EnergyCoordinator(BaseCoordinator):
                     sorted(self._ev._paused_by_blind_window),
                     epoch_dt.isoformat(),
                 )
+            # evse-charge-onset Rev 6 - session anchor RETIRED (D-B).
+            # The bounded-window predicate computes hold state from
+            # `now` + onset alone; no anchor to restore, no KV read,
+            # no unguarded `.isoformat()` on None (was B-HIGH-1 /
+            # C-HIGH-1 crash surface aborting the rest of
+            # `_restore_evse_state` incl. the DP carrier).
             # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
             # F8 (review): Switch RestoreEntity (`switch.py:802-854`) is the
             # fresher fast-path (~15s attribute flush) and wins when present;
@@ -1973,6 +2022,7 @@ class EnergyCoordinator(BaseCoordinator):
                     "evse_blind_window_epoch_started_at",
                     "",
                 )
+            # evse-charge-onset Rev 6 - no anchor persistence (retired).
             # D5 (blind-window guard): persist LKG SOC snapshot (value +
             # timestamp). Consumed by the SOCEnvelope decay math on restart.
             battery = getattr(self, "_battery", None)
@@ -5226,9 +5276,46 @@ class EnergyCoordinator(BaseCoordinator):
                 continue
             state = self._ev._get_evse_state(evse_id)  # noqa: SLF001
             # About to release cleanly (dispatch turn_on OR already on).
+            # B8 ORDERING: the discards below MUST run before the onset
+            # guard — the H-2 sticky machinery depends on that order.
+            # Do NOT `continue` before them.
             self._ev._paused_by_dp.discard(evse_id)  # noqa: SLF001
             self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001
             if not state.get("is_on"):
+                # v3 (funnel P0-#3) — inline onset gate for the DP
+                # reversion turn-on. #3 has NEVER fired live (audit:
+                # DP `TRANSITIONED`=0 over 21 nights), so this is cheap
+                # latent insurance rather than a live-critical path.
+                # In-suite test only; no direct funnel call because
+                # `_apply_dp_reversion` uses `hass.services.async_call`
+                # rather than the controller's action-emission shape.
+                from homeassistant.util import dt as dt_util
+                from .energy_pool import (
+                    _evaluate_onset_gate,
+                    _DEFAULT_ONSET_MAX_HOLD_H,
+                )
+                onset_permits, must_start_by_reached = _evaluate_onset_gate(
+                    dt_util.now(),
+                    getattr(self._ev, "_ev_charge_onset_enabled", False),  # noqa: SLF001
+                    getattr(self._ev, "_ev_charge_onset_time", None),  # noqa: SLF001
+                    _DEFAULT_ONSET_MAX_HOLD_H,
+                    getattr(self, "_dp_must_start_by_min", None),
+                )
+                if not (onset_permits or must_start_by_reached):
+                    # Held by onset — record the deferral and skip.
+                    if not hasattr(self._ev, "_onset_deferred"):  # noqa: SLF001
+                        self._ev._onset_deferred = set()  # noqa: SLF001
+                    self._ev._onset_deferred.add(evse_id)  # noqa: SLF001
+                    _LOGGER.info(
+                        "charge-onset: deferring DP reversion turn-on "
+                        "for %s (onset %r)",
+                        evse_id,
+                        getattr(self._ev, "_ev_charge_onset_time", None),  # noqa: SLF001
+                    )
+                    continue
+                _od = getattr(self._ev, "_onset_deferred", None)  # noqa: SLF001
+                if _od is not None:
+                    _od.discard(evse_id)
                 self.hass.async_create_task(
                     self.hass.services.async_call(
                         "switch", "turn_on",
@@ -6045,6 +6132,32 @@ class EnergyCoordinator(BaseCoordinator):
                 # helper the mutation-anchored tests drive (Fix 5).
                 from .energy_battery import compose_release_floor as _crf
                 _release_floor, _is_offpeak = _crf(self._battery, period)
+                # evse-charge-onset cycle — dp_forcing threads the DP
+                # MUST_START_FORCED signal through so the DP timer fire
+                # overrides the onset hold (a plane already flying beats
+                # a scheduled departure).
+                from .energy_drain_precedence import DPState as _DPState_gate
+                _dp_forcing = (
+                    self._dp_carrier is not None
+                    and getattr(self._dp_carrier, "state", None)
+                    == _DPState_gate.MUST_START_FORCED
+                )
+                _now = dt_util.now()
+                # evse-charge-onset §10 — publish the daytime-solar
+                # discriminator so the gate-open binary sensor's
+                # `soc_recovered_active` attribute has a real value.
+                # Attribute-only signal (informational; NEVER a trust-
+                # decision input); mirrors the EV-side controller's
+                # own recompute inside determine_battery_drain_actions.
+                try:
+                    _soc_thr = int(self._ev_battery_drain_soc)
+                    self._last_soc_recovered = bool(
+                        solar_replenishing
+                        and self._battery.battery_soc is not None
+                        and self._battery.battery_soc >= _soc_thr + 5
+                    )
+                except Exception:  # noqa: BLE001
+                    self._last_soc_recovered = None
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
@@ -6052,6 +6165,15 @@ class EnergyCoordinator(BaseCoordinator):
                     reserve_soc=_release_floor,
                     solar_replenishing=solar_replenishing,
                     is_offpeak=_is_offpeak,
+                    dp_forcing=_dp_forcing,
+                    now_local=_now,
+                    # Rev 6 D-C — self-contained must-start-by backstop.
+                    # `_dp_must_start_by_min` is the live-tunable HH:MM as
+                    # minutes-past-midnight (default 180 = 03:00), already
+                    # seeded/managed by the DP knob. Passing it lets the
+                    # onset gate compute a HARD 03:00 release inside the
+                    # hold window — independent of DP participation.
+                    must_start_by_min=self._dp_must_start_by_min,
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
@@ -6156,6 +6278,10 @@ class EnergyCoordinator(BaseCoordinator):
                         period,
                         force_charge_active=_fc_active,
                         grid_charge_on=bool(grid_charge_intent),
+                        # v3 (funnel) — thread must-start-by so plug
+                        # onset funnel has the backstop (plug tier has
+                        # no DP participation; this is its only escape).
+                        must_start_by_min=self._dp_must_start_by_min,
                     )
                     for action_spec in plug_actions:
                         await self._execute_service_action(action_spec)
@@ -6180,6 +6306,14 @@ class EnergyCoordinator(BaseCoordinator):
                 # kwarg previously defaulted to False, so the plug's
                 # `soc_recovered` gate could never fire and release was
                 # reserve-only).
+                # evse-charge-onset cycle mirror — same dp_forcing + now.
+                from .energy_drain_precedence import DPState as _DPState_gate2
+                _dp_forcing_plug = (
+                    self._dp_carrier is not None
+                    and getattr(self._dp_carrier, "state", None)
+                    == _DPState_gate2.MUST_START_FORCED
+                )
+                _now_plug = dt_util.now()
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
@@ -6188,6 +6322,13 @@ class EnergyCoordinator(BaseCoordinator):
                     force_charge_active=force_charge_active,
                     solar_replenishing=solar_replenishing,
                     is_offpeak=_is_offpeak,
+                    dp_forcing=_dp_forcing_plug,
+                    now_local=_now_plug,
+                    # Rev 6 D-C — LOAD-BEARING for the plug tier: L1 has
+                    # NO DP participation, so `must_start_by_min` is the
+                    # ONLY hard release the operator's L1 charger gets
+                    # (plug-tier `socket_1`/`_2` on the Moes multi-plug).
+                    must_start_by_min=self._dp_must_start_by_min,
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
@@ -6207,6 +6348,9 @@ class EnergyCoordinator(BaseCoordinator):
                         force_charge_active=force_charge_active,
                         peak_ahead=peak_ahead,
                         is_daylight=is_daylight,
+                        # v3 fix-up D-HIGH-2 — plug FP has no coord ref;
+                        # thread must_start_by_min for the onset funnel.
+                        must_start_by_min=self._dp_must_start_by_min,
                     )
                     for action_spec in plug_fp_actions:
                         await self._execute_service_action(action_spec)
@@ -8976,6 +9120,66 @@ class EnergyCoordinator(BaseCoordinator):
     def ev_battery_drain_soc(self) -> int:
         """Current EV battery-drain pause threshold (v4.3.3)."""
         return self._ev_battery_drain_soc
+
+    def set_ev_charge_onset_enabled(self, value: bool) -> None:
+        """Rev 6 D-A — master enable for the overnight charge-onset gate.
+
+        Fans out to BOTH `EVChargerController` and `SmartPlugController`
+        so the EV site (~2198) and the plug site (~3621) cannot drift.
+        Routed via `_EC_SETTER_DISPATCH` from options-update, and by
+        `ECEVChargeOnsetEnabledSwitch` on toggle. The switch factory's
+        `is_on` reads `coord._ev_charge_onset_enabled` so we mirror
+        the boolean here as well; both controller copies + this coord
+        copy MUST be updated in lockstep by this single setter.
+        """
+        v = bool(value)
+        # Coord-level mirror (read by the switch factory's `is_on`).
+        self._ev_charge_onset_enabled = v
+        try:
+            if self._ev is not None:
+                self._ev.set_ev_charge_onset_enabled(v)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("EV set_ev_charge_onset_enabled swallowed", exc_info=True)
+        try:
+            if getattr(self, "_smart_plugs", None) is not None:
+                self._smart_plugs.set_ev_charge_onset_enabled(v)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Plug set_ev_charge_onset_enabled swallowed", exc_info=True)
+        _LOGGER.info("EV charge-onset enable (fan-out) set to %s", v)
+
+    @property
+    def ev_charge_onset_enabled(self) -> bool:
+        """Live view of the enable (reads EV side; both fan-out identically)."""
+        ev = getattr(self, "_ev", None)
+        return bool(getattr(ev, "_ev_charge_onset_enabled", True)) if ev else True
+
+    @property
+    def ev_charge_onset_time(self):
+        """Live view of the onset HH:MM string (or None if unset/malformed)."""
+        ev = getattr(self, "_ev", None)
+        return getattr(ev, "_ev_charge_onset_time", None) if ev else None
+
+    def set_ev_charge_onset_time(self, value: str | None) -> None:
+        """Set the overnight EV charge-onset gate HH:MM (evse-charge-onset).
+
+        Fans out to both `EVChargerController` and `SmartPlugController`;
+        both consume it in `_charge_onset_reached` (session-anchored gate
+        on the OVERNIGHT `battery_out_of_capacity` leg only — daytime
+        `soc_recovered` leg stays ungated). Blank/None ⇒ gate disabled,
+        baseline byte-identical behavior. Routed via `_EC_SETTER_DISPATCH`.
+        """
+        v = value if value else None
+        try:
+            if self._ev is not None:
+                self._ev.set_ev_charge_onset_time(v)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("EV set_ev_charge_onset_time swallowed", exc_info=True)
+        try:
+            if getattr(self, "_smart_plugs", None) is not None:
+                self._smart_plugs.set_ev_charge_onset_time(v)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Plug set_ev_charge_onset_time swallowed", exc_info=True)
+        _LOGGER.info("EV charge-onset time (fan-out) set to %r", v)
 
     def set_ev_battery_drain_soc(self, value: int) -> None:
         """Update EV battery-drain pause threshold at runtime (v4.3.3).

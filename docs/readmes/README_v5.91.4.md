@@ -53,5 +53,19 @@ Three disjoint-surface cycles batched into one restart (camera-census+transit / 
 ## Pre-deploy gate
 0 conflict markers; py_compile clean on all changed modules; 250 cycle tests pass; full-suite name-diff = 0 new FAILED/ERROR vs develop (the ~61 pre-existing wall-clock/order-pollution failures unchanged).
 
-## Live Validation — to be recorded post-restart (Validated <date>)
-_This section is replaced with the observed results table after the HA restart, per the validation-ledger rule._
+## Validated 2026-08-28 (post-restart, ~20:54 CDT)
+
+Deploy chain confirmed: PR #533 merged, release `v5.91.4` tagged, `origin/master` manifest = v5.91.4 with all three cycles' code present (egress `_resolve_face_legs`/`FACE_MATCH_CORRELATED_BOOST` ×5, `VERY_POOR` ×2, `corpus.zones`/`zones_out` ×8), HACS installed v5.91.4, restarted.
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Clean boot, no new URA errors | `error_log` structured scan: **zero `custom_components.universal_room_automation … ERROR`**; all URA lines are WARNING (Envoy warmup, the known stuck Guest-Bedroom sensor being ignored, offline front-door lock, standard "custom integration" notice). No tracebacks. | **PASS** |
+| **Drain slider** — 5th tunable exists + honored | `number.ura_energy_coordinator_off_peak_drain_very_poor` = **30** (min 5 / max 80, mirrors `poor`); `sensor.ura_energy_coordinator_battery_strategy` `drain_targets = {excellent:10, good:15, moderate:20, poor:30, very_poor:30, unknown:40}` — the accessor honors the tunable. | **PASS** (live) |
+| **Egress producer** — shipped + armed | Code present on master; clean boot; kill-switch-gated path live. `person_entry_exit_events` last 24h = **7,123 crossings, 0 with `person_id`**. | **PASS (armed); attach=0 — see below** |
+| **Egress attach rate** — measure-before-build gate | Producer has **no live face-name source wired yet**, so `person_id` stays NULL — but NOT because face rec is down. **Frigate** `sensor.*_last_recognized_face_2` (the source `_resolve_face_legs` reads today) IS dead/stuck at `Unknown`. **Protect** face rec, however, is ALIVE (protect_list_smart_detections: 19 face events in recent hours, conf up to 95; enrolled Oji 46 detections/conf 82, Ziri 40/conf 79) — but URA can't see it until the **D1 Protect bridge** (`sensor.<cam>_face_recognized`, outside-URA, unbuilt) polls the Protect API and republishes. So the unblock is a buildable next cycle, not a face-rec restore. | **As-expected (source unwired — build D1)** |
+| **Optimizer zone-truth** — FP suppressed | Prompt invariant + `corpus.zones` fan-out present on master; review SHIP + mutation-anchored. Live "no comfort-FP alert of that class over a full optimizer cycle" is a short **organic watch** (can't be observed at the boot instant). | **Code+review PASS; live = organic** |
+
+### The real blocker (corrected 2026-08-28)
+An earlier draft of this table said "face rec is down house-wide" — that was **wrong** (it probed only the dead Frigate sensors). **Protect face recognition works** and Oji/Ziri are enrolled and recognized. The producer's actual gap is that URA reads the **dead Frigate** `_last_recognized_face` feed + the **unbuilt** Protect bridge (`sensor.<cam>_face_recognized`), so it has no live source. The unblock is to **build the D1 Protect bridge** — poll the Protect API (already naming residents) and republish, mapping `recognized_person_id`→name via the Known-Faces registry. That's the identity arc's real next cycle. Meanwhile `person_id` stays ~0 by design (graceful-anonymous — nothing breaks).
+
+**Organic watches (per `--revisit`):** (1) once D1 lands, confirm `egress_identity_attach_rate_24h` moves; (2) confirm the multi-zone comfort alert no longer fires over an optimizer cycle; (3) very_poor drain slider live-applies on a `very_poor` night.

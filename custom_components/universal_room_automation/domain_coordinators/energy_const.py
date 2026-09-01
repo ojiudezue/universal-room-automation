@@ -666,6 +666,46 @@ CONF_ENERGY_SOLAR_THRESHOLD_GOOD: Final = "energy_solar_threshold_good"
 CONF_ENERGY_SOLAR_THRESHOLD_MODERATE: Final = "energy_solar_threshold_moderate"
 CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
 
+# EVSE charge-onset gate (evse-charge-onset cycle). HH:MM string; blank ⇒
+# disabled (baseline: overnight `battery_out_of_capacity` release fires
+# as soon as SOC hits reserve, regardless of wall-clock). When set (default
+# "01:00"), the OVERNIGHT-reserve leg of `determine_battery_drain_actions`
+# holds until the session-anchored onset instant is reached (see
+# EVChargerController._charge_onset_reached). The daytime-solar
+# `soc_recovered` leg is UNGATED. Persisted on entry.options (sole source
+# of truth); no RestoreEntity — re-seed pattern.
+CONF_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "energy_evse_charge_onset_time"
+DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "01:00"
+
+# Rev-5 session-anchor age bound RETIRED in Rev 6 (no anchor to age).
+# Retained here as a comment for grep-anchor: DRAIN_SESSION_MAX_RESTORE_AGE_H.
+
+# evse-charge-onset Rev 6 (D-A) — dedicated ENABLE toggle. Reviewers
+# proved HA TimeSelector + `time.set_value` both REJECT blank/None, so
+# the Rev-5 "blank = off" kill was unreachable. A separate boolean gives
+# the operator a real off switch that survives restart via the
+# `EVChargeOnsetEnabledSwitch` (RestoreEntity + coord attr write-through).
+# Ships DORMANT (v3: DEFAULT False) — operator flips on after live
+# checkpoint via `switch.ura_ev_charge_onset_enabled` (which routes
+# through `EnergyCoordinator.set_ev_charge_onset_enabled` fanning out
+# to BOTH controllers).
+CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = "energy_evse_charge_onset_enabled"
+DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = False  # v3 (funnel) — SHIP DORMANT; operator enables deliberately
+
+# evse-charge-onset Rev 6 (D-B) — BOUNDED HOLD WINDOW replaces the Rev-5
+# session-anchor + lookback mechanism. Hold the overnight leg ONLY when
+# `now < onset_instant AND (onset_instant - now) <= ONSET_MAX_HOLD_H`.
+# 8h anchors to the operator's real overnight span (reserve-hit typically
+# 20:00-01:00 = 5h ahead of a 01:00 onset). A daytime reserve-hit at
+# 10:00 with onset 01:00 is 15h ahead of NEXT 01:00 → outside the window
+# → NOT held, byte-identical to baseline (kills the Rev-5 "18h daytime
+# hold" review finding, kills the LOOKBACK cliff). After tonight's onset
+# (say now=02:00, onset=01:00) → next 01:00 is 23h away → also NOT held.
+# Rung-1 safety/allocation bound — CODE tunable only. Setting to a very
+# large value (e.g. 24) effectively disables the ceiling; the sane KILL
+# is the ENABLE toggle above.
+ONSET_MAX_HOLD_H: Final = 8.0
+
 CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
 CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"
 # v5.12.0 SPAN circuit-identity re-key (companion to circuit baseline scope

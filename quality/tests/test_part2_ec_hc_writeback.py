@@ -72,6 +72,10 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EV_BATTERY_DRAIN_SOC"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_FILL_PRIORITY_SOC"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EXCESS_SOLAR_SOC"),
+    # evse-charge-onset Rev 6 (2026-08-30) — two knobs, both push live
+    # via `_EC_SETTER_DISPATCH` and therefore both in the suppress set.
+    _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EVSE_CHARGE_ONSET_TIME"),
+    _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED"),
     # Blind-window guard cycle — D4 Emporia-mains backup export sensor.
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_MAINS_EXPORT_ENTITY"),
     # LKG wave 1 D2 — solar production upper-envelope nameplate.
@@ -332,7 +336,10 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     #    through v5.89.0 but broke on v5.85.0.
     # +1 CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR (OFFPEAK-DRAIN-VERYPOOR-SLIDER-1,
     #    2026-08-28): 5th operator-tunable off-peak drain slider -> 93
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 93
+    # +2 evse-charge-onset Rev 6 (2026-08-30): CHARGE_ONSET_TIME +
+    #    CHARGE_ONSET_ENABLED (both push live via _EC_SETTER_DISPATCH;
+    #    B-CRIT-2) -> 95
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 95
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +462,10 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ENERGY_PEAK_BUFFER_TARGET":        "energy_peak_buffer_target",
         "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN": "energy_arbitrage_charge_lead_time_min",
         "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
+        # evse-charge-onset cycle knob.
+        "_CONF_ENERGY_EVSE_CHARGE_ONSET_TIME":    "energy_evse_charge_onset_time",
+        # Rev 6 D-A - dedicated enable toggle.
+        "_CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED": "energy_evse_charge_onset_enabled",
         "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
         "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
         # Blind-window guard cycle — D4 Emporia-mains backup export sensor.

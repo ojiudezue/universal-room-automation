@@ -101,6 +101,8 @@ class TextSelector(_CallableSelector): pass
 class BooleanSelector(_CallableSelector): pass
 class AreaSelectorConfig(_SelectorConfig): pass
 class AreaSelector(_CallableSelector): pass
+# evse-charge-onset — stub for CONF_ENERGY_EVSE_CHARGE_ONSET_TIME field.
+class TimeSelector(_CallableSelector): pass
 
 class SelectSelectorMode:
     DROPDOWN = "dropdown"
@@ -203,6 +205,7 @@ def _build_ha_modules():
     ha_sel.BooleanSelector = BooleanSelector
     ha_sel.AreaSelectorConfig = AreaSelectorConfig
     ha_sel.AreaSelector = AreaSelector
+    ha_sel.TimeSelector = TimeSelector
 
     return modules
 

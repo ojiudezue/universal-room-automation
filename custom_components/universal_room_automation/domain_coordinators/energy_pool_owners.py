@@ -260,6 +260,9 @@ EV_DECLARATIONS: tuple[OwnerDeclaration, ...] = (
         reason_human="grid import cap",
     ),
     # Row 4: Battery-drain protection.
+    # evse-charge-onset Rev 6 — the Rev-5 `restore_hook=
+    # "drain_session_epoch_ev"` sentinel is REMOVED (D-B bounded-window
+    # predicate no longer needs a per-session anchor).
     OwnerDeclaration(
         name="battery_drain", attr="_paused_by_battery_drain", tier="evse",
         kind="set", precedence_row=4,
