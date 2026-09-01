@@ -26,6 +26,51 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ROOM-ENTITY-STALE-CONFIG-1
+  title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
+  thread: presence
+  status: planned
+  created: 2026-08-31 19:15
+  updated: 2026-08-31 19:15
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently
+     references dead handles. These are the only true URA-side items in the room-entity audit (everything
+     else is offline hardware). Solution: repoint 3 to the live successors and remove 1 that has no distinct
+     successor — a config change via options-flow, no code.'
+  origin: {date: '2026-08-31', gist: room device unknown/unavailable audit — STALE section}
+  why: 'Live audit (ssh ha) found 4 config refs returning 404, each with a clean target: Kitchen
+    room_media_player media_player.kitchen_2 -> kitchen_3; Upstairs Guestroom up_guest_room_2 ->
+    up_guest_room_3; Master Bedroom manual_switches fan.ceilingfan_fanimaton_rf304_25_masterbedroom ->
+    fan.ceilingfan_fanimaton_rf_masterbedroom; Jaya Bedroom door_sensor
+    binary_sensor.openclose_aquara_zigbee_jayabedroom_contact -> REMOVE (only _contact_2 exists and it is
+    already the Jaya Bedroom window_sensor, so no distinct door contact).'
+  next: 'Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via
+    ha_config). Low-risk config, no code, no review tier.'
+  refs: ['room device audit 2026-08-31 (STALE CONFIG section)']
+- id: WATERLEAK-TRIO-UNKNOWN-1
+  title: Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
+  thread: presence
+  status: investigating
+  created: 2026-08-31 19:15
+  updated: 2026-08-31 19:15
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: three Zigbee water-leak sensors flipped to unknown at the SAME timestamp (08-30 16:46) — a
+     safety input class. A simultaneous multi-sensor drop is one integration/network/battery event, not
+     three faults. Solution: investigate the common cause (Zigbee coordinator hiccup / integration reload /
+     coincident battery) and restore; decide if a trip-wire on water-leak availability is warranted.'
+  origin: {date: '2026-08-31', gist: room device audit — water-leak trio}
+  why: 'Safety sensors going blind silently is high-consequence-low-probability. The synchronized 16:46
+    drop points at a shared cause. sensor.<room>_unavailable_entities does track these (inputs), but no
+    alert fires on water-leak-specifically going unavailable.'
+  next: 'Investigate the 08-30 16:46 common cause (Zigbee/integration). Restore. Consider a water-leak
+    availability trip-wire -> NM (per No-Soak).'
+  refs: ['room device audit 2026-08-31 (LOW/safety section)']
 - id: EGRESS-IDENTITY-JOIN-GAP-1
   consumer_link_note_2026_08_29: 'consumers linked behind D1-PROTECT-FACE-BRIDGE-ADDON-1; all thresholds PROVISIONAL pending operator confirm; re-measure attach rate after D1 before building any consumer.'
   PROTECT_API_2026_08_28: 'Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the

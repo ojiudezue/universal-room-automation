@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-08-31T18:43:50-05:00_ - _Data commit: `f38c5cbfd461`_ - _last_reconciled: 2026-08-29_
+_Generated: 2026-08-31T19:06:55-05:00_ - _Data commit: `1281f1f6e494`_ - _last_reconciled: 2026-08-29_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,9 +12,9 @@ _Generated: 2026-08-31T18:43:50-05:00_ - _Data commit: `f38c5cbfd461`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 30 |
-| 🔬 Investigating | 7 |
+| 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 14 |
-| 📝 Planned | 6 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 48 |
@@ -373,8 +373,19 @@ _created 2026-08-29 20:30 · initial_
 - **Forensic keys (1):**
   - `priority`: high
 
-## 🔬 Investigating (7)
+## 🔬 Investigating (8)
 _measuring; truth not yet known_
+
+### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-31 19:15 · initial_
+- **Problem / Solution:**
+  - Problem: three Zigbee water-leak sensors flipped to unknown at the SAME timestamp (08-30 16:46) — a safety input class. A simultaneous multi-sensor drop is one integration/network/battery event, not three faults. Solution: investigate th...
+- **Origin:** 2026-08-31 - room device audit — water-leak trio
+- **Why:** Safety sensors going blind silently is high-consequence-low-probability. The synchronized 16:46 drop points at a shared cause. sensor.<room>_unavailable_entities does track these (inputs), but no alert fires on water-leak-specifically go...
+- **Next:** Investigate the 08-30 16:46 common cause (Zigbee/integration). Restore. Consider a water-leak availability trip-wire -> NM (per No-Soak).
+- **Tags:** no-fabrication-verify
+- **Refs:** room device audit 2026-08-31 (LOW/safety section)
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
 thread: **notifications** - status: **investigating** - approval: **unreviewed**
@@ -642,8 +653,19 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (6)
+## 📝 Planned (7)
 _has plan / acceptance_
+
+### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
+thread: **presence** - status: **planned** - approval: **unreviewed**
+_created 2026-08-31 19:15 · initial_
+- **Problem / Solution:**
+  - Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently references dead handles. These are the only true URA-side items in the room-entity audit (everything else is offline hardware). Solution: re...
+- **Origin:** 2026-08-31 - room device unknown/unavailable audit — STALE section
+- **Why:** Live audit (ssh ha) found 4 config refs returning 404, each with a clean target: Kitchen room_media_player media_player.kitchen_2 -> kitchen_3; Upstairs Guestroom up_guest_room_2 -> up_guest_room_3; Master Bedroom manual_switches fan.cei...
+- **Next:** Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via ha_config). Low-risk config, no code, no review tier.
+- **Tags:** no-fabrication-verify
+- **Refs:** room device audit 2026-08-31 (STALE CONFIG section)
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
