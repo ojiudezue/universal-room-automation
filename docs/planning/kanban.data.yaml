@@ -29,9 +29,16 @@ cards:
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
   thread: energy
-  status: planned
+  status: in_progress
+  build_review_2026_09_01: 'Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED
+    verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff).
+    Build-review A (correctness) = FIX-REQUIRED, one HIGH: the sensor.py mask fix has ZERO test coverage (all
+    tests drive AccuracyTracker, none the sensor) → D1 neuter-deletable (hollow anchor #62). Fix pass in flight:
+    add 4-signature sensor tests (RED on native_value neuter + ladder reorder); make test7 discriminating or
+    drop; test3 fixture -200→-75 (real value); correct the vacuous ±200-clamp docstrings; + B LOWs (dt_util.now
+    fallback, _LOGGER.debug on bare excepts, stale line cite). Production LOGIC confirmed correct by both.'
   created: 2026-09-01 16:15
-  updated: 2026-09-01 17:05
+  updated: 2026-09-01 18:10
   refinement_status: refined
   approval: implied
   approved_by: 'operator 2026-09-01 ("Approved to build not just to card. Since we''re in the code area.")'
