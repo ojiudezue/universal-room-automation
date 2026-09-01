@@ -685,9 +685,10 @@ DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME: Final = "01:00"
 # the Rev-5 "blank = off" kill was unreachable. A separate boolean gives
 # the operator a real off switch that survives restart via the
 # `EVChargeOnsetEnabledSwitch` (RestoreEntity + coord attr write-through).
-# Default True — feature ships ACTIVE (matches the "01:00" onset default
-# intent). Fanned out to BOTH controllers by
-# `EnergyCoordinator.set_ev_charge_onset_enabled`.
+# Ships DORMANT (v3: DEFAULT False) — operator flips on after live
+# checkpoint via `switch.ura_ev_charge_onset_enabled` (which routes
+# through `EnergyCoordinator.set_ev_charge_onset_enabled` fanning out
+# to BOTH controllers).
 CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = "energy_evse_charge_onset_enabled"
 DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED: Final = False  # v3 (funnel) — SHIP DORMANT; operator enables deliberately
 

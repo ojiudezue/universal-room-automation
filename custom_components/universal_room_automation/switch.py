@@ -1194,12 +1194,88 @@ ECArbitrageSwitch = _ec_switch_factory(
 # + SIGNAL_ENERGY_ENTITIES_UPDATE re-read comes for free via the
 # factory). Coord attr `_ev_charge_onset_enabled` is fanned out from
 # `EnergyCoordinator.set_ev_charge_onset_enabled` to BOTH controllers,
-# so a toggle here lands on both EV and plug tiers.
-# Default True — feature ships ACTIVE (matches "01:00" onset default).
-ECEVChargeOnsetEnabledSwitch = _ec_switch_factory(
+# so a toggle here lands on both EV and plug tiers. Ships DORMANT
+# (default=False); operator flips on after live checkpoint.
+#
+# v3 fix-up B-CRIT-A: the bare factory writes the coord DISPLAY MIRROR
+# via setattr and NEVER calls `set_ev_charge_onset_enabled` — the drain
+# gate reads the CONTROLLER attrs `_ev._ev_charge_onset_enabled` and
+# `_smart_plugs._ev_charge_onset_enabled`, so a factory-only switch is
+# an INERT kill switch. Subclass every write path (turn_on, turn_off,
+# RestoreEntity fast-path, deferred-restore x2) to route through the
+# coord setter so both controllers stay in lockstep.
+_ECEVChargeOnsetEnabledBase = _ec_switch_factory(
     "_ev_charge_onset_enabled", "ev_charge_onset_enabled",
-    "EV Charge Onset (Overnight)", "mdi:ev-station", default=False,  # v3 (funnel) ship dormant
+    "EV Charge Onset (Overnight)", "mdi:ev-station", default=False,
 )
+
+
+class ECEVChargeOnsetEnabledSwitch(_ECEVChargeOnsetEnabledBase):
+    """v3 fix-up B-CRIT-A: route every write path through the coord setter.
+
+    The base class's five setattr sites (turn_on, turn_off, RestoreEntity
+    fast-path, two deferred-restore paths) all mutate the coord's
+    display mirror only. This subclass overrides ONLY those write
+    entry-points so the fan-out to sub-controllers actually happens.
+    Read paths (`is_on`, availability, seed) are inherited unchanged.
+    """
+
+    def _route_to_setter(self, value: bool) -> None:
+        energy = self._get_energy()
+        if energy is None:
+            return
+        fn = getattr(energy, "set_ev_charge_onset_enabled", None)
+        if callable(fn):
+            fn(bool(value))
+        else:
+            # Fallback for pathological setups (coord missing setter
+            # after a partial reload). Preserves baseline behavior.
+            setattr(energy, "_ev_charge_onset_enabled", bool(value))
+
+    async def async_turn_on(self, **kwargs):  # noqa: D401
+        self._route_to_setter(True)
+        self._deferred_restore = False
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs):  # noqa: D401
+        self._route_to_setter(False)
+        self._deferred_restore = False
+        self.async_write_ha_state()
+
+    def _sync_after_restore(self) -> None:
+        """Re-fan-out via the coord setter after any base-class restore
+        write. The base setattr'd `_ev_charge_onset_enabled` on the coord;
+        we then invoke the setter (idempotent) to propagate to both
+        controllers. Cheap: two attribute assignments on live objects."""
+        energy = self._get_energy()
+        if energy is None:
+            return
+        try:
+            fn = getattr(energy, "set_ev_charge_onset_enabled", None)
+            current = getattr(energy, "_ev_charge_onset_enabled", False)
+            if callable(fn):
+                fn(bool(current))
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def async_added_to_hass(self):  # noqa: D401
+        await super().async_added_to_hass()
+        # RestoreEntity fast-path in the base sets attr; propagate.
+        self._sync_after_restore()
+
+    def _retry_restore(self, _now=None):  # noqa: D401
+        # Re-entry guard mirrors the base factory pattern (see
+        # test_low_cleanup.py::TestSwitchRestoreDeferredRetry). When
+        # `_deferred_restore` is False the base already applied; skip.
+        if not self._deferred_restore:
+            return
+        super()._retry_restore(_now)
+        self._sync_after_restore()
+
+    def _handle_ec_ready(self) -> None:  # noqa: D401
+        super()._handle_ec_ready()
+        self._sync_after_restore()
+
 
 ECDrainPrecedenceEnableSwitch = _ec_switch_factory(
     "_dp_enabled", "drain_precedence_enable",

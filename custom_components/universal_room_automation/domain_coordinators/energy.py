@@ -6348,6 +6348,9 @@ class EnergyCoordinator(BaseCoordinator):
                         force_charge_active=force_charge_active,
                         peak_ahead=peak_ahead,
                         is_daylight=is_daylight,
+                        # v3 fix-up D-HIGH-2 — plug FP has no coord ref;
+                        # thread must_start_by_min for the onset funnel.
+                        must_start_by_min=self._dp_must_start_by_min,
                     )
                     for action_spec in plug_fp_actions:
                         await self._execute_service_action(action_spec)

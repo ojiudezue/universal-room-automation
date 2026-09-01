@@ -333,14 +333,6 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
-    # Rev 6 B-CRIT-1 fix: Platform.TIME was previously listed here
-    # (room PLATFORMS list) which is a mismatch — the URA time entity
-    # `EVChargeOnsetTimeEntity` attaches to the COORDINATOR-MANAGER
-    # device via `via_device=(DOMAIN, "coordinator_manager")` and the
-    # setup gate is `entry.data.get(CONF_ENTRY_TYPE) ==
-    # ENTRY_TYPE_COORDINATOR_MANAGER`. Room entries don't publish it,
-    # so it never actually appeared on the CM device on boot. Moved
-    # into `INTEGRATION_PLATFORMS` (CM-forwarded set) below.
 ]
 
 # Platforms for integration entry (aggregation sensors + select for house state + switches)

@@ -1201,3 +1201,327 @@ class TestChargeOnsetWireIns:
         assert "garage_a" in ev._onset_deferred, (
             "sensor observability: _onset_deferred must record the defer"
         )
+
+
+# ---------------------------------------------------------------------------
+# v3 FIX-UP anchors — arbitrage / FP / bespoke switch / drain-site sensor
+# ---------------------------------------------------------------------------
+
+
+class TestChargeOnsetFixUpWireIns:
+    """v3 fix-up anchors for the two D-HIGH turn-on paths (arbitrage +
+    fill-priority×2), the bespoke enable-switch fan-out, and the
+    D-MED-2 sensor observability at drain sites.
+
+    Neuter drills (each: edit the WIRE-IN in production source, run
+    named test, confirm RED, restore):
+
+    * Arbitrage release (energy_pool.py ~:2775-2789): drop the
+      `or evse_id in self._proactive_offpeak_holds` peer check →
+      `test_wirein_arbitrage_release_held_by_onset` goes RED.
+    * EV FP forecast_decayed (energy_pool.py ~:2604 area): revert the
+      funnel call to `actions.append({...turn_on})` →
+      `test_wirein_ev_fp_resume_held` goes RED.
+    * Plug FP forecast_decayed (energy_pool.py ~:4021 area): same →
+      `test_wirein_plug_fp_resume_held` goes RED.
+    * Bespoke switch subclass: revert `ECEVChargeOnsetEnabledSwitch`
+      to the bare factory (`= _ECEVChargeOnsetEnabledBase`) →
+      `test_wirein_switch_fans_out_to_both_controllers` goes RED.
+    * Drain-site sensor (energy_pool.py ~:2323 / ~:3834): remove the
+      `self._onset_deferred.add(...)` inside the
+      `battery_out_of_capacity and not overnight_release` branch →
+      `test_wirein_drain_site_marks_onset_deferred` goes RED.
+    """
+
+    # -------------------------------------------------------------- arbitrage
+    def test_wirein_arbitrage_release_held_by_onset(self):
+        """Arbitrage exits CHARGE at off_peak with an onset-deferred
+        (in `_proactive_offpeak_holds`) EVSE — must NOT emit turn_on."""
+        ev, hass = _make_ev(charging=False)
+        ev._paused_by_battery_drain.discard("garage_a")  # fixture leftover
+        ev._paused_by_arbitrage.add("garage_a")
+        ev._proactive_offpeak_holds.add("garage_a")
+        actions = ev.determine_arbitrage_actions(
+            arbitrage_charging=False, tou_period="off_peak",
+        )
+        assert not any(
+            a.get("service") == "switch.turn_on" for a in actions
+        ), f"arbitrage release must not turn on onset-deferred EVSE; actions={actions}"
+
+    def test_wirein_arbitrage_release_permits_when_not_held(self):
+        """Companion: no `_proactive_offpeak_holds` membership →
+        arbitrage release DOES emit turn_on. Guards a naive
+        `if False:` neuter that always defers."""
+        ev, hass = _make_ev(charging=False)
+        ev._paused_by_battery_drain.discard("garage_a")  # fixture leftover
+        ev._paused_by_arbitrage.add("garage_a")
+        actions = ev.determine_arbitrage_actions(
+            arbitrage_charging=False, tou_period="off_peak",
+        )
+        assert any(
+            a.get("service") == "switch.turn_on"
+            and a.get("target") == "switch.garage_a"
+            for a in actions
+        ), f"arbitrage release should fire when not onset-held; actions={actions}"
+
+    # -------------------------------------------------------------- EV FP
+    def test_wirein_ev_fp_resume_held(self, monkeypatch):
+        """EV FP resume with onset held must NOT emit turn_on."""
+        ev, hass = _make_ev(charging=False)
+        ev._paused_by_battery_drain.discard("garage_a")
+        ev._paused_by_fill_priority.add("garage_a")
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        ev.attach_coord(_StubCoord(dp_ms_min=180))
+        monkeypatch.setattr(
+            _epool_mod, "_dt_util_now_or_none",
+            lambda: datetime(2026, 1, 1, 22, 0, tzinfo=CDT),
+        )
+        actions = ev.determine_fill_priority_actions(
+            soc=99.0,
+            remaining_forecast_kwh=100.0,
+            tou_period="off_peak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=10.0,
+            is_daylight=True,
+        )
+        turn_ons = [
+            a for a in actions
+            if a.get("service") == "switch.turn_on"
+            and a.get("target") == "switch.garage_a"
+        ]
+        assert turn_ons == [], (
+            f"EV FP resume must be held by onset gate; actions={actions}"
+        )
+
+    # -------------------------------------------------------------- plug FP
+    def test_wirein_plug_fp_resume_held(self, monkeypatch):
+        sp, hass, pid = _make_plug()
+        sp._paused_by_battery_drain.discard(pid)
+        sp._paused_by_fill_priority.add(pid)
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        monkeypatch.setattr(
+            _epool_mod, "_dt_util_now_or_none",
+            lambda: datetime(2026, 1, 1, 22, 0, tzinfo=CDT),
+        )
+        actions = sp.determine_fill_priority_actions(
+            soc=99.0,
+            remaining_forecast_kwh=100.0,
+            tou_period="off_peak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=10.0,
+            is_daylight=True,
+            must_start_by_min=180,
+        )
+        turn_ons = [
+            a for a in actions
+            if a.get("service") == "switch.turn_on" and a.get("target") == pid
+        ]
+        assert turn_ons == [], (
+            f"plug FP resume must be held by onset gate; actions={actions}"
+        )
+
+    # -------------------------------------------------------------- bespoke switch
+    def test_wirein_switch_fans_out_to_both_controllers(self):
+        """The enable switch's async_turn_on/off MUST route through
+        `EnergyCoordinator.set_ev_charge_onset_enabled` (which fans
+        out to BOTH controllers), NOT via bare setattr on the coord
+        mirror alone. Verified: BOTH controller attrs flip in lockstep.
+
+        We build a MINIMAL clone of the bespoke override methods and
+        drive them against real EV+plug controllers — this avoids the
+        heavy `switch.py` module import (which pulls
+        `homeassistant.components.switch` not stubbed here) and still
+        proves the fan-out contract: an implementation that setattr's
+        the coord mirror WITHOUT calling the setter would leave the
+        controller attrs stale — this test would then fail.
+
+        AST-extract keeps the test faithful to shipped source: the
+        bespoke class body is compiled from switch.py bytes at test
+        time so an accidental revert to a bare factory is caught.
+        """
+        import ast as _ast
+        import os as _os
+        import asyncio as _aio
+        import logging as _logging
+        from unittest.mock import MagicMock as _MM
+
+        # Extract the setter from energy.py without importing the full
+        # module (its top-level `from homeassistant...` chain is heavier
+        # than the stubs installed here). The setter body is small +
+        # self-contained.
+        _dc_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(
+                _os.path.abspath(__file__)))),
+            "custom_components", "universal_room_automation",
+            "domain_coordinators",
+        )
+        with open(_os.path.join(_dc_path, "energy.py"),
+                  "r", encoding="utf-8") as fh:
+            _energy_src = fh.read()
+        _e_tree = _ast.parse(_energy_src)
+        _setter_src: str | None = None
+        for _node in _ast.walk(_e_tree):
+            if (isinstance(_node, _ast.ClassDef)
+                    and _node.name == "EnergyCoordinator"):
+                _el = _energy_src.splitlines()
+                for _child in _node.body:
+                    if (isinstance(_child, _ast.FunctionDef)
+                            and _child.name == "set_ev_charge_onset_enabled"):
+                        _seg = "\n".join(
+                            _el[_child.lineno - 1: _child.end_lineno]
+                        )
+                        _setter_src = "\n".join(
+                            line[4:] if line.startswith("    ") else line
+                            for line in _seg.splitlines()
+                        )
+        assert _setter_src is not None, (
+            "wire-in broken: `set_ev_charge_onset_enabled` not found on "
+            "EnergyCoordinator — the fan-out contract is gone."
+        )
+        _setter_ns = {"_LOGGER": _logging.getLogger("test_switch_fanout")}
+        exec(compile(_setter_src,
+                     "<energy.py-extract-set-onset-enabled>",
+                     "exec"), _setter_ns)
+
+        # Locate + parse switch.py, extract the ECEVChargeOnsetEnabledSwitch
+        # class body. If a future edit reverts the bespoke subclass to a
+        # bare factory (`ECEVChargeOnsetEnabledSwitch = _ec_switch_factory(...)`),
+        # the assertion below fails.
+        _sw_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(
+                _os.path.abspath(__file__)))),
+            "custom_components", "universal_room_automation", "switch.py",
+        )
+        with open(_sw_path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        assert "class ECEVChargeOnsetEnabledSwitch(" in src, (
+            "wire-in broken: ECEVChargeOnsetEnabledSwitch is not a "
+            "subclass — bare factory reverts route the coord mirror "
+            "via setattr and never reach the sub-controllers."
+        )
+        tree = _ast.parse(src)
+        method_srcs: dict[str, str] = {}
+        for node in _ast.walk(tree):
+            if (isinstance(node, _ast.ClassDef)
+                    and node.name == "ECEVChargeOnsetEnabledSwitch"):
+                src_lines = src.splitlines()
+                for child in node.body:
+                    if isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                        seg = "\n".join(
+                            src_lines[child.lineno - 1: child.end_lineno]
+                        )
+                        # Dedent 4 spaces (class body indent).
+                        method_srcs[child.name] = "\n".join(
+                            line[4:] if line.startswith("    ") else line
+                            for line in seg.splitlines()
+                        )
+        assert "_route_to_setter" in method_srcs, (
+            "wire-in broken: _route_to_setter missing — an override "
+            "would revert the write paths to the bare setattr behavior."
+        )
+        assert "async_turn_on" in method_srcs and "async_turn_off" in method_srcs, (
+            "wire-in broken: async_turn_on / async_turn_off overrides missing."
+        )
+
+        ev, hass = _make_ev(charging=False)
+        sp = SmartPlugController(hass, plug_entities=[])
+
+        class _CoordStub:
+            _ev_charge_onset_enabled = False
+        coord = _CoordStub()
+        coord._ev = ev
+        coord._smart_plugs = sp
+        coord.set_ev_charge_onset_enabled = (
+            _setter_ns["set_ev_charge_onset_enabled"].__get__(coord)
+        )
+
+        # Build a stand-in switch instance carrying the shipped methods.
+        # `_get_energy` is inherited on the real factory base — supply a
+        # minimal one that resolves to `coord`.
+        class _FakeSwitch:
+            def _get_energy(self):
+                return coord
+        fake = _FakeSwitch()
+        fake._deferred_restore = False
+
+        # Compile+bind `_route_to_setter`, `async_turn_on`, `async_turn_off`.
+        # async_write_ha_state is a no-op inside the override.
+        fake.async_write_ha_state = lambda: None
+        ns: dict = {}
+        exec(compile(method_srcs["_route_to_setter"],
+                     "<switch.py-extract-onset-#B-CRIT-A>", "exec"), ns)
+        exec(compile(method_srcs["async_turn_on"],
+                     "<switch.py-extract-onset-#B-CRIT-A>", "exec"), ns)
+        exec(compile(method_srcs["async_turn_off"],
+                     "<switch.py-extract-onset-#B-CRIT-A>", "exec"), ns)
+        fake._route_to_setter = ns["_route_to_setter"].__get__(fake)
+        fake.async_turn_on = ns["async_turn_on"].__get__(fake)
+        fake.async_turn_off = ns["async_turn_off"].__get__(fake)
+
+        loop = _aio.new_event_loop()
+        loop.run_until_complete(fake.async_turn_on())
+        assert ev._ev_charge_onset_enabled is True, (
+            "wire-in broken: switch turn_on did not reach EV controller"
+        )
+        assert sp._ev_charge_onset_enabled is True, (
+            "wire-in broken: switch turn_on did not reach plug controller"
+        )
+        assert coord._ev_charge_onset_enabled is True
+
+        loop.run_until_complete(fake.async_turn_off())
+        assert ev._ev_charge_onset_enabled is False
+        assert sp._ev_charge_onset_enabled is False
+        assert coord._ev_charge_onset_enabled is False
+
+    # -------------------------------------------------------------- drain sensor
+    def test_wirein_drain_site_marks_onset_deferred(self):
+        """When drain-release is held by onset at #4, the held evse_id
+        MUST appear in `_onset_deferred` so `ura_ev_charge_onset_active`
+        sensor reflects the hold."""
+        ev, hass = _make_ev(charging=False)
+        ev.set_ev_charge_onset_enabled(True)
+        ev.set_ev_charge_onset_time("01:00")
+        now_local = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert not any(
+            a.get("service") == "switch.turn_on" for a in actions
+        )
+        assert "garage_a" in ev._onset_deferred, (
+            "sensor observability: drain-site hold did not mark _onset_deferred"
+        )
+
+    def test_wirein_drain_site_marks_onset_deferred_plug(self):
+        sp, hass, pid = _make_plug()
+        sp.set_ev_charge_onset_enabled(True)
+        sp.set_ev_charge_onset_time("01:00")
+        now_local = datetime(2026, 1, 1, 22, 0, tzinfo=CDT)
+        actions = sp.determine_battery_drain_actions(
+            battery_power_w=0.0,
+            battery_soc=45.0,
+            soc_threshold=50,
+            reserve_soc=50,
+            force_charge_active=False,
+            solar_replenishing=False,
+            is_offpeak=True,
+            dp_forcing=False,
+            now_local=now_local,
+            must_start_by_min=180,
+        )
+        assert not any(
+            a.get("service") == "switch.turn_on" for a in actions
+        )
+        assert pid in sp._onset_deferred, (
+            "sensor observability: plug drain-site hold did not mark _onset_deferred"
+        )

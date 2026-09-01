@@ -133,12 +133,14 @@ def _evaluate_onset_gate(
       * `in_hold_window = 0 < (onset_instant - now) <= max_hold_h`.
       * `onset_permits = not in_hold_window`.
       * `must_start_by_reached` — if `must_start_by_min` is not None and
-        we're currently inside the hold window, compute the analogous
-        `next_occurrence_of_hhmm(now - max_hold_h, ms_hh, ms_mm)` (back-
-        shift symmetric to the hold window itself). Returns True iff
-        `now >= that instant` — i.e. we've crossed today's 03:00 within
-        THIS overnight hold window. This gives the plug-tier L1 charger
-        a hard 03:00 release even though it has NO DP participation.
+        we're currently inside the hold window, compute
+        `ms_ref = max(now - max_hold_h, onset_instant - max_hold_h)`
+        (v3 CLAMPED to the hold-window floor — un-clamped `now - max_hold_h`
+        resolved to a wall-time in the past every daytime tick and
+        defeated the hold). Then
+        `ms_instant = next_occurrence_of_hhmm(ms_ref, ms_hh, ms_mm)` and
+        return `now >= ms_instant`. Gives the plug-tier L1 charger a
+        hard 03:00 release even though it has NO DP participation.
 
     All time comparisons use `now`'s tzinfo (caller passes tz-aware `now`).
     """
@@ -342,7 +344,7 @@ class EVChargerController:
         # `set_ev_charge_onset_enabled`), both routed via
         # `_EC_SETTER_DISPATCH`. Both fanned out to plug controller too.
         self._ev_charge_onset_time: str | None = None
-        self._ev_charge_onset_enabled: bool = True
+        self._ev_charge_onset_enabled: bool = False  # v3 ship dormant
         # v3 (funnel) — per-controller set of evse_id currently DEFERRED
         # by the onset funnel `_charge_on_or_defer`. Reset at the top of
         # each off_peak branch AND on the is_on path so the set cannot
@@ -2323,6 +2325,18 @@ class EVChargerController:
                 overnight_release = battery_out_of_capacity and (
                     onset_permits or dp_forcing or must_start_by_reached
                 )
+                # v3 fix-up D-MED-2 — when the OVERNIGHT leg is held by
+                # onset (battery_out_of_capacity True but gate refused)
+                # AND the daytime leg is not firing, mark the deferral
+                # so `binary_sensor.ura_ev_charge_onset_active` reflects
+                # the drain-site hold too. Daytime leg is INTENTIONALLY
+                # ungated (baseline preservation); do not gate it.
+                if (battery_out_of_capacity
+                        and not overnight_release
+                        and not daytime_release):
+                    if not hasattr(self, "_onset_deferred"):
+                        self._onset_deferred = set()
+                    self._onset_deferred.add(evse_id)
                 if daytime_release or overnight_release:
                     if not state["is_on"]:
                         # Don't resume if another pause reason is active.
@@ -2602,11 +2616,21 @@ class EVChargerController:
                         )
                         continue
                     if not state["is_on"]:
-                        actions.append({
-                            "service": "switch.turn_on",
-                            "target": switch_entity,
-                            "data": {},
-                        })
+                        # v3 fix-up D-HIGH-2 — route the FP resume turn-on
+                        # (incl. the forecast_decayed dusk-grid leg) through
+                        # the onset funnel. Same pattern as the ensure-on
+                        # sites; surrounding FP logic unchanged.
+                        coord = getattr(self, "_energy_coord", None)
+                        ms_min = getattr(coord, "_dp_must_start_by_min", None)
+                        _now_local = _dt_util_now_or_none()
+                        actions.extend(self._charge_on_or_defer(
+                            evse_id,
+                            switch_entity,
+                            _now_local,
+                            getattr(self, "_ev_charge_onset_enabled", False),
+                            getattr(self, "_ev_charge_onset_time", None),
+                            ms_min,
+                        ))
                         reason = (
                             "SOC reached fill target"
                             if resume_soc_met else "forecast decayed"
@@ -2777,6 +2801,13 @@ class EVChargerController:
                 or evse_id in self._paused_by_load_shed
                 # D-HIGH-1 (Batch 2): blind-window guard peer.
                 or evse_id in self._paused_by_blind_window
+                # v3 fix-up D-HIGH-1 (arbitrage-vs-onset): if the charger
+                # is onset-deferred (proactive off-peak hold set is the
+                # membership marker for the ensure-on funnel's held
+                # tick), arbitrage release MUST NOT turn it on inside
+                # the onset hold window. Precedence-preserving one-line
+                # peer add — no arbitrage decision changed.
+                or evse_id in self._proactive_offpeak_holds
             ):
                 _LOGGER.info(
                     "EV %s arbitrage release (%s): another pause reason holds — leaving paused",
@@ -3222,7 +3253,7 @@ class SmartPlugController:
         # operator's L1 charger a hard 03:00 safety release. See EV
         # docstring above for the retired-anchor rationale.
         self._ev_charge_onset_time: str | None = None
-        self._ev_charge_onset_enabled: bool = True
+        self._ev_charge_onset_enabled: bool = False  # v3 ship dormant
         # v3 (funnel) plug mirror — see EV controller docstring.
         self._onset_deferred: set[str] = set()
 
@@ -3817,6 +3848,18 @@ class SmartPlugController:
                 overnight_release = battery_out_of_capacity and (
                     onset_permits or dp_forcing or must_start_by_reached
                 )
+                # v3 fix-up D-MED-2 — when the OVERNIGHT leg is held by
+                # onset (battery_out_of_capacity True but gate refused)
+                # AND the daytime leg is not firing, mark the deferral
+                # so `binary_sensor.ura_ev_charge_onset_active` reflects
+                # the drain-site hold too. Daytime leg is INTENTIONALLY
+                # ungated (baseline preservation); do not gate it.
+                if (battery_out_of_capacity
+                        and not overnight_release
+                        and not daytime_release):
+                    if not hasattr(self, "_onset_deferred"):
+                        self._onset_deferred = set()
+                    self._onset_deferred.add(entity_id)
                 if daytime_release or overnight_release:
                     # Don't resume if TOU pause or fill-priority is active.
                     # v4.7.6 fix-up A-H2 mirror: release drain claim only.
@@ -3872,6 +3915,7 @@ class SmartPlugController:
         force_charge_active: bool = False,
         peak_ahead: bool | None = None,
         is_daylight: bool | None = None,
+        must_start_by_min: int | None = None,
     ) -> list[dict[str, Any]]:
         """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
 
@@ -4002,11 +4046,16 @@ class SmartPlugController:
                         )
                         continue
                     if not is_on:
-                        actions.append({
-                            "service": "switch.turn_on",
-                            "target": entity_id,
-                            "data": {},
-                        })
+                        # v3 fix-up D-HIGH-2 (plug tier) — route through funnel.
+                        _now_local = _dt_util_now_or_none()
+                        actions.extend(self._charge_on_or_defer(
+                            entity_id,
+                            entity_id,
+                            _now_local,
+                            getattr(self, "_ev_charge_onset_enabled", False),
+                            getattr(self, "_ev_charge_onset_time", None),
+                            must_start_by_min,
+                        ))
                         reason = (
                             "SOC reached fill target"
                             if resume_soc_met else "forecast decayed"

@@ -4519,12 +4519,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_ENERGY_EVSE_CHARGE_ONSET_TIME,
                 ),
             ): selector.TimeSelector(),
-            # Rev 6 D-A — enable toggle. Mirrors an existing EC boolean
-            # config-flow field pattern (BooleanSelector). Default True
-            # so the feature ships ACTIVE on install; the operator turns
-            # it off here or via `switch.ura_ev_charge_onset_enabled`
-            # (they stay in sync via `_EC_SETTER_DISPATCH` +
-            # `OPTIONS_RELOAD_SUPPRESS_KEYS`).
+            # v3 enable toggle (BooleanSelector). Ships DORMANT
+            # (default False); operator enables via this field or via
+            # `switch.ura_ev_charge_onset_enabled` (they stay in sync
+            # via `_EC_SETTER_DISPATCH` + `OPTIONS_RELOAD_SUPPRESS_KEYS`).
             vol.Optional(
                 CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
                 default=self._get_current(
