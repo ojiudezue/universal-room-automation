@@ -76,6 +76,33 @@ cards:
   next: 'Planner applying M1/L1/L2/L3 (ac7c6c69882c02fd6). Then BUILD-READY: D1 mask + D3 stale-visibility +
     bounded sensor-only metric + 9 tests incl. the production-computation byte-identity anchor. Control path untouched.'
   refs: ['docs/planning/PLANNING_forecast_accuracy_fix.md', 'sensor.py:11344/11373', 'energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy', 'energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property', 'PLANNING_v4.7.x_advanced_energy_management.md E5 origin']
+- id: DOC-MOUNT-PATH-STALE-1
+  title: CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue
+    vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
+  thread: platform
+  status: inbox
+  created: 2026-09-01 17:40
+  updated: 2026-09-01 17:40
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that
+     path does not exist on this machine (verified: ls -> No such file or directory); the live mount is
+     /Users/okosisi/ha-config (.HA_VERSION present). An agent following the doc hits a missing mount and may
+     fall back to a wrong path (this exact trap nearly caused the EC-1 builder to mint _2 duplicate entities).
+     The stale username ojiudezue appears in CLAUDE.md (2x) and across ~10 skill files + .vibememo. Solution:
+     correct the MOUNT PATHS to /Users/okosisi. NOTE this is two DISTINCT problems, do not blind find-replace:
+     (a) stale filesystem mount paths (safe to fix), and (b) the vibememo USER IDENTITY dir .vibememo/users/ojiudezue/
+     + FORMAT.md schema refs (renaming that dir is a structural vibememo change, NOT a path fix) — scope separately.'
+  origin: {date: '2026-09-01', gist: EC-1 plan-review side-finding — documented mount path does not exist}
+  why: 'Verified by ls: /Users/ojiudezue/ha-config/.HA_VERSION absent; /Users/okosisi/ha-config/.HA_VERSION
+    present (8 bytes, mounted). git grep ojiudezue spans CLAUDE.md + .claude/skills/*/SKILL.md + .vibememo/.'
+  constraints:
+  - Do NOT blind-replace ojiudezue->okosisi; the .vibememo/users/ojiudezue/ dir is a user identity, not a path.
+  next: 'Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi;
+    handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.'
+  refs: ['CLAUDE.md Data Source Verification section', 'AUDIT/plan-review of EC-1 2026-09-01']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
@@ -2765,8 +2792,8 @@ cards:
     tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm
     drop is recorded in planning doc and close.'
 - id: EV-SENSOR-CLEANUP-1
-  title: 'EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia
-    recovered) — next-deploy items, committed not parked'
+  title: 'EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power
+    (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
   status: planned
   operator_correction_2026_09_01: 'REVERSED the remove-the-dupes approach. Do NOT delete
@@ -2798,9 +2825,27 @@ cards:
     CRITICAL build risk: builder MUST adopt the orphans EXACT unique_id from live .storage/core.entity_registry
     (not guess f"{DOMAIN}_ev_charge_rate_garage_a") or HA mints _2 duplicates and leaves the orphans dead
     (reference_frigate1_retired_2suffix_permanent footgun). Tier 2 (2 reviews) for that registry regression risk.'
-  next: 'Tier-2 PLAN-REVIEW in flight (correctness/unit + surface-identity/unique_id). On SHIP -> build:
-    re-add both sensors adopting orphan unique_ids, native_value <- ev_status per-bay power (kW), idle-0
-    discriminating test. ev_charging_status untouched (non-goal).'
+  - 'PLAN-REVIEW = FIX-REQUIRED, and it tips the decision to KILL. HIGH-2: the producer power field is NOT
+    always a measurement — when the Emporia power sensor is dead but the switch says charging, it returns a
+    FABRICATED constant EVSE_ESTIMATED_POWER_W=7600 (energy_pool.py:966, energy_const.py:871); publishing that
+    as a POWER/MEASUREMENT sensor would write 7.6kW of fiction into HA long-term statistics as if measured, and
+    reads a confident 0.000kW when Emporia is unavailable+switch-off (Bug Class #7). HIGH-1: the plan guessed the
+    orphan unique_id WRONG (missing the energy_ segment; real = universal_room_automation_energy_ev_charge_rate_garage_{a,b}
+    per live registry) — a build following it would mint _2 dupes. Since the classes are already deleted, re-add
+    buys only graphable instantaneous kW (marginal; the EV detail card already surfaces per-bay power from the
+    attrs, marking switch-status as ~est). RECOMMENDATION: KILL the two orphan rows (one-shot ha_remove_entity,
+    like automation_mode) — zero code, zero fiction risk. If per-bay ENERGY history (kWh) is wanted, that is a
+    different + more useful sensor, card separately. Side-findings: CLAUDE.md mount path is wrong for this machine
+    (see DOC-MOUNT-PATH-STALE-1); docstring sensor.ura_ev_charging_status should be ...coordinator_ev_charging_status.'
+  - 'KILL EXECUTED (operator "Lets kill", 2026-09-01): ha_remove_entity bulk removed the two orphan rows
+    (removed 2/skipped 0/errors 0); both now 404; codeless orphans so they will NOT return on restart. Q1 of
+    AUDIT_ev_sensor_surface.md DONE. Attribute-reuse on dashboards: the per-bay power lives in
+    ev_charging_status attrs and the URA v8 EV detail card (EVCARD-1) ALREADY surfaces it (marking switch-status
+    values ~est); a v6 card can read the same attrs — no sensor needed. RESIDUAL (audit Q3, this card re-scoped
+    to it): wire the Moes L1 sockets to the real Emporia garage-circuit power sensor (keep L1_ESTIMATED_POWER_W=1440
+    as fallback) so the outlets read MEASURED not estimated. Emporia integration root-fixed 2026-08-16 (v0.12.3).'
+  next: 'Q3 remainder: add optional per-plug power entity in _plug_config wired to the Emporia garage circuit
+    (small additive, keeps the 1440W estimate as fallback). Small Tier-1/2; queue behind the in-flight cycles.'
   refs:
   - docs/planning/AUDIT_ev_sensor_surface.md
   live_validation_2026_08_16: 'v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T16:52:33-05:00_ - _Data commit: `424e1f407c8f`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T16:55:40-05:00_ - _Data commit: `4f1c310d9381`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-09-01T16:52:33-05:00_ - _Data commit: `424e1f407c8f`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 9 |
@@ -23,8 +23,19 @@ _Generated: 2026-09-01T16:52:33-05:00_ - _Data commit: `424e1f407c8f`_ - _last_r
 | 🅿️ Parked | 20 |
 | ✅ Done | 57 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
+
+### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
+thread: **platform** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-01 17:40 · initial_
+- **Problem / Solution:**
+  - Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that path does not exist on this machine (verified: ls -> No such file or directory); the live mount is /Users/okosisi/ha-config (.HA_VERSION...
+- **Origin:** 2026-09-01 - EC-1 plan-review side-finding — documented mount path does not exist
+- **Why:** Verified by ls: /Users/ojiudezue/ha-config/.HA_VERSION absent; /Users/okosisi/ha-config/.HA_VERSION present (8 bytes, mounted). git grep ojiudezue spans CLAUDE.md + .claude/skills/*/SKILL.md + .vibememo/.
+- **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
+- **Tags:** no-fabrication-verify
+- **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -639,12 +650,12 @@ _created 2026-09-01 16:15 · updated 2026-09-01 17:05 · refined ×2_
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** docs/planning/PLANNING_forecast_accuracy_fix.md; sensor.py:11344/11373; energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy; energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property; PLANNING_v4.7.x_advanced_energy_management.md E5 origin
 
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface cleanup: remove dupe charge_rate sensors + wire per-plug real power (Emporia recovered) — next-deploy items, committed not parked
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
 thread: **energy** - status: **planned** - approval: **implied**
-_refined ×1_
+_refined ×3_
 - **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
 - **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
-- **Next:** Tier-2 PLAN-REVIEW in flight (correctness/unit + surface-identity/unique_id). On SHIP -> build: re-add both sensors adopting orphan unique_ids, native_value <- ev_status per-bay power (kW), idle-0 discriminating test. ev_charging_status ...
+- **Next:** Q3 remainder: add optional per-plug power entity in _plug_config wired to the Emporia garage circuit (small additive, keeps the 1440W estimate as fallback). Small Tier-1/2; queue behind the in-flight cycles.
 - **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
 - **Forensic keys (2):**
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
