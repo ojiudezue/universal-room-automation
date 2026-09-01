@@ -620,10 +620,12 @@ def test_D5_hvac_sweep_nonsleep_turns_off_night_only_entity():
     )
 
 
-def test_D5_hvac_sweep_sleep_does_NOT_turn_off_night_only_entity():
-    """D5 DISCRIMINATING: sleep zone-vacancy sweep MUST NOT turn off a
-    night-only entity (invariant #2 — the 02:00-kills-hallway-night-light
-    anti-regression). Neutering the sleep gate turns this RED.
+def test_D5_hvac_sweep_SLEEP_ALSO_turns_off_night_only_entity():
+    """Rev 3 DISCRIMINATING: sleep zone-vacancy sweep ALSO turns off a
+    night-only entity (unconditional union — night lights behave like any
+    occupancy light, OFF on vacancy always per operator correction
+    2026-09-01). Rev 2 would have skipped this — this test discriminates
+    Rev 3 from Rev 2. Mutation drill: revert the union → RED.
     """
     base = datetime(2026, 8, 10, 2, 0, 0, tzinfo=timezone.utc)
     _set_now(base)
@@ -643,7 +645,7 @@ def test_D5_hvac_sweep_sleep_does_NOT_turn_off_night_only_entity():
         if eid == night_entity:
             off_targets.add(eid)
 
-    assert night_entity not in off_targets, (
-        f"D5 sleep gate: sweep MUST NOT turn off night-only entity "
-        f"{night_entity} during sleep. log={log}"
+    assert night_entity in off_targets, (
+        f"Rev 3 D5 SLEEP-LEG: sweep MUST turn off night-only entity "
+        f"{night_entity} during sleep (unconditional union). log={log}"
     )

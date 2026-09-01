@@ -1,22 +1,25 @@
-"""NIGHT-LIGHT-NO-OFF-PATH-1 — behavioral tests for the sleep-gated
-off_set widening across all four turn-off emission sites + D4 hoisted
-sleep entry block + D6 conflict-detector surface.
+"""NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3) — behavioral tests for the
+UNCONDITIONAL union off_set widening across all four turn-off emission
+sites + D3b consumer widen + A2-gate flash filter + D6 conflict-detector
+surface.
+
+Rev 3 premise (operator correction 2026-09-01): night lights behave like
+any occupancy light — OFF on vacancy ALWAYS, including during sleep. The
+reconciler sleep branch is occupancy-aware (D2b) so both sides agree
+OFF-when-vacant.
 
 Sites under test:
 - D1: automation.py::_control_lights_exit
-- D2: actuator_reconciler.py::_resolve_light vacant branch (covered by
-      test_reconcile_on_return.py — the two tests added there)
+- D2a/D2b: actuator_reconciler.py::_resolve_light (see test_reconcile_on_return.py)
 - D3a: automation.py::_shared_space_turn_off_all
-- D3b: automation.py::check_auto_off_warning + _warning_flash
-- D4: automation.py::_control_lights_entry hoisted sleep block
-- D5: hvac.py::_execute_vacancy_sweep lights loop
+- D3b: automation.py::check_auto_off_warning + _warning_flash (+ A2-gate)
+- D5: hvac.py::_execute_vacancy_sweep (see test_hvac_vacancy_sweep_manual_on_guard.py)
 - D6: coordinator.py::_get_builtin_target_entities(TRIGGER_EXIT)
 
-Each test is a behavioral turn_off / DesiredState emission assertion,
-NOT a source grep (planning doc L1 — hollow-anchor guard).
+Each test is a behavioral service_call / state-return assertion, NOT a
+source grep (hollow-anchor guard).
 
-Test-authority (mutation) neuter→RED anchors — the reviewer / builder
-can neuter one site at a time to confirm each named test fails.
+D4 tests are DROPPED — Rev 3 removes the hoisted-sleep-block deliverable.
 """
 
 from __future__ import annotations
@@ -44,11 +47,12 @@ from custom_components.universal_room_automation.const import (
 # Fixture: RoomAutomation stub via __new__ (mirrors test_fan_oracle_delegation).
 # ---------------------------------------------------------------------------
 
+
 def _make_room(config: dict, sleep: bool = False):
     """Build a RoomAutomation stub + service-call log.
 
-    Only the surface each _control_* helper touches is injected. Service
-    calls are captured on a list (domain, service, entity_ids-sorted-tuple).
+    Only the surface each _control_* / warning / flash / shared-off helper
+    touches is injected. Service calls captured as (domain, service, ids).
     """
     from custom_components.universal_room_automation.automation import (
         RoomAutomation,
@@ -58,6 +62,7 @@ def _make_room(config: dict, sleep: bool = False):
     hass = MagicMock()
     hass.data = {DOMAIN: {}}
     calls: list[tuple[str, str, tuple]] = []
+    states: dict = {}
 
     async def _svc_call(domain, service, data=None, blocking=False, **_):
         eid = (data or {}).get("entity_id", "")
@@ -65,9 +70,7 @@ def _make_room(config: dict, sleep: bool = False):
             ids = tuple(sorted(eid))
         else:
             ids = (eid,)
-        # `service` may be a MagicMock from const imports — normalize to str.
         svc = str(service) if not isinstance(service, str) else service
-        # Detect turn_off/turn_on via HA constants regardless of mock name.
         if "TURN_OFF" in svc or svc == "turn_off":
             svc = "turn_off"
         elif "TURN_ON" in svc or svc == "turn_on":
@@ -77,6 +80,9 @@ def _make_room(config: dict, sleep: bool = False):
 
     hass.services = MagicMock()
     hass.services.async_call = _svc_call
+    hass.states = MagicMock()
+    hass.states.get = lambda eid: states.get(eid)
+
     room.hass = hass
     room.config = {"room_name": "TestRoom", **config}
     room._config_entry = MagicMock()
@@ -90,11 +96,13 @@ def _make_room(config: dict, sleep: bool = False):
     # is_sleep_mode_active is a method — patch on the INSTANCE.
     room.is_sleep_mode_active = lambda: sleep
 
-    # coordinator surface needed by set_last_action + _control_lights_exit tail.
     coord = MagicMock()
     coord.set_last_action = MagicMock()
     coord._is_cover_automation_enabled = MagicMock(return_value=False)
     room.coordinator = coord
+
+    # Expose the states dict so tests can prime entity states.
+    room._test_states = states
 
     return room, calls
 
@@ -108,23 +116,28 @@ def _run(coro):
 
 
 def _turn_offs_for(calls, entity_id):
-    """Return list of (domain, service) records whose entity list contains eid."""
-    out = []
-    for dom, svc, ids in calls:
-        if svc != "turn_off":
-            continue
-        if entity_id in ids:
-            out.append((dom, svc, ids))
-    return out
+    return [
+        (dom, svc, ids)
+        for dom, svc, ids in calls
+        if svc == "turn_off" and entity_id in ids
+    ]
+
+
+def _turn_ons_for(calls, entity_id):
+    return [
+        (dom, svc, ids)
+        for dom, svc, ids in calls
+        if svc == "turn_on" and entity_id in ids
+    ]
 
 
 # ===========================================================================
-# D1 — _control_lights_exit sleep-gated off_set
+# D1 — _control_lights_exit unconditional union
 # ===========================================================================
 
 
 def test_D1_exit_nonsleep_night_only_entity_gets_turn_off():
-    """D1: non-sleep vacancy on a night-only entity emits turn_off (the fix)."""
+    """D1: non-sleep vacancy on a night-only entity emits turn_off."""
     room, calls = _make_room(
         {
             CONF_LIGHTS: [],
@@ -139,30 +152,32 @@ def test_D1_exit_nonsleep_night_only_entity_gets_turn_off():
     )
 
 
-def test_D1_exit_sleep_bypass_night_only_entity_gets_NO_turn_off():
-    """D1 DISCRIMINATING (Rev 2 M1/M2): sleep + vacancy → night-only entity
-    receives ZERO turn_off. Neutering the sleep gate MUST turn this RED.
+def test_D1_exit_SLEEP_night_only_entity_ALSO_gets_turn_off():
+    """Rev 3 DISCRIMINATING: sleep + vacancy → night-only entity STILL
+    receives turn_off (the operator correction — night lights behave like
+    any occupancy light, OFF on vacancy always).
+
+    Rev 2's sleep-gated design would have emitted ZERO turn_offs here —
+    this test discriminates Rev 3 from Rev 2. Mutation drill: neutering
+    the union (revert to CONF_LIGHTS only) turns this RED.
     """
     room, calls = _make_room(
         {
-            CONF_LIGHTS: ["light.a"],
-            CONF_NIGHT_LIGHTS: ["light.b"],
+            CONF_LIGHTS: [],
+            CONF_NIGHT_LIGHTS: ["switch.foo"],
             CONF_EXIT_LIGHT_ACTION: LIGHT_ACTION_TURN_OFF,
         },
         sleep=True,
     )
     _run(room._control_lights_exit({}))
-    assert not _turn_offs_for(calls, "light.b"), (
-        "D1 sleep-gate: night-only light.b MUST NOT be turned off during "
-        f"sleep even on the vacancy path. calls={calls}"
+    assert _turn_offs_for(calls, "switch.foo"), (
+        f"Rev 3 D1 SLEEP-LEG: night-only switch.foo MUST be turned off "
+        f"even during sleep (unconditional union). calls={calls}"
     )
-    # light.a (regular) is in CONF_LIGHTS — unchanged behavior, may be off.
 
 
 def test_D1_exit_nonsleep_dedup_single_emission_per_dual_listed_entity():
-    """Dual-listed entity (in BOTH CONF_LIGHTS and CONF_NIGHT_LIGHTS) is
-    turned off exactly once — order-preserving dedup.
-    """
+    """Dual-listed entity → turn_off exactly once (order-preserving dedup)."""
     room, calls = _make_room(
         {
             CONF_LIGHTS: ["light.a"],
@@ -174,25 +189,40 @@ def test_D1_exit_nonsleep_dedup_single_emission_per_dual_listed_entity():
     _run(room._control_lights_exit({}))
     a_offs = _turn_offs_for(calls, "light.a")
     b_offs = _turn_offs_for(calls, "light.b")
-    # light.a appears in exactly one turn_off service_data entity_id list
-    # (dedup); light.b likewise appears once.
-    a_count = sum(1 for c in a_offs)
-    b_count = sum(1 for c in b_offs)
-    assert a_count == 1, f"light.a dedup regression: {a_offs}"
-    assert b_count == 1, f"light.b turn_off missing: {calls}"
+    assert len(a_offs) == 1, f"light.a dedup regression: {a_offs}"
+    assert len(b_offs) == 1, f"light.b turn_off missing: {calls}"
+
+
+def test_D1_no_night_light_room_byte_identical():
+    """~20 no-night-light rooms unchanged (invariant #6): with
+    night_lights=[] the widened off_set == CONF_LIGHTS, so emission
+    shape is byte-identical to pre-cycle. Hand-authored baseline:
+    exactly one light.turn_off with entity_id=[light.a] and a transition
+    key (whatever CONF_LIGHT_TRANSITION_OFF defaults to)."""
+    room, calls = _make_room(
+        {
+            CONF_LIGHTS: ["light.a"],
+            CONF_NIGHT_LIGHTS: [],
+            CONF_EXIT_LIGHT_ACTION: LIGHT_ACTION_TURN_OFF,
+        },
+        sleep=False,
+    )
+    _run(room._control_lights_exit({}))
+    off_calls = [c for c in calls if c[1] == "turn_off"]
+    assert len(off_calls) == 1, f"expected 1 turn_off, got {off_calls}"
+    dom, _svc, ids = off_calls[0]
+    assert dom == "light"
+    assert ids == ("light.a",), f"expected only light.a, got {ids}"
 
 
 # ===========================================================================
-# D3a — _shared_space_turn_off_all
+# D3a — _shared_space_turn_off_all (unconditional union)
 # ===========================================================================
 
 
 def test_D3a_shared_space_nonsleep_night_only_gets_turn_off():
     room, calls = _make_room(
-        {
-            CONF_LIGHTS: [],
-            CONF_NIGHT_LIGHTS: ["switch.foo"],
-        },
+        {CONF_LIGHTS: [], CONF_NIGHT_LIGHTS: ["switch.foo"]},
         sleep=False,
     )
     _run(room._shared_space_turn_off_all())
@@ -201,137 +231,155 @@ def test_D3a_shared_space_nonsleep_night_only_gets_turn_off():
     )
 
 
-def test_D3a_shared_space_sleep_night_only_gets_NO_turn_off():
+def test_D3a_shared_space_SLEEP_night_only_ALSO_gets_turn_off():
+    """Rev 3: sleep does NOT gate the shared-space off — unconditional union."""
     room, calls = _make_room(
-        {
-            CONF_LIGHTS: [],
-            CONF_NIGHT_LIGHTS: ["switch.foo"],
-        },
+        {CONF_LIGHTS: [], CONF_NIGHT_LIGHTS: ["switch.foo"]},
         sleep=True,
     )
     _run(room._shared_space_turn_off_all())
-    assert not _turn_offs_for(calls, "switch.foo"), (
-        "D3a sleep gate: night-only entity MUST NOT be turned off during "
-        f"sleep in shared-space consolidated off. calls={calls}"
+    assert _turn_offs_for(calls, "switch.foo"), (
+        f"Rev 3 D3a SLEEP: night-only entity MUST be turned off during "
+        f"sleep too. calls={calls}"
     )
 
 
 # ===========================================================================
-# D4 — _control_lights_entry hoisted sleep block
+# D3b — check_auto_off_warning + _warning_flash (unconditional union + A2-gate)
+# Review-C C1 fix: these were hollow anchors — now proper behavioral coverage.
 # ===========================================================================
 
 
-def test_D4_master_bedroom_shape_sleep_entry_none_turns_on_night_lights():
-    """Master-Bedroom shape: entry_action=none, lights=[], night_lights=[x],
-    sleep=True → _turn_on_night_lights invoked; _turn_off_non_night_lights
-    NOT invoked (H2)."""
-    from custom_components.universal_room_automation.automation import (
-        RoomAutomation,
-    )
-    room, calls = _make_room(
-        {
-            CONF_LIGHTS: [],
-            CONF_NIGHT_LIGHTS: ["light.x"],
-            CONF_ENTRY_LIGHT_ACTION: LIGHT_ACTION_NONE,
-        },
-        sleep=True,
-    )
+def _prime_warning_time(room):
+    """Configure the room so check_auto_off_warning enters the T-5 branch.
 
-    # Instrument the helper methods.
-    on_calls: list[str] = []
-    off_calls: list[str] = []
+    Sets last_warning_date_hour to a different value, get_auto_off_hour
+    to return a value that when combined with `dt_util.now()` triggers
+    the "warning_hour minute >= 55" branch. Simplest: monkey-patch
+    check_auto_off_warning's now source to a fixed time and set
+    auto_off_hour so warning_hour == now.hour with minute=55.
+    """
+    import custom_components.universal_room_automation.automation as _auto_mod
 
-    async def _on(mode="sleep"):
-        on_calls.append(mode)
-
-    async def _off():
-        off_calls.append("called")
-
-    room._turn_on_night_lights = _on
-    room._turn_off_non_night_lights = _off
-
-    _run(room._control_lights_entry({}))
-
-    assert on_calls == ["sleep"], (
-        f"D4: night lights ON must be invoked once with mode=sleep, got {on_calls}"
-    )
-    assert off_calls == [], (
-        f"D4 H2: _turn_off_non_night_lights MUST NOT be called from the "
-        f"hoisted sleep block. off_calls={off_calls}"
-    )
+    fixed = datetime(2026, 9, 1, 22, 55, 0)
+    # dt_util.now is imported at module top as `dt_util`; monkey-patch its
+    # `now` attribute for the duration of the call.
+    room.get_auto_off_hour = lambda: 23  # warning_hour = 22
+    room._last_warning_date_hour = None
+    orig_now = _auto_mod.dt_util.now
+    _auto_mod.dt_util.now = lambda: fixed
+    return orig_now, _auto_mod
 
 
-def test_D4_patio_shape_sleep_entry_none_regular_light_gets_NO_turn_off():
-    """Patio/Game-Room shape: entry_action=none, lights=[light.a] (non-empty),
-    night_lights=[light.b], sleep=True → night lights ON; NO turn_off
-    service call for light.a from the hoisted block (H2).
+def _restore_dt(orig_now, mod):
+    mod.dt_util.now = orig_now
+
+
+def test_D3b_check_auto_off_warning_fires_for_night_only_on_light():
+    """D3b: shared-space warning fires when the ONLY on-light is a night-only
+    entity (previously silently missed because lights_on scanned CONF_LIGHTS
+    only). Neutering the widen back to CONF_LIGHTS turns this RED.
     """
     room, calls = _make_room(
         {
-            CONF_LIGHTS: ["light.a"],
-            CONF_NIGHT_LIGHTS: ["light.b"],
-            CONF_ENTRY_LIGHT_ACTION: LIGHT_ACTION_NONE,
+            CONF_LIGHTS: [],
+            CONF_NIGHT_LIGHTS: ["light.night_a"],
         },
-        sleep=True,
+        sleep=False,
+    )
+    # Prime the night entity as ON.
+    st = MagicMock()
+    st.state = "on"
+    room._test_states["light.night_a"] = st
+
+    # Stub _warning_flash so we OBSERVE it fires without needing the full
+    # dt_util-driven flash body.
+    flash_calls: list = []
+
+    async def _flash():
+        flash_calls.append(1)
+
+    room._warning_flash = _flash
+    room.is_shared_space = lambda: True
+    room.should_warn_before_auto_off = lambda: True
+
+    orig_now, mod = _prime_warning_time(room)
+    try:
+        _run(room.check_auto_off_warning())
+    finally:
+        _restore_dt(orig_now, mod)
+
+    assert flash_calls, (
+        "D3b: check_auto_off_warning MUST detect the night-only ON entity "
+        "and fire the warning flash. Neuter the widen (revert to "
+        "CONF_LIGHTS) and this test goes RED."
     )
 
-    on_calls: list[str] = []
-    async def _on(mode="sleep"):
-        on_calls.append(mode)
 
-    room._turn_on_night_lights = _on
-    room._turn_off_non_night_lights = MagicMock()  # capture calls
-
-    _run(room._control_lights_entry({}))
-
-    assert on_calls == ["sleep"], f"D4: night lights ON expected, got {on_calls}"
-    # H2: hoisted block does NOT call the off helper.
-    assert not room._turn_off_non_night_lights.called, (
-        f"D4 H2: _turn_off_non_night_lights MUST NOT be called from the "
-        f"hoisted block (would newly kill regular lights during sleep for "
-        f"entry=none rooms)."
+def test_D3b_warning_flash_targets_include_light_domain_night_only():
+    """D3b + A2: _warning_flash targets include LIGHT.* night-only entries
+    (safe to flash via dim-then-restore). Mutation drill: revert flash's
+    widen → this test turns RED because light.night_dim never receives an
+    on-cycle service call.
+    """
+    room, calls = _make_room(
+        {
+            CONF_LIGHTS: [],
+            CONF_NIGHT_LIGHTS: ["light.night_dim"],
+        },
+        sleep=False,
     )
-    # And no direct turn_off on light.a either.
-    assert not _turn_offs_for(calls, "light.a"), (
-        f"D4 H2: light.a MUST NOT receive turn_off from the hoisted block. "
+    try:
+        _run(asyncio.wait_for(room._warning_flash(), timeout=5))
+    except asyncio.TimeoutError:
+        pass
+    # The flash cycles brightness ON. light.night_dim MUST have received
+    # at least one turn_on (dim-then-restore).
+    on_for_night = _turn_ons_for(calls, "light.night_dim")
+    assert on_for_night, (
+        f"D3b: _warning_flash MUST target LIGHT.* night-only entities. "
         f"calls={calls}"
     )
 
 
-def test_D4_nonsleep_entry_none_is_noop():
-    """Non-sleep + entry_action=none → hoisted block skipped, function
-    early-returns at :980 (empty lights) or the action==NONE guard.
-    Snapshot the no-op.
+def test_D3b_A2_gate_warning_flash_EXCLUDES_switch_domain_night_only():
+    """A2-gate: switch.* night-only entities are EXCLUDED from the flash
+    ON-cycle (potentially jarring at mains-brightness during low-light
+    hours). They ARE still turned OFF at auto-off (that's D3a's job — a
+    separate site). Mutation drill: revert the A2-gate (include
+    switch-domain night-only in flash_targets) → this test turns RED.
     """
     room, calls = _make_room(
         {
             CONF_LIGHTS: [],
-            CONF_NIGHT_LIGHTS: ["light.x"],
-            CONF_ENTRY_LIGHT_ACTION: LIGHT_ACTION_NONE,
+            CONF_NIGHT_LIGHTS: ["switch.night_relay", "light.night_dim"],
         },
         sleep=False,
     )
-
-    on_calls: list[str] = []
-    async def _on(mode="sleep"):
-        on_calls.append(mode)
-
-    room._turn_on_night_lights = _on
-
-    _run(room._control_lights_entry({}))
-    assert on_calls == [], f"non-sleep entry=none should be noop, got {on_calls}"
-    assert calls == [], f"non-sleep entry=none should be noop, got {calls}"
+    try:
+        _run(asyncio.wait_for(room._warning_flash(), timeout=5))
+    except asyncio.TimeoutError:
+        pass
+    # A2-gate: switch.night_relay is EXCLUDED from the flash ON cycle.
+    on_for_switch = _turn_ons_for(calls, "switch.night_relay")
+    assert not on_for_switch, (
+        f"A2-gate: switch-domain night-only entity switch.night_relay "
+        f"MUST NOT receive a turn_on from the warning flash. calls={calls}"
+    )
+    # But light.night_dim IS included (safe to flash via light domain).
+    assert _turn_ons_for(calls, "light.night_dim"), (
+        f"A2-gate: light-domain night-only entity SHOULD still flash. "
+        f"calls={calls}"
+    )
 
 
 # ===========================================================================
 # D6 — coordinator.py::_get_builtin_target_entities(TRIGGER_EXIT)
+# (unconditional union — no sleep gate on the conflict-detection surface)
 # ===========================================================================
 
 
 def test_D6_exit_target_entities_include_night_only():
-    """D6: exit trigger target set includes union CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
-    (dedup). Entry trigger unchanged.
-    """
     from custom_components.universal_room_automation.coordinator import (
         UniversalRoomCoordinator,
     )
@@ -340,9 +388,6 @@ def test_D6_exit_target_entities_include_night_only():
         TRIGGER_EXIT,
     )
 
-    # DataUpdateCoordinator base is a MagicMock (spec-locked); invoke the
-    # unbound method with a plain namespace as `self` — the function only
-    # reads self._get_config.
     import types as _types
     stub = _types.SimpleNamespace()
     stub._get_config = lambda key, default=None: {
@@ -352,14 +397,13 @@ def test_D6_exit_target_entities_include_night_only():
 
     fn = UniversalRoomCoordinator._get_builtin_target_entities
     exit_targets = fn(stub, TRIGGER_EXIT)
-    assert "light.a" in exit_targets, exit_targets
-    assert "light.b" in exit_targets, exit_targets
-    # Dedup: light.a appears once, not twice.
+    assert "light.a" in exit_targets
+    assert "light.b" in exit_targets
     assert exit_targets.count("light.a") == 1, (
         f"D6 dedup: light.a should appear exactly once, got {exit_targets}"
     )
 
-    # D6 non-change: enter trigger target set unchanged (CONF_LIGHTS only for lights).
+    # D6 non-change: enter trigger target set unchanged (CONF_LIGHTS only).
     enter_targets = fn(stub, TRIGGER_ENTER)
     assert "light.a" in enter_targets
     assert "light.b" not in enter_targets, (
