@@ -1,24 +1,26 @@
 # PLANNING — Shared Power-Read Staleness Helper (ENVOY-PRODUCTION-STALE-1)
 
 **Card:** `ENVOY-PRODUCTION-STALE-1` (consolidated per operator 2026-08-31).
-**Rev:** 5 (2026-09-01) — plan-review FIX-REQUIRED on Rev 4 addressed. Rev-4 verified CLEAR on CRITICAL-1 consumer coverage for `battery_power_w`, HIGH-3 cloud-SOC preserve-accept, HIGH-4 unconfigured/missing split, MED-5 class names + import-cycle safety, MED-6 6th gate + negative clamp, D4-G load-shed sustained-window, net_power consumer enumeration (except one streak-wipe row), envoy_status display-only ruling. Rev-5 corrections target four mis-targeted / over-scoped items:
+**Rev:** 5 (2026-09-01) — §BUILD-READY. Rev-5 confirm-review = SHIP. Two plan-text defects fixed in-place (MEDIUM-1 contradictory pause-direction wording; MEDIUM-2 unimplementable "hoist" instruction) + two minor clarifications (site A fall-through vs literal `else`; site B is SOLE compensator, no upstream `_breaker_guard_fail_closed_on_blind`). Neither text fix changes the shipped design; both prevent a builder coin-flip on a safety axis.
 
-> - **Rev-5 CRIT-A** — Rev-4 D4-H patched DEAD code. `_grid_import_guard_triggered` at `energy_battery.py:2635-2646` has ZERO callers (grep: only the def + stale comment refs at `:519` and `:4829`). The LIVE 12 kW breaker guard is THREE inline sites: `energy_battery.py:3150-3197`, `:4523-4547`, `:4680-4703` — each shaped `if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:` (the exact fail-OPEN shape after D4-A). D4-H is re-scoped to those three sites; the dead helper is disposed per supersession rules (see D4-H "Dead helper triage").
-> - **Rev-5 CRIT-B** — the same three sites all end with an `else: self._arbitrage_guard_consecutive_trips = 0` branch (`energy_battery.py:3196`, `:4547`, `:4703`); post-D4-A a one-tick stale gap silently WIPES an accumulated trip streak, so `ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK` (2) may never latch under alternating stale/over-import. D4-H specifies HOLD-not-reset on `snap is None` at all three sites, distinct from a genuine under-cap tick.
-> - **Rev-5 HIGH-C** — Rev-4 D4-D-1/D4-D-2 over-scoped: skipping the entire `determine_battery_drain_actions(...)` call on `battery_power_w is None` also skips its RELEASES — the `force_charge_active` release at `energy_pool.py:2147-2150` (EVSE) and `:3723-3726` (plugs), AND the `must_start_by_min` hard 03:00 L1 release at `energy.py:6329-6331` (documented as "the ONLY hard release the operator's L1 charger gets"). A persistently dead CT would strand the EV all night. Rev-5 splits pause-evaluation from release-evaluation via a `battery_power_unknown=True` flag on the call.
-> - **Rev-5 MED-D** — Rev-4 D-OBS `_resolve_source_age` pseudocode called `_get_entity(CONF_ENERGY_NET_POWER_ENTITY)` but `_get_entity(key)` at `energy_battery.py:719` expects the SHORT name from the key_map at `energy.py:986-996` (`"net_power"`, `"battery_power"`, `"solar_production"`, `"battery_soc"`). As written every source would return `"unconfigured"` — silently green-tests the HIGH-4 anchor while breaking the tile. Fixed to short names.
+Rev-5 corrections applied to the four Rev-4 findings (all verified against source before rewrite; all confirmed genuinely resolved with no new fail-OPEN):
+
+> - **Rev-5 CRIT-A** — Rev-4 D4-H patched DEAD code (`_grid_import_guard_triggered` at `energy_battery.py:2635-2646` has ZERO callers; grep-verified only the def + stale comment refs at `:519` and `:4829`). The LIVE 12 kW breaker guard is THREE inline sites: `energy_battery.py:3150-3197`, `:4523-4547`, `:4680-4703` — each shaped `if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:` (the exact fail-OPEN shape after D4-A). D4-H re-scoped; dead helper disposed per supersession rules.
+> - **Rev-5 CRIT-B** — same three sites' streak-reset paths (`energy_battery.py:3196` — fall-through, not literal `else`; `:4547` — literal `else`; `:4703` — literal `else`) silently WIPE an accumulated trip streak on a one-tick stale gap. D4-H specifies HOLD-not-reset on `snap is None`.
+> - **Rev-5 HIGH-C** — Rev-4 D4-D-1/D4-D-2 over-scoped: skipping the entire `determine_battery_drain_actions(...)` call would also skip its RELEASES (force-charge at `energy_pool.py:2147-2150` EVSE and `:3723-3726` plugs; `must_start_by_min` L1 hard release at `energy.py:6329-6331` — "the ONLY hard release the operator's L1 charger gets"). Rev-5 splits pause-evaluation from release-evaluation via a `battery_power_unknown=True` flag; the release arms are already reachable because `battery_discharging` is False under a None read.
+> - **Rev-5 MED-D** — Rev-4 D-OBS `_resolve_source_age` pseudocode used CONF_* constants but `_get_entity(key)` at `energy_battery.py:719` expects SHORT names per the key_map at `energy.py:986-996` (`"net_power"`, `"battery_power"`, `"solar_production"`, `"battery_soc"`). Fixed to short names.
 
 Rev 3 D-OBS retained (with MED-D fix); Rev 4 producer/consumer table retained (with the streak-wipe row added and D4-H re-scoped).
 
 **Tier:** **2-DB** (regression-prone, cross-coordinator ripple: energy_battery → energy_pool → EVSE + DP + NM + billing; shared primitive; folds together six hand-rolled gates whose thresholds MUST be preserved byte-for-byte on the fresh path).
-**Mode:** planning only (read-only). Awaits third plan-review pass before build dispatch.
+**Mode:** §BUILD-READY. Build may dispatch.
 
-**Falsifiable invariant (state up front — Rev 5, unchanged from Rev 4):**
+**Falsifiable invariant (state up front — Rev 5):**
 > For every trust-decision-consuming power/SOC read in the Energy family, a numeric HA state whose **`last_reported`** stamp (falling back to `last_updated` when the platform did not populate `last_reported`) is older than the site's configured `MAX_AGE_S` MUST be treated as **absent** (helper returns `None`) AND EACH CONSUMER of that value MUST route to a **fail-SAFE** fallback that preserves the SAFETY DIRECTION of the guard it participates in — the drain-pause set is HELD **while releases still evaluate**, the breaker guard TRIPS **and its consecutive-trip streak HOLDS**, the load-shed sustained window is drained (no stitched-run false escalation), the billing tick is SKIPPED, the persisted analytics column is NULL (never `0`). On the fresh path (age ≤ MAX_AGE_S, valid unit, in-range) the returned value MUST be **byte-identical** to today's read.
 >
 > Why `last_reported`, not `last_updated`: HA advances `last_reported` on every re-publish (even when the value did not change), but only advances `last_updated` on a value change. A healthy sensor pinned at 0 W (solar at night) or a constant-valued sensor would therefore be judged stale under `last_updated`. Same reason the existing grid solar-follow gate at `energy_pool.py:4406-4413` (INV-SF-10) uses `last_reported`. Any migrated site is INDIVIDUALLY specified below to preserve its current stamp choice — see D5.
 >
-> Rev-5 refinement of the per-consumer clause: **safety-guard side-effects (pause SETS and streak COUNTERS) MUST be treated as separate axes from the guard's Boolean output.** Producer-only gating that inadvertently WIPES a pause set (Rev-4 HIGH-C) or WIPES a streak counter (Rev-4 CRIT-B) silently disarms the guard just as much as returning False. The invariant covers both.
+> Rev-5 refinement of the per-consumer clause: **safety-guard side-effects (pause SETS and streak COUNTERS) MUST be treated as separate axes from the guard's Boolean output.** Producer-only gating that inadvertently WIPES a pause set (Rev-4 HIGH-C) or WIPES a streak counter (Rev-4 CRIT-B) silently disarms the guard just as much as returning False. **A blind CT MUST NOT ARM a new pause either — only HOLD an existing one** — because arming on a blind CT would fight the release path (force-charge, must_start_by) and risk stranding the operator's L1 EV overnight. The invariant covers all three axes: Boolean, pause-set membership, streak counter.
 
 ---
 
@@ -40,7 +42,7 @@ Rev 3 D-OBS retained (with MED-D fix); Rev 4 producer/consumer table retained (w
 
 ### Producer AND Consumer surveyed (re-verified by grep 2026-09-01, Rev-5 line numbers corrected)
 
-**Class-name correction (Rev 4 preserved).** `class BatteryStrategy` at `energy_battery.py:307`; `class CostTracker` at `energy_billing.py:92`; `class PeakAvoidanceTracker` at `energy_billing.py:457`. No `EnergyBatteryCoordinator`/`EnergyBillingCoordinator` classes exist (grep — 2 hits, both unrelated typing refs in other coordinators).
+**Class-name correction (Rev 4 preserved).** `class BatteryStrategy` at `energy_battery.py:307`; `class CostTracker` at `energy_billing.py:92`; `class PeakAvoidanceTracker` at `energy_billing.py:457`. No `EnergyBatteryCoordinator`/`EnergyBillingCoordinator` classes exist.
 
 **Helper HOME decision (Rev 4 preserved).** `_state_age_s` is a **module-level function in `energy_battery.py`** (top of file, after imports); `BatteryStrategy` gets thin instance-method wrappers `_read_fresh_power_w` / `_read_fresh_float`; `sensor.py` and `energy_billing.py` import `_state_age_s` directly.
 
@@ -57,21 +59,23 @@ Rev 3 D-OBS retained (with MED-D fix); Rev 4 producer/consumer table retained (w
 
 ---
 
-### CONSUMER × None-direction table (Rev 5 — updated with Rev-5 corrections + streak-wipe row)
+### CONSUMER × None-direction table (Rev 5, MEDIUM-1 wording fix applied)
 
-Every migrated producer's DOWNSTREAM sites, with SHIPPED None behavior today (fail-open = safety guard disarms; fail-closed = safety guard engages / conservative fallback) and REQUIRED post-cycle behavior. **Safety guards MUST be fail-CLOSED, side-effects included.**
+Every migrated producer's DOWNSTREAM sites, with SHIPPED None behavior today (fail-open = safety guard disarms; fail-closed = safety guard engages / conservative fallback) and REQUIRED post-cycle behavior. **Safety guards MUST be fail-CLOSED, side-effects included** — Boolean output, pause-set membership, AND streak counter.
 
 #### `battery_power_w` consumers
 
 | # | Consumer | file:line | Trust vs display | None today | Required post-cycle | Rev-5 mechanism |
 |---|---|---|---|---|---|---|
-| 1 | EVSE drain gate — plugs | `energy_pool.py:2207-2209` (`is not None and < -100`) | trust (drain pause) | **fail-OPEN** — `discharging=False` → drain pause never fires | fail-CLOSED for PAUSES + **preserve RELEASES** | D4-D-1: pass `battery_power_unknown=True` to `determine_battery_drain_actions`; force-charge release at `:2147-2150` still evaluates; pause-evaluation branch HOLDS `_paused_by_battery_drain`. |
-| 2 | EVSE drain gate — smart plugs | `energy_pool.py:3711-3713` (identical shape) | trust (drain pause) | **fail-OPEN** | same — pause HOLD + release EVALUATE | D4-D-2: mirror at `energy.py:6317`; force-charge release at `energy_pool.py:3723-3726` still evaluates; `must_start_by_min` L1 release at `energy.py:6329-6331` still evaluates. |
+| 1 | EVSE drain gate — plugs | `energy_pool.py:2207-2209` (`is not None and < -100`) | trust (drain pause) | **fail-OPEN** — `discharging=False` → drain pause never fires | **HOLD existing pauses; do NOT arm new ones under unknown** (deliberate — arming on a blind CT contradicts the release path and risks stranding). Releases (force-charge, must_start_by) STILL evaluate. | D4-D-1: pass `battery_power_unknown=True` to `determine_battery_drain_actions`; force-charge release at `:2147-2150` still evaluates; pause-add condition inside the function gated on `not battery_power_unknown`. |
+| 2 | EVSE drain gate — smart plugs | `energy_pool.py:3711-3713` (identical shape) | trust (drain pause) | **fail-OPEN** | same — HOLD existing, do NOT arm new, releases EVALUATE | D4-D-2: mirror at `energy.py:6317`; force-charge release at `energy_pool.py:3723-3726` still evaluates; `must_start_by_min` L1 release at `energy.py:6329-6331` still evaluates. |
 | 3 | `_effective_import_kw` (breaker math) | `energy_battery.py:2600-2633` (`batt_w=None → 0`, does not subtract) | trust (breaker guard math) | **fail-CLOSED already** — treating batt charge as 0 makes effective_import ≥ net, guard trips MORE easily. Documented at `:2623-2625`. | unchanged | none — preserve. |
 | 4 | Envoy restart cache write | `energy.py:2455-2460` (writes raw `.battery_power` prop) | display / restart seed | writes frozen prop | gate on `_soc_source_last == "envoy"` | D4-F. |
 | 5 | Write-verifier / forecast reads | `energy_write_verify.py:1794`, `energy_forecast.py:566` | trust | not investigated | out of scope — CARDED `BATTERY_POWER_W_CONSUMERS_AUDIT_1` | non-goal. |
 
 **Sign-flip note:** `battery_power_w` is signed. `is None` short-circuit runs before any threshold comparison.
+
+**One-voice pause-direction contract (MEDIUM-1 corrective, load-bearing):** the table above, the D4-D-0 spec below, and the D4-D acceptance tests all say the SAME thing: under `battery_power_unknown=True`, **existing membership in `_paused_by_battery_drain` is preserved (HOLD)** AND **no new pause is added (do NOT arm)** AND **all release branches evaluate normally**. Any wording elsewhere in this doc that reads as "arm a pause on unknown" is a defect — treat this bullet as authoritative.
 
 #### `net_power_w` consumers
 
@@ -80,18 +84,18 @@ Every migrated producer's DOWNSTREAM sites, with SHIPPED None behavior today (fa
 | 1 | EVSE grid-cap | `energy.py:6071` (`or 0 / 1000`) | trust (pause/resume EVSE) | **fail-OPEN** — grid ≈ 0 kW, resumes paused EVSEs | fail-CLOSED — HOLD `_paused_by_grid_cap` | D4-B. |
 | 2 | Persisted analytics row | `energy.py:3129-3130` (`or 0`) | trust (writes DB) | writes false 0 | NULL propagation | D4-C. |
 | 3 | Load-shed sustained-window | `energy.py:7381-7387` (`snap is None: return`) | trust (SHED escalation) | **fail-OPEN by early-return + deque frozen** → stitched-run false escalation on trailing edge | fail-CLOSED — `_sustained_import_readings.clear()` + return; keep existing shed set intact | D4-G. |
-| 4 | Breaker guard inline site A — `_reevaluate_arbitrage` CHARGE-phase | `energy_battery.py:3150-3197` | trust (breaker trip → chunk lock) | **fail-OPEN**: `if snap is not None and snap[0] > cap` → None passes to `else` at `:3196`, guard does NOT trip AND `_arbitrage_guard_consecutive_trips = 0` (wipes streak) | fail-CLOSED — treat None as "assume over-cap" (count as a trip: increment streak, honor `ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK`, log the None distinctly); do NOT reset the streak in the `else` on None | D4-H-1 (Rev-5). |
-| 5 | Breaker guard inline site B — attainability `_get_attain_action_charging` | `energy_battery.py:4523-4547` | trust | **fail-OPEN + streak wipe** (same shape; `else` at `:4547` resets streak) | fail-CLOSED — same | D4-H-2. |
-| 6 | Breaker guard inline site C — attainability `_get_attain_action_entry` | `energy_battery.py:4680-4703` | trust | **fail-OPEN + streak wipe** (same shape; `else` at `:4703` resets streak). NOTE the upstream `_breaker_guard_fail_closed_on_blind("attain_entry")` at `:4676` only covers `_degraded_telemetry_source` — a value-pinned local CT bypasses it, so this site's inline check is the last line of defense. | fail-CLOSED — same | D4-H-3. |
-| 7 | Streak-wipe cross-site invariant | `_arbitrage_guard_consecutive_trips` reset at `:3196`, `:4547`, `:4703` | trust (2-tick lock latch) | one-tick stale gap alternating with over-import → streak never reaches 2 → guard never locks the chunk | on `snap is None`, HOLD the streak (do NOT reset); only reset on a genuine under-cap fresh read | D4-H covers all three (single change per site). |
+| 4 | Breaker guard inline site A — `_reevaluate_arbitrage` CHARGE-phase | `energy_battery.py:3150-3197` | trust (breaker trip → chunk lock) | **fail-OPEN**: `if snap is not None and snap[0] > cap` → None falls through to `:3196` (both inner branches return, so `:3196` is reached by FALL-THROUGH not by a literal `else`); guard does NOT trip AND `_arbitrage_guard_consecutive_trips = 0` (wipes streak) | fail-CLOSED — treat None as "assume over-cap" (increment streak, honor `ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK`); do NOT reset the streak on None | D4-H-1 (Rev-5). |
+| 5 | Breaker guard inline site B — attainability `_get_attain_action_charging` | `energy_battery.py:4523-4547` | trust | **fail-OPEN + streak wipe** (`else` at `:4547` resets streak). **No upstream `_breaker_guard_fail_closed_on_blind` compensator at this site** (unlike site C at `:4676`) — D4-H-2 is the SOLE compensator here; do not assume symmetry with site C. | fail-CLOSED — same | D4-H-2. |
+| 6 | Breaker guard inline site C — attainability `_get_attain_action_entry` | `energy_battery.py:4680-4703` | trust | **fail-OPEN + streak wipe** (`else` at `:4703` resets streak). Upstream `_breaker_guard_fail_closed_on_blind("attain_entry")` at `:4676` covers `_degraded_telemetry_source` ONLY — a value-pinned local CT bypasses it, so this site's inline check is the last line of defense on the LOCAL-stale path. | fail-CLOSED — same | D4-H-3. |
+| 7 | Streak-wipe cross-site invariant | `_arbitrage_guard_consecutive_trips` reset at `:3196` (fall-through), `:4547` (`else`), `:4703` (`else`) | trust (2-tick lock latch) | one-tick stale gap alternating with over-import → streak never reaches 2 → guard never locks the chunk | on `snap is None`, HOLD the streak (do NOT reset); only reset on a genuine under-cap fresh read | D4-H covers all three (single change per site). |
 | 8 | Billing accumulate (direct grid) | `energy_billing.py:152-170` | trust (dollars) | fail-open on frozen-valid CT | fail-CLOSED — skip tick | D4-E. |
 | 9 | Billing accumulate (fallback) | `energy_billing.py:178-190` | trust (dollars) | fail-open on frozen-valid | fail-CLOSED — skip tick | D4-E. |
 | 10 | Aggregation reads | `aggregation.py:6289`, `:6319` | trust — pending re-verification | out of scope | CARDED `AGGREGATION_NET_POWER_STALE_1` | non-goal. |
 | 11 | Sensor exposure | `sensor.py:8690`, `:11538` | display | display-only | unchanged | none. |
 
-**Rev-5 CRIT-A supersession disposition of `_grid_import_guard_triggered` (`energy_battery.py:2635-2646`):** grep across `custom_components/` returned three hits — the def itself, `:519` (a stale comment referencing "`_grid_import_guard_triggered()` + 3 inline sites"), and `:4829` (a stale comment inside `_breaker_guard_fail_closed_on_blind`). ZERO real callers. Three buckets per CLAUDE.md supersession triage:
+**Rev-5 CRIT-A supersession disposition of `_grid_import_guard_triggered` (`energy_battery.py:2635-2646`):** grep across `custom_components/` returned three hits — the def itself, `:519` (stale comment referencing "`_grid_import_guard_triggered()` + 3 inline sites"), `:4829` (stale comment inside `_breaker_guard_fail_closed_on_blind`). ZERO real callers. Triage:
 
-- **DELETE** candidate — dead AND buggy (returns False on the very None case the LIVE guards must trip on) AND a footgun (a future refactor could wire it and re-introduce the fail-OPEN Rev-5 CRIT-A exposes). Deletion posture: DELETE **after** D4-H ships and post-restart live-validation confirms the three inline sites are fail-CLOSED (per CLAUDE.md "only delete after new path is live-validated"). Rev-5 does NOT delete pre-ship; the deletion PR follows the cycle's Live Validation.
+- **DELETE** candidate — dead AND buggy (returns False on the very None case the LIVE guards must trip on) AND a footgun. Deletion posture: DELETE **after** D4-H ships and post-restart live-validation confirms the three inline sites are fail-CLOSED (per CLAUDE.md "only delete after new path is live-validated"). Rev-5 does NOT delete pre-ship; deletion PR follows Live Validation.
 - The `:519` and `:4829` stale comments are updated in-cycle to reference the inline sites only (dead-comment cleanup, safe in-cycle).
 
 #### `solar_production_w` consumers
@@ -120,10 +124,10 @@ Resolver (D2-A) collapses tiers; downstream sees the tiered result (None only wh
 - Rev-3/4: `solar_age_s`, `net_power_age_s`, `battery_power_age_s`, `primary_soc_age_s`, `stale_sources`, `unconfigured_sources`, `missing_sources`, `stale_reason`, `fallback_active` — **NEW attributes**.
 
 ### Code locations surveyed end-to-end (Rev-5 line numbers)
-- `energy_battery.py:307` (`class BatteryStrategy`), `:719-735` (`_get_entity` — short-name key), `:770-925` (SOC resolver + A1 gate at `:882-910`, `except` at `:907-910`), `:830-832` (LKG stamp), `:1130-1155` (6th gate — cloud-oracle lag with `max(0.0,…)` clamp at `:1149`), `:1530-1636` (power readers), `:2225-2320` (envelope entry checks), `:2440-2461` (`envoy_available`), `:2600-2633` (`_effective_import_kw`), **`:2635-2646` (`_grid_import_guard_triggered` — DEAD, disposition per D4-H)**, `:3150-3197` (LIVE breaker guard site A + streak-wipe at `:3196`), `:3365-3370` (`_breaker_guard_fail_closed_on_blind` — scope-limited compensator), `:4144` (streak reset — separate context, out of scope), `:4523-4547` (LIVE breaker guard site B + streak-wipe at `:4547`), `:4680-4703` (LIVE breaker guard site C + streak-wipe at `:4703`), `:6080-6100` (soc_resolution diagnostics).
+- `energy_battery.py:307` (`class BatteryStrategy`), `:719-735` (`_get_entity` — short-name key), `:770-925` (SOC resolver + A1 gate at `:882-910`, `except` at `:907-910`), `:830-832` (LKG stamp), `:1130-1155` (6th gate — cloud-oracle lag with `max(0.0,…)` clamp at `:1149`), `:1530-1636` (power readers), `:2225-2320` (envelope entry checks), `:2440-2461` (`envoy_available`), `:2600-2633` (`_effective_import_kw`), **`:2635-2646` (`_grid_import_guard_triggered` — DEAD, disposition per D4-H)**, `:3150-3197` (LIVE breaker guard site A + streak-wipe-by-fall-through at `:3196`), `:3365-3370` (`_breaker_guard_fail_closed_on_blind` — scope-limited compensator, applies to site C only), `:4144` (streak reset — separate context, out of scope), `:4523-4547` (LIVE breaker guard site B + streak-wipe-in-`else` at `:4547`; NO upstream compensator), `:4680-4703` (LIVE breaker guard site C + streak-wipe-in-`else` at `:4703`; upstream compensator at `:4676`), `:6080-6100` (soc_resolution diagnostics).
 - `energy.py:986-996` (key_map — SHORT names, MED-D corrective), `:2450-2460` (save_envoy_cache — D4-F), `:3115-3140` (persisted analytics), `:3225-3560` (solar strategy), `:6055-6090` (EVSE grid-cap — D4-B), `:6150-6165` and `:6310-6335` (drain-actions call sites — D4-D targets; `:6329-6331` `must_start_by_min` L1 release), `:7370-7400` (load-shed — D4-G).
 - `energy_billing.py:92` (`class CostTracker`), `:144-191` (`_get_net_power` — D4-E), `:457` (`class PeakAvoidanceTracker`).
-- `energy_pool.py:2140-2225` (EVSE drain — force-charge release at `:2147-2150`), `:3705-3735` (plug drain — force-charge release at `:3723-3726`), `:4395-4417` (grid-follow), `:4685-4710` (per-bay solar power).
+- `energy_pool.py:2140-2225` (EVSE drain — force-charge release at `:2147-2150`; pause-add condition on `battery_discharging` at `:2228-2243`), `:3705-3735` (plug drain — force-charge release at `:3723-3726`), `:3797` (plug variant pause-add condition on `battery_discharging`), `:3815` (`battery_ok = not battery_discharging`), `:4395-4417` (grid-follow), `:4685-4710` (per-bay solar power).
 - `energy_const.py:300-340`, `:960-985`.
 - `sensor.py:12480-12515` — AC-kWh display gate.
 - `sensor.py:13293-13444` — `EnergyEnvoyStatusSensor`.
@@ -185,21 +189,21 @@ Unchanged from Rev 4 (A `:828`, B `:2242`, C `:2455` KEEP-raw, D `:6091` migrate
 
 Unchanged from Rev 3 (D3-A `:1614`, D3-B `:2330`).
 
-### D4 — Migrate `net_power_w`, inline `battery_power_w`, billing `_get_net_power`, PAIRED call-site fixes (Rev-5 corrections applied)
+### D4 — Migrate `net_power_w`, inline `battery_power_w`, billing `_get_net_power`, PAIRED call-site fixes
 
 **D4-A — `energy_battery.py:1636` net_power_w producer.** Migrate to `self._read_fresh_power_w("net_power", DEFAULT_NET_POWER_MAX_AGE_S, stamp="last_reported")`. **New const** `DEFAULT_NET_POWER_MAX_AGE_S: Final = 180`.
 
-**Single-diff gate (Rev-4 preserved, Rev-5 tightened):** D4-A MUST ship in the same commit as D4-B, D4-C, D4-E, D4-G, **and all three sub-sites of D4-H** (`energy_battery.py:3150-3197`, `:4523-4547`, `:4680-4703`). Reviewer B enforces via single-diff check.
+**Single-diff gate:** D4-A MUST ship in the same commit as D4-B, D4-C, D4-E, D4-G, **and all three sub-sites of D4-H** (`energy_battery.py:3150-3197`, `:4523-4547`, `:4680-4703`). Reviewer B enforces via single-diff check.
 
 **D4-B — grid-cap consumer at `energy.py:6071` — fail-SAFE HOLD `_paused_by_grid_cap` (unchanged from Rev 2/3/4).**
 
 **D4-C — persisted analytics `grid_import_kw` / `solar_export_kw` (`energy.py:3129-3130`) — NULL propagation (unchanged).**
 
-**D4-D — `battery_power_w` inline refactor + PAIRED call-site pause/RELEASE split (Rev-5 HIGH-C fix).**
+**D4-D — `battery_power_w` inline refactor + PAIRED call-site pause/RELEASE split (Rev-5).**
 
 Producer (`energy_battery.py:1546-1570`): route through `_read_fresh_power_w("battery_power", DEFAULT_BATTERY_POWER_MAX_AGE_S, stamp="last_reported")` with sign-flip at the call site. **New const** `DEFAULT_BATTERY_POWER_MAX_AGE_S: Final = 180`. Display prop at `:1530` unchanged.
 
-**D4-D-0 (NEW Rev-5): extend `determine_battery_drain_actions` signature** in `energy_pool.py` (both EVSE at `:2140`-ish and plug at `:3705`-ish variants):
+**D4-D-0 (Rev-5, MEDIUM-2 corrective): extend `determine_battery_drain_actions` signature** in `energy_pool.py` (both EVSE variant and plug variant). Add ONE kwarg:
 
 ```python
 def determine_battery_drain_actions(
@@ -219,14 +223,20 @@ def determine_battery_drain_actions(
 ) -> list[dict]:
     """... battery_power_unknown=True means the CT read was rejected as
     stale. Under this flag: RELEASE branches (force_charge, must_start_by,
-    DP-forcing) evaluate normally; PAUSE-evaluation is skipped and any
-    existing `_paused_by_battery_drain` membership is HELD. Default False
+    DP-forcing) evaluate normally; PAUSE-add conditions are gated
+    (existing memberships HOLD; no NEW pause is armed). Default False
     preserves fresh-path byte-identity."""
 ```
 
-Inside the function (both variants), the release branches (force-charge at `energy_pool.py:2147-2150` / `:3723-3726`; `must_start_by_min` L1 hard release at the point it's honored in the plug variant that consumes `must_start_by_min`; DP-forcing release) execute BEFORE any `battery_discharging` check. The `battery_discharging = (battery_power_w is not None and battery_power_w < -100)` line and its downstream pause-add logic are gated on `not battery_power_unknown`. When `battery_power_unknown=True`, the pause-add path is a no-op (memberships persist); when False, behavior is byte-identical to today.
+**No structural hoisting** required. In the plug variant `battery_discharging` is computed at `energy_pool.py:3711` **above** the entity loop, and the `must_start_by_min` release path sits in the `elif` arm that depends on `battery_discharging` transitively via `battery_ok = not battery_discharging` at `:3815` — release arms are already reachable under a None read because the current shape yields `battery_discharging = False`, which is precisely why HIGH-C verified as resolved in outcome. The Rev-5 change is surgical:
 
-**D4-D-1 (Rev-5 corrected): call site at `energy.py:6161` — EVSE drain call.**
+- **Gate ONLY the pause-add conditions on `not battery_power_unknown`:**
+  - EVSE variant: `energy_pool.py:2228-2243` (the block that adds `evse_id` to `_paused_by_battery_drain`) — extend the guarding predicate with `and not battery_power_unknown`.
+  - Plug variant: `energy_pool.py:3797` (the corresponding pause-add block) — extend the guarding predicate with `and not battery_power_unknown`.
+
+That is the entire structural change. Release arms are untouched. The force-charge release at `:2147-2150` / `:3723-3726` and the `must_start_by_min` L1 hard release evaluate exactly as they do today, because `battery_discharging` becomes False under a None read and the release paths already handle that case.
+
+**D4-D-1: call site at `energy.py:6161` — EVSE drain call.**
 
 ```python
 _bp = self._battery.battery_power_w
@@ -239,15 +249,16 @@ drain_actions = self._ev.determine_battery_drain_actions(
 )
 ```
 
-**D4-D-2 (Rev-5 corrected): call site at `energy.py:6317` — smart-plug drain call.** Mirror; `must_start_by_min=self._dp_must_start_by_min` is already passed and MUST still be honored under `battery_power_unknown=True` (this is the operator's L1 3am release — the one Rev-4 accidentally suppressed).
+**D4-D-2: call site at `energy.py:6317` — smart-plug drain call.** Mirror; `must_start_by_min=self._dp_must_start_by_min` is already passed and MUST still be honored under `battery_power_unknown=True` (the operator's L1 3am release).
 
 **Tests (Rev-5):**
 - `test_drain_stale_battery_power_holds_pause_set_evse` — bay in `_paused_by_battery_drain`, `battery_power_w = None` for 5 ticks, membership persists.
 - `test_drain_stale_battery_power_holds_pause_set_plugs` — mirror for plugs.
-- `test_drain_stale_battery_power_still_honors_force_charge_release` (Rev-5 HIGH-C anchor) — plug in `_paused_by_battery_drain`, `battery_power_w = None`, `force_charge_active = True` → membership CLEARED (release path evaluated) despite stale CT.
-- `test_drain_stale_battery_power_still_honors_must_start_by` (Rev-5 HIGH-C anchor) — L1 socket in `_paused_by_battery_drain`, `battery_power_w = None` for 6 hours, wall-clock crosses `must_start_by_min` → membership CLEARED (hard release path evaluated) despite persistently dead CT. **This is the anti-strand test.**
-- `test_drain_producer_gate_without_call_site_unknown_flag_regresses` (mutation anchor) — mutate D4-D-1 to omit `battery_power_unknown=(_bp is None)` (or hard-code False); pause-hold test fails. Restoring re-passes.
-- `test_drain_over_scoped_skip_regresses_release` (mutation anchor NEW Rev-5) — mutate D4-D-1 to Rev-4's `if _bp is None: return` shape; `must_start_by` test fails. Confirms the pause/release SPLIT is load-bearing.
+- `test_drain_stale_battery_power_does_not_arm_new_pause` (MEDIUM-1 wording anchor) — bay NOT in `_paused_by_battery_drain`, `battery_power_w = None`, SOC below threshold, off-peak → membership REMAINS empty (no new arm). Confirms the "HOLD, do NOT arm" contract distinct from a fail-CLOSED-arm interpretation.
+- `test_drain_stale_battery_power_still_honors_force_charge_release` — plug in `_paused_by_battery_drain`, `battery_power_w = None`, `force_charge_active = True` → membership CLEARED despite stale CT.
+- `test_drain_stale_battery_power_still_honors_must_start_by` — L1 socket in `_paused_by_battery_drain`, `battery_power_w = None` for 6 hours, wall-clock crosses `must_start_by_min` → membership CLEARED despite persistently dead CT. **Anti-strand test.**
+- `test_drain_producer_gate_without_call_site_unknown_flag_regresses` (mutation anchor) — mutate D4-D-1 to omit `battery_power_unknown=(_bp is None)`; pause-hold test fails.
+- `test_drain_over_scoped_skip_regresses_release` (mutation anchor) — mutate D4-D-1 to a Rev-4-shape `if _bp is None: return` guard around the whole call; `must_start_by` test fails. Confirms the pause/release SPLIT is load-bearing.
 
 **D4-E — billing `CostTracker._get_net_power` at `energy_billing.py:144-191` — fresh-read migration for both branches (unchanged from Rev 4).** Import `_state_age_s` from `.energy_battery`.
 
@@ -255,7 +266,7 @@ drain_actions = self._ev.determine_battery_drain_actions(
 
 **D4-G — Load-shed sustained-window drain at `energy.py:7381-7387` (Rev-4 preserved).** `_sustained_import_readings.clear()` + return on stale snap.
 
-**D4-H — Breaker guard fail-CLOSED at THREE inline sites (Rev-5 CRIT-A + CRIT-B re-scope).**
+**D4-H — Breaker guard fail-CLOSED at THREE inline sites (Rev-5).**
 
 The Rev-4 target (`_grid_import_guard_triggered` at `:2635-2646`) is DEAD (see supersession disposition above). The LIVE sites are all shaped:
 
@@ -264,11 +275,13 @@ snap = self._effective_import_kw()
 if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
     ... increment self._arbitrage_guard_consecutive_trips ...
     ... if >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK: LOCK ...
-else:
-    self._arbitrage_guard_consecutive_trips = 0   # <-- streak wipe (CRIT-B)
+# (streak reset lives at the end of the block — via literal `else`
+#  at sites B/C, or via FALL-THROUGH at site A because both inner
+#  branches return.)
+self._arbitrage_guard_consecutive_trips = 0
 ```
 
-Rev-5 change (applied identically at all three sites, only line numbers differ):
+Rev-5 canonical change (applied at all three sites, site-appropriate return values inserted):
 
 ```python
 snap = self._effective_import_kw()
@@ -277,22 +290,17 @@ if snap is None:
     # treat as "assume over-cap" AND do NOT reset the streak.
     # A value-pinned local CT bypasses _breaker_guard_fail_closed_on_blind
     # (which only compensates when _degraded_telemetry_source is set;
-    # a stale-but-numeric local read does not set that flag), so this
+    # a stale-but-numeric local read does not set that flag), so the
     # inline site is the last line of defense for the 12kW panel guard.
     self._arbitrage_guard_consecutive_trips += 1
     if self._arbitrage_guard_consecutive_trips >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK:
-        # (site-appropriate LOCK block: chunk_completed, aborted_at,
-        # aborted_kw = None-sentinel or last-known, warning log naming
-        # the stale-CT cause, return the site's chunk-locked value —
-        # None or ARBITRAGE_PHASE_WAIT depending on the site.)
         from homeassistant.util import dt as dt_util
         self._arbitrage_chunk_completed = True
         self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
-        self._arbitrage_guard_aborted_kw = None   # sentinel: locked on stale, not on measured overdraw
+        self._arbitrage_guard_aborted_kw = None   # sentinel: locked on stale
         _LOGGER.warning(
             "Arbitrage grid-import guard: net_power STALE — assuming "
-            "over-cap; %d consecutive stale/over-cap ticks. Chunk locked "
-            "(retry next chunk).",
+            "over-cap; %d consecutive stale/over-cap ticks. Chunk locked.",
             self._arbitrage_guard_consecutive_trips,
         )
         return <site-appropriate locked value>
@@ -311,35 +319,35 @@ else:
     ... existing under-cap continuation UNCHANGED ...
 ```
 
-**D4-H-1** applies at `energy_battery.py:3150-3197` (arbitrage CHARGE-phase). Site-appropriate values: defer-one-tick returns `ARBITRAGE_PHASE_CHARGE`, locked returns `ARBITRAGE_PHASE_WAIT`.
+**D4-H-1** applies at `energy_battery.py:3150-3197` (arbitrage CHARGE-phase). **Builder note (Rev-5 clarification):** today's streak-reset at `:3196` is reached by FALL-THROUGH — the `if snap is not None and snap[0] > cap` block's inner branches both `return` (defer returns `ARBITRAGE_PHASE_CHARGE`, lock returns `ARBITRAGE_PHASE_WAIT`), so `:3196` is a bare statement after the `if`. Do NOT insert a literal `else` expecting symmetry with sites B/C. The Rev-5 replacement re-shapes the control flow into an explicit `if snap is None: ... elif snap[0] > cap: ... else: ...` with the streak-reset in the final `else` branch. Site-appropriate values: defer-one-tick returns `ARBITRAGE_PHASE_CHARGE`, locked returns `ARBITRAGE_PHASE_WAIT`.
 
-**D4-H-2** applies at `energy_battery.py:4523-4547` (attainability `_get_attain_action_charging`). Site-appropriate values: defer-one-tick continues (no early return); locked sets `self._attain_state = "inactive"` and returns `None`.
+**D4-H-2** applies at `energy_battery.py:4523-4547` (attainability `_get_attain_action_charging`). Streak-reset today is a literal `else` at `:4547`. **Builder note (Rev-5 clarification):** site B has **NO upstream `_breaker_guard_fail_closed_on_blind` compensator** — that helper protects site C at `:4676` (via `"attain_entry"` call) and is not present anywhere upstream of site B. D4-H-2 is the SOLE local-stale compensator at this site; do not assume symmetry with site C's belt-and-suspenders posture. Site-appropriate values: defer-one-tick continues (no early return); locked sets `self._attain_state = "inactive"` and returns `None`.
 
-**D4-H-3** applies at `energy_battery.py:4680-4703` (attainability `_get_attain_action_entry`). Site-appropriate values: defer-one-tick continues; locked returns `None`. NOTE the upstream `_breaker_guard_fail_closed_on_blind("attain_entry")` at `:4676` remains as the DEGRADED-telemetry compensator; D4-H-3 is the LOCAL-stale compensator (disjoint conditions, both required).
+**D4-H-3** applies at `energy_battery.py:4680-4703` (attainability `_get_attain_action_entry`). Streak-reset today is a literal `else` at `:4703`. The upstream `_breaker_guard_fail_closed_on_blind("attain_entry")` at `:4676` remains as the DEGRADED-telemetry compensator; D4-H-3 is the LOCAL-stale compensator (disjoint conditions, both required). Site-appropriate values: defer-one-tick continues; locked returns `None`.
 
-**`_arbitrage_guard_aborted_kw = None` sentinel:** locked-on-stale vs locked-on-measured-overdraw needs to be distinguishable in the diagnostic. Add a Rev-5 note in the arbitrage-status sensor's docstring; no new sensor.
+**`_arbitrage_guard_aborted_kw = None` sentinel:** locked-on-stale vs locked-on-measured-overdraw distinguishable in the diagnostic; add a Rev-5 note in the arbitrage-status sensor's docstring; no new sensor.
 
 **Tests (D4-H, per-site):**
 - `test_breaker_guard_charge_phase_trips_on_stale_net_power` (D4-H-1)
 - `test_breaker_guard_attain_charging_trips_on_stale_net_power` (D4-H-2)
 - `test_breaker_guard_attain_entry_trips_on_stale_net_power` (D4-H-3)
-- `test_breaker_guard_streak_holds_on_alternating_stale_and_over_cap` (Rev-5 CRIT-B anchor) — sequence: over-cap, stale, over-cap → streak reaches 2 → LOCK. Under Rev-4/pre-fix code (streak wipe on stale) the same sequence NEVER locks; this test proves the invariant holds.
+- `test_breaker_guard_streak_holds_on_alternating_stale_and_over_cap` (cross-site invariant anchor) — sequence: over-cap, stale, over-cap → streak reaches 2 → LOCK. Under pre-fix code (streak wipe on stale) the same sequence NEVER locks.
 - `test_breaker_guard_streak_resets_on_genuine_under_cap` (regression) — sequence: over-cap, fresh under-cap → streak reset. Fresh-path behavior unchanged.
-- **Neuter→RED per site (mutation anchors):** revert the `if snap is None:` branch to `pass` at ANY ONE of the three sites → the corresponding site test fails; the other two still pass. Confirms the invariant is enforced independently at each site (no co-verified aggregate).
-- **Fresh-path byte-identity tests** (`test_breaker_guard_<site>_fresh_over_cap_unchanged`, `test_breaker_guard_<site>_fresh_under_cap_unchanged`) — the existing over-cap and under-cap branches are byte-identical when `snap is not None`.
+- **Neuter→RED per site (mutation anchors):** revert the `if snap is None:` branch to `pass` at ANY ONE of the three sites → the corresponding site test fails; the other two still pass.
+- **Fresh-path byte-identity tests** (`test_breaker_guard_<site>_fresh_over_cap_unchanged`, `test_breaker_guard_<site>_fresh_under_cap_unchanged`) — existing over-cap and under-cap branches byte-identical when `snap is not None`.
 
-**Dead helper cleanup (in-cycle):** update the stale comments at `energy_battery.py:519` and `:4829` to reference the three inline sites only (remove the `_grid_import_guard_triggered()` mention). DO NOT delete the def in this cycle; deletion PR follows Live Validation of D4-H per the supersession-triage rule ("only delete after new path is live-validated").
+**Dead helper cleanup (in-cycle):** update the stale comments at `energy_battery.py:519` and `:4829` to reference the three inline sites only. DO NOT delete the def in this cycle; deletion PR follows Live Validation.
 
 #### Acceptance (D4)
 - **Tests:** all above per-sub-deliverable.
-- **Neuter→RED:** every sub-deliverable has its own reverse-mutation anchor; D4-D has TWO (pause-hold and release-still-fires); D4-H has THREE per-site (plus the cross-site streak-hold anchor).
+- **Neuter→RED:** every sub-deliverable has its own reverse-mutation anchor; D4-D has THREE (pause-hold, no-new-arm, release-still-fires); D4-H has THREE per-site (plus the cross-site streak-hold anchor).
 - **Live (D4-A/B):** peak-import counter freezes on next Envoy CT stall > 180s.
 - **Live (D4-C):** row's `grid_import_kw`/`solar_export_kw` NULL (not 0.0) when `net_power_w is None`.
-- **Live (D4-D):** during any observed `battery_power_w` stale window ≥ 180s while a bay is `_paused_by_battery_drain`, membership persists (recorder cross-tab). Rev-5: during any observed stale window that crosses 03:00 with an L1 plug in the set, membership CLEARS at 03:00 (release still evaluated).
+- **Live (D4-D):** during any observed `battery_power_w` stale window ≥ 180s while a bay is `_paused_by_battery_drain`, membership persists (recorder cross-tab). During any observed stale window that crosses 03:00 with an L1 plug in the set, membership CLEARS at 03:00 (release still evaluated). During any observed stale window where a bay is NOT in the set, no new arm occurs.
 - **Live (D4-E):** `_cost_today`/`_import_kwh_today` ±5% vs comparable day; direction = trim.
 - **Live (D4-F):** post-restart `envoy_cache` fields either fresh or stale-but-flagged.
 - **Live (D4-G):** `_sustained_import_readings` observed to drain on stall; no shed escalation on trailing edge.
-- **Live (D4-H):** during any observed net_power stale window while an arbitrage CHARGE chunk is running, `_arbitrage_guard_consecutive_trips` observed to INCREMENT (not reset); if the stall persists past 2 ticks the chunk locks with `_arbitrage_guard_aborted_kw = None` sentinel; diagnostic sensor names STALE as the cause. Post-Live: file the follow-up PR to DELETE `_grid_import_guard_triggered` (`:2635-2646`) per supersession triage.
+- **Live (D4-H):** during any observed net_power stale window while an arbitrage CHARGE chunk is running, `_arbitrage_guard_consecutive_trips` observed to INCREMENT (not reset); if the stall persists past 2 ticks the chunk locks with `_arbitrage_guard_aborted_kw = None` sentinel. Post-Live: file the follow-up PR to DELETE `_grid_import_guard_triggered` per supersession triage.
 
 ### D5 — Fold the SIX hand-rolled gates through the helper
 
@@ -358,9 +366,9 @@ Unchanged from Rev 3 (three pinned `ssh ha sqlite3` queries).
 
 ---
 
-### D-OBS — Operator-facing staleness surface + Lovelace tile (Rev-5 MED-D fix applied)
+### D-OBS — Operator-facing staleness surface + Lovelace tile (Rev-5 MED-D applied)
 
-**Rev-5 MED-D corrected `_resolve_source_age` — uses SHORT names per `energy.py:986-996` key_map** (Rev-4 pseudocode incorrectly used CONF_* constants, which would return `"unconfigured"` for every source and silently green-test the HIGH-4 anchor while breaking the tile):
+**Rev-5 MED-D corrected `_resolve_source_age` — uses SHORT names per `energy.py:986-996` key_map:**
 
 ```python
 def _resolve_source_age(short_key: str) -> tuple[float | None, str]:
@@ -387,9 +395,7 @@ primary_soc_age_s,    primary_soc_status    = _resolve_source_age("battery_soc")
 
 The classification loop (`stale_sources`, `unconfigured_sources`, `missing_sources`) unchanged from Rev 4. Only `stale_sources` drives the state-enum "stale" transition in D-OBS-2.
 
-**Rev-5 MED-D regression anchor** (added to the HIGH-4 test suite): `test_envoy_status_short_key_resolution` — inject a fixture where `_get_entity("net_power")` returns a valid entity_id AND `_get_entity("CONF_ENERGY_NET_POWER_ENTITY")` returns None (matching the real key_map behavior); `net_power_status` MUST be `"fresh"` (or `"stale"`/`"missing"` per source state), NOT `"unconfigured"`. Under Rev-4's pseudocode this test fails. Under Rev-5 it passes.
-
-`stale_reason` attribute (Rev-4 LOW-10) preserved.
+**Rev-5 MED-D regression anchor:** `test_envoy_status_short_key_resolution`. `stale_reason` attribute (Rev-4 LOW-10) preserved.
 
 D-OBS-1 attributes: `solar_age_s`, `net_power_age_s`, `battery_power_age_s`, `primary_soc_age_s`, `stale_sources`, `unconfigured_sources`, `missing_sources`, `fallback_active`, `stale_reason`.
 
@@ -397,7 +403,7 @@ D-OBS-2 (`native_value`): unchanged from Rev 3 (union with existing triggers; on
 
 D-OBS-3 (tile): unchanged from Rev 3 (with Rev-4 rows for `unconfigured_sources`, `stale_reason`).
 
-#### D-OBS Acceptance (Rev-4 + Rev-5)
+#### D-OBS Acceptance
 
 - `test_envoy_status_unconfigured_net_power_does_not_pin_stale` (HIGH-4 anchor).
 - `test_envoy_status_missing_entity_reports_missing_not_stale`.
@@ -422,31 +428,33 @@ D-OBS-3 (tile): unchanged from Rev 3 (with Rev-4 rows for `unconfigured_sources`
 - `aggregation.py:6289/6319`, `energy_write_verify.py:1794`, `energy_forecast.py:566` NOT investigated — carded.
 - AC-kWh `native_value` staleness gate not added — carded.
 - No parallel staleness sensor; no NM push; no `state == "degraded"` enum variant; no PWA tile change.
-- **Rev-5: no deletion of `_grid_import_guard_triggered` pre-ship.** Deletion PR follows Live Validation of D4-H (per supersession-triage "only delete after new path is live-validated"). Rev-5 IN-CYCLE update: stale comments at `:519` and `:4829` corrected to reference the three inline sites.
+- **Rev-5: no deletion of `_grid_import_guard_triggered` pre-ship.** Deletion PR follows Live Validation of D4-H. Rev-5 IN-CYCLE update: stale comments at `:519` and `:4829` corrected.
+- **Rev-5: no structural hoisting inside `determine_battery_drain_actions`.** The pause/release split is achieved by gating ONLY the pause-add conditions at `energy_pool.py:3797` and `:2228-2243` on `not battery_power_unknown`; release arms are already reachable under a None read because `battery_discharging` becomes False. Do not restructure the live `if`/`elif` chain.
+- **Rev-5: no arming of new drain pauses under `battery_power_unknown=True`.** Existing memberships HOLD; releases evaluate; no new arm. Arming would fight the release path and risk stranding the operator's L1 EV overnight.
 
 ---
 
-## Tier 2-DB review plan (3 framings + Live) — Rev-5 additions
+## Tier 2-DB review plan (3 framings + Live) — Rev-5
 
-- **Review A — data integrity / read-layer correctness.** Byte-identity fresh path; helper `stamp=` + clamp; LKG stamp; **Rev-5:** verify D4-H fresh-path byte-identity at all three sites (fresh over-cap and fresh under-cap branches unchanged).
-- **Review B — signal-chain / cross-coordinator integration + PER-CONSUMER None direction.** Trace each consumer to fail-safe fallback. Re-verify D2-B/D, D3-B. Single-diff gate: D4-A NOT shipped without D4-B/C/E/G/H-1/H-2/H-3 in the same commit; D4-D producer NOT shipped without D4-D-1 AND D4-D-2 AND the `battery_power_unknown` kwarg on `determine_battery_drain_actions`. **Rev-5:** re-grep `_grid_import_guard_triggered` to confirm still zero callers (protect against a concurrent cycle wiring it before our D4-H ships); confirm every release path inside `determine_battery_drain_actions` executes BEFORE any `battery_discharging` check (the pause/release split invariant); confirm `_arbitrage_guard_consecutive_trips = 0` appears ONLY in the genuine-under-cap branch at all three D4-H sites (not in the stale-None branch) — mutation drill: revert any one site's `snap is None` branch to `pass` → per-site test fails.
-- **Review C — new surface / test authority + helper HOME correctness.** Const round-trip; tests drive production; discriminating tests actually discriminate. **Rev-5:** verify D-OBS `_resolve_source_age` uses SHORT keys (grep for `_get_entity("net_power"|"battery_power"|"solar_production"|"battery_soc")`, no CONF_* strings in the pseudocode-derived code); verify `test_envoy_status_short_key_resolution` genuinely fails under a CONF_*-arg mutation and passes under the correct short-name form.
-- **Review D — Live Validation, post-restart.** D6 queries pre/post. `soc_resolution.primary_age_s` 6h — zero decision-path ticks `source_last == "envoy"` AND `primary_age_s > 300`. **Rev-5:** during any observed net_power stale window while arbitrage or attainability is CHARGING, `_arbitrage_guard_consecutive_trips` observed to INCREMENT (not reset); on ≥2 stale/over-cap ticks, chunk locks with `_arbitrage_guard_aborted_kw = None` sentinel. During any battery_power stale window that spans 03:00 with an L1 plug paused, release fires at 03:00. `envoy_status.stale_sources`, `unconfigured_sources`, `stale_reason` populated correctly on both dashboards. README `Validated <date>` table written back. Post-Live: file supersession PR to DELETE `_grid_import_guard_triggered`.
+- **Review A — data integrity / read-layer correctness.** Byte-identity fresh path; helper `stamp=` + clamp; LKG stamp; verify D4-H fresh-path byte-identity at all three sites.
+- **Review B — signal-chain / cross-coordinator integration + PER-CONSUMER None direction.** Trace each consumer. Single-diff gate: D4-A NOT shipped without D4-B/C/E/G/H-1/H-2/H-3 in the same commit; D4-D producer NOT shipped without D4-D-1 AND D4-D-2 AND the `battery_power_unknown` kwarg. Re-grep `_grid_import_guard_triggered` still zero callers. Confirm the pause/release split shape: pause-add conditions at `energy_pool.py:3797` and `:2228-2243` gated on `not battery_power_unknown`; release arms structurally untouched. Confirm `_arbitrage_guard_consecutive_trips = 0` appears ONLY in the genuine-under-cap branch at all three D4-H sites — mutation drill per site.
+- **Review C — new surface / test authority + helper HOME correctness.** Const round-trip; tests drive production; discriminating tests actually discriminate. Verify D-OBS `_resolve_source_age` uses SHORT keys; verify `test_envoy_status_short_key_resolution` genuinely fails under a CONF_*-arg mutation. Verify `test_drain_stale_battery_power_does_not_arm_new_pause` and `test_drain_stale_battery_power_still_honors_must_start_by` both anchored on the single kwarg.
+- **Review D — Live Validation, post-restart.** D6 queries pre/post. `soc_resolution.primary_age_s` 6h. During net_power stale windows, `_arbitrage_guard_consecutive_trips` INCREMENTS; on ≥2 stale/over-cap ticks, chunk locks with `_arbitrage_guard_aborted_kw = None` sentinel. During battery_power stale windows spanning 03:00 with L1 paused, release fires. `envoy_status.stale_sources`, `unconfigured_sources`, `stale_reason` populated. README `Validated <date>` table written back. Post-Live: file supersession PR to DELETE `_grid_import_guard_triggered`.
 
 ---
 
 ## Files to change
 
-- `custom_components/universal_room_automation/domain_coordinators/energy_battery.py` — module-level `_state_age_s` (D1); `BatteryStrategy` wrappers (D1); migrate 4 SOC + 2 envelope + 3 power sites (D2/D3/D4-A/D4-D producer); fold A1 gate (D5-1) and cloud-oracle-lag D2 tracker (D5-2); **Rev-5: fail-CLOSED + streak-hold at three inline breaker-guard sites (`:3150-3197`, `:4523-4547`, `:4680-4703`) — D4-H-1/2/3**; stale-comment cleanup at `:519` and `:4829`; `primary_age_s` attribute on soc_resolution.
-- `custom_components/universal_room_automation/domain_coordinators/energy_pool.py` — fold 2 gates (D5-3, D5-4); **Rev-5: add `battery_power_unknown: bool = False` kwarg to both `determine_battery_drain_actions` variants; hoist release branches (force-charge at `:2147-2150` and `:3723-3726`, DP-forcing, `must_start_by_min`) to evaluate BEFORE any `battery_discharging` check; gate the pause-add path on `not battery_power_unknown`.**
-- `custom_components/universal_room_automation/domain_coordinators/energy.py` — D4-B fail-safe grid-cap (`:6071`); D4-C NULL persisted row (`:3129-3130`); **Rev-5: D4-D-1/D4-D-2 pass `battery_power_unknown=(_bp is None)` at `:6161` and `:6317`** (was Rev-4 `if None: return`); D4-F cache-save gating (`:2455`); D4-G sustained-window drain (`:7381`).
+- `custom_components/universal_room_automation/domain_coordinators/energy_battery.py` — module-level `_state_age_s` (D1); `BatteryStrategy` wrappers (D1); migrate 4 SOC + 2 envelope + 3 power sites (D2/D3/D4-A/D4-D producer); fold A1 gate (D5-1) and cloud-oracle-lag D2 tracker (D5-2); **fail-CLOSED + streak-hold at three inline breaker-guard sites (D4-H-1/2/3)**; stale-comment cleanup at `:519` and `:4829`; `primary_age_s` attribute on soc_resolution.
+- `custom_components/universal_room_automation/domain_coordinators/energy_pool.py` — fold 2 gates (D5-3, D5-4); **add `battery_power_unknown: bool = False` kwarg to both `determine_battery_drain_actions` variants (D4-D-0); gate ONLY the pause-add conditions at `:3797` (plug variant) and `:2228-2243` (EVSE variant) on `not battery_power_unknown`. No structural hoisting; release arms untouched (already reachable because `battery_discharging` is False under a None read).**
+- `custom_components/universal_room_automation/domain_coordinators/energy.py` — D4-B fail-safe grid-cap (`:6071`); D4-C NULL persisted row (`:3129-3130`); D4-D-1/D4-D-2 pass `battery_power_unknown=(_bp is None)` at `:6161` and `:6317`; D4-F cache-save gating (`:2455`); D4-G sustained-window drain (`:7381`).
 - `custom_components/universal_room_automation/domain_coordinators/energy_billing.py` — D4-E fresh-read migration for both branches in `CostTracker._get_net_power`; import `_state_age_s`.
-- `custom_components/universal_room_automation/sensor.py` — fold 1 display gate (D5-5); import `_state_age_s`; expose `primary_age_s`; D-OBS extend attrs + `native_value`; **Rev-5: `_resolve_source_age` uses SHORT keys (`"net_power"|"battery_power"|"solar_production"|"battery_soc"`), NOT CONF_* constants.**
+- `custom_components/universal_room_automation/sensor.py` — fold 1 display gate (D5-5); import `_state_age_s`; expose `primary_age_s`; D-OBS extend attrs + `native_value`; `_resolve_source_age` uses SHORT keys.
 - `custom_components/universal_room_automation/domain_coordinators/energy_const.py` — 4 new `DEFAULT_*_MAX_AGE_S` consts.
 - `quality/tests/` — new `test_shared_power_read_staleness.py` covering D1-D5 + D-OBS (all Rev-4 + Rev-5 anchor tests).
 - D-OBS tile via `ha_config_set_dashboard` (deploy-time, not build).
-- `docs/readmes/README_v<next>.md` — Rev-5 additions to Live table: D4-D release-still-fires row, D4-H per-site trip-on-stale + streak-hold row, `_arbitrage_guard_aborted_kw = None` sentinel row.
-- **Follow-up PR (post-Live, out of this cycle's diff):** delete `_grid_import_guard_triggered` at `energy_battery.py:2635-2646` per supersession triage.
+- `docs/readmes/README_v<next>.md` — Rev-5 Live table rows.
+- **Follow-up PR (post-Live, out of this cycle's diff):** delete `_grid_import_guard_triggered` at `energy_battery.py:2635-2646`.
 
 ## Risks & mitigations
 
@@ -454,53 +462,61 @@ D-OBS-3 (tile): unchanged from Rev 3 (with Rev-4 rows for `unconfigured_sources`
 - **`.pyc` staleness during mutation drills** — `PYTHONDONTWRITEBYTECODE=1` + cache clear before each drill.
 - **Silent threshold drift** — Review A explicit checklist.
 - **Billing regression (D4-E)** — boot-time INFO summary for first 24h; Review D compares.
-- **Rev-4 → Rev-5 partial-ship hazards (updated):**
+- **Rev-4 → Rev-5 partial-ship hazards:**
   - D4-A without D4-H-1/H-2/H-3 in same commit → 12kW breaker guard silently disarmed on any stale-net window (fail-OPEN + streak wipe compounded).
-  - D4-D producer without the `battery_power_unknown` kwarg + call-site plumbing → drain guard disarmed OR (Rev-4 shape) EV stranded overnight when CT dies.
-  Mitigation: single-diff gate (Review B); mutation-anchor tests for both split-shipping shapes (`test_drain_producer_gate_without_call_site_unknown_flag_regresses`, `test_drain_over_scoped_skip_regresses_release`, per-site `test_breaker_guard_<site>_*`).
-- **Dead-helper reintroduction risk.** A concurrent cycle could wire `_grid_import_guard_triggered` before D4-H ships, re-introducing the fail-OPEN we just closed. Mitigation: Review B re-greps at review time; stale comments at `:519` / `:4829` corrected in-cycle so no future planner scoping off comments will target the dead helper.
-- **D-OBS state-enum expansion** — grep-verified zero decision consumers; `stale_reason` attribute names trigger.
+  - D4-D producer without the `battery_power_unknown` kwarg + call-site plumbing → drain guard disarmed OR (Rev-4-shape whole-call skip) EV stranded overnight when CT dies.
+  Mitigation: single-diff gate (Review B); mutation-anchor tests for both split-shipping shapes.
+- **Contradictory pause-direction (MEDIUM-1 preventive)** — a builder reading "fail-CLOSED for PAUSES" could arm a new pause under unknown. Mitigation: authoritative one-voice contract bullet under the `battery_power_w` table; explicit test `test_drain_stale_battery_power_does_not_arm_new_pause`; non-goal bullet forbidding new arms under unknown.
+- **Restructure temptation (MEDIUM-2 preventive)** — a builder reading Rev-4-style "hoist release branches" could rewrite the live `if`/`elif` chain in Tier-3 energy code. Mitigation: explicit "no structural hoisting" non-goal; files-to-change spec names the two exact gate points (`energy_pool.py:3797` and `:2228-2243`); D4-D-0 explains why the release arms are already reachable (`battery_discharging = False` under None).
+- **Dead-helper reintroduction risk.** A concurrent cycle could wire `_grid_import_guard_triggered` before D4-H ships. Mitigation: Review B re-greps at review time; stale comments corrected in-cycle.
+- **Site B lone-compensator risk** — a builder assuming site C's `_breaker_guard_fail_closed_on_blind` symmetry could weaken D4-H-2. Mitigation: consumer-table row 5 and D4-H-2 spec explicitly note site B has NO upstream compensator.
+- **Site A `else`-vs-fall-through risk** — a builder inserting a literal `else` at site A expecting symmetry with sites B/C could produce dead code or unreachable branches. Mitigation: D4-H-1 spec explicitly notes site A's streak-reset today is a fall-through, and the Rev-5 replacement re-shapes it into a proper `if / elif / else` chain.
 - **D-OBS attribute drift** — reconciliation-through-shared-helper invariant.
 - **D-OBS tile-staleness** — entities card preferred; markdown wrapper requires `entity_id:` watch-list.
-- **Rev-5 D4-H `_arbitrage_guard_aborted_kw = None` sentinel** — dashboards / diagnostics that display this value must tolerate None. Grep for consumers before build; if any assume float, coerce at the display site (out-of-cycle, tiny) or use a distinct attribute `aborted_cause: "measured" | "stale"`.
+- **`_arbitrage_guard_aborted_kw = None` sentinel** — dashboards / diagnostics that display this value must tolerate None; grep for consumers before build.
 
-## Open questions for operator (not blocking planning)
+## Open questions for operator (not blocking build)
 
 - `hvac_override.py:3962` (5th AC-kWh gate) — fold in follow-up or flip fail-OPEN first?
 - AC-kWh `native_value` staleness gate — card, or leave?
 - Sequential ~600s stale-trust horizon for primary SOC — keep or lower?
 - D5 site 1: preserve v5.17.5 fail-OPEN-on-missing-stamp (planned default) or open a follow-up to flip?
 - D-OBS: tile section placement per dashboard — builder picks (default) or operator preference?
-- Rev-5 D4-H `_arbitrage_guard_aborted_kw = None` sentinel vs. distinct `aborted_cause` attribute — preference?
-- Rev-5 deletion PR for `_grid_import_guard_triggered` — file same day as Live Validation success, or fold into next cycle?
+- `_arbitrage_guard_aborted_kw = None` sentinel vs. distinct `aborted_cause` attribute — preference?
+- Deletion PR for `_grid_import_guard_triggered` — file same day as Live Validation success, or fold into next cycle?
 - Follow-up cards `AGGREGATION_NET_POWER_STALE_1` and `BATTERY_POWER_W_CONSUMERS_AUDIT_1` — schedule after this cycle or backlog?
+
+---
+
+## §BUILD-READY
+
+Plan-review confirm-review 2026-09-01 = SHIP. All four Rev-4 findings genuinely resolved with no new fail-OPEN; two plan-text defects (MEDIUM-1 pause-direction wording, MEDIUM-2 unimplementable hoist instruction) fixed in-place; two minor clarifications (site A fall-through, site B lone-compensator) folded. Design unchanged from the SHIP verdict. Build may dispatch under Tier 2-DB (3 framings + Live), single-diff gate on D4-A ↔ D4-B/C/E/G/H-1/H-2/H-3 and D4-D producer ↔ D4-D-0/D4-D-1/D4-D-2 enforced by Review B.
 
 ---
 
 ## Rev 5 change summary (2026-09-01)
 
-Applied per adversarial plan-review FIX-REQUIRED on Rev 4 (all four items verified against source before rewrite):
+Applied per adversarial plan-review FIX-REQUIRED on Rev 4, plus confirm-review plan-text corrections:
 
-1. **Rev-5 CRIT-A (D4-H patched dead code)** — grep confirmed `_grid_import_guard_triggered` at `energy_battery.py:2635-2646` has ZERO callers (only def + stale comments at `:519`, `:4829`). D4-H re-scoped to the three LIVE inline breaker-guard sites at `energy_battery.py:3150-3197` (arbitrage CHARGE), `:4523-4547` (attainability charging), `:4680-4703` (attainability entry) — each shaped `if snap is not None and snap[0] > cap`, the exact fail-OPEN shape after D4-A. Rev-5 spec: on `snap is None`, treat as "assume over-cap" (increment streak, honor `ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK`, lock with `_arbitrage_guard_aborted_kw = None` sentinel). Three per-site tests + fresh-path byte-identity tests + per-site mutation anchors. Dead helper triaged per supersession rules: DELETE post-Live-Validation; stale comments corrected in-cycle.
-2. **Rev-5 CRIT-B (streak-wipe on stale gap)** — same three sites all end with `else: self._arbitrage_guard_consecutive_trips = 0` (`:3196`, `:4547`, `:4703`). Rev-5 change moves that reset to the genuine-under-cap branch ONLY; the stale branch INCREMENTS the streak (does not reset). Cross-site test `test_breaker_guard_streak_holds_on_alternating_stale_and_over_cap` anchors the invariant (sequence: over-cap, stale, over-cap → LOCK).
-3. **Rev-5 HIGH-C (D4-D over-scoped, would strand the EV)** — Rev-4's "skip determine_battery_drain_actions on battery_power_w is None" also skipped the force-charge release (`energy_pool.py:2147-2150`, `:3723-3726`) and the `must_start_by_min` L1 hard release (`energy.py:6329-6331` — "the ONLY hard release the operator's L1 charger gets"). A persistently dead CT would strand overnight. Rev-5 introduces `battery_power_unknown: bool = False` kwarg on both `determine_battery_drain_actions` variants; hoists release branches BEFORE any `battery_discharging` check; gates pause-add path on `not battery_power_unknown`. Two anti-strand tests (`test_drain_stale_battery_power_still_honors_force_charge_release`, `test_drain_stale_battery_power_still_honors_must_start_by`) plus mutation anchor proving the pause/release SPLIT is load-bearing (`test_drain_over_scoped_skip_regresses_release`).
-4. **Rev-5 MED-D (D-OBS pseudocode wrong key)** — `_get_entity(key)` at `energy_battery.py:719` expects SHORT names from the key_map at `energy.py:986-996` (`"net_power"`, `"battery_power"`, `"solar_production"`, `"battery_soc"`). Rev-4 pseudocode used CONF_* constants → would silently return `"unconfigured"` for every source and green-test the HIGH-4 anchor while breaking the tile. Rev-5 pseudocode uses short keys; anchor `test_envoy_status_short_key_resolution` fails under CONF_*-form mutation.
-5. **LOW-5 line drift corrected throughout:**
-   - `_effective_import_kw` def `:2600` (was `:2627`); read at `:2630-2633`.
-   - `_grid_import_guard_triggered` (dead) `:2635-2646` (Rev-4 said `:2648` for `return False` line — actual line is `:2645`, block spans `:2635-2646`).
-   - `_breaker_guard_fail_closed_on_blind` `:3365` (was `:3358`).
-   - EVSE drain call site `:6161` (was `:6162` in one Rev-4 reference).
-   - Confirmed unchanged: `:3196`, `:4547`, `:4703` streak-reset lines; `:2147-2150`, `:3723-3726` force-charge release lines; `:6329-6331` `must_start_by_min` L1 release.
+1. **Rev-5 CRIT-A (D4-H patched dead code)** — grep-confirmed `_grid_import_guard_triggered` at `energy_battery.py:2635-2646` has ZERO callers. D4-H re-scoped to three LIVE inline sites at `:3150-3197`, `:4523-4547`, `:4680-4703`. Rev-5 spec: on `snap is None`, treat as "assume over-cap"; increment streak; honor `ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK`; lock with `_arbitrage_guard_aborted_kw = None` sentinel. Dead helper triaged per supersession rules; deletion PR follows Live Validation.
+2. **Rev-5 CRIT-B (streak-wipe on stale gap)** — reset moved into the genuine-under-cap branch ONLY; stale branch INCREMENTS. Cross-site anchor `test_breaker_guard_streak_holds_on_alternating_stale_and_over_cap`.
+3. **Rev-5 HIGH-C (D4-D over-scoped)** — `battery_power_unknown: bool = False` kwarg on both `determine_battery_drain_actions` variants; pause-add conditions gated on `not battery_power_unknown`; release arms unchanged (reachable because `battery_discharging = False` under None). Anti-strand tests `test_drain_stale_battery_power_still_honors_force_charge_release` and `test_drain_stale_battery_power_still_honors_must_start_by`.
+4. **Rev-5 MED-D (D-OBS pseudocode wrong key)** — `_resolve_source_age` uses SHORT keys per key_map at `energy.py:986-996`; anchor `test_envoy_status_short_key_resolution`.
+5. **Rev-5 MEDIUM-1 (confirm-review, wording)** — pause-direction language unified across consumer-table row 1, D4-D-0 spec, and non-goals: **HOLD existing pauses; do NOT arm new ones under unknown**. Explicit "arming on a blind CT would fight the release path and risk stranding" rationale on the invariant, the consumer table's one-voice contract bullet, and the non-goals. New anchor test `test_drain_stale_battery_power_does_not_arm_new_pause` discriminates HOLD-only from fail-CLOSED-arm.
+6. **Rev-5 MEDIUM-2 (confirm-review, implementability)** — struck the "hoist release branches before any `battery_discharging` check" instruction; replaced with the surgical "gate ONLY the pause-add conditions at `energy_pool.py:3797` and `:2228-2243` on `not battery_power_unknown`" instruction. D4-D-0 explains why the release arms are already reachable under a None read (`battery_discharging = False` via `battery_ok = not battery_discharging` at `:3815`). Files-to-change spec names both gate points.
+7. **Rev-5 clarification #1 (confirm-review)** — D4-H-1 spec notes site A's streak-reset at `:3196` is reached by FALL-THROUGH (both inner branches return), not a literal `else`; the replacement re-shapes into an explicit `if / elif / else`. Do NOT insert a literal `else` expecting symmetry with sites B/C.
+8. **Rev-5 clarification #2 (confirm-review)** — D4-H-2 spec notes site B has **NO upstream `_breaker_guard_fail_closed_on_blind` compensator** (unlike site C, whose compensator is at `:4676`). D4-H-2 is the SOLE local-stale compensator at site B; do not assume symmetry with site C's belt-and-suspenders posture.
+9. **LOW-5 line drift corrected throughout** (Rev 5): `_effective_import_kw` def `:2600`; `_grid_import_guard_triggered` `:2635-2646` (dead); `_breaker_guard_fail_closed_on_blind` `:3365`; EVSE drain call site `:6161`; streak-reset lines confirmed `:3196` (fall-through), `:4547` (`else`), `:4703` (`else`); force-charge releases confirmed `:2147-2150` and `:3723-3726`; `must_start_by_min` L1 release confirmed `:6329-6331`; plug variant pause-add condition `:3797`, EVSE variant `:2228-2243`; `battery_ok = not battery_discharging` at `:3815`.
 
-Rev-4 verified CLEAR carried forward without change: CRITICAL-1 consumer coverage for `battery_power_w` (Rev-5 HIGH-C refines the mechanism, coverage is complete); HIGH-3 cloud-SOC preserve-accept; HIGH-4 unconfigured/missing split (Rev-5 MED-D fixes the pseudocode key); MED-5 class names + no import cycle; MED-6 6th gate + `max(0.0, …)` clamp; D4-G load-shed sustained-window drain; net_power consumer enumeration otherwise complete (Rev-5 CRIT-B adds streak-wipe row); envoy_status display-only ruling.
+Rev-4 verified CLEAR carried forward without change: CRITICAL-1 consumer coverage for `battery_power_w`; HIGH-3 cloud-SOC preserve-accept; HIGH-4 unconfigured/missing split (MED-D fixes the pseudocode key); MED-5 class names + no import cycle; MED-6 6th gate + `max(0.0, …)` clamp; D4-G load-shed sustained-window drain; net_power consumer enumeration otherwise complete (CRIT-B adds streak-wipe row); envoy_status display-only ruling.
 
-Invariant re-verification with the Rev-5 pause/release-split and streak-hold clauses: producer-only + Rev-4-shape gating provably regresses two safety paths (drain: over-hold prevents releases → EV stranded; breaker: streak wiped on stale gap → guard never locks). The discriminating anchor tests (`test_drain_over_scoped_skip_regresses_release`, `test_breaker_guard_streak_holds_on_alternating_stale_and_over_cap`) FAIL the Rev-4-shape build and PASS the Rev-5 build. Invariant holds.
+Invariant re-verification with the Rev-5 clauses (pause-set membership as separate axis, streak counter as separate axis, HOLD-not-arm on blind CT, do-not-restructure release arms): the discriminating anchors (`test_drain_over_scoped_skip_regresses_release`, `test_drain_stale_battery_power_does_not_arm_new_pause`, `test_breaker_guard_streak_holds_on_alternating_stale_and_over_cap`) all FAIL the Rev-4-shape build and PASS the Rev-5 build. Invariant holds.
 
 ---
 
 ## Rev 4 change summary (retained, 2026-09-01)
 
-(Rev-4 summary preserved verbatim from prior revision — CRITICAL-1 paired drain call-site changes at `energy.py:6161`/`:6317`; CRITICAL-2 initial net_power consumer enumeration + D4-G load-shed drain; HIGH-3 D5 site 1 explicit accept mapping; HIGH-4 `_resolve_source_age` split (Rev-5 fixes the key-name bug in the pseudocode); MED-5 class names; MED-6 6th gate + clamp in helper; MED-7 D4-F save_envoy_cache gating; MED-8 sensor.py:12494 rationale corrected; LOW-9 discriminator; LOW-10 stale_reason. Rev-5 supersedes Rev-4 D4-D shape (over-scoped skip → pause/release split) and Rev-4 D4-H target (dead helper → three inline sites) and Rev-4 D-OBS pseudocode key (CONF_* → SHORT); other Rev-4 fixes stand.)
+(Rev-4 summary preserved verbatim — CRITICAL-1 paired drain call-site changes at `energy.py:6161`/`:6317`; CRITICAL-2 initial net_power consumer enumeration + D4-G load-shed drain; HIGH-3 D5 site 1 explicit accept mapping; HIGH-4 `_resolve_source_age` split (Rev-5 MED-D fixes the pseudocode key); MED-5 class names; MED-6 6th gate + clamp in helper; MED-7 D4-F save_envoy_cache gating; MED-8 sensor.py:12494 rationale corrected; LOW-9 discriminator; LOW-10 stale_reason. Rev-5 supersedes Rev-4 D4-D shape, D4-H target, and D-OBS pseudocode key.)
 
 ---
 

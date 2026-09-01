@@ -5056,6 +5056,10 @@ cards:
     zero body corroboration — a genuine vacancy EXTEND while residents sleep
   thread: presence
   status: planned
+  plan_ready_2026_09_01: 'Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config
+    application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED
+    (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DEFAULT + CONF_WET_ROOM schema mirror), 120min bath/closet/default,
+    distinct ble_hold_cap NM. Queued behind the pytest lane (forecast validator). Next: build (Tier 2-DB+).'
   refinement_2026_09_01: 'Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body-
     corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on
     BLE-extend-since-last-body (independent of sleep) as a backstop, so the protection generalizes beyond
@@ -11708,6 +11712,11 @@ cards:
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
   status: planned
+  plan_ready_2026_09_01: 'Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN;
+    Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared:
+    per-consumer None-direction table with safety guards (3 inline breaker sites, drain-pause) fail-CLOSED,
+    releases still evaluate (battery_power_unknown kwarg), unconfigured-vs-stale split, D-OBS unions with existing
+    envoy_status. Tier 2-DB. Queued behind pytest lane. Next: build.'
   refinement:
   - 'Rev-3 PLAN-REVIEW = FIX-REQUIRED, two make-or-break CRITICALs — the key lesson: GATING A READ TO None
     IS NOT UNIVERSALLY SAFE; the None-fallback direction (fail-open vs fail-closed) is per-CONSUMER, and
