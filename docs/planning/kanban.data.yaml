@@ -29,12 +29,19 @@ cards:
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
   thread: energy
-  status: investigating
+  status: planned
   created: 2026-09-01 16:15
-  updated: 2026-09-01 16:15
-  refinement_status: initial
-  approval: unreviewed
-  tags: [no-fabrication-verify]
+  updated: 2026-09-01 17:05
+  refinement_status: refined
+  approval: implied
+  approved_by: 'operator 2026-09-01 ("Approved to build not just to card. Since we''re in the code area.")'
+  tags: [no-fabrication-verify, tier-2db]
+  refinement:
+  - 'Investigation confirmed the metric is DECISION-AFFECTING, not display-only: adjustment_factor (clamp
+    [0.7,1.3]) multiplies _predicted_consumption_kwh, consumed by the DP house-load estimator (energy.py:4338).
+    So this is Tier 2-DB, not a cosmetic sensor fix. Two confirmed defects (>0-else-None mask conflating
+    NO-DATA with POOR; pct_error blowup on near-zero predictions poisoning the 7-window mean) + a stale-eval
+    VISIBILITY gap (not a scheduler bug — data-availability drops null actual_kwh). Plan: PLANNING_forecast_accuracy_fix.md.'
   problem_solution:
   - 'Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is
      active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy
@@ -49,10 +56,10 @@ cards:
   why: 'Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30.
     Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value
     returns None when accuracy<=0 (sensor.py:11373); pct_error=error/max(abs(predicted),0.1)*100 (energy_forecast.py:850)'
-  next: 'Confirm avg_pct_error / the daily_errors window (is it near-zero-prediction blowup or genuine miss?);
-    decide surface-vs-mask for <=0; check why last_eval stalled at 08-30. Small; relates to the partial LightGBM
-    forecaster (project_advanced_energy_mgt_v47x).'
-  refs: ['sensor.py:11344/11373', 'energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy', 'energy.py:2812 daily eval, :9668 property']
+  next: 'Tier-2-DB PLAN-REVIEW in flight (data-integrity + DP-ripple framing) — make-or-break is whether D2''s
+    bounded SMAPE metric silently shifts adjustment_factor and therefore DP house-load. On SHIP, build D0 probe
+    -> D1 mask fix -> D2 bounded metric -> D3 stale visibility.'
+  refs: ['docs/planning/PLANNING_forecast_accuracy_fix.md', 'sensor.py:11344/11373', 'energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy', 'energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property', 'PLANNING_v4.7.x_advanced_energy_management.md E5 origin']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
@@ -4969,7 +4976,7 @@ cards:
   title: Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with
     zero body corroboration — a genuine vacancy EXTEND while residents sleep
   thread: presence
-  status: pre_planning
+  status: planned
   refinement_2026_09_01: 'Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body-
     corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on
     BLE-extend-since-last-body (independent of sleep) as a backstop, so the protection generalizes beyond
@@ -4977,8 +4984,8 @@ cards:
     A-only) before plan-review/build. Two knobs: the sleep-corroboration window + the general max-BLE-extend-
     since-body timeout (both module-const rung).'
   created: 2026-08-31 18:20
-  updated: 2026-09-01 07:55
-  refinement_status: initial
+  updated: 2026-09-01 17:05
+  refinement_status: refined
   approval: unreviewed
   sibling_of: BLE-WARM-CREATE-1
   tags:
@@ -5003,10 +5010,20 @@ cards:
     runtime, HVAC presence, and occupancy analytics.'
   constraints:
   - Delicate — touches presence/occupancy fusion (the BLE EXTEND path). Regression-prone; Tier 2-DB+.
-  next: 'Design a body-corroboration requirement for BLE EXTEND during sleep (mirror the corroboration-gated
-    approach in STUCK-SENSOR-1 / the fusion doctrine); OR scope the bedroom-adjacent scanner out of the
-    bath sustain set. Coordinate with BLE-WARM-CREATE-1 (shared BLE-bleed root, different leg). Queue
-    behind charge-onset. Measure real production rate first (how many nights show the all-night hold).'
+  refinement:
+  - 'Operator REVERSED from belt-and-suspenders (A+B) to LONG-CAP-ONLY: "The only path I see is a long cap.
+    Compatible with sleep because night lights assist moving around, not sustain lighting... compatible with
+    any kind of presence cap we have and I think we have one. Find it and compare." -> dropped lever A (sleep
+    gate) and the sleep-corroboration knob; Rev 3 is a single duration cap, reusing the EXISTING presence cap.'
+  - 'MECHANISM FOUND (why the existing 60-min max-active failsafe never capped the 7.3h phantom): leg (ii) of
+    the RESILIENCE-001 invariant at coordinator.py:~4180 — `STATE_OCCUPANCY_SOURCE not in ("camera","ble")` —
+    DELIBERATELY exempts BLE-sourced occupancy (comment: a BLE chain-hold is "evidence of presence, not a stuck
+    sensor"; force-vacate+latch would lock a visible person out). Confirmed by two disjoint reads (orchestrator
+    + plan agent). So the failsafe BLOCK cannot be the cap; the cap must live INSIDE the BLE chain-extend block.
+    Rev 3 reuses the failsafe DURATION (_get_failsafe_duration_seconds) + NM-fire path there, P24 block byte-preserved.'
+  next: 'Tier-2 PLAN-REVIEW in flight — critical risk it must clear: does the reused 60-min bathroom duration
+    force-vacate a REAL stationary occupant (long soak, mmwave dropped, BLE-only)? On SHIP, build the single
+    duration cap inside the BLE chain-extend block. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 3).'
   refs:
   - 'Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min
     hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF'
