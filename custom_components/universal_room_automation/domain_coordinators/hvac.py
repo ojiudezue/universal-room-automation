@@ -3281,7 +3281,7 @@ class HVACCoordinator(BaseCoordinator):
             _LOGGER.debug("HVAC: Vacancy sweep suppressed by observation mode for %s", zone.zone_name)
             return
 
-        from ..const import CONF_LIGHTS, CONF_FANS
+        from ..const import CONF_LIGHTS, CONF_FANS, CONF_NIGHT_LIGHTS
 
         swept_count = 0
         for room_name in zone.rooms:
@@ -3293,7 +3293,16 @@ class HVACCoordinator(BaseCoordinator):
                 **coordinator.config_entry.options,
             }
 
-            lights = config.get(CONF_LIGHTS, [])
+            # NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D5): unconditional union.
+            # Zone-vacancy sweep turns off both regular and night-only
+            # entities regardless of sleep — night lights behave like any
+            # occupancy light on the OFF path (operator correction
+            # 2026-09-01). A 02:00 sweep killing a hallway night-only
+            # light when the hallway room is vacant is the DESIRED
+            # behavior.
+            regular = config.get(CONF_LIGHTS, []) or []
+            night = config.get(CONF_NIGHT_LIGHTS, []) or []
+            lights = list(regular) + [e for e in night if e not in regular]
             fans = config.get(CONF_FANS, [])
 
             for entity_id in lights:

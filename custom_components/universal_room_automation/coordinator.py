@@ -132,6 +132,7 @@ from .const import (
     # v3.12.0: M3 AI NL Rules
     CONF_AI_RULES,
     CONF_LIGHTS,
+    CONF_NIGHT_LIGHTS,
     CONF_FANS,
     CONF_AUTO_DEVICES,
     CONF_AUTO_SWITCHES,
@@ -1139,7 +1140,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if climate := self._get_config(CONF_CLIMATE_ENTITY):
                 entities.append(climate)
         elif trigger in (TRIGGER_EXIT, TRIGGER_LUX_BRIGHT):
-            entities.extend(self._get_config(CONF_LIGHTS, []))
+            # NIGHT-LIGHT-NO-OFF-PATH-1 (D6): widen exit-target set to the
+            # union CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS so the AI-rule conflict
+            # detector (see _check_ai_rule_conflicts) flags contested
+            # night-only entities. No sleep gate here — conflict detection
+            # is a SUPERSET surface (runtime sleep gate lives on the
+            # emission sites D1/D2/D3/D5).
+            _regular = self._get_config(CONF_LIGHTS, []) or []
+            _night = self._get_config(CONF_NIGHT_LIGHTS, []) or []
+            entities.extend(_regular)
+            entities.extend(e for e in _night if e not in _regular)
             entities.extend(self._get_config(CONF_FANS, []))
             entities.extend(self._get_config(CONF_AUTO_DEVICES, []))
             entities.extend(self._get_config(CONF_AUTO_SWITCHES, []))

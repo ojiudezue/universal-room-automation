@@ -709,13 +709,17 @@ class ActuatorReconciler:
         A ``None`` is only legal where the canonical handler would ALSO not
         act on this entity (D2.10 parity).
 
-        Truth table (lights):
-          sleep + entity in night_lights            -> on (night brightness)
-          sleep + entity not in night_lights        -> off
+        Truth table (lights) — Rev 3 (D2b occupancy-aware sleep branch):
+          sleep + night_light + occupied            -> on (night brightness)
+          sleep + night_light + vacant              -> off (falls through
+              to vacant branch; D2a asserts the exit_light_off OFF via
+              the unconditional CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS union)
+          sleep + entity not in night_lights        -> off (sleep_non_night_off)
           non-sleep + occupied + dark + action in
               {TURN_ON, TURN_ON_IF_DARK}            -> on
           non-sleep + occupied + action == TURN_ON  -> on (no dark gate)
-          non-sleep + vacant + exit == TURN_OFF     -> off
+          non-sleep + vacant + exit == TURN_OFF     -> off (union: regular
+              lights AND night-only entities)
           otherwise                                 -> None
         """
         data = self.coordinator.data or {}
@@ -743,28 +747,39 @@ class ActuatorReconciler:
 
         domain = "switch" if entity_id.startswith("switch.") else "light"
 
-        # SLEEP MODE.
+        # SLEEP MODE. NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D2b):
+        # sleep branch is now OCCUPANCY-AWARE. A night_light entity is
+        # asserted ON at sleep brightness ONLY when occupied. When vacant,
+        # fall through so the vacant branch below (D2a's unconditional
+        # union) asserts OFF — night lights behave like any occupancy
+        # light (operator correction 2026-09-01). The "sleep + not a
+        # night light" OFF return moves into the else arm, byte-identical
+        # to pre-cycle for that cell.
         if sleep and night_lights:
             if entity_id in night_lights:
-                params: Dict[str, Any] = {}
-                capability = cfg.get(CONF_LIGHT_CAPABILITIES)
-                if domain == "light" and capability in (
-                    LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL,
-                ):
-                    params["brightness_pct"] = cfg.get(
-                        CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                        DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                if occupied:
+                    params: Dict[str, Any] = {}
+                    capability = cfg.get(CONF_LIGHT_CAPABILITIES)
+                    if domain == "light" and capability in (
+                        LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL,
+                    ):
+                        params["brightness_pct"] = cfg.get(
+                            CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                            DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                        )
+                    return DesiredState(
+                        state="on", domain=domain, service="turn_on",
+                        params=params, reason="sleep_night_light",
+                        has_params_to_apply=bool(params),
                     )
+                # sleep + night_light + VACANT: fall through to the vacant
+                # branch (D2a) so the unconditional union asserts OFF.
+            else:
+                # sleep + not a night light -> off (unchanged).
                 return DesiredState(
-                    state="on", domain=domain, service="turn_on",
-                    params=params, reason="sleep_night_light",
-                    has_params_to_apply=bool(params),
+                    state="off", domain=domain, service="turn_off",
+                    reason="sleep_non_night_off",
                 )
-            # sleep + not a night light -> off.
-            return DesiredState(
-                state="off", domain=domain, service="turn_off",
-                reason="sleep_non_night_off",
-            )
 
         entry_action = cfg.get(CONF_ENTRY_LIGHT_ACTION, LIGHT_ACTION_NONE)
         exit_action = cfg.get(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
@@ -791,12 +806,17 @@ class ActuatorReconciler:
                 params=params, reason="entry_light_on",
             )
 
-        # Vacant. Canonical _control_lights_exit (automation.py:699) turns off
-        # CONF_LIGHTS ONLY — a night_lights-only entity is NEVER turned off on
-        # exit by canonical. Mirror that set membership (A-HIGH-1): only assert
-        # OFF for an entity that is actually in CONF_LIGHTS.
+        # Vacant. NIGHT-LIGHT-NO-OFF-PATH-1 (Rev 3, D2a, D2.10 parity):
+        # canonical _control_lights_exit now clears the UNCONDITIONAL union
+        # CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS when exit_action == TURN_OFF.
+        # Mirror that here — no sleep gate. Under sleep, the sleep branch
+        # above (D2b) falls through for night+vacant, so this branch is
+        # the OFF-authority for that cell; both sides now agree.
         regular_lights = cfg.get(CONF_LIGHTS) or []
-        if exit_action == LIGHT_ACTION_TURN_OFF and entity_id in regular_lights:
+        off_set = list(regular_lights) + [
+            e for e in night_lights if e not in regular_lights
+        ]
+        if exit_action == LIGHT_ACTION_TURN_OFF and entity_id in off_set:
             return DesiredState(
                 state="off", domain=domain, service="turn_off",
                 reason="exit_light_off",
