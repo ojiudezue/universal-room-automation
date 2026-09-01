@@ -26,6 +26,33 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: FORECAST-ACCURACY-UNKNOWN-MASK-1
+  title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
+  thread: energy
+  status: investigating
+  created: 2026-09-01 16:15
+  updated: 2026-09-01 16:15
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is
+     active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy
+     computed to zero-or-negative, and the sensor code hides any accuracy <=0 as unknown. So the operator
+     cannot tell ''no forecast yet'' from ''the forecaster is very inaccurate.'' Underneath, the forecaster''s
+     average percent error is >=100% over the window (rolling_accuracy = 100 - abs(avg_pct_error)). Solution:
+     (a) surface a poor-but-real accuracy instead of masking <=0 as unknown; (b) investigate WHY accuracy is
+     that bad — likely the pct_error formula dividing by max(predicted,0.1) blows up on near-zero predictions,
+     or the (known-partial) forecaster genuinely predicts ~0 some days; (c) check the daily eval — last_eval
+     is 2 days stale (08-30), it may have stopped accruing.'
+  origin: {date: '2026-09-01', gist: operator side-quest — why is forecast_accuracy unknown}
+  why: 'Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30.
+    Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value
+    returns None when accuracy<=0 (sensor.py:11373); pct_error=error/max(abs(predicted),0.1)*100 (energy_forecast.py:850)'
+  next: 'Confirm avg_pct_error / the daily_errors window (is it near-zero-prediction blowup or genuine miss?);
+    decide surface-vs-mask for <=0; check why last_eval stalled at 08-30. Small; relates to the partial LightGBM
+    forecaster (project_advanced_energy_mgt_v47x).'
+  refs: ['sensor.py:11344/11373', 'energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy', 'energy.py:2812 daily eval, :9668 property']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T12:36:49-05:00_ - _Data commit: `4f2de4076633`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T12:40:18-05:00_ - _Data commit: `1659814b0345`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-09-01T12:36:49-05:00_ - _Data commit: `4f2de4076633`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 8 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 6 |
 | 🔨 In progress | 0 |
@@ -359,8 +359,19 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
+
+### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
+thread: **energy** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-01 16:15 · initial_
+- **Problem / Solution:**
+  - Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy computed to zero-or-negative, and t...
+- **Origin:** 2026-09-01 - operator side-quest — why is forecast_accuracy unknown
+- **Why:** Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30. Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value returns None when accuracy<=0 (...
+- **Next:** Confirm avg_pct_error / the daily_errors window (is it near-zero-prediction blowup or genuine miss?); decide surface-vs-mask for <=0; check why last_eval stalled at 08-30. Small; relates to the partial LightGBM forecaster (project_advanc...
+- **Tags:** no-fabrication-verify
+- **Refs:** sensor.py:11344/11373; energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy; energy.py:2812 daily eval, :9668 property
 
 ### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
 thread: **presence** - status: **investigating** - approval: **unreviewed**

@@ -1,7 +1,7 @@
 # PLANNING — Shared Power-Read Staleness Helper (ENVOY-PRODUCTION-STALE-1)
 
 **Card:** `ENVOY-PRODUCTION-STALE-1` (consolidated per operator 2026-08-31).
-**Rev:** 2 (2026-09-01) — adversarial plan-review fixes applied. Fix summary at the bottom.
+**Rev:** 3 (2026-09-01) — additive: operator-facing observability + lovelace tile (D-OBS). Core gate deliverables D1–D6 unchanged. Rev 2 fixes retained; Rev 3 summary at the bottom.
 **Tier:** **2-DB** (regression-prone, cross-coordinator ripple: energy_battery → energy_pool → EVSE + DP + NM + billing; shared primitive; folds together five hand-rolled gates whose thresholds MUST be preserved byte-for-byte on the fresh path).
 **Mode:** planning only (read-only). Awaits second plan-review pass before build dispatch.
 
@@ -26,6 +26,7 @@
 - Memo `feedback_read_consumers_before_asserting_function` — direct authority for the Consumer check on every migrated site (the Rev 1 doc failed this by mis-citing `energy_pool.py:1483`).
 - v5.17.5 A1 review record — introduced `DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S=600` (`energy_battery.py:882-910`); the extra-comment there IS the template for this cycle's per-site guard.
 - v4.5.0 unit-consistency sweep — established `_read_power_w` as the single power reader; this cycle mirrors that pattern at the staleness layer.
+- Rev 3: `docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md` — precedent for staging cards via `ha_config_set_dashboard` `python_transform` (never `.storage` hand-edits); the D-OBS tile follows this pattern.
 
 ### Producer AND Consumer surveyed (re-verified by grep 2026-09-01)
 
@@ -59,11 +60,13 @@
 
 **5th AC-kWh gate (Rev-2 addition):** `hvac_override.py:3962` gates the AC-kWh read on `age_s > AC_KWH_SENSOR_STALENESS_S` using `last_updated`, and fails **OPEN** on `TypeError` (returns `age_s = 0.0`, admitting the read) — opposite of the CF-8 fail-closed contract used elsewhere. **Non-goal in this cycle** (behavioral change to a different coordinator's read path); **carded separately** (`HVAC-OVERRIDE-KWH-STALE-FAIL-OPEN-1`).
 
-**Consumer-check finding (design-binding):** `sensor.ura_energy_envoy_status.stale` is DISPLAY-ONLY. `envoy_available` IS trusted (`energy.py:3753` blind_hold DP; `energy_pool.py:571` EVSE guard; `:2934` NM alert) but is computed from primary SOC + storage_mode. ∴ The fix MUST gate the READ. Adding another unconsumed staleness sensor would repeat the display-only failure mode.
+**Consumer-check finding (design-binding):** `sensor.ura_energy_envoy_status.stale` is DISPLAY-ONLY. `envoy_available` IS trusted (`energy.py:3753` blind_hold DP; `energy_pool.py:571` EVSE guard; `:2934` NM alert) but is computed from primary SOC + storage_mode. ∴ The fix MUST gate the READ. Adding another unconsumed staleness sensor would repeat the display-only failure mode. **Rev 3 corollary:** because `envoy_status` is display-only and (grep-verified — no `energy_envoy_status` reads outside its own definition in `sensor.py:13293-13444` and its comment reference in `energy.py:841`) has zero DECISION consumers, **extending** its state + attributes for operator-facing staleness surfacing is display-safe by the same ruling.
 
 ### Grep prior-art results for proposed additions
 - `_state_age_s` / `state_age_s` / `read_fresh` / `_read_state_fresh` — **NEW** (grepped `custom_components/`, no equivalent public helper; five site-local re-implementations at `energy_battery.py:891`, `energy_pool.py:4406`, `:4695`, `sensor.py:12494`, `hvac_override.py:3956` — the 5th is scope-carded, not folded).
 - `DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S`, `DEFAULT_NET_POWER_MAX_AGE_S`, `DEFAULT_BATTERY_POWER_MAX_AGE_S`, `DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S` — **NEW**. Rung 1 (module constants — safety knobs, review-gated) per "Numbers get knobs".
+- Rev 3: `sensor.ura_energy_coordinator_envoy_status` — **REUSED**. Definition at `sensor.py:13293-13444`, `unique_id = f"{DOMAIN}_energy_envoy_status"` (`:13308`). State-derivation in `native_value` at `:13319-13372`; attributes in `extra_state_attributes` at `:13374-13433`. State today is derived from `_envoy_unavailable_count`, `_envoy_last_available` (age of last successful cycle), `_envoy_data_anomaly_at` (hourly consumption cross-check flag at `energy.py:3025`), and a bounded `[600s, 1800s]` staleness threshold on `last_available`. **NO** decision code reads `.state` (grep clean); **NEW parallel sensor rejected** per Consumer-check ruling — D-OBS extends the existing one.
+- Rev 3: `solar_age_s`, `net_power_age_s`, `battery_power_age_s`, `primary_soc_age_s`, `stale_sources`, `fallback_active` — **NEW attributes** on the existing sensor. No prior art; sourced from the D1 `_state_age_s` helper (single source of truth) so the tile and the trust-decision gate cannot drift.
 
 ### Code locations surveyed end-to-end
 - `energy_battery.py:770-925` (SOC resolver + A1 gate); `:1530-1636` (power readers + LKG stamp); `:2225-2320` (envelope entry checks — **both** primary-SOC and live-solar); `:2440-2461` (`envoy_available` predicate); `:6080-6100` (soc_resolution diagnostics tick).
@@ -72,7 +75,9 @@
 - `energy_pool.py:565-580`, `:4395-4417` (grid-follow), `:4685-4710` (per-bay solar power).
 - `energy_const.py:300-340`, `:960-985`.
 - `sensor.py:12480-12515` — AC-kWh display gate.
+- `sensor.py:13293-13444` — Rev 3: `EnergyEnvoyStatusSensor` (state derivation + attributes; the D-OBS extension target).
 - `hvac_override.py:3950-3975` — 5th AC-kWh gate (scope-carded).
+- Rev 3: `docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md` — canonical example of staging a card on **both** `ura-v8` and `ura-v6` via `ha_config_set_dashboard` with `write_committed:true, post_write_verified:true`; the tile's `entity_id:` watch-list pattern (markdown cards using Jinja variables need explicit watch entities or they sit stale).
 
 ---
 
@@ -249,6 +254,159 @@ Comparison ±25 % at 24 h post-restart per Tier 2-DB policy, EXCEPT the false-ze
 
 ---
 
+### D-OBS — Operator-facing staleness surface + Lovelace tile (additive; Rev 3, 2026-09-01)
+
+**Operator decision (2026-09-01):** surface per-source freshness + fallback so a frozen source is VISIBLE to the operator on a dashboard. The frozen-0 solar case sat ~16 h invisible because the ONLY existing staleness signal (`sensor.ura_energy_envoy_status.stale`) is derived from the hourly consumption cross-check and did not fire on a frozen source that agreed with lifetime deltas within the 15 % divergence band. **NO NM push** — surface + tile only. **No new parallel sensor** — extend the existing display-only `envoy_status` sensor (Consumer-check ruling); the tile and the operator ARE the consumers, and the sensor has zero decision consumers (grep-verified in Institutional Context above).
+
+**Producer/Consumer note (per rule):**
+- **PRODUCER** of the new age attributes: the D1 `_state_age_s` helper on `EnergyBatteryCoordinator` (single source of truth — the SAME helper the trust-decision gate consults). This is deliberate: the tile and the gate cannot drift apart because both consume the same arithmetic against the same stamp choice.
+- **CONSUMERS** of the new attributes: the tile on `ura-v8` and `ura-v6` (display) and the operator reading the sensor's attributes directly (display). No decision code — confirmed by grepping `energy_envoy_status` across `custom_components/` (only self-definition at `sensor.py:13293-13444` + comment at `energy.py:841`).
+
+#### D-OBS-1 — Extend `envoy_status` attributes (`sensor.py:13374-13433`, `extra_state_attributes`)
+
+Add to the attrs dict at `sensor.py:13420-13432` (same block that already carries `data_anomaly_at`, `envoy_degraded`, etc.). Each `*_age_s` value is computed by calling the D1 helper on the resolved entity:
+
+```
+solar_age_s          = energy._battery._state_age_s(hass.states.get(entity_solar_production),  stamp="last_reported")
+net_power_age_s      = energy._battery._state_age_s(hass.states.get(entity_net_power),         stamp="last_reported")
+battery_power_age_s  = energy._battery._state_age_s(hass.states.get(entity_battery_power),     stamp="last_reported")
+primary_soc_age_s    = energy._battery._state_age_s(hass.states.get(entity_battery_soc),       stamp="last_reported")
+```
+
+Entity keys are resolved via `energy._battery._get_entity(...)` (existing accessor pattern used at `energy_battery.py:828`, `:1614`, `:1636`, `:1546`). Guard the whole block with `if energy is None or getattr(energy, "_battery", None) is None: return existing_attrs` — the sensor already handles `energy is None` at `:13376-13378`.
+
+Plus a composite:
+
+```
+stale_sources: list[str] = []
+if solar_age_s         is None or solar_age_s         > DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S:      stale_sources.append("solar_production")
+if net_power_age_s     is None or net_power_age_s     > DEFAULT_NET_POWER_MAX_AGE_S:             stale_sources.append("net_power")
+if battery_power_age_s is None or battery_power_age_s > DEFAULT_BATTERY_POWER_MAX_AGE_S:         stale_sources.append("battery_power")
+if primary_soc_age_s   is None or primary_soc_age_s   > DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S:   stale_sources.append("primary_soc")
+
+fallback_active: bool | str = False
+# Reuse EXISTING resolver state — do not compute a parallel classification.
+soc_source_last = getattr(energy._battery, "_soc_source_last", None)      # "envoy"|"lkg"|"cloud_fallback" per D2-A
+solar_lkg_active = (
+    "solar_production" in stale_sources
+    and getattr(energy._battery, "_solar_prod_lkg_w", None) is not None
+)
+if soc_source_last in ("lkg", "cloud_fallback") or solar_lkg_active:
+    fallback_active = soc_source_last if soc_source_last in ("lkg","cloud_fallback") else "solar_lkg"
+```
+
+Reconciliation with `primary_age_s` (Rev-2 D2 surface addition on the `soc_resolution` sensor): the two attributes read the SAME helper against the SAME entity via the SAME stamp choice, so `soc_resolution.primary_age_s == envoy_status.primary_soc_age_s` within one decision-tick. Documented equality; not enforced by test (would be a co-verified-by-shared-arithmetic tautology).
+
+#### D-OBS-2 — Generalize `envoy_status.native_value` (`sensor.py:13319-13372`)
+
+Today the state is the union of `_envoy_unavailable_count > 0 → "offline"`, `_envoy_data_anomaly_at within 1h → "stale"`, `last_available age > bounded[600,1800] → "stale"`, else `"online"`. **Extend — preserve every existing trigger, add one:**
+
+Insert BEFORE the final `return "online"` at `:13372`:
+
+```
+# D-OBS Rev 3: per-source freshness. Union with the existing consumption
+# cross-check "stale" — do NOT remove the divergence trigger above.
+attrs = self.extra_state_attributes  # or refactor: extract to _compute_stale_sources()
+if attrs.get("stale_sources"):
+    return "stale"
+```
+
+(Implementation refinement: extract the `stale_sources` computation into a `_compute_stale_sources(energy) -> list[str]` helper called by BOTH `native_value` and `extra_state_attributes` — avoids double compute and avoids re-entering the attributes property from state derivation. Builder detail; test anchors either shape.)
+
+**State becomes the UNION** of:
+1. `offline`  — `_envoy_unavailable_count > 0` (unchanged, `:13328-13329`)
+2. `initializing` — never checked (unchanged, `:13332-13333`)
+3. `stale` — consumption cross-check anomaly within 1h (unchanged, `:13339-13348`)
+4. `stale` — `last_available` age past bounded threshold (unchanged, `:13358-13370`)
+5. **`stale` — ANY per-source age past its `MAX_AGE_S` (NEW)**
+6. `online` — default (unchanged, `:13372`)
+
+**Distinct value vs attribute (design choice):** operator ruling was "surface it"; the discriminator observable for the D-OBS acceptance is `stale_sources` (a list, distinguishes which source), not the state enum. `state == "stale"` remains an OR across all triggers; `attributes.stale_sources` names which one(s). If a future consumer wants to distinguish per-source stale from cross-check stale from last_available stale, it MUST read attributes, not state. A `state == "degraded"` variant was considered and REJECTED to preserve the existing UI/HA-history semantics of the enum.
+
+**Decision-consumer grep (Rev 3, required by task):** `grep -rn "energy_envoy_status" custom_components/` returned three hits — `sensor.py:13296` (docstring), `sensor.py:13308` (unique_id definition), `energy.py:841` (a comment). **Zero decision consumers of `.state`.** Generalizing the state is display-safe. If a future consumer emerges, the state enum's meaning ("something is stale, read attributes to disambiguate") is preserved.
+
+#### D-OBS-3 — Lovelace tile on `ura-v8` and `ura-v6`
+
+**Storage / apply mechanism.** URA-v8 and URA-v6 are HA Lovelace dashboards (NOT the separate PWA). Precedent doc: `docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md` — same staging pattern MUST be followed: cards designed against live state, `ha_eval_template` verification BEFORE apply, then applied via `ha_config_set_dashboard` with `python_transform` (never `.storage` hand-edits) with `write_committed:true, post_write_verified:true`. The tile config lives in the dashboard config write, not in URA code — deploy step, not build step.
+
+**Card location — mirror the Solar-Aware EV precedent:**
+- `ura-v8` → `views[2]` (Energy & EV), appended to an appropriate `sections[*]` (builder picks the section by inspection at apply time; suggest the existing Energy overview section that already carries battery / solar tiles).
+- `ura-v6` → `views[1]` (Energy), appended to `sections[6]` (EV Control) OR a sibling Energy-health section — builder picks by inspection.
+
+**Card config shape (identical on v6 and v8):** entities card (or markdown card with `entity_id:` watch-list per the precedent) that reads the extended `envoy_status` sensor's state + the new attributes:
+
+```yaml
+type: entities
+title: ⚡ Power-Source Health
+show_header_toggle: false
+entities:
+  - entity: sensor.ura_energy_coordinator_envoy_status
+    name: Envoy status
+    secondary_info: last-changed
+  - type: attribute
+    entity: sensor.ura_energy_coordinator_envoy_status
+    attribute: stale_sources
+    name: Stale sources
+    icon: mdi:alert-circle-outline
+  - type: attribute
+    entity: sensor.ura_energy_coordinator_envoy_status
+    attribute: fallback_active
+    name: Fallback engaged
+    icon: mdi:shield-refresh
+  - type: attribute
+    entity: sensor.ura_energy_coordinator_envoy_status
+    attribute: solar_age_s
+    name: Solar age (s)
+    icon: mdi:solar-power
+  - type: attribute
+    entity: sensor.ura_energy_coordinator_envoy_status
+    attribute: net_power_age_s
+    name: Net-power age (s)
+    icon: mdi:transmission-tower
+  - type: attribute
+    entity: sensor.ura_energy_coordinator_envoy_status
+    attribute: battery_power_age_s
+    name: Battery-power age (s)
+    icon: mdi:battery-charging
+  - type: attribute
+    entity: sensor.ura_energy_coordinator_envoy_status
+    attribute: primary_soc_age_s
+    name: Primary SOC age (s)
+    icon: mdi:battery
+```
+
+An optional markdown wrapper can add red/amber visual state via `{{ states.sensor.ura_energy_coordinator_envoy_status.attributes.stale_sources | length }}` — if adopted, follow the precedent's `entity_id:` watch-list rule (list every attribute the Jinja touches) so the card does not sit stale on attribute-only changes.
+
+**Naming note.** The precedent doc references `sensor.ura_energy_coordinator_envoy_status` (with the `_coordinator_` device prefix). URA code sets `unique_id = "{DOMAIN}_energy_envoy_status"` and `_attr_has_entity_name = True` (`sensor.py:13302-13308`); the resulting entity_id inherits the device-name prefix per HA `has_entity_name` semantics. **Builder MUST verify the exact live entity_id via `ha_get_entity` before writing the tile** (the precedent doc used `sensor.ura_energy_coordinator_envoy_status`); do not rely on the class-name-derived guess.
+
+#### D-OBS Acceptance
+
+- **Verify (attributes):** `sensor.ura_energy_coordinator_envoy_status` exposes the 4 age attributes (`solar_age_s`, `net_power_age_s`, `battery_power_age_s`, `primary_soc_age_s`) plus `stale_sources` (list[str]) and `fallback_active` (False | "lkg" | "cloud_fallback" | "solar_lkg").
+- **Verify (state generalization):** when a source's `last_reported` age > its `MAX_AGE_S`, `envoy_status.state == "stale"` AND `stale_sources` contains that source name — even when the existing consumption cross-check and `last_available` age triggers are BOTH quiet.
+- **Verify (regression of existing triggers):** with all four per-source ages fresh, `envoy_status.state` follows the pre-Rev-3 derivation exactly: `_envoy_unavailable_count > 0 → offline`; `_envoy_data_anomaly_at within 1h → stale`; `last_available` age > bounded threshold → `stale`; else `online`. Byte-identical to today on the fresh-source path.
+- **Verify (tile):** on both `ura-v8` and `ura-v6`, the Power-Source Health card renders with the sensor state + all 6 rows populated; when `stale_sources` is non-empty the corresponding age row(s) read > threshold and are visually distinguishable (row secondary_info or icon-color).
+- **Discriminating (per-source RED):** neuter D-OBS-1 for a single source (comment out its append to `stale_sources`) — the corresponding test fails while the other three pass. Confirms the tile signal is not a co-verified aggregate.
+- **Discriminating (consumption-divergence trigger preserved):** with all per-source ages fresh AND `_envoy_data_anomaly_at = now`, `envoy_status.state == "stale"` (existing trigger still fires). Neuter the `_envoy_data_anomaly_at` check in `native_value` → this test fails; the per-source tests still pass. Confirms the state is a UNION, not a replacement.
+- **Test:** `test_envoy_status_attrs_expose_four_ages`, `test_envoy_status_attrs_expose_stale_sources_and_fallback_active`, `test_envoy_status_state_stale_on_frozen_solar` (frozen-0 solar past 180s + everything else fresh + no consumption anomaly → `state == "stale"` AND `"solar_production" in stale_sources`), `test_envoy_status_state_online_when_all_fresh` (regression: pre-Rev-3 fresh-path byte-identical), `test_envoy_status_state_stale_preserves_consumption_divergence_trigger` (union preserved), `test_envoy_status_fallback_active_reflects_soc_source_last`.
+- **Neuter→RED (D-OBS-1):** delete the `stale_sources.append("solar_production")` line → `test_envoy_status_state_stale_on_frozen_solar` MUST fail.
+- **Neuter→RED (D-OBS-2):** delete the new `if attrs.get("stale_sources"): return "stale"` block → same test fails; the existing-trigger regression tests still pass.
+- **Live (post-restart):** `sensor.ura_energy_coordinator_envoy_status` attributes populated within one decision cycle; all four `*_age_s` numeric and < each `MAX_AGE_S` on a healthy Envoy; `stale_sources == []`; `fallback_active == False`. Both dashboards render the tile.
+- **Live (frozen-source rehearsal — optional, at operator discretion):** if the operator wants to prove the surface fires without waiting for organic breakage, temporarily pause the Envoy solar sensor's update via HA developer tools (or wait for the next natural Envoy blind) — within `DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S + one cycle`, `envoy_status.state == "stale"` AND `"solar_production" in stale_sources` AND both tiles visually flag it. Ties directly to the 16-h invisibility incident that motivated D-OBS.
+
+#### D-OBS non-changes (explicit)
+
+- **No new sensor.** Extends the existing display-only `envoy_status` sensor per Consumer-check ruling.
+- **No NM push, no notification, no automation trigger.** Surface + tile only per operator decision.
+- **No change to `envoy_available` composition** (still guarded by D2-C).
+- **No new threshold constants.** The 4 age constants are the same ones defined in D2/D3/D4 (`DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S`, `DEFAULT_NET_POWER_MAX_AGE_S`, `DEFAULT_BATTERY_POWER_MAX_AGE_S`, `DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S`) — reused, not duplicated. If D-OBS were to ship BEFORE D2/D3/D4 (not planned), the constants would need to land in `energy_const.py` in the same commit.
+- **No change to the tile PWA.** The URA v6/v8 tiles are HA Lovelace dashboards; the separate URA-Dashboard PWA is out of scope.
+
+#### D-OBS Ordering & dependency
+
+D-OBS depends on **D1 helper only** for the age computation and on the D2/D3/D4 **constants** for the thresholds. It can ship in the same cycle as D1-D6 or as a fast-follow after D1 lands, as long as the age attrs use the same helper as the trust-decision gate (that is the whole reconciliation point). Recommended: ship in-cycle so the operator sees the surface the same day the gate goes live; the tile write is a deploy-time dashboard config change, not a code build.
+
+---
+
 ## Non-goals (explicit)
 
 - **No new unconsumed staleness sensor.** Consumer-check ruling: gate the READ.
@@ -260,15 +418,16 @@ Comparison ±25 % at 24 h post-restart per Tier 2-DB policy, EXCEPT the false-ze
 - **No migration of non-Energy staleness sites** (BLE room-mapping, presence LKG, tracker-stale) — out of scope.
 - **`hvac_override.py:3962` NOT folded in this cycle** — 5th AC-kWh gate; different coordinator, fail-OPEN-on-TypeError contract opposite to helper's fail-closed. **Card:** `HVAC-OVERRIDE-KWH-STALE-FAIL-OPEN-1` (fold + flip to fail-closed; standalone review).
 - **AC-kWh `native_value` staleness gate not added** — attribute-only remains; separately cardable if desired.
+- **Rev 3: no parallel staleness sensor**; no NM push on the new per-source stale signal; no `state == "degraded"` enum variant; no PWA tile change.
 
 ---
 
 ## Tier 2-DB review plan (3 framings + Live)
 
-- **Review A — data integrity / read-layer correctness.** Byte-identity of the fresh path across the migrated reads (D2/D3/D4) via mutation-anchored source drills. Verify all four NEW consts land at rung 1. Verify `_state_age_s` `stamp=` arg propagates correctly (naive-stamp, missing-stamp, fallback-to-last_updated). LKG stamp semantics preserved (no accidental stamp on None).
-- **Review B — signal-chain / cross-coordinator integration.** For each consumer (see Consumer table) trace end-to-end that a stale read at the producer routes to the correct fallback with no double-emit, no signal drop, no restart divergence. Explicit re-verification of D2-B/D and D3-B (the ungated-gate-alongside-gated-resolver risk that Rev 1 shipped). Explicit re-verification of D4-B fail-safe (grid-cap resume suppression) and D4-C NULL-vs-0 persistence.
-- **Review C — new surface / test authority.** Every new const round-trips via `energy_const.py`; every acceptance test drives production code (no INSERT/monkeypatch shortcuts); the discriminating tests actually discriminate.
-- **Review D — Live Validation, post-restart.** Recorder queries pinned in D6 run pre/post. `soc_resolution.attributes.primary_age_s` observed over 6h — zero decision-path ticks where `source_last == "envoy"` AND `primary_age_s > 300`. README `Validated <date>` table written back before cycle close.
+- **Review A — data integrity / read-layer correctness.** Byte-identity of the fresh path across the migrated reads (D2/D3/D4) via mutation-anchored source drills. Verify all four NEW consts land at rung 1. Verify `_state_age_s` `stamp=` arg propagates correctly (naive-stamp, missing-stamp, fallback-to-last_updated). LKG stamp semantics preserved (no accidental stamp on None). **Rev 3:** verify D-OBS attribute computation uses the SAME helper + stamp choice as the gate (reconciliation invariant); verify `envoy_status.state` fresh-path is byte-identical to today's derivation.
+- **Review B — signal-chain / cross-coordinator integration.** For each consumer (see Consumer table) trace end-to-end that a stale read at the producer routes to the correct fallback with no double-emit, no signal drop, no restart divergence. Explicit re-verification of D2-B/D and D3-B (the ungated-gate-alongside-gated-resolver risk that Rev 1 shipped). Explicit re-verification of D4-B fail-safe (grid-cap resume suppression) and D4-C NULL-vs-0 persistence. **Rev 3:** re-grep `energy_envoy_status` across `custom_components/` at review time and confirm zero `.state` consumers — the display-safe generalization claim depends on this staying true.
+- **Review C — new surface / test authority.** Every new const round-trips via `energy_const.py`; every acceptance test drives production code (no INSERT/monkeypatch shortcuts); the discriminating tests actually discriminate. **Rev 3:** verify the D-OBS tile config was staged via `ha_config_set_dashboard` (`write_committed:true, post_write_verified:true`), not a `.storage` hand-edit; verify the tile's entity_id matches the LIVE `ha_get_entity` lookup, not the class-name-derived guess.
+- **Review D — Live Validation, post-restart.** Recorder queries pinned in D6 run pre/post. `soc_resolution.attributes.primary_age_s` observed over 6h — zero decision-path ticks where `source_last == "envoy"` AND `primary_age_s > 300`. **Rev 3:** `envoy_status` attributes populated on both dashboards; `stale_sources == []` on a healthy Envoy; per-source ages < each `MAX_AGE_S`. README `Validated <date>` table written back before cycle close.
 
 ---
 
@@ -278,10 +437,11 @@ Comparison ±25 % at 24 h post-restart per Tier 2-DB policy, EXCEPT the false-ze
 - `custom_components/universal_room_automation/domain_coordinators/energy_pool.py` — fold 2 gates (D5).
 - `custom_components/universal_room_automation/domain_coordinators/energy.py` — D4-B fail-safe on grid-cap consumer (`:6071`); D4-C NULL propagation on persisted row (`:3129-3130`).
 - `custom_components/universal_room_automation/domain_coordinators/energy_billing.py` — D4-E fresh-read migration for both grid-entity and fallback branches.
-- `custom_components/universal_room_automation/sensor.py` — fold 1 display gate (D5 arithmetic only); expose `primary_age_s` on soc_resolution sensor.
+- `custom_components/universal_room_automation/sensor.py` — fold 1 display gate (D5 arithmetic only); expose `primary_age_s` on soc_resolution sensor; **Rev 3 D-OBS:** extend `EnergyEnvoyStatusSensor.extra_state_attributes` (`:13374-13433`) with 4 age attrs + `stale_sources` + `fallback_active`; extend `EnergyEnvoyStatusSensor.native_value` (`:13319-13372`) with the per-source stale union branch (existing triggers preserved).
 - `custom_components/universal_room_automation/domain_coordinators/energy_const.py` — 4 new `DEFAULT_*_MAX_AGE_S` constants with rationale comments.
-- `quality/tests/` — new module `test_shared_power_read_staleness.py` covering D1-D5 acceptance.
-- `docs/readmes/README_v<next>.md` — pre-deploy prospective, post-restart validation table.
+- `quality/tests/` — new module `test_shared_power_read_staleness.py` covering D1-D5 **and D-OBS** acceptance (six new D-OBS tests listed above).
+- **Rev 3 D-OBS (applied at deploy, not built):** `ura-v8` and `ura-v6` Lovelace dashboards — Power-Source Health card added via `ha_config_set_dashboard` (`python_transform`, `write_committed:true, post_write_verified:true`). No repo file for the dashboard config; the change is captured in the README `Validated <date>` table.
+- `docs/readmes/README_v<next>.md` — pre-deploy prospective, post-restart validation table (must include D-OBS tile-render row on BOTH v6 and v8).
 
 ## Risks & mitigations
 
@@ -289,12 +449,16 @@ Comparison ±25 % at 24 h post-restart per Tier 2-DB policy, EXCEPT the false-ze
 - **`.pyc` staleness during mutation drills** — enforce `PYTHONDONTWRITEBYTECODE=1` + `find … -name __pycache__ -delete` before each drill (memo `feedback_mutation_verification_pycache_staleness`).
 - **Silent threshold drift** — Review A explicit checklist to diff all preserved constants pre/post.
 - **Billing regression risk (D4-E) — highest-dollar surface.** Add a boot-time INFO log line summarizing `_cost_today` / `_import_kwh_today` for the first 24 h; Review D compares against pre-deploy baseline.
+- **Rev 3 D-OBS state-enum expansion risk.** Generalizing `envoy_status.state` to fire on per-source stale COULD surprise a future consumer that assumed "stale" meant "consumption cross-check divergence". Mitigated by (a) grep-verified zero decision consumers today, (b) Review B re-grep at review time, (c) `stale_sources` attribute names the trigger source, (d) explicit documentation in the sensor docstring update.
+- **Rev 3 D-OBS attribute drift risk.** If a future refactor moves the trust-decision gate off `_state_age_s`, the tile could show fresh while the gate treats stale (or vice-versa). Mitigated by the reconciliation-through-shared-helper invariant + a comment on both call sites pointing at each other.
+- **Rev 3 D-OBS tile-staleness risk.** Markdown cards that access attributes via Jinja variables sit stale without an explicit `entity_id:` watch-list (precedent bug caught on the sibling EV detail card). Mitigated by preferring the entities card shape above; if markdown is used, watch-list is mandatory.
 
 ## Open questions for operator (not blocking planning)
 
 - `hvac_override.py:3962` (5th AC-kWh gate) — fold in a follow-up cycle, or flip only its fail-OPEN behavior first? (Carded either way as `HVAC-OVERRIDE-KWH-STALE-FAIL-OPEN-1`.)
 - AC-kWh `native_value` staleness gate — card, or leave the display sensor alone?
 - If the sequential ~600 s stale-trust horizon for primary SOC is unacceptable, do we (a) lower `DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S` to 120 s so aggregate is ~420 s, or (b) also lower `DEFAULT_SOC_LKG_MAX_AGE_S` (broader blast radius)? Rev 2 keeps both at 300 s as the safe default.
+- **Rev 3 D-OBS:** any preference on tile section placement per dashboard (v8 Energy & EV section index; v6 Energy section index)? Default = builder picks the section that already carries battery/solar tiles, at apply time.
 
 ---
 
@@ -315,3 +479,21 @@ Applied per adversarial plan-review:
 11. **MEDIUM (D6 queries)** — three concrete `ssh ha sqlite3` snapshots pinned; DIRECTIONAL test for the false-zero column added.
 
 Invariant re-verification with `last_reported`: a constant-valued fresh sensor now passes the fresh path (its `last_reported` re-advances each poll); the invariant's "MUST be treated as absent when age > MAX_AGE_S" property is preserved for the trust-decision path; the discriminating test `test_read_fresh_constant_valued_sensor_is_fresh` anchors the change. Invariant holds.
+
+---
+
+## Rev 3 addition summary (2026-09-01)
+
+Applied per operator decision (surface the staleness so a frozen source is VISIBLE; add tile to URA v8 AND URA v6; NO NM push):
+
+1. **D-OBS added** as an ADDITIVE deliverable (D1-D6 unchanged, no core-gate scope drift).
+2. **Reconciled with existing `sensor.ura_energy_coordinator_envoy_status`** (`sensor.py:13293-13444`, unique_id `DOMAIN_energy_envoy_status`) — extended, NOT duplicated. Consumer-check ruling honored: no new parallel staleness sensor.
+3. **Attributes added** (`sensor.py:13374-13433` block): `solar_age_s`, `net_power_age_s`, `battery_power_age_s`, `primary_soc_age_s`, `stale_sources`, `fallback_active` — all computed from the D1 `_state_age_s` helper (single source of truth shared with the trust-decision gate; tile and gate cannot drift).
+4. **State generalized** (`sensor.py:13319-13372`): `native_value` becomes the UNION of the existing consumption-cross-check trigger (`_envoy_data_anomaly_at`, `:3025`) + `_envoy_last_available` age trigger + `_envoy_unavailable_count` + NEW per-source stale trigger. Existing triggers PRESERVED (regression tests anchor byte-identical fresh-path). Decision-consumer grep of `energy_envoy_status` returned zero `.state` reads outside self-definition — display-safe.
+5. **Lovelace tile** on BOTH `ura-v8` (views[2] Energy & EV) and `ura-v6` (views[1] Energy) — Power-Source Health entities card. Applied at deploy via `ha_config_set_dashboard` `python_transform` per the `docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md` precedent (`write_committed:true, post_write_verified:true`). NOT a code change; NOT the separate PWA.
+6. **Producer/Consumer note** stated per rule: producer = D1 helper; consumers = tile + operator (display only).
+7. **Six D-OBS acceptance tests** added: attrs exposure, state stale-on-frozen-solar (discriminating), state online-when-all-fresh (fresh-path regression), state preserves consumption-divergence trigger (union invariant), fallback_active reflects `_soc_source_last`, per-attr neuter→RED.
+8. **Non-goals expanded** to explicitly reject: parallel staleness sensor, NM push, `state == "degraded"` enum variant, PWA tile change.
+9. **Reviews A/B/C extended** with Rev-3 checkpoints: shared-helper reconciliation (A), re-grep zero `.state` consumers (B), tile staged via `ha_config_set_dashboard` not `.storage` + live entity_id verification (C).
+
+D-OBS depends on D1 (helper) + D2/D3/D4 (constants) only. Ships in-cycle with D1-D6 recommended; safe to fast-follow after D1 lands.
