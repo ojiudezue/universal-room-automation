@@ -29,7 +29,8 @@ cards:
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
   thread: energy
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.92.2
   build_review_2026_09_01: 'Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED
     verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff).
     Build-review A (correctness) = FIX-REQUIRED, one HIGH: the sensor.py mask fix has ZERO test coverage (all
