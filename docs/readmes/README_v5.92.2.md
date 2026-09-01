@@ -33,5 +33,14 @@ Plan-review = FIX-REQUIRED (caught the display-vs-control conflation) → split-
 ## Pre-deploy gate
 0 conflict markers; py_compile clean; 14 cycle tests pass; full-suite name-diff vs develop = (recorded below).
 
-## Validated <date> (post-restart)
-_(to be filled after deploy + HA restart)_
+## Validated 2026-09-01 (post-restart)
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Sensor unmasked — numeric value, not `unknown` | `sensor.ura_energy_coordinator_forecast_accuracy` = **`35.9`** (was `unknown` pre-deploy), `unit=%`, `samples=30` | **PASS** |
+| Discriminated status surfaced | `status="stale"` + `eval_age_days=2` (last_eval 2026-08-30, today 09-01 → `2 >= STALE_EVAL_DAYS=2` trips the stale overlay; `samples=30 ≥ 3` so not `learning`). Ladder resolves correctly. | **PASS** |
+| Control path byte-identical | `adjustment_factor=1.3` — unchanged from the pre-deploy value (card recorded 1.3). The DP house-load input did not shift. | **PASS** |
+| Clean boot, no new URA errors | `error_log` structured scan (11:35–17:34, spanning the ~17:31 restart): **0** `universal_room_automation` ERROR/CRITICAL. All URA entries WARNING-level and pre-existing (async_write_ha_state thread warning, untested-integration boilerplate, the documented dead per-room energy sensors, periodic lock-check). Nothing forecast-related. | **PASS** |
+| URA loaded / house healthy | `sensor.ura_presence_coordinator_presence_house_state = arriving`, full coordinator attribute surface present, boot_settle_done=true. | **PASS** |
+
+**Note on the observed value:** `35.9%` is the bounded-metric `rolling_accuracy` — pre-deploy this window computed ≤ 0 (mean abs pct-error ≥ 100% from a near-zero-prediction blow-up) and was masked to `unknown`; the bounded SMAPE denominator (`max(|pred|,|actual|,5)`) now yields a real, non-degenerate accuracy. Exactly the signal the mask was hiding. Cycle closed — the sensor is the durable record.
