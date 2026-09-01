@@ -1,3 +1,19 @@
+> # ⛔ SUPERSEDED — WRONG SITE. DO NOT BUILD FROM THIS DOC.
+> **Superseded 2026-08-31** by `PLANNING_evse_charge_onset_time_v2_ensure_on.md`.
+> This plan gated the **`_paused_by_battery_drain` release** in `determine_battery_drain_actions` —
+> the wrong mechanism. That branch only fires on a battery-drain-pause *release*; it does **not**
+> control the dominant "start charging after off-peak" path, which is the **off-peak proactive
+> ensure-on** in `determine_actions` (EVSE `~:1247` "2c", plug `:3120`). As built, an EVSE/plug that
+> was not battery-drain-paused would be turned on by the ensure-on at off-peak start regardless of
+> onset — the feature did **not** delay charging to the onset time in the common case.
+> The whole branch was built, reviewed, then **backed out and deleted** (feature branch removed;
+> develop code verified byte-identical to origin). The correct plan gates the **ensure-on** itself.
+> Note the lineage below already shows Rev 1/2 *were* at the ensure-on and were wrongly abandoned as
+> "too much surface" — the correct fix is the ensure-on done minimally (defer-the-start), not an
+> AND-gate over the whole branch.
+>
+> — historical content retained below for reference only —
+
 # PLANNING — EVSE/L1 charge-onset time (surgical clause at TWO drain-release sites)
 
 Card: **EVSE-CHARGE-ONSET-TIME-1** (docs/planning/kanban.data.yaml)
