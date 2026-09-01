@@ -11374,7 +11374,11 @@ class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
             return None
         try:
             status = energy._accuracy.get_status()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "EnergyForecastAccuracySensor.native_value: get_status() "
+                "failed (%s) -> rendering unknown", exc,
+            )
             return None
         if status.get("samples", 0) < 3:
             return None
@@ -11390,7 +11394,11 @@ class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
             return None
         try:
             status = energy._accuracy.get_status()
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "EnergyForecastAccuracySensor.extra_state_attributes: "
+                "get_status() failed (%s) -> attrs unavailable", exc,
+            )
             return None
         # Local import — avoids top-level churn; module already imported for
         # the AccuracyTracker across this coordinator surface.

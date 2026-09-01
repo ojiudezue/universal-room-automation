@@ -944,10 +944,11 @@ class AccuracyTracker:
             last = date.fromisoformat(self._last_eval_date)
         except (ValueError, TypeError):
             return None
-        try:
-            today = dt_util.now().date()
-        except Exception:  # noqa: BLE001 - dt_util.now() shouldn't fail; be safe
-            today = datetime.utcnow().date()
+        # dt_util.now() does not raise; the local-timezone `today` matches the
+        # locally-stamped `_last_eval_date` (avoids the UTC/local one-day skew
+        # near midnight that `datetime.utcnow().date()` would introduce, and
+        # sidesteps the py3.12 `utcnow()` deprecation).
+        today = dt_util.now().date()
         return (today - last).days
 
 
