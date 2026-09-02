@@ -115,6 +115,43 @@ cards:
   next: 'Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi;
     handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.'
   refs: ['CLAUDE.md Data Source Verification section', 'AUDIT/plan-review of EC-1 2026-09-01']
+- id: BREAKER-GRIDCAP-STALE-TELEMETRY-1
+  title: Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper
+    design, split out of the Envoy shared-staleness cycle after it over-corrected
+  thread: energy
+  status: parked
+  created: 2026-09-01 20:30
+  updated: 2026-09-01 20:30
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-3, no-fabrication-verify, regression-prone]
+  problem_solution:
+  - 'Problem: when an Envoy power sensor freezes at a stale-but-valid number (not "unavailable"), the 12kW
+    breaker guard and the grid-import cap need to decide what to do — but a naive "treat stale as a trip / skip
+    the function" is WRONG: it locks the whole night''s arbitrage charge on a guard that is off by default,
+    manufactures false over-caps (the battery''s own grid-charge stops being subtracted), and removes the only
+    release path for grid-cap pauses (stranding the EV). Solution: a careful, separate cycle that (a) makes
+    _effective_import_kw propagate "battery charge unknown" instead of substituting 0, (b) gates the breaker
+    trip on the guard being actually enabled (finite threshold), (c) aborts a stale tick WITHOUT sticky-locking
+    the chunk, (d) preserves grid-cap release/discharge under stale, (e) reconciles with the v5.17.5 anti-abort
+    precedent (a stale blip should HOLD, not abort). Until then, breaker/grid-cap keep develop behavior; the
+    staleness helper still SURFACES net_power staleness via the D-OBS observability tile.'
+  origin: {date: '2026-09-01', gist: split out of ENVOY-PRODUCTION-STALE-1 after 4 Tier-3 reviews found the breaker/grid-cap fail-closed over-corrected}
+  why: 'B-CRIT-1 (locks chunk on default-disabled guard), D-HIGH-1 (_effective_import_kw 0-substitution → false
+    over-cap even guard-enabled), D-HIGH-2 (sticky lock = whole night lost), B-HIGH-1 (grid-cap EV strand),
+    B-HIGH-2 (ATTAIN unwind reverses v5.17.5 D-MED-1). Marginal-benefit: LOW value (guard off by default; rare
+    physical-breaker-trip-during-blind-telemetry) vs HIGH ingredient risk (arbitrage state machine, shared
+    primitive _effective_import_kw, sticky latches). Defer, do it right.'
+  constraints:
+  - 'Tier 3 — arbitrage state machine + shared primitive. Honor the v5.17.5 anti-abort precedent.'
+  parked_alts:
+  - 'Fix it inside the Envoy shared-staleness cycle — REJECTED: would keep that cycle regression-prone and block
+    the clean solar/drain/observability wins; the marginal benefit does not pay for the ingredient risk now.'
+  next: 'Revive when: a real blind-telemetry breaker-trip is observed, OR the operator enables the grid-import
+    guard and wants stale-safe behavior. Design: battery-unknown propagation in _effective_import_kw + isfinite-guard
+    gate + non-sticky abort + grid-cap discharge-under-stale. Reuse C''s _run_attain_branch anchor recipe
+    (scratchpad/proposed_bc_anchor.py, precedent test_arbitrage_grid_import_guard_expose.py:525-670).'
+  refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D 2026-09-01']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
@@ -5065,6 +5102,14 @@ cards:
     application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED
     (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DEFAULT + CONF_WET_ROOM schema mirror), 120min bath/closet/default,
     distinct ble_hold_cap NM. Queued behind the pytest lane (forecast validator). Next: build (Tier 2-DB+).'
+  build_review_2026_09_01: 'BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED.
+    Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable
+    (add call-site anchor); C-MED-2 P24-distinctness observes one path; C-MED-3 duration-lookup coincidental-equality
+    (#63) untested; A2/B4 NM prints cap constant not observed duration; B6 misleading else-log; README caveats
+    (B1 restart resets clock, B5 humidity edge) + L5 wording. A1 anchor = OPERATOR DECISION (2026-09-01 "continue"):
+    re-anchor on BLE-HOLD-START (recommended) — cap measures BLE-only sustain since last body, not whole session;
+    handles the phantom identically, stops evicting a recently-moving occupant; still a single duration cap, no new
+    knob. Fix pass folds A1 + all review fixes; QUEUED behind Envoy rework on the pytest lane.'
   refinement_2026_09_01: 'Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body-
     corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on
     BLE-extend-since-last-body (independent of sleep) as a backstop, so the protection generalizes beyond
@@ -11722,6 +11767,20 @@ cards:
     per-consumer None-direction table with safety guards (3 inline breaker sites, drain-pause) fail-CLOSED,
     releases still evaluate (battery_power_unknown kwarg), unconfigured-vs-stale split, D-OBS unions with existing
     envoy_status. Tier 2-DB. Queued behind pytest lane. Next: build.'
+  status_note: in_progress — SCOPE-SPLIT rework in flight
+  tier3_review_2026_09_01: 'BUILT then 4 Tier-3 build-reviews (A correctness / B state-machine / C test-authority
+    / D adversarial). Build initially shipped a real safety bug (drain release-path DROP under blind CT — found by
+    the mutation drill, fixed). Then A=2MED, B=CRIT+2HIGH, C=pervasive neuter-deletable anchor gap, D=2HIGH. CORE
+    of B+D (disjoint-convergent): the breaker-guard + grid-cap FAIL-CLOSED over-corrected — B-CRIT-1 locks arbitrage
+    chunks on a DEFAULT-DISABLED guard; D-HIGH-1 _effective_import_kw substitutes 0 for unknown battery → false
+    over-cap even guard-enabled; D-HIGH-2 sticky chunk lock (first stall = whole night lost); B-HIGH-1 grid-cap skip
+    strands EV (no discharge); B-HIGH-2 ATTAIN unwind reverses v5.17.5 anti-abort. C: most gates neuter-deletable;
+    B/C-site anchors were source-greps (C wrote real ones, ~100 LoC, proving it was doable — hard gap).
+    OPERATOR DECISION (2026-09-01, "continue" = proceed w/ recommendations): SCOPE SPLIT. KEEP D1/D2/D3(the original
+    solar ask)/D4-D(drain HOLD, real safety)/D4-E/F/G/D-OBS + add C''s real stale-but-numeric + wire-in anchors;
+    DROP D4-H(breaker×3)+D4-B(grid-cap) → revert to develop, carded as BREAKER-GRIDCAP-STALE-TELEMETRY-1; ADD
+    arm-on-unknown for drain (D-MED-3); fix A-MED-1/B-MED-3 (bind D-OBS thresholds to consts + honor ≤0 kill-switch),
+    B-MED-2 (D4-F cache power cols), docstrings. Re-review the reduced surface before ship.'
   refinement:
   - 'Rev-3 PLAN-REVIEW = FIX-REQUIRED, two make-or-break CRITICALs — the key lesson: GATING A READ TO None
     IS NOT UNIVERSALLY SAFE; the None-fallback direction (fail-open vs fail-closed) is per-CONSUMER, and
