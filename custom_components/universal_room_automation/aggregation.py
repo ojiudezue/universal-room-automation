@@ -436,31 +436,59 @@ async def async_setup_cm_hosted_aggregation_sensors(
     )
 
     # Phase 2 — per-person branch deferred until HA is fully started.
-    _register_per_person_sensors_scheduled = {"done": False}
+    # FIX-1 (2026-09-03, Review D D-LEAK-1): the previous one-shot
+    # async_at_started could early-return on a slow-DB boot where the
+    # INTEGRATION entry lands via ConfigEntryNotReady AFTER
+    # EVENT_HOMEASSISTANT_STARTED, permanently orphaning the 8
+    # per-person sensors until a manual reload. Add a bounded
+    # async_call_later retry loop with a discharge (per
+    # suppression-needs-a-discharge). Cancel on unload.
+    _register_per_person_sensors_scheduled = {"done": False, "attempts": 0}
+    _MAX_RETRY_ATTEMPTS = 6           # 6 retries * 30s ≈ 3min after start
+    _RETRY_DELAY_S = 30
 
     async def _register_per_person(_now=None) -> None:
-        # async_at_started may re-fire in edge cases; guard against double-adds
-        # (the _2-mint mechanism = the acceptance gate).
+        # async_at_started + async_call_later may re-fire; guard against
+        # double-adds (the _2-mint mechanism = the acceptance gate).
         if _register_per_person_sensors_scheduled["done"]:
             _LOGGER.debug(
                 "CM aggregation setup phase 2: already registered, skipping"
             )
             return
         integration_entry = _resolve_integration_entry(hass)
-        if not _integration_entry_is_loaded(integration_entry):
-            _LOGGER.warning(
-                "CM aggregation setup phase 2: INTEGRATION entry not LOADED "
-                "at HA-started event; per-person coordinator-device sensors "
-                "not registered this boot."
-            )
-            return
         person_coordinator = hass.data.get(DOMAIN, {}).get("person_coordinator")
-        if person_coordinator is None:
-            _LOGGER.warning(
-                "CM aggregation setup phase 2: person_coordinator absent at "
-                "HA-started event; per-person coordinator-device sensors "
-                "not registered this boot."
+        loaded = _integration_entry_is_loaded(integration_entry)
+        if not loaded or person_coordinator is None:
+            attempts = _register_per_person_sensors_scheduled["attempts"]
+            if attempts >= _MAX_RETRY_ATTEMPTS:
+                _LOGGER.warning(
+                    "CM aggregation setup phase 2: giving up after %d retries "
+                    "(INTEGRATION loaded=%s, person_coordinator=%s); "
+                    "per-person coordinator-device sensors not registered "
+                    "this boot.",
+                    attempts, loaded, person_coordinator is not None,
+                )
+                return
+            _register_per_person_sensors_scheduled["attempts"] = attempts + 1
+            _LOGGER.info(
+                "CM aggregation setup phase 2: prerequisites not ready "
+                "(INTEGRATION loaded=%s, person_coordinator=%s); "
+                "retry %d/%d in %ds",
+                loaded, person_coordinator is not None,
+                attempts + 1, _MAX_RETRY_ATTEMPTS, _RETRY_DELAY_S,
             )
+            try:
+                from homeassistant.helpers.event import async_call_later
+                handle = async_call_later(
+                    hass, _RETRY_DELAY_S, _register_per_person,
+                )
+                cm_entry.async_on_unload(handle)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "CM aggregation setup phase 2: retry scheduling failed "
+                    "(non-fatal); per-person sensors not registered this boot",
+                    exc_info=True,
+                )
             return
         tracked_persons = integration_entry.data.get(CONF_TRACKED_PERSONS, [])
         if not tracked_persons:
@@ -492,7 +520,10 @@ async def async_setup_cm_hosted_aggregation_sensors(
 
     try:
         from homeassistant.helpers.start import async_at_started
-        async_at_started(hass, _register_per_person)
+        # FIX-5 (2026-09-03, Review D D-LEAK-5): register unsub with the
+        # CM entry so reload-before-started doesn't leak this callback.
+        unsub = async_at_started(hass, _register_per_person)
+        cm_entry.async_on_unload(unsub)
     except Exception:  # noqa: BLE001
         _LOGGER.warning(
             "CM aggregation setup phase 2: async_at_started scheduling failed "

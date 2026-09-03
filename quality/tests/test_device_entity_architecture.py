@@ -164,8 +164,18 @@ def test_nm_device_info_canonical():
     ("notification_manager", "notification_manager", "Notification Manager"),
 ])
 def test_coordinator_device_info_dispatcher(coord_id, expected_ident, expected_model):
-    """D3 dispatcher: BaseCoordinator.device_info routes here. Reverting the
-    base.py edit breaks test_base_coordinator_device_info_matches_helper below.
+    """D3 dispatcher-correctness unit test: `_coordinator_device_info()`
+    returns the right DeviceInfo per coordinator id.
+
+    FIX-11 (2026-09-03, Review C M-2): NOTE this is NOT a race-fix proof.
+    `BaseCoordinator` (domain_coordinators/base.py:154) is `class
+    BaseCoordinator(ABC)`, NOT an HA `Entity`, so HA never reads the
+    `device_info` property on base.py:200 — the "model first-writer-wins
+    race" D3 originally claimed to fix was never reachable through
+    base.py. The `_coordinator_device_info` routing in base.py is kept
+    as harmless future-proofing IF BaseCoordinator ever becomes an
+    Entity, but these tests only prove the dispatcher, not a race
+    resolution.
     """
     d = _import_devices()
     di = d._coordinator_device_info(coord_id)
@@ -461,38 +471,43 @@ def test_devices_module_never_reloads_entry():
 
 
 def test_dead_music_following_device_removal_guarded():
-    """MED-A2 (2026-09-03): bind to the SPECIFIC removal call in the D1
-    block, not a repo-wide substring (`async_remove_device` occurs at other
-    sites unrelated to this cycle). Anchor on the D1 marker comment +
-    contained sequence:
-      1) `(DOMAIN, "music_following")` identifier lookup
-      2) `entries_for_device(...)` zero-entity guard
-      3) `async_remove_device(dead_device.id)` call
-    Deleting the removal call turns this test RED without false-positive
-    matches on unrelated `async_remove_device` uses.
+    """FIX-4 (2026-09-03, Review D live-registry): the dead identifier is
+    `(DOMAIN, "coordinator_music_following")` (two records, 0 entities
+    each) — NOT bare `music_following` (that was a silent-no-op miss in
+    the initial build). Also: `async_get_device` returns only one match,
+    so the D1 block must iterate `dev_reg2.devices.values()` to catch
+    both records. Bind to the SPECIFIC removal block via its comment
+    anchor; sequence required:
+      1) `(DOMAIN, "coordinator_music_following")` identifier lookup
+      2) iteration over the device registry (not `async_get_device`)
+      3) `async_entries_for_device(...)` zero-entity guard
+      4) `async_remove_device(_device.id)` call
+      5) skip-on-remaining safety branch present
     """
     init_src = (PKG_ROOT / "__init__.py").read_text()
-    # Locate the D1 block by its comment anchor (the exact live text).
-    anchor = init_src.find("D1): guarded removal of the dead")
+    anchor = init_src.find("guarded removal of dead")
     if anchor < 0:
         anchor = init_src.find("guarded removal of the dead")
     assert anchor >= 0, "D1 dead-device removal block missing"
     block = init_src[anchor:anchor + 2500]
-    assert '(DOMAIN, "music_following")' in block, (
-        "MED-A2: D1 dead-device removal targets wrong identifier "
-        "(must be bare `music_following`, not `music_following_coordinator`)"
+    assert '(DOMAIN, "coordinator_music_following")' in block, (
+        "FIX-4: D1 dead-device removal targets wrong identifier — must be "
+        "(DOMAIN, 'coordinator_music_following') per live-registry ground truth"
+    )
+    assert "dev_reg2.devices.values()" in block, (
+        "FIX-4: D1 dead-device removal must iterate dev_reg2.devices.values() "
+        "to catch BOTH dead records (async_get_device returns only one)"
     )
     assert "async_entries_for_device" in block, (
-        "MED-A2: D1 dead-device removal missing zero-entity guard "
+        "FIX-4: D1 dead-device removal missing zero-entity guard "
         "(async_entries_for_device call)"
     )
-    assert "async_remove_device(dead_device.id)" in block, (
-        "MED-A2: D1 dead-device removal call absent from D1 block "
-        "(unrelated async_remove_device sites elsewhere don\'t count)"
+    assert "async_remove_device(_device.id)" in block, (
+        "FIX-4: D1 dead-device removal call absent from D1 block "
+        "(unrelated async_remove_device sites elsewhere don't count)"
     )
-    # Skip-on-remaining branch present (safety)
     assert "SKIPPED" in block, (
-        "MED-A2: D1 dead-device removal missing skip-on-remaining safety branch"
+        "FIX-4: D1 dead-device removal missing skip-on-remaining safety branch"
     )
 
 
@@ -586,19 +601,34 @@ _D1B_MIGRATED_SENSOR_CLASSES = [
 
 
 @pytest.mark.parametrize("cls", _D1B_MIGRATED_SENSOR_CLASSES)
-def test_d1b_sensor_constructed_exactly_once_in_aggregation(cls):
-    """Exactly-once guard: each D1b-migrated sensor class must be
-    CONSTRUCTED exactly once inside aggregation.py.
+def test_d1b_sensor_constructed_exactly_once_across_package(cls):
+    """FIX-8 (2026-09-03, Review C-CRIT-3): each D1b-migrated sensor class
+    must be CONSTRUCTED exactly once across the ENTIRE URA package (not
+    just aggregation.py). A duplicate constructor call — in aggregation.py
+    OR sensor.py OR any other module — is the _2-mint mechanism (D1
+    acceptance gate) and would double-register the same unique_id under a
+    different config entry.
 
     Mutation drill: add a second `PersonNextRoomAccuracySensor(hass, entry, person_id)`
-    line anywhere in aggregation.py -> this test RED for that class.
-    A double construction is the _2-mint mechanism (D1 acceptance gate).
+    line anywhere under `custom_components/universal_room_automation/` ->
+    this test RED for that class.
     """
-    src = _read("aggregation.py")
-    count = len(_re.findall(rf"\b{cls}\(", src))
-    assert count == 1, (
-        f"HIGH-A2 exactly-once guard: {cls} constructed {count} times in "
-        f"aggregation.py; a second construction double-registers -> _2."
+    hits: list[str] = []
+    for py in PKG_ROOT.rglob("*.py"):
+        text = py.read_text()
+        # Exclude class definition itself (`class Foo(`) — only match constructor calls.
+        for m in _re.finditer(rf"\b{cls}\(", text):
+            # Skip class definitions.
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            line_end = text.find("\n", m.start())
+            line = text[line_start:line_end if line_end != -1 else len(text)]
+            if line.lstrip().startswith("class "):
+                continue
+            hits.append(f"{py.relative_to(PKG_ROOT)}:{text.count(chr(10), 0, m.start()) + 1}")
+    assert len(hits) == 1, (
+        f"FIX-8 exactly-once guard: {cls} constructed {len(hits)} times "
+        f"across package (expected 1). Sites: {hits}. A second "
+        f"construction double-registers -> _2 mint."
     )
 
 
@@ -723,4 +753,259 @@ def test_d_nest_at_start_sweep_scheduled():
     init_src = _read("__init__.py")
     assert "async_schedule_device_tree_sweep" in init_src, (
         "HIGH-B3: CM setup no longer schedules the at-start device-tree sweep"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FIX-6..FIX-10 (2026-09-03, Review C fix-ups) — behavioural / call-position
+# anchors for the CM-hosted coroutines, the D-NEST call sites, and the
+# FIX-1 retry loop.
+# ---------------------------------------------------------------------------
+
+
+def _extract_coroutine_body(module_rel: str, name: str) -> str:
+    """Return the source text of an async def coroutine by name.
+    Anchored on the next top-level `def`/`async def` boundary.
+    """
+    src = _read(module_rel)
+    m = _re.search(
+        rf"async def {name}\b.*?(?=\n(?:async )?def [A-Za-z_])",
+        src, _re.DOTALL,
+    )
+    assert m, f"could not locate {name} in {module_rel}"
+    return m.group(0)
+
+
+def test_fix6_cm_hosted_sensors_construct_expected_classes():
+    """FIX-6 (Review C-CRIT-1): async_setup_cm_hosted_aggregation_sensors
+    must construct BOTH House-level sensors (immediate phase) AND, in the
+    deferred branch, both per-person sensor classes. Reverting the body
+    to a bare `return` turns this test RED.
+
+    Not a full-runtime behavioural test (aggregation.py's import graph is
+    too large for this test package's stub set) — but pins the exact
+    constructor calls that must live inside the coroutine body, so a
+    neuter (delete either construction) fails.
+    """
+    body = _extract_coroutine_body(
+        "aggregation.py", "async_setup_cm_hosted_aggregation_sensors",
+    )
+    # Phase 1: house-level sensors
+    assert "HouseNextRoomAccuracySensor(hass, cm_entry)" in body, (
+        "FIX-6: HouseNextRoomAccuracySensor not constructed in CM coroutine"
+    )
+    assert "HouseRoutineStatusSensor(hass, cm_entry)" in body, (
+        "FIX-6: HouseRoutineStatusSensor not constructed in CM coroutine"
+    )
+    # Phase 2: per-person sensor construction present in deferred branch
+    assert "PersonNextRoomAccuracySensor(hass, integration_entry, person_id)" in body, (
+        "FIX-6: PersonNextRoomAccuracySensor not constructed in deferred branch"
+    )
+    assert "PersonRoutineStatusSensor(hass, integration_entry, person_id)" in body, (
+        "FIX-6: PersonRoutineStatusSensor not constructed in deferred branch"
+    )
+    # Phase 1 targets the CM entry via async_add_entities
+    assert "async_add_entities([" in body and "HouseNextRoomAccuracySensor" in body, (
+        "FIX-6: phase-1 entities not added via async_add_entities under CM entry"
+    )
+    # Not the Whole House / INTEGRATION entry — assert we do NOT pass a
+    # bare `entry` (the INTEGRATION forwarder's param) to House constructors.
+    assert "HouseNextRoomAccuracySensor(hass, entry)" not in body, (
+        "FIX-6: House sensor constructed with INTEGRATION entry — must be cm_entry"
+    )
+
+
+def test_fix6_cm_hosted_binary_sensors_construct_coordinator_pair():
+    """FIX-6: async_setup_cm_hosted_aggregation_binary_sensors must
+    construct exactly the coordinator-device SafetyAlert/SecurityAlert
+    binaries (aliased) and add them via async_add_entities. Neutering the
+    body to `return` turns this RED.
+    """
+    body = _extract_coroutine_body(
+        "aggregation.py", "async_setup_cm_hosted_aggregation_binary_sensors",
+    )
+    assert "_CoordSafetyAlert(hass, cm_entry)" in body, (
+        "FIX-6: coordinator SafetyAlert not constructed in CM binary coroutine"
+    )
+    assert "_CoordSecurityAlert(hass, cm_entry)" in body, (
+        "FIX-6: coordinator SecurityAlert not constructed in CM binary coroutine"
+    )
+    assert "async_add_entities([" in body, (
+        "FIX-6: CM binary coroutine does not call async_add_entities"
+    )
+
+
+def test_fix7_cm_hosted_sensors_deferred_guard_present():
+    """FIX-7 (Review C-CRIT-2): the deferred per-person branch must:
+      (a) guard against double-execution via `_register_per_person_sensors_scheduled["done"]`
+      (b) set `["done"] = True` after successful registration
+    Removing the guard OR the done-flip re-opens the _2 mint window.
+
+    Note: the FIX-8 exactly-once-across-package guard already covers the
+    static-source duplicate. This test covers the DYNAMIC re-fire path.
+    """
+    body = _extract_coroutine_body(
+        "aggregation.py", "async_setup_cm_hosted_aggregation_sensors",
+    )
+    # (a) idempotency guard read
+    assert '_register_per_person_sensors_scheduled["done"]' in body, (
+        "FIX-7: per-person idempotency guard flag missing"
+    )
+    assert "already registered, skipping" in body or "return" in body, (
+        "FIX-7: guard body doesn't short-circuit on already-done"
+    )
+    # (b) done-flip after success
+    assert '_register_per_person_sensors_scheduled["done"] = True' in body, (
+        "FIX-7: `done` flag never set to True — re-fire will double-add"
+    )
+
+
+def test_fix9_cm_sweep_call_after_forward_setups():
+    """FIX-9 (Review C-HIGH-3): `async_schedule_device_tree_sweep` must be
+    CALLED (not just imported) AFTER `async_forward_entry_setups` in the
+    CM branch of __init__.py. Removing the call — even while leaving the
+    import — turns this RED. The check is positional, not mere presence.
+    """
+    init_src = _read("__init__.py")
+    # Locate CM branch by its `cm_platforms = ...` marker.
+    cm_marker = init_src.find("cm_platforms = list(INTEGRATION_PLATFORMS)")
+    assert cm_marker >= 0, "CM branch marker missing from __init__.py"
+    # Slice a bounded window after the marker (well within the CM entry setup).
+    window = init_src[cm_marker:cm_marker + 4000]
+    # forward_setups must appear before the call.
+    fwd_pos = window.find("async_forward_entry_setups(entry, cm_platforms)")
+    call_pos = window.find("async_schedule_device_tree_sweep(hass)")
+    assert fwd_pos >= 0, "CM branch: async_forward_entry_setups call missing"
+    assert call_pos >= 0, (
+        "FIX-9: async_schedule_device_tree_sweep NOT CALLED in CM branch "
+        "(name might still be imported — this test requires the call)"
+    )
+    assert fwd_pos < call_pos, (
+        "FIX-9: sweep scheduled BEFORE async_forward_entry_setups in CM "
+        "branch — devices don't exist yet at that point"
+    )
+
+
+def test_fix3_room_stamp_call_after_forward_setups():
+    """FIX-3 (Review D D-LEAK-3): the ROOM async_setup_entry branch must
+    call `async_stamp_via_device_tree` + `async_schedule_device_tree_sweep`
+    AFTER `async_forward_entry_setups(entry, PLATFORMS)`. Without this a
+    runtime-added room floats unparented until restart.
+    """
+    init_src = _read("__init__.py")
+    # PLATFORMS forward is at the room async_setup_entry (the last matching site).
+    room_fwd = init_src.rfind("async_forward_entry_setups(entry, PLATFORMS)")
+    assert room_fwd >= 0, "ROOM branch async_forward_entry_setups call missing"
+    tail = init_src[room_fwd:room_fwd + 3000]
+    assert "async_stamp_via_device_tree(hass)" in tail, (
+        "FIX-3: ROOM branch does not stamp via_device_id after forward_setups"
+    )
+    assert "async_schedule_device_tree_sweep(hass)" in tail, (
+        "FIX-3: ROOM branch does not schedule the at-start sweep after "
+        "forward_setups (runtime-added rooms stay unparented until restart)"
+    )
+
+
+def test_fix2_integration_branch_also_schedules_sweep():
+    """FIX-2 (Review D D-LEAK-2): the INTEGRATION branch must ALSO call
+    `async_schedule_device_tree_sweep`, so a CM-late/CM-less boot still
+    gets an at-start cover-all sweep. Prior code only scheduled from the
+    CM branch.
+    """
+    init_src = _read("__init__.py")
+    # Find INTEGRATION branch by its distinctive stamping comment.
+    marker = init_src.find(
+        "D-NEST): stamp via_device_id AFTER"
+    )
+    assert marker >= 0, "INTEGRATION branch D-NEST marker missing"
+    window = init_src[marker:marker + 2000]
+    assert "async_schedule_device_tree_sweep(hass)" in window, (
+        "FIX-2: INTEGRATION branch does not schedule the at-start sweep — "
+        "a CM-late boot leaves the sweep unarmed"
+    )
+
+
+def test_fix2_sweep_has_rearm_ceiling():
+    """FIX-2 (Review D D-LEAK-2): `async_schedule_device_tree_sweep`
+    must (a) allow bounded re-arm on residual > 0, and (b) cap re-arms so
+    a persistent parent gap doesn't schedule forever.
+    """
+    src = _read("_devices.py")
+    assert "_device_tree_sweep_count" in src, (
+        "FIX-2: sweep scheduler missing re-arm counter"
+    )
+    assert "_MAX_SCHEDULES" in src, (
+        "FIX-2: sweep scheduler missing re-arm ceiling"
+    )
+    # The at-start sweep must clear the pending latch so future callers can re-arm.
+    assert '_device_tree_sweep_scheduled"] = False' in src or \
+           "_device_tree_sweep_scheduled'] = False" in src, (
+        "FIX-2: at-start sweep does not clear the pending-latch, blocking re-arm"
+    )
+    # Retry via async_call_later on residual.
+    assert "async_call_later" in src and "residual" in src, (
+        "FIX-2: sweep does not schedule an async_call_later retry on residual"
+    )
+
+
+def test_fix5_devices_module_tracks_unsub():
+    """FIX-5 (Review D D-LEAK-5): the async_at_started unsub in _devices.py
+    is stored (not discarded) so a reload-before-started can cancel it.
+    """
+    src = _read("_devices.py")
+    assert "unsub = async_at_started(hass, _sweep)" in src, (
+        "FIX-5: _devices.py discards the async_at_started unsub"
+    )
+    assert "_device_tree_sweep_unsubs" in src, (
+        "FIX-5: _devices.py does not track sweep unsubs"
+    )
+
+
+def test_fix5_aggregation_registers_unsub_with_cm_entry():
+    """FIX-5 (Review D D-LEAK-5): the async_at_started unsub in
+    aggregation.py is registered on the CM entry via async_on_unload so
+    a reload-before-started tears it down.
+    """
+    src = _read("aggregation.py")
+    body = _extract_coroutine_body(
+        "aggregation.py", "async_setup_cm_hosted_aggregation_sensors",
+    )
+    assert "unsub = async_at_started(hass, _register_per_person)" in body, (
+        "FIX-5: aggregation.py discards the async_at_started unsub"
+    )
+    assert "cm_entry.async_on_unload(unsub)" in body, (
+        "FIX-5: async_at_started unsub not registered with cm_entry.async_on_unload"
+    )
+
+
+def test_fix10_cm_deferred_branch_retry_on_prereqs_missing():
+    """FIX-10 (Review C-HIGH-2): the deferred branch, when INTEGRATION is
+    not LOADED or person_coordinator is absent, must schedule a bounded
+    async_call_later retry (with a max-attempts cap) so a slow-DB boot
+    doesn't permanently orphan the 8 per-person sensors. This anchors on
+    the retry machinery required by FIX-1.
+    """
+    body = _extract_coroutine_body(
+        "aggregation.py", "async_setup_cm_hosted_aggregation_sensors",
+    )
+    # Machinery introduced by FIX-1 must be present:
+    assert "_MAX_RETRY_ATTEMPTS" in body, (
+        "FIX-10: no max-attempts cap on the retry loop"
+    )
+    assert "async_call_later" in body, (
+        "FIX-10: no async_call_later retry scheduled on prereq-miss"
+    )
+    assert "cm_entry.async_on_unload(handle)" in body, (
+        "FIX-10: async_call_later handle not cancelled on unload — leak"
+    )
+    # Retry must call back into the same closure (discharge).
+    assert "async_call_later(\n                    hass, _RETRY_DELAY_S, _register_per_person" in body \
+        or "async_call_later(hass, _RETRY_DELAY_S, _register_per_person)" in body \
+        or "_register_per_person" in body.split("async_call_later")[1][:200], (
+        "FIX-10: async_call_later does not re-schedule _register_per_person "
+        "(no discharge)"
+    )
+    # `attempts` counter incremented before scheduling.
+    assert '_register_per_person_sensors_scheduled["attempts"]' in body, (
+        "FIX-10: no attempts counter on the retry loop"
     )

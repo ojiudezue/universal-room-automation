@@ -3928,8 +3928,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # coordinator devices (missing parent → skip; re-stamped on the CM
         # entry's own D-NEST call).
         try:
-            from ._devices import async_stamp_via_device_tree
+            from ._devices import (
+                async_stamp_via_device_tree,
+                async_schedule_device_tree_sweep,
+            )
             await async_stamp_via_device_tree(hass)
+            # FIX-2 (2026-09-03, Review D D-LEAK-2): also schedule the
+            # at-start cover-all sweep from INTEGRATION so a boot where
+            # the CM entry is late/absent still gets the sweep.
+            # `async_schedule_device_tree_sweep` is idempotent.
+            async_schedule_device_tree_sweep(hass)
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
                 "D-NEST: via_device stamping from INTEGRATION setup raised (non-fatal)",
@@ -4206,34 +4214,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 exc_info=True,
             )
 
-        # v5.94.0 (device/entity de-frag D1): guarded removal of the dead
-        # `URA: Music Following` device (identifier `(DOMAIN, "music_following")`
-        # bare — distinct from `music_following_coordinator`). D0 audit
-        # confirmed 2 tombstone records with zero entities pointing at them.
+        # v5.94.0 (device/entity de-frag D1): guarded removal of dead
+        # `URA: Music Following` device records. FIX-4 (2026-09-03,
+        # Review D live-registry): the dead identifier is
+        # `(DOMAIN, "coordinator_music_following")` — NOT bare
+        # `music_following` (the initial build targeted the wrong id and
+        # was a silent no-op). Two records exist (one per config entry),
+        # each with 0 entities and disabled_by=user. NOTE:
+        # `music_following_coordinator` (different id!) is the LIVE
+        # device that owns `music_following_health` — do NOT touch it.
+        # `async_get_device()` returns only one record; iterate
+        # `dev_reg.devices.values()` to catch both.
         # Safety: skip removal if ANY entity still points at the device.
         try:
             from homeassistant.helpers import entity_registry as er
             dev_reg2 = dr.async_get(hass)
-            dead_device = dev_reg2.async_get_device(
-                identifiers={(DOMAIN, "music_following")},
-            )
-            if dead_device is not None:
-                ent_reg2 = er.async_get(hass)
+            dead_ident = (DOMAIN, "coordinator_music_following")
+            ent_reg2 = er.async_get(hass)
+            removed = 0
+            for _device in list(dev_reg2.devices.values()):
+                if dead_ident not in _device.identifiers:
+                    continue
                 remaining = er.async_entries_for_device(
-                    ent_reg2, dead_device.id, include_disabled_entities=True,
+                    ent_reg2, _device.id, include_disabled_entities=True,
                 )
                 if not remaining:
-                    dev_reg2.async_remove_device(dead_device.id)
+                    dev_reg2.async_remove_device(_device.id)
+                    removed += 1
                     _LOGGER.info(
-                        "D1: removed dead device (DOMAIN, 'music_following') "
-                        "with zero entities pointing at it",
+                        "D1: removed dead device %s with identifier "
+                        "(DOMAIN, 'coordinator_music_following') (0 entities)",
+                        _device.id,
                     )
                 else:
                     _LOGGER.info(
-                        "D1: dead-device removal SKIPPED — "
-                        "(DOMAIN, 'music_following') still has %d entities",
-                        len(remaining),
+                        "D1: dead-device removal SKIPPED for %s — "
+                        "(DOMAIN, 'coordinator_music_following') still has %d entities",
+                        _device.id, len(remaining),
                     )
+            if removed:
+                _LOGGER.info(
+                    "D1: removed %d dead 'coordinator_music_following' device record(s)",
+                    removed,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
                 "D1: dead-device cleanup guard raised (non-fatal)",
@@ -4566,6 +4589,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # FIX-3 (2026-09-03, Review D D-LEAK-3): a room added at runtime (after
+    # HA has started) has no chance to be stamped by the CM/INTEGRATION
+    # inline pass or the once-per-boot async_at_started sweep (latch
+    # already set). Run an inline stamp + re-schedule the at-start sweep
+    # (allowed to re-arm; see async_schedule_device_tree_sweep).
+    try:
+        from ._devices import (
+            async_stamp_via_device_tree,
+            async_schedule_device_tree_sweep,
+        )
+        await async_stamp_via_device_tree(hass)
+        async_schedule_device_tree_sweep(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "D-NEST: via_device stamping from ROOM setup raised (non-fatal)",
+            exc_info=True,
+        )
 
     # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE so
     # PresenceCoordinator can call OccupancySubstrate.refresh_subscriptions()

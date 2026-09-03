@@ -250,9 +250,22 @@ def async_schedule_device_tree_sweep(hass: HomeAssistant) -> None:
     if not URA_DEVICE_TREE_STAMPING_ENABLED:
         return
     domain_data = hass.data.setdefault(DOMAIN, {})
+    # FIX-2 (2026-09-03, Review D D-LEAK-2): allow bounded re-arm.
+    # Concurrent per-domain entry setup means an inline stamp may miss
+    # devices; the once-per-boot at-start sweep may itself run before
+    # a slow-DB entry has landed. Cap re-arms so a persistent parent
+    # gap (bug, not race) doesn't schedule forever.
+    _MAX_SCHEDULES = 3
+    scheduled_count = int(domain_data.get("_device_tree_sweep_count", 0))
+    if scheduled_count >= _MAX_SCHEDULES:
+        return
     if domain_data.get("_device_tree_sweep_scheduled"):
+        # An outstanding schedule is pending — don't double-arm now.
+        # Re-arm decision is made by the sweep itself when it observes
+        # residual > 0.
         return
     domain_data["_device_tree_sweep_scheduled"] = True
+    domain_data["_device_tree_sweep_count"] = scheduled_count + 1
 
     async def _sweep(_now=None) -> None:
         try:
@@ -286,12 +299,39 @@ def async_schedule_device_tree_sweep(hass: HomeAssistant) -> None:
                 exc_info=True,
             )
             return
+        # Clear the pending latch — future callers can re-arm.
+        domain_data["_device_tree_sweep_scheduled"] = False
         if residual:
             _LOGGER.warning(
                 "D-NEST at-start sweep: %d URA devices still lack via_device_id "
                 "(INV-4 trip-wire; identifiers=%s). Sweep stamped %d devices.",
                 residual, residual_ids[:10], updates,
             )
+            # FIX-2 re-arm: bounded retry via async_call_later while we're
+            # under the cap. This handles the slow-DB boot where a later
+            # entry lands after our at-start sweep.
+            count = int(domain_data.get("_device_tree_sweep_count", 0))
+            if count < _MAX_SCHEDULES:
+                try:
+                    from homeassistant.helpers.event import async_call_later
+                    async def _retry(_now=None) -> None:
+                        # Delegate to the scheduler (idempotent + capped).
+                        async_schedule_device_tree_sweep(hass)
+                    _RETRY_DELAY_S = 30
+                    handle = async_call_later(hass, _RETRY_DELAY_S, _retry)
+                    domain_data.setdefault(
+                        "_device_tree_sweep_retry_handles", []
+                    ).append(handle)
+                    _LOGGER.info(
+                        "D-NEST: scheduling retry sweep in %ds "
+                        "(attempt %d/%d)", _RETRY_DELAY_S,
+                        count + 1, _MAX_SCHEDULES,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "D-NEST: retry-sweep scheduling failed (non-fatal)",
+                        exc_info=True,
+                    )
         else:
             _LOGGER.info(
                 "D-NEST at-start sweep: all URA devices parented; stamped %d "
@@ -300,7 +340,12 @@ def async_schedule_device_tree_sweep(hass: HomeAssistant) -> None:
 
     try:
         from homeassistant.helpers.start import async_at_started
-        async_at_started(hass, _sweep)
+        # FIX-5 (2026-09-03, Review D D-LEAK-5): store unsub so a
+        # reload-before-started tears the listener down. Home Assistant's
+        # async_at_started returns an unsub callable; we keep it in
+        # domain data so URA's unload path can invoke it.
+        unsub = async_at_started(hass, _sweep)
+        domain_data.setdefault("_device_tree_sweep_unsubs", []).append(unsub)
     except Exception:  # noqa: BLE001
         _LOGGER.warning(
             "D-NEST: async_at_started scheduling failed (non-fatal)",
