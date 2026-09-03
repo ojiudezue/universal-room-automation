@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T17:27:37-05:00_ - _Data commit: `bd6345a17a87`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-03T17:33:11-05:00_ - _Data commit: `ea1c0dc279f3`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,10 +12,10 @@ _Generated: 2026-09-03T17:27:37-05:00_ - _Data commit: `bd6345a17a87`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 10 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 6 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 7 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 53 |
 | ⏸️ Waiting on operator | 8 |
@@ -350,7 +350,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (10)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
 
 ### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
@@ -376,20 +376,6 @@ _created 2026-09-03 16:40 · initial_
 - **Tags:** measure-before-build, scale, no-fabrication-verify
 - **Sibling of:** CONFIG-SUBENTRIES-MIGRATION-1, DEVICE-INFO-HELPER-CONSOLIDATION-1
 - **Refs:** docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md; live Devices page 2026-09-03
-- **Forensic keys (1):**
-  - `spawned_from`: DEVICE-ENTITY-REORG-1
-
-### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
-thread: **platform** - status: **investigating** - approval: **explicit**
-_created 2026-09-03 17:10 · initial_
-- **Problem / Solution:**
-  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
-- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
-- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
-- **Next:** Menu audit running (config_flow chooser inventory + icon truth + size). Then decide fold-into-reorg (if small/low-risk) vs fast-follow, and build the menu standardization.
-- **Tags:** ux-consistency, no-fabrication-verify
-- **Sibling of:** DEVICE-ENTITY-REORG-1
-- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
 
@@ -640,8 +626,21 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (6)
+## 📝 Planned (7)
 _has plan / acceptance_
+
+### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
+thread: **platform** - status: **planned** - approval: **explicit**
+_created 2026-09-03 18:05 · initial_
+- **Problem / Solution:**
+  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
+- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
+- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
+- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
+- **Tags:** ux-consistency, tier-2, no-fabrication-verify
+- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
+- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
 thread: **energy** - status: **planned** - approval: **implied**
@@ -748,8 +747,22 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
+
+### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
+- **Problem / Solution:**
+  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
+- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
+- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
+- **Next:** Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).
+- **Tags:** ux-consistency, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1
+- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **in_progress** - approval: **explicit**

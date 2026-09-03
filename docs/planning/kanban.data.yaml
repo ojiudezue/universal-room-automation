@@ -287,10 +287,10 @@ cards:
   title: Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize
     on menus + consistent icon-in-label usage
   thread: platform
-  status: investigating
+  status: in_progress
   created: 2026-09-03 17:10
-  updated: 2026-09-03 17:10
-  refinement_status: initial
+  updated: 2026-09-03 18:05
+  refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-03 ("Finally audit the menus. Make them consistent... We should use menus. I think standard.")'
   tags: [ux-consistency, no-fabrication-verify]
@@ -304,10 +304,57 @@ cards:
   why: 'Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map
     every chooser (menu vs dropdown) + icon usage + size the standardization.'
   spawned_from: DEVICE-ENTITY-REORG-1
-  sibling_of: [DEVICE-ENTITY-REORG-1]
-  next: 'Menu audit running (config_flow chooser inventory + icon truth + size). Then decide fold-into-reorg
-    (if small/low-risk) vs fast-follow, and build the menu standardization.'
-  refs: ['config_flow.py (flow choosers)', 'docs/planning/PLANNING_device_entity_architecture_2026_9.md']
+  sibling_of: [DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1]
+  refinement:
+  - 'Audit (agent ae6ad690f4, read-only) → URA is ALREADY async_show_menu everywhere EXCEPT two instance-pickers.
+    The "Zones use a dropdown" = manage_zones (config_flow.py:7900) routes to a SelectSelector LIST *form* to pick
+    a zone; CM lists domains directly in-menu. ai_rule_list (:11246) is a second form-picker (DROPDOWN). Icon
+    coverage patchy: ~5 un-iconned labels + ✓/✅ drift. → SPLIT: fold icons here, card zone-picker separately.'
+  - 'Icon-normalization DONE + committed in the reorg branch (feature/device-entity-defrag @ 5f39dab96): 11 label
+    edits across strings.json + translations/en.json (setup_zone/add_zone/signal_responses iconned; config-flow
+    init_chain_*/init_ai_* twins iconned to match options-flow; finish ✓→✅). Pure translation strings, no code
+    path, no test impact — ships with the reorg. This card now tracks only the icon fold-in (→ done on reorg ship).'
+  next: 'Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is
+    tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).'
+  refs: ['config_flow.py (flow choosers)', 'docs/planning/PLANNING_device_entity_architecture_2026_9.md',
+    'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)']
+- id: MENU-ZONE-PICKER-1
+  title: Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list)
+    to async_show_menu for chooser consistency
+  thread: platform
+  status: planned
+  created: 2026-09-03 18:05
+  updated: 2026-09-03 18:05
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("We should use menus. I think standard.") — scoped out of the reorg by orchestrator adjudication #19 as a Tier-2 fast-follow'
+  tags: [ux-consistency, tier-2, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector),
+     while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the
+     operator flagged the zone dropdown as the odd one out. Solution: convert the zone picker (manage_zones) to a
+     menu (async_show_menu) with one menu option per zone, matching how coordinators are picked. Optionally do the
+     same for the "view/delete AI rule" picker so all instance-pickers are menus.'
+  origin: {date: '2026-09-03', gist: menu-audit finding — the only two non-menu choosers are instance-pickers}
+  why: 'Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3
+    device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in
+    would widen a device-cycle blast radius for no reason.'
+  constraints:
+  - 'Must preserve the v4.7.5 raw-vs-canonical zone contract — the guarding AST test test_v475_d2_picker_does_not_call_iter_canonical
+    must still pass (or be updated deliberately).'
+  - 'Must preserve _selected_zone_name state (set at config_flow.py:7857) before routing to zone_config_menu, and
+    the shared-thermostat suffix/banner logic (_render_shared_thermostat_banner :7915).'
+  - 'Dynamic zone names are arbitrary user strings → menu_option keys need sanitizing/mapping; async_show_menu
+    dynamic-label friction (no translation key per zone) must be handled via description_placeholders or label map.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out', verdict: BUILD}
+  next: 'Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built
+    menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).'
+  refs: ['config_flow.py:7900 (manage_zones)', 'config_flow.py:11246 (ai_rule_list)',
+    'quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical',
+    'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)']
+  sibling_of: [MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1]
 - id: DEVICE-ENTITY-REORG-1
   title: Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale /
     helper-consolidation / per-item-reload follow-ups
