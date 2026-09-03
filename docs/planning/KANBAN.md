@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T11:30:15-05:00_ - _Data commit: `c2f5efd34e4a`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-03T12:09:29-05:00_ - _Data commit: `7baaa307261b`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,10 +14,10 @@ _Generated: 2026-09-03T11:30:15-05:00_ - _Data commit: `c2f5efd34e4a`_ - _last_r
 | 📥 Inbox | 30 |
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 7 |
+| 📝 Planned | 6 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 52 |
+| 🚀 Shipped (organic open) | 53 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 22 |
@@ -636,7 +636,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (6)
 _has plan / acceptance_
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
@@ -733,25 +733,6 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-### `ENVOY-PRODUCTION-STALE-1` - Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale live sensor that URA's solar entity derives from; does any decision path trust it?
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
-- **Problem / Solution:**
-  - Problem: the sensor that reports how much power the solar panels are making went stuck at zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the grid at the time. If any part of the ...
-- **Origin:** 2026-08-24 - session handoff live-fault
-- **Why:** A stale-at-zero solar reading feeding a real decision is the exact failure class the energy invariants campaign exists to catch. The handoff notes config derivation is unaffected (energy_envoy_entity is only a serial-discovery seed, __in...
-- **Next:** BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix: (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALL...
-- **Tags:** measure-before-build, no-fabrication-verify, tier-2db
-- **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault); __init__.py:3026; PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1); BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483
-- **Forensic keys (7):**
-  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN; Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared: per-consumer None-direction table with safety guard...
-  - `status_note`: in_progress — SCOPE-SPLIT rework in flight
-  - `tier3_review_2026_09_01`: BUILT then 4 Tier-3 build-reviews (A correctness / B state-machine / C test-authority / D adversarial). Build initially shipped a real safety bug (drain release-path DROP under blind CT — found by the mutation drill, fixed). Then A=2MED,...
-  - `consolidate_decision_2026_09_01`: Operator: CONSOLIDATE. Scope expanded from solar-only to a shared staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads — solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — fol...
-  - `consumer_check_2026_09_01`: Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status 'stale') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check, energy.py:3025), consumed by no decision. The TRUST flag envoy_availa...
-  - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
-  - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
-
 ### `FAN-TRANSITION-COINCIDENCE-GATE-1` - mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route to the existing recheck ladder instead of granting occupancy
 thread: **presence** - status: **planned** - approval: **implied**
 _created 2026-08-26 09:45 · initial_
@@ -793,7 +774,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (52)
+## 🚀 Shipped (organic open) (53)
 _live, awaiting proof_
 
 ### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
@@ -1514,6 +1495,25 @@ _created 2026-08-20 14:15 · updated 2026-08-23 15:45 · initial_
   - `INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault`: MEASURED over a live 7.7h window (05:17-12:58): 16,854 raw log lines, 1,505 distinct issues, 73 components. THE LARGEST FEEDER IS NOT URA: pywattbox.http               2,747 occurrences / 7 issues    ~8,500/day custom_components.wattbox ...
   - `ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22`: NEW MEASURED SOURCE, found incidentally while checking a Garage Hallway sensor swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE churn: binary_sensor.garage_hallw...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox) covers the Frigate live/dead leg naming inconsistency and is the likely home for the camera_census garage_a/garage_b flood — fold that flood in there rather than duplicating. The MQT...
+
+### `ENVOY-PRODUCTION-STALE-1` - Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale live sensor that URA's solar entity derives from; does any decision path trust it?
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
+- **Problem / Solution:**
+  - Problem: the sensor that reports how much power the solar panels are making went stuck at zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the grid at the time. If any part of the ...
+- **Origin:** 2026-08-24 - session handoff live-fault
+- **Why:** A stale-at-zero solar reading feeding a real decision is the exact failure class the energy invariants campaign exists to catch. The handoff notes config derivation is unaffected (energy_envoy_entity is only a serial-discovery seed, __in...
+- **Next:** BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix: (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALL...
+- **Tags:** measure-before-build, no-fabrication-verify, tier-2db
+- **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault); __init__.py:3026; PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1); BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483
+- **Forensic keys (7):**
+  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN; Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared: per-consumer None-direction table with safety guard...
+  - `status_note`: in_progress — SCOPE-SPLIT rework in flight
+  - `tier3_review_2026_09_01`: BUILT then 4 Tier-3 build-reviews (A correctness / B state-machine / C test-authority / D adversarial). Build initially shipped a real safety bug (drain release-path DROP under blind CT — found by the mutation drill, fixed). Then A=2MED,...
+  - `consolidate_decision_2026_09_01`: Operator: CONSOLIDATE. Scope expanded from solar-only to a shared staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads — solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — fol...
+  - `consumer_check_2026_09_01`: Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status 'stale') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check, energy.py:3025), consumed by no decision. The TRUST flag envoy_availa...
+  - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
+  - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
 
 ### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
 thread: **energy** - status: **shipped_organic** - approval: **implied**
