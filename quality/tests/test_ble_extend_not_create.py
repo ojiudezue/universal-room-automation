@@ -522,13 +522,15 @@ def test_camera_block_unchanged_by_this_cycle():
     # the test fails LOUDLY — the operator can then decide whether
     # the co-edit was intentional (update the digest) or accidental.
     digest = hashlib.sha256(cam_block.encode("utf-8")).hexdigest()
-    # Baseline FROZEN 2026-07-17 during the ble_extend_not_create fix-up
-    # (Reviewer C-CRIT-1: replace the tautological first-run recording
-    # with a hard-coded literal). If this cycle intentionally edits the
-    # v3.5.1 camera block, RE-FREEZE this hex deliberately after
-    # inspecting the diff; a silent co-edit will fail loudly here.
+    # Baseline FROZEN 2026-07-17; re-frozen 2026-09-03 for the
+    # ble-bleed-extend-corroboration HIGH-1 co-edit that added the
+    # `self._ble_only_hold_since = None` reset after the camera
+    # branch's `_became_occupied_time` seed. If this cycle again
+    # intentionally edits the v3.5.1 camera block, RE-FREEZE this hex
+    # deliberately after inspecting the diff; a silent co-edit will
+    # fail loudly here.
     _BASELINE_CAMERA_BLOCK_SHA256 = (
-        "2e80de19f48a2477d8fb1dfab253b82c670a419e9c22b0dd5cd7d902780b7e0b"
+        "4ff04f7fce26587a0145e7a789e829840daeaa3b7d61a89aae433366dc63bd4c"
     )
     assert digest == _BASELINE_CAMERA_BLOCK_SHA256, (
         f"Camera block SHA changed: expected "

@@ -500,3 +500,163 @@ def test_nm_kind_and_key_distinct_from_p24_two_path():
     assert "BLE_HOLD_CAP_DURATIONS" in cap_call["remedy"]
     assert "CONF_BLE_HOLD_CAP_ENABLED" in cap_call["remedy"]
     assert "MasterBathroom" in cap_call["title"]
+
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM-1 — mutation-anchored tests for the THREE reset sites.
+# Each extracts a small region from coordinator.py production source and
+# execs it against a fake `self`. Deleting the specific
+# `self._ble_only_hold_since = None` line in production MUST flip the
+# corresponding assertion RED.
+# ---------------------------------------------------------------------------
+
+from pathlib import Path as _Path
+
+
+_COORD_PATH = (
+    _Path(__file__).resolve().parents[2]
+    / "custom_components/universal_room_automation/coordinator.py"
+)
+
+
+def _extract_between(start_marker: str, end_marker: str) -> str:
+    """Return the source region between two unique substrings, dedented
+    by 8 spaces (the standard body indent inside coordinator methods)."""
+    src = _COORD_PATH.read_text(encoding="utf-8")
+    i = src.index(start_marker)
+    j = src.index(end_marker, i + len(start_marker))
+    block = src[i:j]
+    lines = block.splitlines()
+    out = []
+    for ln in lines:
+        if ln.startswith("        "):
+            out.append(ln[8:])
+        elif ln.strip() == "":
+            out.append("")
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
+class _FakeCoord:
+    """Minimal duck-typed `self` for the extracted regions."""
+    pass
+
+
+def test_MUTATION_reset_tier1_primary_branch_clears_anchor():
+    """Deleting `self._ble_only_hold_since = None` in the `elif
+    any_sensor_active:` primary body branch (~coordinator.py:3583) MUST
+    flip this test RED. Drives the exact production region."""
+    region = _extract_between(
+        "elif any_sensor_active:",
+        "            # Update last occupied time when becoming occupied",
+    )
+    # Trim to just the elif body (drop the leading 'elif ...:' header and
+    # subsequent lines by wrapping in an `if True:` block).
+    body = "if True:\n" + "\n".join(
+        "    " + ln for ln in region.splitlines()[1:]
+    )
+    code = compile(body, str(_COORD_PATH), "exec")
+    now = dt_util.now()
+    self_ = _FakeCoord()
+    self_._last_motion_time = None
+    self_._failsafe_fired = True
+    self_._ble_only_hold_since = now - timedelta(seconds=7000)
+    self_._last_pir_motion_time = None
+    self_._occupancy_timeout = 300
+    ns = {
+        "self": self_, "now": now,
+        "data": {},
+        "STATE_OCCUPIED": "occupied",
+        "STATE_TIMEOUT_REMAINING": "timeout_remaining",
+        "STATE_OCCUPANCY_SOURCE": "occupancy_source",
+        "motion_detected": True,          # exercise the motion arm
+        "presence_detected": True,        # AND mmwave arm reachable
+    }
+    exec(code, ns)
+    assert self_._ble_only_hold_since is None, (
+        "Primary Tier-1 body branch did not reset _ble_only_hold_since"
+    )
+    # Byte-identity: the other side-effects must ALSO have happened,
+    # so the reset line isn't the only assertion driving the test.
+    assert self_._last_motion_time == now
+    assert self_._failsafe_fired is False
+
+
+def test_MUTATION_reset_camera_branch_clears_anchor():
+    """Deleting the `self._ble_only_hold_since = None` inside the
+    camera override branch (~coordinator.py:3676) MUST flip this test
+    RED. Drives the exact production region."""
+    src = _COORD_PATH.read_text(encoding="utf-8")
+    # Extract just the innermost admit block (indent = 28 spaces).
+    marker_start = "                            data[STATE_OCCUPIED] = True\n                            data[STATE_OCCUPANCY_SOURCE] = \"camera\""
+    marker_end = "                            _LOGGER.debug(\n                                \"Room %s: Camera person sensor %s overrides vacancy \u2014 \""
+    i = src.index(marker_start)
+    j = src.index(marker_end, i)
+    block = src[i:j]
+    # Dedent 28 spaces.
+    lines = block.splitlines()
+    out = []
+    for ln in lines:
+        if ln.startswith(" " * 28):
+            out.append(ln[28:])
+        elif ln.strip() == "":
+            out.append("")
+        else:
+            out.append(ln.lstrip())
+    body = "\n".join(out)
+    code = compile(body, str(_COORD_PATH), "exec")
+    now = dt_util.now()
+    self_ = _FakeCoord()
+    self_._occupancy_timeout = 300
+    self_._last_motion_time = None
+    self_._became_occupied_time = None
+    self_._ble_only_hold_since = now - timedelta(seconds=8100)
+    self_._last_occupied_state = False
+    self_._last_occupied_time = None
+    ns = {
+        "self": self_, "now": now,
+        "data": {},
+        "STATE_OCCUPIED": "occupied",
+        "STATE_TIMEOUT_REMAINING": "timeout_remaining",
+        "STATE_OCCUPANCY_SOURCE": "occupancy_source",
+        "person_sensor": "binary_sensor.camera_person",
+        "room_name": "MasterBathroom",
+        "_LOGGER": __import__("logging").getLogger("cap_camera_test"),
+    }
+    exec(code, ns)
+    assert self_._ble_only_hold_since is None, (
+        "Camera override branch did not reset _ble_only_hold_since \u2014 "
+        "a camera\u2192BLE handoff would carry a stale motion-timeout clock."
+    )
+    assert self_._became_occupied_time == now
+    assert self_._last_motion_time == now
+
+
+def test_MUTATION_reset_true_vacancy_finalize_clears_anchor():
+    """Deleting the `self._ble_only_hold_since = None` in the TRUE
+    VACANCY FINALIZE block (~coordinator.py:4391) MUST flip this test
+    RED. Drives the exact production region."""
+    region = _extract_between(
+        "# === TRUE VACANCY FINALIZE (P24 fix \u2014 2026-08-10) ===",
+        "# === Phase 1: Environmental Sensors ===",
+    )
+    code = compile(region, str(_COORD_PATH), "exec")
+    now = dt_util.now()
+    self_ = _FakeCoord()
+    self_._became_occupied_time = now - timedelta(seconds=3600)
+    self_._ble_only_hold_since = now - timedelta(seconds=2000)
+    self_._last_occupied_since_for_handler = None
+    ns = {
+        "self": self_,
+        "data": {"occupied": False},
+        "STATE_OCCUPIED": "occupied",
+    }
+    exec(code, ns)
+    assert self_._ble_only_hold_since is None, (
+        "TRUE VACANCY FINALIZE did not clear _ble_only_hold_since \u2014 "
+        "a stale hours-old value would poison the next occupancy session."
+    )
+    assert self_._became_occupied_time is None
+    assert self_._last_occupied_since_for_handler is not None

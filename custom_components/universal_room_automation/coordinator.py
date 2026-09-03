@@ -304,7 +304,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # the current hold most recently transitioned to BLE-only
         # (no Tier-1 corroboration). Reset to None whenever the primary
         # body-signal branch fires (any Tier-1: motion/mmwave/occupancy).
-        # The cap measures `now - self._became_occupied_time` — so a
+        # The cap measures `now - self._ble_only_hold_since` — so a
         # bather who is still moving under the cap keeps their hold;
         # only a stale, purely-BLE-sustained hold gets evicted.
         self._ble_only_hold_since: datetime | None = None
@@ -3669,6 +3669,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             # Ensure failsafe timer tracks camera-held occupancy
                             if self._became_occupied_time is None:
                                 self._became_occupied_time = now
+                            # HIGH-1: camera-visible person is real body
+                            # corroboration; clear the BLE-only anchor
+                            # so a camera→BLE handoff does not carry a
+                            # stale motion-timeout clock into the cap.
+                            self._ble_only_hold_since = None
                             if not self._last_occupied_state:
                                 self._last_occupied_time = now
                             _LOGGER.debug(
@@ -3791,7 +3796,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     # misleading cause; the cap's own info log carries
                     # the true reason.
                     cap_refused_this_tick = False
-                    cap_observed_duration = 0.0
                     if ble_allowed:
                         from .const import (  # noqa: PLC0415
                             CONF_BLE_HOLD_CAP_ENABLED,
@@ -3809,7 +3813,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                 now - self._ble_only_hold_since
                             ).total_seconds()
                             if duration > cap_seconds:
-                                cap_observed_duration = duration
                                 _LOGGER.info(
                                     "Room %s: BLE hold cap fired after "
                                     "%.0f min BLE-only (cap %.0f min) — "
@@ -4104,6 +4107,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                     self._became_occupied_time
                                 )
                             self._became_occupied_time = None
+                            # HIGH-1: clear BLE-only anchor on true
+                            # vacancy so a stale hours-old value cannot
+                            # poison the next occupancy session.
+                            self._ble_only_hold_since = None
                             self._mmwave_fan_demoted_last_tick = True
                             self._mmwave_fan_demoted_since = now
                             self._mmwave_fan_demotions_since_boot += 1
@@ -4379,6 +4386,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._became_occupied_time
             )
             self._became_occupied_time = None
+            # HIGH-1: clear BLE-only anchor on true vacancy so a stale
+            # hours-old value cannot poison the next occupancy session.
+            self._ble_only_hold_since = None
 
         # === Phase 1: Environmental Sensors ===
         # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback
@@ -4784,6 +4794,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._became_occupied_time
                 )
             self._became_occupied_time = None
+            # HIGH-1: clear BLE-only anchor on true vacancy so a stale
+            # hours-old value cannot poison the next occupancy session.
+            self._ble_only_hold_since = None
 
         # FIX A (second fix-up): capture skip-first BEFORE the if-block
         # consumes it. The hoisted humidity call below uses this to decide
@@ -4813,6 +4826,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         self._became_occupied_time
                     )
                 self._became_occupied_time = None
+                # HIGH-1: clear BLE-only anchor on true vacancy so a
+                # stale hours-old value cannot poison the next session.
+                self._ble_only_hold_since = None
             _LOGGER.info(
                 "Room %s: First refresh — synced occupancy state to %s "
                 "(skipped automation to prevent false trigger on restart)",
@@ -5243,6 +5259,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._became_occupied_time
             )
         self._became_occupied_time = None
+        # HIGH-1: clear BLE-only anchor on true vacancy so a stale
+        # hours-old value cannot poison the next occupancy session.
+        self._ble_only_hold_since = None
         self._last_occupied_state = False
         room_name = self.entry.data.get("room_name", "unknown")
         _LOGGER.info(
