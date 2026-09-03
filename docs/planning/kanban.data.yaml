@@ -283,6 +283,31 @@ cards:
     time + core.entity_registry size. Then scope a lean profile (fewer platforms/entities for simple types).
     Separate cycle — NOT part of the device/entity reorg.'
   refs: ['docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md', 'live Devices page 2026-09-03']
+- id: MENU-CONSISTENCY-1
+  title: Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize
+    on menus + consistent icon-in-label usage
+  thread: platform
+  status: investigating
+  created: 2026-09-03 17:10
+  updated: 2026-09-03 17:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Finally audit the menus. Make them consistent... We should use menus. I think standard.")'
+  tags: [ux-consistency, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use
+     a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution:
+     standardize on MENUS (async_show_menu) for choosers across all flows (room/zone/CM/house/ZM), and make icon
+     usage consistent everywhere it applies. Audit-first to size + confirm what "icons in menu labels" concretely
+     means in this UI.'
+  origin: {date: '2026-09-03', gist: operator menu-consistency directive during the device/entity reorg}
+  why: 'Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map
+    every chooser (menu vs dropdown) + icon usage + size the standardization.'
+  spawned_from: DEVICE-ENTITY-REORG-1
+  sibling_of: [DEVICE-ENTITY-REORG-1]
+  next: 'Menu audit running (config_flow chooser inventory + icon truth + size). Then decide fold-into-reorg
+    (if small/low-risk) vs fast-follow, and build the menu standardization.'
+  refs: ['config_flow.py (flow choosers)', 'docs/planning/PLANNING_device_entity_architecture_2026_9.md']
 - id: DEVICE-ENTITY-REORG-1
   title: Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale /
     helper-consolidation / per-item-reload follow-ups
