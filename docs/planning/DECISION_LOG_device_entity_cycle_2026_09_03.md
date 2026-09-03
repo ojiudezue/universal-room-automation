@@ -29,6 +29,10 @@ Every autonomous call I make in this cycle is recorded below (newest last). At t
 | 14 | **`CoordinatorEnabledSwitch` (switch.py:236) latent second-authoring of coordinator device identity — ACCEPT this cycle, card latent** | Both reviewers: the identifier/name/model are parameterized; all 7 call sites match canon exactly, so no model race is reachable today. But it's a genuine second author — a future divergent literal wouldn't be caught. Card it (folds into the parked DEVICE-INFO-HELPER-CONSOLIDATION-1). | card |
 | 15 | **Pre-existing shadowing noted (not this cycle):** `OccupantCountSensor` defined twice in sensor.py (:1807 house, :2917 room) — the later wins, so aggregation.py:218 builds the room class with (hass,entry) args | Present on develop unchanged (A verified). Out of scope; card separately as a latent bug. | card (separate) |
 
+| 16 | **Validator CLEAN (orchestrator-verify)** — full-suite name-diff identical 62/62 (0 new), all 5 de-frag mutation gates RED-on-neuter load-bearing | Independent confirm (full suite, not -k). B1 import / exactly-once _2-gate / B2 async_at_started / oji-space / dead-device all proven. Build+fix-up solid on correctness+test-authority. Tier-3 C/D still owed. | — |
+| 17 | **Adjudication #2 (room-nesting) — already satisfied** | Build's D-NEST catch-all nests room devices under Whole House; per-room reload preserved (own entry). No plan change needed. | — |
+| 18 | **Adjudication #3 (per-zone/per-coordinator individual reload) — SURFACED as a scope decision, NOT folded** | Reload is per-config-entry; zones share one ZM entry, coordinators share one CM entry → per-item reload needs each as its own entry = a config-TOPOLOGY migration (split 2 entries → ~15 + entity re-home at scale). Big + high-risk (largest _2/orphan hazard) for a convenience gain. Recommended: ship this reorg (visual tree + de-frag + per-room reload already delivered), card the topology cycle separately. AWAITING operator fold-in-vs-card decision. | — |
+
 _(appended as the cycle proceeds — plan/review/build adjudications, fix-up calls, any scope trims)_
 
 ## Deliverables (from the plan, de-frag-led)
