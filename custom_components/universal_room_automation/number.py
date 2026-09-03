@@ -3593,16 +3593,16 @@ def _build_dp_numbers():
 # =============================================================================
 
 
-# v5.94.0 D2: _NMDeviceInfoMixin deleted. All NM number entities now import
-# the single canonical author `_nm_device_info` from `_devices.py`. The mixin
-# `self._nm_device_info()` call sites below are rewritten to the module-level
-# helper import.
+# v5.94.0 D2: `_NMDeviceInfoMixin` RETAINED as a thin shim (NOT deleted).
+# All authoring now flows through `_devices._nm_device_info()`. The mixin is
+# kept as a marker base to preserve the class inheritance chain of the three
+# NM number entities below (`NMBucketCapacityNumber`,
+# `NMBucketRefillPerMinNumber`, `NMMuteDefaultDurationNumber`) — changing MRO
+# risks HA restart / RestoreEntity ordering surprises. Deletion is deferred
+# to the parked `DEVICE-INFO-HELPER-CONSOLIDATION-1` card.
 class _NMDeviceInfoMixin:
-    """Deprecated: retained as a marker base for zero-diff churn on subclasses.
-
-    All authoring now flows through `_devices._nm_device_info()`. Kept so the
-    class inheritance chain of NM number entities does not change (a change
-    could confuse HA restart / RestoreEntity ordering)."""
+    """Shim mixin — routes `self._nm_device_info()` through the canonical
+    single author in `_devices.py`."""
     @staticmethod
     def _nm_device_info():
         from ._devices import _nm_device_info as _canonical

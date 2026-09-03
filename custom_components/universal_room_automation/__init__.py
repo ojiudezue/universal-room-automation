@@ -4189,9 +4189,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # URA-owned devices to restore the device-tree nesting HA 2026.9 broke
         # by removing DeviceInfo.via_device. Uses dr.async_update_device — no
         # entry reload (INV-6).
+        # HIGH-B3 (2026-09-03): concurrent per-domain entry setup means an
+        # inline stamp can\'t see devices created by later-completing entries.
+        # Schedule a cover-all sweep via async_at_started AND run one inline
+        # pass now to catch anything already registered.
         try:
-            from ._devices import async_stamp_via_device_tree
+            from ._devices import (
+                async_stamp_via_device_tree,
+                async_schedule_device_tree_sweep,
+            )
             await async_stamp_via_device_tree(hass)
+            async_schedule_device_tree_sweep(hass)
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
                 "D-NEST: via_device stamping from CM setup raised (non-fatal)",

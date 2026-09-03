@@ -59,15 +59,39 @@ def test_d0_csv_exists_and_has_17_entities():
 
 
 def test_d0_oji_space_unique_id_preserved_verbatim():
-    """The literal ' ' (space) in Oji's unique_id MUST not be cleaned up;
-    any string change mints a `_2` entity. This test asserts the exact
-    byte-level presence of the space in the D0 fixture."""
+    """MED-A1 (2026-09-03): assert the PRODUCTION DERIVATION at
+    sensor.py:14113 preserves the space. The pre-fix version of this test
+    only asserted the CSV\'s own text — which is hollow (mutating the
+    production formula leaves it green).
+
+    The formula must be `f"{DOMAIN}_person_{person_id.lower()}_next_room_accuracy"`
+    with NO `.replace(" ", "_")` (or similar normalisation). If a well-meaning
+    cleanup rewrites it to `person_id.lower().replace(" ", "_")`, this test
+    goes RED — matching the live-registry acceptance gate (any string change
+    mints a _2 for oji-udezue).
+    """
+    sensor_src = (PKG_ROOT / "sensor.py").read_text()
+    # The PersonNextRoomAccuracySensor.__init__ formula literal must be present.
+    assert 'f"{DOMAIN}_person_{person_id.lower()}_next_room_accuracy"' in sensor_src, (
+        "MED-A1: PersonNextRoomAccuracySensor unique_id derivation at "
+        "sensor.py:~14113 has drifted from the exact literal that produces "
+        "the space in the live oji_udezue unique_id."
+    )
+    # No cleanup .replace(...) applied to person_id in that formula\'s vicinity.
+    # Anchor around the formula and forbid a normalising .replace on person_id
+    # within 200 chars.
+    idx = sensor_src.index(
+        'f"{DOMAIN}_person_{person_id.lower()}_next_room_accuracy"'
+    )
+    context = sensor_src[max(0, idx - 200):idx + 200]
+    assert "person_id.lower().replace(" not in context, (
+        "MED-A1: person_id is normalised in the accuracy unique_id derivation "
+        "— this mints a _2 for the oji-udezue live entity."
+    )
+    # Cross-check the CSV still shows the space (fixture integrity).
     rows = _load_d0_migration_set()
-    oji_next = [r for r in rows if "oji" in r["unique_id"] and "next_room_accuracy" in r["unique_id"]]
-    assert len(oji_next) == 1
-    assert oji_next[0]["unique_id"] == (
-        "universal_room_automation_person_oji udezue_next_room_accuracy"
-    ), "the oji_udezue space in unique_id was normalised — this mints a _2"
+    oji = [r for r in rows if "oji" in r["unique_id"] and "next_room_accuracy" in r["unique_id"]]
+    assert len(oji) == 1 and " " in oji[0]["unique_id"]
 
 
 # ---------------------------------------------------------------------------
@@ -279,17 +303,25 @@ def test_d1b_removed_from_integration_aggregation():
             f"D1b regression: {cls} still constructed in "
             f"async_setup_aggregation_sensors (would double-register)."
         )
-    # And DELETED from the binary sensor coroutine
+    # CRITICAL-B1 fix-up (2026-09-03): the aggregation.py-defined SafetyAlert /
+    # SecurityAlertBinarySensor pair is a DIFFERENT class from the
+    # binary_sensor.py-defined coordinator-device pair (aggregation.py=Whole-House
+    # unique_ids `ura_safety_alert`/`ura_security_alert`; binary_sensor.py=
+    # coordinator-device `ura_safety_coordinator_safety_alert`/
+    # `ura_security_coordinator_security_alert`). Only the coordinator-device
+    # pair is D1b-migrated; the Whole-House pair STAYS on INTEGRATION. Assert
+    # the Whole-House pair is PRESENT (safety guard against re-deletion).
     m2 = re.search(
         r"async def async_setup_aggregation_binary_sensors\(.*?async_add_entities\(entities\)",
         src, re.DOTALL,
     )
     assert m2, "could not locate async_setup_aggregation_binary_sensors body"
     body2 = m2.group(0)
-    for cls in ("SafetyAlertBinarySensor(", "SecurityAlertBinarySensor("):
-        assert cls not in body2, (
-            f"D1b regression: {cls} still constructed in "
-            f"async_setup_aggregation_binary_sensors."
+    for cls in ("SafetyAlertBinarySensor(hass, entry)",
+                "SecurityAlertBinarySensor(hass, entry)"):
+        assert cls in body2, (
+            f"CRITICAL-B1 restore: {cls} (Whole-House pair) accidentally "
+            f"removed from async_setup_aggregation_binary_sensors."
         )
 
 
@@ -429,19 +461,38 @@ def test_devices_module_never_reloads_entry():
 
 
 def test_dead_music_following_device_removal_guarded():
-    """The removal in CM setup is guarded by zero-entity check (safety) and
-    targets the bare `music_following` identifier — NOT `music_following_coordinator`.
+    """MED-A2 (2026-09-03): bind to the SPECIFIC removal call in the D1
+    block, not a repo-wide substring (`async_remove_device` occurs at other
+    sites unrelated to this cycle). Anchor on the D1 marker comment +
+    contained sequence:
+      1) `(DOMAIN, "music_following")` identifier lookup
+      2) `entries_for_device(...)` zero-entity guard
+      3) `async_remove_device(dead_device.id)` call
+    Deleting the removal call turns this test RED without false-positive
+    matches on unrelated `async_remove_device` uses.
     """
     init_src = (PKG_ROOT / "__init__.py").read_text()
-    # Removal targets the DEAD (bare) identifier
-    assert '(DOMAIN, "music_following")' in init_src, (
-        "dead-device removal targets wrong identifier or missing"
+    # Locate the D1 block by its comment anchor (the exact live text).
+    anchor = init_src.find("D1): guarded removal of the dead")
+    if anchor < 0:
+        anchor = init_src.find("guarded removal of the dead")
+    assert anchor >= 0, "D1 dead-device removal block missing"
+    block = init_src[anchor:anchor + 2500]
+    assert '(DOMAIN, "music_following")' in block, (
+        "MED-A2: D1 dead-device removal targets wrong identifier "
+        "(must be bare `music_following`, not `music_following_coordinator`)"
     )
-    # Guard present
-    assert "async_remove_device" in init_src
+    assert "async_entries_for_device" in block, (
+        "MED-A2: D1 dead-device removal missing zero-entity guard "
+        "(async_entries_for_device call)"
+    )
+    assert "async_remove_device(dead_device.id)" in block, (
+        "MED-A2: D1 dead-device removal call absent from D1 block "
+        "(unrelated async_remove_device sites elsewhere don\'t count)"
+    )
     # Skip-on-remaining branch present (safety)
-    assert "dead-device removal SKIPPED" in init_src or "SKIPPED" in init_src, (
-        "no safety guard on dead-device removal — could orphan entities"
+    assert "SKIPPED" in block, (
+        "MED-A2: D1 dead-device removal missing skip-on-remaining safety branch"
     )
 
 
@@ -507,4 +558,169 @@ def test_d2_notification_manager_canonical_sites_routed():
     assert not scoped_regressions, (
         "D2 regression: literal NM DeviceInfo author found in scoped file: "
         f"{scoped_regressions}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# HIGH-A2 (2026-09-03): exactly-once guards + wire-in construction anchors
+# for the D1b-migrated sensors + binaries. Double-registration of any of
+# these is the _2-mint mechanism = the D1 acceptance gate. Each of these
+# tests is designed to go RED under a specific mutation (documented per test)
+# so a subsequent name-diff drill can prove the anchor is load-bearing.
+# ---------------------------------------------------------------------------
+
+
+import re as _re
+
+
+def _read(rel: str) -> str:
+    return (PKG_ROOT / rel).read_text()
+
+
+_D1B_MIGRATED_SENSOR_CLASSES = [
+    "PersonNextRoomAccuracySensor",
+    "PersonRoutineStatusSensor",
+    "HouseNextRoomAccuracySensor",
+    "HouseRoutineStatusSensor",
+]
+
+
+@pytest.mark.parametrize("cls", _D1B_MIGRATED_SENSOR_CLASSES)
+def test_d1b_sensor_constructed_exactly_once_in_aggregation(cls):
+    """Exactly-once guard: each D1b-migrated sensor class must be
+    CONSTRUCTED exactly once inside aggregation.py.
+
+    Mutation drill: add a second `PersonNextRoomAccuracySensor(hass, entry, person_id)`
+    line anywhere in aggregation.py -> this test RED for that class.
+    A double construction is the _2-mint mechanism (D1 acceptance gate).
+    """
+    src = _read("aggregation.py")
+    count = len(_re.findall(rf"\b{cls}\(", src))
+    assert count == 1, (
+        f"HIGH-A2 exactly-once guard: {cls} constructed {count} times in "
+        f"aggregation.py; a second construction double-registers -> _2."
+    )
+
+
+def test_d1b_binaries_constructed_exactly_once_in_cm_coroutine():
+    """Exactly-once guard for the CM-owned SafetyAlert/SecurityAlert
+    binaries (binary_sensor.py-defined pair). The CM coroutine must
+    construct each ONCE. Adding a second call turns this RED.
+
+    Note: aggregation.py:1151 / :1354 define a DIFFERENT Whole-House pair
+    with the same class names. Both pairs must exist (Whole-House pair
+    stays on INTEGRATION). This test scopes to the CM coroutine only.
+    """
+    src = _read("aggregation.py")
+    m = _re.search(
+        r"async def async_setup_cm_hosted_aggregation_binary_sensors\b.*?(?=\n(?:async )?def [A-Za-z_])",
+        src, _re.DOTALL,
+    )
+    assert m, "async_setup_cm_hosted_aggregation_binary_sensors not found"
+    body = m.group(0)
+    # The disambiguating import in the fix-up aliases the classes; count
+    # construction of the ALIASED names (which is what fires).
+    assert body.count("_CoordSafetyAlert(") == 1, (
+        "HIGH-A2: coordinator-device SafetyAlert must be constructed exactly once "
+        "in the CM binary coroutine"
+    )
+    assert body.count("_CoordSecurityAlert(") == 1, (
+        "HIGH-A2: coordinator-device SecurityAlert must be constructed exactly once "
+        "in the CM binary coroutine"
+    )
+
+
+def test_d1b_cm_binary_coroutine_imports_from_binary_sensor_module():
+    """CRITICAL-B1 anchor: the CM binary coroutine MUST import
+    SafetyAlertBinarySensor / SecurityAlertBinarySensor explicitly from
+    `.binary_sensor` (not fall back to aggregation.py's own definitions
+    of those names). Reverting the disambiguating import turns this RED
+    and would re-introduce the wrong-class instantiation bug.
+    """
+    src = _read("aggregation.py")
+    m = _re.search(
+        r"async def async_setup_cm_hosted_aggregation_binary_sensors\b.*?(?=\n(?:async )?def [A-Za-z_])",
+        src, _re.DOTALL,
+    )
+    assert m, "async_setup_cm_hosted_aggregation_binary_sensors not found"
+    body = m.group(0)
+    assert "from .binary_sensor import" in body, (
+        "CRITICAL-B1 regression: CM binary coroutine no longer explicitly "
+        "imports from .binary_sensor — will resolve to aggregation.py's "
+        "Whole-House pair (wrong classes)."
+    )
+    assert "SafetyAlertBinarySensor as _CoordSafetyAlert" in body
+    assert "SecurityAlertBinarySensor as _CoordSecurityAlert" in body
+
+
+def test_d1b_whole_house_pair_restored_on_integration():
+    """B1 restore: the aggregation.py Whole-House SafetyAlert/SecurityAlert
+    pair is BACK in `async_setup_aggregation_binary_sensors` (they were
+    accidentally deleted in the initial build). Deleting them again turns
+    this test RED.
+    """
+    src = _read("aggregation.py")
+    m = _re.search(
+        r"async def async_setup_aggregation_binary_sensors\b.*?async_add_entities\(entities\)",
+        src, _re.DOTALL,
+    )
+    assert m, "async_setup_aggregation_binary_sensors not found"
+    body = m.group(0)
+    assert "SafetyAlertBinarySensor(hass, entry)" in body, (
+        "CRITICAL-B1 restore: Whole-House SafetyAlertBinarySensor missing "
+        "from async_setup_aggregation_binary_sensors"
+    )
+    assert "SecurityAlertBinarySensor(hass, entry)" in body, (
+        "CRITICAL-B1 restore: Whole-House SecurityAlertBinarySensor missing "
+        "from async_setup_aggregation_binary_sensors"
+    )
+
+
+def test_d1b_cm_setup_defers_per_person_via_async_at_started():
+    """CRITICAL-B2 anchor: the CM sensor coroutine schedules the per-person
+    branch via `async_at_started` (HA sets up domain entries concurrently,
+    so person_coordinator is absent at CM setup time on cold boot).
+    Removing the async_at_started scheduling turns this RED.
+    """
+    src = _read("aggregation.py")
+    m = _re.search(
+        r"async def async_setup_cm_hosted_aggregation_sensors\b.*?(?=\n(?:async )?def [A-Za-z_])",
+        src, _re.DOTALL,
+    )
+    assert m
+    body = m.group(0)
+    assert "async_at_started(hass" in body, (
+        "CRITICAL-B2: CM per-person branch is no longer deferred via "
+        "async_at_started (cold-boot ordering hazard reintroduced)."
+    )
+    # MED-B4/B5: guard on INTEGRATION entry LOADED state is delegated to the
+    # module-level `_integration_entry_is_loaded` helper (which references
+    # ConfigEntryState.LOADED). Assert the deferred callback invokes the guard.
+    assert "_integration_entry_is_loaded(" in body, (
+        "MED-B4/B5: CM per-person branch no longer guards on INTEGRATION "
+        "entry being LOADED (mere existence is insufficient)."
+    )
+    src_all = _read("aggregation.py")
+    assert "ConfigEntryState.LOADED" in src_all, (
+        "MED-B4/B5: _integration_entry_is_loaded no longer checks "
+        "ConfigEntryState.LOADED"
+    )
+
+
+def test_d_nest_at_start_sweep_scheduled():
+    """HIGH-B3 anchor: `async_schedule_device_tree_sweep` exists in
+    `_devices.py` and CM setup invokes it. Removing the schedule call turns
+    this RED; a cold-boot residual would then re-open the INV-4 gap.
+    """
+    devices_src = _read("_devices.py")
+    assert "def async_schedule_device_tree_sweep(" in devices_src
+    assert "async_at_started(hass, _sweep)" in devices_src
+    # WARN-level residual log for the trip-wire
+    assert "still lack via_device_id" in devices_src, (
+        "HIGH-B3: unresolved-parent count is no longer logged at WARN as "
+        "the INV-4 trip-wire"
+    )
+    init_src = _read("__init__.py")
+    assert "async_schedule_device_tree_sweep" in init_src, (
+        "HIGH-B3: CM setup no longer schedules the at-start device-tree sweep"
     )
