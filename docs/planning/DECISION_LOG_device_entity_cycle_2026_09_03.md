@@ -52,6 +52,24 @@ _(appended as the cycle proceeds — plan/review/build adjudications, fix-up cal
 
 D re-enumerates the ENTIRE surface (pre-existing code included, not just the diff — per the v5.5.3 D-HIGH-1 lesson) and must supply a concrete legal-config reachable repro for any leak.
 
+## Live-registry ground truth (2026-09-03, v5.93.1 pre-reorg — via ha_get_device, mount was down)
+
+Pulled the live device registry to resolve Review-D D-LEAK-4. The fragmentation is present as **same-identifier duplicate device records across two config entries** (entry `01KJEC3FYPYAGBQKZWC94CR8GR` and entry `01KAYV8P69B381KCK3516YVM76`):
+
+| Identifier | device_id (entry) | entities | note |
+|---|---|---|---|
+| `coordinator_manager` | `0a83…` (…C94CR8GR) | 50 | core CM (house_state, bayesian, chatter, db) |
+| `coordinator_manager` | `df3b…` (…KAYV8) | 10 | the per-person next_room_accuracy + routine_status sensors (the D-LEAK-1 set) |
+| `security_coordinator` | `29af…` (…C94CR8GR) | (main) | |
+| `security_coordinator` | `29c9…` (…KAYV8) | 6 | Outside/Perimeter track sensors |
+| `music_following_coordinator` | `3e9b…`/`8609…` | 1 | LIVE (music_following_health) — do NOT touch |
+| **`coordinator_music_following`** | `236d…` (…C94CR8GR) | **0** | DEAD, disabled_by=user, sw 3.6.29 |
+| **`coordinator_music_following`** | `1cdb…` (…KAYV8) | **0** | DEAD, disabled_by=user, sw 3.6.29 |
+
+**D-LEAK-4 CONFIRMED as a real defect (upgrade from "unverified"):** the build's dead-device deletion (`__init__.py:4217`) targets `identifiers={(DOMAIN, "music_following")}` — an identifier **no device has**. The two actual dead records are `(DOMAIN, "coordinator_music_following")`. So the deletion is a **silent no-op** and both dead records persist. Fix: target `coordinator_music_following`, and iterate ALL matching 0-entity records (there are TWO, one per config entry — `async_get_device` returns only one).
+
+**Consequence for the acceptance gate (INV-DEFRAG#5 / "no orphans"):** after the reorg forwards all coordinator platforms from one entry, the per-person sensors (now on `df3b`) and the `29c9` security set re-home to the canonical single device per identifier; the losing duplicate device records go to 0 entities. Whether HA's reload merges the same-identifier duplicates or leaves orphaned empty devices **cannot be proven statically** — it is the #1 live-validation check: post-restart there must be exactly ONE `coordinator_manager` device, ONE `security_coordinator` device, and ZERO `coordinator_music_following` devices.
+
 ## Deliverables (from the plan, de-frag-led)
 - **D0** — live registry probe: which entities are owned by the parent entry vs the CM entry (measure-before-build).
 - **D1 (elevated)** — de-fragment coordinator devices: forward all coordinator platforms from the CM entry only; parent entry hosts only Whole House; delete the dead `URA: Music Following` device. **Hard acceptance gate (see #2).**
