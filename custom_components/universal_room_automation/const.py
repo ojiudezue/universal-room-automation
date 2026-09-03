@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.92.3
+# Universal Room Automation vv5.93.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.92.3"
+VERSION: Final = "v5.93.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1027,6 +1027,19 @@ DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED: Final = True
 # sleep-policy exemption in automation.py.
 CONF_WET_ROOM: Final = "wet_room"
 
+# BLE hold cap (ble-bleed-extend-corroboration cycle). Per-room boolean
+# gating the BLE chain-extend from holding occupancy past a cap after
+# initial entry. Defaults are room-type driven via
+# ROOM_TYPE_BLE_HOLD_CAP_DEFAULT (bathroom / closet True, others False)
+# so existing rooms activate immediately with no options migration.
+# When True and the current occupancy session has been sustained past
+# BLE_HOLD_CAP_DURATIONS[room_type] (or DEFAULT_BLE_HOLD_CAP_SECONDS)
+# WITHOUT body corroboration, a BLE-only tick is REFUSED as the
+# extender and a stuck-signal NM ("ble_hold_cap") is fired (per-day
+# latched, per room_name). Fails OPEN when _became_occupied_time is
+# unset so restart pins are preserved.
+CONF_BLE_HOLD_CAP_ENABLED: Final = "ble_hold_cap_enabled"
+
 # D2 — EMA-baseline humidity-spike detection.
 CONF_HUMIDITY_FAN_SPIKE_ENABLED: Final = "humidity_fan_spike_enabled"
 CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT: Final = "humidity_fan_spike_delta_pct"
@@ -1183,6 +1196,22 @@ DEFAULT_FAILSAFE_DURATION_SECONDS: Final = 4 * 3600  # 4 hours
 ROOM_TYPE_FAILSAFE_DURATIONS: Final = {
     ROOM_TYPE_CLOSET: 3600,    # 60 min lazy auto-off
     ROOM_TYPE_BATHROOM: 3600,  # 60 min lazy auto-off
+}
+
+# BLE hold cap defaults (ble-bleed-extend-corroboration cycle).
+# Room-type-keyed boolean default for CONF_BLE_HOLD_CAP_ENABLED and the
+# per-type cap seconds. Bathrooms + closets ship cap-ON at 120 min
+# (matches the failsafe body of the 2026-07-17 Master Bathroom strobe
+# and closet BLE-bleed class); everything else ships cap-OFF, using the
+# 120 min default only if opted in.
+ROOM_TYPE_BLE_HOLD_CAP_DEFAULT: Final = {
+    ROOM_TYPE_BATHROOM: True,
+    ROOM_TYPE_CLOSET: True,
+}
+DEFAULT_BLE_HOLD_CAP_SECONDS: Final = 120 * 60  # 2 hours
+BLE_HOLD_CAP_DURATIONS: Final = {
+    ROOM_TYPE_BATHROOM: 120 * 60,
+    ROOM_TYPE_CLOSET: 120 * 60,
 }
 
 # ============================================================================

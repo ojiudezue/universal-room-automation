@@ -228,6 +228,8 @@ from .const import (
     CONF_HUMIDITY_FAN_CONTROL_ENABLED,
     DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
     CONF_WET_ROOM,
+    CONF_BLE_HOLD_CAP_ENABLED,
+    ROOM_TYPE_BLE_HOLD_CAP_DEFAULT,
     CONF_HUMIDITY_FAN_SPIKE_ENABLED,
     CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
     CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
@@ -1907,6 +1909,12 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         area_climate = self._get_area_entities(area_id, "climate") if area_id else []
         room_type = self._data.get(CONF_ROOM_TYPE)
         wet_default = (room_type == ROOM_TYPE_BATHROOM)
+        # ble-bleed-extend-corroboration: room-type-aware schema default
+        # so existing rooms activate immediately (bathroom / closet
+        # cap-ON, bedrooms cap-OFF) with no migration. Do NOT add an
+        # `if CONF_BLE_HOLD_CAP_ENABLED not in user_input` block —
+        # voluptuous fills the Optional default first.
+        ble_cap_default = ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False)
 
         data_schema = vol.Schema({
             # --- Fans first ---
@@ -1925,6 +1933,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 default=DEFAULT_HUMIDITY_FAN_CONTROL_ENABLED,
             ): selector.BooleanSelector(),
             vol.Optional(CONF_WET_ROOM, default=wet_default): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_BLE_HOLD_CAP_ENABLED, default=ble_cap_default,
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_HUMIDITY_FAN_SPIKE_ENABLED, default=wet_default,
             ): selector.BooleanSelector(),
@@ -10551,6 +10562,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_WET_ROOM, default=wet_default,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_BLE_HOLD_CAP_ENABLED,
+                default=self._get_current(
+                    CONF_BLE_HOLD_CAP_ENABLED,
+                    ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False),
+                ),
             ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_HUMIDITY_FAN_SPIKE_ENABLED,

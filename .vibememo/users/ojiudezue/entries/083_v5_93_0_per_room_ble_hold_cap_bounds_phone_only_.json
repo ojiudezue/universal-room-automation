@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "083",
+  "author": "ojiudezue",
+  "session_id": "claude_20260903_163015_ship_v5_93_0",
+  "timestamp": "2026-09-03T16:30:15Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.93.0 shipped: Per-room BLE-hold cap \u2014 bounds phone-only phantom occupancy (BLE-hold-start anchor)",
+  "summary": "Per-room BLE-hold cap \u2014 bounds phone-only phantom occupancy (BLE-hold-start anchor)",
+  "why": "Closes the BLE-bleed phantom (7.3h body-less occupancy from an adjacent-room phone) that the P24 max-active failsafe structurally can't catch (leg ii exempts BLE by design). Chose a per-room opt-in cap over a blanket one because bedrooms/living spaces legitimately hold still-but-present occupants for hours \u2014 a blanket cap would evict sleepers in the six no-PIR rooms (operator+2 plan-reviews converged on this). The cap measures BLE-ONLY duration since the last real corroboration (BLE-hold-start anchor), reset on Tier-1 + camera + vacancy, so it targets only body-less holds; a re-review caught a camera-flicker false-evict path (stale anchor across a camera\u2192BLE handoff) and fix-up 2 reset the anchor at all corroboration sites with 3 mutation-anchored tests. Bathrooms/closets default ON (phantoms common, real long-still-soak rare + self-heals on motion); everything else OFF.",
+  "implications": "Shipped BLE-BLEED-EXTEND-SLEEP-1 at v5.93.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.93.0.md (Live criteria).",
+  "revisit_trigger": "Post-restart: a bathroom/closet room reads cap-ON by default with no options edit (bedrooms OFF); recorder shows NO continuous occupancy_source=ble hold exceeding 120min in a cap-ON room (Master Bathroom in particular \u2014 the 7.3h shape does not recur); a real bath/soak with motion inside the window is unaffected.",
+  "refs": {
+    "cards": [
+      "BLE-BLEED-EXTEND-SLEEP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.93.0.md"
+    ],
+    "release_notes": "A phone left in a room could hold it occupied for hours via BLE alone with no body signal (measured: Master Bathroom 7.3h continuous, occupancy_source=ble, zero motion/mmWave). New per-room CONF_BLE_HOLD_CAP_ENABLED toggle (config+options flow, room-type-aware schema default: bathrooms/closets default ON, else OFF, applied at the read site so existing rooms activate with no migration) caps how long BLE ALONE sustains occupancy after the last real body signal. Anchor is BLE-hold-start (now - _ble_only_hold_since), NOT session start, and resets on every real-presence path (Tier-1 motion/mmwave/occupancy, camera override, all 6 vacancy-finalize sites) so a recently-moving occupant is never evicted; only a body-less BLE hold is capped, self-healing on any motion. 120min bath/closet/default. Distinct ble_hold_cap NM. 21 tests, per-site mutation anchors incl. the 3 reset sites; a re-review caught + fixed a camera-flicker false-evict HIGH."
+  }
+}

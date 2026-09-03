@@ -119,7 +119,11 @@ cards:
   title: HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard
     error; every coordinator entity failed to add (live outage)
   thread: platform
-  status: shipped_organic
+  status: done
+  disposition_2026_09_03: 'DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day,
+    ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error
+    adding entity None" post-restart. Discriminator met at deploy-time. Cosmetic device nesting deferred to
+    the device/entity architecture plan (via_device_id path).'
   shipped_version: v5.92.3
   created: 2026-09-03 10:30
   updated: 2026-09-03 10:30
@@ -143,6 +147,34 @@ cards:
     live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded
     into the device/entity architecture plan.'
   refs: ['docs/readmes/README_v5.92.3.md', 'feature/via-device-2026-9-hotfix@260a5b9dc']
+- id: ENVOY-DRAIN-ARM-STALE-CT-1
+  title: Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely
+    discharging battery with low SOC can be drained by the EV during a blind-CT window
+  thread: energy
+  status: parked
+  created: 2026-09-03 11:10
+  updated: 2026-09-03 11:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Accepted" — accept the gap + card it)'
+  tags: [energy, regression-prone, ha-stale-telemetry]
+  problem_solution:
+  - 'Problem: with arm-on-unknown dropped from the Envoy shared-staleness cycle (its "fix" strictly worse — it
+     stranded the EV overnight, HIGH-1), a battery that is genuinely discharging while its Envoy CT is STALE
+     (frozen value, not "unavailable") + SOC low will NOT get a new drain-pause armed, so the EV keeps drawing
+     it toward reserve until the CT recovers. Solution (deferred): a bounded arm-under-stale (arm only after N
+     consecutive unknown ticks with low SOC, released by must_start_by / CT-recovery), OR distinguish stale from
+     dead at the producer. Accepted-as-gap for now: hardware inverter reserve still protects the battery floor,
+     and the existing drain pause still HOLDS across a stale window (release-side fix shipped in the cycle).'
+  origin: {date: '2026-09-03', gist: Envoy Tier-3 review D-MED-3 — arm-side hole; arm-on-unknown reversed as unsafe; operator accepted the gap}
+  why: 'Envoy re-review-1 HIGH-1: arm-on-unknown had no nighttime release (must_start_by does not touch
+    _paused_by_battery_drain) -> overnight strand. Dropping it leaves the arm-side gap. must_start_by + hardware
+    reserve are the backstops. Bounded-arm is the proper fix, deferred (marginal benefit vs ingredient risk).'
+  constraints:
+  - 'Any arm-under-stale MUST have an enumerated release (the exact failure that killed arm-on-unknown).'
+  next: 'Revive when: a real blind-CT battery-drain event is observed, OR the operator wants active protection
+    during stale windows. Design a bounded arm-under-stale with a guaranteed release + hysteresis (no oscillator).'
+  refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D + re-reviews 2026-09-03']
 - id: BREAKER-GRIDCAP-STALE-TELEMETRY-1
   title: Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper
     design, split out of the Envoy shared-staleness cycle after it over-corrected
@@ -5125,7 +5157,8 @@ cards:
   title: Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with
     zero body corroboration — a genuine vacancy EXTEND while residents sleep
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.93.0
   plan_ready_2026_09_01: 'Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config
     application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED
     (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DEFAULT + CONF_WET_ROOM schema mirror), 120min bath/closet/default,

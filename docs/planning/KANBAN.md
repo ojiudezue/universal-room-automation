@@ -2,16 +2,10 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T22:55:26-05:00_ - _Data commit: `f8c23fb96564`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-03T10:57:37-05:00_ - _Data commit: `9d80f0cd2e79`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.92.3.md (2026-09-03) is newer than last_reconciled (2026-09-01)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -22,12 +16,12 @@ _Generated: 2026-09-01T22:55:26-05:00_ - _Data commit: `f8c23fb96564`_ - _last_r
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 2 |
+| 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 51 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 21 |
-| ✅ Done | 58 |
+| 🅿️ Parked | 22 |
+| ✅ Done | 59 |
 
 ## 📥 Inbox (30)
 _raw capture_
@@ -789,19 +783,8 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (1)
 _under review_
-
-### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
-thread: **platform** - status: **review** - approval: **explicit**
-_created 2026-09-03 10:30 · initial_
-- **Problem / Solution:**
-  - Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...
-- **Origin:** 2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError
-- **Why:** Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...
-- **Next:** SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...
-- **Tags:** hotfix, no-fabrication-verify, ha-2026.9-compat
-- **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**
@@ -1743,8 +1726,19 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (21)
+## 🅿️ Parked (22)
 _revisit-trigger set_
+
+### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
+thread: **energy** - status: **parked** - approval: **explicit**
+_created 2026-09-03 11:10 · initial_
+- **Problem / Solution:**
+  - Problem: with arm-on-unknown dropped from the Envoy shared-staleness cycle (its "fix" strictly worse — it stranded the EV overnight, HIGH-1), a battery that is genuinely discharging while its Envoy CT is STALE (frozen value, not "unavail...
+- **Origin:** 2026-09-03 - Envoy Tier-3 review D-MED-3 — arm-side hole; arm-on-unknown reversed as unsafe; operator accepted the gap
+- **Why:** Envoy re-review-1 HIGH-1: arm-on-unknown had no nighttime release (must_start_by does not touch _paused_by_battery_drain) -> overnight strand. Dropping it leaves the arm-side gap. must_start_by + hardware reserve are the backstops. Bound...
+- **Next:** Revive when: a real blind-CT battery-drain event is observed, OR the operator wants active protection during stale windows. Design a bounded arm-under-stale with a guaranteed release + hysteresis (no oscillator).
+- **Tags:** energy, regression-prone, ha-stale-telemetry
+- **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D + re-reviews 2026-09-03
 
 ### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected
 thread: **energy** - status: **parked** - approval: **unreviewed**
@@ -2022,7 +2016,7 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (58)
+## ✅ Done (59)
 _closed, evidence in refs_
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
@@ -2038,6 +2032,19 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
+thread: **platform** - status: **done** - approval: **explicit**
+_created 2026-09-03 10:30 · initial_
+- **Problem / Solution:**
+  - Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...
+- **Origin:** 2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError
+- **Why:** Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...
+- **Next:** SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...
+- **Tags:** hotfix, no-fabrication-verify, ha-2026.9-compat
+- **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
+- **Forensic keys (1):**
+  - `disposition_2026_09_03`: DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day, ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error adding entity None" post-restart. Discriminator met at ...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**

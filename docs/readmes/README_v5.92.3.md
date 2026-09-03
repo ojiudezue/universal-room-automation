@@ -28,5 +28,12 @@ Removed all 109 `via_device=(...)` lines from the `DeviceInfo` objects across 10
 - **Verify:** `error_log` no longer shows `"Error adding entity None for domain sensor with platform universal_room_automation"` after the restart.
 - **Verify:** room entities + previously-working sensors unchanged.
 
-## Validated <date> (post-restart)
-_(to be filled after deploy + HA restart)_
+## Validated 2026-09-03 (post-restart)
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Coordinator entities repopulate | `sensor.ura_presence_coordinator_presence_house_state` = **`home_day`** (was `unavailable`), fresh `last_reported` 2026-09-03T10:39:49; `sensor.ura_energy_coordinator_ev_charging_status` = **`charging`** (was `unavailable`), fresh. Both had been frozen at the 09-02 23:11 failure timestamp. | **PASS** |
+| Coordinator-Manager entry healthy | entry `01KJEC3FYPYAGBQKZWC94CR8GR` = **`loaded`**. | **PASS** |
+| Add-error flood stops | `error_log` post-restart: **zero new** `"Error adding entity None for domain sensor with platform universal_room_automation"` (the 301 pre-restart occurrences ended 10:18; the only post-restart add-errors are unrelated amcrest/smlight entities). | **PASS** |
+
+Outage closed. The coordinator entity layer (energy / presence / security / optimization) is live again on HA 2026.9. Cosmetic device nesting (previously via the now-illegal `via_device`) is deferred to the device/entity architecture plan (`via_device_id` path).
