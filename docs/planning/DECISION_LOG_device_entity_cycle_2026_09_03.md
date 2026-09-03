@@ -18,6 +18,10 @@ Every autonomous call I make in this cycle is recorded below (newest last). At t
 | 7 | **Do NOT "clean up" the space in `..._person_oji udezue_next_room_accuracy`** | Literal space is SAFE as-is; any string change would mint a `_2`. Hands off during D2/D3. | — |
 | 8 | **Delete both dead `coordinator_music_following` device records** (CM + PARENT, 0 entities each) | Retired identity, zero entities, safe. Via registry, not a code no-op. | irreversible — verified 0 entities first |
 
+| 9 | **SCOPE-DOWN D2** — consolidate only the genuine duplicate-authoring (music_following 3 sites, notification_manager 3 sites) + the base.py model race; DEFER the full one-DeviceInfo-per-identity consolidation (100+ inline sites: hvac 38, CM 23, energy 22, presence 21) to a separate parked hygiene item | Plan-review found INV-2 was a 10× larger diff than estimated and it is NOT what causes the split (the split is the branch-forwarding, fixed by D1). Marginal-benefit + keeps the cycle Tier-2-sized. **This is a scope call I made — flagging for your audit.** | park (revive as hygiene cycle) |
+| 10 | **`ReconcileHealthSensor` + `IntegrationHouseStateSensor` STAY on the INTEGRATION entry** | Both resolve to `(DOMAIN, "integration")` = Whole House (verified AST). The plan wrongly listed ReconcileHealthSensor as a migration target — moving it would MANUFACTURE the split defect on the one clean device. | — |
+| 11 | **The 10 `aggregation.py`-hosted coordinator entities need a CM-side setup split, not a branch-move** | `async_setup_aggregation_sensors/_binary_sensors` hard-return on non-INTEGRATION entry_type, so the branch-move idiom can't reach them. Build must split a `async_setup_cm_hosted_aggregation_*` called from the CM entry. Higher-surface than the D0 estimate, still LOW-MED risk (unique_ids SAFE). | — |
+
 _(appended as the cycle proceeds — plan/review/build adjudications, fix-up calls, any scope trims)_
 
 ## Deliverables (from the plan, de-frag-led)
