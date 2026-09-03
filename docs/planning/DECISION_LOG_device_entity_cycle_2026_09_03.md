@@ -14,6 +14,10 @@ Every autonomous call I make in this cycle is recorded below (newest last). At t
 | 4 | **`SECURITY-CENSUS-UNKNOWN-WIRE-1` → parked** (defer + measure) | Operator call: auto-lock is only as safe as the unknown-count FP/FN rate; measure first. Revive: measure FP/FN then wire. | yes (revive) |
 | 5 | **`LAST-RESIDENT-EGRESS-ARM-1` → parked** (parsimony) | Operator call: existing all-away arm covers it; marginal gain (arm a few min earlier) doesn't pay for the ingredient risk + is gated on the ~0%-attach producer. Revive: producer lands + measured arm-lag gap. | yes (revive) |
 
+| 6 | **De-frag confirmed a plain relocation (no migration hook)** | D0 registry probe: 17-entity migration set, **17 SAFE / 0 BLOCKED** — all unique_ids entry-independent, so re-homing the config_entry_id re-registers in place with no `_2` mint. Split counts matched the screenshots exactly. Downgrades D1 risk from MEDIUM to LOW-MEDIUM. | — |
+| 7 | **Do NOT "clean up" the space in `..._person_oji udezue_next_room_accuracy`** | Literal space is SAFE as-is; any string change would mint a `_2`. Hands off during D2/D3. | — |
+| 8 | **Delete both dead `coordinator_music_following` device records** (CM + PARENT, 0 entities each) | Retired identity, zero entities, safe. Via registry, not a code no-op. | irreversible — verified 0 entities first |
+
 _(appended as the cycle proceeds — plan/review/build adjudications, fix-up calls, any scope trims)_
 
 ## Deliverables (from the plan, de-frag-led)

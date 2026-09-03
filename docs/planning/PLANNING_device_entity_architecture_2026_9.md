@@ -1,76 +1,171 @@
 # PLANNING — Device / Entity Architecture Cleanup for HA 2026.9
 
 **Card:** `DEVICE-ENTITY-ARCH-2026-9-1`
-**Date:** 2026-09-03
+**Date:** 2026-09-03 (revised; original scoping 2026-09-03 pre-live-audit)
 **Author:** ura-planner
 **Precursor ship:** `v5.92.3` — stripped 109 `via_device=` declarations to
-unblock the HA 2026.9 `DeviceInfo.via_device` breaking change. This un-nested
-every URA coordinator/zone/room device on the HA device page (they now sit as
-peers of the integration device instead of nested under it). This cycle
-restores nesting via the durable `device_registry.async_update_device(
-device_id, via_device_id=...)` path AND cleans up the pre-existing device
-authorship divergences that the strip exposed.
+unblock the HA 2026.9 `DeviceInfo.via_device` breaking change. This
+un-nested every URA coordinator/zone/room device on the HA device page.
 
-**Tier:** **2-DB** (three framing-disjoint reviews) — operator-elevatable to
-Tier 3 if the naming-convention decision (D4) triggers entity_id churn. Justification: this
-cycle touches every entity platform file (`sensor.py`, `switch.py`,
-`number.py`, `button.py`, `binary_sensor.py`, `select.py`, `time.py`,
-`aggregation.py`, `entity.py`, `domain_coordinators/base.py`,
-`domain_coordinators/notification_manager.py`), mutates the shared
-device-registry write path, and interacts with the
-`INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS` primitive (parent-entry-reload
-watchdog hazard, memory
-`feedback_parent_entry_reload_watchdog_hazard.md`). Regression-prone by every
-Tier-2-DB standing criterion (feedback `tier2db_for_regression_prone`).
+**Tier:** **2** (two framing-disjoint build-reviews + ura-validator +
+live-validation) with **one elevated hard-gate on D1** (the coordinator
+device-de-fragmentation) requiring an orchestrator registry-verify
+pre-deploy AND a D0 measure-before-build registry probe. Operator has
+authorized build-to-completion at Tier 2; do NOT re-elevate to Tier 3
+without a new operator sign-off.
 
-**Plan-review-before-build:** MANDATORY (Tier-2/2-DB standing rule). Reviewer
-must independently re-enumerate: every `DeviceInfo(` call site (verified 143
-today across 12 files); every `_*_device_info()` helper; every
-`identifiers=` literal; and every concrete `Entity` subclass to close the
-`has_entity_name` audit. The device-tree parent-map (D1) is the load-bearing
-hypothesis.
+Rationale for the reduction from the prior 2-DB framing: the previously
+top-billed nesting/authorship refactor is a code-hygiene diff on
+statically-shaped code paths. The live-audit finding below (coordinator
+device split-ownership across TWO config entries) is a genuine,
+observable, `unavailable`-on-mis-migration defect and is the piece that
+carries the elevated gate. The rest is Tier 2.
 
-**Operator checkpoint:** BEFORE build starts, operator picks one option from
-`§ D4 — Naming-convention options` below. Everything downstream of D4 (the
-canonical device names / models stamped by D2, and any entity friendly-name
-implications from `has_entity_name`) resolves against the chosen option.
+---
+
+## LEAD DEFECT — coordinator devices are split-owned across two config entries
+
+**Observed live 2026-09-03 (operator + registry read):**
+
+The parent **"Universal Room Automation"** config entry (`ENTRY_TYPE_INTEGRATION`)
+hosts:
+- `Whole House` — **80 entities** — CORRECT.
+- `Coordinator Manager` — **10 entities** — WRONG (belongs to CM entry).
+- `Music Following Coordinator` — **1 entity** — WRONG.
+- `Security Coordinator` — **6 entities** — WRONG.
+
+The **"URA: Coordinator Manager"** entry (`ENTRY_TYPE_COORDINATOR_MANAGER`)
+hosts the bulk of the same device identities:
+- `Coordinator Manager` — **50 entities**.
+- `Security Coordinator` — **15 entities**.
+- `Music Following Coordinator` — **9 entities**.
+
+Because both entries register entities whose `DeviceInfo.identifiers`
+include the SAME `(DOMAIN, "<coord>_coordinator")` tuples, HA's device
+registry merges each into ONE device — but the entities are owned by two
+different `config_entry_id`s. **Deleting either config entry orphans
+half of every affected device.** A dead greyed **`URA: Music Following`**
+device (0 entities) also appears in both entries — a tombstone from a
+prior naming shape and safe to delete once the split-ownership is fixed.
+
+### Root cause (verified in source, not inferred)
+
+Both the integration entry and the CM entry forward the SENSOR / SWITCH /
+BUTTON / SELECT / TIME / BINARY_SENSOR platforms:
+
+- `__init__.py:339-350` — `INTEGRATION_PLATFORMS` list.
+- `__init__.py:3923` — integration `async_setup_entry` calls
+  `async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)`.
+- `__init__.py:4160-4161` — CM `async_setup_entry` calls
+  `async_forward_entry_setups(entry, cm_platforms)` where
+  `cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]`.
+
+Each platform's `async_setup_entry` branches by `CONF_ENTRY_TYPE`. On
+the `ENTRY_TYPE_INTEGRATION` branch, some entities are registered whose
+`DeviceInfo` identifiers point at COORDINATOR devices, not the
+integration device. Verified sites (representative, not exhaustive —
+D0 probe enumerates the rest):
+
+- `sensor.py:139-179` — `ENTRY_TYPE_INTEGRATION` branch adds
+  `MusicFollowingHealthSensor(hass, entry)` at :173 whose `_attr_device_info`
+  points at `(DOMAIN, "music_following_coordinator")` (verified via the
+  `_music_following_device_info` helper at `sensor.py:7352`), and
+  `ReconcileHealthSensor(hass, entry)` at :175 whose DeviceInfo needs to
+  be verified during the D0 probe (candidate CM-device owner).
+- Other coordinator-device entities added on the INTEGRATION branch
+  across `sensor.py`, `switch.py`, `binary_sensor.py`, `button.py`,
+  `select.py` — D0 must enumerate.
+
+The `ENTRY_TYPE_COORDINATOR_MANAGER` branch (`sensor.py:188` onward,
+`switch.py:198` onward) then registers the FULL coordinator entity set
+under the CM entry, so the second registration writes the same device
+identity from a different `config_entry_id`. HA merges the device;
+entities stay under whichever entry registered them. Result: split
+ownership.
+
+### The fix
+
+Move every entity whose DeviceInfo resolves to a **coordinator device
+identity** (`{coord}_coordinator`, `coordinator_manager`,
+`notification_manager`, `music_following_coordinator`) out of the
+`ENTRY_TYPE_INTEGRATION` platform-setup branches and into the
+`ENTRY_TYPE_COORDINATOR_MANAGER` branches. The INTEGRATION entry hosts
+ONLY entities whose DeviceInfo resolves to the Whole House
+(`(DOMAIN, "integration")`) device — the census / aggregation / house
+switches / integration-options switches already on that branch.
+
+The dead `URA: Music Following` device (identifier verified at D0 —
+suspected `(DOMAIN, "music_following")` bare) gets removed via
+`dr.async_remove_device` after D1 lands and no entities point at it.
+
+### Why entity_id preservation is the hard gate
+
+When we move an entity's `async_add_entities` call from the INTEGRATION
+entry's platform to the CM entry's platform, HA's entity registry will
+re-home the entity to a new `config_entry_id`. **If the entity's
+`unique_id` is stable across the move**, the registry's
+`async_get_or_create` path matches the existing row by `(platform,
+domain, unique_id)` and updates the `config_entry_id` in place — the
+`entity_id` and history are preserved. **If the unique_id shifts (even
+by prefix)**, the registry mints a NEW row and appends `_2` — the
+`reference_frigate1_retired_2suffix_permanent` footgun. That outcome is
+irreversible for practical purposes (HA never renames retroactively; the
+old row lingers until manually removed and its history is stranded).
+
+Therefore the D1 build MUST verify unique_id stability per entity before
+flipping the registration site, and the acceptance gate is measurable
+(zero `_2` mints, entity count preserved).
 
 ---
 
 ## SCOPE
 
 **IN:**
-- Restore device-tree nesting under 2026.9 via `dr.async_update_device(...,
-  via_device_id=...)` after device creation (D1).
-- Kill inline `DeviceInfo(...)` literals in favor of the single per-device
-  helper (D2). Priority: music-following (3 sites) and notification_manager
-  (3 sites).
-- Fix the model-string first-writer-wins race between
-  `domain_coordinators/base.py:200-208` and the sensor.py per-coordinator
-  helpers (D3).
-- Pick and stamp ONE naming convention across integration / coordinator /
-  zone / room devices (D4 — operator decides).
-- `has_entity_name` per-concrete-entity audit (D5).
-- Reload-safety: the device-registry updates in D1/D2 must NOT require a
-  parent-entry reload (D6).
+- **D0 (NEW, MEASURE-BEFORE-BUILD):** live registry probe enumerating
+  which URA entities are owned by which config entry today, keyed by
+  device identity, plus each entity's unique_id — the hand-built fixture
+  the D1 migration is diffed against.
+- **D1 (ELEVATED gate):** de-fragment coordinator device ownership so
+  every coordinator-device entity is owned by the CM entry ONLY, and
+  the INTEGRATION entry hosts only Whole House entities. Preserve
+  entity_id + unique_id (zero `_2` mints). Remove the dead
+  `URA: Music Following` device.
+- **D2:** consolidate every `_*_device_info()` into a single new
+  `_devices.py`; kill inline DeviceInfo duplicates (music-following 3×:
+  helper + `switch.py:5708` inline + coordinator switch inline;
+  notification_manager 3×).
+- **D3:** fix the model first-writer-wins race between
+  `domain_coordinators/base.py:~200-208` ("Domain Coordinator") and the
+  per-coordinator helpers in `sensor.py`.
+- **D-NEST (was D1 in prior draft):** restore device-tree nesting via
+  `dr.async_update_device(..., via_device_id=...)` POST-setup — the
+  sanctioned 2026.9 path. Coordinators → CM → Whole House; zones →
+  Whole House; rooms → Whole House. Mirrors the area-stamp precedent at
+  `entity.py:~69-98`.
+- **D4:** naming convention — **OPERATOR DECIDED = Option 3** (structural
+  distinction via nesting; rooms untouched; no room-device renames;
+  zero friendly-name churn). Baked in — no further decision required.
+- **D5:** `has_entity_name` per-concrete-entity audit (oracle: zero
+  "Error adding entity None" from URA at boot).
+- **D6:** reload safety — device-registry writes only; NO parent-entry
+  reload (watchdog hazard per `feedback_parent_entry_reload_watchdog_hazard`).
+  Reuse the `CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1` precedent
+  (sibling-`last_changed`-invariant test).
 
-**OUT (non-goals — do NOT expand into these):**
-- The flat→subentries migration (`CONFIG-SUBENTRIES-MIGRATION-1`) — separate
-  parked cycle.
-- The setup/unload symmetry hotfix (separate
-  `PLANNING_setup_unload_symmetry.md`).
-- Actual entity_id / unique_id renames (would churn history; forbidden by AC).
-- **ENTITYDESC-RUNTIMEDATA-HYGIENE-1**: opportunistic-fold NON-goal for this
-  cycle. Rationale: this plan already touches every entity platform, so the
-  temptation is real; but the SwitchEntityDescription / runtime-data hygiene
-  is a distinct axis (entity metadata authoring style, not device authoring)
-  and folding it doubles the diff surface and the reviewer surface. Ship this
-  cycle first; the follow-up card runs against the tidied device authorship.
+**OUT (non-goals — do NOT expand):**
+- Flat→subentries migration (`CONFIG-SUBENTRIES-MIGRATION-1`) — parked.
+- Setup/unload symmetry hotfix (`PLANNING_setup_unload_symmetry.md`) —
+  separate card.
+- `entity_id` / `unique_id` renames — permanently OUT. D1 preserves
+  them; that IS the gate.
+- `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` — parked; fold in the follow-up
+  cycle against tidied authorship unless trivially in-path.
+- Zone→Rooms nesting (`DEVICE-ZONE-ROOM-NEST-1`) — parked.
+- Person device (`PERSON-DEVICE-1`) — parked.
 
-**Parsimony ledger:** +0 new CONF_*; +0 new sensors; +0 new signals; +1 new
-setup hook (device-parenting stamper, D1); refactor-only diff to helpers
-(D2/D3); +1 naming-convention constants block (D4); audit-and-annotate for
-D5.
+**Parsimony ledger:** +0 CONF_*; +0 sensors; +0 signals; +1 new module
+(`_devices.py`); +1 setup hook (D-NEST stamper); refactor-only diff for
+D1/D2/D3.
 
 ---
 
@@ -80,457 +175,473 @@ D5.
 
 | Question | Command | Result |
 |---|---|---|
-| `via_device=` residual after v5.92.3 strip? | `grep -rn via_device custom_components/universal_room_automation` | **1 hit — comment only** (`aggregation.py:3660` explains "No via_device needed"). Strip is effectively complete; there is no DeviceInfo-arg residual to catch. **CONFIRMED.** |
-| `_*_device_info()` helpers in the tree | `grep -rn 'def _\w+_device_info' custom_components/universal_room_automation` | **10 helpers**: `_optimizer_device_info_button` (button.py:1864), `_nm_device_info` (number.py:3598 — nested in `_NMDeviceInfoMixin`), `_safety_device_info` (sensor.py:6254), `_security_device_info` (:6645), `_music_following_device_info` (:7352), `_nm_device_info` (:7791 — SECOND definition, module-level), `_energy_device_info` (:8328), `_hvac_device_info` (:11576), `_cm_device_info` (:14962), `_optimizer_device_info` (:16560). Presence coordinator has NO helper — inline literals in `domain_coordinators/presence.py`. Missing helpers for `music_following_coordinator` outside sensor.py (switch.py uses inline). |
-| `DeviceInfo(` call sites (needle for inline literals) | `grep -c 'DeviceInfo('` | **143 total across 12 files**: sensor.py:30, binary_sensor.py:19, switch.py:35, number.py:28, select.py:10, button.py:14, time.py:1, entity.py:1, aggregation.py:2, base.py:1, manager.py:1, notification_manager.py:1. This is the working set for the D2 audit. |
-| `has_entity_name` occurrences | `grep -c 'has_entity_name'` | **80+ across 10 code files** (excluding `frontend-v3/*.js` artifact). Base classes: `entity.py:22` (URAEntity), `aggregation.py:733` (AggregationEntity), `switch.py:608` (CoordinatorEnabledSwitch). Many concrete classes set it explicitly (`switch.py:5687` MFPersonFollowSwitch). Full per-class enumeration is a D5 deliverable, not a plan-time claim. |
+| Are coordinator-device entities registered on the INTEGRATION-entry branch? | Read `sensor.py:127-179` and `switch.py:153-196` | **YES.** `sensor.py:173` adds `MusicFollowingHealthSensor` under `ENTRY_TYPE_INTEGRATION` and its `_attr_device_info` uses `_music_following_device_info` (`sensor.py:7352`) → `(DOMAIN, "music_following_coordinator")`. `sensor.py:175` adds `ReconcileHealthSensor` (device identity TBD by D0 probe). This is the split-ownership producer. D0 enumerates the rest. |
+| Does both entries forward the same platforms? | `grep -n 'INTEGRATION_PLATFORMS\|cm_platforms\s*=' __init__.py` | **YES.** `__init__.py:3923` (integration) and `__init__.py:4160-4161` (CM) both forward SENSOR / BINARY_SENSOR / SELECT / SWITCH / BUTTON / TIME; CM adds NUMBER. |
+| ENTRY_TYPE constants | `const.py:50-54` | `ENTRY_TYPE_INTEGRATION`, `_ROOM`, `_ZONE`, `_ZONE_MANAGER`, `_COORDINATOR_MANAGER`. |
+| `via_device=` residual after v5.92.3 strip? | `grep -rn via_device custom_components/universal_room_automation` | 1 hit — comment only (`aggregation.py:3660`). Strip complete. |
+| `_*_device_info()` helpers in the tree | `grep -rn 'def _\w+_device_info' custom_components/universal_room_automation` | 10 helpers across `sensor.py` / `button.py` / `number.py` (see prior audit at bottom of this section). |
+| `DeviceInfo(` call sites | `grep -c 'DeviceInfo('` | ~143 across 12 files (sensor.py:30, binary_sensor.py:19, switch.py:35, number.py:28, select.py:10, button.py:14, time.py:1, entity.py:1, aggregation.py:2, base.py:1, manager.py:1, notification_manager.py:1). The D0 probe is authoritative for the migration set — this grep is a floor, not the target. |
+| Entity-registry contract for unique_id-stable config_entry_id change | Builder must cite `homeassistant/helpers/entity_registry.py` `async_get_or_create` at build; NOT asserted from memory (per `feedback_no_fabrication`). |
 
 ### For each proposed addition — REUSED vs NEW
 
-- **D1 setup hook to stamp `via_device_id` post-creation** → **NEW**. No
-  equivalent exists. The closest precedent is the area-stamping in
-  `entity.py:69-98`, which stamps a **different** DeviceEntry field
-  (`area_id`) on the room device only. This cycle stamps `via_device_id`
-  across ALL URA-authored devices. Justification: HA 2026.9 removed the
-  `DeviceInfo.via_device` kwarg; the runtime-update path
-  (`dr.async_update_device(device_id, via_device_id=<parent_device_id>)`)
-  is the sanctioned replacement. **PRECEDENT REUSED**: exactly the
-  post-creation `async_update_device` pattern of `entity.py:88-89`.
-- **D2 helper routing** → **REUSED**. All 10 `_*_device_info()` helpers
-  already exist; this deliverable is a diff-only refactor to route every
-  in-file inline `DeviceInfo(...)` call through the local helper. **NEW**:
-  a helper for `music_following_coordinator` accessible from `switch.py`
-  (today it's only in `sensor.py:7352`; `switch.py:5708` duplicates the
-  literal). Options: (a) move helper to a small shared module,
-  (b) import the sensor.py helper into switch.py. Recommendation: (a) —
-  new `_devices.py` module holds all 10 helpers + the naming constants
-  from D4.
-- **D3 canonical (name, model, manufacturer, sw_version) per identity**
-  → **REUSED** — enforced by centralizing helpers per D2. No new state.
-- **D4 naming-convention constants** → **NEW**. String literals today
-  scattered across ~20 call sites; consolidate into a constants block in
-  `_devices.py` (module from D2). Justification: no existing constants
-  cover device NAMES (`const.MODEL` covers the model string for rooms
-  only, per convention).
-- **D6 reload-suppress interaction** → **REUSED**. Device-registry writes
-  do not trip the `_async_update_listener` reload path — they touch the
-  device registry, not `entry.options`. **VERIFY at build time** with a
-  reload-absence test analogous to
-  `test_face_matching_toggle_does_not_reload_parent_entry` from
-  `PLANNING_census_toggles_to_device_switches.md`.
+- **D0 registry probe** → **REUSED pattern**. Read-only script over
+  `.storage/core.entity_registry` + `core.device_registry` on the live
+  homeassistant mount (see `feedback_measure_before_build`). No repo
+  changes. Output committed as
+  `docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md` and
+  becomes the D1 acceptance fixture.
+- **D1 branch-move** → **REUSED**. No new machinery; the fix is
+  relocating existing `async_add_entities([...])` items between the
+  `ENTRY_TYPE_INTEGRATION` and `ENTRY_TYPE_COORDINATOR_MANAGER`
+  branches in the existing per-platform `async_setup_entry` functions.
+  Precondition: entity unique_ids do not change (verified per-entity
+  at build).
+- **D-NEST setup hook to stamp `via_device_id` post-creation** → **NEW**
+  code, **REUSED precedent** exactly: `entity.py:69-98` (post-creation
+  `dr.async_update_device(..., area_id=...)`). Same shape, different
+  DeviceEntry field (`via_device_id`). Builder must cite the HA
+  device-registry source line supporting the field before writing.
+- **D2 helper consolidation** → **REUSED** (10 helpers already exist);
+  **NEW** placement (`_devices.py` module). One new helper:
+  `_coordinator_device_info(coordinator_id)` dispatcher for D3.
+- **D3 canonical (name, model, manufacturer, sw_version)** → REUSED via
+  the D2 centralization; no new state.
+- **D4 name/model constants** → NEW block inside `_devices.py`. Baked
+  as Option 3 (no operator decision pending). Rooms untouched.
+- **D6 reload-suppress** → REUSED — mirror the census-toggles
+  sibling-`last_changed`-invariant test.
 
 ### Prior planning docs consulted
 
-- `docs/planning/PLANNING_census_toggles_to_device_switches.md` (v5.81+
-  device-switches cycle) — LOAD-BEARING precedent for the
-  reload-suppression discipline any device-registry-adjacent write must
-  respect. Reused: (i) sibling-`last_changed`-invariant test technique for
-  proving no parent-entry reload occurred (D6 AC); (ii) INTEGRATION-entry
-  device authoring pattern (`identifiers={(DOMAIN, "integration")}`).
-- `docs/planning/PLANNING_setup_unload_symmetry.md` — adjacent cycle;
-  explicit non-goal here (avoids two structural refactors in one deploy).
+- `docs/planning/PLANNING_census_toggles_to_device_switches.md` — the
+  load-bearing precedent for device-registry-adjacent writes that must
+  NOT trigger `_async_update_listener`.
+- `docs/planning/PLANNING_setup_unload_symmetry.md` — explicit non-goal.
 
 ### Memory bodies pulled
 
-- `feedback_parent_entry_reload_watchdog_hazard.md` — the 2026-06-03 /
-  2026-08-07 outages. This cycle MUST NOT reintroduce the reload hazard.
-- `feedback_suppression_needs_discharge.md` — governs D6.
-- `feedback_hollow_test_anchors.md` — D5 tests must drill by detaching the
-  value (a `has_entity_name` regression should be caught by adding a
-  concrete entity that violates the invariant AND observing the HA log
-  guard "Error adding entity None", NOT by grepping the class body).
-- `feedback_no_fabrication.md` — HA `device_registry.async_update_device`
-  behavior (does it accept `via_device_id` today? does it break existing
-  device rows if a via chain contains a stale identifier?) MUST be
-  verified in HA source at build time, not asserted from memory. Planner
-  has NOT re-read `homeassistant/helpers/device_registry.py` this session;
-  the builder does so and cites file:line before writing D1.
-- `feedback_read_consumers_before_asserting_function.md` — every
-  `_*_device_info()` helper's consumers must be enumerated before D2
-  refactor; NM has two helpers (module-level and mixin) — read both
-  consumer sets, do not assume equivalence from name.
+- `reference_frigate1_retired_2suffix_permanent` — the exact footgun D1
+  is gating against. Any migration that mints a `_2` suffix is a hard
+  fail.
+- `feedback_parent_entry_reload_watchdog_hazard` — D6 invariant.
+- `feedback_suppression_needs_discharge` — governs D6.
+- `feedback_measure_before_build` — governs D0.
+- `feedback_no_fabrication` — the HA device / entity registry API
+  behavior must be cited from `homeassistant/helpers/*.py` at build,
+  not asserted from memory.
+- `feedback_read_consumers_before_asserting_function` — every
+  `_*_device_info()` helper's consumers enumerated BEFORE D2 refactor;
+  NM has two helpers (mixin + module-level) — read both consumer sets.
+- `feedback_hollow_test_anchors` — D5 tests drill by detaching the
+  value; D1 tests must exercise a REAL registry-move flow (real
+  `hass.config_entries` fixtures, not mocks that paraphrase the API).
+- `feedback_coincidental_equality_masks_concept_split` — the two
+  music_following device identities (bare `music_following` tombstone
+  vs `music_following_coordinator`) are the concept split; treat them
+  as distinct even if the tombstone is empty today.
 
 ### Design docs read
 
-- `docs/QUALITY_CONTEXT.md` — bug classes: #7 stale-data-source (device
-  identity written from two sites with divergent values), #22 enum
-  mismatch (the model-string race in D3 is a direct instance).
+- `docs/QUALITY_CONTEXT.md` — bug classes #7 (stale data source — device
+  identity written from two sites with divergent values, i.e. D3), #22
+  (enum mismatch — same class), #46 (unique_id churn on refactor — D1
+  is expressly designed to avoid this).
 
 ### Code locations surveyed end-to-end
 
-- `custom_components/universal_room_automation/entity.py:1-99` (area-stamp
-  precedent, has_entity_name base).
-- `custom_components/universal_room_automation/aggregation.py:720-760`
-  (integration-device DeviceInfo authoring; has_entity_name base).
-- `custom_components/universal_room_automation/domain_coordinators/base.py:190-210`
-  (the model-string race source — "Domain Coordinator" for every
-  `{id}_coordinator` identifier).
-- `custom_components/universal_room_automation/sensor.py` — 10 helper
-  sites read (`:6254`, `:6645`, `:7352`, `:7791`, `:8328`, `:11576`,
-  `:14962`, `:16560`) + surrounding class bodies.
-- `custom_components/universal_room_automation/switch.py:200-670` (7 x
-  `CoordinatorEnabledSwitch` registrations at :206-269, class def :598,
-  inline DeviceInfo :633), `:5680-5720` (MFPersonFollowSwitch inline
-  literal — v5.10.0 double-prefix bug comment at :5702-5706 is the
-  institutional receipt for why divergence hurts).
-- `custom_components/universal_room_automation/number.py:3590-3610`
-  (`_NMDeviceInfoMixin`).
-- `custom_components/universal_room_automation/domain_coordinators/notification_manager.py:660-675`
-  (third NM authoring site).
-- `custom_components/universal_room_automation/button.py:1860-1870`
-  (`_optimizer_device_info_button` — parallel to sensor.py's optimizer
-  helper; verify at build that they emit identical (name, model,
-  manufacturer, sw_version)).
-- `__init__.py:5905-6675` — reload-suppress infrastructure (D6 must not
-  interact with this negatively).
+- `custom_components/universal_room_automation/const.py:40-70` (entry
+  types).
+- `custom_components/universal_room_automation/__init__.py:329-350`
+  (platform lists), `:1611-1644` (integration setup),
+  `:4091-4161` (CM setup), `:3923` (integration forward), `:4160-4161`
+  (CM forward).
+- `sensor.py:127-260` (integration + CM setup branches;
+  MusicFollowingHealthSensor on integration branch is the smoking gun).
+- `switch.py:153-296` (integration + CM setup branches; the seven
+  `CoordinatorEnabledSwitch` registrations on the CM branch).
+- `entity.py:1-99` (area-stamp precedent; has_entity_name base).
+- `aggregation.py:720-760, 3660` (integration-device authoring, stale
+  via_device comment context).
+- `domain_coordinators/base.py:190-210` (model-string race source).
+- `domain_coordinators/notification_manager.py:660-675` (3rd NM
+  authoring site).
+- `__init__.py:5905-6675` (reload-suppress infrastructure — D6 must not
+  interact negatively).
 
 ---
 
 ## Falsifiable invariants
 
-**INV-A (D1 nesting):** For every URA-authored DeviceEntry other than the
-integration root, `device.via_device_id` resolves (via `dr.async_get`) to
-the id of the DEVICE the D4 mapping assigns as its parent — verified by a
-device-registry walk post-boot. Under a plausible alternative (D1 fails to
-run for some devices), a random-order registry walk would find at least
-one URA device with `via_device_id is None` that is not the integration
-root. **Discriminator:** count of URA devices with unresolved parents
-equals 0.
+**INV-0 (D0 measurement):** The registry probe produces a table with
+one row per URA-owned entity: `entity_id`, `unique_id`,
+`config_entry_id`, `device_identifier`. The row count equals the live
+entity count (4626 as of 2026-09-03). Any coordinator-device entity
+(`device_identifier[1]` in the coordinator-identity set) whose
+`config_entry_id` equals the INTEGRATION entry id is a migration target.
 
-**INV-B (D2 single-source-of-truth):** For every device identity
-`(DOMAIN, X)`, the (name, model, manufacturer, sw_version) tuple is
-stamped from EXACTLY ONE code path across the codebase. Falsifier: grep
-for `identifiers={(DOMAIN, "<id>")}` returns exactly one enclosing
-function per id, and that function is the canonical helper. A cheap
-in-suite oracle enumerates the identifier→helper map.
+**INV-1 (D1 preservation — the elevated gate):** After deploy:
+- Total URA entity count is unchanged (4626 pre → 4626 post).
+- ZERO new entities with a `_2` suffix minted by URA in the migration
+  window (grep the post-boot registry for `_2$` on the URA-owned
+  entity_ids and diff against the D0 fixture).
+- ZERO URA entities in `unavailable` state 60s after boot (excluding
+  entities that were already `unavailable` in the D0 snapshot for
+  independent reasons — enumerate them in the probe output).
+- Every coordinator device (`safety_coordinator`, `security_coordinator`,
+  `presence_coordinator`, `energy_coordinator`, `hvac_coordinator`,
+  `optimizer_coordinator`, `music_following_coordinator`,
+  `notification_manager`, `coordinator_manager`) has EXACTLY ONE
+  `config_entry_id` owning its entities, and that entry is the CM entry.
+- The INTEGRATION entry owns entities for the `integration` /
+  `whole_house` device ONLY.
+- The dead `URA: Music Following` device (identifier confirmed at D0)
+  is removed from the device registry.
+- Falsifier: any row in the post-deploy probe violates one of the above.
 
-**INV-C (D3 no-race model):** For any `{coord}_coordinator` identifier,
+**INV-2 (D2 single-source-of-truth):** For every device identity
+`(DOMAIN, X)` in the canonical set, `(name, model, manufacturer,
+sw_version)` is stamped from EXACTLY ONE code path. AST oracle: for
+each identifier, exactly one `DeviceInfo(identifiers={(DOMAIN, X)}, ...)`
+constructor call in the URA package.
+
+**INV-3 (D3 no-race model):** For any `{coord}_coordinator` identifier,
 `domain_coordinators/base.py:device_info` returns a DeviceInfo whose
-`(name, model)` equals the sensor.py helper's `(name, model)` for the
-same identifier. Falsifier: unit test builds both, asserts equality per
-identifier. **The v5.92.3-shipped code fails this test today** —
-base.py:206 emits `model="Domain Coordinator"` for every coordinator
-whereas sensor.py helpers emit specific models ("Energy Coordinator",
-etc.). The fix routes base.py through the same shared helper OR removes
-the base.py property entirely if no consumer needs it.
+`(name, model)` equals the `_devices.py` helper's `(name, model)` for
+the same identifier. Falsifier: unit test builds both, asserts equality
+per identifier. Today the code fails this test (`base.py:206` emits
+`"Domain Coordinator"` universally).
 
-**INV-D (D5 has_entity_name):** Every concrete `Entity` subclass in the
+**INV-4 (D-NEST):** For every URA-owned DeviceEntry other than the
+integration root, `device.via_device_id` resolves via `dr.async_get` to
+the id of the DEVICE the D4 parent-map assigns. Discriminator: count of
+URA devices with unresolved parents equals 0.
+
+**INV-5 (D5 has_entity_name):** Every concrete `Entity` subclass in the
 integration either sets `_attr_has_entity_name = True` OR sets
-`_attr_name` to a non-None value (or `_attr_translation_key` — but URA
-does not use translations today). Falsifier: an entity that resolves to
-`(has_entity_name unset OR False) AND name is None` — HA 2026.9 logs
-"Error adding entity None" and drops it. Zero such entities in the boot
-log is the discriminator.
+`_attr_name` to a non-None value. Discriminator: zero occurrences of
+HA guard string `"Error adding entity None"` from URA in the post-boot
+log.
 
-**INV-E (D6 no reload):** Applying the D1 stamper on integration setup
-does NOT trigger `_async_update_listener` and does NOT invoke
+**INV-6 (D6 no reload):** Neither the D-NEST stamper nor the D1
+registration relocation triggers `_async_update_listener` or
 `async_reload` on any config entry. Falsifier: sibling entity's
-`last_changed` timestamp bumps across the D1 stamp window. Discriminator
-is the same technique used in the census-toggles cycle's D3 AC.
+`last_changed` timestamp bumps across the setup window. **However —
+D1 IS a code deploy that will naturally cause one reload of the URA
+entries as part of the release itself.** The invariant applies to
+post-setup runtime, not to the deploy restart itself.
 
 ---
 
 ## Deliverables
 
-### D1 — Restore device nesting under 2026.9 (device-registry stamper)
+### D0 — Live registry probe (MEASURE-BEFORE-BUILD)
 
-**Design.** After the integration and all child entries have completed
-platform setup, walk the device registry for entries owned by URA and
-stamp each device's `via_device_id` to the DeviceEntry.id of the parent
-device dictated by the parent-map (below). Do **NOT** re-add
-`via_device=(DOMAIN, ...)` to any `DeviceInfo(...)` call — that path is
-removed in 2026.9.
+**Trigger check (from `feedback_measure_before_build`):** Does D1's
+correctness depend on the exact set of split-owned entities today?
+YES. Does the plan currently propose runtime instrumentation for
+something a one-shot offline script can answer? YES if we just build.
+→ Probe first.
 
-**Parent map (subject to D4 confirmation of names; identifiers are
-stable):**
+**Method.** Read-only Python one-shot over the live
+`.storage/core.entity_registry` and `.storage/core.device_registry`
+from the mounted homeassistant config path
+(`/Users/ojiudezue/ha-config/.storage/`) — do NOT modify. Emit a
+committed audit doc:
+`docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md`
+with:
 
-| Child identifier | Parent identifier | Rationale |
-|---|---|---|
-| `(DOMAIN, "coordinator_manager")` | `(DOMAIN, "integration")` | CM is the roof of the coordinator subtree. |
-| `(DOMAIN, "<coord>_coordinator")` for each of safety, security, presence, energy, hvac, optimization, notification_manager, music_following | `(DOMAIN, "coordinator_manager")` | Restores pre-v5.92.3 nesting. |
-| `(DOMAIN, "zone_<n>")` for each zone | `(DOMAIN, "integration")` (default) | Zones are house-scoped, not coordinator-scoped. Alternative: nest under a new "Zones" grouping device — carded, not built here. |
-| `(DOMAIN, "<entry_id>")` for each room | `(DOMAIN, "integration")` (default) | Rooms are house-scoped. Room→Zone nesting requires a new zone→rooms mapping surface — non-goal. |
-| `(DOMAIN, "integration")` | (self / root) | No parent. |
+1. **Split-ownership table** — every URA-owned device with entity
+   counts broken out per `config_entry_id`; every device whose entity
+   count is non-zero under both entries is a D1 migration target.
+2. **Migration set** — per entity: `entity_id`, `unique_id`,
+   `platform`, current `config_entry_id`, target `config_entry_id`,
+   `device_identifier`. This IS the D1 fixture; the build tests diff
+   its live post-deploy re-run against this file.
+3. **Baseline totals** — total URA entity count (~4626), entities
+   already `unavailable` at probe time (excluded from D1's zero-unavail
+   AC), and the identifier of the greyed `URA: Music Following` device
+   (candidate `(DOMAIN, "music_following")`).
+4. **Unique_id stability audit** — for each migration-target entity,
+   verify the class's `__init__` computes `unique_id` from data that
+   is independent of the config entry (typical: DOMAIN + slug + suffix,
+   not `entry.entry_id + ...`). Any entity whose unique_id embeds the
+   INTEGRATION `entry_id` is a HARD BLOCKER — flagged for the build to
+   design a `_migrate_unique_id` step BEFORE re-registering, otherwise
+   a `_2` mint is guaranteed.
 
-**Where the stamper runs.** New coroutine `async_stamp_via_device_tree(
-hass)` in a new module `custom_components/universal_room_automation/_devices.py`. Called
-from `async_setup_entry` of the integration entry **AFTER** all platforms
-have completed forwarding (i.e. after
-`hass.config_entries.async_forward_entry_setups(...)` awaits) AND from
-each room / zone entry's `async_setup_entry` in the same position, so a
-late-arriving child re-stamps itself. Guarded by
-`hass.data[DOMAIN]["device_tree_stamped"]` per (entry_id, run_id) so the
-walk is at-most-once per setup.
+**Deliverable format.** Markdown table + CSV attachment
+(`AUDIT_device_entity_split_ownership_2026_09_03.csv`) so the D1 build
+can load it as a test fixture directly.
 
-**Algorithm.**
-```
-for each URA-owned device in registry (filter by identifiers[0][0] == DOMAIN):
-    parent_identifier = PARENT_MAP.get(device.identifiers)  # deterministic
-    if parent_identifier is None:  # integration root
-        continue
-    parent_device = dev_reg.async_get_device(identifiers={parent_identifier})
-    if parent_device is None:
-        # Parent not yet registered (platform not loaded). Log and skip;
-        # this pass will retry on next child entry's setup.
-        continue
-    if device.via_device_id == parent_device.id:
-        continue  # already correct
-    dev_reg.async_update_device(device.id, via_device_id=parent_device.id)
-```
+### Acceptance Criteria — D0
 
-**Restart & re-add resilience.** The stamper is idempotent (early-return
-on match). On device removal + re-add (HA restart with cleared registry),
-the next stamper pass restores nesting.
+- **Verify:** Audit doc + CSV committed under `docs/planning/`.
+- **Verify:** Every device in the "Whole House / Coordinator Manager /
+  Music Following / Security" split observed by the operator on
+  2026-09-03 appears in the split-ownership table with matching counts
+  (80 / 10 / 1 / 6 under integration; 50 / 15 / 9 under CM).
+- **Verify:** Unique_id stability audit column marks each
+  migration-target row as SAFE (unique_id independent of INTEGRATION
+  `entry_id`) or BLOCKED (embeds INTEGRATION `entry_id`). Any BLOCKED
+  row triggers a plan revision before D1 build dispatch.
+- **Live:** Probe is one-shot read-only; no restart required.
 
-**Kill switch.** Module-constant `URA_DEVICE_TREE_STAMPING_ENABLED:
-Final = True` in `_devices.py`. Flip False to disable if a 2026.9-later
-HA change breaks `async_update_device(via_device_id=...)`.
+### D1 — De-fragment coordinator device ownership (ELEVATED HARD GATE)
 
-### Acceptance Criteria — D1
+**Design.** For each entity in the D0 migration set:
 
-- **Verify:** Post-boot device-registry walk shows every URA device other
-  than `(DOMAIN, "integration")` has non-None `via_device_id` resolving
-  to the parent per the map. (INV-A discriminator.)
-- **Verify:** HA UI device page nests coordinators under Coordinator
-  Manager; CM nests under Universal Room Automation; zones and rooms are
-  children of the integration.
-- **Sensor:** No new sensor introduced; verification via `dr.async_get`
-  directly in-test.
-- **Test:** `test_via_device_stamper_stamps_all_ura_devices` — construct
-  a fake device registry with URA devices at each level, run
-  `async_stamp_via_device_tree`, assert every device's `via_device_id`
-  matches the parent map.
-- **Test:** `test_via_device_stamper_idempotent` — run twice, assert
-  second run performs zero writes (mock `async_update_device` and count
-  calls).
-- **Test:** `test_via_device_stamper_skips_when_parent_not_yet_registered`
-  — remove CM device; run stamper; assert children with parent=CM are
-  skipped (not errored) and integration-parented devices are still
-  stamped.
-- **Live:** On the running HA instance post-deploy, open the URA
-  integration device page and confirm the nested tree matches D4-chosen
-  labels; take a snapshot of the device tree and paste into the release
-  README's Validated table.
+1. Locate its `async_add_entities([...])` call site in the
+   `ENTRY_TYPE_INTEGRATION` branch of the relevant platform.
+2. Move the registration to the corresponding
+   `ENTRY_TYPE_COORDINATOR_MANAGER` branch in the same platform file,
+   preserving construction args (the entity is still constructed with
+   the CM entry rather than the integration entry — verify the
+   entity's `__init__` does not persist the `entry` arg in a way that
+   affects unique_id).
+3. If the entity's unique_id derives from `entry.entry_id`, add a
+   `_migrate_entity_unique_id` step invoked from the CM `async_setup_entry`
+   BEFORE the platform forward — analogous to
+   `_migrate_excess_solar_entity_id` at `switch.py` (called from
+   `switch.py:201`). Pattern: on setup, look up the pre-existing
+   registry row by the OLD unique_id, rewrite `unique_id` to the new
+   scheme (typically dropping the `entry_id` prefix), and the platform
+   registration then matches the row in place.
+4. Remove the dead `(DOMAIN, "music_following")` device (or whatever
+   identifier D0 confirms) via `dr.async_remove_device` in the CM setup,
+   guarded by "no entities point at it".
+
+**Constraint — do NOT rename any entity_id.** The migration relies on
+entity-registry unique_id matching to re-home rows in place. The AC
+verifies zero `_2` mints and zero unavailable entities.
+
+**Restart resilience.** If setup fails partway (e.g. CM setup crashes
+after registering half the migrated entities), the partial state is
+observable at the next boot via a re-run of the D0 probe (compare live
+vs D0 fixture) — the build includes a `test_migration_is_idempotent`
+that runs the CM setup twice against a fake hass and asserts the
+second run performs zero registry writes.
+
+### Acceptance Criteria — D1 (ELEVATED)
+
+- **Verify (orchestrator):** Pre-deploy dry-run — the build's D1 test
+  loads the D0 CSV fixture, walks every migration-target entity, and
+  asserts (a) the unique_id computed by the entity's `__init__` when
+  constructed with the CM entry equals the pre-existing unique_id in
+  the fixture, OR (b) a `_migrate_entity_unique_id` step is wired that
+  rewrites the fixture row to match. NO entity fails this check.
+- **Test:** `test_coordinator_device_ownership_de_fragmented` — build
+  a fake hass with integration entry + CM entry; run both entries'
+  `async_setup_entry`; assert every URA device's owning
+  `config_entry_id` set has size 1, and coordinator devices are owned
+  by CM.
+- **Test:** `test_no_underscore_2_suffix_minted` — same fixture; assert
+  no entity_id in the post-setup registry ends with `_2` that did not
+  already end with `_2` in the D0 fixture.
+- **Test:** `test_migration_is_idempotent` — run CM setup twice; assert
+  the second run makes zero writes to the entity registry.
+- **Test:** `test_dead_music_following_device_removed` — start with a
+  fake registry that includes the dead identifier; after setup, assert
+  the device is gone AND no entities were orphaned.
+- **Live (orchestrator registry-verify, MANDATORY pre-close):** Post
+  restart, re-run the D0 probe; diff its output against the pre-deploy
+  fixture. Discriminator table:
+
+  | Check | Discriminator |
+  |---|---|
+  | Entity count | pre == post (4626) |
+  | Zero `_2` mints | grep post CSV for `_2$` on URA entity_ids; count == 0 (excluding D0-baseline `_2` entries) |
+  | Coordinator devices single-owner | every coord device's `config_entry_id` set size == 1 AND that entry is CM |
+  | INTEGRATION entry owns Whole House only | every entity owned by the INTEGRATION entry has `device_identifier == (DOMAIN, "integration")` (or the Whole House canonical identifier D4 confirms) |
+  | Dead device removed | `(DOMAIN, "music_following")` (or D0-confirmed identifier) is absent from device registry |
+  | Zero unavailable at T+60s | live query: URA-owned entities in `unavailable` state at 60s post-boot minus D0-baseline unavailable set == 0 |
+
+- **Live (README write-back):** The Validated table in the release
+  README includes this discriminator table with observed values.
 
 ### D2 — Single source of truth per device
 
-**Design.** Every entity that lives on a non-room, non-zone URA device
-gets its `_attr_device_info` from ONE canonical helper per device
-identity. All 10 existing helpers move to `_devices.py` (from D1) so
-platforms can import a single symbol. The `_NMDeviceInfoMixin` (number.py:3596)
-and the module-level `_nm_device_info` (sensor.py:7791) collapse into ONE
-`_nm_device_info()` in `_devices.py`. The `_music_following_device_info`
-(sensor.py:7352) becomes importable from `switch.py:5708`.
+**Design.** All 10 existing `_*_device_info()` helpers move to a new
+`custom_components/universal_room_automation/_devices.py`. Platforms
+import a single symbol per device identity. Collapses:
 
-**Priority replacements (verified inline literals to eliminate):**
-
-| Site | Current | Replace with |
-|---|---|---|
-| `switch.py:5708` (MFPersonFollowSwitch.__init__) | Inline literal identical to `_music_following_device_info()` | Import + call the helper |
-| `switch.py:633` (CoordinatorEnabledSwitch.__init__) | Builds inline using per-instance `device_id`/`device_name`/`device_model` kwargs from `switch.py:206-269` (7 registrations) | Route through a `_coordinator_device_info(coordinator_id)` helper in `_devices.py` that returns the same DeviceInfo the sensor.py helpers do. Delete the `device_name`/`device_model` kwargs from the 7 call sites — the helper is the sole authority. |
-| `notification_manager.py:667` | 3rd NM authoring site | Import `_nm_device_info` from `_devices.py` |
-| `number.py:3596-3606` `_NMDeviceInfoMixin` | 2nd NM authoring site | Delete mixin; entities use module-imported helper |
-| `sensor.py:7791` | Duplicate NM helper | Delete; import from `_devices.py` |
-| Any of the 143 `DeviceInfo(` call sites whose identifier maps to one of the 10 canonical devices | Inline | Route through helper |
+- `_NMDeviceInfoMixin` (`number.py:~3596`) + module-level
+  `_nm_device_info` (`sensor.py:~7791`) + inline in
+  `domain_coordinators/notification_manager.py:~667` → ONE
+  `_nm_device_info()` in `_devices.py`.
+- `_music_following_device_info` (`sensor.py:~7352`) becomes importable
+  from `switch.py:~5708` (currently duplicated inline —
+  `v5.10.0` double-prefix bug comment at `switch.py:~5702-5706` is the
+  institutional receipt for why divergence hurts).
+- The 7 `CoordinatorEnabledSwitch` registrations at
+  `switch.py:206-278` currently pass `device_name` / `device_model` as
+  per-call kwargs — those get dropped; the switch's DeviceInfo comes
+  from `_coordinator_device_info(coordinator_id)` in `_devices.py`.
 
 **Deferred inline literals (out of scope):**
-- Room DeviceInfo in `entity.py:38-44` — stays, room device identity is
-  intrinsically per-entry.
-- Zone DeviceInfo in `aggregation.py:3662` (via_device comment context)
-  — stays if per-zone; audit at build time to confirm.
-- Integration DeviceInfo in `aggregation.py:736-742` — stays, sole author.
+- Room DeviceInfo in `entity.py:38-44` — stays (intrinsically per-entry).
+- Zone DeviceInfo in `aggregation.py:3662` (via_device context) — audit
+  at build to confirm it stays.
+- Integration DeviceInfo in `aggregation.py:736-742` — stays (sole
+  author).
 
 ### Acceptance Criteria — D2
 
-- **Verify:** For each of the 10 canonical device identities, grep for
+- **Verify:** For each canonical coordinator device identity, grep for
   `identifiers={(DOMAIN, "<id>")}` returns hits ONLY inside the
-  canonical helper in `_devices.py` (integration, room, zone identifiers
-  excepted per above).
-- **Verify:** `switch.py` no longer imports `DeviceInfo` OR imports it
-  only for room/zone helpers if any remain (grep line count drops).
-- **Verify:** `music_following_coordinator` device appears as ONE
-  DeviceEntry in the registry (INV-B discriminator; the v5.10.0
-  double-prefix incident was the negative case).
-- **Verify:** `notification_manager` device appears as ONE DeviceEntry;
-  no ghost "URA: Notification Manager" duplicate on the device page.
+  canonical helper in `_devices.py`.
+- **Verify:** `music_following_coordinator` appears as ONE DeviceEntry
+  in the registry (INV-2 discriminator; v5.10.0 double-prefix was the
+  negative case).
+- **Verify:** `notification_manager` appears as ONE DeviceEntry.
 - **Test:** `test_device_identity_has_single_author` — parse the URA
-  package source; for each canonical id in a hand-built fixture,
-  assert exactly one `DeviceInfo(identifiers={(DOMAIN, id)}, ...)` AST
-  node exists in the codebase.
-- **Test:** `test_mf_person_follow_switch_shares_music_following_device`
-  — construct MFPersonFollowSwitch + `MusicFollowingHealthSensor`;
-  assert `.device_info["identifiers"]` and all four canonical fields
-  match.
-- **Test:** `test_nm_number_and_sensor_share_nm_device` — same shape for
-  NM number and NM sensor.
-- **Live:** On the running HA instance, navigate to the Music Following
-  Coordinator device page; confirm ALL music-following entities (health
-  sensor, diagnostic sensors, per-person follow switches, NM prefs
-  numbers where applicable) are listed under that ONE device.
+  package AST; for each canonical id, exactly one `DeviceInfo(
+  identifiers={(DOMAIN, id)}, ...)` node exists.
+- **Test:** `test_mf_person_follow_switch_shares_music_following_device`.
+- **Test:** `test_nm_number_and_sensor_share_nm_device`.
+- **Live:** Music Following Coordinator device page lists ALL
+  music-following entities under that ONE device.
 
 ### D3 — Fix model-string first-writer-wins race
 
-**Cause.** `domain_coordinators/base.py:200-208` returns
+**Cause.** `domain_coordinators/base.py:~200-208` returns
 `DeviceInfo(identifiers={(DOMAIN, f"{coordinator_id}_coordinator")},
-model="Domain Coordinator", ...)`. The sensor.py helpers (e.g.
-`_energy_device_info` at :8328) return `model="Energy Coordinator"` for
-the SAME identifier `(DOMAIN, "energy_coordinator")`. Per HA device
-registry semantics, whichever DeviceInfo is materialized first wins the
-model field; subsequent identical-identifier registrations update it
-(and vice versa on the next boot). Sightings today are inconsistent per
-boot order.
+model="Domain Coordinator", ...)`. Per-coordinator sensor.py helpers
+(e.g. `_energy_device_info` at `sensor.py:~8328`) return
+`model="Energy Coordinator"` for the SAME identifier. Whichever writes
+first wins the model field on the device row.
 
-**Fix.** Route `BaseCoordinator.device_info` (base.py:200) through the
-same canonical helper set in `_devices.py`. Introduce
-`_coordinator_device_info(coordinator_id: str) -> DeviceInfo` in
-`_devices.py` that dispatches to the correct per-coordinator helper (or
-holds the canonical table inline). Every consumer of
-`BaseCoordinator.device_info` gets the specific model; the generic
-"Domain Coordinator" string is deleted.
-
-**Backwards-compat.** HA will `async_update_device` the model field on
-first stamped boot; no manual data migration.
+**Fix.** Route `BaseCoordinator.device_info` through
+`_devices._coordinator_device_info(self.coordinator_id)`. Delete the
+generic `"Domain Coordinator"` string.
 
 ### Acceptance Criteria — D3
 
-- **Verify:** `grep -n '"Domain Coordinator"' custom_components/` returns
-  zero hits.
-- **Test:** `test_base_coordinator_device_info_matches_sensor_helper`
-  (INV-C oracle) — for each coordinator_id in a fixture list, assert
-  `BaseCoordinator(...).device_info` equals
-  `_devices._<coord>_device_info()` on all four canonical fields.
-- **Live:** On the running HA instance, each coordinator's device page
-  shows the SPECIFIC model string (e.g. "Energy Coordinator"), not
-  "Domain Coordinator".
+- **Verify:** `grep -n '"Domain Coordinator"' custom_components/`
+  returns zero hits (excluding release notes / comments).
+- **Test:** `test_base_coordinator_device_info_matches_shared_helper`
+  (INV-3 oracle).
+- **Live:** Each coordinator's device page shows the specific model
+  string ("Energy Coordinator", etc.), not "Domain Coordinator".
 
-### D4 — Naming convention decision (OPERATOR PICKS)
+### D-NEST — Restore device-tree nesting under 2026.9
 
-**Current schemes** (verified):
-- Integration device: name `"Universal Room Automation"`, model `"Whole
-  House"` (aggregation.py:738-740).
-- Coordinator devices: name `"URA: <X> Coordinator"`, model `"<X>
-  Coordinator"` (sensor.py helpers) OR `"Domain Coordinator"` (base.py —
-  see D3).
-- Coordinator Manager: name `"URA: Coordinator Manager"`, model
-  `"Coordinator Manager"` (sensor.py:14966-14971).
-- Zones: name `"Zone: <X>"` per aggregation.py:3662 (verify at build).
-- Rooms: name `<room_name>` (bare), model `const.MODEL` — nominally
-  `"Smart Room"` per prompt; verify against `const.py` at build.
+**Design.** New coroutine `async_stamp_via_device_tree(hass)` in
+`_devices.py`. Called from `async_setup_entry` of the integration entry
+AND each CM/room/zone entry AFTER
+`hass.config_entries.async_forward_entry_setups(...)` returns, so a
+late-arriving child re-stamps. Guarded by
+`hass.data[DOMAIN]["device_tree_stamped"]` per (entry_id, run_id) so
+the walk is at-most-once per setup.
 
-**Options for operator to pick:**
+**Parent map:**
 
-- **Option 1 — Keep current, no rename.** Purely cosmetic
-  inconsistency. Coordinator names retain `"URA: "` prefix; house device
-  stays `"Universal Room Automation"`; zones `"Zone: "`; rooms bare.
-  Grouping in HA UI is by `via_device_id` (D1). Operator wanted
-  coordinator menus distinct from house menus — satisfied by D1 nesting,
-  not by rename.
-  - **Pros:** zero name-string diff; zero entity friendly-name churn
-    (has_entity_name True + device name change would ripple into every
-    entity's rendered name).
-  - **Cons:** inconsistency persists as a documentation smell.
-- **Option 2 — Uniform `"URA: "` prefix everywhere.** Integration
-  becomes `"URA: Home"` (model `"Whole House"`), zones `"URA: Zone
-  <X>"`, rooms `"URA: <room_name>"`.
-  - **Pros:** consistent branding; all URA devices sort together in the
-    HA device list.
-  - **Cons:** ripples into every entity friendly name via
-    `has_entity_name=True` composition. Real churn for the operator to
-    re-scan. Room-name change is the largest surface.
-- **Option 3 — Section prefix instead of `"URA: "`.** Coordinator
-  section named `"Coordinators"` (via CM at `"Coordinator Manager"`,
-  children `"Safety"`, `"Security"`, etc. — no prefix). House stays
-  `"Universal Room Automation"`. Zones `"Zone <X>"`. Rooms bare.
-  Distinguishes menus by hierarchy + name, not prefix.
-  - **Pros:** clean UI hierarchy, minimal room-name churn, operator's
-    coordinator-vs-house distinction shows up structurally.
-  - **Cons:** coordinator entity friendly names lose their `"URA: "`
-    breadcrumb.
+| Child identifier | Parent identifier |
+|---|---|
+| `(DOMAIN, "coordinator_manager")` | `(DOMAIN, "integration")` |
+| `(DOMAIN, "<coord>_coordinator")` (safety, security, presence, energy, hvac, optimizer, music_following, notification_manager) | `(DOMAIN, "coordinator_manager")` |
+| `(DOMAIN, "zone_<n>")` | `(DOMAIN, "integration")` |
+| `(DOMAIN, "<room_entry_id>")` | `(DOMAIN, "integration")` |
+| `(DOMAIN, "integration")` | (root; no parent) |
 
-**Recommendation for operator consideration:** **Option 3**. It solves
-the coordinator-menu-vs-house-menu ask via structure (which is
-observable in the HA UI today, once D1 restores nesting), while
-minimizing entity-friendly-name churn (rooms unaffected). Option 1 is
-the zero-risk fallback.
+**Algorithm.**
+```
+for each URA-owned device in registry:
+    parent_identifier = PARENT_MAP.get(device.identifiers)
+    if parent_identifier is None: continue
+    parent_device = dev_reg.async_get_device(identifiers={parent_identifier})
+    if parent_device is None: continue  # retry on next child setup
+    if device.via_device_id == parent_device.id: continue
+    dev_reg.async_update_device(device.id, via_device_id=parent_device.id)
+```
+
+**Kill switch.** `URA_DEVICE_TREE_STAMPING_ENABLED: Final = True` in
+`_devices.py`.
+
+### Acceptance Criteria — D-NEST
+
+- **Test:** `test_via_device_stamper_stamps_all_ura_devices` (INV-4).
+- **Test:** `test_via_device_stamper_idempotent`.
+- **Test:** `test_via_device_stamper_skips_when_parent_not_yet_registered`.
+- **Live:** HA UI device page nests coordinators under Coordinator
+  Manager; CM under URA integration; zones + rooms under URA
+  integration. Screenshot pasted into release README Validated table.
+
+### D4 — Naming convention (BAKED: Option 3)
+
+Operator decision: **Option 3 — structural distinction via nesting; no
+room renames; zero friendly-name churn.**
+
+- Integration device: name `"Universal Room Automation"`, model
+  `"Whole House"` (unchanged from `aggregation.py:~736-742`).
+- Coordinator Manager: name `"Coordinator Manager"`, model
+  `"Coordinator Manager"` — drops the `"URA: "` prefix in favor of
+  structural nesting (D-NEST parents it under URA integration).
+- Individual coordinators: name `"<X> Coordinator"` (no `"URA: "`
+  prefix), model `"<X> Coordinator"`. Distinguished from the house by
+  being CHILDREN of CM in the tree, not by a name prefix.
+- Zones: `"Zone: <X>"` (unchanged).
+- Rooms: name `<room_name>` (bare), model `const.MODEL` (unchanged).
+  **No room renames anywhere.**
 
 ### Acceptance Criteria — D4
 
-- **Verify:** After operator picks, `_devices.py` contains a
-  `DEVICE_NAMES` and `DEVICE_MODELS` mapping that all D2 helpers
-  consult; grep for the OLD strings returns only comments / release
-  notes.
-- **Test:** `test_device_naming_convention_applied` — for each
-  identifier in the fixture, assert helper returns the chosen-option
-  name/model.
-- **Live:** HA UI device list matches the chosen option; screenshot
-  pasted into README.
+- **Verify:** `_devices.py` holds `DEVICE_NAMES` + `DEVICE_MODELS`
+  mappings that every D2 helper consults.
+- **Verify:** `grep -rn '"URA: <Coord> Coordinator"'` returns only
+  release-note / comment hits.
+- **Verify:** Room device authoring (`entity.py:~38-44`) untouched;
+  no room-name or room-model change committed in this cycle.
+- **Test:** `test_device_naming_convention_option_3_applied`.
+- **Live:** HA UI shows coordinators nested under CM under URA
+  integration; screenshot in release README.
+- **Live:** Diff pre vs post friendly names of room-owned entities;
+  zero deltas (Option 3 guarantees this).
 
 ### D5 — has_entity_name per-concrete-entity audit
 
 **Method.** Enumerate every concrete `Entity` subclass in the URA
-package (sensor.py, switch.py, number.py, button.py, binary_sensor.py,
-select.py, time.py, aggregation.py, notification_manager.py). For each,
-compute:
-- `has_entity_name` resolution: does the class or any base set
-  `_attr_has_entity_name = True`?
-- `name` resolution: is `_attr_name` set to a non-None value in
-  `__init__` OR is `name` overridden as a non-None property?
+package. For each, compute `has_entity_name` resolution and `name`
+resolution. Entities that end up with `has_entity_name unset/False AND
+name is None` are 2026.9 rejection targets.
 
-An entity that ends up with `has_entity_name unset/False AND name is
-None` is a 2026.9 rejection target ("Error adding entity None").
-
-**Deliverable.** A per-class table in the review doc AND source-level
-annotations for any class that needs a fix. Base-class coverage
-(`URAEntity` at entity.py:22, `AggregationEntity` at aggregation.py:733,
-`CoordinatorEnabledSwitch` at switch.py:608) covers most; the audit
-proves it, and fixes stragglers.
+**Deliverable.** Per-class table in
+`docs/reviews/code-review/v<version>_device_entity_arch_review.md` plus
+source-level fixes for stragglers. Base-class coverage (`URAEntity` at
+`entity.py:22`, `AggregationEntity` at `aggregation.py:733`,
+`CoordinatorEnabledSwitch` at `switch.py:608`) covers most.
 
 ### Acceptance Criteria — D5
 
-- **Verify:** The audit table lives in
-  `docs/reviews/code-review/v<version>_device_entity_arch_review.md` and
-  covers every concrete Entity subclass.
-- **Test:** `test_no_entity_resolves_to_none_name` — attempt to
-  construct every concrete Entity subclass with minimal fixtures; assert
-  none produce `name is None AND not has_entity_name`. (Test may skip
-  subclasses whose constructors demand a fully-set-up runtime; annotate
-  the skip list explicitly.)
-- **Live:** Boot log post-restart shows ZERO occurrences of the HA
-  guard string `"Error adding entity None"` from the URA integration.
-  Grep the journalctl core log for the deploy timestamp window.
+- **Verify:** Audit table covers every concrete Entity subclass.
+- **Test:** `test_no_entity_resolves_to_none_name` — construct every
+  concrete Entity subclass with minimal fixtures; assert none produce
+  `name is None AND not has_entity_name`. Skip list annotated
+  explicitly with reason.
+- **Live:** Boot log post-restart shows ZERO
+  `"Error adding entity None"` occurrences attributable to URA.
 
-### D6 — Reload safety (no parent-entry reload)
+### D6 — Reload safety
 
-**Guarantee.** The D1 stamper writes to the device registry only. It
-does NOT touch `entry.options`, so it does NOT enter
-`_async_update_listener` (`__init__.py:6434`) and does NOT trip the
-allowlist / reload branch. This is a passive property of the design,
-not a mitigation; the AC pins it as an invariant so a future refactor
-that adds an options write in the stamper would fail the test.
-
-**Where the census-toggles precedent DOES apply.** If, during
-implementation, D2 or D4 requires persisting a chosen device-name into
-`entry.options` (it should NOT — the names are code constants), that
-key MUST land in `INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS`
-(`__init__.py:5929`) with an entry in `_INTEGRATION_KEY_SIGNAL_TABLE`
-per `feedback_suppression_needs_discharge`. Planner's judgment: not
-needed.
+**Guarantee.** D1 relocates registrations between two platform-setup
+branches — those setups run in the normal deploy restart, no runtime
+reload. D-NEST writes device-registry rows only, not `entry.options`,
+so it does NOT enter `_async_update_listener` (`__init__.py:~6434`).
 
 ### Acceptance Criteria — D6
 
-- **Test:** `test_device_tree_stamper_does_not_reload_parent_entry`
-  (non-hollow) — record a sibling entity's `last_changed`; run the
-  stamper on a fresh setup; assert the sibling's `last_changed` did NOT
-  advance across the stamp window. Do NOT patch `async_reload`.
-- **Test:** `test_device_tree_stamper_does_not_write_entry_options` —
-  mock `hass.config_entries.async_update_entry`; run stamper; assert
+- **Test:** `test_device_tree_stamper_does_not_reload_parent_entry` —
+  sibling entity `last_changed` invariant (non-hollow — do NOT patch
+  `async_reload`; observe the sibling directly).
+- **Test:** `test_d1_migration_does_not_write_entry_options` — mock
+  `hass.config_entries.async_update_entry`; run D1 CM setup; assert
   zero calls.
 - **Verify:** grep in `_devices.py` returns zero
   `async_update_entry(` occurrences.
-- **Live:** Post-deploy, `journalctl -u home-assistant --since` for the
-  deploy window shows the URA integration setup completes without any
-  "reloading" log line other than the code-deploy reload itself; no
-  supervisor-watchdog restart in the 30 minutes post-deploy.
+- **Live:** Post-deploy, `journalctl -u home-assistant --since <deploy>`
+  shows URA setup completes without any "reloading" log line other
+  than the code-deploy reload itself; no supervisor-watchdog restart
+  in the 30 minutes post-deploy.
 
 ---
 
@@ -538,73 +649,81 @@ needed.
 
 | File | Change | Approx LoC |
 |---|---|---|
-| `custom_components/universal_room_automation/_devices.py` (NEW) | 10 canonical `_*_device_info()` helpers moved here; `_coordinator_device_info(coordinator_id)` dispatcher; naming constants per D4; `async_stamp_via_device_tree(hass)` (D1); `URA_DEVICE_TREE_STAMPING_ENABLED` kill switch | ~250 |
-| `custom_components/universal_room_automation/__init__.py` | Import + call `async_stamp_via_device_tree` in integration `async_setup_entry` + each entry-type setup post-forward | ~20 |
-| `custom_components/universal_room_automation/domain_coordinators/base.py:200-208` | Route through `_devices._coordinator_device_info(self.coordinator_id)`; delete generic "Domain Coordinator" model | ~10 |
-| `custom_components/universal_room_automation/sensor.py` | Delete duplicate `_nm_device_info` (:7791) and each other helper's body; keep thin re-exports if any consumers import by dotted path | ~-80 |
-| `custom_components/universal_room_automation/number.py:3596-3606` | Delete `_NMDeviceInfoMixin`; entities use imported helper | ~-15 |
-| `custom_components/universal_room_automation/switch.py` | Delete inline `DeviceInfo(` at :633 (route through `_coordinator_device_info`), :5708 (route through `_music_following_device_info`), and any other coordinator-device inline literals; drop `device_name`/`device_model` kwargs from the 7 `CoordinatorEnabledSwitch` registrations at :206-269 | ~-50 |
-| `custom_components/universal_room_automation/domain_coordinators/notification_manager.py:667` | Route through imported `_nm_device_info` | ~-5 |
-| `custom_components/universal_room_automation/button.py:1864` | Delete `_optimizer_device_info_button`; import from `_devices.py` | ~-10 |
-| `custom_components/universal_room_automation/aggregation.py:3660` | Update stale via_device comment to reference D1 stamper | ~2 |
-| Entity files (audit fixes from D5) | Set `_attr_has_entity_name` / `_attr_name` where missing | ~10 |
-| `quality/tests/test_device_entity_architecture.py` (NEW) | D1–D6 tests | ~400 |
-| `docs/readmes/README_v<next>.md` | Standard release notes; Validated table for D1/D2/D3/D4/D5/D6; device-tree screenshot | ~60 |
+| `docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md` (NEW) + `.csv` | D0 probe output | data only |
+| `custom_components/universal_room_automation/_devices.py` (NEW) | 10 canonical helpers, `_coordinator_device_info` dispatcher, `DEVICE_NAMES`/`DEVICE_MODELS` (Option 3), `async_stamp_via_device_tree`, `URA_DEVICE_TREE_STAMPING_ENABLED` | ~280 |
+| `custom_components/universal_room_automation/__init__.py` | Wire `async_stamp_via_device_tree` into integration + CM + room + zone `async_setup_entry` post-forward | ~25 |
+| `custom_components/universal_room_automation/sensor.py:139-179` (INTEGRATION branch) | Remove `MusicFollowingHealthSensor`, `ReconcileHealthSensor` (+ any others D0 flags) from integration branch | ~-10 |
+| `custom_components/universal_room_automation/sensor.py:188+` (CM branch) | Add the same entities constructed with the CM entry | ~+10 |
+| Analogous relocations in `switch.py` / `binary_sensor.py` / `button.py` / `select.py` (D0-driven set) | Move coordinator-device entities from INTEGRATION to CM branch | D0-driven |
+| `custom_components/universal_room_automation/switch.py:201` (CM setup) | Optional `_migrate_entity_unique_id` hook wired here IF D0 flags any migration-target entity whose unique_id embeds the INTEGRATION entry_id | ~30 (only if needed) |
+| `custom_components/universal_room_automation/domain_coordinators/base.py:~200-208` | Route through `_devices._coordinator_device_info`; delete `"Domain Coordinator"` | ~10 |
+| `custom_components/universal_room_automation/sensor.py` (helper bodies) | Delete helper bodies; keep thin re-exports if consumers import by dotted path | ~-80 |
+| `custom_components/universal_room_automation/number.py:~3596-3606` | Delete `_NMDeviceInfoMixin`; entities import helper | ~-15 |
+| `custom_components/universal_room_automation/switch.py:206-278` | Drop `device_name`/`device_model` kwargs from 7 registrations; route DeviceInfo through `_coordinator_device_info` | ~-40 |
+| `custom_components/universal_room_automation/switch.py:~5708` | Import + call `_music_following_device_info` | ~-10 |
+| `custom_components/universal_room_automation/domain_coordinators/notification_manager.py:~667` | Import + call `_nm_device_info` | ~-5 |
+| `custom_components/universal_room_automation/button.py:~1864` | Delete `_optimizer_device_info_button`; import from `_devices.py` | ~-10 |
+| `custom_components/universal_room_automation/aggregation.py:~3660` | Update stale via_device comment | ~2 |
+| Entity files (D5 fixes) | Set `_attr_has_entity_name` / `_attr_name` where missing | ~10 |
+| `quality/tests/test_device_entity_architecture.py` (NEW) | D0-loader + D1-D6 tests | ~500 |
+| `docs/readmes/README_v<next>.md` | Release notes + Validated tables per deliverable + device-tree screenshot + D1 discriminator table with observed values | ~80 |
 
 ---
 
-## Tier 2-DB review framings (three, parallel, framing-disjoint)
+## Tier 2 review framings (two, parallel, framing-disjoint)
 
-- **Reviewer A — correctness + INV-A/INV-B/INV-C discrimination.** Verify
-  the parent map is complete (re-enumerate URA identifiers independently
-  from the registry, do not trust the map in the plan); verify D2 leaves
-  exactly one author per identifier (AST oracle, not grep alone); verify
-  D3 test asserts field equality per coordinator_id.
-- **Reviewer B — HA lifecycle + reload-suppress integrity + signal chain.**
-  Verify `async_update_device(..., via_device_id=...)` is a supported HA
-  call on the target HA version (cite `homeassistant/helpers/device_registry.py`
-  line); verify the stamper's placement is after
-  `async_forward_entry_setups` so all platforms have registered their
-  devices; verify D6 non-hollow (sibling `last_changed` invariant, not
-  patched `async_reload`); verify no untracked-listener leak from any
-  new subscription (Bug Class #38).
-- **Reviewer C — new surfaces + test authority + naming convention
-  application.** Verify D4 chosen option is stamped uniformly (no legacy
-  strings survive except in comments); verify entity friendly-name
-  churn (or lack thereof) matches the D4 pros/cons; verify D5 audit
-  table is complete and the "Error adding entity None" grep is the
-  discriminator; verify tests drive production code paths (real
-  DeviceInfo objects through real helpers, not hand-built fixtures that
-  paraphrase the helper).
+- **Reviewer A — Correctness + D1 preservation.** Verify the D0 probe
+  fixture is the migration set (independently re-enumerate coordinator
+  device entities registered on INTEGRATION-branch platform setups —
+  do NOT trust the plan's list). Verify every migration-target entity's
+  unique_id is stable under the entry-swap (read each entity's
+  `__init__` and any `_attr_unique_id` computation). Verify D1 tests
+  actually diff against the D0 CSV fixture (hollow anchor check: a
+  test that hard-codes the migration set independently defeats the
+  purpose). Verify INV-1's `_2`-mint check is executed against a real
+  entity-registry state, not a mock.
+- **Reviewer B — HA lifecycle + reload-suppress integrity +
+  signal-chain + parent-map completeness.** Verify
+  `async_update_device(..., via_device_id=...)` exists in the target HA
+  version (cite `homeassistant/helpers/device_registry.py` line — no
+  fabrication). Verify D-NEST placement is after
+  `async_forward_entry_setups` on every entry type. Verify D6
+  non-hollow (sibling `last_changed`, not patched `async_reload`).
+  Verify no untracked-listener leak from any new subscription (Bug
+  Class #38). Independently re-enumerate the D-NEST parent map against
+  the live device registry — a missing coordinator identifier orphans
+  a device in the tree.
 
-**Pre-review baseline tag mandatory:** `git tag pre-review-v<version>
--m "Pre-review baseline"` before applying any review fix-ups.
+**Pre-review baseline tag mandatory:**
+`git tag pre-review-v<version> -m "Pre-review baseline"` before
+applying any review fix-ups.
+
+**Orchestrator registry-verify (pre-deploy, MANDATORY for D1):**
+Independent of the reviewers, the orchestrator personally re-runs the
+D0 probe against the pre-deploy state and diffs it against the D0
+committed fixture; then runs the D1 test suite; then confirms the
+`_migrate_entity_unique_id` hook (if any) is wired in the CM
+`async_setup_entry` BEFORE the platform forward. If any migration-target
+unique_id is not reproducibly stable, HALT the deploy.
+
+**Live-validation (post-deploy):** ura-validator runs the D0 probe
+against the live registry, produces the discriminator table for the
+README write-back, and confirms INV-1 through INV-6. **Cycle is NOT
+closed** until the README carries the observed discriminator table
+(per the standing README write-back rule).
 
 ---
 
 ## Explicit deferrals
 
-- **Zone→Rooms nesting** (rooms as `via_device` children of their
-  zone). Requires a zone→rooms mapping surface. Card: `DEVICE-ZONE-ROOM-NEST-1`.
-- **Person device** (MFPersonFollowSwitch comment at switch.py:5683-5684
-  flags a future migration to a per-Person device). Card:
-  `PERSON-DEVICE-1`.
+- **Zone→Rooms nesting** — `DEVICE-ZONE-ROOM-NEST-1`.
+- **Person device** — `PERSON-DEVICE-1`.
 - **CONFIG-SUBENTRIES-MIGRATION-1** — separate parked cycle.
 - **PLANNING_setup_unload_symmetry.md** — separate.
-- **ENTITYDESC-RUNTIMEDATA-HYGIENE-1** — parked with trigger: fold in
-  the cycle after this one lands, against the tidied device authorship.
-- **Entity_id / unique_id renames** — permanently OUT of scope for this
-  cycle (churn hazard).
+- **ENTITYDESC-RUNTIMEDATA-HYGIENE-1** — parked; fold in next cycle.
+- **Entity_id / unique_id renames** — permanently OUT.
 
----
+## Operator decisions
 
-## Operator decisions required BEFORE build dispatch
-
-1. **D4 naming-convention option**: 1 (keep), 2 (uniform "URA: " prefix),
-   or 3 (structural / recommended).
-2. **Zones parent**: integration root (default) OR a new "URA Zones"
-   grouping device (would require a small +1 identifier — flagged NEW).
-3. **Rooms parent**: integration root (default) OR their zone (deferred
-   to `DEVICE-ZONE-ROOM-NEST-1`; confirm defer).
-4. **Tier escalation**: stay 2-DB, or elevate to Tier 3 given D4 could
-   trigger user-facing name churn?
+**None outstanding.** D4 baked as Option 3; tier baked as 2 with
+elevated D1 gate; scope frozen at the deliverables above.
