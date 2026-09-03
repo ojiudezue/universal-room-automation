@@ -9240,7 +9240,12 @@ cards:
   shipped_version: v5.83.0
 - id: SECURITY-CENSUS-UNKNOWN-WIRE-1
   title: Security unknown-person auto-lock is designed but UNWIRED to the census
-  status: inbox
+  status: parked
+  parked_2026_09_03: 'DEFER + MEASURE (operator 2026-09-03). Auto-locking on an unknown-person count is only
+    as safe as the unknown-count false-positive/false-negative rate — wiring it before that rate is measured
+    risks spurious locks (FP) or missed intruders (FN). Revive trigger: measure the census unknown-count FP/FN
+    rate (a read-only recorder/ground-truth probe) FIRST; wire only if the rate is acceptable. Gated on the
+    egress-identity producer landing anyway.'
   thread: security
   created: 2026-08-18 11:20
   updated: '2026-08-29 13:20'
@@ -12747,7 +12752,12 @@ cards:
   title: Last named resident departing (census residents_home->0) is an earlier/stronger arm-away trigger
     than the occupancy timeout — investigate identity-accelerated arm
   thread: security
-  status: investigating
+  status: parked
+  parked_2026_09_03: 'PARSIMONY PARK (operator 2026-09-03: "the house already generally knows"). The existing
+    all-away arm already covers the need; the only marginal gain is arming a few minutes earlier via egress
+    identity, gated on the ~0%-attach producer + adds a security-actuation ingredient. Margin does not pay for
+    the ingredient risk now. Revive trigger: egress producer lands (>30% attach) AND a measured arm-lag gap
+    between last-resident-egress and the existing all-away arm justifies the earlier trigger.'
   tier: 2-DB
   priority: low
   created: '2026-08-28 12:00'
