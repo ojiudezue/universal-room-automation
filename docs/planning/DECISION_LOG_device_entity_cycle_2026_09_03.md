@@ -1,6 +1,8 @@
 # Decision Log — Device/Entity De-fragmentation Cycle (2026-09-03)
 
-Operator mandate: drive to completion at **Tier 2**, don't over-Tier; **final "mondo" orchestrator + live review** across all deliverables before the ship gate; **operator holds only the ship decision**; I make reasonable adjudications and log them here for audit at the ship gate.
+**TIER UPGRADE (operator 2026-09-03):** this reorg cycle is **Tier 3**, not Tier 2 — the earlier "Tier 2, don't over-Tier" calibration was for the 6.0.0 identity-consumer cards, not the reorg. Tier 3 = 4 framing-disjoint reviews (A local-correctness ✓, B state-machine ✓, C test-authority-via-per-site-mutation [pending], D adversarial-completeness [pending]) + stated falsifiable invariant + orchestrator independent mutation-verify + **operator checkpoint before deploy**. More operator adjudications inbound ("starting with tier 3") — C/D reviews held until the full set is in.
+
+Operator mandate: drive to completion; **final "mondo" orchestrator + live review** across all deliverables before the ship gate; **operator holds only the ship decision**; I make reasonable adjudications and log them here for audit at the ship gate.
 
 Every autonomous call I make in this cycle is recorded below (newest last). At the ship gate I present this log + the mondo review + live validation.
 
