@@ -212,6 +212,200 @@ cards:
     gate + non-sticky abort + grid-cap discharge-under-stale. Reuse C''s _run_attain_branch anchor recipe
     (scratchpad/proposed_bc_anchor.py, precedent test_arbitrage_grid_import_guard_expose.py:525-670).'
   refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D 2026-09-01']
+- id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
+  title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
+    gate for the whole egress-identity (6.0.0) arc
+  thread: identity
+  status: investigating
+  created: 2026-09-03 15:10
+  updated: 2026-09-03 15:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Yes" — card the real gate; parked the Protect bridge for this)'
+  tags: [measure-before-build, no-fabrication-verify, identity, tier-2]
+  problem_solution:
+  - 'Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253
+     door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4
+     residents across cameras) and NOT the producer code — it is that Frigate 0.17 surfaces the recognized NAME
+     as an MQTT sub_label on frigate/events, while the resolver joins on the LEGACY entities sensor.<cam>_last_
+     recognized_face(_2), which are all currently unavailable (and frigate_status_2 reads disconnected). So the
+     name never reaches a URA-consumable entity. Solution: bridge the Frigate 0.17 sub_label into a live entity/
+     attribute the resolver can read (a template/MQTT sensor named sensor.<cam>_last_recognized_face_2, drop-in
+     for camera_census._resolve_face_legs, OR extend _resolve_face_legs to read the sub_label source directly),
+     then re-measure the producer attach rate as the discriminator.'
+  origin: {date: '2026-09-03', gist: live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate}
+  why: 'Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85%
+    today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 =
+    unavailable; frigate_status_2 = disconnected. transit_validator._resolve_egress_face_identity (transit_validator.py:1133,
+    called :1447) + camera_census._resolve_face_legs (camera_census.py:2699, suffixes _last_recognized_face[_2]
+    Frigate / _face_recognized[_2] Protect) are the join sites. D1 Protect bridge PARKED (parsimony); this is the
+    Frigate primary path (was task #11, uncarded on the board until now).'
+  constraints:
+  - 'PRECONDITION: Frigate must be healthy — frigate_status_2 reads disconnected right now; confirm Frigate is
+    up (homelab/host check, operator-side) before measuring sub_label output.'
+  - 'MEASURE-BEFORE-BUILD: probe the live Frigate 0.17 sub_label shape on MQTT (frigate/events / tracked_object_update)
+    — which of the 23 cameras carry resident names, at what latency — BEFORE building the bridge.'
+  blocks:
+  - EGRESS-IDENTITY-JOIN-GAP-1
+  next: 'Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels
+    (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide
+    template/MQTT sensor drop-in vs extend _resolve_face_legs; then re-measure person_entry_exit_events attach rate.'
+  refs: ['transit_validator.py:1133/1447', 'camera_census.py:2699 _resolve_face_legs', 'docs/planning/PLANNING_egress_identity_producer.md', 'live investigation 2026-09-03', 'reference_frigate1_retired_2suffix_permanent', 'FRIGATE-LEG-NAMING-1']
+- id: SCALE-LEAN-ROOM-PROFILE-1
+  title: Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room
+    types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
+  thread: platform
+  status: investigating
+  created: 2026-09-03 16:40
+  updated: 2026-09-03 16:40
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Card that. Very interesting.")'
+  tags: [measure-before-build, scale, no-fabrication-verify]
+  sibling_of: [CONFIG-SUBENTRIES-MIGRATION-1, DEVICE-INFO-HELPER-CONSOLIDATION-1]
+  spawned_from: DEVICE-ENTITY-REORG-1
+  problem_solution:
+  - 'Problem: every room config entry — including closets and hallways — is registered as a full "Smart Room"
+     with ~105 entities (AV Closet 105, Stair Closet 106, Study A Closet 105, Exercise Room Closet 105), the
+     same profile as a full room, even though a closet has no HVAC zone, no media, no complex presence. Across
+     ~15 simple room-types that is ~1500 registry rows for spaces that need a fraction. It inflates the entity
+     registry (4626 rows total) → boot/reload parse time + .storage size (runtime/recorder is softened because
+     ~1953 entities are disabled-by-default, but the registry-size + boot cost is real). Solution: a LEAN room
+     profile for simple room-types (closet/hallway) that creates only the entities those spaces actually use.'
+  origin: {date: '2026-09-03', gist: operator scale question during the device/entity reorg — closets carry full room entity profiles}
+  why: 'Data-backed from the live Devices page: closets/hallways show ~105 entities each, same as full rooms.
+    D0 baseline: 4626 entities, ~1953 disabled_by, 71 unavailable. Registry size + boot time are the scale
+    surfaces the reorg itself does not touch.'
+  constraints:
+  - 'MEASURE-BEFORE-BUILD: probe enabled-entity count per room-TYPE + boot time + registry/.storage size FIRST,
+    then decide the lean-profile entity set. Do not assume which entities a closet needs — enumerate.'
+  next: 'Probe: enumerate enabled vs disabled entities per room_type (closet/hallway vs full room); measure boot
+    time + core.entity_registry size. Then scope a lean profile (fewer platforms/entities for simple types).
+    Separate cycle — NOT part of the device/entity reorg.'
+  refs: ['docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md', 'live Devices page 2026-09-03']
+- id: MENU-CONSISTENCY-1
+  title: Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize
+    on menus + consistent icon-in-label usage
+  thread: platform
+  status: in_progress
+  created: 2026-09-03 17:10
+  updated: 2026-09-03 18:05
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Finally audit the menus. Make them consistent... We should use menus. I think standard.")'
+  tags: [ux-consistency, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use
+     a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution:
+     standardize on MENUS (async_show_menu) for choosers across all flows (room/zone/CM/house/ZM), and make icon
+     usage consistent everywhere it applies. Audit-first to size + confirm what "icons in menu labels" concretely
+     means in this UI.'
+  origin: {date: '2026-09-03', gist: operator menu-consistency directive during the device/entity reorg}
+  why: 'Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map
+    every chooser (menu vs dropdown) + icon usage + size the standardization.'
+  spawned_from: DEVICE-ENTITY-REORG-1
+  sibling_of: [DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1]
+  refinement:
+  - 'Audit (agent ae6ad690f4, read-only) → URA is ALREADY async_show_menu everywhere EXCEPT two instance-pickers.
+    The "Zones use a dropdown" = manage_zones (config_flow.py:7900) routes to a SelectSelector LIST *form* to pick
+    a zone; CM lists domains directly in-menu. ai_rule_list (:11246) is a second form-picker (DROPDOWN). Icon
+    coverage patchy: ~5 un-iconned labels + ✓/✅ drift. → SPLIT: fold icons here, card zone-picker separately.'
+  - 'Icon-normalization DONE + committed in the reorg branch (feature/device-entity-defrag @ 5f39dab96): 11 label
+    edits across strings.json + translations/en.json (setup_zone/add_zone/signal_responses iconned; config-flow
+    init_chain_*/init_ai_* twins iconned to match options-flow; finish ✓→✅). Pure translation strings, no code
+    path, no test impact — ships with the reorg. This card now tracks only the icon fold-in (→ done on reorg ship).'
+  next: 'Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is
+    tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).'
+  refs: ['config_flow.py (flow choosers)', 'docs/planning/PLANNING_device_entity_architecture_2026_9.md',
+    'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)']
+- id: MENU-ZONE-PICKER-1
+  title: Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list)
+    to async_show_menu for chooser consistency
+  thread: platform
+  status: planned
+  created: 2026-09-03 18:05
+  updated: 2026-09-03 18:05
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("We should use menus. I think standard.") — scoped out of the reorg by orchestrator adjudication #19 as a Tier-2 fast-follow'
+  tags: [ux-consistency, tier-2, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector),
+     while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the
+     operator flagged the zone dropdown as the odd one out. Solution: convert the zone picker (manage_zones) to a
+     menu (async_show_menu) with one menu option per zone, matching how coordinators are picked. Optionally do the
+     same for the "view/delete AI rule" picker so all instance-pickers are menus.'
+  origin: {date: '2026-09-03', gist: menu-audit finding — the only two non-menu choosers are instance-pickers}
+  why: 'Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3
+    device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in
+    would widen a device-cycle blast radius for no reason.'
+  constraints:
+  - 'Must preserve the v4.7.5 raw-vs-canonical zone contract — the guarding AST test test_v475_d2_picker_does_not_call_iter_canonical
+    must still pass (or be updated deliberately).'
+  - 'Must preserve _selected_zone_name state (set at config_flow.py:7857) before routing to zone_config_menu, and
+    the shared-thermostat suffix/banner logic (_render_shared_thermostat_banner :7915).'
+  - 'Dynamic zone names are arbitrary user strings → menu_option keys need sanitizing/mapping; async_show_menu
+    dynamic-label friction (no translation key per zone) must be handled via description_placeholders or label map.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out', verdict: BUILD}
+  next: 'Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built
+    menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).'
+  refs: ['config_flow.py:7900 (manage_zones)', 'config_flow.py:11246 (ai_rule_list)',
+    'quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical',
+    'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)']
+  sibling_of: [MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1]
+- id: DEVICE-ENTITY-REORG-1
+  title: Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale /
+    helper-consolidation / per-item-reload follow-ups
+  thread: platform
+  status: in_progress
+  created: 2026-09-03 16:50
+  updated: 2026-09-03 16:50
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-03 (drive to ship gate; Tier 3; operator holds ship decision)'
+  tags: [tier-3, ha-2026.9-compat, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the
+     live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete)
+     + a dead Music-Following device. Solution: de-fragment coordinator entities to single CM ownership, delete
+     the dead device, restore nesting via via_device_id, fix the model race, collapse the 2 divergence-risky
+     DeviceInfo dups. Tier 3 (A/B build-reviews + validator CLEAN done; C/D + operator checkpoint pending).'
+  origin: {date: '2026-09-03', gist: 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect}
+  why: 'D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates
+    RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.'
+  spawns: [SCALE-LEAN-ROOM-PROFILE-1, DEVICE-INFO-HELPER-CONSOLIDATION-1]
+  sibling_of: [HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1]
+  next: 'Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator
+    adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy →
+    mondo review + live validation. Plan: PLANNING_device_entity_architecture_2026_9.md (Rev-2).'
+  refs: ['docs/planning/PLANNING_device_entity_architecture_2026_9.md', 'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md', 'docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md']
+- id: DEVICE-INFO-HELPER-CONSOLIDATION-1
+  title: Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the
+    reorg collapsed only the 2 divergence-risky ones)
+  thread: platform
+  status: parked
+  created: 2026-09-03 16:50
+  updated: 2026-09-03 16:50
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tech-debt, ha-hygiene]
+  problem_solution:
+  - 'Problem: coordinator device identity is authored inline at ~100 DeviceInfo() sites (hvac 38, CM 23, energy
+     22, presence 21, notification 11, …), so a future rename risks divergent device records. Solution: route
+     every entity''s device through the single _devices.py helper per identity. DEVICE-ENTITY-REORG-1 collapsed
+     only music_following + notification_manager (the two with a real divergence-incident history, v5.10.0); the
+     rest was scoped OUT to keep that cycle Tier-3-sized.'
+  origin: {date: '2026-09-03', gist: scoped OUT of DEVICE-ENTITY-REORG-1 (10x the estimate, not the split cause)}
+  why: 'Not the cause of the split defect; a mechanical ~100-site refactor. Fold into the next platform cycle
+    that already edits the target files (opportunistic, like ENTITYDESC-RUNTIMEDATA-HYGIENE-1).'
+  spawned_from: DEVICE-ENTITY-REORG-1
+  sibling_of: [ENTITYDESC-RUNTIMEDATA-HYGIENE-1, SCALE-LEAN-ROOM-PROFILE-1]
+  parked_reason: 'Opportunistic — attach to the next coordinator/platform cycle that already edits these files.'
+  next: 'No action now (parked). Also fold in the CoordinatorEnabledSwitch (switch.py:236) latent second-author
+    + the OccupantCountSensor double-definition (sensor.py:1807/:2917) shadowing bug when this runs.'
+  refs: ['docs/planning/PLANNING_device_entity_architecture_2026_9.md D2 OUT section']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
@@ -291,7 +485,11 @@ cards:
     availability trip-wire -> NM (per No-Soak).'
   refs: ['room device audit 2026-08-31 (LOW/safety section)']
 - id: EGRESS-IDENTITY-JOIN-GAP-1
-  consumer_link_note_2026_08_29: 'consumers linked behind D1-PROTECT-FACE-BRIDGE-ADDON-1; all thresholds PROVISIONAL pending operator confirm; re-measure attach rate after D1 before building any consumer.'
+  consumer_link_note_2026_09_03: 'RE-POINTED 2026-09-03: the 8 consumers no longer depend on the PARKED Protect
+    bridge (D1-PROTECT-FACE-BRIDGE-ADDON-1). Real gate = FRIGATE-SUBLABEL-FACE-BRIDGE-1 (Frigate 0.17 sub_label
+    -> URA-joinable entity) feeding THIS producer. Live verify 2026-09-03: producer built+wired+enabled but
+    attach rate 1/7253 all-time (~0) because all 23 sensor.*_last_recognized_face_2 are unavailable + frigate_status_2
+    disconnected. All thresholds PROVISIONAL; re-measure attach after the Frigate bridge before building any consumer.'
   PROTECT_API_2026_08_28: 'Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the
     Protect API DOES expose named face recognition — protect_list_smart_detections / protect_list_events /
     protect_get_event return recognized_person_id + recognized_person_name + recognized_person_confidence
@@ -8809,8 +9007,17 @@ cards:
   origin: 2026-08-18 roadmap-undone review (#4)
   parked_reason: 'MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is
     needed anyway, or HA deprecates the flat pattern.'
-  next: No action now (parked-with-trigger).
-  refs: AUDIT_roadmap_undone_worthwhile.md
+  per_item_reload_driver_2026_09_03: 'NEW DRIVER (operator, via DEVICE-ENTITY-REORG-1): the operator wants
+    per-ZONE and per-COORDINATOR individual reload. That is impossible today because all zones share one Zone
+    Manager entry and all coordinators share one CM entry — reload is per config-entry. This migration (subentries,
+    or splitting into per-item entries) is the vehicle that would deliver it. VERIFY before scoping: whether HA
+    subentries expose per-subentry reload, or whether a per-entry split is required (guaranteed path). Largest
+    _2/orphan hazard at scale — Tier 3 when revived. This raises the value above MEDIUM if the operator elevates
+    per-item reload.'
+  sibling_of: [SCALE-LEAN-ROOM-PROFILE-1, DEVICE-ENTITY-REORG-1]
+  next: 'Parked. Revive if the operator elevates per-zone/per-coordinator individual reload (see driver above)
+    OR HA deprecates the flat pattern. Then: verify subentry-reload semantics vs per-entry split; probe first.'
+  refs: [AUDIT_roadmap_undone_worthwhile.md, docs/planning/PLANNING_device_entity_architecture_2026_9.md, DECISION_LOG_device_entity_cycle_2026_09_03.md]
 - id: ENTITYDESC-RUNTIMEDATA-HYGIENE-1
   title: EntityDescription + runtime_data hygiene (opportunistic)
   status: parked
@@ -9020,9 +9227,7 @@ cards:
   confidence_gate: '>=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate
     only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT
     (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316
     (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION
     source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census
@@ -9059,9 +9264,7 @@ cards:
     mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera
     corroboration, not a single leg. Suppress-only at >=0.9; never suppress at 0.6/0.75 (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
     Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location).
     A resident door-identified at >=0.9 should firm up the guest gate / cancel a nascent guest FP. Because
     a wrong suppress UNDER-secures, the gate is >=0.9 and suppress-only — identity may confirm a resident,
@@ -9096,9 +9299,7 @@ cards:
     though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or
     actuate, so no safety gate applies.'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
     LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in
     site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an
     arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known).
@@ -9203,7 +9404,12 @@ cards:
   shipped_version: v5.83.0
 - id: SECURITY-CENSUS-UNKNOWN-WIRE-1
   title: Security unknown-person auto-lock is designed but UNWIRED to the census
-  status: inbox
+  status: parked
+  parked_2026_09_03: 'DEFER + MEASURE (operator 2026-09-03). Auto-locking on an unknown-person count is only
+    as safe as the unknown-count false-positive/false-negative rate — wiring it before that rate is measured
+    risks spurious locks (FP) or missed intruders (FN). Revive trigger: measure the census unknown-count FP/FN
+    rate (a read-only recorder/ground-truth probe) FIRST; wire only if the rate is acceptable. Gated on the
+    egress-identity producer landing anyway.'
   thread: security
   created: 2026-08-18 11:20
   updated: '2026-08-29 13:20'
@@ -9213,9 +9419,7 @@ cards:
     unidentified_count (an UNKNOWN present), NOT from egress identity — identity only DE-ESCALATES ("that
     unknown is actually resident Oji, do not lock"). Never actuate the lock off identity (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is
     DORMANT/UNWIRED today — _build_context never sets a "census" key, no census_update intent is emitted
     anywhere, and security is not a SIGNAL_CENSUS_UPDATED subscriber. So this is not just "identity not
     consumed", the whole census->security edge is inert. When wired: escalation comes from unidentified_count
@@ -9250,9 +9454,7 @@ cards:
     so a wrong identity that subtracts a real unknown would suppress a genuine alert — highest bar,
     corroboration-only, never sole authority (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded,
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded,
     egress person_id at >=0.9 can serve as CORROBORATION to subtract a phone-left-behind resident from the
     "unexpected person" count (a resident whose phone stayed home reads as camera>ble => false unexpected;
     a door-identification of that same resident is strong evidence to subtract them). Because this is the
@@ -11822,7 +12024,8 @@ cards:
   title: Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.93.1
   plan_ready_2026_09_01: 'Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN;
     Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared:
     per-consumer None-direction table with safety guards (3 inline breaker sites, drain-pause) fail-CLOSED,
@@ -12690,9 +12893,7 @@ cards:
     security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate
     only; per the §5.5 safety doctrine identity may not suppress a security action below 0.9.'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  problem_solution:
+  - EGRESS-IDENTITY-JOIN-GAP-1  problem_solution:
   - 'Problem: the security entry-verdict messages — security.py:1480 NOTIFY ("known person, unusual timing")
     and security.py:1573 ALERT — name the DOOR entity that was crossed but never the PERSON, even though the
     verdict logic already concluded "known person". The operator gets "unusual entry at the side door" when
@@ -12715,7 +12916,12 @@ cards:
   title: Last named resident departing (census residents_home->0) is an earlier/stronger arm-away trigger
     than the occupancy timeout — investigate identity-accelerated arm
   thread: security
-  status: investigating
+  status: parked
+  parked_2026_09_03: 'PARSIMONY PARK (operator 2026-09-03: "the house already generally knows"). The existing
+    all-away arm already covers the need; the only marginal gain is arming a few minutes earlier via egress
+    identity, gated on the ~0%-attach producer + adds a security-actuation ingredient. Margin does not pay for
+    the ingredient risk now. Revive trigger: egress producer lands (>30% attach) AND a measured arm-lag gap
+    between last-resident-egress and the existing all-away arm justifies the earlier trigger.'
   tier: 2-DB
   priority: low
   created: '2026-08-28 12:00'
@@ -12728,9 +12934,7 @@ cards:
     census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed
     departure while a resident is still inside would arm the house on an occupant (false-alarm footgun).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  problem_solution:
+  - EGRESS-IDENTITY-JOIN-GAP-1  problem_solution:
   - 'Problem: security arms away off an occupancy timeout (security.py:1114-1360) — it waits out a
     no-occupancy window before arming. But the last named resident crossing OUT a door (census
     residents_home transitioning to 0) is an earlier and stronger "everyone left" signal than the timeout.
@@ -12764,9 +12968,7 @@ cards:
   confidence_gate: 'None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5
     display consumers carry no confidence threshold.'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  problem_solution:
+  - EGRESS-IDENTITY-JOIN-GAP-1  problem_solution:
   - 'Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped
     on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals —
     but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered

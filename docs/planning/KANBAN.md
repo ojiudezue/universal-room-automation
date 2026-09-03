@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T10:57:37-05:00_ - _Data commit: `9d80f0cd2e79`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-03T17:33:11-05:00_ - _Data commit: `ea1c0dc279f3`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-03T10:57:37-05:00_ - _Data commit: `9d80f0cd2e79`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
-| 🔬 Investigating | 8 |
+| 📥 Inbox | 29 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 8 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 7 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 51 |
+| 🚀 Shipped (organic open) | 53 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 22 |
+| 🅿️ Parked | 25 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (29)
 _raw capture_
 
 ### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
@@ -176,12 +176,11 @@ _created 2026-08-18 03:00 · updated 2026-08-19 07:45 · initial_
 thread: **security** - status: **inbox**
 _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
 - **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
-- **Forensic keys (6):**
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316 (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census _resolve_face_entity_id / the identity union), not directly off the egress person_id crossing event. Keep it graceful-anonymous and >=0.75 to name. Measure real production rate first (§5.5 gate).'}
+- **Forensic keys (5):**
   - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build
   - `sequence`: 1
   - `confidence_gate`: >=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).
-  - `audit_2026_08_28`: Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316 (the "Person Detected" message builder). NOTE the geometry: the PERI...
   - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Consume identity gracefully (name when kno...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
@@ -189,12 +188,11 @@ _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
 thread: **presence** - status: **inbox**
 _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
 - **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
-- **Forensic keys (6):**
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location). A resident door-identified at >=0.9 should firm up the guest gate / cancel a nascent guest FP. Because a wrong suppress UNDER-secures, the gate is >=0.9 and suppress-only — identity may confirm a resident, never admit an unknown. Coverage-gated on measured post-deploy yield (§5.5).'}
+- **Forensic keys (5):**
   - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
   - `sequence`: 2
   - `confidence_gate`: >=0.9. Suppressing the guest gate on a WRONG identity UNDER-secures the house (a mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera corroboration, not a single leg. Suppress-only at >=0.9; never ...
-  - `audit_2026_08_28`: Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location). A resident door-identified at >=0.9 should firm ...
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
@@ -202,37 +200,23 @@ _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
 thread: **notifications** - status: **inbox**
 _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
 - **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
-- **Forensic keys (6):**
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known). No trust surface. Sequence-first alongside PERIMETER-ALERT-NAME-PERSON-1.'}
+- **Forensic keys (5):**
   - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
   - `sequence`: 1
   - `confidence_gate`: None gating the FIRE (graceful-anonymous — notify on every crossing, name when known), though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or actuate, so no safety gate applies.
-  - `audit_2026_08_28`: Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in site is transit_validator.py:1279 (the egress...
   - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census
-thread: **security** - status: **inbox**
-_created 2026-08-18 11:20 · updated 2026-08-29 13:20 · initial_
-- **Next:** Investigate-first: confirm the SanctionChecker intent contract + what a safe producer looks like (confidence-gated, kill-switched). Do NOT build a raw count->lock. Then Tier 2-DB plan.
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
-- **Forensic keys (5):**
-  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
-  - `sequence`: 2
-  - `confidence_gate`: >=0.9 and SUPPRESS-ONLY for any identity role here. Escalation must come from the census unidentified_count (an UNKNOWN present), NOT from egress identity — identity only DE-ESCALATES ("that unknown is actually resident Oji, do not lock"...
-  - `audit_2026_08_28`: Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is DORMANT/UNWIRED today — _build_context never sets a "census" key, no census_update intent is emitted anywhere, and security is not a SIGNAL_CENSUS_UPDATED s...
-  - `problem`: security.py SanctionChecker has an unknown-person path (has_unknown_persons / _handle_census_intent -> locks ALL doors) that is a DESIGNED-BUT-INERT consumer: unknown_present has ZERO producers repo-wide, no source="census_update" intent...
 
 ### `UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1` - URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
 thread: **security** - status: **inbox**
 _created 2026-08-18 14:40 · updated 2026-08-29 13:20 · initial_
 - **Next:** Producer/consumer check on is_on + its NM alert consumers; then migrate the naive comparison to the deduped census signal. Likely higher priority than the display count.
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
-- **Forensic keys (5):**
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded, egress person_id at >=0.9 can serve as CORROBORATION to subtract a phone-left-behind resident from the "unexpected person" count (a resident whose phone stayed home reads as camera>ble => false unexpected; a door-identification of that same resident is strong evidence to subtract them). Because this is the live ALERT/NM path, identity is corroboration-only and >=0.9 — never the sole reason to suppress. Producer now BUILT (v5.91.4 pending deploy).'}
+- **Forensic keys (4):**
   - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
   - `sequence`: 2
   - `confidence_gate`: >=0.9 for egress person_id used as CORROBORATION. This is a live ALERT path (drives NM), so a wrong identity that subtracts a real unknown would suppress a genuine alert — highest bar, corroboration-only, never sole authority (§5.5 doctr...
-  - `audit_2026_08_28`: Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded, egress person_id at >=0.9 can serve as CORROBORATION to subtract a phone-left-behind resident from the "unexpected person" count (a resident whose p...
   - `problem`: binary_sensor.py:1540-1560 URAUnexpectedPersonSensor.is_on computes "unexpected person" via the naive substrate comparison camera_total > ble_total — the SAME additive/subtractive bug class as the guest double-count, but on a TRUST/ALERT...
 
 ### `ROOM-NAME-DESYNC-RECOVER-1` - Recover stalled room-rename write-through build (worktree vanished, salvage branch exists)
@@ -343,11 +327,9 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
 ### `SECURITY-ENTRY-VERDICT-NAME-1` - Security entry-verdict messages name the DOOR but never the PERSON, even when the verdict already derived "known person"
 thread: **security** - status: **inbox**
 _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Problem / Solution:**
-  - Problem: the security entry-verdict messages — security.py:1480 NOTIFY ("known person, unusual timing") and security.py:1573 ALERT — name the DOOR entity that was crossed but never the PERSON, even though the verdict logic already conclu...
 - **Why:** The verdict already derives "known person" internally; the name is thrown away at the message-build step. A named entry-verdict is a large signal-to-noise gain for the operator with no new trust surface, provided the name only annotates ...
 - **Next:** Measure-before-build: re-measure real person_id production on the garage/family-room entry path (per §5.5 gate). Then wire person_id into the security.py:1480/:1573 message builders, graceful-anonymous, with the >=0.75 name gate and an e...
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: the security entry-verdict messages — security.py:1480 NOTIFY ("known person, unusual timing") and security.py:1573 ALERT — name the DOOR entity that was crossed but never the PERSON, even though the verdict logic already concluded "known person". The operator gets "unusual entry at the side door" when the house could say "Oji entered at the side door, unusual timing". Solution: join the egress producer's person_id onto the verdict message and name the person when confidence >=0.75; keep it anonymous below, and never let a low-confidence name turn an ALERT into a softer NOTIFY.
 - **Refs:** security.py:1480 (NOTIFY known person unusual timing); security.py:1573 (ALERT); docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md §5.5; AUDIT_census_identity_supersession_and_consumers.md
 - **Forensic keys (4):**
   - `tier`: 2
@@ -358,11 +340,9 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
 ### `EGRESS-IDENTITY-DASHBOARD-TILE-1` - Surface the egress observability attrs as a "who entered today, named" dashboard tile
 thread: **dashboarding** - status: **inbox**
 _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Problem / Solution:**
-  - Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals — but nothing surfaces them...
 - **Why:** Small display win and the natural home for validating the producer's live yield (L2/L3). No trust surface — pure observability. Tier 1 dashboard-only.
 - **Next:** Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + the D3 attach/ambiguity-rate signals. HA dashboard leg first; PWA leg per the dashboarding workstream.
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals — but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered today, named" view. Solution: build a small dashboard tile that surfaces the named-entries list + the attach/ambiguity rates, so identity production is visible at a glance.
 - **Refs:** sensor.py:4260 (egress_face_ids_active, egress_identities_stamped); AUDIT_census_identity_supersession_and_consumers.md §3 G5
 - **Forensic keys (4):**
   - `tier`: 1
@@ -370,8 +350,34 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
+
+### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
+thread: **identity** - status: **investigating** - approval: **explicit**
+_created 2026-09-03 15:10 · initial_
+- **Problem / Solution:**
+  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
+- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
+- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
+- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
+- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
+- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
+- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+
+### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
+thread: **platform** - status: **investigating** - approval: **explicit**
+_created 2026-09-03 16:40 · initial_
+- **Problem / Solution:**
+  - Problem: every room config entry — including closets and hallways — is registered as a full "Smart Room" with ~105 entities (AV Closet 105, Stair Closet 106, Study A Closet 105, Exercise Room Closet 105), the same profile as a full room,...
+- **Origin:** 2026-09-03 - operator scale question during the device/entity reorg — closets carry full room entity profiles
+- **Why:** Data-backed from the live Devices page: closets/hallways show ~105 entities each, same as full rooms. D0 baseline: 4626 entities, ~1953 disabled_by, 71 unavailable. Registry size + boot time are the scale surfaces the reorg itself does n...
+- **Next:** Probe: enumerate enabled vs disabled entities per room_type (closet/hallway vs full room); measure boot time + core.entity_registry size. Then scope a lean profile (fewer platforms/entities for simple types). Separate cycle — NOT part of...
+- **Tags:** measure-before-build, scale, no-fabrication-verify
+- **Sibling of:** CONFIG-SUBENTRIES-MIGRATION-1, DEVICE-INFO-HELPER-CONSOLIDATION-1
+- **Refs:** docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md; live Devices page 2026-09-03
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
 
 ### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
 thread: **presence** - status: **investigating** - approval: **unreviewed**
@@ -464,22 +470,6 @@ _created 2026-08-25 22:20 · initial_
 - **Next:** SELECT the 4 immediate0/delayed0 rows with full context from ac_ramp_events; classify the failure mode; guard or accept.
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
-
-### `LAST-RESIDENT-EGRESS-ARM-1` - Last named resident departing (census residents_home->0) is an earlier/stronger arm-away trigger than the occupancy timeout — investigate identity-accelerated arm
-thread: **security** - status: **investigating**
-_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Problem / Solution:**
-  - Problem: security arms away off an occupancy timeout (security.py:1114-1360) — it waits out a no-occupancy window before arming. But the last named resident crossing OUT a door (census residents_home transitioning to 0) is an earlier and...
-- **Why:** Arming sooner when the house genuinely empties is real security value, but this is the highest-blast-radius consumer in the audit — a wrong arm-away on a still-present occupant is a false alarm on people inside. Hence investigate-first a...
-- **Next:** Investigate-first: confirm the arm-away trigger contract at security.py:1114-1360 and how census residents_home is produced; design the confirm-only accelerator (never a raw identity->arm edge), a kill switch, and a discriminating test (...
-- **Depends on:** EGRESS-IDENTITY-JOIN-GAP-1, D1-PROTECT-FACE-BRIDGE-ADDON-1
-- **Refs:** security.py:1114-1360 (arm-away occupancy timeout); census residents_home producer; docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md §5.5; AUDIT_census_identity_supersession_and_consumers.md
-- **Forensic keys (5):**
-  - `tier`: 2-DB
-  - `priority`: low
-  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build and CONFIRM-ONLY; census residents_home==0 stays sole authority
-  - `sequence`: 3
-  - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
@@ -636,8 +626,21 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
+
+### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
+thread: **platform** - status: **planned** - approval: **explicit**
+_created 2026-09-03 18:05 · initial_
+- **Problem / Solution:**
+  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
+- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
+- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
+- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
+- **Tags:** ux-consistency, tier-2, no-fabrication-verify
+- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
+- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
 thread: **energy** - status: **planned** - approval: **implied**
@@ -649,21 +652,6 @@ _refined ×3_
 - **Forensic keys (2):**
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
-
-### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep
-thread: **presence** - status: **planned** - approval: **unreviewed**
-_created 2026-08-31 18:20 · updated 2026-09-01 17:05 · refined ×4_
-- **Problem / Solution:**
-  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
-- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
-- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
-- **Next:** Fresh plan-review (config surface changed, Tier 2-DB+) against the 120min durations -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).
-- **Tags:** no-fabrication-verify, measure-before-build
-- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
-- **Forensic keys (3):**
-  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
-  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
-  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -748,25 +736,6 @@ _created 2026-08-20 14:40 · updated 2026-08-25 22:30 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-### `ENVOY-PRODUCTION-STALE-1` - Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale live sensor that URA's solar entity derives from; does any decision path trust it?
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
-- **Problem / Solution:**
-  - Problem: the sensor that reports how much power the solar panels are making went stuck at zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the grid at the time. If any part of the ...
-- **Origin:** 2026-08-24 - session handoff live-fault
-- **Why:** A stale-at-zero solar reading feeding a real decision is the exact failure class the energy invariants campaign exists to catch. The handoff notes config derivation is unaffected (energy_envoy_entity is only a serial-discovery seed, __in...
-- **Next:** BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix: (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALL...
-- **Tags:** measure-before-build, no-fabrication-verify, tier-2db
-- **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault); __init__.py:3026; PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1); BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483
-- **Forensic keys (7):**
-  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN; Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared: per-consumer None-direction table with safety guard...
-  - `status_note`: in_progress — SCOPE-SPLIT rework in flight
-  - `tier3_review_2026_09_01`: BUILT then 4 Tier-3 build-reviews (A correctness / B state-machine / C test-authority / D adversarial). Build initially shipped a real safety bug (drain release-path DROP under blind CT — found by the mutation drill, fixed). Then A=2MED,...
-  - `consolidate_decision_2026_09_01`: Operator: CONSOLIDATE. Scope expanded from solar-only to a shared staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads — solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — fol...
-  - `consumer_check_2026_09_01`: Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status 'stale') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check, energy.py:3025), consumed by no decision. The TRUST flag envoy_availa...
-  - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
-  - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
-
 ### `FAN-TRANSITION-COINCIDENCE-GATE-1` - mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route to the existing recheck ladder instead of granting occupancy
 thread: **presence** - status: **planned** - approval: **implied**
 _created 2026-08-26 09:45 · initial_
@@ -778,10 +747,36 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (0)
+## 🔨 In progress (2)
 _being built_
 
-_(none)_
+### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
+- **Problem / Solution:**
+  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
+- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
+- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
+- **Next:** Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).
+- **Tags:** ux-consistency, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1
+- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
+
+### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_created 2026-09-03 16:50 · refined_
+- **Problem / Solution:**
+  - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
+- **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
+- **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
+- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
+- **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
+- **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
+- **Forensic keys (1):**
+  - `spawns`: SCALE-LEAN-ROOM-PROFILE-1
 
 ## 🔍 Review (1)
 _under review_
@@ -808,7 +803,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (51)
+## 🚀 Shipped (organic open) (53)
 _live, awaiting proof_
 
 ### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
@@ -847,7 +842,7 @@ _created 2026-08-26 20:45 · updated 2026-08-29 13:20 · refined_
 - **Tags:** no-fabrication-verify, producer-consumer, gate-6.0.0, tier-2db
 - **Refs:** person_entry_exit_events (URA DB) — 0/7010 person_id; reference_egress_face_coverage_7pct_not_a_ceiling (memory); docs/planning/PLANNING_egress_identity_producer.md
 - **Forensic keys (12):**
-  - `consumer_link_note_2026_08_29`: consumers linked behind D1-PROTECT-FACE-BRIDGE-ADDON-1; all thresholds PROVISIONAL pending operator confirm; re-measure attach rate after D1 before building any consumer.
+  - `consumer_link_note_2026_09_03`: RE-POINTED 2026-09-03: the 8 consumers no longer depend on the PARKED Protect bridge (D1-PROTECT-FACE-BRIDGE-ADDON-1). Real gate = FRIGATE-SUBLABEL-FACE-BRIDGE-1 (Frigate 0.17 sub_label -> URA-joinable entity) feeding THIS producer. Live...
   - `PROTECT_API_2026_08_28`: Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the Protect API DOES expose named face recognition — protect_list_smart_detections / protect_list_events / protect_get_event return recognized_person_id + recogniz...
   - `ROOT_CAUSE_2026_08_27`: FOUND (subagent, cited to source). NOT a wiring defect — the person_id producer exists and is passed to the writer, but it drops to None at a mis-keyed join. Chain: writer database.py:3903 log_entry_exit_event (writes whatever it is hand...
   - `PROBE_RESULT_2026_08_27_BUILD`: Signed-lag measure-first probe DONE (340 crossings/7d, 133 exit/207 entry; 125 interior named-face events). VERDICT: BUILD — interior-fusion lifts the identity attach rate from ~0 to ~63-66% (48h re-tuned regime). Signed-lag hypothesis c...
@@ -1156,6 +1151,21 @@ _updated 2026-08-21 12:30_
   - `MECHANISM_CORRECTED_2026_08_21`: ⚠️ MY "NOTHING SEEDS IT" FRAMING WAS WRONG IN DETAIL — corrected by the builder, which is what the blocking deliverable-1 question was for. A seeding path DOES exist: number.py:2187 `async_added_to_hass -> _push_to_controller()` sets the...
   - `ZONE_TUNABLES_FAIL_UNSAFE_2026_08_21`: SECOND, WORSE INSTANCE — found while checking whether the threshold turn was actually unblocked. It was not. The per-zone kWh threshold does NOT use the sub-controller path and is NOT in `_HVAC_TUNABLE_DISPATCH`, so the fix above does no...
   - `TEST_PROTECTION_GAP_2026_08_21`: Noted, not actioned: the builder reports quality/tests/test_part2_ec_hc_writeback.py at 38 failed / 29 passed BOTH with and without the change — pre-existing, zero delta. But that is the suite covering this exact dispatch/writeback mecha...
+
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-31 18:20 · updated 2026-09-01 17:05 · refined ×4_
+- **Problem / Solution:**
+  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
+- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
+- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
+- **Next:** Fresh plan-review (config surface changed, Tier 2-DB+) against the 120min durations -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).
+- **Tags:** no-fabrication-verify, measure-before-build
+- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
+- **Forensic keys (3):**
+  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
+  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
+  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
 ### `NIGHT-LIGHT-NO-OFF-PATH-1` - A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light stays on 20-29h (all night AND day) until a human/device clears it
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -1515,6 +1525,25 @@ _created 2026-08-20 14:15 · updated 2026-08-23 15:45 · initial_
   - `ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22`: NEW MEASURED SOURCE, found incidentally while checking a Garage Hallway sensor swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE churn: binary_sensor.garage_hallw...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox) covers the Frigate live/dead leg naming inconsistency and is the likely home for the camera_census garage_a/garage_b flood — fold that flood in there rather than duplicating. The MQT...
 
+### `ENVOY-PRODUCTION-STALE-1` - Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale live sensor that URA's solar entity derives from; does any decision path trust it?
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
+- **Problem / Solution:**
+  - Problem: the sensor that reports how much power the solar panels are making went stuck at zero for about 16 and a half hours on 2026-08-24, even though the house was actually pushing 6 kW back to the grid at the time. If any part of the ...
+- **Origin:** 2026-08-24 - session handoff live-fault
+- **Why:** A stale-at-zero solar reading feeding a real decision is the exact failure class the energy invariants campaign exists to catch. The handoff notes config derivation is unaffected (energy_envoy_entity is only a serial-discovery seed, __in...
+- **Next:** BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix: (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALL...
+- **Tags:** measure-before-build, no-fabrication-verify, tier-2db
+- **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault); __init__.py:3026; PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1); BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483
+- **Forensic keys (7):**
+  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN; Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared: per-consumer None-direction table with safety guard...
+  - `status_note`: in_progress — SCOPE-SPLIT rework in flight
+  - `tier3_review_2026_09_01`: BUILT then 4 Tier-3 build-reviews (A correctness / B state-machine / C test-authority / D adversarial). Build initially shipped a real safety bug (drain release-path DROP under blind CT — found by the mutation drill, fixed). Then A=2MED,...
+  - `consolidate_decision_2026_09_01`: Operator: CONSOLIDATE. Scope expanded from solar-only to a shared staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads — solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — fol...
+  - `consumer_check_2026_09_01`: Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status 'stale') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check, energy.py:3025), consumed by no decision. The TRUST flag envoy_availa...
+  - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
+  - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
+
 ### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-08-24 16:45 · initial_
@@ -1726,7 +1755,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (22)
+## 🅿️ Parked (25)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -1750,6 +1779,21 @@ _created 2026-09-01 20:30 · initial_
 - **Next:** Revive when: a real blind-telemetry breaker-trip is observed, OR the operator enables the grid-import guard and wants stale-safe behavior. Design: battery-unknown propagation in _effective_import_kw + isfinite-guard gate + non-sticky abo...
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
+
+### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones)
+thread: **platform** - status: **parked** - approval: **unreviewed**
+_created 2026-09-03 16:50 · initial_
+- **Problem / Solution:**
+  - Problem: coordinator device identity is authored inline at ~100 DeviceInfo() sites (hvac 38, CM 23, energy 22, presence 21, notification 11, …), so a future rename risks divergent device records. Solution: route every entity's device thr...
+- **Origin:** 2026-09-03 - scoped OUT of DEVICE-ENTITY-REORG-1 (10x the estimate
+- **Why:** Not the cause of the split defect; a mechanical ~100-site refactor. Fold into the next platform cycle that already edits the target files (opportunistic, like ENTITYDESC-RUNTIMEDATA-HYGIENE-1).
+- **Next:** No action now (parked). Also fold in the CoordinatorEnabledSwitch (switch.py:236) latent second-author + the OccupantCountSensor double-definition (sensor.py:1807/:2917) shadowing bug when this runs.
+- **Tags:** tech-debt, ha-hygiene
+- **Sibling of:** ENTITYDESC-RUNTIMEDATA-HYGIENE-1, SCALE-LEAN-ROOM-PROFILE-1
+- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md D2 OUT section
+- **Forensic keys (2):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
+  - `parked_reason`: Opportunistic — attach to the next coordinator/platform cycle that already edits these files.
 
 ### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
 thread: **energy** - status: **parked** - approval: **implied**
@@ -1940,10 +1984,13 @@ _created 2026-08-18 02:00 · updated 2026-08-18 02:25 · refined_
 ### `CONFIG-SUBENTRIES-MIGRATION-1` - Config subentries migration (flat 34-entry -> subentries)
 thread: **platform** - status: **parked**
 _created 2026-08-18 02:30 · initial_
-- **Next:** No action now (parked-with-trigger).
-- **Forensic keys (2):**
+- **Next:** Parked. Revive if the operator elevates per-zone/per-coordinator individual reload (see driver above) OR HA deprecates the flat pattern. Then: verify subentry-reload semantics vs per-entry split; probe first.
+- **Sibling of:** SCALE-LEAN-ROOM-PROFILE-1, DEVICE-ENTITY-REORG-1
+- **Refs:** AUDIT_roadmap_undone_worthwhile.md; docs/planning/PLANNING_device_entity_architecture_2026_9.md; DECISION_LOG_device_entity_cycle_2026_09_03.md
+- **Forensic keys (3):**
   - `problem`: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology but the migration carries real risk for MEDIUM value.
   - `parked_reason`: MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is needed anyway, or HA deprecates the flat pattern.
+  - `per_item_reload_driver_2026_09_03`: NEW DRIVER (operator, via DEVICE-ENTITY-REORG-1): the operator wants per-ZONE and per-COORDINATOR individual reload. That is impossible today because all zones share one Zone Manager entry and all coordinators share one CM entry — reload...
 
 ### `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` - EntityDescription + runtime_data hygiene (opportunistic)
 thread: **platform** - status: **parked**
@@ -1952,6 +1999,18 @@ _created 2026-08-18 02:30 · initial_
 - **Forensic keys (2):**
   - `problem`: EntityDescription + runtime_data patterns not adopted; low-value on its own.
   - `parked_reason`: Opportunistic — attach to the next coordinator touch rather than a dedicated cycle.
+
+### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census
+thread: **security** - status: **parked**
+_created 2026-08-18 11:20 · updated 2026-08-29 13:20 · initial_
+- **Next:** Investigate-first: confirm the SanctionChecker intent contract + what a safe producer looks like (confidence-gated, kill-switched). Do NOT build a raw count->lock. Then Tier 2-DB plan.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is DORMANT/UNWIRED today — _build_context never sets a "census" key, no census_update intent is emitted anywhere, and security is not a SIGNAL_CENSUS_UPDATED subscriber. So this is not just "identity not consumed", the whole census->security edge is inert. When wired: escalation comes from unidentified_count (footgun-gated per the existing constraints), and egress identity only de-escalates at >=0.9. Producer now BUILT (v5.91.4 pending deploy) but this stays investigate-first, Tier 2-DB.'}
+- **Forensic keys (5):**
+  - `parked_2026_09_03`: DEFER + MEASURE (operator 2026-09-03). Auto-locking on an unknown-person count is only as safe as the unknown-count false-positive/false-negative rate — wiring it before that rate is measured risks spurious locks (FP) or missed intruders...
+  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
+  - `sequence`: 2
+  - `confidence_gate`: >=0.9 and SUPPRESS-ONLY for any identity role here. Escalation must come from the census unidentified_count (an UNKNOWN present), NOT from egress identity — identity only DE-ESCALATES ("that unknown is actually resident Oji, do not lock"...
+  - `problem`: security.py SanctionChecker has an unknown-person path (has_unknown_persons / _handle_census_intent -> locks ALL doors) that is a DESIGNED-BUT-INERT consumer: unknown_present has ZERO producers repo-wide, no source="census_update" intent...
 
 ### `CHATTER-CAMERA-CONFIDENCE-FLAP-1` - Camera/AI detection confidence-flap detector (STEP sibling)
 thread: **diagnostics** - status: **parked**
@@ -1983,6 +2042,21 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `livingroom_release_evidence_2026_08_19`: LIVING ROOM release (2026-08-18/19) — CLEAN fan-pause natural experiment: fan turned OFF 23:00:05 (HVAC/cooling satisfied, NOT the recheck, Screek still on), then Screek presence+still_target cleared 23:06:01 (~6min later). PROVES fan-sh...
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
+
+### `LAST-RESIDENT-EGRESS-ARM-1` - Last named resident departing (census residents_home->0) is an earlier/stronger arm-away trigger than the occupancy timeout — investigate identity-accelerated arm
+thread: **security** - status: **parked**
+_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
+- **Why:** Arming sooner when the house genuinely empties is real security value, but this is the highest-blast-radius consumer in the audit — a wrong arm-away on a still-present occupant is a false alarm on people inside. Hence investigate-first a...
+- **Next:** Investigate-first: confirm the arm-away trigger contract at security.py:1114-1360 and how census residents_home is produced; design the confirm-only accelerator (never a raw identity->arm edge), a kill switch, and a discriminating test (...
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: security arms away off an occupancy timeout (security.py:1114-1360) — it waits out a no-occupancy window before arming. But the last named resident crossing OUT a door (census residents_home transitioning to 0) is an earlier and stronger "everyone left" signal than the timeout. Solution: let a >=0.9 egress-identified departure that takes residents_home to 0 ACCELERATE/CONFIRM the arm-away transition — but only as a corroborator: census residents_home==0 remains the authority, and identity never arms the house on its own.
+- **Refs:** security.py:1114-1360 (arm-away occupancy timeout); census residents_home producer; docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md §5.5; AUDIT_census_identity_supersession_and_consumers.md
+- **Forensic keys (6):**
+  - `parked_2026_09_03`: PARSIMONY PARK (operator 2026-09-03: "the house already generally knows"). The existing all-away arm already covers the need; the only marginal gain is arming a few minutes earlier via egress identity, gated on the ~0%-attach producer + ...
+  - `tier`: 2-DB
+  - `priority`: low
+  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build and CONFIRM-ONLY; census residents_home==0 stays sole authority
+  - `sequence`: 3
+  - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
 ### `TRANSIT-PERSON-CHECKPOINT-1` - Key TRANSIT-1 traversal checkpoints to person_id for per-person movement paths (agentic-layer feed)
 thread: **census** - status: **parked**

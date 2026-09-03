@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.93.0
+# Universal Room Automation vv5.93.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -13350,6 +13350,89 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
             return None
         return manager.coordinators.get("energy")
 
+    # ENVOY-PRODUCTION-STALE-1 D-OBS (clean-core fix-up 3): per-source
+    # freshness surface. SHORT keys (`net_power`/`battery_power`/
+    # `solar_production`/`battery_soc`) per the key_map at
+    # energy.py:986-996 — NOT the CONF_ENERGY_*_ENTITY constants.
+    _SHORT_KEYS = (
+        "net_power",
+        "battery_power",
+        "solar_production",
+        "battery_soc",
+    )
+
+    @property
+    def _STALE_THRESHOLDS_S(self):
+        """Per-source stale thresholds — imported from energy_const so
+        the observability axis honors the same knob as the read gate.
+        A threshold of <= 0 disables the stale flip on that source
+        (kill-switch parity with `_read_fresh_*`).
+        """
+        from .domain_coordinators.energy_const import (
+            DEFAULT_NET_POWER_MAX_AGE_S,
+            DEFAULT_BATTERY_POWER_MAX_AGE_S,
+            DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S,
+            DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
+        )
+        return {
+            "net_power": DEFAULT_NET_POWER_MAX_AGE_S,
+            "battery_power": DEFAULT_BATTERY_POWER_MAX_AGE_S,
+            "solar_production": DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S,
+            "battery_soc": DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
+        }
+
+    def _resolve_source_age(self, energy, short_key):
+        """Return (age_s, status) for a battery-strategy source.
+
+        status ∈ {"unconfigured","missing","fresh"}. Threshold check is
+        applied by the caller against `_STALE_THRESHOLDS_S`.
+        """
+        from .domain_coordinators.energy_battery import _state_age_s
+        try:
+            battery = getattr(energy, "_battery", None)
+            if battery is None:
+                return (None, "missing")
+            eid = battery._get_entity(short_key)  # noqa: SLF001
+            if not eid:
+                return (None, "unconfigured")
+            state = self.hass.states.get(eid)
+            if state is None:
+                return (None, "missing")
+            age = _state_age_s(state, stamp="last_reported")
+            if age is None:
+                return (None, "missing")
+            return (age, "fresh")
+        except Exception:  # noqa: BLE001
+            return (None, "missing")
+
+    def _classify_sources(self, energy):
+        """Return (ages_by_key, status_by_key, stale, unconfigured, missing)."""
+        ages: dict = {}
+        statuses: dict = {}
+        stale: list = []
+        unconfigured: list = []
+        missing: list = []
+        thresholds = self._STALE_THRESHOLDS_S
+        for key in self._SHORT_KEYS:
+            age, status = self._resolve_source_age(energy, key)
+            ages[key] = round(age, 1) if age is not None else None
+            statuses[key] = status
+            if status == "unconfigured":
+                unconfigured.append(key)
+                continue
+            if status == "missing":
+                missing.append(key)
+                continue
+            # status == "fresh" — check per-source threshold.
+            # Kill-switch parity: threshold <= 0 disables stale flip.
+            threshold = thresholds.get(key)
+            if (
+                threshold is not None and threshold > 0
+                and age is not None and age > threshold
+            ):
+                stale.append(key)
+        return ages, statuses, stale, unconfigured, missing
+
     @property
     def native_value(self) -> str:
         energy = self._get_energy()
@@ -13401,6 +13484,16 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
             if age > stale_threshold_seconds:
                 return "stale"
         except (ValueError, TypeError):
+            pass
+
+        # ENVOY-PRODUCTION-STALE-1 D-OBS: union per-source staleness into
+        # the connection-level "stale" branch. Only `stale_sources` drives
+        # this flip — `unconfigured` and `missing` surface as attributes.
+        try:
+            _, _, stale, _, _ = self._classify_sources(energy)
+            if stale:
+                return "stale"
+        except Exception:  # noqa: BLE001
             pass
 
         return "online"
@@ -13464,6 +13557,32 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
             "envoy_degraded": envoy_degraded,
             "envoy_degraded_since": envoy_degraded_since,
         }
+
+        # ENVOY-PRODUCTION-STALE-1 D-OBS (clean-core fix-up 3): per-source
+        # freshness surface. See `_classify_sources`.
+        try:
+            ages, statuses, stale, unconfigured, missing = (
+                self._classify_sources(energy)
+            )
+            attrs["solar_age_s"] = ages.get("solar_production")
+            attrs["net_power_age_s"] = ages.get("net_power")
+            attrs["battery_power_age_s"] = ages.get("battery_power")
+            attrs["primary_soc_age_s"] = ages.get("battery_soc")
+            attrs["stale_sources"] = stale
+            attrs["unconfigured_sources"] = unconfigured
+            attrs["missing_sources"] = missing
+            if stale:
+                attrs["stale_reason"] = "sources_stale"
+            elif last_reading_age_seconds is not None and (
+                last_reading_age_seconds > attrs["stale_threshold_seconds"]
+            ):
+                attrs["stale_reason"] = "connection_stale"
+            else:
+                attrs["stale_reason"] = None
+            src = getattr(getattr(energy, "_battery", None), "_soc_source_last", None)
+            attrs["fallback_active"] = src not in (None, "envoy")
+        except Exception:  # noqa: BLE001
+            pass
         return attrs
 
     async def async_added_to_hass(self) -> None:
