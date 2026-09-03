@@ -54,6 +54,61 @@ from .energy_projector import EnergyProjector
 
 
 # ============================================================================
+# ENVOY-PRODUCTION-STALE-1 (Rev 5, clean-core fix-up 3) — shared power-read
+# staleness helper.
+# ----------------------------------------------------------------------------
+# `_state_age_s` is the single "how old is this HA state's report?" primitive
+# used by BatteryStrategy._read_fresh_* wrappers (D2-A SOC, D3 solar, D4-D
+# battery_power) AND by CostTracker._get_net_power (D4-E) AND by the D-OBS
+# observability sensor.
+#
+# `net_power_w` is deliberately NOT re-gated (Tier-3 MED-2): the arbitrage /
+# breaker path must read net_power exactly as develop does; billing does its
+# own freshness check via this helper.
+#
+# None-classification contract — ONE STORY across all consumers:
+#   `_state_age_s` returns None when the state is missing, both stamps are
+#   absent, or the resolved stamp is naive. Callers interpret None as
+#   "age unknown / cannot classify" and route it as PASS-THROUGH (they do
+#   NOT gate on unknown-age). The staleness gate only fires on a MEASURED
+#   age exceeding the threshold. The D-OBS sensor classifies such a state
+#   as `missing` (an observability signal) but never as `stale`.
+#
+# Rationale: HA production stamps are tz-aware UTC and effectively never
+# naive/missing, so pass-through is safe. In-suite test harnesses that
+# construct naive-stamped MockState still exercise the fresh path. The
+# CF-8 anti-pattern preserved: never stamp a naive stamp with an assumed
+# tz — return None instead. Negative ages clamp to 0.0 (mirrors :1149).
+# ============================================================================
+
+
+def _state_age_s(state, *, stamp: str = "last_reported"):
+    """Return the age in seconds of ``state`` measured against ``stamp``.
+
+    Falls back to ``last_updated`` if the chosen stamp is absent (older HA
+    cores). Returns ``None`` when age cannot be determined: missing state,
+    both stamps absent, or the resolved stamp is naive (CF-8: naive stamps
+    are NOT re-tagged as UTC). Callers treat ``None`` as unknown-age →
+    pass-through (no gate). Negative ages clamp to 0.0.
+    """
+    if state is None:
+        return None
+    try:
+        from homeassistant.util import dt as dt_util
+        ts = getattr(state, stamp, None)
+        if ts is None:
+            ts = getattr(state, "last_updated", None)
+        if ts is None:
+            return None
+        if getattr(ts, "tzinfo", None) is None:
+            return None
+        return max(0.0, (dt_util.utcnow() - ts).total_seconds())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+
+# ============================================================================
 # SOC LKG envelope — REUSABLE PRIMITIVE (see PLANNING_ec_blind_window_evse_guard.md D5)
 # ----------------------------------------------------------------------------
 # Bounded-uncertainty SOC estimate for consumers that must reason about the
@@ -824,8 +879,19 @@ class BatteryStrategy:
             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
             DEFAULT_SOC_LKG_MAX_AGE_S,
             DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S,
+            DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
         )
-        primary = self._get_state_float(self._get_entity("battery_soc"))
+        # ENVOY-PRODUCTION-STALE-1 D2-A: fresh-read the PRIMARY SOC. A
+        # frozen Envoy SOC (stamp older than
+        # DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S) returns None → LKG (up
+        # to DEFAULT_SOC_LKG_MAX_AGE_S) → cloud fallback. Bug Class #63
+        # discriminator: the sequential stale-trust horizon is visible
+        # via `_soc_source_last` transitions, NOT value.
+        primary = self._read_fresh_float(
+            self._get_entity("battery_soc"),
+            DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
+            stamp="last_reported",
+        )
         if primary is not None:
             self._soc_lkg = primary
             self._soc_lkg_at = dt_util.utcnow()
@@ -1548,26 +1614,26 @@ class BatteryStrategy:
 
         v4.3.4 fix: reads the underlying entity's ``unit_of_measurement``
         attribute and multiplies by 1000 if the entity reports in kW.
-        Use this for any threshold math (e.g., "is the battery discharging
-        more than 100W?") so behavior is correct regardless of Envoy
-        firmware/integration version.
 
-        Returns None if entity is missing/unavailable.
+        ENVOY-PRODUCTION-STALE-1 D4-D producer: a frozen CT older than
+        DEFAULT_BATTERY_POWER_MAX_AGE_S returns None. `_effective_import_kw`
+        already treats battery_power=None as "battery charge = 0"
+        (documented fail-safe there — the guard cannot be uncapped by a
+        sensor dropout), so develop's breaker-path behavior on stale-CT
+        is preserved (same treatment as raw-unavailable). Downstream
+        drain-actions consumers receive None → the caller computes
+        `battery_power_unknown=True` at the D4-D call sites, and the
+        drain function HOLDS existing pauses via the `battery_ok` gate.
+
+        Returns None if entity is missing/unavailable OR stale.
         """
-        eid = self._get_entity("battery_power")
-        if eid is None:
-            return None
-        state = self.hass.states.get(eid)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            value = -float(state.state)  # flip sign per battery_power convention
-        except (ValueError, TypeError):
-            return None
-        uom = state.attributes.get("unit_of_measurement", "")
-        if uom in ("kW", "kw"):
-            value *= 1000.0
-        return value
+        from .energy_const import DEFAULT_BATTERY_POWER_MAX_AGE_S
+        raw = self._read_fresh_power_w(
+            "battery_power",
+            DEFAULT_BATTERY_POWER_MAX_AGE_S,
+            stamp="last_reported",
+        )
+        return -raw if raw is not None else None
 
     def _read_power_w(self, entity_key: str) -> float | None:
         """Generic power reader normalized to W.
@@ -1595,6 +1661,70 @@ class BatteryStrategy:
             value *= 1000.0
         return value
 
+    # ------------------------------------------------------------------
+    # ENVOY-PRODUCTION-STALE-1 — thin fresh-read wrappers over
+    # `_read_power_w` and `_get_state_float`. Return None if the entity
+    # is missing/unavailable OR its `stamp` age exceeds max_age_s.
+    # Kill-switch: max_age_s <= 0 disables the staleness gate.
+    # `age is None` (naive/missing stamp) is treated as pass-through —
+    # the D-OBS surface flags it as `missing` for operator visibility.
+    # ------------------------------------------------------------------
+    def _read_fresh_power_w(
+        self,
+        entity_key: str,
+        max_age_s: float,
+        *,
+        stamp: str = "last_reported",
+    ):
+        """Fresh-only variant of :meth:`_read_power_w`."""
+        eid = self._get_entity(entity_key)
+        if eid is None:
+            return None
+        try:
+            state = self.hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            return None
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        if max_age_s and max_age_s > 0:
+            age = _state_age_s(state, stamp=stamp)
+            if age is not None and age > max_age_s:
+                return None
+        try:
+            value = float(state.state)
+        except (ValueError, TypeError):
+            return None
+        uom = state.attributes.get("unit_of_measurement", "")
+        if uom in ("kW", "kw"):
+            value *= 1000.0
+        return value
+
+    def _read_fresh_float(
+        self,
+        entity_id,
+        max_age_s: float,
+        *,
+        stamp: str = "last_reported",
+    ):
+        """Fresh-only variant of :meth:`_get_state_float`."""
+        if entity_id is None:
+            return None
+        try:
+            state = self.hass.states.get(entity_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        if max_age_s and max_age_s > 0:
+            age = _state_age_s(state, stamp=stamp)
+            if age is not None and age > max_age_s:
+                return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+
     @property
     def solar_production_w(self) -> float | None:
         """Solar production normalized to W (always).
@@ -1611,7 +1741,16 @@ class BatteryStrategy:
         (`save_energy_state("solar_production_w_lkg", ...)`), zero new
         DB writers.
         """
-        val = self._read_power_w("solar_production")
+        # ENVOY-PRODUCTION-STALE-1 D3: staleness gate. A frozen solar CT
+        # (stamp older than DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S) returns
+        # None → LKG envelope engages via `solar_production_w_envelope()`.
+        # This is the original 16.5-hour frozen-solar-read ask.
+        from .energy_const import DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S
+        val = self._read_fresh_power_w(
+            "solar_production",
+            DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S,
+            stamp="last_reported",
+        )
         if val is not None:
             try:
                 from homeassistant.util import dt as dt_util
@@ -2326,8 +2465,16 @@ class BatteryStrategy:
         )
 
         # If live solar is available, the envelope is noise.
+        # ENVOY-PRODUCTION-STALE-1 D3-B: use the fresh reader so a frozen
+        # solar CT does NOT suppress the LKG envelope (which is precisely
+        # what the envelope exists for during Envoy blindness).
+        from .energy_const import DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S
         try:
-            live = self._read_power_w("solar_production")
+            live = self._read_fresh_power_w(
+                "solar_production",
+                DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S,
+                stamp="last_reported",
+            )
         except Exception:  # noqa: BLE001
             live = None
         if live is not None:

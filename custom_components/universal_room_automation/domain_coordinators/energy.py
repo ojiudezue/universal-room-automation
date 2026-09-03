@@ -2450,13 +2450,22 @@ class EnergyCoordinator(BaseCoordinator):
         soc = self._battery.battery_soc
         if soc is None:
             return  # Envoy offline — don't overwrite good cache with None
+        # ENVOY-PRODUCTION-STALE-1 D4-F (clean-core fix-up 3, B-MED-2):
+        # gate the whole write on `_soc_source_last == "envoy"`. If SOC
+        # came from LKG or cloud fallback, seeding a next boot with that
+        # value would drift the restart cache. And DROP the three ungated
+        # instantaneous columns (`net_power`, `solar_production`,
+        # `battery_power`) from the payload — they read bare props that
+        # could be freshly frozen even when SOC is healthy Envoy. Lifetime
+        # counters remain (integrator-shaped — a one-cycle stale read
+        # barely moves them). `database.save_envoy_cache` uses `.get()`
+        # so missing keys → NULL columns; no schema change.
+        if getattr(self._battery, "_soc_source_last", None) != "envoy":
+            return
 
         try:
             await db.save_envoy_cache({
                 "soc": soc,
-                "net_power": self._battery.net_power,
-                "solar_production": self._battery.solar_production,
-                "battery_power": self._battery.battery_power,
                 "battery_capacity": self._predictor._get_battery_capacity_kwh(),
                 "lifetime_net_import": self._get_lifetime_net_import(),
                 "lifetime_net_export": self._get_lifetime_net_export(),
@@ -3126,8 +3135,16 @@ class EnergyCoordinator(BaseCoordinator):
             solar_prod_w = self._battery.solar_production_w
             net_power_w = self._battery.net_power_w
             solar_prod_kw = solar_prod_w / 1000.0 if solar_prod_w is not None else None
-            grid_import_kw = max(net_power_w or 0, 0) / 1000.0
-            solar_export_kw = abs(min(net_power_w or 0, 0)) / 1000.0
+            # ENVOY-PRODUCTION-STALE-1 D4-C: NULL-propagate on stale/absent CT.
+            # Develop wrote a false 0.0 via `(net_power_w or 0)` whenever
+            # net_power was None. Preserving None → DB writes NULL,
+            # analytics can now distinguish "no import" from "sensor dead".
+            if net_power_w is None:
+                grid_import_kw = None
+                solar_export_kw = None
+            else:
+                grid_import_kw = max(net_power_w, 0) / 1000.0
+                solar_export_kw = abs(min(net_power_w, 0)) / 1000.0
 
             outside_temp = None
             outside_humidity = None
@@ -6158,8 +6175,17 @@ class EnergyCoordinator(BaseCoordinator):
                     )
                 except Exception:  # noqa: BLE001
                     self._last_soc_recovered = None
+                # ENVOY-PRODUCTION-STALE-1 D4-D-1 (clean-core fix-up 3):
+                # snapshot the fresh battery_power_w read ONCE and pass
+                # `battery_power_unknown=(_bp is None)` so the drain
+                # function's `battery_ok` HOLDS existing pauses when the
+                # CT is stale. Release arms (daytime_release,
+                # dp_forcing/must_start_by inside overnight_release when
+                # `battery_out_of_capacity` fires) still evaluate on
+                # their own conditions.
+                _bp = self._battery.battery_power_w
                 drain_actions = self._ev.determine_battery_drain_actions(
-                    battery_power_w=self._battery.battery_power_w,
+                    battery_power_w=_bp,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
                     reserve_soc=_release_floor,
@@ -6174,6 +6200,7 @@ class EnergyCoordinator(BaseCoordinator):
                     # onset gate compute a HARD 03:00 release inside the
                     # hold window — independent of DP participation.
                     must_start_by_min=self._dp_must_start_by_min,
+                    battery_power_unknown=(_bp is None),
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
@@ -6314,8 +6341,14 @@ class EnergyCoordinator(BaseCoordinator):
                     == _DPState_gate2.MUST_START_FORCED
                 )
                 _now_plug = dt_util.now()
+                # ENVOY-PRODUCTION-STALE-1 D4-D-2 (clean-core fix-up 3):
+                # mirror of D4-D-1 for the plug drain call. Snapshot the
+                # fresh battery_power_w read ONCE and pass
+                # `battery_power_unknown=(_bp_plug is None)` so plug
+                # pauses HOLD across a blind CT.
+                _bp_plug = self._battery.battery_power_w
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
-                    battery_power_w=self._battery.battery_power_w,
+                    battery_power_w=_bp_plug,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
                     reserve_soc=_release_floor,
@@ -6329,6 +6362,7 @@ class EnergyCoordinator(BaseCoordinator):
                     # ONLY hard release the operator's L1 charger gets
                     # (plug-tier `socket_1`/`_2` on the Moes multi-plug).
                     must_start_by_min=self._dp_must_start_by_min,
+                    battery_power_unknown=(_bp_plug is None),
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
@@ -7380,6 +7414,19 @@ class EnergyCoordinator(BaseCoordinator):
         # attainability grid-import guard uses (max(0, battery_power)).
         snap = self._battery._effective_import_kw()
         if snap is None:
+            # ENVOY-PRODUCTION-STALE-1 D4-G (clean-core fix-up 3): drain
+            # the sustained-import deque on a stale snap so a stitched-run
+            # false escalation on the trailing edge cannot form
+            # (pre-outage over-cap readings + post-outage over-cap
+            # readings would otherwise sum to a fake sustained run).
+            # Existing shed set intact — this only affects the escalation
+            # window bookkeeping.
+            if self._sustained_import_readings:
+                _LOGGER.info(
+                    "Load-shed: effective_import stale — draining "
+                    "_sustained_import_readings; shed set held",
+                )
+                self._sustained_import_readings.clear()
             return
         # snap = (effective_kw, net_kw, battery_charge_kw). Use effective
         # — net minus battery charge — clamped at 0.
