@@ -123,7 +123,6 @@ class EVChargeOnsetTimeEntity(TimeEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Seed from entry.options (sole source of truth per D1). Default
         # "01:00" ACTIVE — feature is on out-of-the-box; the operator
