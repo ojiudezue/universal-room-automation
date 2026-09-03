@@ -147,13 +147,22 @@ class MockState:
         self.entity_id = entity_id
         self.state = state
         self.attributes = attributes or {}
-        self.last_changed = last_changed or datetime.now()
-        self.last_updated = last_changed or datetime.now()
+        # ENVOY-PRODUCTION-STALE-1 (clean-core fix-up 3): default stamps
+        # to tz-aware UTC (mirrors HA production `last_reported`/
+        # `last_updated`). The shared staleness helper `_state_age_s`
+        # returns None on naive stamps per CF-8 (energy_pool.py:3898-3905);
+        # naive-default MockState would spuriously appear fresh to the
+        # wrapper's pass-through branch (age=None) but stale to the D-OBS
+        # `missing` classification, splitting the "one story" contract.
+        from datetime import timezone as _tz
+        _default = datetime.now(_tz.utc)
+        self.last_changed = last_changed or _default
+        self.last_updated = last_changed or _default
         # SolarFollowController INV-SF-10 grid freshness gate reads
         # `last_reported` (minute-averages re-emit unchanged values, so
-        # `last_updated` would false-trip on a stable house). Default to the
-        # same wall clock as `last_updated`; tests override via a keyword.
-        self.last_reported = last_changed or datetime.now()
+        # `last_updated` would false-trip on a stable house). Default to
+        # the same wall clock as `last_updated`; tests override via kwarg.
+        self.last_reported = last_changed or _default
 
 
 class MockHass:
