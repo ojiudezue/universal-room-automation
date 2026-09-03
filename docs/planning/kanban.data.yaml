@@ -251,6 +251,89 @@ cards:
     (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide
     template/MQTT sensor drop-in vs extend _resolve_face_legs; then re-measure person_entry_exit_events attach rate.'
   refs: ['transit_validator.py:1133/1447', 'camera_census.py:2699 _resolve_face_legs', 'docs/planning/PLANNING_egress_identity_producer.md', 'live investigation 2026-09-03', 'reference_frigate1_retired_2suffix_permanent', 'FRIGATE-LEG-NAMING-1']
+- id: SCALE-LEAN-ROOM-PROFILE-1
+  title: Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room
+    types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
+  thread: platform
+  status: investigating
+  created: 2026-09-03 16:40
+  updated: 2026-09-03 16:40
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Card that. Very interesting.")'
+  tags: [measure-before-build, scale, no-fabrication-verify]
+  sibling_of: [CONFIG-SUBENTRIES-MIGRATION-1, DEVICE-INFO-HELPER-CONSOLIDATION-1]
+  spawned_from: DEVICE-ENTITY-REORG-1
+  problem_solution:
+  - 'Problem: every room config entry — including closets and hallways — is registered as a full "Smart Room"
+     with ~105 entities (AV Closet 105, Stair Closet 106, Study A Closet 105, Exercise Room Closet 105), the
+     same profile as a full room, even though a closet has no HVAC zone, no media, no complex presence. Across
+     ~15 simple room-types that is ~1500 registry rows for spaces that need a fraction. It inflates the entity
+     registry (4626 rows total) → boot/reload parse time + .storage size (runtime/recorder is softened because
+     ~1953 entities are disabled-by-default, but the registry-size + boot cost is real). Solution: a LEAN room
+     profile for simple room-types (closet/hallway) that creates only the entities those spaces actually use.'
+  origin: {date: '2026-09-03', gist: operator scale question during the device/entity reorg — closets carry full room entity profiles}
+  why: 'Data-backed from the live Devices page: closets/hallways show ~105 entities each, same as full rooms.
+    D0 baseline: 4626 entities, ~1953 disabled_by, 71 unavailable. Registry size + boot time are the scale
+    surfaces the reorg itself does not touch.'
+  constraints:
+  - 'MEASURE-BEFORE-BUILD: probe enabled-entity count per room-TYPE + boot time + registry/.storage size FIRST,
+    then decide the lean-profile entity set. Do not assume which entities a closet needs — enumerate.'
+  next: 'Probe: enumerate enabled vs disabled entities per room_type (closet/hallway vs full room); measure boot
+    time + core.entity_registry size. Then scope a lean profile (fewer platforms/entities for simple types).
+    Separate cycle — NOT part of the device/entity reorg.'
+  refs: ['docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md', 'live Devices page 2026-09-03']
+- id: DEVICE-ENTITY-REORG-1
+  title: Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale /
+    helper-consolidation / per-item-reload follow-ups
+  thread: platform
+  status: in_progress
+  created: 2026-09-03 16:50
+  updated: 2026-09-03 16:50
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-03 (drive to ship gate; Tier 3; operator holds ship decision)'
+  tags: [tier-3, ha-2026.9-compat, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the
+     live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete)
+     + a dead Music-Following device. Solution: de-fragment coordinator entities to single CM ownership, delete
+     the dead device, restore nesting via via_device_id, fix the model race, collapse the 2 divergence-risky
+     DeviceInfo dups. Tier 3 (A/B build-reviews + validator CLEAN done; C/D + operator checkpoint pending).'
+  origin: {date: '2026-09-03', gist: 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect}
+  why: 'D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates
+    RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.'
+  spawns: [SCALE-LEAN-ROOM-PROFILE-1, DEVICE-INFO-HELPER-CONSOLIDATION-1]
+  sibling_of: [HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1]
+  next: 'Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator
+    adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy →
+    mondo review + live validation. Plan: PLANNING_device_entity_architecture_2026_9.md (Rev-2).'
+  refs: ['docs/planning/PLANNING_device_entity_architecture_2026_9.md', 'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md', 'docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md']
+- id: DEVICE-INFO-HELPER-CONSOLIDATION-1
+  title: Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the
+    reorg collapsed only the 2 divergence-risky ones)
+  thread: platform
+  status: parked
+  created: 2026-09-03 16:50
+  updated: 2026-09-03 16:50
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tech-debt, ha-hygiene]
+  problem_solution:
+  - 'Problem: coordinator device identity is authored inline at ~100 DeviceInfo() sites (hvac 38, CM 23, energy
+     22, presence 21, notification 11, …), so a future rename risks divergent device records. Solution: route
+     every entity''s device through the single _devices.py helper per identity. DEVICE-ENTITY-REORG-1 collapsed
+     only music_following + notification_manager (the two with a real divergence-incident history, v5.10.0); the
+     rest was scoped OUT to keep that cycle Tier-3-sized.'
+  origin: {date: '2026-09-03', gist: scoped OUT of DEVICE-ENTITY-REORG-1 (10x the estimate, not the split cause)}
+  why: 'Not the cause of the split defect; a mechanical ~100-site refactor. Fold into the next platform cycle
+    that already edits the target files (opportunistic, like ENTITYDESC-RUNTIMEDATA-HYGIENE-1).'
+  spawned_from: DEVICE-ENTITY-REORG-1
+  sibling_of: [ENTITYDESC-RUNTIMEDATA-HYGIENE-1, SCALE-LEAN-ROOM-PROFILE-1]
+  parked_reason: 'Opportunistic — attach to the next coordinator/platform cycle that already edits these files.'
+  next: 'No action now (parked). Also fold in the CoordinatorEnabledSwitch (switch.py:236) latent second-author
+    + the OccupantCountSensor double-definition (sensor.py:1807/:2917) shadowing bug when this runs.'
+  refs: ['docs/planning/PLANNING_device_entity_architecture_2026_9.md D2 OUT section']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
@@ -8852,8 +8935,17 @@ cards:
   origin: 2026-08-18 roadmap-undone review (#4)
   parked_reason: 'MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is
     needed anyway, or HA deprecates the flat pattern.'
-  next: No action now (parked-with-trigger).
-  refs: AUDIT_roadmap_undone_worthwhile.md
+  per_item_reload_driver_2026_09_03: 'NEW DRIVER (operator, via DEVICE-ENTITY-REORG-1): the operator wants
+    per-ZONE and per-COORDINATOR individual reload. That is impossible today because all zones share one Zone
+    Manager entry and all coordinators share one CM entry — reload is per config-entry. This migration (subentries,
+    or splitting into per-item entries) is the vehicle that would deliver it. VERIFY before scoping: whether HA
+    subentries expose per-subentry reload, or whether a per-entry split is required (guaranteed path). Largest
+    _2/orphan hazard at scale — Tier 3 when revived. This raises the value above MEDIUM if the operator elevates
+    per-item reload.'
+  sibling_of: [SCALE-LEAN-ROOM-PROFILE-1, DEVICE-ENTITY-REORG-1]
+  next: 'Parked. Revive if the operator elevates per-zone/per-coordinator individual reload (see driver above)
+    OR HA deprecates the flat pattern. Then: verify subentry-reload semantics vs per-entry split; probe first.'
+  refs: [AUDIT_roadmap_undone_worthwhile.md, docs/planning/PLANNING_device_entity_architecture_2026_9.md, DECISION_LOG_device_entity_cycle_2026_09_03.md]
 - id: ENTITYDESC-RUNTIMEDATA-HYGIENE-1
   title: EntityDescription + runtime_data hygiene (opportunistic)
   status: parked

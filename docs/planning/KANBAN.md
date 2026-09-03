@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T15:11:07-05:00_ - _Data commit: `34a1c993c57c`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-03T15:16:22-05:00_ - _Data commit: `6b2f092a4967`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,15 +12,15 @@ _Generated: 2026-09-03T15:11:07-05:00_ - _Data commit: `34a1c993c57c`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 8 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 6 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 53 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 24 |
+| 🅿️ Parked | 25 |
 | ✅ Done | 59 |
 
 ## 📥 Inbox (29)
@@ -350,7 +350,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
 
 ### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
@@ -364,6 +364,20 @@ _created 2026-09-03 15:10 · initial_
 - **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
 - **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
 - **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+
+### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
+thread: **platform** - status: **investigating** - approval: **explicit**
+_created 2026-09-03 16:40 · initial_
+- **Problem / Solution:**
+  - Problem: every room config entry — including closets and hallways — is registered as a full "Smart Room" with ~105 entities (AV Closet 105, Stair Closet 106, Study A Closet 105, Exercise Room Closet 105), the same profile as a full room,...
+- **Origin:** 2026-09-03 - operator scale question during the device/entity reorg — closets carry full room entity profiles
+- **Why:** Data-backed from the live Devices page: closets/hallways show ~105 entities each, same as full rooms. D0 baseline: 4626 entities, ~1953 disabled_by, 71 unavailable. Registry size + boot time are the scale surfaces the reorg itself does n...
+- **Next:** Probe: enumerate enabled vs disabled entities per room_type (closet/hallway vs full room); measure boot time + core.entity_registry size. Then scope a lean profile (fewer platforms/entities for simple types). Separate cycle — NOT part of...
+- **Tags:** measure-before-build, scale, no-fabrication-verify
+- **Sibling of:** CONFIG-SUBENTRIES-MIGRATION-1, DEVICE-INFO-HELPER-CONSOLIDATION-1
+- **Refs:** docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md; live Devices page 2026-09-03
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
 
 ### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
 thread: **presence** - status: **investigating** - approval: **unreviewed**
@@ -720,10 +734,22 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_created 2026-09-03 16:50 · refined_
+- **Problem / Solution:**
+  - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
+- **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
+- **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
+- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
+- **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
+- **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
+- **Forensic keys (1):**
+  - `spawns`: SCALE-LEAN-ROOM-PROFILE-1
 
 ## 🔍 Review (1)
 _under review_
@@ -1702,7 +1728,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (24)
+## 🅿️ Parked (25)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -1726,6 +1752,21 @@ _created 2026-09-01 20:30 · initial_
 - **Next:** Revive when: a real blind-telemetry breaker-trip is observed, OR the operator enables the grid-import guard and wants stale-safe behavior. Design: battery-unknown propagation in _effective_import_kw + isfinite-guard gate + non-sticky abo...
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
+
+### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones)
+thread: **platform** - status: **parked** - approval: **unreviewed**
+_created 2026-09-03 16:50 · initial_
+- **Problem / Solution:**
+  - Problem: coordinator device identity is authored inline at ~100 DeviceInfo() sites (hvac 38, CM 23, energy 22, presence 21, notification 11, …), so a future rename risks divergent device records. Solution: route every entity's device thr...
+- **Origin:** 2026-09-03 - scoped OUT of DEVICE-ENTITY-REORG-1 (10x the estimate
+- **Why:** Not the cause of the split defect; a mechanical ~100-site refactor. Fold into the next platform cycle that already edits the target files (opportunistic, like ENTITYDESC-RUNTIMEDATA-HYGIENE-1).
+- **Next:** No action now (parked). Also fold in the CoordinatorEnabledSwitch (switch.py:236) latent second-author + the OccupantCountSensor double-definition (sensor.py:1807/:2917) shadowing bug when this runs.
+- **Tags:** tech-debt, ha-hygiene
+- **Sibling of:** ENTITYDESC-RUNTIMEDATA-HYGIENE-1, SCALE-LEAN-ROOM-PROFILE-1
+- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md D2 OUT section
+- **Forensic keys (2):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
+  - `parked_reason`: Opportunistic — attach to the next coordinator/platform cycle that already edits these files.
 
 ### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
 thread: **energy** - status: **parked** - approval: **implied**
@@ -1916,10 +1957,13 @@ _created 2026-08-18 02:00 · updated 2026-08-18 02:25 · refined_
 ### `CONFIG-SUBENTRIES-MIGRATION-1` - Config subentries migration (flat 34-entry -> subentries)
 thread: **platform** - status: **parked**
 _created 2026-08-18 02:30 · initial_
-- **Next:** No action now (parked-with-trigger).
-- **Forensic keys (2):**
+- **Next:** Parked. Revive if the operator elevates per-zone/per-coordinator individual reload (see driver above) OR HA deprecates the flat pattern. Then: verify subentry-reload semantics vs per-entry split; probe first.
+- **Sibling of:** SCALE-LEAN-ROOM-PROFILE-1, DEVICE-ENTITY-REORG-1
+- **Refs:** AUDIT_roadmap_undone_worthwhile.md; docs/planning/PLANNING_device_entity_architecture_2026_9.md; DECISION_LOG_device_entity_cycle_2026_09_03.md
+- **Forensic keys (3):**
   - `problem`: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology but the migration carries real risk for MEDIUM value.
   - `parked_reason`: MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is needed anyway, or HA deprecates the flat pattern.
+  - `per_item_reload_driver_2026_09_03`: NEW DRIVER (operator, via DEVICE-ENTITY-REORG-1): the operator wants per-ZONE and per-COORDINATOR individual reload. That is impossible today because all zones share one Zone Manager entry and all coordinators share one CM entry — reload...
 
 ### `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` - EntityDescription + runtime_data hygiene (opportunistic)
 thread: **platform** - status: **parked**
