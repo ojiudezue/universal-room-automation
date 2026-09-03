@@ -212,6 +212,45 @@ cards:
     gate + non-sticky abort + grid-cap discharge-under-stale. Reuse C''s _run_attain_branch anchor recipe
     (scratchpad/proposed_bc_anchor.py, precedent test_arbitrage_grid_import_guard_expose.py:525-670).'
   refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D 2026-09-01']
+- id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
+  title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
+    gate for the whole egress-identity (6.0.0) arc
+  thread: identity
+  status: investigating
+  created: 2026-09-03 15:10
+  updated: 2026-09-03 15:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Yes" — card the real gate; parked the Protect bridge for this)'
+  tags: [measure-before-build, no-fabrication-verify, identity, tier-2]
+  problem_solution:
+  - 'Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253
+     door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4
+     residents across cameras) and NOT the producer code — it is that Frigate 0.17 surfaces the recognized NAME
+     as an MQTT sub_label on frigate/events, while the resolver joins on the LEGACY entities sensor.<cam>_last_
+     recognized_face(_2), which are all currently unavailable (and frigate_status_2 reads disconnected). So the
+     name never reaches a URA-consumable entity. Solution: bridge the Frigate 0.17 sub_label into a live entity/
+     attribute the resolver can read (a template/MQTT sensor named sensor.<cam>_last_recognized_face_2, drop-in
+     for camera_census._resolve_face_legs, OR extend _resolve_face_legs to read the sub_label source directly),
+     then re-measure the producer attach rate as the discriminator.'
+  origin: {date: '2026-09-03', gist: live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate}
+  why: 'Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85%
+    today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 =
+    unavailable; frigate_status_2 = disconnected. transit_validator._resolve_egress_face_identity (transit_validator.py:1133,
+    called :1447) + camera_census._resolve_face_legs (camera_census.py:2699, suffixes _last_recognized_face[_2]
+    Frigate / _face_recognized[_2] Protect) are the join sites. D1 Protect bridge PARKED (parsimony); this is the
+    Frigate primary path (was task #11, uncarded on the board until now).'
+  constraints:
+  - 'PRECONDITION: Frigate must be healthy — frigate_status_2 reads disconnected right now; confirm Frigate is
+    up (homelab/host check, operator-side) before measuring sub_label output.'
+  - 'MEASURE-BEFORE-BUILD: probe the live Frigate 0.17 sub_label shape on MQTT (frigate/events / tracked_object_update)
+    — which of the 23 cameras carry resident names, at what latency — BEFORE building the bridge.'
+  blocks:
+  - EGRESS-IDENTITY-JOIN-GAP-1
+  next: 'Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels
+    (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide
+    template/MQTT sensor drop-in vs extend _resolve_face_legs; then re-measure person_entry_exit_events attach rate.'
+  refs: ['transit_validator.py:1133/1447', 'camera_census.py:2699 _resolve_face_legs', 'docs/planning/PLANNING_egress_identity_producer.md', 'live investigation 2026-09-03', 'reference_frigate1_retired_2suffix_permanent', 'FRIGATE-LEG-NAMING-1']
 - id: ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1
   title: All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
   thread: presence
@@ -291,7 +330,11 @@ cards:
     availability trip-wire -> NM (per No-Soak).'
   refs: ['room device audit 2026-08-31 (LOW/safety section)']
 - id: EGRESS-IDENTITY-JOIN-GAP-1
-  consumer_link_note_2026_08_29: 'consumers linked behind D1-PROTECT-FACE-BRIDGE-ADDON-1; all thresholds PROVISIONAL pending operator confirm; re-measure attach rate after D1 before building any consumer.'
+  consumer_link_note_2026_09_03: 'RE-POINTED 2026-09-03: the 8 consumers no longer depend on the PARKED Protect
+    bridge (D1-PROTECT-FACE-BRIDGE-ADDON-1). Real gate = FRIGATE-SUBLABEL-FACE-BRIDGE-1 (Frigate 0.17 sub_label
+    -> URA-joinable entity) feeding THIS producer. Live verify 2026-09-03: producer built+wired+enabled but
+    attach rate 1/7253 all-time (~0) because all 23 sensor.*_last_recognized_face_2 are unavailable + frigate_status_2
+    disconnected. All thresholds PROVISIONAL; re-measure attach after the Frigate bridge before building any consumer.'
   PROTECT_API_2026_08_28: 'Operator: check the Protect API reference. FOUND (via unifi-protect MCP): the
     Protect API DOES expose named face recognition — protect_list_smart_detections / protect_list_events /
     protect_get_event return recognized_person_id + recognized_person_name + recognized_person_confidence
@@ -9020,9 +9063,7 @@ cards:
   confidence_gate: '>=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate
     only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT
     (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316
     (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION
     source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census
@@ -9059,9 +9100,7 @@ cards:
     mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera
     corroboration, not a single leg. Suppress-only at >=0.9; never suppress at 0.6/0.75 (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
     Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location).
     A resident door-identified at >=0.9 should firm up the guest gate / cancel a nascent guest FP. Because
     a wrong suppress UNDER-secures, the gate is >=0.9 and suppress-only — identity may confirm a resident,
@@ -9096,9 +9135,7 @@ cards:
     though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or
     actuate, so no safety gate applies.'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy).
     LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in
     site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an
     arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known).
@@ -9213,9 +9250,7 @@ cards:
     unidentified_count (an UNKNOWN present), NOT from egress identity — identity only DE-ESCALATES ("that
     unknown is actually resident Oji, do not lock"). Never actuate the lock off identity (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): confirmed the security census path is
     DORMANT/UNWIRED today — _build_context never sets a "census" key, no census_update intent is emitted
     anywhere, and security is not a SIGNAL_CENSUS_UPDATED subscriber. So this is not just "identity not
     consumed", the whole census->security edge is inert. When wired: escalation comes from unidentified_count
@@ -9250,9 +9285,7 @@ cards:
     so a wrong identity that subtracts a real unknown would suppress a genuine alert — highest bar,
     corroboration-only, never sole authority (§5.5 doctrine).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded,
+  - EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28: 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded,
     egress person_id at >=0.9 can serve as CORROBORATION to subtract a phone-left-behind resident from the
     "unexpected person" count (a resident whose phone stayed home reads as camera>ble => false unexpected;
     a door-identification of that same resident is strong evidence to subtract them). Because this is the
@@ -12691,9 +12724,7 @@ cards:
     security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate
     only; per the §5.5 safety doctrine identity may not suppress a security action below 0.9.'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  problem_solution:
+  - EGRESS-IDENTITY-JOIN-GAP-1  problem_solution:
   - 'Problem: the security entry-verdict messages — security.py:1480 NOTIFY ("known person, unusual timing")
     and security.py:1573 ALERT — name the DOOR entity that was crossed but never the PERSON, even though the
     verdict logic already concluded "known person". The operator gets "unusual entry at the side door" when
@@ -12729,9 +12760,7 @@ cards:
     census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed
     departure while a resident is still inside would arm the house on an occupant (false-alarm footgun).'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  problem_solution:
+  - EGRESS-IDENTITY-JOIN-GAP-1  problem_solution:
   - 'Problem: security arms away off an occupancy timeout (security.py:1114-1360) — it waits out a
     no-occupancy window before arming. But the last named resident crossing OUT a door (census
     residents_home transitioning to 0) is an earlier and stronger "everyone left" signal than the timeout.
@@ -12765,9 +12794,7 @@ cards:
   confidence_gate: 'None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5
     display consumers carry no confidence threshold.'
   depends_on:
-  - EGRESS-IDENTITY-JOIN-GAP-1
-  - D1-PROTECT-FACE-BRIDGE-ADDON-1
-  problem_solution:
+  - EGRESS-IDENTITY-JOIN-GAP-1  problem_solution:
   - 'Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped
     on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals —
     but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered
