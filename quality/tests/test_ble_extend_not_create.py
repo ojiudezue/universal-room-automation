@@ -111,6 +111,10 @@ class _FakeSelf:
         self._became_occupied_time = None
         self._last_occupied_state = False
         self._last_occupied_time = None
+        # ble-bleed-extend-corroboration A1 anchor (default: no prior
+        # BLE-only-hold observed — cap fails OPEN so existing chain
+        # tests keep their current admit behaviour).
+        self._ble_only_hold_since = None
         # ble-bleed-extend-corroboration cap harness stubs. Default:
         # room_type unknown → cap default False → gate never fires.
         # Callers that want to exercise the cap set _room_type on the

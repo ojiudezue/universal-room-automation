@@ -235,87 +235,200 @@ def test_dead_template_regression_pin_no_manual_fill_block():
 # specifies at the BLE chain-extend block.
 
 
-def _would_refuse_ble(coord, now) -> bool:
+def _drive_ble_block(
+    coord, now, *, ble_only_hold_since, became_occupied_time=None,
+    capture_tasks=None,
+):
     """Drive the ACTUAL extracted BLE block from coordinator.py and
-    observe whether it admits BLE. Mutation-anchor: neutering the
-    production cap logic must flip this to admit.
+    return (refused: bool, hass, s). Mutation-anchor: neutering the
+    production cap logic must flip whether it admits.
 
-    Reuses the extraction machinery from test_ble_extend_not_create.py
-    (same production-source-exec pattern) so this test is a real
-    per-site drill, NOT a logic replica.
+    A1 re-anchor: the cap now measures from `_ble_only_hold_since`, not
+    `_became_occupied_time` — the caller controls both explicitly so
+    the discriminator test can pin BLE-only-fresh vs session-old.
+
+    `capture_tasks` (list) receives every arg passed to
+    `hass.async_create_task` so the NM wire-in can be behaviorally
+    anchored (C-HIGH-1): neuter-deleting the fire call MUST leave the
+    list empty for the evict test.
     """
     from test_ble_extend_not_create import (  # noqa: PLC0415
         _run_ble_block, _make_person_coord,
     )
     hass = make_hass()
     room_name = f"Test{coord._room_type}"
-    # Present a BLE person; direct-ble room so the block reaches the
-    # cap gate. Chain unbroken (last_occupied_state True) so ble_allowed
-    # starts True and the cap can either preserve or refuse.
     pc = _make_person_coord(
         persons_by_room={room_name: {"oji"}},
         direct_ble_rooms={room_name},
     )
     hass.data.setdefault("universal_room_automation", {})["person_coordinator"] = pc
 
-    # Reuse the coord's _get_config / _get_ble_hold_cap_seconds / entry
-    # via a duck-typed _FakeSelf-shaped object. Add the fields the BLE
-    # block reads that are not on our bare-alloc coord.
+    if capture_tasks is not None:
+        def _capture(coro, *a, **kw):
+            capture_tasks.append(coro)
+            # Close the coroutine to silence "was never awaited" warnings.
+            try:
+                coro.close()
+            except Exception:  # noqa: BLE001
+                pass
+            return MagicMock()
+        hass.async_create_task = _capture
+
     class _Shim:
         pass
     s = _Shim()
     s.hass = hass
     s._occupancy_timeout = 300
-    s._last_motion_time = now  # fresh motion so pre-cap predicate passes
+    s._last_motion_time = now
     s._failsafe_fired = False
-    s._became_occupied_time = coord._became_occupied_time
+    s._became_occupied_time = became_occupied_time
+    s._ble_only_hold_since = ble_only_hold_since
     s._last_occupied_state = True
     s._last_occupied_time = now
     s._room_type = coord._room_type
     s.entry = coord.entry
-    # Bind the real coord methods so the block calls production code.
     s._get_config = coord._get_config
     s._get_ble_hold_cap_seconds = coord._get_ble_hold_cap_seconds
 
     data = {}
     _run_ble_block(s, data, now, room_name)
-    # Admitted → STATE_OCCUPIED=True + source="ble". Refused → not set.
-    return not data.get("occupied", False)
+    refused = not data.get("occupied", False)
+    return refused, hass, s
 
 
-def test_evict_bathroom_cap_on_refuses_ble_after_cap():
+def _would_refuse_ble(coord, now, *, ble_only_hold_since=None,
+                     became_occupied_time=None):
+    refused, _, _ = _drive_ble_block(
+        coord, now,
+        ble_only_hold_since=ble_only_hold_since,
+        became_occupied_time=became_occupied_time,
+    )
+    return refused
+
+
+def test_evict_bathroom_cap_on_refuses_ble_when_ble_only_hold_stale():
+    """Cap fires when BLE-only-hold anchor is older than the cap."""
     c = _bare_coord(ROOM_TYPE_BATHROOM)
     now = dt_util.now()
-    object.__setattr__(c, "_became_occupied_time", now - timedelta(seconds=7201))
-    assert _would_refuse_ble(c, now) is True
+    assert _would_refuse_ble(
+        c, now, ble_only_hold_since=now - timedelta(seconds=7201),
+    ) is True
+
+
+def test_A1_anchor_uses_ble_only_not_session_start():
+    """A1 discriminator: a bathroom whose overall session is old
+    (`_became_occupied_time` = 7h ago) but whose most-recent BLE-only
+    stretch is fresh (`_ble_only_hold_since` = 100s ago) MUST NOT be
+    evicted — a real bather who moved <cap ago keeps their hold.
+
+    Neutering the anchor (swapping `_ble_only_hold_since` back to
+    `_became_occupied_time` in production) flips this to refuse.
+    """
+    c = _bare_coord(ROOM_TYPE_BATHROOM)
+    now = dt_util.now()
+    assert _would_refuse_ble(
+        c, now,
+        ble_only_hold_since=now - timedelta(seconds=100),
+        became_occupied_time=now - timedelta(seconds=7 * 3600),
+    ) is False
 
 
 def test_evict_master_bedroom_cap_default_off_admits_ble_after_cap():
-    """Discriminator: same scenario, different room_type → NO refusal.
-
-    Ensures the default cascade actually differentiates room types (a
-    unified True default would incorrectly refuse bedrooms too)."""
+    """Discriminator: same scenario, different room_type → NO refusal."""
     c = _bare_coord(ROOM_TYPE_BEDROOM)
     now = dt_util.now()
-    object.__setattr__(c, "_became_occupied_time", now - timedelta(seconds=7201))
-    assert _would_refuse_ble(c, now) is False
+    assert _would_refuse_ble(
+        c, now, ble_only_hold_since=now - timedelta(seconds=7201),
+    ) is False
 
 
-def test_evict_fail_open_when_became_occupied_time_none():
-    """Restart-pin preservation: cap MUST fail open when the session
-    anchor is unset, otherwise mid-hold restarts would immediately drop
-    a BLE-held bathroom on the first tick."""
+def test_evict_fail_open_when_ble_only_hold_since_none():
+    """Restart-pin preservation: cap MUST fail open when the anchor is
+    unset (first tick since a body fire, or restart before any BLE-only
+    admit has been observed) — otherwise a mid-hold restart would drop
+    a BLE-held bathroom immediately."""
     c = _bare_coord(ROOM_TYPE_BATHROOM)
-    object.__setattr__(c, "_became_occupied_time", None)
-    assert _would_refuse_ble(c, dt_util.now()) is False
+    assert _would_refuse_ble(
+        c, dt_util.now(), ble_only_hold_since=None,
+    ) is False
 
 
 def test_evict_within_cap_bathroom_admits():
     c = _bare_coord(ROOM_TYPE_BATHROOM)
     now = dt_util.now()
-    # 1 hour < 2 hour cap → cap does not engage yet.
-    object.__setattr__(c, "_became_occupied_time", now - timedelta(seconds=3600))
-    assert _would_refuse_ble(c, now) is False
+    assert _would_refuse_ble(
+        c, now, ble_only_hold_since=now - timedelta(seconds=3600),
+    ) is False
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-1 — NM wire-in behavioral anchor. Neuter-deletable call must
+# fail this pair (fires on evict, does NOT fire within cap).
+# ---------------------------------------------------------------------------
+
+
+def test_wire_in_fires_async_create_task_on_evict():
+    c = _bare_coord(ROOM_TYPE_BATHROOM)
+    now = dt_util.now()
+    tasks: list = []
+    refused, _, _ = _drive_ble_block(
+        c, now,
+        ble_only_hold_since=now - timedelta(seconds=7201),
+        capture_tasks=tasks,
+    )
+    assert refused is True
+    assert len(tasks) == 1, (
+        f"Expected exactly one hass.async_create_task on cap eviction "
+        f"(the NM fire); got {len(tasks)}. Neuter-deletable wire-in?"
+    )
+    # The scheduled coroutine must be the ble_hold_cap NM fire — assert
+    # against the function object so a rename or accidental swap trips.
+    coro = tasks[0]
+    assert coro.__name__ == "_fire_ble_hold_cap_nm", (
+        f"Scheduled coro was {coro.__name__!r}, expected "
+        "_fire_ble_hold_cap_nm — wire-in went to the wrong helper."
+    )
+
+
+def test_wire_in_does_not_fire_async_create_task_within_cap():
+    c = _bare_coord(ROOM_TYPE_BATHROOM)
+    now = dt_util.now()
+    tasks: list = []
+    refused, _, _ = _drive_ble_block(
+        c, now,
+        ble_only_hold_since=now - timedelta(seconds=3600),
+        capture_tasks=tasks,
+    )
+    assert refused is False
+    assert tasks == [], (
+        f"Within-cap admit MUST NOT schedule the NM fire; got {tasks}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# C-MED-3 — duration lookup discriminates dict-hit from default (bug
+# class #63 coincidental equality: cap default == bathroom cap == 7200).
+# ---------------------------------------------------------------------------
+
+
+def test_cap_seconds_helper_reads_room_type_from_dict_not_default(monkeypatch):
+    """Replace BLE_HOLD_CAP_DURATIONS with a dict that carries a
+    DIFFERENT bathroom value (1800). The helper must return 1800,
+    proving it routes through the per-type dict lookup, not the
+    DEFAULT_BLE_HOLD_CAP_SECONDS fallback."""
+    from custom_components.universal_room_automation import const as _const
+
+    monkeypatch.setattr(
+        _const, "BLE_HOLD_CAP_DURATIONS",
+        {ROOM_TYPE_BATHROOM: 1800, ROOM_TYPE_CLOSET: 1801},
+    )
+    c = _bare_coord(ROOM_TYPE_BATHROOM)
+    assert c._get_ble_hold_cap_seconds() == 1800
+    c2 = _bare_coord(ROOM_TYPE_CLOSET)
+    assert c2._get_ble_hold_cap_seconds() == 1801
+    # Bedroom (not in dict) still routes through DEFAULT.
+    c3 = _bare_coord(ROOM_TYPE_BEDROOM)
+    assert c3._get_ble_hold_cap_seconds() == DEFAULT_BLE_HOLD_CAP_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -323,39 +436,67 @@ def test_evict_within_cap_bathroom_admits():
 # ---------------------------------------------------------------------------
 
 
-def test_nm_kind_and_key_distinct_from_p24():
-    """Two-path check: the NM helper fires kind='ble_hold_cap' with a
-    (room_name,)-shaped key. That is a DIFFERENT latch key from the P24
-    (kind='max_active_failsafe', (room_name,)) latch — same room_name
-    string, different kind → no collision."""
-    captured: dict = {}
+def test_nm_kind_and_key_distinct_from_p24_two_path():
+    """C-MED-2: drive BOTH `_fire_ble_hold_cap_nm` AND
+    `_fire_max_active_failsafe_nm` through the same capture and
+    assert their (kind, key) tuples DIFFER. A production kind-collision
+    (someone reusing 'max_active_failsafe' or 'ble_hold_cap' across
+    the two helpers) must go RED here."""
+    calls: list = []
 
     async def _fake_fire(hass, kind, key, diagnosis, remedy="",
                         title_override=None, **kwargs):
-        captured["kind"] = kind
-        captured["key"] = key
-        captured["diagnosis"] = diagnosis
-        captured["remedy"] = remedy
-        captured["title"] = title_override
+        calls.append({
+            "kind": kind, "key": key, "diagnosis": diagnosis,
+            "remedy": remedy, "title": title_override,
+        })
         return True
 
-    # Monkeypatch inside the helper's local import path.
     import custom_components.universal_room_automation.domain_coordinators._stuck_signal_nm as ss  # noqa: E501
     orig = ss.fire_stuck_signal
     ss.fire_stuck_signal = _fake_fire
     try:
-        asyncio.get_event_loop().run_until_complete(
-            coord_mod._fire_ble_hold_cap_nm(MagicMock(), "MasterBathroom", 7200)
-        )
+        loop = asyncio.new_event_loop()
+        try:
+            # A2/B4: pass observed=8100s (135min), cap=7200s (120min).
+            loop.run_until_complete(
+                coord_mod._fire_ble_hold_cap_nm(
+                    MagicMock(), "MasterBathroom", 8100, 7200,
+                )
+            )
+            # Same room, different NM path — must yield a different
+            # (kind, key) tuple even though room_name matches.
+            loop.run_until_complete(
+                coord_mod._fire_max_active_failsafe_nm(
+                    MagicMock(), "MasterBathroom", 240.0, 240.0,
+                )
+            )
+        finally:
+            loop.close()
     finally:
         ss.fire_stuck_signal = orig
 
-    assert captured["kind"] == "ble_hold_cap"
-    assert captured["key"] == ("MasterBathroom",)
-    # P24 collision guard: kind MUST differ from max_active_failsafe.
-    assert captured["kind"] != "max_active_failsafe"
-    assert "BLE-hold cap" in captured["diagnosis"]
-    assert "adjacent-room BLE bleed" in captured["diagnosis"]
-    assert "BLE_HOLD_CAP_DURATIONS" in captured["remedy"]
-    assert "CONF_BLE_HOLD_CAP_ENABLED" in captured["remedy"]
-    assert "MasterBathroom" in captured["title"]
+    assert len(calls) == 2, f"Expected 2 NM emits, got {len(calls)}"
+    cap_call, p24_call = calls[0], calls[1]
+    assert cap_call["kind"] == "ble_hold_cap"
+    assert cap_call["key"] == ("MasterBathroom",)
+    assert p24_call["kind"] == "max_active_failsafe"
+    assert p24_call["key"] == ("MasterBathroom",)
+    # THE collision guard.
+    assert (cap_call["kind"], cap_call["key"]) != (p24_call["kind"], p24_call["key"]), (
+        "ble_hold_cap and max_active_failsafe MUST have distinct "
+        "(kind, key) tuples so their per-day latches don't collide."
+    )
+    # A2/B4: diagnosis + title carry OBSERVED elapsed (135 min), not
+    # the cap constant (120 min).
+    assert "135 min" in cap_call["diagnosis"], (
+        f"diagnosis missing observed 135 min: {cap_call['diagnosis']!r}"
+    )
+    assert "cap 120 min" in cap_call["diagnosis"]
+    assert "135 min" in cap_call["title"], (
+        f"title missing observed 135 min: {cap_call['title']!r}"
+    )
+    assert "adjacent-room BLE bleed" in cap_call["diagnosis"]
+    assert "BLE_HOLD_CAP_DURATIONS" in cap_call["remedy"]
+    assert "CONF_BLE_HOLD_CAP_ENABLED" in cap_call["remedy"]
+    assert "MasterBathroom" in cap_call["title"]

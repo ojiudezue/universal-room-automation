@@ -238,22 +238,28 @@ async def _fire_max_active_failsafe_nm(
     )
 
 async def _fire_ble_hold_cap_nm(
-    hass: HomeAssistant, room_name: str, cap_seconds: int,
+    hass: HomeAssistant, room_name: str,
+    duration_seconds: float, cap_seconds: int,
 ) -> None:
     """ble-bleed-extend-corroboration NM emit via shared helper.
 
     Fires once per (kind='ble_hold_cap', room_name) per calendar day when
-    the room's BLE-only chain-extend is refused because the current
-    occupancy session has exceeded the per-type BLE hold cap without any
-    body corroboration (PIR/mmwave/occupancy). Distinct kind from the
-    P24 max_active_failsafe latch so the two NMs do not collide.
+    the room's BLE-only chain-extend is refused because the hold has
+    been BLE-only past the per-type cap without any body corroboration
+    (PIR/mmwave/occupancy). Distinct kind from the P24
+    max_active_failsafe latch so the two NMs do not collide.
+
+    A2/B4: the diagnosis + title carry the OBSERVED elapsed minutes
+    (`duration_seconds`), not the cap constant, so downstream triage
+    can see how far the hold overran before the cap fired.
     """
     from .domain_coordinators._stuck_signal_nm import fire_stuck_signal  # noqa: PLC0415
-    minutes = cap_seconds / 60
+    observed_min = duration_seconds / 60
+    cap_min = cap_seconds / 60
     diag = (
         f"room {room_name}: BLE-hold cap fired — pure-BLE hold ended "
-        f"without body corroboration after {minutes:.0f} min "
-        "(adjacent-room BLE bleed suspected)"
+        f"without body corroboration after {observed_min:.0f} min "
+        f"(cap {cap_min:.0f} min; adjacent-room BLE bleed suspected)"
     )
     remedy = (
         "raise BLE_HOLD_CAP_DURATIONS or turn CONF_BLE_HOLD_CAP_ENABLED "
@@ -268,7 +274,7 @@ async def _fire_ble_hold_cap_nm(
         remedy=remedy,
         title_override=(
             f"Stuck signal: ble_hold_cap — {room_name} "
-            f"({minutes:.0f} min)"
+            f"({observed_min:.0f} min)"
         ),
     )
 
@@ -294,6 +300,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_occupancy_source: str = "none"  # Track source for ble→motion re-entry
         self._last_source_reentry_time: datetime | None = None  # Cooldown for re-entry
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
+        # ble-bleed-extend-corroboration (A1 re-anchor). Timestamp when
+        # the current hold most recently transitioned to BLE-only
+        # (no Tier-1 corroboration). Reset to None whenever the primary
+        # body-signal branch fires (any Tier-1: motion/mmwave/occupancy).
+        # The cap measures `now - self._became_occupied_time` — so a
+        # bather who is still moving under the cap keeps their hold;
+        # only a stale, purely-BLE-sustained hold gets evicted.
+        self._ble_only_hold_since: datetime | None = None
         # Bathroom-exhaust intelligence cycle (FIX 1): snapshot of
         # _became_occupied_time captured ON THE VACANT TICK, BEFORE the live
         # attribute is cleared (see clears at coordinator.py:1548/1554/2133/
@@ -3562,6 +3576,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         elif any_sensor_active:
             self._last_motion_time = now
             self._failsafe_fired = False  # Reset failsafe flag on genuine activity
+            # ble-bleed-extend-corroboration A1: real body signal this
+            # tick clears the BLE-only-hold anchor so the cap always
+            # measures freshness FROM the last real corroboration,
+            # never from session start.
+            self._ble_only_hold_since = None
             data[STATE_OCCUPIED] = True
             data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
             # Determine primary source
@@ -3756,13 +3775,23 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         ble_allowed = chain_unbroken
 
                     # ble-bleed-extend-corroboration: per-room BLE hold
-                    # cap. If enabled AND the current occupancy session
-                    # has been sustained past the per-type cap without
-                    # body corroboration, REFUSE the BLE extend and
-                    # fire an ble_hold_cap NM (per-day latched).
-                    # Fail-OPEN when _became_occupied_time is None
-                    # (preserves restart pin — no session anchor to
-                    # measure against).
+                    # cap. A1 re-anchor (operator-decided): the anchor
+                    # is `_ble_only_hold_since` — how long the hold has
+                    # been BLE-only since the last real body signal —
+                    # NOT the whole-session `_became_occupied_time`. A
+                    # bather who moved <cap ago keeps their hold (the
+                    # primary Tier-1 branch resets the anchor on any
+                    # motion/mmwave/occupancy fire).
+                    # Fail-OPEN when `_ble_only_hold_since is None`
+                    # (first tick since a body fire, or restart pin
+                    # before any BLE-only admit has been observed).
+                    # `cap_refused_this_tick` guards the pre-existing
+                    # "shared scanner — no recent motion confirmation"
+                    # log below so a cap eviction does not emit the
+                    # misleading cause; the cap's own info log carries
+                    # the true reason.
+                    cap_refused_this_tick = False
+                    cap_observed_duration = 0.0
                     if ble_allowed:
                         from .const import (  # noqa: PLC0415
                             CONF_BLE_HOLD_CAP_ENABLED,
@@ -3774,23 +3803,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         cap_enabled = self._get_config(
                             CONF_BLE_HOLD_CAP_ENABLED, cap_default,
                         )
-                        if cap_enabled and self._became_occupied_time is not None:
+                        if cap_enabled and self._ble_only_hold_since is not None:
                             cap_seconds = self._get_ble_hold_cap_seconds()
                             duration = (
-                                now - self._became_occupied_time
+                                now - self._ble_only_hold_since
                             ).total_seconds()
                             if duration > cap_seconds:
+                                cap_observed_duration = duration
                                 _LOGGER.info(
                                     "Room %s: BLE hold cap fired after "
-                                    "%.0f min (cap %.0f min) — refusing "
-                                    "BLE extend without body corroboration",
+                                    "%.0f min BLE-only (cap %.0f min) — "
+                                    "refusing BLE extend without body "
+                                    "corroboration",
                                     room_name, duration / 60,
                                     cap_seconds / 60,
                                 )
                                 ble_allowed = False
+                                cap_refused_this_tick = True
+                                # A2/B4: pass the OBSERVED duration so the
+                                # NM diagnosis/title carries the real
+                                # elapsed minutes, not just the cap
+                                # constant.
                                 self.hass.async_create_task(  # noqa: untracked-ok
                                     _fire_ble_hold_cap_nm(
-                                        self.hass, room_name, cap_seconds,
+                                        self.hass, room_name,
+                                        duration, cap_seconds,
                                     )
                                 )
 
@@ -3816,6 +3853,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         # Ensure failsafe timer tracks BLE-held occupancy
                         if self._became_occupied_time is None:
                             self._became_occupied_time = now
+                        # A1 anchor: this is a BLE-only admit (the BLE
+                        # block only enters when `not data[STATE_OCCUPIED]`
+                        # was true at block-entry — i.e. no primary body
+                        # signal fired this tick). Seed the BLE-only
+                        # anchor on first admit; leave it alone on
+                        # subsequent BLE-only ticks so the cap can
+                        # measure elapsed BLE-only time.
+                        if self._ble_only_hold_since is None:
+                            self._ble_only_hold_since = now
                         # (B M-B1 2026-08-10) A `not _last_occupied_state`
                         # branch stood here; post leg-(b) deletion the
                         # admit path REQUIRES that value truthy, so the
@@ -3831,13 +3877,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         # Populate ble_persons for diagnostic visibility
                         # even though BLE is not driving occupancy.
                         data[STATE_BLE_PERSONS] = list(ble_persons)
-                        _LOGGER.debug(
-                            "Room %s: BLE persons %s present but shared "
-                            "scanner — no recent motion confirmation, "
-                            "skipping BLE override",
-                            room_name,
-                            ble_persons,
-                        )
+                        # B6: suppress the misleading "shared scanner —
+                        # no recent motion confirmation" message when
+                        # the cap refused THIS tick. The cap's own
+                        # _LOGGER.info above carries the true cause;
+                        # emitting both would attribute the eviction to
+                        # the wrong subsystem in log triage.
+                        if not cap_refused_this_tick:
+                            _LOGGER.debug(
+                                "Room %s: BLE persons %s present but shared "
+                                "scanner — no recent motion confirmation, "
+                                "skipping BLE override",
+                                room_name,
+                                ble_persons,
+                            )
 
         # === mmWave fan-corroboration Tier-3 D2 — DEMOTION consumer ===
         # Passive backstop to the pause-based fan-recheck (v5.23.0).
