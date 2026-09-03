@@ -251,7 +251,6 @@ class CoordinatorManager:
             manufacturer="Universal Room Automation",
             model="Coordinator Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "integration"),
         )
 
     @property

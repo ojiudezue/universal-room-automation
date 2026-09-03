@@ -1909,7 +1909,6 @@ class HouseOccupiedBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -1949,7 +1948,6 @@ class HouseSleepingBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -1992,7 +1990,6 @@ class PresenceArrivingRearmActiveBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_presence(self):
@@ -2047,7 +2044,6 @@ class GuestModeBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -2091,7 +2087,6 @@ class SafetyAlertBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Safety Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -2322,7 +2317,6 @@ class SecurityAlertBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Security Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -2402,7 +2396,6 @@ class NMActiveAlertBinarySensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -2471,7 +2464,6 @@ class EnergyEnvoyAvailableBinarySensor(AggregationEntity, BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -2536,7 +2528,6 @@ class EVChargeOnsetGateOpenBinarySensor(AggregationEntity, BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _controllers(self):
@@ -2656,7 +2647,6 @@ class EVChargeOnsetActiveBinarySensor(AggregationEntity, BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _deferred_union(self) -> set[str] | None:
@@ -2715,7 +2705,6 @@ class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -2760,7 +2749,6 @@ class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     async def async_added_to_hass(self) -> None:
@@ -3024,7 +3012,6 @@ class ECSubSwitchesSyncedSensor(AggregationEntity, BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Track when EC first became ready (for >10 min mismatch detection)
         self._ec_ready_at: dt_util.dt.datetime | None = None
@@ -3257,7 +3244,6 @@ class HVACZoneEgressWindowOpenSensor(BinarySensorEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_egress(self):

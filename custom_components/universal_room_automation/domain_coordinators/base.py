@@ -205,7 +205,6 @@ class BaseCoordinator(ABC):
             manufacturer="Universal Room Automation",
             model="Domain Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @abstractmethod

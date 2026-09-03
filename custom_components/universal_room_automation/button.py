@@ -541,7 +541,6 @@ class NMAcknowledgeButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     async def async_added_to_hass(self) -> None:
@@ -614,7 +613,6 @@ class NMTestNotificationButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     async def async_added_to_hass(self) -> None:
@@ -699,7 +697,6 @@ class NMMutePersonChannelPrimaryButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -827,7 +824,6 @@ class ResetPresenceTimersButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_hvac(self):
@@ -1044,7 +1040,6 @@ class _ACRampButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_arrester(self):
@@ -1161,7 +1156,6 @@ class HVACACRampDiagnosticDumpButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_db(self):
@@ -1750,7 +1744,6 @@ class EVSEForceChargeButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_energy(self):
@@ -1878,7 +1871,6 @@ def _optimizer_device_info_button():
         manufacturer="Universal Room Automation",
         model="Optimization Coordinator",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -2276,7 +2268,6 @@ class SendTestPerimeterAlertButton(ButtonEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
