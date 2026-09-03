@@ -11822,7 +11822,8 @@ cards:
   title: Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale
     live sensor that URA's solar entity derives from; does any decision path trust it?
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.93.1
   plan_ready_2026_09_01: 'Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN;
     Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared:
     per-consumer None-direction table with safety guards (3 inline breaker sites, drain-pause) fail-CLOSED,
