@@ -2076,8 +2076,27 @@ class EVChargerController:
         dp_forcing: bool = False,
         now_local: "datetime | None" = None,
         must_start_by_min: int | None = None,
+        battery_power_unknown: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs draining the home battery. Resume on recovery.
+
+        ENVOY-PRODUCTION-STALE-1 D4-D (clean-core fix-up 3):
+        `battery_power_unknown` (default False, fresh-path byte-identical).
+        When True, the CT read was rejected as stale — the LOAD-BEARING
+        gate lives on `battery_ok` (used by `battery_out_of_capacity` and
+        thus by `overnight_release`). Under a blind CT, `battery_ok=False`
+        → `battery_out_of_capacity=False` → the reserve-floor release
+        path does NOT drop an existing drain pause on a mis-read. The
+        `daytime_release = soc_recovered` leg is intentionally
+        battery-CT-independent (solar + SOC) and continues to fire under
+        unknown. `dp_forcing` and `must_start_by_reached` (the onset
+        gate's built-in 03:00 backstop) also continue to override the
+        overnight-release gate — but they only fire when
+        `battery_out_of_capacity` is True, which under unknown is False,
+        so the drain pause is HELD across the stale window. The arming
+        gap (a fresh pause cannot be armed under unknown) is accepted;
+        real backstops are the hardware reserve (Enphase enforces the
+        SOC floor) and CT recovery. Carded ENVOY-DRAIN-ARM-STALE-CT-1.
 
         Pauses when: EVSE is charging AND battery is discharging AND SOC < threshold.
 
@@ -2275,7 +2294,15 @@ class EVChargerController:
                 # The legacy OR clause (`battery_ok or soc_recovered`) let a
                 # transient equilibrium caused by URA's own pause resume the EV
                 # mid-day; the refined gate prevents that flap.
-                battery_ok = not battery_discharging
+                # ENVOY-PRODUCTION-STALE-1 D4-D LOAD-BEARING GATE. Under a
+                # blind CT (`battery_power_w = None → battery_discharging = False`),
+                # the pre-fix `battery_ok = not battery_discharging` returned
+                # True → `battery_out_of_capacity` fired at reserve+2 →
+                # existing drain pause DROPPED → real still-discharging
+                # battery got drained further via EV load. Fix: `battery_ok`
+                # is False under unknown → HOLD the pause. `daytime_release`
+                # (soc_recovered, no CT dependency) still evaluates.
+                battery_ok = (not battery_discharging) and not battery_power_unknown
                 battery_out_of_capacity = (
                     battery_ok
                     and battery_soc is not None
@@ -3686,8 +3713,15 @@ class SmartPlugController:
         dp_forcing: bool = False,
         now_local: "datetime | None" = None,
         must_start_by_min: int | None = None,
+        battery_power_unknown: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
+
+        ENVOY-PRODUCTION-STALE-1 D4-D mirror (clean-core fix-up 3): see
+        EVSE variant. Load-bearing gate on `battery_ok` HOLDS the pause
+        across a blind CT; daytime_release / overnight_release continue
+        to fire on their own conditions. Arming gap accepted; carded
+        ENVOY-DRAIN-ARM-STALE-CT-1.
 
         EV charge-start dead-band fix (parity with EV path): `reserve_soc` is
         the **effective release floor** F = max(static reserve_soc,
@@ -3812,7 +3846,15 @@ class SmartPlugController:
                     entity_id, battery_soc, soc_threshold,
                 )
             elif entity_id in self._paused_by_battery_drain:
-                battery_ok = not battery_discharging
+                # ENVOY-PRODUCTION-STALE-1 D4-D LOAD-BEARING GATE. Under a
+                # blind CT (`battery_power_w = None → battery_discharging = False`),
+                # the pre-fix `battery_ok = not battery_discharging` returned
+                # True → `battery_out_of_capacity` fired at reserve+2 →
+                # existing drain pause DROPPED → real still-discharging
+                # battery got drained further via EV load. Fix: `battery_ok`
+                # is False under unknown → HOLD the pause. `daytime_release`
+                # (soc_recovered, no CT dependency) still evaluates.
+                battery_ok = (not battery_discharging) and not battery_power_unknown
                 battery_out_of_capacity = (
                     battery_ok
                     and battery_soc is not None

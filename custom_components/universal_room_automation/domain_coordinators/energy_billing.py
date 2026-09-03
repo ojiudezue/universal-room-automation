@@ -147,7 +147,19 @@ class CostTracker:
         v4.2.0: Prefers direct grid import/export sensors when configured.
         Falls back to net_power entity (Envoy) otherwise.
         Both paths normalize to kW for consistent accumulation.
+
+        ENVOY-PRODUCTION-STALE-1 D4-E (clean-core fix-up 3): BOTH branches
+        fail-CLOSED on stale reads. Returns None on staleness → the
+        accumulate tick is skipped (fail-CLOSED — no dollars accrued
+        from frozen readings). Billing does its OWN freshness check
+        via the shared helper rather than gating the shared
+        `net_power_w` property, so the breaker / arbitrage path reads
+        net_power exactly as develop does (Tier-3 MED-2).
         """
+        # Deferred import to avoid a hard dependency at module load time.
+        from .energy_battery import _state_age_s
+        from .energy_const import DEFAULT_NET_POWER_MAX_AGE_S
+
         # Prefer direct grid sensors (e.g., Emporia mains_from_grid / mains_to_grid)
         if self._grid_import_entity and self._grid_export_entity:
             import_state = self.hass.states.get(self._grid_import_entity)
@@ -156,6 +168,15 @@ class CostTracker:
                 import_state and import_state.state not in ("unknown", "unavailable")
                 and export_state and export_state.state not in ("unknown", "unavailable")
             ):
+                # D4-E staleness gate — either leg stale = skip tick.
+                # `age is None` (naive/missing stamp) → pass (no gate).
+                imp_age = _state_age_s(import_state, stamp="last_reported")
+                exp_age = _state_age_s(export_state, stamp="last_reported")
+                if (
+                    (imp_age is not None and imp_age > DEFAULT_NET_POWER_MAX_AGE_S)
+                    or (exp_age is not None and exp_age > DEFAULT_NET_POWER_MAX_AGE_S)
+                ):
+                    return None
                 try:
                     grid_import = float(import_state.state)
                     grid_export = float(export_state.state)
@@ -170,15 +191,15 @@ class CostTracker:
                     pass  # Fall through to net_power
 
         # Fallback: Envoy net power entity (None if not configured — v4.3.1)
-        # v4.5.0 unit-consistency: normalize to kW. Pre-v4.5.0 this path
-        # returned the raw entity value; the docstring + accumulate()'s
-        # `kW × hours = kWh` math assumed Envoy reports kW. Newer Envoy
-        # firmware can report W — without normalization that produces
-        # 1000× bill predictions. Same bug class as v4.3.4 battery_power_w.
+        # v4.5.0 unit-consistency: normalize to kW.
         if self._net_power_entity is None:
             return None
         state = self.hass.states.get(self._net_power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        # D4-E staleness gate for Envoy fallback leg.
+        age = _state_age_s(state, stamp="last_reported")
+        if age is not None and age > DEFAULT_NET_POWER_MAX_AGE_S:
             return None
         try:
             value = float(state.state)

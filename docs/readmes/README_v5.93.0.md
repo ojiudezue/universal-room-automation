@@ -35,5 +35,15 @@ A per-room toggle bounds how long BLE **alone** can sustain occupancy after the 
 ## Pre-deploy gate
 py_compile clean; no conflict markers; 21 cycle tests pass; full-suite name-diff vs develop = (recorded below).
 
-## Validated <date> (post-restart)
-_(to be filled after deploy + HA restart)_
+## Validated 2026-09-03 (post-restart)
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| Clean boot, coordinators healthy | Post-11:31 restart: `sensor.ura_presence_coordinator_presence_house_state` = `away` (fresh 11:33:53); `binary_sensor.master_bathroom_occupied` = `off` (fresh 11:33:50). URA loaded. | **PASS** |
+| No new URA errors post-restart | `error_log` ERROR scan: every URA error predates the 11:31 restart — the 47 "Error adding entity None" (last 10:18, the pre-v5.92.3 window), the setup-cancelled (08:45), and the boot job-listener-removal errors (08:43) are all from earlier windows in the rolling buffer. **Zero** new URA ERRORs after the v5.93.0 restart. | **PASS** |
+| via_device fix still holds | No new "Error adding entity None" post-restart — v5.93.0 did not reintroduce `via_device`. | **PASS** |
+| Cap ships default-ON for bath/closet | Config-level (read-site default via `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT`); code merged + verified (7 anchor-reset sites, 0 via_device). Behavior is event-driven. | **Code PASS; live = organic** |
+
+**Organic discriminator (per `--revisit`):** a recorder watch — confirm NO continuous `occupancy_source=ble` hold exceeding 120 min in a cap-ON room (Master Bathroom in particular: the 7.3h body-less shape must not recur), and a real bath/soak with motion in-window is unaffected. Dispose by querying `binary_sensor.master_bathroom_occupied` + `sensor.master_bathroom_occupancy_source` history over the next few days.
+
+**Boot transient noted + dismissed:** "Unable to remove unknown job listener" for several coordinators' `_on_ha_started` callbacks (08:43 window, pre-v5.93.0) — a boot-lifecycle cleanup pattern (onetime listener already auto-removed after firing), not v5.93.0-introduced; relates to the parked `UNLOAD-SYMMETRY-TASK-HYGIENE-1`.

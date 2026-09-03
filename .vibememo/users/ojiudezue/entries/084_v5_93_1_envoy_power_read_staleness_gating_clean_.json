@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "084",
+  "author": "ojiudezue",
+  "session_id": "claude_20260903_170929_ship_v5_93_1",
+  "timestamp": "2026-09-03T17:09:29Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.93.1 shipped: Envoy power-read staleness gating \u2014 clean core (solar + drain-pause HOLD + observability)",
+  "summary": "Envoy power-read staleness gating \u2014 clean core (solar + drain-pause HOLD + observability)",
+  "why": "Closes the frozen-Envoy-read class (16.5h solar-0 while exporting) where a stale-but-numeric value was trusted as live. Tier-3 review (4 framing-disjoint) caught that the initial consolidation OVER-CORRECTED: making the 12kW breaker guard + grid-cap fail-CLOSED on a stale read locked arbitrage charge on a guard that's off by default, manufactured false over-caps, and could strand the EV, contradicting the v5.17.5 anti-abort precedent -> those reverted to develop (parked). arm-on-unknown (arming a new drain pause under stale CT) dropped because it had no nighttime release -> overnight EV strand (carded). What ships is the safe clean core: gate the READ so stale isn't trusted (solar/SOC->LKG), HOLD an existing drain pause across a stale CT (release-side, mutation-verified), and surface per-source staleness on envoy_status. Orchestrator-verified: 2-line drain change, breaker byte-identical to develop, no via_device, net_power ungated on the breaker path.",
+  "implications": "Shipped ENVOY-PRODUCTION-STALE-1 at v5.93.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.93.1.md (Live criteria).",
+  "revisit_trigger": "Post-restart: sensor.ura_energy_coordinator_envoy_status exposes solar_age_s/net_power_age_s/battery_power_age_s/primary_soc_age_s + stale_sources; a genuinely frozen source reads in stale_sources while a healthy source does not; an existing drain pause is HELD across a stale battery CT (not dropped); breaker/arbitrage behavior unchanged vs pre-deploy; clean boot, no new URA errors.",
+  "refs": {
+    "cards": [
+      "ENVOY-PRODUCTION-STALE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.93.1.md"
+    ],
+    "release_notes": "Envoy-sourced power reads can freeze at a stale-but-valid number (observed: solar 0kW for 16.5h while exporting 6kW). A shared _state_age_s helper (last_reported semantics, so a healthy pinned-0 sensor is never false-stale) gates the reads -> LKG/envelope fallback: D3 solar (the original ask), D2 primary SOC->LKG, D4-D battery-drain-pause release HOLD under a stale CT (safety: an existing pause is held, not dropped, so the EV cannot keep draining a still-discharging house battery; develop's daytime/overnight/must_start_by release-split untouched, fresh path byte-identical), D4-E/F/G billing/cache/load-shed, and D-OBS per-source ages + stale/unconfigured/missing split on the existing envoy_status sensor (kill-switch honored). Scope-split: breaker-guard + grid-cap fail-close REVERTED to develop (over-corrected; parked BREAKER-GRIDCAP-STALE-TELEMETRY-1) and arm-on-unknown dropped (stranded EV; carded ENVOY-DRAIN-ARM-STALE-CT-1). git diff develop on the breaker surface is empty; 28 tests, all kept gates mutation-verified."
+  }
+}

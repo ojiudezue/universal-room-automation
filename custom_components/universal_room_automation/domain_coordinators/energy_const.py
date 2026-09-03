@@ -325,6 +325,27 @@ DEFAULT_SOC_LKG_MAX_AGE_S: Final = 300
 # the relaxed gate PROCEED on hours-old data.
 DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S: Final = 600
 DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT: Final = 3
+
+# ENVOY-PRODUCTION-STALE-1 (Rev 5, clean-core fix-up 3) — shared power-read
+# staleness thresholds consumed by BatteryStrategy._read_fresh_* wrappers
+# (D2-A battery_soc, D3 solar, D4-D battery_power) AND by
+# CostTracker._get_net_power (D4-E, billing gates net_power itself) AND by
+# the D-OBS observability sensor.
+#
+# Rung 1 (module-level: change requires code review). Kill-switch: set the
+# value to 0 to disable the staleness gate at that surface — the read
+# wrappers AND the D-OBS classifier both honor `<= 0` as a bypass.
+#
+# NOTE: `DEFAULT_NET_POWER_MAX_AGE_S` is NOT applied to the
+# BatteryStrategy.net_power_w PRODUCER (per Tier-3 MED-2: the breaker /
+# arbitrage path must see net_power exactly as develop does). Only
+# `CostTracker._get_net_power` and the D-OBS observability sensor read
+# this const; the arbitrage / breaker path is fed by the pre-cycle
+# ungated net_power_w property.
+DEFAULT_NET_POWER_MAX_AGE_S: Final = 180
+DEFAULT_BATTERY_POWER_MAX_AGE_S: Final = 180
+DEFAULT_SOLAR_PRODUCTION_MAX_AGE_S: Final = 180
+DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S: Final = 300
 STORAGE_MODE_LOCAL_TO_CLOUD: Final = {
     "self_consumption": "Self-Consumption",
     "backup": "Backup",
