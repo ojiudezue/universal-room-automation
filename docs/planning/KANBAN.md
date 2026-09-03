@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T10:34:33-05:00_ - _Data commit: `474ee6d9f9de`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-03T10:41:02-05:00_ - _Data commit: `20ad226c8c43`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -20,7 +20,7 @@ _Generated: 2026-09-03T10:34:33-05:00_ - _Data commit: `474ee6d9f9de`_ - _last_r
 | 🚀 Shipped (organic open) | 51 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 21 |
+| 🅿️ Parked | 22 |
 | ✅ Done | 59 |
 
 ## 📥 Inbox (30)
@@ -1726,8 +1726,19 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (21)
+## 🅿️ Parked (22)
 _revisit-trigger set_
+
+### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
+thread: **energy** - status: **parked** - approval: **explicit**
+_created 2026-09-03 11:10 · initial_
+- **Problem / Solution:**
+  - Problem: with arm-on-unknown dropped from the Envoy shared-staleness cycle (its "fix" strictly worse — it stranded the EV overnight, HIGH-1), a battery that is genuinely discharging while its Envoy CT is STALE (frozen value, not "unavail...
+- **Origin:** 2026-09-03 - Envoy Tier-3 review D-MED-3 — arm-side hole; arm-on-unknown reversed as unsafe; operator accepted the gap
+- **Why:** Envoy re-review-1 HIGH-1: arm-on-unknown had no nighttime release (must_start_by does not touch _paused_by_battery_drain) -> overnight strand. Dropping it leaves the arm-side gap. must_start_by + hardware reserve are the backstops. Bound...
+- **Next:** Revive when: a real blind-CT battery-drain event is observed, OR the operator wants active protection during stale windows. Design a bounded arm-under-stale with a guaranteed release + hysteresis (no oscillator).
+- **Tags:** energy, regression-prone, ha-stale-telemetry
+- **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D + re-reviews 2026-09-03
 
 ### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected
 thread: **energy** - status: **parked** - approval: **unreviewed**
