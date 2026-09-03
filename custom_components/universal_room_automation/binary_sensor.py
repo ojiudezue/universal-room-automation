@@ -142,13 +142,13 @@ async def async_setup_entry(
             GuestModeBinarySensor(hass, entry),
             # build/pc-observability: cooldown-active promotion (additive).
             PresenceArrivingRearmActiveBinarySensor(hass, entry),
-            # v3.6.0-c2: Safety Coordinator
-            SafetyAlertBinarySensor(hass, entry),
+            # v5.94.0 (device/entity de-frag D1b): SafetyAlertBinarySensor +
+            # SecurityAlertBinarySensor now registered via
+            # async_setup_cm_hosted_aggregation_binary_sensors below — single
+            # ownership under CM entry.
             # v3.6.0.3: Glanceable safety binary sensors
             SafetyWaterLeakBinarySensor(hass, entry),
             SafetyAirQualityBinarySensor(hass, entry),
-            # v3.6.0-c3: Security Coordinator
-            SecurityAlertBinarySensor(hass, entry),
             # v3.6.29: Notification Manager
             NMActiveAlertBinarySensor(hass, entry),
             # v3.7.3: Energy Coordinator
@@ -183,6 +183,13 @@ async def async_setup_entry(
                 exc_info=True,
             )
         async_add_entities(coordinator_binary)
+
+        # v5.94.0 (device/entity de-frag D1b): CM-hosted binaries whose
+        # DeviceInfo identifiers target safety_coordinator / security_coordinator.
+        from .aggregation import async_setup_cm_hosted_aggregation_binary_sensors
+        await async_setup_cm_hosted_aggregation_binary_sensors(
+            hass, entry, async_add_entities,
+        )
         return
 
     # Legacy zone entry - no longer creates sensors

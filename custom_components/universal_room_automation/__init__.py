@@ -3921,7 +3921,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
-        
+
+        # v5.94.0 (device/entity de-frag D-NEST): stamp via_device_id AFTER
+        # forwarded setups so device rows exist. Idempotent + guarded so this
+        # call from INTEGRATION is safe even before CM has registered its
+        # coordinator devices (missing parent → skip; re-stamped on the CM
+        # entry's own D-NEST call).
+        try:
+            from ._devices import async_stamp_via_device_tree
+            await async_stamp_via_device_tree(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: via_device stamping from INTEGRATION setup raised (non-fatal)",
+                exc_info=True,
+            )
+
         # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, H-1 / B-HIGH-1):
         # Seed the integration-entry snapshot BEFORE the update listener
         # is armed so the first post-restart options save has a real
@@ -4081,6 +4095,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Forward sensor/binary_sensor platforms — zone sensors created here
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
 
+        # v5.94.0 (device/entity de-frag D-NEST): stamp zone devices under
+        # zone_manager after forwarded setups.
+        try:
+            from ._devices import async_stamp_via_device_tree
+            await async_stamp_via_device_tree(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: via_device stamping from Zone Manager setup raised (non-fatal)",
+                exc_info=True,
+            )
+
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Zone Manager entry setup complete")
         return True
@@ -4159,6 +4184,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v4.2.3: CM also gets number platform for ZoneEntryDwellNumber
         cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
         await hass.config_entries.async_forward_entry_setups(entry, cm_platforms)
+
+        # v5.94.0 (device/entity de-frag D-NEST): stamp via_device_id across
+        # URA-owned devices to restore the device-tree nesting HA 2026.9 broke
+        # by removing DeviceInfo.via_device. Uses dr.async_update_device — no
+        # entry reload (INV-6).
+        try:
+            from ._devices import async_stamp_via_device_tree
+            await async_stamp_via_device_tree(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: via_device stamping from CM setup raised (non-fatal)",
+                exc_info=True,
+            )
+
+        # v5.94.0 (device/entity de-frag D1): guarded removal of the dead
+        # `URA: Music Following` device (identifier `(DOMAIN, "music_following")`
+        # bare — distinct from `music_following_coordinator`). D0 audit
+        # confirmed 2 tombstone records with zero entities pointing at them.
+        # Safety: skip removal if ANY entity still points at the device.
+        try:
+            from homeassistant.helpers import entity_registry as er
+            dev_reg2 = dr.async_get(hass)
+            dead_device = dev_reg2.async_get_device(
+                identifiers={(DOMAIN, "music_following")},
+            )
+            if dead_device is not None:
+                ent_reg2 = er.async_get(hass)
+                remaining = er.async_entries_for_device(
+                    ent_reg2, dead_device.id, include_disabled_entities=True,
+                )
+                if not remaining:
+                    dev_reg2.async_remove_device(dead_device.id)
+                    _LOGGER.info(
+                        "D1: removed dead device (DOMAIN, 'music_following') "
+                        "with zero entities pointing at it",
+                    )
+                else:
+                    _LOGGER.info(
+                        "D1: dead-device removal SKIPPED — "
+                        "(DOMAIN, 'music_following') still has %d entities",
+                        len(remaining),
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D1: dead-device cleanup guard raised (non-fatal)",
+                exc_info=True,
+            )
 
         # v4.7.2 D2 / v4.7.3 D4: defensive entity_registry device-reassignment.
         # Reassigns the switch (v4.7.2 D2) and two number entities (v4.7.3 D4)

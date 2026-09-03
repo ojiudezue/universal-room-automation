@@ -5705,13 +5705,9 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
         # here produced "Music Following Coordinator Music Following: X".
         # Just the person_id keeps the friendly name clean.
         self._attr_name = person_id
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, "music_following_coordinator")},
-            name="URA: Music Following Coordinator",
-            manufacturer="Universal Room Automation",
-            model="Music Following Coordinator",
-            sw_version=VERSION,
-        )
+        # v5.94.0 D2: single DeviceInfo author for music_following identity.
+        from ._devices import _music_following_device_info
+        self._attr_device_info = _music_following_device_info()
 
     def _get_mf(self):
         return self.hass.data.get(DOMAIN, {}).get("music_following")

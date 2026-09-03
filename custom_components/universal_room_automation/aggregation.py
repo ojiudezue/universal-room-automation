@@ -289,23 +289,19 @@ async def async_setup_aggregation_sensors(
             from .sensor import (
                 PersonLikelyNextRoomSensor,
                 PersonCurrentPathSensor,
-                PersonNextRoomAccuracySensor,
-                PersonRoutineStatusSensor,
             )
             entities.extend([
                 PersonLikelyNextRoomSensor(hass, entry, person_id),
                 PersonCurrentPathSensor(hass, entry, person_id),
-                # v4.6.0: D4 — per-person next-room accuracy sensor
-                PersonNextRoomAccuracySensor(hass, entry, person_id),
-                # v4.6.2: D5 — per-person routine status sensor
-                PersonRoutineStatusSensor(hass, entry, person_id),
             ])
+            # v5.94.0 (device/entity de-frag D1b): PersonNextRoomAccuracySensor +
+            # PersonRoutineStatusSensor (device: coordinator_manager) split out to
+            # `async_setup_cm_hosted_aggregation_sensors` — registered under the
+            # CM config entry, not INTEGRATION.
 
-    # v4.6.0: D5 — single house-aggregate next-room accuracy sensor
-    # v4.6.2: D5 — single house-aggregate routine status sensor (same site)
-    from .sensor import HouseNextRoomAccuracySensor, HouseRoutineStatusSensor
-    entities.append(HouseNextRoomAccuracySensor(hass, entry))
-    entities.append(HouseRoutineStatusSensor(hass, entry))
+    # v5.94.0 (device/entity de-frag D1b): HouseNextRoomAccuracySensor +
+    # HouseRoutineStatusSensor moved to `async_setup_cm_hosted_aggregation_sensors`
+    # (device: coordinator_manager).
 
     async_add_entities(entities)
     _LOGGER.info("Set up %d whole-house aggregation sensors", len(entities))
@@ -324,14 +320,138 @@ async def async_setup_aggregation_binary_sensors(
     # Zone binary sensors are created by zone config entries via async_setup_zone_binary_sensors().
     entities: list[BinarySensorEntity] = [
         AnyoneHomeBinarySensor(hass, entry),
-        SafetyAlertBinarySensor(hass, entry),
-        SecurityAlertBinarySensor(hass, entry),
+        # v5.94.0 (device/entity de-frag D1b): SafetyAlertBinarySensor +
+        # SecurityAlertBinarySensor (device: safety_/security_coordinator) split
+        # out to `async_setup_cm_hosted_aggregation_binary_sensors` — registered
+        # under the CM config entry.
         # v4.2.0 B4 L3: Energy anomaly detection
         EnergyAnomalyBinarySensor(hass, entry),
     ]
 
     async_add_entities(entities)
     _LOGGER.info("Set up %d whole-house aggregation binary sensors", len(entities))
+
+
+# ---------------------------------------------------------------------------
+# v5.94.0 device/entity de-frag D1b — CM-hosted aggregation coroutine split.
+#
+# Ten aggregation entities (8 per-person + 2 house) plus 2 alert binaries
+# have DeviceInfo identifiers pointing at coordinator devices
+# (coordinator_manager / safety_coordinator / security_coordinator) but were
+# historically registered under the INTEGRATION config entry (the aggregation
+# coroutines above hard-return on non-INTEGRATION). That split ownership
+# blocked entry deletion and left dead-greyed devices in the registry. These
+# CM-hosted coroutines are invoked from the CM entry's platform setup.
+#
+# Setup order note: person_coordinator is populated in __init__.py:2355-2357
+# during INTEGRATION setup, which HA loads before CM in the standard entry
+# order. If the CM path fires before person_coordinator is populated (edge
+# case), per-person sensors skip this boot with a WARN, mirroring the
+# integration-side truthy guard at aggregation.py:271. Boot-order deferral
+# via async_at_started was considered but not adopted — late registration
+# risks RestoreEntity misses. Reviewer B verified the ordering.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_integration_entry(hass: HomeAssistant) -> ConfigEntry | None:
+    """Return the URA integration ConfigEntry, or None if not yet loaded."""
+    try:
+        for candidate in hass.config_entries.async_entries(DOMAIN):
+            if candidate.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                return candidate
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("_resolve_integration_entry raised", exc_info=True)
+    return None
+
+
+async def async_setup_cm_hosted_aggregation_sensors(
+    hass: HomeAssistant,
+    cm_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """CM-side setup for coordinator-device sensors previously registered
+    under the INTEGRATION entry's aggregation setup (D1b, Idiom B).
+
+    Entities are constructed with the INTEGRATION entry (they read
+    CONF_TRACKED_PERSONS from `entry.data` at construction time), but are
+    REGISTERED under the CM entry — HA's entity_registry uses the
+    async_add_entities callback's owning platform to assign
+    config_entry_id, NOT the entry passed to __init__.
+    """
+    from .const import ENTRY_TYPE_COORDINATOR_MANAGER  # local import — cycle safety
+
+    if cm_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+        return
+    integration_entry = _resolve_integration_entry(hass)
+    if integration_entry is None:
+        _LOGGER.warning(
+            "CM aggregation setup: INTEGRATION entry not found; "
+            "coordinator-device aggregation sensors not registered this boot."
+        )
+        return
+
+    entities: list[SensorEntity] = []
+    person_coordinator = hass.data.get(DOMAIN, {}).get("person_coordinator")
+    if person_coordinator:
+        tracked_persons = integration_entry.data.get(CONF_TRACKED_PERSONS, [])
+        _LOGGER.info(
+            "CM aggregation setup: creating per-person coordinator sensors "
+            "for %d tracked persons", len(tracked_persons),
+        )
+        from .sensor import (
+            PersonNextRoomAccuracySensor,
+            PersonRoutineStatusSensor,
+        )
+        for person_entity_id in tracked_persons:
+            person_id = person_entity_id.split(".")[-1]
+            entities.extend([
+                PersonNextRoomAccuracySensor(hass, integration_entry, person_id),
+                PersonRoutineStatusSensor(hass, integration_entry, person_id),
+            ])
+    else:
+        _LOGGER.warning(
+            "CM aggregation setup: person_coordinator absent at CM setup time; "
+            "per-person accuracy/routine sensors skipped this boot."
+        )
+
+    from .sensor import HouseNextRoomAccuracySensor, HouseRoutineStatusSensor
+    entities.append(HouseNextRoomAccuracySensor(hass, integration_entry))
+    entities.append(HouseRoutineStatusSensor(hass, integration_entry))
+
+    async_add_entities(entities)
+    _LOGGER.info(
+        "CM aggregation setup: registered %d coordinator-device sensors "
+        "under CM entry", len(entities),
+    )
+
+
+async def async_setup_cm_hosted_aggregation_binary_sensors(
+    hass: HomeAssistant,
+    cm_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """CM-side setup for coordinator-device binary sensors previously
+    registered under the INTEGRATION entry's aggregation setup (D1b).
+    """
+    from .const import ENTRY_TYPE_COORDINATOR_MANAGER  # local import — cycle safety
+
+    if cm_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+        return
+    integration_entry = _resolve_integration_entry(hass)
+    if integration_entry is None:
+        _LOGGER.warning(
+            "CM aggregation-binary setup: INTEGRATION entry not found; "
+            "safety/security alert binaries not registered this boot."
+        )
+        return
+    async_add_entities([
+        SafetyAlertBinarySensor(hass, integration_entry),
+        SecurityAlertBinarySensor(hass, integration_entry),
+    ])
+    _LOGGER.info(
+        "CM aggregation-binary setup: registered 2 coordinator-device "
+        "binaries under CM entry",
+    )
 
 
 async def async_setup_zone_sensors(

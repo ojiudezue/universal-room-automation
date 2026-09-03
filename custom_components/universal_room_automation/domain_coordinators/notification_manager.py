@@ -663,14 +663,12 @@ class NotificationManager:
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device info for the NM device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, "notification_manager")},
-            name="URA: Notification Manager",
-            manufacturer="Universal Room Automation",
-            model="Notification Manager",
-            sw_version=VERSION,
-        )
+        """Return device info for the NM device.
+
+        v5.94.0 D2: routes through the single canonical author in `_devices.py`.
+        """
+        from .._devices import _nm_device_info
+        return _nm_device_info()
 
     @property
     def enabled(self) -> bool:

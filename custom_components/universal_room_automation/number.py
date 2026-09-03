@@ -3593,17 +3593,20 @@ def _build_dp_numbers():
 # =============================================================================
 
 
+# v5.94.0 D2: _NMDeviceInfoMixin deleted. All NM number entities now import
+# the single canonical author `_nm_device_info` from `_devices.py`. The mixin
+# `self._nm_device_info()` call sites below are rewritten to the module-level
+# helper import.
 class _NMDeviceInfoMixin:
+    """Deprecated: retained as a marker base for zero-diff churn on subclasses.
+
+    All authoring now flows through `_devices._nm_device_info()`. Kept so the
+    class inheritance chain of NM number entities does not change (a change
+    could confuse HA restart / RestoreEntity ordering)."""
     @staticmethod
     def _nm_device_info():
-        from homeassistant.helpers.device_registry import DeviceInfo
-        return DeviceInfo(
-            identifiers={(DOMAIN, "notification_manager")},
-            name="URA: Notification Manager",
-            manufacturer="Universal Room Automation",
-            model="Notification Manager",
-            sw_version=VERSION,
-        )
+        from ._devices import _nm_device_info as _canonical
+        return _canonical()
 
 
 class NMBucketCapacityNumber(NumberEntity, _NMDeviceInfoMixin):
@@ -3823,13 +3826,9 @@ class PerimeterEnrichmentTimeoutNumber(NumberEntity):
         # unique_id → HA slug: number.universal_room_automation_perimeter_enrichment_timeout_s
         self._attr_unique_id = f"{DOMAIN}_perimeter_enrichment_timeout_s"
         self._attr_name = "Perimeter Enrichment Timeout"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, "notification_manager")},
-            name="URA: Notification Manager",
-            manufacturer="Universal Room Automation",
-            model="Notification Manager",
-            sw_version=VERSION,
-        )
+        # v5.94.0 D2: route through single canonical NM DeviceInfo author.
+        from ._devices import _nm_device_info as _nm_di
+        self._attr_device_info = _nm_di()
         config = {**entry.data, **entry.options}
         self._value = float(config.get(
             "perimeter_enrichment_timeout_s",

@@ -159,19 +159,16 @@ async def async_setup_entry(
             LastPersonEntrySensor(hass, entry),
             LastPersonExitSensor(hass, entry),
             UnidentifiedPersonsSensor(hass, entry),
-            # build/exterior-track: exterior-track census counters + diagnostic
-            ExteriorPersonTracksActiveSensor(hass, entry),
-            ExteriorVehicleTracksActiveSensor(hass, entry),
-            ExteriorAnimalTracksActiveSensor(hass, entry),
-            ExteriorUnidentifiedPersonsSensor(hass, entry),
-            ExteriorOpenTracksDiagnosticSensor(hass, entry),
-            # CIRCLING-SEVERITY-1 D3: INV-M enforcement tripwire.
-            PerimeterCirclingZeroDispatch24hSensor(hass, entry),
+            # v5.94.0 (device/entity de-frag D1a): the 6 Exterior*/Perimeter*
+            # sensors below AND MusicFollowingHealthSensor moved to the CM
+            # branch — their DeviceInfo identifiers target security_coordinator /
+            # music_following_coordinator, so registering under the INTEGRATION
+            # entry created split ownership (blocked entry deletion, dead
+            # devices in the registry). See AUDIT_device_entity_split_ownership.
             # v3.6.0-c1: House state on integration device
             IntegrationHouseStateSensor(hass, entry),
-            # v3.6.21: Music following health sensor
-            MusicFollowingHealthSensor(hass, entry),
             # v5.8.0 D2.12: house-wide reconcile-on-return roll-up
+            # STAYS on INTEGRATION — DeviceInfo → (DOMAIN, "integration").
             ReconcileHealthSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
@@ -201,6 +198,17 @@ async def async_setup_entry(
             URAStuckSignalWatchdogSensor(hass, entry),
             HouseStateSensor(hass, entry),
             CoordinatorSummarySensor(hass, entry),
+            # v5.94.0 (device/entity de-frag D1a — Idiom A branch-move):
+            # relocated from the INTEGRATION branch. Their DeviceInfo targets
+            # security_coordinator / music_following_coordinator; registering
+            # under CM co-locates ownership with the device identity.
+            ExteriorPersonTracksActiveSensor(hass, entry),
+            ExteriorVehicleTracksActiveSensor(hass, entry),
+            ExteriorAnimalTracksActiveSensor(hass, entry),
+            ExteriorUnidentifiedPersonsSensor(hass, entry),
+            ExteriorOpenTracksDiagnosticSensor(hass, entry),
+            PerimeterCirclingZeroDispatch24hSensor(hass, entry),
+            MusicFollowingHealthSensor(hass, entry),
             # v3.6.0-c1: Presence Coordinator sensors
             PresenceHouseStateSensor(hass, entry),
             HouseStateConfidenceSensor(hass, entry),
@@ -487,6 +495,16 @@ async def async_setup_entry(
         ])
 
         async_add_entities(coordinator_sensors)
+
+        # v5.94.0 (device/entity de-frag D1b — Idiom B CM-hosted aggregation):
+        # per-person + house next-room-accuracy / routine-status sensors
+        # (device: coordinator_manager) are registered here so ownership
+        # matches identity. Reads CONF_TRACKED_PERSONS + person_coordinator
+        # from the INTEGRATION entry / hass.data singleton.
+        from .aggregation import async_setup_cm_hosted_aggregation_sensors
+        await async_setup_cm_hosted_aggregation_sensors(
+            hass, entry, async_add_entities,
+        )
         return
 
     # v3.3.5.6: Legacy zone entry - no longer creates sensors (migrated to Zone Manager)
@@ -7350,16 +7368,13 @@ class EnergyRecentDecisionsSensor(AggregationEntity, SensorEntity):
 
 
 def _music_following_device_info():
-    """Return DeviceInfo for the Music Following Coordinator device."""
-    from homeassistant.helpers.device_registry import DeviceInfo
-    from .const import VERSION
-    return DeviceInfo(
-        identifiers={(DOMAIN, "music_following_coordinator")},
-        name="URA: Music Following Coordinator",
-        manufacturer="Universal Room Automation",
-        model="Music Following Coordinator",
-        sw_version=VERSION,
-    )
+    """Return DeviceInfo for the Music Following Coordinator device.
+
+    v5.94.0 D2: canonical author moved to `_devices.py`; this is a thin
+    re-export so existing callers in this module keep working.
+    """
+    from ._devices import _music_following_device_info as _canonical
+    return _canonical()
 
 
 class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
@@ -7789,16 +7804,13 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
 
 
 def _nm_device_info():
-    """Return DeviceInfo for the Notification Manager device."""
-    from homeassistant.helpers.device_registry import DeviceInfo
-    from .const import VERSION
-    return DeviceInfo(
-        identifiers={(DOMAIN, "notification_manager")},
-        name="URA: Notification Manager",
-        manufacturer="Universal Room Automation",
-        model="Notification Manager",
-        sw_version=VERSION,
-    )
+    """Return DeviceInfo for the Notification Manager device.
+
+    v5.94.0 D2: canonical author moved to `_devices.py`; this is a thin
+    re-export so existing callers in this module keep working.
+    """
+    from ._devices import _nm_device_info as _canonical
+    return _canonical()
 
 
 class NMLastNotificationSensor(AggregationEntity, SensorEntity):
