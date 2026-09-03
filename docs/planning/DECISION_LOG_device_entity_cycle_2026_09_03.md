@@ -37,6 +37,21 @@ Every autonomous call I make in this cycle is recorded below (newest last). At t
 
 _(appended as the cycle proceeds — plan/review/build adjudications, fix-up calls, any scope trims)_
 
+## Falsifiable invariant (Tier-3 — D's sole job is to break this)
+
+**INV-DEFRAG (identity + ownership preservation):** For every URA entity, after this cycle:
+1. `entity_id` AND `unique_id` are **byte-identical** to pre-cycle (verified via live registry name-diff), and
+2. **zero** new `_2`-suffixed entities are minted, and
+3. total entity count is **preserved** (baseline 4626), and
+4. **no coordinator entity is split-owned** across two config entries — every coordinator entity is owned by exactly the CM entry (none still forwarded from the INTEGRATION entry), and
+5. **no entity is orphaned** (owned by a deleted/dead device).
+
+**Falsified by** any of: a unique_id that changes; any new `_2`; any entity-count delta not explained by the 2 deliberately-deleted dead `coordinator_music_following` device records (which had 0 entities → count unaffected); any coordinator entity still reachable from the INTEGRATION entry's platform forward; any orphaned entity.
+
+**INV-NEST (device tree, 2026.9-safe):** every coordinator device resolves `via_device_id → CM device → Whole House`; zones and rooms resolve `via_device_id → Whole House`; and there is **zero declarative `DeviceInfo(via_device=…)`** anywhere in the component (the HA 2026.9 hard `RuntimeError` source). **Falsified by** any `via_device=` in a DeviceInfo constructor, or any coordinator/zone/room device with no via_device_id after a cold boot.
+
+D re-enumerates the ENTIRE surface (pre-existing code included, not just the diff — per the v5.5.3 D-HIGH-1 lesson) and must supply a concrete legal-config reachable repro for any leak.
+
 ## Deliverables (from the plan, de-frag-led)
 - **D0** — live registry probe: which entities are owned by the parent entry vs the CM entry (measure-before-build).
 - **D1 (elevated)** — de-fragment coordinator devices: forward all coordinator platforms from the CM entry only; parent entry hosts only Whole House; delete the dead `URA: Music Following` device. **Hard acceptance gate (see #2).**
