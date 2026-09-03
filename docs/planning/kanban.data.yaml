@@ -5157,7 +5157,8 @@ cards:
   title: Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with
     zero body corroboration — a genuine vacancy EXTEND while residents sleep
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.93.0
   plan_ready_2026_09_01: 'Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config
     application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED
     (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DEFAULT + CONF_WET_ROOM schema mirror), 120min bath/closet/default,
