@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-01'
+  last_reconciled: '2026-09-03'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -119,7 +119,8 @@ cards:
   title: HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard
     error; every coordinator entity failed to add (live outage)
   thread: platform
-  status: review
+  status: shipped_organic
+  shipped_version: v5.92.3
   created: 2026-09-03 10:30
   updated: 2026-09-03 10:30
   refinement_status: initial

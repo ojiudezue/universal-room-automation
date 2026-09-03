@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "082",
+  "author": "ojiudezue",
+  "session_id": "claude_20260903_153433_ship_v5_92_3",
+  "timestamp": "2026-09-03T15:34:33Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.92.3 shipped: HA 2026.9 compat hotfix: strip deprecated via_device from DeviceInfo (restores all coordinator entities)",
+  "summary": "HA 2026.9 compat hotfix: strip deprecated via_device from DeviceInfo (restores all coordinator entities)",
+  "why": "Live outage after the operator upgraded to HA 2026.9: 2026.9 turned the deprecated DeviceInfo via_device parameter into a hard RuntimeError, so every coordinator entity failed to register ('Error adding entity None' x319) and the whole energy/presence/security coordinator layer read unavailable while room entities survived. Root cause confirmed from the live traceback, not inferred; reloads could not fix it because each reload re-runs the same failing add. The fix strips all 109 via_device declarations (deletions-only diff, identifiers untouched so nothing re-registers); proper device nesting under the non-deprecated via_device_id path is deferred to the device/entity architecture plan now being drafted.",
+  "implications": "Shipped HA-2026-9-VIA-DEVICE-COMPAT-1 at v5.92.3; card(s) sit shipped_organic pending validation. Acceptance in README_v5.92.3.md (Live criteria).",
+  "revisit_trigger": "Post-restart, sensor.ura_energy_coordinator_ev_charging_status + sensor.ura_presence_coordinator_presence_house_state + the battery-strategy/security/energy-situation entities are NOT unavailable and carry fresh last_updated; error_log no longer emits 'Error adding entity None for domain sensor with platform universal_room_automation'.",
+  "refs": {
+    "cards": [
+      "HA-2026-9-VIA-DEVICE-COMPAT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.92.3.md"
+    ],
+    "release_notes": "HA 2026.9 promoted the deprecated device_registry via_device parameter to a hard RuntimeError, so all 109 URA coordinator-manager DeviceInfo declarations failed entity-add ('Error adding entity None', 319x live) and the entire coordinator entity layer (Battery Strategy, EV Charging, House State, Security, Energy Situation + coordinator numbers/switches/selects/buttons) went unavailable after the operator's upgrade. Removed all 109 via_device lines; identifiers unchanged so no re-registration; entities add cleanly again. Cosmetic device nesting deferred to the device/entity architecture plan."
+  }
+}
