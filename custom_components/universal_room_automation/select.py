@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.92.2
+# Universal Room Automation vv5.92.3
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -239,7 +239,6 @@ class PresenceHouseStateOverrideSelect(_HouseStateOverrideSelectBase):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
 
@@ -462,7 +461,6 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
             manufacturer="Universal Room Automation",
             model="Optimization Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Seed from options first, then data, then default. Pending key
         # is checked first — if a pending escalation persists across a
@@ -704,7 +702,6 @@ class EnergyPreCoolScopeSelect(SelectEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         merged = {**entry.data, **entry.options}
         raw = merged.get(self._conf_key, DEFAULT_ENERGY_PRECOOL_SCOPE)
@@ -803,7 +800,6 @@ class DrainPrecedenceHouseLoadSourceSelect(SelectEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         merged = {**entry.data, **entry.options}
         raw = merged.get(self._conf_key, self._default)
@@ -985,7 +981,6 @@ class HVACGate4PredicateModeSelect(SelectEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property

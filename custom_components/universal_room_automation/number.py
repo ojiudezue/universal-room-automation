@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.92.2
+# Universal Room Automation vv5.92.3
 # Build: 2026-01-02
 # File: number.py
 #
@@ -446,7 +446,6 @@ class ZoneEntryDwellNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(
@@ -533,7 +532,6 @@ class VacancyGraceMinutesNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(
@@ -625,7 +623,6 @@ class VacancyGraceConstrainedNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(
@@ -719,7 +716,6 @@ class MaxOccupancyHoursNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(
@@ -794,7 +790,6 @@ class ComfortGraceMinutesNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(
@@ -887,7 +882,6 @@ class ComfortSOCFloorNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(
@@ -979,7 +973,6 @@ class ComfortOffphaseOffsetNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = float(config.get(
@@ -1074,7 +1067,6 @@ class OffPeakDrainNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Read initial value from config entry
         from .domain_coordinators.energy_const import (
@@ -1205,7 +1197,6 @@ class PeakBufferTargetNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.5.0 D2 migration ergonomics: initial seed reads the new key
         # first, falling back to the legacy key. The migration helper in
@@ -1343,7 +1334,6 @@ class ArbitrageChargeLeadTimeNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         seed = int(config.get(
@@ -1463,7 +1453,6 @@ class EVBatteryDrainSOCNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
@@ -1590,7 +1579,6 @@ class FillPrioritySOCNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_FILL_PRIORITY_SOC,
@@ -1711,7 +1699,6 @@ class ExcessSolarSOCNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_EXCESS_SOLAR_SOC,
@@ -2150,7 +2137,6 @@ def _hvac_tunable_number_factory(
                 manufacturer="Universal Room Automation",
                 model="HVAC Coordinator",
                 sw_version=VERSION,
-                via_device=(DOMAIN, "coordinator_manager"),
             )
             # Read form-seed from the CM entry's options
             cm_entry = self._find_cm_entry()
@@ -2631,7 +2617,6 @@ def _hvac_zone_kwh_threshold_factory(
                 manufacturer="Universal Room Automation",
                 model="HVAC Coordinator",
                 sw_version=VERSION,
-                via_device=(DOMAIN, "coordinator_manager"),
             )
             self._value: float = float(DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD)
 
@@ -2777,7 +2762,6 @@ class DynamicPresetDwellMinutesNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         from .domain_coordinators.energy_const import (
             CONF_DYNAMIC_PRESET_DWELL_MINUTES, DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES
@@ -2855,7 +2839,6 @@ class DynamicPresetHysteresisFNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         from .domain_coordinators.energy_const import (
             CONF_DYNAMIC_PRESET_HYSTERESIS_F, DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F
@@ -2941,7 +2924,6 @@ class HVACEgressPauseThresholdNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get("hvac_egress_threshold_min", default))
@@ -3051,7 +3033,6 @@ class HVACEgressResumeDelayNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get("hvac_egress_resume_delay_min", default))
@@ -3172,7 +3153,6 @@ class FanInterferenceHoldNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(
@@ -3293,7 +3273,6 @@ class EnergyPreCoolOffsetNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         raw = config.get(
@@ -3436,7 +3415,6 @@ def _dp_number_factory(
                 manufacturer="Universal Room Automation",
                 model="Energy Coordinator",
                 sw_version=VERSION,
-                via_device=(DOMAIN, "coordinator_manager"),
             )
             config = {**entry.data, **entry.options}
             raw = config.get(conf_key, default_value)
@@ -3625,7 +3603,6 @@ class _NMDeviceInfoMixin:
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
 
@@ -3852,7 +3829,6 @@ class PerimeterEnrichmentTimeoutNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = float(config.get(
@@ -4040,7 +4016,6 @@ class ExcessSolarConfirmNumber(NumberEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._value = int(config.get(self.CONF_KEY, SOLAR_FOLLOW_UP_MIN_TICKS))

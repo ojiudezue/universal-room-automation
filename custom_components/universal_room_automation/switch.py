@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.92.2
+# Universal Room Automation vv5.92.3
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -636,7 +636,6 @@ class CoordinatorEnabledSwitch(SwitchEntity):
             manufacturer="Universal Room Automation",
             model=device_model,
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -697,7 +696,6 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Energy Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         self._deferred_restore = False
 
@@ -879,7 +877,6 @@ def _ec_switch_factory(
                 manufacturer="Universal Room Automation",
                 model="Energy Coordinator",
                 sw_version=VERSION,
-                via_device=(DOMAIN, "coordinator_manager"),
             )
             self._default = default
             # v4.5.3: explicit deferred-restore state so _retry_restore
@@ -1494,7 +1491,6 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Default ON (see docstring).
         self._default: bool = True
@@ -1778,7 +1774,6 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.3.1: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -1925,7 +1920,6 @@ class HVACPreConditioningSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Default ON (preserves status-quo pre-conditioning behavior).
         self._default: bool = True
@@ -2100,7 +2094,6 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.3.1: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -2263,7 +2256,6 @@ class HVACTempArresterOverrideSwitch(SwitchEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_arrester(self):
@@ -2384,7 +2376,6 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.3.1 extension: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -2525,7 +2516,6 @@ class HVACACNudgeSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.7 A1: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -2659,7 +2649,6 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.3.1 extension: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -2796,7 +2785,6 @@ class HVACConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_hvac(self):
@@ -2937,7 +2925,6 @@ class SafetyObservationModeSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Safety Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         self._deferred_restore = False
 
@@ -3028,7 +3015,6 @@ class SecurityObservationModeSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Security Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         self._deferred_restore = False
 
@@ -3120,7 +3106,6 @@ class PresenceObservationModeSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         self._deferred_restore = False
 
@@ -3275,7 +3260,6 @@ class _PresenceKillSwitchBase(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Deferred restore sentinel (bool target or None).
         self._deferred_value: bool | None = None
@@ -3505,7 +3489,6 @@ class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_hvac(self):
@@ -3585,7 +3568,6 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_hvac(self):
@@ -3679,7 +3661,6 @@ class HVACSolarCoverSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_cover_controller(self):
@@ -3768,7 +3749,6 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.3.1: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -3957,7 +3937,6 @@ class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_hvac(self):
@@ -4041,7 +4020,6 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # hotfix/fan-sweep-trio (2026-08-03): deferred-restore state
         # (Bug Class #5). Mirrors ECSwitch factory line ~707 hygiene:
@@ -4204,7 +4182,6 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     async def async_added_to_hass(self) -> None:
@@ -4459,7 +4436,6 @@ class NMDryRunSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Seed from options-flow at install; RestoreEntity overrides on restart.
         opts = {**entry.data, **entry.options}
@@ -4580,7 +4556,6 @@ class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Security Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         self._is_on = True
 
@@ -5002,7 +4977,6 @@ class HVACEgressWindowPauseSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # v4.7.8 D2: deferred-restore state (Bug Class #5).
         self._deferred_value: bool | None = None
@@ -5164,7 +5138,6 @@ class FanRecheckEnabledSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
         self._is_on = bool(config.get(self._conf_key, self._default))
@@ -5388,7 +5361,6 @@ class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Optimization Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         # Seed from options first (single source of truth), fall back to
         # data, then default — same as the Comfort sliders' D6 pattern.
@@ -5739,7 +5711,6 @@ class MFPersonFollowSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Music Following Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_mf(self):
@@ -5910,7 +5881,6 @@ class _ExteriorLinkerSwitchBase(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="Security Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_linker(self):
@@ -6070,7 +6040,6 @@ class HvacOffphaseHonestyEnabledSwitch(SwitchEntity, RestoreEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
         self._deferred_value: bool | None = None
 

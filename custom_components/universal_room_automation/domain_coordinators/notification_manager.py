@@ -670,7 +670,6 @@ class NotificationManager:
             manufacturer="Universal Room Automation",
             model="Notification Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property

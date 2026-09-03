@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-01T17:19:34-05:00_ - _Data commit: `f73526340615`_ - _last_reconciled: 2026-09-01_
+_Generated: 2026-09-01T22:55:26-05:00_ - _Data commit: `f8c23fb96564`_ - _last_reconciled: 2026-09-01_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.92.3.md (2026-09-03) is newer than last_reconciled (2026-09-01)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -15,13 +21,13 @@ _Generated: 2026-09-01T17:19:34-05:00_ - _Data commit: `f73526340615`_ - _last_r
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 51 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 20 |
-| ✅ Done | 57 |
+| 🅿️ Parked | 21 |
+| ✅ Done | 58 |
 
 ## 📥 Inbox (30)
 _raw capture_
@@ -660,8 +666,9 @@ _created 2026-08-31 18:20 · updated 2026-09-01 17:05 · refined ×4_
 - **Next:** Fresh plan-review (config surface changed, Tier 2-DB+) against the 120min durations -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
+  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
   - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
@@ -757,8 +764,10 @@ _created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
 - **Next:** BUILD (Tier 2-DB, QUEUED behind charge-onset — collides on energy files + suite). Fix: (1) add a last_updated staleness gate to _read_power_w (energy_battery.py:1572) mirroring the battery_soc v5.17.5 A1 precedent (DEFAULT_SOC_CLOUD_FALL...
 - **Tags:** measure-before-build, no-fabrication-verify, tier-2db
 - **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (live fault); __init__.py:3026; PRECEDENT: energy_battery.py:~887 battery_soc staleness gate (v5.17.5 A1); BUG: energy_battery.py:1572 _read_power_w + :1614 LKG stamp + :2287 envelope; consumer energy_pool.py:1483
-- **Forensic keys (5):**
+- **Forensic keys (7):**
   - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3→FIX 2 CRITs gating-None-fails-OPEN; Rev4→FIX D4-H hit dead code + drain over-scope) + confirm-review (Rev5 SHIP, 2 doc fixes). Design cleared: per-consumer None-direction table with safety guard...
+  - `status_note`: in_progress — SCOPE-SPLIT rework in flight
+  - `tier3_review_2026_09_01`: BUILT then 4 Tier-3 build-reviews (A correctness / B state-machine / C test-authority / D adversarial). Build initially shipped a real safety bug (drain release-path DROP under blind CT — found by the mutation drill, fixed). Then A=2MED,...
   - `consolidate_decision_2026_09_01`: Operator: CONSOLIDATE. Scope expanded from solar-only to a shared staleness helper (_state_age_s / read-with-freshness) applied to ALL frozen-valid power reads — solar_production_w, net_power_w, battery_power_w, PRIMARY battery_soc — fol...
   - `consumer_check_2026_09_01`: Producer/Consumer: the staleness SENSOR (sensor.ura_energy_envoy_status 'stale') is DISPLAY-ONLY — derived from _envoy_data_anomaly_at (hourly CONSUMPTION cross-check, energy.py:3025), consumed by no decision. The TRUST flag envoy_availa...
   - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
@@ -775,24 +784,24 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
-thread: **energy** - status: **in_progress** - approval: **implied**
-_created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
-- **Problem / Solution:**
-  - Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy computed to zero-or-negative, and t...
-- **Origin:** 2026-09-01 - operator side-quest — why is forecast_accuracy unknown
-- **Why:** Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30. Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value returns None when accuracy<=0 (...
-- **Next:** Planner applying M1/L1/L2/L3 (ac7c6c69882c02fd6). Then BUILD-READY: D1 mask + D3 stale-visibility + bounded sensor-only metric + 9 tests incl. the production-computation byte-identity anchor. Control path untouched.
-- **Tags:** no-fabrication-verify, tier-2db
-- **Refs:** docs/planning/PLANNING_forecast_accuracy_fix.md; sensor.py:11344/11373; energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy; energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property; PLANNING_v4.7.x_advanced_energy_management.md E5 origin
-- **Forensic keys (1):**
-  - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+_(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
+
+### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
+thread: **platform** - status: **review** - approval: **explicit**
+_created 2026-09-03 10:30 · initial_
+- **Problem / Solution:**
+  - Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...
+- **Origin:** 2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError
+- **Why:** Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...
+- **Next:** SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...
+- **Tags:** hotfix, no-fabrication-verify, ha-2026.9-compat
+- **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**
@@ -1734,8 +1743,19 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (20)
+## 🅿️ Parked (21)
 _revisit-trigger set_
+
+### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected
+thread: **energy** - status: **parked** - approval: **unreviewed**
+_created 2026-09-01 20:30 · initial_
+- **Problem / Solution:**
+  - Problem: when an Envoy power sensor freezes at a stale-but-valid number (not "unavailable"), the 12kW breaker guard and the grid-import cap need to decide what to do — but a naive "treat stale as a trip / skip the function" is WRONG: it ...
+- **Origin:** 2026-09-01 - split out of ENVOY-PRODUCTION-STALE-1 after 4 Tier-3 reviews found the breaker/grid-cap fail-closed over-corrected
+- **Why:** B-CRIT-1 (locks chunk on default-disabled guard), D-HIGH-1 (_effective_import_kw 0-substitution → false over-cap even guard-enabled), D-HIGH-2 (sticky lock = whole night lost), B-HIGH-1 (grid-cap EV strand), B-HIGH-2 (ATTAIN unwind rever...
+- **Next:** Revive when: a real blind-telemetry breaker-trip is observed, OR the operator enables the grid-import guard and wants stale-safe behavior. Design: battery-unknown propagation in _effective_import_kw + isfinite-guard gate + non-sticky abo...
+- **Tags:** tier-3, no-fabrication-verify, regression-prone
+- **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
 ### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end
 thread: **energy** - status: **parked** - approval: **implied**
@@ -2002,8 +2022,22 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (57)
+## ✅ Done (58)
 _closed, evidence in refs_
+
+### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
+thread: **energy** - status: **done** - approval: **implied**
+_created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
+- **Problem / Solution:**
+  - Problem: sensor.ura_energy_coordinator_forecast_accuracy shows unknown, but it has 30 samples and is active (last eval 2026-08-30) — it is NOT missing data. The value is hidden because rolling_accuracy computed to zero-or-negative, and t...
+- **Origin:** 2026-09-01 - operator side-quest — why is forecast_accuracy unknown
+- **Why:** Live: state=unknown, attrs samples=30 status=active adjustment_factor=1.3 last_eval_date=2026-08-30. Code: rolling_accuracy=100-abs(avg_pct_error) (energy_forecast.py rolling_accuracy); sensor native_value returns None when accuracy<=0 (...
+- **Next:** Planner applying M1/L1/L2/L3 (ac7c6c69882c02fd6). Then BUILD-READY: D1 mask + D3 stale-visibility + bounded sensor-only metric + 9 tests incl. the production-computation byte-identity anchor. Control path untouched.
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** docs/planning/PLANNING_forecast_accuracy_fix.md; sensor.py:11344/11373; energy_forecast.py:794/833/850 rolling_accuracy+evaluate_accuracy; energy.py:2812 daily eval, :4338 DP house-load consumer, :9668 property; PLANNING_v4.7.x_advanced_energy_management.md E5 origin
+- **Forensic keys (2):**
+  - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
+  - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**

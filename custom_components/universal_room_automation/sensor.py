@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.92.2
+# Universal Room Automation vv5.92.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5210,7 +5210,6 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5437,7 +5436,6 @@ class HouseStateConfidenceSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5539,7 +5537,6 @@ class SignalConsensusConfidenceSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5609,7 +5606,6 @@ class PresenceCensusCountSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5651,7 +5647,6 @@ class PresenceWakeBlockedTicksSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5694,7 +5689,6 @@ class PresenceWakeBackstopFiresSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5736,7 +5730,6 @@ class PresenceArrivingRearmSuppressedSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5779,7 +5772,6 @@ class PresenceArrivingRearmBypassedSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5840,7 +5832,6 @@ class PresenceDiagnosticSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -5961,7 +5952,6 @@ class PresenceAnomalySensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -6035,7 +6025,6 @@ class PresenceComplianceSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     @property
@@ -6124,7 +6113,6 @@ class PresenceNextStateSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Presence Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_prediction(self) -> dict | None:
@@ -6273,7 +6261,6 @@ def _safety_device_info():
         manufacturer="Universal Room Automation",
         model="Safety Coordinator",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -6665,7 +6652,6 @@ def _security_device_info():
         manufacturer="Universal Room Automation",
         model="Security Coordinator",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -7373,7 +7359,6 @@ def _music_following_device_info():
         manufacturer="Universal Room Automation",
         model="Music Following Coordinator",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -7813,7 +7798,6 @@ def _nm_device_info():
         manufacturer="Universal Room Automation",
         model="Notification Manager",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -8351,7 +8335,6 @@ def _energy_device_info():
         manufacturer="Universal Room Automation",
         model="Energy Coordinator",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -11600,7 +11583,6 @@ def _hvac_device_info():
         manufacturer="Universal Room Automation",
         model="HVAC Coordinator",
         sw_version=VERSION,
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
@@ -16323,7 +16305,6 @@ class HVACZoneEgressStateSensor(SensorEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_egress(self):
@@ -16396,7 +16377,6 @@ class HVACEgressPausedZonesSensor(SensorEntity):
             manufacturer="Universal Room Automation",
             model="HVAC Coordinator",
             sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
         )
 
     def _get_egress(self):
@@ -16586,7 +16566,6 @@ def _optimizer_device_info():
         manufacturer="Universal Room Automation",
         model="Optimization Coordinator",
         sw_version="v4.7.33",
-        via_device=(DOMAIN, "coordinator_manager"),
     )
 
 
