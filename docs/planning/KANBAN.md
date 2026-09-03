@@ -7,6 +7,12 @@ _Generated: 2026-09-01T22:55:26-05:00_ - _Data commit: `f8c23fb96564`_ - _last_r
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
 
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.92.3.md (2026-09-03) is newer than last_reconciled (2026-09-01)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
+
 ## Columns
 
 | Column | Count |
@@ -16,7 +22,7 @@ _Generated: 2026-09-01T22:55:26-05:00_ - _Data commit: `f8c23fb96564`_ - _last_r
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 51 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -783,8 +789,19 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
+
+### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
+thread: **platform** - status: **review** - approval: **explicit**
+_created 2026-09-03 10:30 · initial_
+- **Problem / Solution:**
+  - Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...
+- **Origin:** 2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError
+- **Why:** Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...
+- **Next:** SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...
+- **Tags:** hotfix, no-fabrication-verify, ha-2026.9-compat
+- **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
 thread: **diagnostics** - status: **review**

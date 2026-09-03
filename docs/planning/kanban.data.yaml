@@ -115,6 +115,33 @@ cards:
   next: 'Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi;
     handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.'
   refs: ['CLAUDE.md Data Source Verification section', 'AUDIT/plan-review of EC-1 2026-09-01']
+- id: HA-2026-9-VIA-DEVICE-COMPAT-1
+  title: HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard
+    error; every coordinator entity failed to add (live outage)
+  thread: platform
+  status: review
+  created: 2026-09-03 10:30
+  updated: 2026-09-03 10:30
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-03 ("Yes. build and fix and deploy.")'
+  tags: [hotfix, no-fabrication-verify, ha-2026.9-compat]
+  problem_solution:
+  - 'Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging,
+     House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable.
+     2026.9 turned the deprecated DeviceInfo `via_device` parameter into a hard RuntimeError, so all 109 coordinator
+     entities failed to register ("Error adding entity None", 319x in the live log). Room entities (no via_device)
+     were fine. Solution: remove all 109 `via_device=(DOMAIN, ...)` lines; identifiers unchanged so nothing
+     re-registers, entities add cleanly again. Cosmetic device-tree nesting lost — restore properly later via
+     via_device_id (see the device/entity architecture plan).'
+  origin: {date: '2026-09-03', gist: operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError}
+  why: 'Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter;
+    use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the
+    failing add). Not caused by the v5.92.x cycles (v5.92.2 validated with House State working pre-upgrade).'
+  next: 'SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart +
+    live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded
+    into the device/entity architecture plan.'
+  refs: ['docs/readmes/README_v5.92.3.md', 'feature/via-device-2026-9-hotfix@260a5b9dc']
 - id: BREAKER-GRIDCAP-STALE-TELEMETRY-1
   title: Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper
     design, split out of the Envoy shared-staleness cycle after it over-corrected

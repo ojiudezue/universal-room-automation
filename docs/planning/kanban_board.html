@@ -135,19 +135,22 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-01T17:35:48-05:00</b></span>
-<span>data <b>44c6d02cd565</b></span>
+<span>generated <b>2026-09-01T22:55:26-05:00</b></span>
+<span>data <b>f8c23fb96564</b></span>
 <span>reconciled <b>2026-09-01</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
 </div></header>
+<div class="stale"><h2>▲ STALE - board has not been reconciled against newer work</h2><ul>
+<li>newest README README_v5.92.3.md (2026-09-03) is newer than last_reconciled (2026-09-01)</li>
+</ul><div style="margin-top:6px">Reconcile <code>meta.last_reconciled</code> and move shipped cards before picking next work.</div></div>
 <div class="summary">
 <span>Inbox <b>30</b></span>
 <span>Investigating <b>8</b></span>
 <span>Pre-planning <b>13</b></span>
 <span>Planned <b>8</b></span>
 <span>In progress <b>0</b></span>
-<span>Review <b>1</b></span>
+<span>Review <b>2</b></span>
 <span>Shipped (organic open) <b>51</b></span>
 <span>Waiting on operator <b>8</b></span>
 <span>Waiting on me (Claude) <b>0</b></span>
@@ -239,8 +242,9 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <div class="none">(none)</div>
 </section>
 <section class="lane" data-col="review">
-<h2>Review <span class="count">1</span><span class="hint">under review</span></h2>
+<h2>Review <span class="count">2</span><span class="hint">under review</span></h2>
 <div class="cards">
+<details class="card ap-explicit" data-id="HA-2026-9-VIA-DEVICE-COMPAT-1" draggable="true"><summary><span class="id">HA-2026-9-VIA-DEVICE-COMPAT-1</span><span class="apl">explicit</span><span class="title">HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)</span><div class="tagline">platform<span class="sep">·</span>hotfix<span class="sep">·</span>no-fabrication-verify<span class="sep">·</span>ha-2026.9-compat</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-03 10:30 · initial</div><dt>Problem / Solution</dt><dd>Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...</dd><dt>Origin</dt><dd>2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError</dd><dt>Why</dt><dd>Live traceback: RuntimeError &quot;device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id&quot;. 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...</dd><dt>Next</dt><dd>SHIPPING v5.92.3 (build verified: 109-&gt;0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...</dd><dt>Refs</dt><dd>docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card" data-id="SENSOR-HEALTH-SURFACING-1" draggable="true"><summary><span class="id">SENSOR-HEALTH-SURFACING-1</span><span class="title">Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model</span><div class="tagline">diagnostics</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial</div><dt>Next</dt><dd>Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM &quot;replace this sensor&quot; hook. Tier 2. Institutional-context grep first (chatter-&gt;0 files today).</dd><dt>Forensic (16)</dt><dd><ul class="forensic"><li><code>problem</code>: URA detects stuck-ON sensors via a watchdog but has NO chatter/flapping detector and no surfaced &quot;which sensor is unhealthy&quot; signal. A live incident (INCIDENT_chatter_class_missed_by_watchdog_2026-08-09) already proved the gap. Cheapest ...</li><li><code>phase_2026_08_18</code>: IN PROGRESS (operator approved all 3 to execute 2026-08-18): planning (Tier 2, institutional-context-first)</li><li><code>pivot_2026_08_18</code>: MAJOR PIVOT (operator, after 2 reviews DO-NOT-SHIP + quarantine-code consult). The surface+notify build is insufficient; move to a QUARANTINE/TRUST model mirroring the actuator D2.11 flap-quarantine. DECISIONS: (1) QUARANTINE-ALWAYS (no ...</li><li><code>program_unification_2026_08_18</code>: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER &quot;untrust a sensor vote / exclude from occupancy fusion&quot; primitive with multiple DETE...</li><li><code>program</code>: sensor-trust-exclusion</li><li><code>definition_confirmed_2026_08_18</code>: CHATTER DEFINITION GROUNDED + HAND-CHECKED + operator-confirmed. Chatter = &gt;=K sub-T_floor impossibility events (interval below the device-family hardware blind-time) in-window, on BLIND-TIME-GATED sensors ONLY (PIR/mmWave/opener). PROVE...</li><li><code>phase_2026_08_19</code>: IN PROGRESS: resuming STEP: applying plan-review 3 MEDs + Tier-3 elevation to make build-ready</li><li><code>plan_ready_2026_08_19</code>: PLAN-READY (Tier 3). Both Tier-3 plan reviews passed after fixes: review-1 (3 MED fixed), review-2/build-prediction (M2-MED-1 Reading-A byte-identity + 2 LOW fixed). Definition grounded+hand-checked. Awaiting Tier-3 BUILD (4 framing-disj...</li><li><code>build_2026_08_19</code>: TIER-3 BUILD dispatched (operator go: build STEP, ship 9am). D1 shared SensorExclusionSet + D2 chatter detector + D3 auto-release + D5 surface. 4 framing-disjoint reviews + operator checkpoint before deploy.</li><li><code>plan_gap_2026_08_19</code>: BUILD STOPPED (correctly — anti-fabricate mandate) on a load-bearing PLAN GAP both Tier-3 plan reviews MISSED (producer-check failure): the plan has the chatter detector subscribe to OccupancySubstrate.subscribe() for per-entity edges, b...</li><li><code>feed_fixed_2026_08_19</code>: Feed amendment PLAN-READY (own async_track_state_change_event, re-review no CRIT/HIGH/MED, 1 LOW folded to brief). Tier-3 build RESUMED in .claude/worktrees/step-chatter.</li><li><code>tier3_reviews_2026_08_19</code>: TIER-3 REVIEWS: A SHIP-WITH-FIX, B SHIP, C DO-NOT-SHIP, D DO-NOT-SHIP. The 4-review gauntlet did its job. CONSOLIDATED FIX-UP SCOPE:</li><li><code>probe_calibration_2026_08_19</code>: CADENCE PROBE (PROBE_mmwave_healthy_cadence.md) RESOLVED decision #1 with data. KEY REFINEMENT: the un-fakeable criterion is the BURST (K sub-floor events/window), NOT a single sub-floor event — healthy fast mmWave DOES produce sub-floor...</li><li><code>fixture_decision_2026_08_19</code>: OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1. STEP fix-up proceeds: de-hollow the C-CRIT tests (extr...</li><li><code>checkpoint_ready_2026_08_19</code>: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP-&gt;C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP-&gt;D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...</li><li><code>shadow_first_2026_08_19</code>: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
 </section>
@@ -425,7 +429,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>44c6d02cd565</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>f8c23fb96564</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
