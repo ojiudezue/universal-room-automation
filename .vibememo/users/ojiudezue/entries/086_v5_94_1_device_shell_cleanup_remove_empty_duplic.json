@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "086",
+  "author": "ojiudezue",
+  "session_id": "claude_20260904_072557_ship_v5_94_1",
+  "timestamp": "2026-09-04T07:25:57Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.94.1 shipped: Device-shell cleanup \u2014 remove empty duplicate coordinator devices + fix D-NEST nesting sweep",
+  "summary": "Device-shell cleanup \u2014 remove empty duplicate coordinator devices + fix D-NEST nesting sweep",
+  "why": "v5.94.0 re-homed coordinator entities to the CM entry but HA never removes a device whose last entity moved to a different config entry, leaving 3 empty duplicate device shells on the parent entry; and the D-NEST sweep resolved same-identifier duplicates last-writer-wins, nesting the real coordinators under the empty shell. Fix-forward removes the shells (triple-guarded so a real populated CM-owned coordinator device can never be selected \u2014 proven by Review A + orchestrator mutation drills) and fixes the sweep to prefer the populated/CM-owned device, with A-MED ordering (cleanup before get_or_create \u2192 deterministic single CM device) and B2 survivor re-index (prevents a reload minting a duplicate). Tier 2-DB: reviews A+B SHIP, dict-mutation crash risk cleared, 4 mediums fixed in-cycle.",
+  "implications": "Shipped DEVICE-SHELL-CLEANUP-1 at v5.94.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.94.1.md (Live criteria).",
+  "revisit_trigger": "Post-restart device registry: exactly ONE coordinator_manager device (real CM ~60 entities, via_device_id=Whole House), ONE security_coordinator, ZERO empty shells / coordinator_music_following; coordinators nested under the real CM; Whole House stands alone on the parent entry; real Security(~21)/Music(~10) entities intact; no Error adding entity None.",
+  "refs": {
+    "cards": [
+      "DEVICE-SHELL-CLEANUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.94.1.md"
+    ],
+    "release_notes": "Finishes the v5.94.0 de-frag: removes the 3 empty duplicate coordinator device shells left on the parent entry (guarded: 0 entities + sole parent-owner + coordinator identifier; iterate values(), remove by device.id \u2014 real CM/Security/Music devices structurally unselectable), and fixes the D-NEST sweep same-identifier resolution so coordinators nest under the real CM and the CM nests under Whole House. A-MED ordering + B1 kill-switch/hoist + B2 survivor re-index + B3 unload teardown. Ships the canonical docs/architecture/DEVICE_TREE.md + a postmortem of the arc."
+  }
+}

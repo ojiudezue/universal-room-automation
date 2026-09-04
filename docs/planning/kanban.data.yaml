@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-03'
+  last_reconciled: '2026-09-04'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -323,7 +323,8 @@ cards:
   title: v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier
     nesting mis-wire — remove shells, fix the D-NEST sweep resolution
   thread: platform
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.94.1
   created: 2026-09-03 21:20
   updated: 2026-09-03 21:20
   refinement_status: initial
