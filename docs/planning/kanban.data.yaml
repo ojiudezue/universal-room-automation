@@ -119,12 +119,12 @@ cards:
   title: HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard
     error; every coordinator entity failed to add (live outage)
   thread: platform
-  status: done
+  status: shipped_organic
   disposition_2026_09_03: 'DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day,
     ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error
     adding entity None" post-restart. Discriminator met at deploy-time. Cosmetic device nesting deferred to
     the device/entity architecture plan (via_device_id path).'
-  shipped_version: v5.92.3
+  shipped_version: v5.94.0
   created: 2026-09-03 10:30
   updated: 2026-09-03 10:30
   refinement_status: initial
@@ -287,7 +287,8 @@ cards:
   title: Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize
     on menus + consistent icon-in-label usage
   thread: platform
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.94.0
   created: 2026-09-03 17:10
   updated: 2026-09-03 18:05
   refinement_status: refined
@@ -359,7 +360,8 @@ cards:
   title: Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale /
     helper-consolidation / per-item-reload follow-ups
   thread: platform
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.94.0
   created: 2026-09-03 16:50
   updated: 2026-09-03 16:50
   refinement_status: refined
