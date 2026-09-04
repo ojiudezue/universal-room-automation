@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-04T03:15:48-05:00_ - _Data commit: `24de97e750e3`_ - _last_reconciled: 2026-09-04_
+_Generated: 2026-09-04T03:24:15-05:00_ - _Data commit: `5a3376951211`_ - _last_reconciled: 2026-09-04_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -364,6 +364,8 @@ _created 2026-09-03 15:10 · initial_
 - **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
 - **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
 - **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+- **Forensic keys (1):**
+  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**

@@ -218,6 +218,18 @@ cards:
   thread: identity
   status: investigating
   created: 2026-09-03 15:10
+  live_correction_2026_09_04: 'GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card''s stated reason.
+    The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is
+    STALE — Frigate face is LIVE and NAMING residents right now: 15 _last_recognized_face_2 sensors active
+    7d, aggregate Oji 66 / Jaya 31 / Ojini 27 / Ezinne 10 / Ziri 1 (family_room Oji 41/Jaya 15/Ojini 8/
+    Ezinne 5). YET person_entry_exit_events person_id attach is STILL 1 of 7,265. So the bug is NOT sensor
+    availability and NOT "face down" — the names are demonstrably present on the _2 sensors and the egress
+    JOIN still does not stamp them. REFRAME the investigation: why does the join fail to attach a name that
+    IS present? Leading hypothesis = timing/real-time match — the _2 HA sensor updates on Frigate cadence,
+    not synchronized to the egress-crossing instant, so the join window misses it; the MQTT sub_label
+    (frigate/events, real-time) is the fix (name matched to the crossing moment). This card remains the
+    FIRST deliverable of the 6.0.0 arc, with corrected framing. Also correct the depends_on cluster premise
+    (EGRESS-IDENTITY-JOIN-GAP-1 et al. cite "face down" / "sensors unavailable" — refuted).'
   updated: 2026-09-03 15:10
   refinement_status: initial
   approval: explicit
