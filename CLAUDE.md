@@ -61,6 +61,7 @@ For URA cycles, route each phase to the designated subagent. Do NOT default to `
 - Read the relevant source files before proposing changes
 - Read `docs/reviews/URA_CODE_TRACING_METHODOLOGY.md` before reviewing/tracing a value — producer→entry/exit→consumers→cross-cycle; the how-to behind the bug classes
 - Read `docs/reviews/URA_ARCHITECTURE_MAP.md` — geometry (Room/Zone/House, HVAC≠house zones), coordinators, primitives, and value SCOPE; prevents single-site + wrong-scope errors
+- **For ANY device-registry / `DeviceInfo` / `via_device` / config-entry-ownership work, read `docs/architecture/DEVICE_TREE.md` FIRST** — the canonical device/entity architecture (config-entry ownership vs `via_device` nesting are TWO independent axes; HA 2026.9 `via_device` RuntimeError; same-identifier hazards). Its companion `docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md` records the 8 mistakes made in the v5.92.3→v5.94.1 arc and their fixes — consult before repeating device-registry surgery.
 
 ## No Fabrication — CRITICAL
 Never describe HA APIs, library behavior, or in-repo code patterns from a plausible-sounding mental model. There are three valid options when a question about code/library behavior comes up:

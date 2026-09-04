@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T17:33:11-05:00_ - _Data commit: `ea1c0dc279f3`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-03T20:48:43-05:00_ - _Data commit: `05017c5896be`_ - _last_reconciled: 2026-09-03_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,13 +15,13 @@ _Generated: 2026-09-03T17:33:11-05:00_ - _Data commit: `ea1c0dc279f3`_ - _last_r
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 7 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 53 |
+| 🚀 Shipped (organic open) | 56 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 25 |
-| ✅ Done | 59 |
+| ✅ Done | 58 |
 
 ## 📥 Inbox (29)
 _raw capture_
@@ -747,36 +747,23 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (2)
+## 🔨 In progress (1)
 _being built_
 
-### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
+### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
 thread: **platform** - status: **in_progress** - approval: **explicit**
-_created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
+_created 2026-09-03 21:20 · initial_
 - **Problem / Solution:**
-  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
-- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
-- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
-- **Next:** Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).
-- **Tags:** ux-consistency, no-fabrication-verify
-- **Sibling of:** DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1
-- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+  - Problem: after the v5.94.0 de-frag moved all coordinator entities onto the Coordinator-Manager config entry, three now-empty duplicate device records (Coordinator Manager, Security, Music Following) are left dangling on the parent "Unive...
+- **Origin:** 2026-09-03 - v5.94.0 live validation — de-frag worked at entity level
+- **Why:** Verified via live registry + a deep HA-source code read: parent entry no longer forwards coordinator platforms (so shell removal is durable), and the sweep's last-writer-wins on duplicate identifiers is the root of the mis-nesting. Nothi...
+- **Next:** Build on feature/device-shell-cleanup (worktree) → Tier 2-DB 3 reviews + orchestrator verify → deploy v5.94.1 → live-registry validation (3 shells gone, real CM 60 ents + via→Whole House, coordinators nest under real CM).
+- **Tags:** tier-2db, device-registry, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1
+- **Parsimony:** [BUILD] 3 empty duplicate device cards + real coordinators nested under an empty shell
+- **Refs:** __init__.py CM branch ~:4194-4267; _devices.py async_stamp_via_device_tree ~:162-185; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/readmes/README_v5.94.0.md
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
-
-### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
-thread: **platform** - status: **in_progress** - approval: **explicit**
-_created 2026-09-03 16:50 · refined_
-- **Problem / Solution:**
-  - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
-- **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
-- **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
-- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
-- **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
-- **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
-- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
-- **Forensic keys (1):**
-  - `spawns`: SCALE-LEAN-ROOM-PROFILE-1
 
 ## 🔍 Review (1)
 _under review_
@@ -803,8 +790,49 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (53)
+## 🚀 Shipped (organic open) (56)
 _live, awaiting proof_
+
+### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
+thread: **platform** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-03 10:30 · initial_
+- **Problem / Solution:**
+  - Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...
+- **Origin:** 2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError
+- **Why:** Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...
+- **Next:** SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...
+- **Tags:** hotfix, no-fabrication-verify, ha-2026.9-compat
+- **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
+- **Forensic keys (1):**
+  - `disposition_2026_09_03`: DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day, ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error adding entity None" post-restart. Discriminator met at ...
+
+### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
+thread: **platform** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
+- **Problem / Solution:**
+  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
+- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
+- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
+- **Next:** Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).
+- **Tags:** ux-consistency, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1
+- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
+
+### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
+thread: **platform** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-03 16:50 · refined_
+- **Problem / Solution:**
+  - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
+- **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
+- **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
+- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
+- **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
+- **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
+- **Forensic keys (1):**
+  - `spawns`: SCALE-LEAN-ROOM-PROFILE-1
 
 ### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
@@ -2090,7 +2118,7 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (59)
+## ✅ Done (58)
 _closed, evidence in refs_
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
@@ -2106,19 +2134,6 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
-
-### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
-thread: **platform** - status: **done** - approval: **explicit**
-_created 2026-09-03 10:30 · initial_
-- **Problem / Solution:**
-  - Problem: after the HA 2026.9 upgrade, every URA Coordinator-Manager entity (Battery Strategy, EV Charging, House State, Security, Energy Situation, all coordinator numbers/switches/selects/buttons) went unavailable. 2026.9 turned the dep...
-- **Origin:** 2026-09-03 - operator dashboard showed widespread Unavailable/NaN after 2026.9 upgrade; live diagnosis found the via_device RuntimeError
-- **Why:** Live traceback: RuntimeError "device_registry.async_get_or_create with a deprecated via_device parameter; use via_device_id". 109 DeviceInfo via_device declarations across 10 files. Reload did not help (re-runs the failing add). Not caus...
-- **Next:** SHIPPING v5.92.3 (build verified: 109->0, deletions-only diff, py_compile clean). Deploy + restart + live-validate coordinator entities repopulate. Follow-up: proper device nesting under 2026.9 patterns folded into the device/entity arch...
-- **Tags:** hotfix, no-fabrication-verify, ha-2026.9-compat
-- **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
-- **Forensic keys (1):**
-  - `disposition_2026_09_03`: DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day, ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error adding entity None" post-restart. Discriminator met at ...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**
