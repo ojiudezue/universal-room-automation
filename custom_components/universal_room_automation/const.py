@@ -1465,6 +1465,10 @@ CENSUS_AGREEMENT_SINGLE: Final = "single_source"
 # kill-switch traffic so it does NOT pollute abstain/ambiguity
 # observability (L3 discriminator).
 CENSUS_AGREEMENT_DISABLED: Final = "disabled"
+# IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: BLE + face cross-engine
+# corroboration on the same RESIDENT slug — distinct from BOTH (multi-
+# camera face agreement) so the observability writer can tell them apart.
+CENSUS_AGREEMENT_TWO_ENGINES: Final = "two_engines"
 
 CONF_CENSUS_CROSS_VALIDATION: Final = "census_cross_validation"
 
@@ -2231,6 +2235,38 @@ CONF_EGRESS_IDENTITY_ENABLED: Final = "egress_identity_enabled"
 # occurs in production; the switch itself is the operator's live
 # kill-switch backstop.
 DEFAULT_EGRESS_IDENTITY_ENABLED: Final = True
+
+# IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2/D3/D4 knobs. See
+# docs/planning/PLANNING_identity_fusion_producer_2026_09.md §6.
+# Trust weight of a single BLE home<->away transition leg. Fitted;
+# module constant per §6 (drift silently rebalances agreement math).
+BLE_TRANSITION_CONFIDENCE: Final = 0.75
+# Confidence when BLE + face agree on the same RESIDENT slug (must
+# strictly dominate face-only and BLE-only ranks).
+BLE_PLUS_FACE_CORROBORATED_CONFIDENCE: Final = 0.95
+# TTL of the BLE-transition leg cache. Derived from the FACE_MATCH_*
+# window FAMILY (C4). Max face window today = 300s + 30s slack.
+BLE_TRANSITION_CACHE_TTL_S: Final = (
+    max(
+        FACE_MATCH_EXIT_WINDOW_BEFORE_S,
+        FACE_MATCH_EXIT_WINDOW_AFTER_S,
+        FACE_MATCH_ENTRY_WINDOW_BEFORE_S,
+        FACE_MATCH_ENTRY_WINDOW_AFTER_S,
+    )
+    + 30
+)
+# D4 §0: face-producer staleness TTL (safety bound — wrong value
+# reintroduces the §0 hazard). Module constant, never a knob.
+FACE_PRODUCER_STALE_TTL_S: Final = 120
+# D3: operator list of face-library names to admit as guest identities
+# in the `guest:<first_token>` namespace. Options-flow rung.
+CONF_KNOWN_FACE_GUESTS: Final = "known_face_guests"
+DEFAULT_KNOWN_FACE_GUESTS: Final = []
+# D4: kill-switch that ENABLES the provenance filter + producer-health
+# guard (see plan §6 knob table). ON by default; opposite concept
+# from the on-demand drill switch (`switch.egress_identity_face_failsafe_drill`).
+CONF_EGRESS_IDENTITY_FAILSAFE_STRICT: Final = "egress_identity_failsafe_strict"
+DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT: Final = True
 
 # v3.5.2 Census Mismatch
 CENSUS_MISMATCH_THRESHOLD: Final = 2

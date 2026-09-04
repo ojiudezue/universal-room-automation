@@ -55,6 +55,12 @@ from .const import (
     CENSUS_AGREEMENT_SINGLE,
     CENSUS_AGREEMENT_DISAGREE,
     CENSUS_AGREEMENT_DISABLED,
+    CENSUS_AGREEMENT_TWO_ENGINES,
+    BLE_TRANSITION_CONFIDENCE,
+    BLE_PLUS_FACE_CORROBORATED_CONFIDENCE,
+    FACE_PRODUCER_STALE_TTL_S,
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1243,6 +1249,47 @@ class EgressDirectionTracker:
                 continue
             all_legs.extend(legs)
 
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4 §0: face-producer
+        # health + provenance filter. Under STRICT + face-producer-down
+        # (Frigate off, MQTT bridge stale, drill switch engaged), all
+        # face-provenance legs are dropped BEFORE the classifier runs.
+        # BLE legs (collected below) are untouched — they keep naming
+        # the crossing. Read-time only; no timers.
+        try:
+            strict = census._is_egress_identity_failsafe_strict()
+            face_live = census._is_face_producer_live()
+        except Exception:  # noqa: BLE001
+            strict = True
+            face_live = True
+        if strict and not face_live:
+            if all_legs:
+                try:
+                    census._face_dropped_producer_down_count += len(all_legs)
+                except Exception:  # noqa: BLE001
+                    pass
+            all_legs = []
+
+        # D4 per-leg staleness backstop DEFERRED (see BUILD REPORT):
+        # the plan's wall-clock semantics conflict with the existing
+        # FACE_MATCH_EXIT_WINDOW_BEFORE_S=180 delta-vs-timestamp window
+        # and would silently regress the pre-cycle in-window fixtures.
+        # The producer-health gate above + `_is_face_producer_live()`
+        # + drill switch cover the §0 invariant on their own; the
+        # extra defence-in-depth staleness gate is left as a follow-up
+        # after §6 knob semantics are reconciled.
+
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: BLE-transition
+        # legs matching this crossing direction, from the census
+        # provenance-guarded cache. Empty when no in-window BLE
+        # transition exists for a tracked slug.
+        try:
+            ble_legs = census._resolve_ble_legs(timestamp, direction) or []
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "egress-identity: _resolve_ble_legs raised", exc_info=True,
+            )
+            ble_legs = []
+
         # Direction-keyed asymmetric signed-lag window.
         if direction == "exit":
             lo = -float(FACE_MATCH_EXIT_WINDOW_BEFORE_S)
@@ -1269,6 +1316,128 @@ class EgressDirectionTracker:
             if delta < lo or delta > hi:
                 continue
             in_window.append((leg, delta))
+
+        # IDENTITY-FUSION-PRODUCER-1 D2 precedence branch. BLE legs
+        # (from the direction-keyed cache above) are considered
+        # alongside face legs. Trust model (plan §3.2 with H2):
+        #   - No face in-window, BLE in-window  -> attached_ble
+        #   - BLE + agreeing RESIDENT face      -> corroborated (BOOST)
+        #   - BLE + disagreeing RESIDENT face   -> BLE wins
+        #   - BLE + disagreeing `guest:*` face  -> ABSTAIN (H2:
+        #     never attribute a guest's crossing to a resident).
+        ble_slugs = {leg.person_slug for leg in ble_legs if leg.person_slug}
+        face_slugs = {leg.canonical_slug for leg, _ in in_window
+                      if leg.canonical_slug}
+        if ble_slugs:
+            # BLE-only path — no in-window face at all.
+            if not in_window:
+                # Multi-slug BLE (rare — two housemates crossing
+                # simultaneously): defer to face-style DISAGREE.
+                if len(ble_slugs) >= 2:
+                    _record("abstain", CENSUS_AGREEMENT_DISAGREE)
+                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                slug = next(iter(ble_slugs))
+                _leg = next(l for l in ble_legs if l.person_slug == slug)
+                try:
+                    census._egress_identity_last_attach = {
+                        "person": slug,
+                        "camera": egress_camera_id,
+                        "identity_confidence": float(BLE_TRANSITION_CONFIDENCE),
+                        "signed_lag_delta_seconds": (
+                            (_leg.transition_ts - timestamp).total_seconds()
+                            if _leg.transition_ts else None
+                        ),
+                        "direction": direction,
+                        "agreement_class": CENSUS_AGREEMENT_SINGLE,
+                        "contributor_engines": ["ble"],
+                        "provenance": "ble",
+                    }
+                except Exception:  # noqa: BLE001
+                    pass
+                _record("attached_ble", CENSUS_AGREEMENT_SINGLE)
+                return (
+                    slug,
+                    float(BLE_TRANSITION_CONFIDENCE),
+                    CENSUS_AGREEMENT_SINGLE,
+                )
+            # BLE + face both present. Enumerate by single BLE slug for
+            # H2 clarity (BLE window is narrow enough that concurrent
+            # multi-slug BLE + face is out-of-scope for this cycle).
+            if len(ble_slugs) == 1 and len(face_slugs) == 1:
+                b_slug = next(iter(ble_slugs))
+                f_slug = next(iter(face_slugs))
+                if b_slug == f_slug:
+                    # AGREEING resident: corroborated BOOST.
+                    _record(
+                        "attached_ble_face_corroborated",
+                        CENSUS_AGREEMENT_TWO_ENGINES,
+                    )
+                    try:
+                        census._egress_identity_last_attach = {
+                            "person": b_slug,
+                            "camera": egress_camera_id,
+                            "identity_confidence": float(
+                                BLE_PLUS_FACE_CORROBORATED_CONFIDENCE),
+                            "signed_lag_delta_seconds": None,
+                            "direction": direction,
+                            "agreement_class": CENSUS_AGREEMENT_TWO_ENGINES,
+                            "contributor_engines": sorted(
+                                {l.engine for l, _ in in_window} | {"ble"}
+                            ),
+                            "provenance": "ble+face",
+                        }
+                    except Exception:  # noqa: BLE001
+                        pass
+                    return (
+                        b_slug,
+                        float(BLE_PLUS_FACE_CORROBORATED_CONFIDENCE),
+                        CENSUS_AGREEMENT_TWO_ENGINES,
+                    )
+                # DISAGREEMENT — H2 guard: never attribute a guest's
+                # crossing to a resident.
+                if f_slug.startswith("guest:"):
+                    _LOGGER.info(
+                        "egress-identity: ABSTAIN resident_vs_guest "
+                        "(ble=%s, face=%s)", b_slug, f_slug,
+                    )
+                    _record(
+                        "abstain_resident_vs_guest",
+                        CENSUS_AGREEMENT_DISAGREE,
+                    )
+                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                # Two residents disagree: BLE wins over face.
+                _LOGGER.info(
+                    "egress-identity: BLE wins over disagreeing face "
+                    "(ble=%s, face=%s)", b_slug, f_slug,
+                )
+                _record(
+                    "ble_face_disagree_ble_wins",
+                    CENSUS_AGREEMENT_SINGLE,
+                )
+                try:
+                    census._egress_identity_last_attach = {
+                        "person": b_slug,
+                        "camera": egress_camera_id,
+                        "identity_confidence": float(BLE_TRANSITION_CONFIDENCE),
+                        "signed_lag_delta_seconds": None,
+                        "direction": direction,
+                        "agreement_class": CENSUS_AGREEMENT_SINGLE,
+                        "contributor_engines": ["ble"],
+                        "provenance": "ble",
+                    }
+                except Exception:  # noqa: BLE001
+                    pass
+                return (
+                    b_slug,
+                    float(BLE_TRANSITION_CONFIDENCE),
+                    CENSUS_AGREEMENT_SINGLE,
+                )
+            # Multi-slug on either side w/ BLE present: retain existing
+            # ABSTAIN semantics (transit_validator.py DISAGREE branch,
+            # RETAINED per H2 precedence rule).
+            if len(ble_slugs | face_slugs) >= 2:
+                _record("abstain", CENSUS_AGREEMENT_DISAGREE)
+                return (None, None, CENSUS_AGREEMENT_DISAGREE)
 
         if not in_window:
             _record("no_leg", CENSUS_AGREEMENT_SINGLE)
@@ -1490,7 +1659,21 @@ class EgressDirectionTracker:
             if census_ref is not None:
                 try:
                     if direction == "entry":
-                        census_ref.register_egress_face(person_id, egress_timestamp)
+                        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4/H1:
+                        # forward the resolver's provenance tag so the
+                        # census union can gate face-provenance names
+                        # under a face-producer outage (BLE-provenance
+                        # survives; guest:* goes to a separate bucket).
+                        try:
+                            _prov = str(
+                                (getattr(census_ref, "_egress_identity_last_attach", {}) or {})
+                                .get("provenance", "face")
+                            )
+                        except Exception:  # noqa: BLE001
+                            _prov = "face"
+                        census_ref.register_egress_face(
+                            person_id, egress_timestamp, provenance=_prov,
+                        )
                     else:  # direction == "exit"
                         census_ref.evict_egress_face(person_id)
                 except Exception:  # noqa: BLE001 — census register is

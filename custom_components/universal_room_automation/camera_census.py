@@ -79,6 +79,17 @@ from .const import (
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     EGRESS_FACE_UNION_TTL_S,
     FACE_MATCH_MIN_CONFIDENCE,
+    FACE_MATCH_EXIT_WINDOW_BEFORE_S,
+    FACE_MATCH_EXIT_WINDOW_AFTER_S,
+    FACE_MATCH_ENTRY_WINDOW_BEFORE_S,
+    FACE_MATCH_ENTRY_WINDOW_AFTER_S,
+    BLE_TRANSITION_CACHE_TTL_S,
+    BLE_TRANSITION_CONFIDENCE,
+    FACE_PRODUCER_STALE_TTL_S,
+    CONF_KNOWN_FACE_GUESTS,
+    DEFAULT_KNOWN_FACE_GUESTS,
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
     PHONE_HOSTNAME_PREFIXES,
@@ -205,6 +216,28 @@ class FaceLeg:
     canonical_slug: str | None
     last_changed: datetime | None
     confidence: float | None
+
+
+@dataclass(frozen=True)
+class BleTransitionLeg:
+    """IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: a single BLE
+    home<->away transition on ``person.<slug>``, sourced from a
+    Bermuda / BLE / private_ble device_tracker (provenance-guarded at
+    ingest — see :class:`PersonCensus._on_person_state_change`).
+
+    Sibling of :class:`FaceLeg`; consumed at the decision site by
+    ``transit_validator._resolve_egress_face_identity``. Never emitted
+    for camera_face-provenance ``person.*`` updates (§0 fail-safe:
+    those are face-provenance, not BLE, and MUST be gated by
+    ``_is_face_producer_live``).
+    """
+    person_slug: str
+    transition_ts: datetime
+    direction: str  # "arriving" | "departing"
+    engine: str  # always "ble"
+    confidence: float
+    provenance: str  # always "ble"
+    source_entity: str
 
 
 # ============================================================================
@@ -1244,6 +1277,45 @@ class PersonCensus:
         # cameras. Grows bounded by camera count; entries persist for the
         # process lifetime (deliberate — one WARN per problem camera).
         self._null_area_warned: set[str] = set()
+
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: BLE-transition leg
+        # cache. Fed by `_on_person_state_change` under the Bermuda/BLE
+        # provenance guard; pruned on read against BLE_TRANSITION_CACHE_TTL_S.
+        # Deque is bounded so a runaway producer can never blow the heap.
+        self._ble_transition_cache: deque[BleTransitionLeg] = deque(maxlen=256)
+        # Cancellers for the per-slug state_changed listeners registered by
+        # `_register_ble_transition_listeners`; drained by
+        # `async_teardown_ble_transition_listeners` at unload.
+        self._ble_transition_unsubs: list[Any] = []
+        # D2 telemetry — attribute-guard rejects (geofence source, missing
+        # source attr, other non-BLE providers).
+        self._ble_leg_rejected_provenance_count: int = 0
+
+        # D4 §0 fail-safe surface. `_face_drill_forced` is toggled by
+        # `switch.egress_identity_face_failsafe_drill` (see switch.py); it
+        # is read-time-only, so no timers, no suppression, restart-safe.
+        # `_face_producer_health_reason` disambiguates "drill_forced" vs
+        # natural down for the diagnostic sensor / operator logs.
+        self._face_drill_forced: bool = False
+        self._face_producer_health_reason: str = "live"
+        # D4 telemetry counters (in-memory; sensor.py surfaces later).
+        self._face_dropped_producer_down_count: int = 0
+        self._face_dropped_stale_count: int = 0
+        self._face_dropped_drill_forced_count: int = 0
+
+        # D3 / H1: guest-namespace egress registrations kept SEPARATE from
+        # the resident bucket so `identified_count` (resident scope) is
+        # never inflated by a `guest:*` slug (v5.16-class regression
+        # surface — see feedback_cross_investigation_synthesis.md).
+        self._egress_guest_ids: dict[str, datetime] = {}
+        # D4: provenance ledger for `_egress_face_ids` — a face-provenance
+        # register-time entry is suppressed at read time when
+        # `_is_face_producer_live()` is False; a ble-provenance entry is
+        # not. Keys mirror `_egress_face_ids`; values are "face" or "ble".
+        self._egress_face_ids_provenance: dict[str, str] = {}
+        # H1: last computed identified-guests tally (used by census
+        # sensor observability; enhanced-path writer stamps this).
+        self._last_identified_guests_count: int = 0
 
     # ------------------------------------------------------------------
     # Transit detection helpers (cross-platform)
@@ -3126,8 +3198,41 @@ class PersonCensus:
                     head, matches,
                 )
             return ""
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D3: known-face-guest
+        # namespace. When first-token doesn't map to any tracked slug,
+        # check the operator-configured `known_face_guests` list (case-
+        # insensitive first-token match) and return `guest:<head>` so
+        # downstream consumers can distinguish a face-recognized guest
+        # (Ojini) from an unmapped stranger. H2 precedence: tracked
+        # slugs win — this branch only runs when the tracked-slug
+        # attempts above ALL missed.
+        try:
+            guests = self._get_known_face_guests()
+        except Exception:  # noqa: BLE001 — options read is best-effort
+            guests = []
+        for g in guests:
+            g_head = str(g).strip().lower().split("_", 1)[0]
+            if g_head and g_head == head:
+                return f"guest:{head}"
         # Fallback: preserve the (lowercased) identifier verbatim.
         return s
+
+    def _get_known_face_guests(self) -> list[str]:
+        """Return operator-configured `known_face_guests` list from the
+        INTEGRATION entry options. See D3 in the plan §3.3."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                raw = merged.get(CONF_KNOWN_FACE_GUESTS, DEFAULT_KNOWN_FACE_GUESTS) or []
+                out: list[str] = []
+                for name in raw:
+                    if not name:
+                        continue
+                    s = str(name).strip()
+                    if s:
+                        out.append(s)
+                return out
+        return list(DEFAULT_KNOWN_FACE_GUESTS)
 
     # Back-compat alias — external callers historically used the old name.
     def _normalize_person_name(self, name: Any) -> str:
@@ -3167,6 +3272,7 @@ class PersonCensus:
 
     def register_egress_face(
         self, name: str, ts: datetime | None = None,
+        provenance: str = "face",
     ) -> None:
         """Record a face-identified egress crossing so the census union
         fuses this identity for up to ``EGRESS_FACE_UNION_TTL_S``.
@@ -3198,7 +3304,28 @@ class PersonCensus:
                 norm,
             )
             ts = ts.replace(tzinfo=dt_util.UTC)
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D3/H1: guest slugs
+        # (`guest:*`) live in a SEPARATE ledger so identified_count
+        # (resident scope) is never inflated by a face-recognized guest.
+        if norm.startswith("guest:"):
+            self._egress_guest_ids[norm] = ts
+            # Bound guest ledger too.
+            if len(self._egress_guest_ids) > 32:
+                self._get_egress_guest_ids_fresh(dt_util.utcnow())
+            _LOGGER.info(
+                "Egress-face GUEST identity registered for census union: %s "
+                "(TTL=%ds, provenance=%s)",
+                norm, EGRESS_FACE_UNION_TTL_S, provenance,
+            )
+            return
         self._egress_face_ids[norm] = ts
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4: remember provenance
+        # so the fresh reader can gate face-provenance names under the
+        # face-producer-down fail-safe while keeping BLE-provenance
+        # registrations live.
+        self._egress_face_ids_provenance[norm] = (
+            provenance if provenance in ("face", "ble") else "face"
+        )
         # C-LOW-1: register-time TTL prune backstop so the dict stays
         # bounded even if readers stop firing.
         if len(self._egress_face_ids) > 32:
@@ -3220,7 +3347,16 @@ class PersonCensus:
         norm = self._canonical_person_slug(name)
         if not norm:
             return
+        if norm.startswith("guest:"):
+            if self._egress_guest_ids.pop(norm, None) is not None:
+                _LOGGER.info(
+                    "Egress-face GUEST identity evicted from census union: %s "
+                    "(exit crossing)",
+                    norm,
+                )
+            return
         if self._egress_face_ids.pop(norm, None) is not None:
+            self._egress_face_ids_provenance.pop(norm, None)
             _LOGGER.info(
                 "Egress-face identity evicted from census union: %s "
                 "(exit crossing)",
@@ -3252,7 +3388,246 @@ class PersonCensus:
                 stale.append(n)
         for n in stale:
             self._egress_face_ids.pop(n, None)
+            self._egress_face_ids_provenance.pop(n, None)
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4/H1: when
+        # STRICT is ON AND the face producer is not live, exclude
+        # face-provenance entries. BLE-provenance entries survive.
+        strict = self._is_egress_identity_failsafe_strict()
+        if strict and not self._is_face_producer_live():
+            visible = {
+                n for n in self._egress_face_ids.keys()
+                if self._egress_face_ids_provenance.get(n, "face") != "face"
+            }
+            return visible
         return set(self._egress_face_ids.keys())
+
+    def _get_egress_guest_ids_fresh(self, now: datetime) -> set[str]:
+        """Return currently fresh `guest:*` egress-face names (D3/H1),
+        pruning entries older than ``EGRESS_FACE_UNION_TTL_S``. Under
+        face-producer-outage + STRICT the set is empty (guests are
+        face-only by construction — no BLE provenance path exists)."""
+        if not self._is_egress_identity_enabled():
+            return set()
+        if not self._egress_guest_ids:
+            return set()
+        strict = self._is_egress_identity_failsafe_strict()
+        if strict and not self._is_face_producer_live():
+            return set()
+        ttl = EGRESS_FACE_UNION_TTL_S
+        stale: list[str] = []
+        for n, ts in self._egress_guest_ids.items():
+            try:
+                age = (now - ts).total_seconds()
+            except (TypeError, AttributeError):
+                stale.append(n)
+                continue
+            if age > ttl or age < 0:
+                stale.append(n)
+        for n in stale:
+            self._egress_guest_ids.pop(n, None)
+        return set(self._egress_guest_ids.keys())
+
+    # ------------------------------------------------------------------
+    # IDENTITY-FUSION-PRODUCER-1 (2026-09-04): D2 BLE-transition leg,
+    # D4 face-producer health + drill guard. See
+    # docs/planning/PLANNING_identity_fusion_producer_2026_09.md.
+    # ------------------------------------------------------------------
+
+    def _is_egress_identity_failsafe_strict(self) -> bool:
+        """Read `CONF_EGRESS_IDENTITY_FAILSAFE_STRICT` from options.
+        Default True. Kill-switch that ENABLES the D4 provenance
+        filter + producer-health guard (see plan §6)."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(merged.get(
+                    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+                    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
+                ))
+        return DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT
+
+    def _is_face_producer_live(self) -> bool:
+        """D4 §0 read-time producer-health gate. Returns False when any
+        of the following holds; caller (resolver / union) drops
+        face-provenance legs and names in that case.
+
+          - The on-demand drill switch is engaged
+            (`switch.egress_identity_face_failsafe_drill = on` ->
+            `_face_drill_forced = True`).
+          - `binary_sensor.frigate_status_2` reports `unavailable` /
+            `unknown` / missing.
+
+        Read-time only — no timers, no suppression, restart-safe.
+        Populates `_face_producer_health_reason` so the diagnostic
+        sensor can distinguish `drill_forced` vs natural causes."""
+        # Drill takes precedence and its reason survives every branch.
+        if self._face_drill_forced:
+            self._face_producer_health_reason = "drill_forced"
+            return False
+        try:
+            fst = self.hass.states.get("binary_sensor.frigate_status_2")
+        except Exception:  # noqa: BLE001
+            fst = None
+        # Fail-OPEN on missing/None (matches plan §3.4.1: only an
+        # explicit `unavailable` signal is treated as down; absence
+        # of the health sensor means the check is inert, so existing
+        # face paths continue to run). Explicit "unavailable" /
+        # "unknown" states DO mark the producer down.
+        if fst is None:
+            self._face_producer_health_reason = "live"
+            return True
+        val = fst.state if isinstance(fst.state, str) else ""
+        if val.strip().lower() in ("unavailable", "unknown"):
+            self._face_producer_health_reason = "frigate_down"
+            return False
+        self._face_producer_health_reason = "live"
+        return True
+
+    @callback
+    def _on_person_state_change(self, event) -> None:
+        """D2 provenance-guarded BLE-transition listener. Fires on any
+        `person.<slug>` state_changed event; ingests a BLE leg ONLY
+        when:
+
+          - old_state.state != new_state.state, AND
+          - transition is `home` <-> `not_home` (either direction), AND
+          - `new_state.attributes["source"]` (lowercased) contains
+            one of `bermuda` / `ble` / `private_ble`.
+
+        Camera-face-provenance updates are REJECTED and counted in
+        `_ble_leg_rejected_provenance_count` — those are face-provenance
+        (§0 broad definition) and MUST be gated by
+        `_is_face_producer_live`, not admitted as a BLE leg."""
+        try:
+            new_state = event.data.get("new_state")
+            old_state = event.data.get("old_state")
+        except Exception:  # noqa: BLE001
+            return
+        if new_state is None or old_state is None:
+            return
+        try:
+            new_s = str(getattr(new_state, "state", "") or "").lower()
+            old_s = str(getattr(old_state, "state", "") or "").lower()
+        except Exception:  # noqa: BLE001
+            return
+        if new_s == old_s:
+            return
+        if not ({new_s, old_s} <= {"home", "not_home"}):
+            return
+        try:
+            src = str(
+                (getattr(new_state, "attributes", None) or {}).get("source", "")
+                or ""
+            ).lower()
+        except Exception:  # noqa: BLE001
+            src = ""
+        if not any(tok in src for tok in ("bermuda", "ble", "private_ble")):
+            self._ble_leg_rejected_provenance_count += 1
+            return
+        entity_id = getattr(new_state, "entity_id", "") or ""
+        slug = entity_id.replace("person.", "").strip().lower()
+        if not slug:
+            return
+        direction = "arriving" if new_s == "home" else "departing"
+        try:
+            ts = getattr(new_state, "last_changed", None) or dt_util.utcnow()
+            if getattr(ts, "tzinfo", None) is None:
+                ts = ts.replace(tzinfo=dt_util.UTC)
+        except Exception:  # noqa: BLE001
+            ts = dt_util.utcnow()
+        leg = BleTransitionLeg(
+            person_slug=slug,
+            transition_ts=ts,
+            direction=direction,
+            engine="ble",
+            confidence=BLE_TRANSITION_CONFIDENCE,
+            provenance="ble",
+            source_entity=src,
+        )
+        self._ble_transition_cache.append(leg)
+        _LOGGER.info(
+            "BLE-transition leg: person=%s direction=%s source=%s",
+            slug, direction, src,
+        )
+
+    def _resolve_ble_legs(
+        self, timestamp: datetime, direction: str,
+    ) -> list[BleTransitionLeg]:
+        """Return in-window BLE-transition legs matching the egress
+        direction. `direction` is "entry" (arrival) or "exit"
+        (departure). TTL-prunes stale entries from the cache on read.
+        """
+        try:
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=dt_util.UTC)
+        except Exception:  # noqa: BLE001
+            return []
+        ttl = BLE_TRANSITION_CACHE_TTL_S
+        want_direction = "arriving" if direction == "entry" else (
+            "departing" if direction == "exit" else None
+        )
+        if want_direction is None:
+            return []
+        # Prune stale entries (bounded work per call — deque maxlen 256).
+        fresh: deque[BleTransitionLeg] = deque(maxlen=self._ble_transition_cache.maxlen)
+        matches: list[BleTransitionLeg] = []
+        for leg in list(self._ble_transition_cache):
+            try:
+                lc = leg.transition_ts
+                if lc.tzinfo is None:
+                    lc = lc.replace(tzinfo=dt_util.UTC)
+                age = (timestamp - lc).total_seconds()
+            except Exception:  # noqa: BLE001
+                continue
+            if age > ttl or age < -ttl:
+                continue
+            fresh.append(leg)
+            if leg.direction == want_direction and -float(ttl) <= age <= float(ttl):
+                matches.append(leg)
+        self._ble_transition_cache = fresh
+        return matches
+
+    def _register_ble_transition_listeners(self) -> list:
+        """Register per-slug state_changed listeners for every tracked
+        person slug. Returns the list of unsub callables (also stored
+        on `self._ble_transition_unsubs` for teardown). Idempotent —
+        second call tears down prior listeners before re-registering."""
+        # Teardown any prior listeners so re-invoking is safe.
+        self.async_teardown_ble_transition_listeners()
+        from homeassistant.helpers.event import async_track_state_change_event
+        slugs = self._get_tracked_person_slugs()
+        entity_ids = [f"person.{s}" for s in slugs if s]
+        if not entity_ids:
+            return []
+        try:
+            unsub = async_track_state_change_event(
+                self.hass, entity_ids, self._on_person_state_change,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "BLE-transition listener registration failed for %r",
+                entity_ids, exc_info=True,
+            )
+            return []
+        self._ble_transition_unsubs.append(unsub)
+        _LOGGER.info(
+            "BLE-transition listeners registered for %d person slug(s)",
+            len(entity_ids),
+        )
+        return list(self._ble_transition_unsubs)
+
+    def async_teardown_ble_transition_listeners(self) -> None:
+        """Drain and invoke every registered BLE-transition listener
+        canceller. Safe to call multiple times."""
+        for unsub in list(self._ble_transition_unsubs):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "BLE-transition listener teardown raised (non-fatal)",
+                    exc_info=True,
+                )
+        self._ble_transition_unsubs = []
 
     # ------------------------------------------------------------------
     # v3.10.1: Enhanced Census (event-driven sensor fusion)
@@ -3950,6 +4325,15 @@ class PersonCensus:
         # D-MED-1 (2026-08-18): true byte-identical kill switch (see raw
         # fuse-site comment). When disabled, use the exact pre-cycle
         # expression with no canonicalization and no egress term.
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4/H1: face-provenance
+        # union guard. Under STRICT + face-producer-down, drop the
+        # face-recognized name feed entirely — those names are
+        # face-provenance by construction. BLE names + BLE-provenance
+        # egress registrations continue to accrue.
+        strict = self._is_egress_identity_failsafe_strict()
+        if strict and not self._is_face_producer_live():
+            face_recognized = []
+            self._face_dropped_producer_down_count += 1
         if self._is_egress_identity_enabled():
             egress_face_ids = self._get_egress_face_ids_fresh(now)
             recognized_set = (
@@ -3959,6 +4343,15 @@ class PersonCensus:
             )
         else:
             recognized_set = set(ble_persons) | set(face_recognized)
+        # H1: identified_guests SEPARATE from resident set so
+        # `identified_count` (resident scope) is never inflated by
+        # `guest:*` names. Read at every recompute; empty under
+        # face-producer-down (guests are face-only by construction).
+        try:
+            identified_guests = self._get_egress_guest_ids_fresh(now)
+        except Exception:  # noqa: BLE001
+            identified_guests = set()
+        self._last_identified_guests_count = len(identified_guests)
         identified_count = len(recognized_set)
 
         # Unidentified = camera-only (WiFi VLAN guest detection disabled —

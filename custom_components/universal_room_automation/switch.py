@@ -290,6 +290,10 @@ async def async_setup_entry(
             SecurityDelegateLightsSwitch(hass),
             # v3.7.6: Energy Observation Mode toggle
             EnergyObservationModeSwitch(hass, entry),
+            # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4 §3.4.1: on-demand
+            # face-producer fail-safe drill switch (RestoreEntity; boot-ON
+            # raises a WARNING + repair issue).
+            EgressIdentityFaceFailsafeDrillSwitch(hass, entry),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
             OccupancyWeightedPredictionSwitch(hass, entry),
             # v4.2.10: EC runtime toggles
@@ -757,6 +761,103 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when energy coordinator is active."""
         return self._get_energy() is not None
+
+
+class EgressIdentityFaceFailsafeDrillSwitch(SwitchEntity, RestoreEntity):
+    """IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D4 §3.4.1 — on-demand
+    drill for the face-producer fail-safe.
+
+    When ON, `PersonCensus._is_face_producer_live()` returns False for
+    every face branch unconditionally (no Frigate service touched, no
+    HA entity faked). Face-provenance identity attaches degrade to
+    BLE (residents) or anonymous (guests); BLE naming continues.
+
+    Fail-safe of the drill itself: engaged = suppress only. Never
+    escalates an alert, never fabricates an identity, never bypasses a
+    veto. Boot with the switch ON logs a WARNING and raises a repair
+    issue so it cannot be silently left engaged.
+
+    Distinct from `CONF_EGRESS_IDENTITY_FAILSAFE_STRICT` — that is the
+    kill-switch that ENABLES the fail-safe machinery; this switch
+    FORCES its trigger. Both must be sensibly configured for a drill:
+    STRICT ON + drill ON.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_egress_identity_face_failsafe_drill"
+        self._attr_name = "Egress Identity Fail-Safe Drill (drill only)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        self._is_on = False
+
+    def _get_census(self):
+        return self.hass.data.get(DOMAIN, {}).get("census")
+
+    @property
+    def is_on(self) -> bool:
+        census = self._get_census()
+        if census is None:
+            return self._is_on
+        return bool(getattr(census, "_face_drill_forced", False))
+
+    def _apply(self, value: bool) -> None:
+        self._is_on = value
+        census = self._get_census()
+        if census is not None:
+            census._face_drill_forced = value
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._apply(True)
+        _LOGGER.warning(
+            "Egress-identity face fail-safe DRILL engaged — face-provenance "
+            "identity will not attach on any path; BLE naming continues."
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._apply(False)
+        _LOGGER.info(
+            "Egress-identity face fail-safe DRILL released — face-provenance "
+            "identity resumes on the next crossing."
+        )
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state == "on":
+            self._apply(True)
+            _LOGGER.warning(
+                "Egress-identity face fail-safe DRILL restored ON at boot; "
+                "raising repair issue so it is not silently left engaged."
+            )
+            try:
+                from homeassistant.helpers import issue_registry as ir
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    "egress_identity_face_failsafe_drill_boot_on",
+                    is_fixable=True,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key="egress_identity_face_failsafe_drill_boot_on",
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Egress-identity drill boot-ON: repair issue raise failed",
+                    exc_info=True,
+                )
+            self.async_write_ha_state()
 
 
 class MemoryNMConditioningSwitch(SwitchEntity, RestoreEntity):
