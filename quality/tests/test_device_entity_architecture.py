@@ -1009,3 +1009,300 @@ def test_fix10_cm_deferred_branch_retry_on_prereqs_missing():
     assert '_register_per_person_sensors_scheduled["attempts"]' in body, (
         "FIX-10: no attempts counter on the retry loop"
     )
+
+
+# ---------------------------------------------------------------------------
+# v5.94.1 FIX 1 + FIX 2 — parent-entry shell cleanup + sweep tie-break.
+# ---------------------------------------------------------------------------
+
+
+class _FakeDevice2:
+    """Extended fake device with config_entries — used by v5.94.1 tests."""
+
+    def __init__(
+        self,
+        device_id: str,
+        identifiers: set[tuple[str, str]],
+        config_entries: set[str] | None = None,
+    ):
+        self.id = device_id
+        self.identifiers = identifiers
+        self.via_device_id: str | None = None
+        self.config_entries = set(config_entries or [])
+
+
+class _FakeDevReg2:
+    def __init__(self, devices: list[_FakeDevice2]):
+        self.devices = {d.id: d for d in devices}
+        self.removed: list[str] = []
+        self.update_calls: list[tuple] = []
+
+    def async_get(self, device_id):
+        return self.devices.get(device_id)
+
+    def async_update_device(
+        self, device_id, *, via_device_id=None, remove_config_entry_id=None,
+    ):
+        self.update_calls.append((device_id, via_device_id, remove_config_entry_id))
+        dev = self.devices.get(device_id)
+        if dev is None:
+            return
+        if via_device_id is not None:
+            dev.via_device_id = via_device_id
+        if remove_config_entry_id is not None:
+            dev.config_entries.discard(remove_config_entry_id)
+            # HA auto-deletes when this was the sole entry.
+            if not dev.config_entries:
+                self.removed.append(device_id)
+                self.devices.pop(device_id, None)
+
+
+class _FakeEntReg:
+    """Trivial entity registry returning the pre-seeded list for a device."""
+
+    def __init__(self, entities_by_device: dict[str, list]):
+        self._by_dev = entities_by_device
+
+    def async_entries_for_device(self, device_id, include_disabled_entities=False):  # noqa: D401
+        return list(self._by_dev.get(device_id, []))
+
+
+def _install_ent_reg(monkeypatch, ent_reg):
+    from homeassistant.helpers import entity_registry as er
+    monkeypatch.setattr(er, "async_get", lambda hass: ent_reg, raising=False)
+    monkeypatch.setattr(
+        er, "async_entries_for_device",
+        lambda reg, dev_id, include_disabled_entities=False:
+            reg.async_entries_for_device(
+                dev_id, include_disabled_entities=include_disabled_entities,
+            ),
+        raising=False,
+    )
+
+
+def _fake_hass_with_parent_entry(parent_entry_id: str | None):
+    """Minimal hass with config_entries.async_entries('universal_room_automation')."""
+    hass = MagicMock()
+    if parent_entry_id is None:
+        hass.config_entries.async_entries = MagicMock(return_value=[])
+        return hass
+    entry = MagicMock()
+    entry.entry_id = parent_entry_id
+    entry.data = {"entry_type": "integration"}
+    hass.config_entries.async_entries = MagicMock(return_value=[entry])
+    return hass
+
+
+# --- FIX 1: shell-removal predicate ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_shell_cleanup_removes_only_empty_shell(monkeypatch):
+    """FIX 1: only the empty parent-owned shell is removed; the real
+    populated CM-owned device survives (same identifier)."""
+    d = _import_devices()
+
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+
+    real_cm = _FakeDevice2(
+        "dev_real_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={cm},
+    )
+    shell = _FakeDevice2(
+        "dev_shell_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={parent},
+    )
+    # A third device we should NEVER touch (has entities, on parent).
+    inhab = _FakeDevice2(
+        "dev_inhabited",
+        {("universal_room_automation", "security_coordinator")},
+        config_entries={parent},
+    )
+    fake_reg = _FakeDevReg2([real_cm, shell, inhab])
+
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+
+    ent_reg = _FakeEntReg({
+        "dev_real_cm": ["entity_1", "entity_2"],  # populated
+        "dev_shell_cm": [],  # empty
+        "dev_inhabited": ["entity_3"],  # populated
+    })
+    _install_ent_reg(monkeypatch, ent_reg)
+
+    hass = MagicMock()
+    removed = await d.async_cleanup_parent_entry_shells(hass, parent)
+
+    assert removed == 1, f"expected 1 shell removed, got {removed}"
+    assert "dev_shell_cm" in fake_reg.removed, (
+        "empty parent-owned shell was NOT removed"
+    )
+    assert "dev_real_cm" in fake_reg.devices, (
+        "REAL CM device (same identifier) was destroyed — same-identifier hazard"
+    )
+    assert "dev_inhabited" in fake_reg.devices, (
+        "populated parent-owned device was wrongly removed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_shell_cleanup_skips_dual_owned(monkeypatch):
+    """FIX 1: a shell dual-owned by parent AND another entry is NEVER
+    removed — sole-owner (exact set equality) guard, not membership."""
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    dual = _FakeDevice2(
+        "dev_dual",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={parent, "OTHER_ENTRY"},
+    )
+    fake_reg = _FakeDevReg2([dual])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({"dev_dual": []}))
+
+    hass = MagicMock()
+    removed = await d.async_cleanup_parent_entry_shells(hass, parent)
+    assert removed == 0
+    assert "dev_dual" in fake_reg.devices
+    # Must NOT even have attempted a demote either — sole-owner guard blocks it.
+    assert fake_reg.update_calls == []
+
+
+# --- FIX 2: sweep same-identifier tie-break --------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_stamp_prefers_populated_over_shell(monkeypatch):
+    """FIX 2: when two devices share the coordinator_manager identifier
+    (one empty-parent shell, one populated CM), children resolve to the
+    POPULATED device — never the shell."""
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+
+    integration = _FakeDevice2(
+        "dev_int",
+        {("universal_room_automation", "integration")},
+        config_entries={parent},
+    )
+    # Two coord_manager devices (same identifier).
+    shell_cm = _FakeDevice2(
+        "dev_shell_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={parent},
+    )
+    real_cm = _FakeDevice2(
+        "dev_real_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={cm},
+    )
+    # A child that should nest under coordinator_manager.
+    child = _FakeDevice2(
+        "dev_child_safety",
+        {("universal_room_automation", "safety_coordinator")},
+        config_entries={cm},
+    )
+    # ORDER MATTERS: real_cm FIRST, shell_cm LAST — under last-writer-wins
+    # (pre-FIX 2 behaviour) the shell would overwrite the real CM in
+    # ura_index and children would nest under the dead shell. FIX 2 must
+    # skip the shell regardless of insertion order.
+    fake_reg = _FakeDevReg2([integration, real_cm, shell_cm, child])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+
+    ent_reg = _FakeEntReg({
+        "dev_int": ["e_int"],
+        "dev_shell_cm": [],
+        "dev_real_cm": ["e_cm_1"],
+        "dev_child_safety": ["e_safety"],
+    })
+    _install_ent_reg(monkeypatch, ent_reg)
+
+    hass = _fake_hass_with_parent_entry(parent)
+    # ENTRY_TYPE_INTEGRATION value is "integration" — const.py:50.
+    # _fake_hass_with_parent_entry already sets entry.data["entry_type"]="integration".
+
+    await d.async_stamp_via_device_tree(hass)
+
+    assert fake_reg.devices["dev_child_safety"].via_device_id == "dev_real_cm", (
+        "FIX 2 tie-break broken — child resolved to the shell instead of "
+        f"the real CM (got {fake_reg.devices['dev_child_safety'].via_device_id})"
+    )
+    # Shell must NEVER be chosen as a parent for anyone.
+    for dev in fake_reg.devices.values():
+        assert dev.via_device_id != "dev_shell_cm", (
+            f"shell was picked as parent for {dev.id}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_shell_cleanup_survival_all_three_identifiers(monkeypatch):
+    """Operator safety mandate: for EACH of coordinator_manager /
+    security_coordinator / music_following_coordinator — the REAL CM-owned
+    device with entities MUST survive; only the empty parent-owned shell
+    is removed. Belt-and-suspenders: sole-parent AND not-CM-owned AND
+    zero-entities. Removal ops MUST target shell device.ids ONLY.
+    """
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+
+    idents = [
+        "coordinator_manager",
+        "security_coordinator",
+        "music_following_coordinator",
+    ]
+    devices = []
+    ent_map = {}
+    real_ids: dict[str, str] = {}
+    shell_ids: dict[str, str] = {}
+    for ident in idents:
+        real_id = f"dev_real_{ident}"
+        shell_id = f"dev_shell_{ident}"
+        real_ids[ident] = real_id
+        shell_ids[ident] = shell_id
+        devices.append(_FakeDevice2(
+            real_id,
+            {("universal_room_automation", ident)},
+            config_entries={cm},
+        ))
+        devices.append(_FakeDevice2(
+            shell_id,
+            {("universal_room_automation", ident)},
+            config_entries={parent},
+        ))
+        ent_map[real_id] = [f"e_{ident}_1", f"e_{ident}_2"]
+        ent_map[shell_id] = []
+
+    fake_reg = _FakeDevReg2(devices)
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg(ent_map))
+
+    hass = MagicMock()
+    removed = await d.async_cleanup_parent_entry_shells(
+        hass, parent, cm_entry_id=cm,
+    )
+
+    assert removed == 3, f"expected all 3 shells removed, got {removed}"
+    # Every shell gone
+    for ident, sid in shell_ids.items():
+        assert sid not in fake_reg.devices, (
+            f"shell {sid} for {ident} not removed"
+        )
+    # Every REAL device survives
+    for ident, rid in real_ids.items():
+        assert rid in fake_reg.devices, (
+            f"REAL device {rid} for {ident} was destroyed — safety guard failed"
+        )
+    # Removal ops targeted shell IDs ONLY, never a real id
+    real_id_set = set(real_ids.values())
+    for (dev_id, via, remove_ce) in fake_reg.update_calls:
+        assert dev_id not in real_id_set, (
+            f"async_update_device called on REAL device {dev_id} — must be "
+            f"shell-only"
+        )

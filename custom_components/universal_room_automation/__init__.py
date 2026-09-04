@@ -4193,6 +4193,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
         await hass.config_entries.async_forward_entry_setups(entry, cm_platforms)
 
+        # v5.94.1 FIX 1 (2026-09-03): remove empty coordinator-shell devices
+        # left on the INTEGRATION/parent entry after v5.94.0 D-REHOME moved
+        # coordinator entities to the CM entry. HA does NOT auto-remove a
+        # device when its last entity migrates to a DIFFERENT config entry
+        # (helpers/device_registry.py), so three empty shells lingered:
+        # (DOMAIN, "coordinator_manager") / "security_coordinator" /
+        # "music_following_coordinator") plus any other coord identifier
+        # that meets the predicate. Removal is durable because the parent
+        # entry no longer forwards any coordinator platform (see
+        # INTEGRATION_PLATFORMS + sensor.py:161-185) — nothing will
+        # recreate them. MUST run BEFORE the D-NEST stamp so the sweep's
+        # same-identifier resolution (FIX 2) picks the surviving real
+        # device on the CM entry.
+        try:
+            from ._devices import async_cleanup_parent_entry_shells
+            parent_entry_id = entry.data.get(CONF_INTEGRATION_ENTRY_ID)
+            if parent_entry_id:
+                # Pass CM entry_id as the not-CM-owned safety guard —
+                # the REAL coord devices live on the CM entry, so any
+                # candidate carrying it MUST be spared.
+                await async_cleanup_parent_entry_shells(
+                    hass, parent_entry_id, cm_entry_id=entry.entry_id,
+                )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "v5.94.1 FIX 1: shell-cleanup guard raised (non-fatal)",
+                exc_info=True,
+            )
+
         # v5.94.0 (device/entity de-frag D-NEST): stamp via_device_id across
         # URA-owned devices to restore the device-tree nesting HA 2026.9 broke
         # by removing DeviceInfo.via_device. Uses dr.async_update_device — no
