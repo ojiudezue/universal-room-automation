@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "088",
+  "author": "ojiudezue",
+  "session_id": "claude_20260904_081548_ship_v5_94_3",
+  "timestamp": "2026-09-04T08:15:48Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.94.3 shipped: Shell-cleanup identifier-unpack hotfix \u2014 removal aborted on 3-tuple identifiers (bond/homekit)",
+  "summary": "Shell-cleanup identifier-unpack hotfix \u2014 removal aborted on 3-tuple identifiers (bond/homekit)",
+  "why": "The v5.94.1 shell removal never executed: it iterates every device in the registry and did for (dom, ident) in device.identifiers, assuming 2-tuples, but bond ('bond',hub,dev) and homekit bridge identifiers are 3-tuples, so the first one raised ValueError: too many values to unpack and the call-site try/except swallowed it as non-fatal, aborting the entire cleanup before reaching any URA shell. Confirmed via the structured system-log traceback (my two earlier parent-entry-resolution diagnoses were wrong \u2014 the field was set all along). Fix is defensive indexing, matching the sweep which already handled this. Regression test uses a real bond-style 3-tuple; mutation-verified. Full-suite name-diff vs clean develop is identical (zero regressions).",
+  "implications": "Shipped DEVICE-SHELL-CLEANUP-1 at v5.94.3; card(s) sit shipped_organic pending validation. Acceptance in README_v5.94.3.md (Live criteria).",
+  "revisit_trigger": "Post-restart: the 3 empty parent-entry coordinator shells removed; exactly one coordinator_manager/security_coordinator/music_following_coordinator device; Whole House alone on the parent entry; real CM/Security/Music entities intact.",
+  "refs": {
+    "cards": [
+      "DEVICE-SHELL-CLEANUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.94.3.md"
+    ],
+    "release_notes": "Root cause (live traceback): async_cleanup_parent_entry_shells iterated ALL registry devices and unpacked identifiers as (dom, ident), raising ValueError on the first non-URA 3-element identifier (bond/homekit) \u2014 aborting before any URA shell. Fix: defensive indexing (len>=2, [0]/[1]) mirroring the sweep. Regression test with a bond-style 3-tuple device, mutation-verified RED on the old unpack. Predicate/guards unchanged."
+  }
+}

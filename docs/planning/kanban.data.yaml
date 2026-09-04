@@ -324,7 +324,7 @@ cards:
     nesting mis-wire — remove shells, fix the D-NEST sweep resolution
   thread: platform
   status: shipped_organic
-  shipped_version: v5.94.2
+  shipped_version: v5.94.3
   created: 2026-09-03 21:20
   updated: 2026-09-03 21:20
   refinement_status: initial
