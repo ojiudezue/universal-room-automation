@@ -198,14 +198,17 @@ class BaseCoordinator(ABC):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device info for this coordinator's device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self.coordinator_id}_coordinator")},
-            name=f"URA: {self.name}",
-            manufacturer="Universal Room Automation",
-            model="Domain Coordinator",
-            sw_version=VERSION,
-        )
+        """Return device info for this coordinator's device.
+
+        v5.94.0 D3 (model race fix): previously emitted `model="Domain
+        Coordinator"` which — depending on first-writer-wins ordering across
+        registration paths — could clobber a specific model like "Energy
+        Coordinator". Now routes through the shared helper in `_devices.py`
+        so every path in the codebase emits the same canonical (name, model)
+        for a given coordinator identity.
+        """
+        from .._devices import _coordinator_device_info
+        return _coordinator_device_info(self.coordinator_id)
 
     @abstractmethod
     async def async_setup(self) -> None:
