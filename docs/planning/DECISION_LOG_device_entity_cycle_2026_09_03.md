@@ -90,4 +90,20 @@ Pulled the live device registry to resolve Review-D D-LEAK-4. The fragmentation 
 ## Ship gate (what the operator sees)
 1. This decision log (all adjudications).
 2. The mondo cross-cutting review outcome.
-3. Live post-deploy validation: device tree nests correctly, **0 `_2` entities, entity count 4626 preserved, no orphans**, coordinator devices single-entry-owned, no new "Error adding entity None", clean boot.
+3. Live post-deploy validation — EXPANDED (operator 2026-09-03: "More post start validation? You need to exercise the menus etc"). A device-registry row check alone is too thin for a cycle whose visible surface is the device tree + the config/options-flow menus. Full post-restart battery (browser-driven where it's a UI surface), results written back into README_v5.94.0.md:
+
+   **A. Device tree (registry + Devices UI):** via `ha_get_device` AND the Settings→Devices UI — exactly ONE `coordinator_manager` device, ONE `security_coordinator` device, ZERO `coordinator_music_following` devices; every coordinator nested `→ CM → Whole House`; zones + rooms nested `→ Whole House`. (Pre-deploy live baseline captured: 2 CM, 2 security, 2 dead-music, CM via_device_id=null — so the diff is provable.)
+
+   **B. Entity integrity:** entity count preserved (~4626 baseline), 0 new `_2`, the 8 per-person sensors present (the D-LEAK-1 set: `ura_person_<p>_next_room_accuracy` + `_routine_status` × 4), no coordinator entity `unavailable`/orphaned.
+
+   **C. Menus EXERCISED (Claude-in-Chrome, read-only — navigate + observe, do NOT submit/save any step):**
+   - **Options flow** (house/integration entry): the `init` menu renders with consistent icons incl. the newly-iconned `📶 Signal Responses`; open a coordinator submenu (e.g. `🌡️ HVAC` → settings/dynamic_preset/baseline menu) and back out.
+   - **Config flow add-entry:** start "Add entry" → `entry_type_select` shows `🚪 Add a Room / 🗂️ Add a Zone / ⚙️ Add a Coordinator` (add_zone now iconned); reach `post_integration_setup` (`🗂️ Set Up a Zone First`, `✅ Finish Setup`) — then **CANCEL** (no entry created).
+   - Confirm no config-flow exception in the log during navigation.
+   - **Caveat noted:** the zone instance-picker is still a `SelectSelector` form (fast-follow `MENU-ZONE-PICKER-1`) — confirm it still opens; it's the known odd-one-out, not a regression.
+
+   **D. Per-entry reload:** reload ONE room entry and ONE coordinator-manager entry individually (`homeassistant.reload_config_entry`) → scoped reload succeeds, no cascade to siblings (sibling `last_changed` invariant), device tree re-nests correctly after reload.
+
+   **E. Logs:** clean boot, no new "Error adding entity None", no via_device RuntimeError, no config-flow tracebacks.
+
+   **F. README write-back:** replace the prospective Live section with a `Validated <date>` table, one row per A–E with observed evidence (entity_id/attr, device_id, screenshot/log line).
