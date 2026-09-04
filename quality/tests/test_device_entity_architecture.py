@@ -1212,6 +1212,45 @@ async def test_v5_94_1_shell_cleanup_removes_only_empty_shell(monkeypatch):
 
 
 @pytest.mark.asyncio
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_shell_cleanup_survives_three_tuple_identifiers(monkeypatch):
+    """v5.94.3 regression: other integrations (bond, homekit) register
+    3-ELEMENT identifiers. The cleanup iterates ALL devices in the
+    registry; a `for (dom, ident) in device.identifiers` unpack raised
+    ValueError on the first such non-URA device and aborted the whole
+    cleanup before reaching any URA shell. Guard: a 3-tuple device must
+    be skipped safely and the real shell still removed."""
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+
+    # Non-URA device with a 3-element identifier (bond-style) — must NOT crash.
+    bond = _FakeDevice2(
+        "dev_bond",
+        {("bond", "ZPGH77358", "9be870302e561726")},
+        config_entries={"BOND_ENTRY"},
+    )
+    shell = _FakeDevice2(
+        "dev_shell_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={parent},
+    )
+    fake_reg = _FakeDevReg2([bond, shell])
+
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({"dev_bond": ["e1"], "dev_shell_cm": []}))
+
+    hass = MagicMock()
+    removed = await d.async_cleanup_parent_entry_shells(hass, parent)
+
+    # Must not raise, and the shell must be removed despite the 3-tuple device.
+    assert removed == 1, f"expected shell removed past the 3-tuple device, got {removed}"
+    assert "dev_shell_cm" not in fake_reg.devices
+    assert "dev_bond" in fake_reg.devices  # untouched
+
 async def test_v5_94_1_shell_cleanup_skips_dual_owned(monkeypatch):
     """FIX 1: a shell dual-owned by parent AND another entry is NEVER
     removed — sole-owner (exact set equality) guard, not membership."""

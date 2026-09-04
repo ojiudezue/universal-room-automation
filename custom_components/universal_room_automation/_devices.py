@@ -217,9 +217,20 @@ async def async_cleanup_parent_entry_shells(
     removed_idents: set[tuple[str, str]] = set()
     for device in list(dev_reg.devices.values()):
         ura_ident: str | None = None
-        for (dom, ident) in device.identifiers:
-            if dom == DOMAIN and ident in _STATIC_CHILD_IDS:
-                ura_ident = ident
+        # v5.94.3: iterate WITHOUT tuple-unpacking — other integrations
+        # (e.g. `bond` = (domain, hubid, deviceid); `homekit` bridges)
+        # register 3-element identifiers, and `for (dom, ident) in …`
+        # raised ValueError("too many values to unpack") on the FIRST
+        # such non-URA device, aborting the whole cleanup before it ever
+        # reached a URA shell. Index defensively (len>=2, [0]/[1]) —
+        # mirrors the sweep's identifier handling in this same module.
+        for identifier in device.identifiers:
+            if (
+                len(identifier) >= 2
+                and identifier[0] == DOMAIN
+                and identifier[1] in _STATIC_CHILD_IDS
+            ):
+                ura_ident = identifier[1]
                 break
         if ura_ident is None:
             continue
