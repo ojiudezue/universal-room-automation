@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.94.1
+# Universal Room Automation vv5.94.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4202,6 +4202,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             from ._devices import async_cleanup_parent_entry_shells
             parent_entry_id = entry.data.get(CONF_INTEGRATION_ENTRY_ID)
+            if not parent_entry_id:
+                # v5.94.2: pre-existing migrated CM entries predate the
+                # CONF_INTEGRATION_ENTRY_ID stamping (written only at
+                # migration-create time, see _ensure_coordinator_manager_entry
+                # ~:968), so entry.data lacks it and the shell cleanup would
+                # silently no-op. Resolve the single INTEGRATION entry directly.
+                for _e in hass.config_entries.async_entries(DOMAIN):
+                    if _e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        parent_entry_id = _e.entry_id
+                        break
             if parent_entry_id:
                 # Pass CM entry_id as the not-CM-owned safety guard —
                 # the REAL coord devices live on the CM entry, so any

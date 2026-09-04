@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "087",
+  "author": "ojiudezue",
+  "session_id": "claude_20260904_073436_ship_v5_94_2",
+  "timestamp": "2026-09-04T07:34:36Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.94.2 shipped: Shell-cleanup parent-entry resolution hotfix \u2014 actually remove the empty coordinator shells",
+  "summary": "Shell-cleanup parent-entry resolution hotfix \u2014 actually remove the empty coordinator shells",
+  "why": "Tier-1 resolution hotfix. The shell-removal predicate was correct and safe but never ran: the call site read parent_entry_id from entry.data.get(CONF_INTEGRATION_ENTRY_ID), a field stamped only at migration-create time, and the live CM entry predates that stamping so its data lacks it, guarding the cleanup out. The fix adds a fallback that resolves the single INTEGRATION entry directly (verbatim reuse of the existing :4705 finder). No change to the deletion predicate/guards, so the proven property \u2014 a real populated CM-owned coordinator device can never be selected \u2014 is preserved. Nesting was already validated correct live in v5.94.1.",
+  "implications": "Shipped DEVICE-SHELL-CLEANUP-1 at v5.94.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.94.2.md (Live criteria).",
+  "revisit_trigger": "Post-restart: zero empty coordinator shells; exactly one coordinator_manager / security_coordinator / music_following_coordinator device; Whole House alone on the parent entry; real CM ~60 / Security ~21 / Music ~10 entities intact.",
+  "refs": {
+    "cards": [
+      "DEVICE-SHELL-CLEANUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.94.2.md"
+    ],
+    "release_notes": "v5.94.1 fixed the nesting live but the empty-shell removal no-op'd because the CM entry (a pre-existing migration) lacks CONF_INTEGRATION_ENTRY_ID in its data, so parent_entry_id resolved to None. Fix: fall back to resolving the single ENTRY_TYPE_INTEGRATION entry directly. Safety predicate + guards unchanged (already reviewed + mutation-verified in v5.94.1)."
+  }
+}
