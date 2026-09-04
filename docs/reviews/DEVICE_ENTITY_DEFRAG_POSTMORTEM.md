@@ -64,6 +64,31 @@ does not re-learn these the hard way. Companion to [`docs/architecture/DEVICE_TR
    stopped presenting it as a race fix; deleted a test docstring citing a nonexistent test.
    **Lesson:** verify a "fix" is on a reachable path before claiming it fixes anything.
 
+9. **Identifier tuple-unpacking over the whole registry (the v5.94.1→v5.94.3 miss).** The shell
+   cleanup iterated **every** device in the registry and did `for (dom, ident) in device.identifiers`,
+   assuming 2-tuples. Other integrations (`bond` = `(domain, hub, device)`; `homekit` bridges =
+   `(domain, id, 'homekit.bridge')`) register **3-element identifiers**, so the first such device
+   raised `ValueError: too many values to unpack` and the call-site `try/except` swallowed it —
+   aborting the cleanup before it reached any URA device. It shipped in v5.94.1 and v5.94.2 doing
+   **nothing**, silently. **Fix:** index defensively (`len>=2`, `identifier[0]/[1]`), matching the
+   sweep which already did. **Lessons:** (a) HA permits arbitrary-length identifier tuples — never
+   unpack as 2; (b) a `try/except` that logs "non-fatal" hides a total failure — such a warning must
+   be checked, and the structured `system` log (not filtered text search) is where the traceback
+   lives; (c) **unit tests that build the fake registry with only clean 2-tuples give false
+   confidence** — fakes must include the messy real-world shapes (a 3-tuple device is now in the
+   regression test).
+
+10. **Two confidently-wrong diagnoses before the right one (diagnosis discipline).** For v5.94.1 the
+    miss was diagnosed as "`parent_entry_id` is None" (→ v5.94.2 fallback) and then as a
+    legacy-`config_entries` / HA-`remove_config_entry_id` KeyError — **both refuted by live probing**
+    (`ssh` showed `integration_entry_id` was set; `device_attr` showed `config_entries={parent}`;
+    the subentry key was present). Each wrong fix cost a deploy+restart cycle. The actual cause only
+    surfaced from the **traceback in the structured system log**. **Lesson:** for a silent no-op,
+    get the traceback FIRST (structured `system` log / debug + reload) before theorizing a
+    mechanism — "verify before asserting mechanism" applies doubly when the code "looks correct."
+    The operator's steer ("context-wide including HA docs, no mistakes here") was the redirect that
+    forced reading HA behavior instead of re-guessing URA logic.
+
 ## What went RIGHT (keep doing)
 
 - **Tier-3 four-framing review + mandatory orchestrator independent verification** caught, in order:
