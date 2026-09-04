@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "085",
+  "author": "ojiudezue",
+  "session_id": "claude_20260904_014843_ship_v5_94_0",
+  "timestamp": "2026-09-04T01:48:43Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.94.0 shipped: Device/entity de-fragmentation + device-tree nesting + menu icons",
+  "summary": "Device/entity de-fragmentation + device-tree nesting + menu icons",
+  "why": "Split-ownership showed live as duplicate device records sharing one identifier (2 CM, 2 Security, 2 dead music-following) with CM unparented; HA 2026.9 turned declarative DeviceInfo(via_device=) into a hard RuntimeError that took all coordinator entities unavailable in the outage that forced this cycle. The fix forwards all coordinator platforms from the CM entry only and nests the tree imperatively (reload-independent). Tier-3 because a single missed re-home path mints _2/orphans on a live 4626-entity system; four disjoint checks each caught real defects the prior missed \u2014 chiefly a per-person setup that dropped 8 entities on a slow-DB boot, hollow test anchors on the delicate D1b split, and a dead-device deletion that targeted a nonexistent identifier (caught by live-registry ground truth).",
+  "implications": "Shipped DEVICE-ENTITY-REORG-1, HA-2026-9-VIA-DEVICE-COMPAT-1, MENU-CONSISTENCY-1 at v5.94.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.94.0.md (Live criteria).",
+  "revisit_trigger": "Post-restart device registry: exactly ONE coordinator_manager device, ONE security_coordinator, ZERO coordinator_music_following; all coordinators nested under CM under Whole House; entity count preserved (~4626), 0 new _2; config/options menus render with consistent icons and navigate without traceback.",
+  "refs": {
+    "cards": [
+      "DEVICE-ENTITY-REORG-1",
+      "HA-2026-9-VIA-DEVICE-COMPAT-1",
+      "MENU-CONSISTENCY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.94.0.md"
+    ],
+    "release_notes": "De-fragments split-owned coordinator devices (all coordinator entities single-entry-owned under the CM entry), nests the device tree via imperative via_device_id (coordinators\u2192CM\u2192Whole House; zones/rooms\u2192Whole House), removes the dead coordinator_music_following device records, and normalizes config/options-flow menu icons. Tier-3: validator + Review D + Review C + orchestrator independent mutation-verify, 2 fix-up rounds. Zero declarative via_device (HA 2026.9 RuntimeError fix)."
+  }
+}

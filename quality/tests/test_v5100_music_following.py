@@ -692,7 +692,15 @@ class TestD5PerPersonSwitch:
             src = fh.read()
         cls_start = src.find("class MFPersonFollowSwitch")
         cls_body = src[cls_start:cls_start + 4000]
-        assert "music_following_coordinator" in cls_body
+        # v5.94.0 device/entity D2: the literal `"music_following_coordinator"`
+        # was collapsed into the canonical `_devices._music_following_device_info`
+        # author. The MF-coordinator device attachment now flows through the
+        # helper — assert the helper call is present in the class body, which
+        # is the equivalent invariant post-D2.
+        assert "_music_following_device_info(" in cls_body, (
+            "MFPersonFollowSwitch no longer routes through the canonical "
+            "MF DeviceInfo helper (v5.94.0 D2)."
+        )
 
 
 # ===========================================================================

@@ -394,7 +394,7 @@ class TestB2MigrationHelper:
         # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
         # blocks were inserted inside the CM entry branch ahead of
         # `entity reassignment skipped` debug log line.
-        body = init_src[idx:idx + 10000]
+        body = init_src[idx:idx + 12000]
         assert "v4.7.2 D2" in body, (
             "B2 fix: migration helper must be inside the CM entry branch "
             "(ENTRY_TYPE_COORDINATOR_MANAGER section)"
@@ -406,7 +406,7 @@ class TestB2MigrationHelper:
         # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
         # blocks were inserted inside the CM entry branch ahead of
         # `entity reassignment skipped` debug log line.
-        body = init_src[idx:idx + 10000]
+        body = init_src[idx:idx + 12000]
         assert '"hvac_coordinator"' in body, (
             "B2 fix: migration helper must target hvac_coordinator device identifiers"
         )
@@ -418,7 +418,7 @@ class TestB2MigrationHelper:
         # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
         # blocks were inserted inside the CM entry branch ahead of
         # `entity reassignment skipped` debug log line.
-        body = init_src[idx:idx + 10000]
+        body = init_src[idx:idx + 12000]
         assert (
             "device_id != _target_device.id" in body
             or "_ent_entry.device_id != _target_device.id" in body
@@ -440,7 +440,7 @@ class TestB2MigrationHelper:
         # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
         # blocks were inserted inside the CM entry branch ahead of
         # `entity reassignment skipped` debug log line.
-        body = init_src[idx:idx + 10000]
+        body = init_src[idx:idx + 12000]
         # The try/except block must contain a debug log on failure.
         assert "entity reassignment skipped" in body, (
             "B2 fix: migration helper must be wrapped in try/except with a debug log "

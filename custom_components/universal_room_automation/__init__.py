@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.93.1
+# Universal Room Automation vv5.94.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3921,7 +3921,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
-        
+
+        # v5.94.0 (device/entity de-frag D-NEST): stamp via_device_id AFTER
+        # forwarded setups so device rows exist. Idempotent + guarded so this
+        # call from INTEGRATION is safe even before CM has registered its
+        # coordinator devices (missing parent → skip; re-stamped on the CM
+        # entry's own D-NEST call).
+        try:
+            from ._devices import (
+                async_stamp_via_device_tree,
+                async_schedule_device_tree_sweep,
+            )
+            await async_stamp_via_device_tree(hass)
+            # FIX-2 (2026-09-03, Review D D-LEAK-2): also schedule the
+            # at-start cover-all sweep from INTEGRATION so a boot where
+            # the CM entry is late/absent still gets the sweep.
+            # `async_schedule_device_tree_sweep` is idempotent.
+            async_schedule_device_tree_sweep(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: via_device stamping from INTEGRATION setup raised (non-fatal)",
+                exc_info=True,
+            )
+
         # RELOAD-WATCHDOG-HAZARD fix-up (2026-08-15, H-1 / B-HIGH-1):
         # Seed the integration-entry snapshot BEFORE the update listener
         # is armed so the first post-restart options save has a real
@@ -4081,6 +4103,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Forward sensor/binary_sensor platforms — zone sensors created here
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
 
+        # v5.94.0 (device/entity de-frag D-NEST): stamp zone devices under
+        # zone_manager after forwarded setups.
+        try:
+            from ._devices import async_stamp_via_device_tree
+            await async_stamp_via_device_tree(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: via_device stamping from Zone Manager setup raised (non-fatal)",
+                exc_info=True,
+            )
+
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Zone Manager entry setup complete")
         return True
@@ -4159,6 +4192,76 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v4.2.3: CM also gets number platform for ZoneEntryDwellNumber
         cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
         await hass.config_entries.async_forward_entry_setups(entry, cm_platforms)
+
+        # v5.94.0 (device/entity de-frag D-NEST): stamp via_device_id across
+        # URA-owned devices to restore the device-tree nesting HA 2026.9 broke
+        # by removing DeviceInfo.via_device. Uses dr.async_update_device — no
+        # entry reload (INV-6).
+        # HIGH-B3 (2026-09-03): concurrent per-domain entry setup means an
+        # inline stamp can\'t see devices created by later-completing entries.
+        # Schedule a cover-all sweep via async_at_started AND run one inline
+        # pass now to catch anything already registered.
+        try:
+            from ._devices import (
+                async_stamp_via_device_tree,
+                async_schedule_device_tree_sweep,
+            )
+            await async_stamp_via_device_tree(hass)
+            async_schedule_device_tree_sweep(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: via_device stamping from CM setup raised (non-fatal)",
+                exc_info=True,
+            )
+
+        # v5.94.0 (device/entity de-frag D1): guarded removal of dead
+        # `URA: Music Following` device records. FIX-4 (2026-09-03,
+        # Review D live-registry): the dead identifier is
+        # `(DOMAIN, "coordinator_music_following")` — NOT bare
+        # `music_following` (the initial build targeted the wrong id and
+        # was a silent no-op). Two records exist (one per config entry),
+        # each with 0 entities and disabled_by=user. NOTE:
+        # `music_following_coordinator` (different id!) is the LIVE
+        # device that owns `music_following_health` — do NOT touch it.
+        # `async_get_device()` returns only one record; iterate
+        # `dev_reg.devices.values()` to catch both.
+        # Safety: skip removal if ANY entity still points at the device.
+        try:
+            from homeassistant.helpers import entity_registry as er
+            dev_reg2 = dr.async_get(hass)
+            dead_ident = (DOMAIN, "coordinator_music_following")
+            ent_reg2 = er.async_get(hass)
+            removed = 0
+            for _device in list(dev_reg2.devices.values()):
+                if dead_ident not in _device.identifiers:
+                    continue
+                remaining = er.async_entries_for_device(
+                    ent_reg2, _device.id, include_disabled_entities=True,
+                )
+                if not remaining:
+                    dev_reg2.async_remove_device(_device.id)
+                    removed += 1
+                    _LOGGER.info(
+                        "D1: removed dead device %s with identifier "
+                        "(DOMAIN, 'coordinator_music_following') (0 entities)",
+                        _device.id,
+                    )
+                else:
+                    _LOGGER.info(
+                        "D1: dead-device removal SKIPPED for %s — "
+                        "(DOMAIN, 'coordinator_music_following') still has %d entities",
+                        _device.id, len(remaining),
+                    )
+            if removed:
+                _LOGGER.info(
+                    "D1: removed %d dead 'coordinator_music_following' device record(s)",
+                    removed,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D1: dead-device cleanup guard raised (non-fatal)",
+                exc_info=True,
+            )
 
         # v4.7.2 D2 / v4.7.3 D4: defensive entity_registry device-reassignment.
         # Reassigns the switch (v4.7.2 D2) and two number entities (v4.7.3 D4)
@@ -4486,6 +4589,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # FIX-3 (2026-09-03, Review D D-LEAK-3): a room added at runtime (after
+    # HA has started) has no chance to be stamped by the CM/INTEGRATION
+    # inline pass or the once-per-boot async_at_started sweep (latch
+    # already set). Run an inline stamp + re-schedule the at-start sweep
+    # (allowed to re-arm; see async_schedule_device_tree_sweep).
+    try:
+        from ._devices import (
+            async_stamp_via_device_tree,
+            async_schedule_device_tree_sweep,
+        )
+        await async_stamp_via_device_tree(hass)
+        async_schedule_device_tree_sweep(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "D-NEST: via_device stamping from ROOM setup raised (non-fatal)",
+            exc_info=True,
+        )
 
     # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE so
     # PresenceCoordinator can call OccupancySubstrate.refresh_subscriptions()

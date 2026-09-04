@@ -34,5 +34,16 @@ The 4-review Tier-3 pass found the breaker-guard + grid-cap fail-close treatment
 ## Pre-deploy gate
 py_compile clean; no conflict markers; 28 cycle tests; full-suite name-diff vs develop = (recorded below); breaker-surface git-diff empty; 0 via_device.
 
-## Validated <date> (post-restart)
-_(to be filled after deploy + HA restart)_
+## Validated 2026-09-03 (post-restart)
+
+| Criterion | Observed evidence | Result |
+|---|---|---|
+| D-OBS per-source staleness live + correct | `sensor.ura_energy_coordinator_envoy_status` exposes `solar_age_s` / `net_power_age_s` / `battery_power_age_s` / `primary_soc_age_s` — all populated + fresh (~85s, under the 180/300s thresholds); `stale_sources` / `unconfigured_sources` / `missing_sources` = `[]`; `stale_reason` = null; `fallback_active` = false; `envoy_degraded` = false. | **PASS** |
+| Read-gating not falsely triggering | All four sources fresh + none in `stale_sources` → the gate returns real values, no spurious LKG/envelope fallback on healthy telemetry (the `last_reported` semantics working — no false-stale). | **PASS** |
+| No new URA errors post-restart | `error_log` ERROR scan: the only URA error is the 7-count "Error adding entity None" from the **10:18 pre-v5.92.3 window**; **zero** new URA errors across the v5.93.0 + v5.93.1 restarts (window to 12:15). | **PASS** |
+| Clean boot / coordinators healthy | `house_state` = `home_day` fresh; coordinator entities live. | **PASS** |
+| Drain-pause HOLD / solar LKG | Internal read-gating, mutation-verified in-suite (RED-on-neuter); engages only on a real freeze → **live = organic** (recorder watch when a genuine stale window occurs). | **Code+test PASS; live = organic** |
+
+**Boot transient noted + dismissed:** `envoy_status` base state progressed `offline` (12:13) → `stale` (12:18) as the *pre-existing* connection-level tracker + hourly-anomaly check warmed up post-restart (`data_anomaly_age_seconds` ~29s, `last_reading_age` ~29s). This is NOT the v5.93.1 per-source union — `stale_reason=null` and `stale_sources=[]` confirm the new logic correctly abstains; the base state is the known Envoy warmup pattern and settles on its own. The per-source freshness attributes prove the Envoy is actually reporting.
+
+Cycle closed. The frozen-read class is now gated (solar/SOC→LKG), the drain pause is held across a stale CT, and per-source staleness is observable on `envoy_status`. Breaker/grid-cap under stale + drain-arm under stale are the two carded follow-ups (`BREAKER-GRIDCAP-STALE-TELEMETRY-1`, `ENVOY-DRAIN-ARM-STALE-CT-1`).

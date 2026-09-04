@@ -45,9 +45,9 @@
         "title": "✅ Home Setup Complete",
         "description": "Your home defaults are configured. Would you like to set up zones to group rooms, or skip and add rooms directly?",
         "menu_options": {
-          "setup_zone": "Set Up a Zone First",
+          "setup_zone": "🗂️ Set Up a Zone First",
           "skip_to_room": "🚪 Skip to Add a Room",
-          "finish": "✓ Finish Setup"
+          "finish": "✅ Finish Setup"
         }
       },
       "entry_type_select": {
@@ -55,7 +55,7 @@
         "description": "What would you like to add to your home automation?",
         "menu_options": {
           "add_room": "🚪 Add a Room",
-          "add_zone": "Add a Zone",
+          "add_zone": "🗂️ Add a Zone",
           "add_coordinator": "⚙️ Add a Coordinator (Coming Soon)"
         }
       },
@@ -233,11 +233,11 @@
         "title": "Automation Chaining",
         "description": "Optionally bind HA automations to room triggers. These run after URA's built-in automation. Choose a trigger group or skip.",
         "menu_options": {
-          "init_chain_occupancy": "Occupancy Triggers",
-          "init_chain_light": "Light Level Triggers",
-          "init_chain_house_state": "House State Triggers",
-          "init_chain_coordinator": "Coordinator Triggers",
-          "init_chain_skip": "Skip"
+          "init_chain_occupancy": "🚪 Occupancy Triggers",
+          "init_chain_light": "💡 Light Level Triggers",
+          "init_chain_house_state": "🏠 House State Triggers",
+          "init_chain_coordinator": "🤖 Coordinator Triggers",
+          "init_chain_skip": "⏭️ Skip"
         }
       },
       "init_chain_occupancy": {
@@ -308,8 +308,8 @@
         "title": "AI Rules",
         "description": "Optionally add AI-powered natural language automation rules for this room.",
         "menu_options": {
-          "init_ai_rule_add": "Add Rule",
-          "init_ai_rules_skip": "Skip"
+          "init_ai_rule_add": "➕ Add Rule",
+          "init_ai_rules_skip": "⏭️ Skip"
         }
       },
       "init_ai_rule_add": {
@@ -505,7 +505,7 @@
           "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
           "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
           "coordinator_optimization": "🤖 Optimizer",
-          "signal_responses": "Signal Responses",
+          "signal_responses": "📶 Signal Responses",
           "basic_setup": "🚪 Basic Setup",
           "sensors": "📡 Sensors",
           "devices": "💡 Devices",
