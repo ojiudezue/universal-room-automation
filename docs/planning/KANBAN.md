@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T20:48:43-05:00_ - _Data commit: `05017c5896be`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-04T03:15:48-05:00_ - _Data commit: `24de97e750e3`_ - _last_reconciled: 2026-09-04_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,13 +15,13 @@ _Generated: 2026-09-03T20:48:43-05:00_ - _Data commit: `05017c5896be`_ - _last_r
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 7 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 56 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 25 |
-| ✅ Done | 58 |
+| ✅ Done | 59 |
 
 ## 📥 Inbox (29)
 _raw capture_
@@ -747,23 +747,10 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
-thread: **platform** - status: **in_progress** - approval: **explicit**
-_created 2026-09-03 21:20 · initial_
-- **Problem / Solution:**
-  - Problem: after the v5.94.0 de-frag moved all coordinator entities onto the Coordinator-Manager config entry, three now-empty duplicate device records (Coordinator Manager, Security, Music Following) are left dangling on the parent "Unive...
-- **Origin:** 2026-09-03 - v5.94.0 live validation — de-frag worked at entity level
-- **Why:** Verified via live registry + a deep HA-source code read: parent entry no longer forwards coordinator platforms (so shell removal is durable), and the sweep's last-writer-wins on duplicate identifiers is the root of the mis-nesting. Nothi...
-- **Next:** Build on feature/device-shell-cleanup (worktree) → Tier 2-DB 3 reviews + orchestrator verify → deploy v5.94.1 → live-registry validation (3 shells gone, real CM 60 ents + via→Whole House, coordinators nest under real CM).
-- **Tags:** tier-2db, device-registry, no-fabrication-verify
-- **Sibling of:** DEVICE-ENTITY-REORG-1
-- **Parsimony:** [BUILD] 3 empty duplicate device cards + real coordinators nested under an empty shell
-- **Refs:** __init__.py CM branch ~:4194-4267; _devices.py async_stamp_via_device_tree ~:162-185; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/readmes/README_v5.94.0.md
-- **Forensic keys (1):**
-  - `spawned_from`: DEVICE-ENTITY-REORG-1
+_(none)_
 
 ## 🔍 Review (1)
 _under review_
@@ -2118,7 +2105,7 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (58)
+## ✅ Done (59)
 _closed, evidence in refs_
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
@@ -2134,6 +2121,21 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
+thread: **platform** - status: **done** - approval: **explicit**
+_created 2026-09-03 21:20 · initial_
+- **Problem / Solution:**
+  - Problem: after the v5.94.0 de-frag moved all coordinator entities onto the Coordinator-Manager config entry, three now-empty duplicate device records (Coordinator Manager, Security, Music Following) are left dangling on the parent "Unive...
+- **Origin:** 2026-09-03 - v5.94.0 live validation — de-frag worked at entity level
+- **Why:** Verified via live registry + a deep HA-source code read: parent entry no longer forwards coordinator platforms (so shell removal is durable), and the sweep's last-writer-wins on duplicate identifiers is the root of the mis-nesting. Nothi...
+- **Next:** DONE + validated live 2026-09-04 (v5.94.3): 56 URA devices, 3 empty shells removed, one device per coordinator, tree correctly nested, real entities intact, clean boot. Root cause was a 2-tuple identifier-unpack crashing on bond/homekit ...
+- **Tags:** tier-2db, device-registry, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1
+- **Parsimony:** [BUILD] 3 empty duplicate device cards + real coordinators nested under an empty shell
+- **Refs:** __init__.py CM branch ~:4194-4267; _devices.py async_stamp_via_device_tree ~:162-185; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/readmes/README_v5.94.0.md
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**
