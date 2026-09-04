@@ -801,21 +801,33 @@ class EgressIdentityFaceFailsafeDrillSwitch(SwitchEntity, RestoreEntity):
         )
         self._is_on = False
 
+    _ISSUE_ID = "egress_identity_face_failsafe_drill_boot_on"
+
     def _get_census(self):
         return self.hass.data.get(DOMAIN, {}).get("census")
 
     @property
     def is_on(self) -> bool:
-        census = self._get_census()
-        if census is None:
-            return self._is_on
-        return bool(getattr(census, "_face_drill_forced", False))
+        # Review DL-1: read the drill flag from hass.data so an
+        # INTEGRATION reload that rebuilds `PersonCensus` does not
+        # silently release the drill.
+        from .camera_census import PersonCensus
+        return PersonCensus.get_face_drill_forced(self.hass)
 
     def _apply(self, value: bool) -> None:
         self._is_on = value
-        census = self._get_census()
-        if census is not None:
-            census._face_drill_forced = value
+        from .camera_census import PersonCensus
+        PersonCensus.set_face_drill_forced(self.hass, value)
+
+    def _delete_repair_issue(self) -> None:
+        try:
+            from homeassistant.helpers import issue_registry as ir
+            ir.async_delete_issue(self.hass, DOMAIN, self._ISSUE_ID)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Egress-identity drill: repair-issue delete raised (non-fatal)",
+                exc_info=True,
+            )
 
     async def async_turn_on(self, **kwargs) -> None:
         self._apply(True)
@@ -827,6 +839,10 @@ class EgressIdentityFaceFailsafeDrillSwitch(SwitchEntity, RestoreEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         self._apply(False)
+        # Review DL-3: releasing the drill MUST also clear the boot-ON
+        # repair issue so it does not linger in Repairs after the
+        # operator manually turned the switch off.
+        self._delete_repair_issue()
         _LOGGER.info(
             "Egress-identity face fail-safe DRILL released — face-provenance "
             "identity resumes on the next crossing."
@@ -844,13 +860,17 @@ class EgressIdentityFaceFailsafeDrillSwitch(SwitchEntity, RestoreEntity):
             )
             try:
                 from homeassistant.helpers import issue_registry as ir
+                # Review DL-3: is_fixable=False so the Repairs UI does
+                # NOT let the operator dismiss the issue without also
+                # turning the switch off (dismiss-only leaves the
+                # drill engaged AND removes the reminder).
                 ir.async_create_issue(
                     self.hass,
                     DOMAIN,
-                    "egress_identity_face_failsafe_drill_boot_on",
-                    is_fixable=True,
+                    self._ISSUE_ID,
+                    is_fixable=False,
                     severity=ir.IssueSeverity.WARNING,
-                    translation_key="egress_identity_face_failsafe_drill_boot_on",
+                    translation_key=self._ISSUE_ID,
                 )
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(

@@ -4593,6 +4593,16 @@ class PresenceCoordinator(BaseCoordinator):
         All failures are graceful — face rec is an accelerator, not a requirement.
         """
         try:
+            # Review FS-4 (D-3) 2026-09-04: route this second face-emission
+            # path through the central face-suppression checkpoint. Under
+            # the D4 fail-safe (drill / Frigate down / configured-but-
+            # absent + STRICT ON), pre-arrival must NOT fire on face.
+            try:
+                census = self.hass.data.get(DOMAIN, {}).get("census")
+                if census is not None and census._face_suppressed_now():
+                    return None
+            except Exception:  # noqa: BLE001
+                pass
             # Derive face sensor from camera entity using Frigate naming convention
             bs_id = camera_entity
             base_name = None

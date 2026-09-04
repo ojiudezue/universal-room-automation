@@ -79,10 +79,8 @@ from .const import (
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     EGRESS_FACE_UNION_TTL_S,
     FACE_MATCH_MIN_CONFIDENCE,
-    FACE_MATCH_EXIT_WINDOW_BEFORE_S,
-    FACE_MATCH_EXIT_WINDOW_AFTER_S,
-    FACE_MATCH_ENTRY_WINDOW_BEFORE_S,
-    FACE_MATCH_ENTRY_WINDOW_AFTER_S,
+    # FACE_MATCH_*_WINDOW_* consumed only by transit_validator; not
+    # imported here (Review A-LOW-3).
     BLE_TRANSITION_CACHE_TTL_S,
     BLE_TRANSITION_CONFIDENCE,
     FACE_PRODUCER_STALE_TTL_S,
@@ -1291,15 +1289,27 @@ class PersonCensus:
         # source attr, other non-BLE providers).
         self._ble_leg_rejected_provenance_count: int = 0
 
-        # D4 §0 fail-safe surface. `_face_drill_forced` is toggled by
-        # `switch.egress_identity_face_failsafe_drill` (see switch.py); it
-        # is read-time-only, so no timers, no suppression, restart-safe.
-        # `_face_producer_health_reason` disambiguates "drill_forced" vs
-        # natural down for the diagnostic sensor / operator logs.
-        self._face_drill_forced: bool = False
+        # D4 §0 fail-safe surface. Drill flag lives on
+        # ``hass.data[DOMAIN]["face_drill_forced"]`` (Review DL-1) so an
+        # INTEGRATION reload that rebuilds ``PersonCensus`` does NOT
+        # silently release the drill. See ``get_face_drill_forced()`` /
+        # ``set_face_drill_forced()`` classmethods below. Reason string
+        # is per-instance (last read populates it) — pure diagnostic.
         self._face_producer_health_reason: str = "live"
-        # D4 telemetry counters (in-memory; sensor.py surfaces later).
-        self._face_dropped_producer_down_count: int = 0
+        # Cached resolution of the Frigate health entity (Review FS-1
+        # / A-CRIT-1). Entity is resolved via the entity registry, not
+        # a string-built `_2` id (memory reference_frigate1_retired
+        # _2suffix_permanent). ``_face_producer_health_entity is None``
+        # after resolution means "genuinely unconfigured" (Frigate not
+        # present) — inert, one-time WARNING at first resolve.
+        self._face_producer_health_entity: str | None = None
+        self._face_producer_health_resolved: bool = False
+        self._face_producer_startup_warned: bool = False
+        # D4 telemetry counters — split into two units per Review
+        # OB-1 / A-MED-1. Census counter is per-TICK (incremented at
+        # most once per census cycle when a face_recognized feed is
+        # suppressed); tracker counter (`transit_validator`) is per-LEG.
+        self._face_dropped_producer_down_ticks: int = 0
         self._face_dropped_stale_count: int = 0
         self._face_dropped_drill_forced_count: int = 0
 
@@ -3026,7 +3036,16 @@ class PersonCensus:
         "unavailable"), adds it to the set.
 
         Only useful when Frigate is available. Returns empty set otherwise.
+
+        Review FS-3 (2026-09-04): route through the central face-
+        suppression checkpoint (``_face_suppressed_now``) so this raw
+        producer — which feeds the ``face_ids`` union at
+        ``_calculate_house_census`` (:1781) even when
+        ``CONF_ENHANCED_CENSUS`` is False — is silenced under the D4
+        fail-safe (drill / Frigate down / configured-but-absent).
         """
+        if self._face_suppressed_now():
+            return set()
         face_ids: set[str] = set()
 
         for camera_info in self._camera_manager.get_all_frigate_cameras():
@@ -3323,8 +3342,12 @@ class PersonCensus:
         # so the fresh reader can gate face-provenance names under the
         # face-producer-down fail-safe while keeping BLE-provenance
         # registrations live.
+        # Review A-LOW-2 (2026-09-04): admit the "ble+face" tag
+        # emitted by the corroborated branch in transit_validator; only
+        # coerce genuinely unknown values to "face".
+        _prov = provenance if isinstance(provenance, str) else "face"
         self._egress_face_ids_provenance[norm] = (
-            provenance if provenance in ("face", "ble") else "face"
+            _prov if _prov in ("face", "ble", "ble+face") else "face"
         )
         # C-LOW-1: register-time TTL prune backstop so the dict stays
         # bounded even if readers stop firing.
@@ -3396,7 +3419,8 @@ class PersonCensus:
         if strict and not self._is_face_producer_live():
             visible = {
                 n for n in self._egress_face_ids.keys()
-                if self._egress_face_ids_provenance.get(n, "face") != "face"
+                if self._egress_face_ids_provenance.get(n, "face")
+                in ("ble", "ble+face")
             }
             return visible
         return set(self._egress_face_ids.keys())
@@ -3447,41 +3471,196 @@ class PersonCensus:
         return DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT
 
     def _is_face_producer_live(self) -> bool:
-        """D4 §0 read-time producer-health gate. Returns False when any
-        of the following holds; caller (resolver / union) drops
-        face-provenance legs and names in that case.
+        """D4 §0 read-time producer-health gate (Review FS-1 fix).
 
-          - The on-demand drill switch is engaged
-            (`switch.egress_identity_face_failsafe_drill = on` ->
-            `_face_drill_forced = True`).
-          - `binary_sensor.frigate_status_2` reports `unavailable` /
-            `unknown` / missing.
+        Returns False when any of the following holds; caller (resolver
+        / union) MUST drop face-provenance legs and names in that case.
+
+          - The on-demand drill switch is engaged (Review DL-1: read
+            from ``hass.data[DOMAIN]["face_drill_forced"]``).
+          - The face-producer health entity resolves to a real HA
+            entity AND reports ``unavailable`` / ``unknown``.
+          - The face-producer health entity is unresolved BUT Frigate
+            cameras ARE configured (configured-but-absent -> DOWN,
+            fail-CLOSED per operator directive).
+
+        Fail-OPEN + startup WARNING (once) when the health entity is
+        genuinely unconfigured (no Frigate cameras enumerated) — the
+        gate is INERT in that deployment because there are no face
+        producers to guard.
+
+        Health entity is resolved via the entity registry (not a
+        string-built `_2` id — memory
+        ``reference_frigate1_retired_2suffix_permanent``). First
+        resolved id is cached; a fresh resolution attempt runs if the
+        cache is empty.
 
         Read-time only — no timers, no suppression, restart-safe.
-        Populates `_face_producer_health_reason` so the diagnostic
-        sensor can distinguish `drill_forced` vs natural causes."""
+        Populates ``_face_producer_health_reason`` so the diagnostic
+        sensor can distinguish ``drill_forced`` vs natural causes.
+        """
         # Drill takes precedence and its reason survives every branch.
-        if self._face_drill_forced:
+        if self.get_face_drill_forced(self.hass):
             self._face_producer_health_reason = "drill_forced"
+            self._face_dropped_drill_forced_count += 1
             return False
-        try:
-            fst = self.hass.states.get("binary_sensor.frigate_status_2")
-        except Exception:  # noqa: BLE001
-            fst = None
-        # Fail-OPEN on missing/None (matches plan §3.4.1: only an
-        # explicit `unavailable` signal is treated as down; absence
-        # of the health sensor means the check is inert, so existing
-        # face paths continue to run). Explicit "unavailable" /
-        # "unknown" states DO mark the producer down.
-        if fst is None:
-            self._face_producer_health_reason = "live"
+        ent_id = self._resolve_face_producer_health_entity()
+        if ent_id is None:
+            # No resolvable health entity. Is Frigate configured?
+            configured = False
+            try:
+                configured = bool(
+                    self._camera_manager.get_all_frigate_cameras()
+                )
+            except Exception:  # noqa: BLE001
+                configured = False
+            if configured:
+                # Configured-but-absent -> fail-CLOSED (DOWN). This is
+                # the operator-mandated behaviour per Review FS-1:
+                # a deployment that HAS Frigate cameras but no status
+                # entity is unhealthy, not "unknown".
+                self._face_producer_health_reason = (
+                    "frigate_status_missing_configured"
+                )
+                return False
+            # Genuinely unconfigured -> inert. One-time WARNING so this
+            # is not silent (Review FS-1).
+            self._face_producer_health_reason = "inert_no_frigate"
+            if not self._face_producer_startup_warned:
+                _LOGGER.warning(
+                    "Face-producer health entity not present AND no "
+                    "Frigate cameras enumerated — egress-identity "
+                    "face fail-safe is INERT for this deployment. "
+                    "Configure `sensor.frigate_status[_2]` if Frigate "
+                    "IS present so the D4 gate can protect emissions.",
+                )
+                self._face_producer_startup_warned = True
             return True
-        val = fst.state if isinstance(fst.state, str) else ""
-        if val.strip().lower() in ("unavailable", "unknown"):
+        try:
+            st = self.hass.states.get(ent_id)
+        except Exception:  # noqa: BLE001
+            st = None
+        if st is None:
+            # Resolved via registry, but state disappeared: treat DOWN
+            # (fail-CLOSED).
+            self._face_producer_health_reason = "frigate_status_state_missing"
+            return False
+        val = st.state if isinstance(st.state, str) else ""
+        if val.strip().lower() in ("unavailable", "unknown", "", "none"):
             self._face_producer_health_reason = "frigate_down"
             return False
         self._face_producer_health_reason = "live"
         return True
+
+    def _resolve_face_producer_health_entity(self) -> str | None:
+        """Resolve the Frigate producer-health entity via the entity
+        registry (Review FS-1). Prefers ``sensor.frigate_status_2`` per
+        the retired-Frigate-1 memory, then falls back through the four
+        historically-plausible ids. Cached on first hit; if none
+        resolve, returns ``None`` (caller distinguishes configured-vs-
+        unconfigured Frigate).
+        """
+        if self._face_producer_health_resolved:
+            return self._face_producer_health_entity
+        try:
+            ent_reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001
+            ent_reg = None
+        candidates = (
+            "sensor.frigate_status_2",
+            "sensor.frigate_status",
+            "binary_sensor.frigate_status_2",
+            "binary_sensor.frigate_status",
+        )
+        resolved: str | None = None
+        for candidate in candidates:
+            entry = None
+            if ent_reg is not None:
+                try:
+                    entry = ent_reg.async_get(candidate)
+                except Exception:  # noqa: BLE001
+                    entry = None
+            if entry is None:
+                continue
+            # An entity_registry entry alone is insufficient (the test
+            # harness's MagicMock registry returns truthy for anything).
+            # Require a matching live state — a real HA registry entry
+            # always has one. Absence -> keep looking.
+            try:
+                st = self.hass.states.get(candidate)
+            except Exception:  # noqa: BLE001
+                st = None
+            if st is None:
+                continue
+            resolved = candidate
+            break
+        self._face_producer_health_entity = resolved
+        self._face_producer_health_resolved = True
+        return resolved
+
+    def _face_suppressed_now(self) -> bool:
+        """Central Review FS checkpoint. Every face-emission site MUST
+        gate on this helper. Returns True iff STRICT is ON AND the
+        face producer is not live (drill engaged, Frigate down, or
+        configured-but-absent). Callers substitute an empty
+        set/list/None for face-provenance results when True.
+        """
+        try:
+            if not self._is_egress_identity_failsafe_strict():
+                return False
+        except Exception:  # noqa: BLE001
+            # STRICT unreadable -> default True (fail-closed on gate).
+            pass
+        try:
+            return not self._is_face_producer_live()
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
+    def get_face_drill_forced(hass: HomeAssistant) -> bool:
+        """Read the drill flag from ``hass.data[DOMAIN]`` (Review DL-1).
+        Survives INTEGRATION reload; a rebuilt ``PersonCensus`` picks
+        up the same value with no re-apply needed.
+        """
+        try:
+            return bool(
+                hass.data.get(DOMAIN, {}).get("face_drill_forced", False)
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
+    def set_face_drill_forced(hass: HomeAssistant, value: bool) -> None:
+        """Write the drill flag on ``hass.data[DOMAIN]`` (Review DL-1)."""
+        try:
+            hass.data.setdefault(DOMAIN, {})["face_drill_forced"] = bool(value)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def is_face_leg_person_vetoed(self, leg) -> bool:
+        """Review FS-2 helper: mirror of the existing
+        ``person.<slug> = not_home`` veto at :4269-4290 for the
+        resolver's leg-set path. Fail-OPEN when the person entity is
+        missing/unknown/unavailable (matches the enhanced-census
+        pattern). Consulted by ``transit_validator`` before admitting a
+        face leg to the classifier.
+        """
+        try:
+            slug = getattr(leg, "canonical_slug", None) or ""
+        except Exception:  # noqa: BLE001
+            return False
+        if not slug or slug.startswith("guest:"):
+            return False
+        try:
+            person_state = self.hass.states.get(f"person.{slug.lower()}")
+        except Exception:  # noqa: BLE001
+            person_state = None
+        if person_state is None:
+            return False
+        try:
+            return getattr(person_state, "state", None) == "not_home"
+        except Exception:  # noqa: BLE001
+            return False
 
     @callback
     def _on_person_state_change(self, event) -> None:
@@ -3521,7 +3700,26 @@ class PersonCensus:
             ).lower()
         except Exception:  # noqa: BLE001
             src = ""
-        if not any(tok in src for tok in ("bermuda", "ble", "private_ble")):
+        # Review AT-2 (A-HIGH-1 / D-5) 2026-09-04: replace the substring
+        # `in` check — which matched `device_tracker.study_a_wall_tablet`
+        # (`"ble"` is a substring of `tablet`) and let wall tablets
+        # forge BLE legs — with a token/prefix allowlist.
+        #   * `bermuda` -> exact word (delimited by `.`, `_`, or edges).
+        #   * `private_ble_device_` -> prefix (HA private-BLE integration
+        #     conventionally namespaces trackers this way).
+        # Any other source is rejected.
+        def _ble_source_is_admissible(src_s: str) -> bool:
+            if not src_s:
+                return False
+            # `private_ble_device_...` prefix on the tracker id.
+            if "private_ble_device_" in src_s:
+                return True
+            # Split into tokens on non-alphanumeric so `bermuda_oji_udezue`
+            # and `device_tracker.bermuda_oji` both hit token "bermuda".
+            import re as _re
+            tokens = set(t for t in _re.split(r"[^a-z0-9]+", src_s) if t)
+            return "bermuda" in tokens
+        if not _ble_source_is_admissible(src):
             self._ble_leg_rejected_provenance_count += 1
             return
         entity_id = getattr(new_state, "entity_id", "") or ""
@@ -3568,7 +3766,18 @@ class PersonCensus:
         )
         if want_direction is None:
             return []
-        # Prune stale entries (bounded work per call — deque maxlen 256).
+        # Review DL-2 (2026-09-04): prune the cache against wall-clock
+        # ``dt_util.utcnow()`` — using the CALLER's ``timestamp`` (which
+        # may be a backlogged / replayed egress event) would
+        # destructively evict fresh BLE legs on every replay. The
+        # in-window MATCH check still uses ``timestamp`` (that IS the
+        # crossing anchor).
+        try:
+            now_wall = dt_util.utcnow()
+            if getattr(now_wall, "tzinfo", None) is None:
+                now_wall = now_wall.replace(tzinfo=dt_util.UTC)
+        except Exception:  # noqa: BLE001
+            now_wall = timestamp
         fresh: deque[BleTransitionLeg] = deque(maxlen=self._ble_transition_cache.maxlen)
         matches: list[BleTransitionLeg] = []
         for leg in list(self._ble_transition_cache):
@@ -3576,13 +3785,18 @@ class PersonCensus:
                 lc = leg.transition_ts
                 if lc.tzinfo is None:
                     lc = lc.replace(tzinfo=dt_util.UTC)
-                age = (timestamp - lc).total_seconds()
+                wall_age = (now_wall - lc).total_seconds()
+                cross_age = (timestamp - lc).total_seconds()
             except Exception:  # noqa: BLE001
                 continue
-            if age > ttl or age < -ttl:
+            # Wall-clock prune — genuine staleness only.
+            if wall_age > ttl or wall_age < -ttl:
                 continue
             fresh.append(leg)
-            if leg.direction == want_direction and -float(ttl) <= age <= float(ttl):
+            if (
+                leg.direction == want_direction
+                and -float(ttl) <= cross_age <= float(ttl)
+            ):
                 matches.append(leg)
         self._ble_transition_cache = fresh
         return matches
@@ -4329,11 +4543,14 @@ class PersonCensus:
         # union guard. Under STRICT + face-producer-down, drop the
         # face-recognized name feed entirely — those names are
         # face-provenance by construction. BLE names + BLE-provenance
-        # egress registrations continue to accrue.
-        strict = self._is_egress_identity_failsafe_strict()
-        if strict and not self._is_face_producer_live():
+        # egress registrations continue to accrue. Review OB-1 fix:
+        # counter is per-TICK (not per-leg — that lives on the
+        # tracker), and only increments when we actually SUPPRESSED
+        # something (else it would inflate every idle tick).
+        if self._face_suppressed_now():
+            if face_recognized:
+                self._face_dropped_producer_down_ticks += 1
             face_recognized = []
-            self._face_dropped_producer_down_count += 1
         if self._is_egress_identity_enabled():
             egress_face_ids = self._get_egress_face_ids_fresh(now)
             recognized_set = (

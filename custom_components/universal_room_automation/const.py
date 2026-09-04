@@ -2241,6 +2241,12 @@ DEFAULT_EGRESS_IDENTITY_ENABLED: Final = True
 # Trust weight of a single BLE home<->away transition leg. Fitted;
 # module constant per §6 (drift silently rebalances agreement math).
 BLE_TRANSITION_CONFIDENCE: Final = 0.75
+# Review A-LOW-1 (2026-09-04): BLE-only attach must NOT share a scalar
+# with FACE_MATCH_CORRELATED_BOOST (0.75) — a future retune of either
+# would silently rebalance the other's ranking. Distinct constant with
+# a value that clearly ranks below BOOST + face-only MEDIUM, above the
+# BLE cache staleness noise floor.
+BLE_TRANSITION_ONLY_CONFIDENCE: Final = 0.72
 # Confidence when BLE + face agree on the same RESIDENT slug (must
 # strictly dominate face-only and BLE-only ranks).
 BLE_PLUS_FACE_CORROBORATED_CONFIDENCE: Final = 0.95

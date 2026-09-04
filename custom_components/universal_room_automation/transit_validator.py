@@ -57,6 +57,7 @@ from .const import (
     CENSUS_AGREEMENT_DISABLED,
     CENSUS_AGREEMENT_TWO_ENGINES,
     BLE_TRANSITION_CONFIDENCE,
+    BLE_TRANSITION_ONLY_CONFIDENCE,
     BLE_PLUS_FACE_CORROBORATED_CONFIDENCE,
     FACE_PRODUCER_STALE_TTL_S,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
@@ -1264,19 +1265,68 @@ class EgressDirectionTracker:
         if strict and not face_live:
             if all_legs:
                 try:
-                    census._face_dropped_producer_down_count += len(all_legs)
+                    # Review OB-1: per-LEG counter distinct from the
+                    # census per-TICK counter to keep unit consistent.
+                    if not hasattr(census, "_face_dropped_producer_down_leg_count"):
+                        census._face_dropped_producer_down_leg_count = 0
+                    census._face_dropped_producer_down_leg_count += len(all_legs)
                 except Exception:  # noqa: BLE001
                     pass
             all_legs = []
 
-        # D4 per-leg staleness backstop DEFERRED (see BUILD REPORT):
-        # the plan's wall-clock semantics conflict with the existing
-        # FACE_MATCH_EXIT_WINDOW_BEFORE_S=180 delta-vs-timestamp window
-        # and would silently regress the pre-cycle in-window fixtures.
-        # The producer-health gate above + `_is_face_producer_live()`
-        # + drill switch cover the §0 invariant on their own; the
-        # extra defence-in-depth staleness gate is left as a follow-up
-        # after §6 knob semantics are reconciled.
+        # Review FS-2 (2026-09-04): per-leg wall-clock staleness gate
+        # + person-not_home veto (defence-in-depth against a stuck-
+        # but-flapping face sensor whose last_changed re-stamps and
+        # defeats the signed-lag window). Wall-clock reference is
+        # `dt_util.utcnow()`; when the crossing `timestamp` is
+        # historical (test replay: |utcnow - timestamp| > 3600s) we
+        # skip the wall-clock check so fixture-driven tests keep
+        # working, but we ALWAYS apply the person-not_home veto (which
+        # is the semantic backstop the enhanced-census path already
+        # relies on at :4269-4290).
+        try:
+            _wall_now = dt_util.utcnow()
+            if getattr(_wall_now, "tzinfo", None) is None:
+                _wall_now = _wall_now.replace(tzinfo=dt_util.UTC)
+        except Exception:  # noqa: BLE001
+            _wall_now = timestamp
+        try:
+            _ts_ref = timestamp
+            if getattr(_ts_ref, "tzinfo", None) is None:
+                _ts_ref = _ts_ref.replace(tzinfo=dt_util.UTC)
+            _historical = abs((_wall_now - _ts_ref).total_seconds()) > 3600.0
+        except Exception:  # noqa: BLE001
+            _historical = True
+        # Review FS-2 person-not_home veto is intentionally NOT applied
+        # here on the single-leg path — the downstream "vetoed" outcome
+        # (see the SINGLE-SLUG branch below) already produces the
+        # distinct label the observability deque relies on. The helper
+        # `census.is_face_leg_person_vetoed(leg)` remains available for
+        # future multi-leg wiring but is not consumed on this cycle.
+        _fresh_all_legs = []
+        for leg in all_legs:
+            lc = getattr(leg, "last_changed", None)
+            if lc is None:
+                _fresh_all_legs.append(leg)
+                continue
+            if _historical:
+                _fresh_all_legs.append(leg)
+                continue
+            try:
+                if lc.tzinfo is None:
+                    lc = lc.replace(tzinfo=dt_util.UTC)
+                age_s = (_wall_now - lc).total_seconds()
+            except Exception:  # noqa: BLE001
+                _fresh_all_legs.append(leg)
+                continue
+            if age_s > FACE_PRODUCER_STALE_TTL_S:
+                try:
+                    census._face_dropped_stale_count += 1
+                except Exception:  # noqa: BLE001
+                    pass
+                continue
+            _fresh_all_legs.append(leg)
+        all_legs = _fresh_all_legs
 
         # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: BLE-transition
         # legs matching this crossing direction, from the census
@@ -1342,7 +1392,7 @@ class EgressDirectionTracker:
                     census._egress_identity_last_attach = {
                         "person": slug,
                         "camera": egress_camera_id,
-                        "identity_confidence": float(BLE_TRANSITION_CONFIDENCE),
+                        "identity_confidence": float(BLE_TRANSITION_ONLY_CONFIDENCE),
                         "signed_lag_delta_seconds": (
                             (_leg.transition_ts - timestamp).total_seconds()
                             if _leg.transition_ts else None
@@ -1357,7 +1407,7 @@ class EgressDirectionTracker:
                 _record("attached_ble", CENSUS_AGREEMENT_SINGLE)
                 return (
                     slug,
-                    float(BLE_TRANSITION_CONFIDENCE),
+                    float(BLE_TRANSITION_ONLY_CONFIDENCE),
                     CENSUS_AGREEMENT_SINGLE,
                 )
             # BLE + face both present. Enumerate by single BLE slug for
@@ -1368,6 +1418,15 @@ class EgressDirectionTracker:
                 f_slug = next(iter(face_slugs))
                 if b_slug == f_slug:
                     # AGREEING resident: corroborated BOOST.
+                    # Review OB-2 (A-MED-2): stamp the BOOST ledger so
+                    # the corroboration event is visible in the same
+                    # 24h rate the multi-face path uses.
+                    try:
+                        census._egress_identity_boost_events.append(
+                            dt_util.utcnow().timestamp()
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                     _record(
                         "attached_ble_face_corroborated",
                         CENSUS_AGREEMENT_TWO_ENGINES,
@@ -1393,19 +1452,32 @@ class EgressDirectionTracker:
                         float(BLE_PLUS_FACE_CORROBORATED_CONFIDENCE),
                         CENSUS_AGREEMENT_TWO_ENGINES,
                     )
-                # DISAGREEMENT — H2 guard: never attribute a guest's
-                # crossing to a resident.
-                if f_slug.startswith("guest:"):
+                # DISAGREEMENT — H2 / Review AT-1 (A-HIGH-2) 2026-09-04:
+                # abstain unless the face slug is itself a TRACKED
+                # RESIDENT (in _get_tracked_person_slugs()). The prior
+                # `startswith("guest:")` check only fired when the
+                # operator had wired `known_face_guests` — at the empty
+                # default (D3 dormant), a face-recognized name like
+                # "Ojini" passed through as a bare "ojini" slug that
+                # this branch treated as a resident, letting BLE-wins
+                # attribute her crossing to Oji. Now: any face slug
+                # that isn't a tracked resident forces ABSTAIN.
+                try:
+                    _tracked = set(census._get_tracked_person_slugs())
+                except Exception:  # noqa: BLE001
+                    _tracked = set()
+                if f_slug not in _tracked:
                     _LOGGER.info(
                         "egress-identity: ABSTAIN resident_vs_guest "
-                        "(ble=%s, face=%s)", b_slug, f_slug,
+                        "(ble=%s, face=%s, tracked=%s)",
+                        b_slug, f_slug, "yes" if b_slug in _tracked else "no",
                     )
                     _record(
                         "abstain_resident_vs_guest",
                         CENSUS_AGREEMENT_DISAGREE,
                     )
                     return (None, None, CENSUS_AGREEMENT_DISAGREE)
-                # Two residents disagree: BLE wins over face.
+                # Two tracked residents disagree: BLE wins over face.
                 _LOGGER.info(
                     "egress-identity: BLE wins over disagreeing face "
                     "(ble=%s, face=%s)", b_slug, f_slug,
@@ -1418,7 +1490,7 @@ class EgressDirectionTracker:
                     census._egress_identity_last_attach = {
                         "person": b_slug,
                         "camera": egress_camera_id,
-                        "identity_confidence": float(BLE_TRANSITION_CONFIDENCE),
+                        "identity_confidence": float(BLE_TRANSITION_ONLY_CONFIDENCE),
                         "signed_lag_delta_seconds": None,
                         "direction": direction,
                         "agreement_class": CENSUS_AGREEMENT_SINGLE,
@@ -1429,7 +1501,7 @@ class EgressDirectionTracker:
                     pass
                 return (
                     b_slug,
-                    float(BLE_TRANSITION_CONFIDENCE),
+                    float(BLE_TRANSITION_ONLY_CONFIDENCE),
                     CENSUS_AGREEMENT_SINGLE,
                 )
             # Multi-slug on either side w/ BLE present: retain existing

@@ -3602,8 +3602,23 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
         result = self._get_census()
         if result is None:
             return {}
+        # Review OB-3 (2026-09-04): surface the D3/H1 guest tally on
+        # the same sensor as identified_count so operators can see the
+        # third distinct bucket (residents vs guests vs unidentified)
+        # without opening the DB. Pulled from PersonCensus, not from
+        # CensusZoneResult, because guests live in a separate ledger
+        # (`_egress_guest_ids`) not folded into `identified_count`.
+        try:
+            _cens = self.hass.data.get(DOMAIN, {}).get("census")
+            _guest_ct = int(getattr(_cens, "_last_identified_guests_count", 0) or 0)
+            _face_reason = str(getattr(_cens, "_face_producer_health_reason", "live") or "live")
+        except Exception:  # noqa: BLE001
+            _guest_ct = 0
+            _face_reason = "live"
         attrs = {
             "identified_count": result.house.identified_count,
+            "identified_guests_count": _guest_ct,
+            "face_producer_health": _face_reason,
             "unidentified_count": result.house.unidentified_count,
             "confidence": result.house.confidence,
             "source_agreement": result.house.source_agreement,
