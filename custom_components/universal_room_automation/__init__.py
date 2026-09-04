@@ -4176,6 +4176,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 exc_info=True,
             )
 
+        # v5.94.1 A-MED (2026-09-03): shell cleanup runs BEFORE the CM
+        # `async_get_or_create` below — with duplicate same-identifier
+        # devices persisted from the prior boot, get_or_create resolves
+        # via the last-writer-wins identifier index and CAN bind the
+        # SHELL to the CM entry (shell.config_entries becomes
+        # {parent, CM}, guard-1 sole-owner==\{parent\} then permanently
+        # excludes it; CM entities re-home onto the shell). Running
+        # cleanup first — against the persisted post-rehome state where
+        # the shell is still 0-entity + sole-parent-owned — ensures
+        # get_or_create resolves to a clean slot (or mints anew).
+        # v5.94.1 FIX 1 (2026-09-03): remove empty coordinator-shell devices
+        # left on the INTEGRATION/parent entry after v5.94.0 D-REHOME moved
+        # coordinator entities to the CM entry. HA does NOT auto-remove a
+        # device when its last entity migrates to a DIFFERENT config entry
+        # (helpers/device_registry.py), so three empty shells lingered:
+        # (DOMAIN, "coordinator_manager") / "security_coordinator" /
+        # "music_following_coordinator") plus any other coord identifier
+        # that meets the predicate. Removal is durable because the parent
+        # entry no longer forwards any coordinator platform (see
+        # INTEGRATION_PLATFORMS + sensor.py:161-185) — nothing will
+        # recreate them. MUST run BEFORE the D-NEST stamp so the sweep's
+        # same-identifier resolution (FIX 2) picks the surviving real
+        # device on the CM entry.
+        try:
+            from ._devices import async_cleanup_parent_entry_shells
+            parent_entry_id = entry.data.get(CONF_INTEGRATION_ENTRY_ID)
+            if parent_entry_id:
+                # Pass CM entry_id as the not-CM-owned safety guard —
+                # the REAL coord devices live on the CM entry, so any
+                # candidate carrying it MUST be spared.
+                await async_cleanup_parent_entry_shells(
+                    hass, parent_entry_id, cm_entry_id=entry.entry_id,
+                )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "v5.94.1 FIX 1: shell-cleanup guard raised (non-fatal)",
+                exc_info=True,
+            )
+
         # Register Coordinator Manager device under THIS config entry
         from homeassistant.helpers import device_registry as dr
         dev_reg = dr.async_get(hass)
@@ -4201,16 +4240,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # inline stamp can\'t see devices created by later-completing entries.
         # Schedule a cover-all sweep via async_at_started AND run one inline
         # pass now to catch anything already registered.
+        # v5.94.1 B1 (2026-09-03): schedule the at-started sweep OUTSIDE
+        # the stamp try/except — a stamp raise must NOT skip sweep
+        # scheduling (that's the only cover-all pass; without it any
+        # devices created by later-completing entries stay unparented).
         try:
-            from ._devices import (
-                async_stamp_via_device_tree,
-                async_schedule_device_tree_sweep,
-            )
+            from ._devices import async_stamp_via_device_tree
             await async_stamp_via_device_tree(hass)
-            async_schedule_device_tree_sweep(hass)
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
                 "D-NEST: via_device stamping from CM setup raised (non-fatal)",
+                exc_info=True,
+            )
+        try:
+            from ._devices import async_schedule_device_tree_sweep
+            async_schedule_device_tree_sweep(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: at-started sweep scheduling from CM setup raised (non-fatal)",
                 exc_info=True,
             )
 
@@ -4705,6 +4752,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
     
     if entry_type == ENTRY_TYPE_INTEGRATION:
+        # v5.94.1 B3 (2026-09-03): tear down D-NEST sweep resources
+        # (scheduled from INTEGRATION setup as well as CM). Idempotent —
+        # whichever unload runs first drains the lists; the other no-ops.
+        try:
+            from ._devices import async_teardown_device_tree_sweep_handles
+            async_teardown_device_tree_sweep_handles(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "v5.94.1 B3: D-NEST sweep teardown at INTEGRATION unload raised (non-fatal)",
+                exc_info=True,
+            )
         # Unload aggregation platforms
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
 
@@ -4945,6 +5003,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         snapshots = hass.data.get(DOMAIN, {}).get("cm_last_applied_options")
         if snapshots is not None:
             snapshots.pop(entry.entry_id, None)
+        # v5.94.1 B3 (2026-09-03): tear down D-NEST sweep resources
+        # BEFORE platform unload so the async_at_started unsub / any
+        # pending async_call_later retry can't fire against a
+        # half-torn-down entry.
+        try:
+            from ._devices import async_teardown_device_tree_sweep_handles
+            async_teardown_device_tree_sweep_handles(hass)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "v5.94.1 B3: D-NEST sweep teardown at CM unload raised (non-fatal)",
+                exc_info=True,
+            )
         unload_ok = await hass.config_entries.async_unload_platforms(entry, cm_platforms)
         return unload_ok
 

@@ -159,6 +159,197 @@ def _resolve_parent_identifier(
     return None
 
 
+async def async_cleanup_parent_entry_shells(
+    hass: HomeAssistant,
+    parent_entry_id: str,
+    cm_entry_id: str | None = None,
+) -> int:
+    """v5.94.1 FIX 1: remove empty coord-shell devices on the parent entry.
+
+    After v5.94.0 D-REHOME moved coordinator entities from the parent/
+    INTEGRATION entry to the CM entry, HA left an empty device record
+    behind on the parent entry (device_registry never auto-removes a
+    device when its last entity migrates to a DIFFERENT config entry).
+    The parent entry no longer forwards any coordinator platform, so
+    removing these shells is DURABLE — nothing recreates them.
+
+    Predicate — ALL THREE must hold to remove:
+      1. device carries a URA identifier `(DOMAIN, ident)` with `ident`
+         in `_STATIC_CHILD_IDS` (any coord identifier the tree tracks).
+      2. `device.config_entries == {parent_entry_id}` — EXACT set
+         equality, so a dual-owned device is never demoted.
+      3. `er.async_entries_for_device(..., include_disabled_entities=True)`
+         returns EMPTY.
+
+    Removal: `dr.async_update_device(id, remove_config_entry_id=...)`.
+    HA auto-deletes when that was the sole entry
+    (helpers/device_registry.py:1176-1178). Self-verifying: safe no-harm
+    if any other entry is attached (demotes instead of deleting).
+
+    Iterates `dev_reg.devices.values()` — never `async_get_device`,
+    which returns the identifier-index slot which may resolve to the
+    REAL device (same-identifier hazard).
+
+    Returns the number of shell devices actually removed.
+    """
+    # v5.94.1 B1 (2026-09-03): kill-switch parity with the stamper.
+    # If D-NEST is disabled, removing shells strands the 6 real
+    # coordinators without a parent (via_device_id=None forever).
+    # Fate-share the two: disable together, enable together.
+    if not URA_DEVICE_TREE_STAMPING_ENABLED:
+        return 0
+    if parent_entry_id is None:
+        return 0
+    try:
+        from homeassistant.helpers import entity_registry as er
+    except Exception:  # noqa: BLE001
+        return 0
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    removed = 0
+    # v5.94.1 B2 (2026-09-03): track the identifiers we remove so we can
+    # deterministically re-index the surviving sibling that shared each
+    # slot. HA's __delitem__ on `_identifiers` unconditionally drops the
+    # shared slot when the shell is removed; without an explicit re-index
+    # the later stamp may short-circuit (via_device_id already correct)
+    # and leave the slot empty — the next `async_get_or_create` would
+    # then mint a DUPLICATE for the survivor.
+    removed_idents: set[tuple[str, str]] = set()
+    for device in list(dev_reg.devices.values()):
+        ura_ident: str | None = None
+        for (dom, ident) in device.identifiers:
+            if dom == DOMAIN and ident in _STATIC_CHILD_IDS:
+                ura_ident = ident
+                break
+        if ura_ident is None:
+            continue
+        # SAFETY guard 1 — sole-parent-owner (exact set equality). A
+        # membership check could match a dual-owned real device and
+        # demote it.
+        dev_entries = getattr(device, "config_entries", None)
+        if dev_entries != {parent_entry_id}:
+            continue
+        # SAFETY guard 2 — not-CM-owned. Belt-and-suspenders on top of
+        # guard 1: the REAL coord devices are owned by the CM entry
+        # (never by the parent alone). If a candidate somehow carries
+        # the CM entry, WARN and skip — an unexpected state that must
+        # never fall through to deletion.
+        if cm_entry_id is not None and cm_entry_id in (dev_entries or set()):
+            _LOGGER.warning(
+                "v5.94.1 FIX 1: refusing to remove device %s (ident=%s) — "
+                "carries CM entry_id %s; unexpected state, failing safe",
+                device.id, ura_ident, cm_entry_id,
+            )
+            continue
+        # SAFETY guard 3 — zero entities.
+        remaining = er.async_entries_for_device(
+            ent_reg, device.id, include_disabled_entities=True,
+        )
+        if remaining:
+            continue
+        # Operate by device.id ONLY — never resolve via
+        # async_get_device(identifiers=...) which returns the shared
+        # index slot (could be the REAL device).
+        try:
+            dev_reg.async_update_device(
+                device.id, remove_config_entry_id=parent_entry_id,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "v5.94.1 FIX 1: shell removal raised for %s (ident=%s)",
+                device.id, ura_ident, exc_info=True,
+            )
+            continue
+        removed += 1
+        removed_idents.add((DOMAIN, ura_ident))
+        _LOGGER.info(
+            "v5.94.1 FIX 1: removed empty parent-entry shell device %s "
+            "(identifier=(DOMAIN, %r))",
+            device.id, ura_ident,
+        )
+    # B2 re-index pass: for each removed identifier, if a survivor still
+    # carries it, force a re-index via async_update_device(new_identifiers=
+    # survivor.identifiers). This re-runs the registry index build for
+    # that device so async_get_device(identifiers={...}) resolves to it.
+    if removed_idents:
+        for ident in removed_idents:
+            survivor = None
+            for _dev in list(dev_reg.devices.values()):
+                if ident in _dev.identifiers:
+                    survivor = _dev
+                    break
+            if survivor is None:
+                continue
+            try:
+                # Passing new_identifiers=survivor.identifiers is a no-op
+                # semantically but forces HA to rebuild the _identifiers
+                # index slot for this device (post-removal the shared
+                # slot was un-indexed by __delitem__).
+                dev_reg.async_update_device(
+                    survivor.id, new_identifiers=set(survivor.identifiers),
+                )
+                _LOGGER.info(
+                    "v5.94.1 B2: re-indexed survivor %s for identifier %s",
+                    survivor.id, ident,
+                )
+            except TypeError:
+                # Fake registries in the unit tests may not support
+                # new_identifiers; skip in that case (test harness
+                # exercises the loop via a monkeypatched update_device).
+                _LOGGER.debug(
+                    "v5.94.1 B2: re-index update_device did not accept "
+                    "new_identifiers (test harness); skipping",
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "v5.94.1 B2: re-index failed for survivor %s "
+                    "(identifier=%s)", survivor.id, ident, exc_info=True,
+                )
+    if removed:
+        _LOGGER.info(
+            "v5.94.1 FIX 1: removed %d empty parent-entry coordinator "
+            "shell device(s)", removed,
+        )
+    return removed
+
+
+def async_teardown_device_tree_sweep_handles(hass: HomeAssistant) -> None:
+    """v5.94.1 B3 (2026-09-03): actively consume the sweep-scheduling
+    resources FIX-5 stashed in `hass.data[DOMAIN]`.
+
+    - `_device_tree_sweep_unsubs`: async_at_started returns an unsub
+      callable — invoke each and clear the list.
+    - `_device_tree_sweep_retry_handles`: async_call_later returns a
+      handle exposing `.cancel()` — cancel each and clear.
+
+    Idempotent. Safe to call from CM AND INTEGRATION unload paths
+    (either may run first; the second call finds empty lists).
+    """
+    try:
+        domain_data = hass.data.get(DOMAIN, {})
+    except Exception:  # noqa: BLE001
+        return
+    for key in ("_device_tree_sweep_unsubs", "_device_tree_sweep_retry_handles"):
+        items = domain_data.get(key)
+        if not items:
+            continue
+        for item in list(items):
+            try:
+                if callable(item):
+                    item()  # async_at_started unsub
+                elif hasattr(item, "cancel"):
+                    item.cancel()  # async_call_later handle
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "v5.94.1 B3: sweep-handle cleanup raised for %s "
+                    "(non-fatal)", key, exc_info=True,
+                )
+        domain_data[key] = []
+    # Also clear the scheduled latch so a subsequent reload can re-arm.
+    if "_device_tree_sweep_scheduled" in domain_data:
+        domain_data["_device_tree_sweep_scheduled"] = False
+
+
 async def async_stamp_via_device_tree(hass: HomeAssistant) -> int:
     """Restore device-tree nesting for URA-owned devices (D-NEST).
 
@@ -177,9 +368,58 @@ async def async_stamp_via_device_tree(hass: HomeAssistant) -> int:
     updates = 0
     # Snapshot device iterable — we may mutate via_device_id during iteration.
     devices = list(dev_reg.devices.values())
+
+    # v5.94.1 FIX 2 (2026-09-03): same-identifier tie-break for the parent
+    # index. In v5.94.0 dual-registration created TWO devices per coord
+    # identifier — the REAL populated one on the CM entry and an empty
+    # SHELL on the parent/INTEGRATION entry. The previous last-writer-wins
+    # loop could resolve `coordinator_manager` to the empty shell and
+    # stamp real coordinators under a dead parent, leaving the real CM
+    # unnested. Rule: an EMPTY device (0 entities) that is SOLE-owned by
+    # the parent/INTEGRATION entry is a removal candidate (see __init__.py
+    # FIX 1) and is NEVER a valid parent — skip it from ura_index. Any
+    # populated device wins the slot regardless of iteration order.
+    _parent_entry_id: str | None = None
+    _ent_reg = None
+    try:
+        # Local import: avoid cycle at module load.
+        from homeassistant.helpers import entity_registry as _er
+        from .const import (
+            CONF_ENTRY_TYPE as _CONF_ENTRY_TYPE,
+            ENTRY_TYPE_INTEGRATION as _ENTRY_TYPE_INTEGRATION,
+        )
+        _ent_reg = _er.async_get(hass)
+        for _e in hass.config_entries.async_entries(DOMAIN):
+            if _e.data.get(_CONF_ENTRY_TYPE) == _ENTRY_TYPE_INTEGRATION:
+                _parent_entry_id = _e.entry_id
+                break
+    except Exception:  # noqa: BLE001
+        # Missing hass/registry shape (e.g. minimal test hass) — no
+        # tie-break available, fall through to the historical behaviour.
+        _parent_entry_id = None
+        _ent_reg = None
+
+    def _is_empty_parent_shell(_device) -> bool:
+        """Empty (0 entities) AND sole-owned by parent entry."""
+        if _parent_entry_id is None or _ent_reg is None:
+            return False
+        try:
+            if getattr(_device, "config_entries", None) != {_parent_entry_id}:
+                return False
+            from homeassistant.helpers import entity_registry as _er2
+            _entries = _er2.async_entries_for_device(
+                _ent_reg, _device.id, include_disabled_entities=True,
+            )
+            return not _entries
+        except Exception:  # noqa: BLE001
+            return False
+
     # Build identifier -> device_id index for URA-owned devices only.
     ura_index: dict[tuple[str, str], str] = {}
     for device in devices:
+        if _is_empty_parent_shell(device):
+            # Removal candidate — never eligible as a parent.
+            continue
         for identifier in device.identifiers:
             if identifier[0] == DOMAIN:
                 ura_index[identifier] = device.id
