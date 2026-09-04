@@ -192,6 +192,12 @@ async def async_cleanup_parent_entry_shells(
 
     Returns the number of shell devices actually removed.
     """
+    # v5.94.1 B1 (2026-09-03): kill-switch parity with the stamper.
+    # If D-NEST is disabled, removing shells strands the 6 real
+    # coordinators without a parent (via_device_id=None forever).
+    # Fate-share the two: disable together, enable together.
+    if not URA_DEVICE_TREE_STAMPING_ENABLED:
+        return 0
     if parent_entry_id is None:
         return 0
     try:
@@ -201,6 +207,14 @@ async def async_cleanup_parent_entry_shells(
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
     removed = 0
+    # v5.94.1 B2 (2026-09-03): track the identifiers we remove so we can
+    # deterministically re-index the surviving sibling that shared each
+    # slot. HA's __delitem__ on `_identifiers` unconditionally drops the
+    # shared slot when the shell is removed; without an explicit re-index
+    # the later stamp may short-circuit (via_device_id already correct)
+    # and leave the slot empty — the next `async_get_or_create` would
+    # then mint a DUPLICATE for the survivor.
+    removed_idents: set[tuple[str, str]] = set()
     for device in list(dev_reg.devices.values()):
         ura_ident: str | None = None
         for (dom, ident) in device.identifiers:
@@ -247,17 +261,93 @@ async def async_cleanup_parent_entry_shells(
             )
             continue
         removed += 1
+        removed_idents.add((DOMAIN, ura_ident))
         _LOGGER.info(
             "v5.94.1 FIX 1: removed empty parent-entry shell device %s "
             "(identifier=(DOMAIN, %r))",
             device.id, ura_ident,
         )
+    # B2 re-index pass: for each removed identifier, if a survivor still
+    # carries it, force a re-index via async_update_device(new_identifiers=
+    # survivor.identifiers). This re-runs the registry index build for
+    # that device so async_get_device(identifiers={...}) resolves to it.
+    if removed_idents:
+        for ident in removed_idents:
+            survivor = None
+            for _dev in list(dev_reg.devices.values()):
+                if ident in _dev.identifiers:
+                    survivor = _dev
+                    break
+            if survivor is None:
+                continue
+            try:
+                # Passing new_identifiers=survivor.identifiers is a no-op
+                # semantically but forces HA to rebuild the _identifiers
+                # index slot for this device (post-removal the shared
+                # slot was un-indexed by __delitem__).
+                dev_reg.async_update_device(
+                    survivor.id, new_identifiers=set(survivor.identifiers),
+                )
+                _LOGGER.info(
+                    "v5.94.1 B2: re-indexed survivor %s for identifier %s",
+                    survivor.id, ident,
+                )
+            except TypeError:
+                # Fake registries in the unit tests may not support
+                # new_identifiers; skip in that case (test harness
+                # exercises the loop via a monkeypatched update_device).
+                _LOGGER.debug(
+                    "v5.94.1 B2: re-index update_device did not accept "
+                    "new_identifiers (test harness); skipping",
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "v5.94.1 B2: re-index failed for survivor %s "
+                    "(identifier=%s)", survivor.id, ident, exc_info=True,
+                )
     if removed:
         _LOGGER.info(
             "v5.94.1 FIX 1: removed %d empty parent-entry coordinator "
             "shell device(s)", removed,
         )
     return removed
+
+
+def async_teardown_device_tree_sweep_handles(hass: HomeAssistant) -> None:
+    """v5.94.1 B3 (2026-09-03): actively consume the sweep-scheduling
+    resources FIX-5 stashed in `hass.data[DOMAIN]`.
+
+    - `_device_tree_sweep_unsubs`: async_at_started returns an unsub
+      callable — invoke each and clear the list.
+    - `_device_tree_sweep_retry_handles`: async_call_later returns a
+      handle exposing `.cancel()` — cancel each and clear.
+
+    Idempotent. Safe to call from CM AND INTEGRATION unload paths
+    (either may run first; the second call finds empty lists).
+    """
+    try:
+        domain_data = hass.data.get(DOMAIN, {})
+    except Exception:  # noqa: BLE001
+        return
+    for key in ("_device_tree_sweep_unsubs", "_device_tree_sweep_retry_handles"):
+        items = domain_data.get(key)
+        if not items:
+            continue
+        for item in list(items):
+            try:
+                if callable(item):
+                    item()  # async_at_started unsub
+                elif hasattr(item, "cancel"):
+                    item.cancel()  # async_call_later handle
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "v5.94.1 B3: sweep-handle cleanup raised for %s "
+                    "(non-fatal)", key, exc_info=True,
+                )
+        domain_data[key] = []
+    # Also clear the scheduled latch so a subsequent reload can re-arm.
+    if "_device_tree_sweep_scheduled" in domain_data:
+        domain_data["_device_tree_sweep_scheduled"] = False
 
 
 async def async_stamp_via_device_tree(hass: HomeAssistant) -> int:

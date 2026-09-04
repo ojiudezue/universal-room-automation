@@ -1032,29 +1032,92 @@ class _FakeDevice2:
 
 
 class _FakeDevReg2:
+    """Fake device registry that simulates HA's `_identifiers` index +
+    the `__delitem__` un-index-on-remove behaviour v5.94.1 B2 targets.
+
+    On removal, the shared identifier slot is dropped unconditionally
+    (mirrors helpers/device_registry.py). B2's re-index call feeds the
+    survivor's identifiers back through `async_update_device(
+    new_identifiers=...)` — we rebuild the index slot only when that
+    call is made, so a test can assert re-index is deterministic (not
+    a side effect).
+    """
+
     def __init__(self, devices: list[_FakeDevice2]):
         self.devices = {d.id: d for d in devices}
         self.removed: list[str] = []
         self.update_calls: list[tuple] = []
+        # Build the identifier -> device_id index, last-writer-wins
+        # (mirrors HA's dict insertion order).
+        self._ident_index: dict[tuple[str, str], str] = {}
+        for d in devices:
+            for ident in d.identifiers:
+                self._ident_index[ident] = d.id
 
     def async_get(self, device_id):
         return self.devices.get(device_id)
 
-    def async_update_device(
-        self, device_id, *, via_device_id=None, remove_config_entry_id=None,
+    def async_get_device(self, identifiers=None, **_kw):
+        """Mirror HA's identifier-index lookup — returns whatever the
+        index slot points at (or None if un-indexed)."""
+        if not identifiers:
+            return None
+        for ident in identifiers:
+            did = self._ident_index.get(tuple(ident))
+            if did is not None:
+                return self.devices.get(did)
+        return None
+
+    def async_get_or_create(
+        self, *, config_entry_id, identifiers, **_kw,
     ):
-        self.update_calls.append((device_id, via_device_id, remove_config_entry_id))
+        """Mirror HA's async_get_or_create resolution — reuse the
+        identifier-index slot when present, else mint a new device.
+        This is the exact code path A-MED protects against.
+        """
+        existing = self.async_get_device(identifiers=identifiers)
+        if existing is not None:
+            existing.config_entries.add(config_entry_id)
+            return existing
+        new_id = f"minted_{len(self.devices)}"
+        dev = _FakeDevice2(new_id, set(identifiers), config_entries={config_entry_id})
+        self.devices[new_id] = dev
+        for ident in dev.identifiers:
+            self._ident_index[ident] = new_id
+        return dev
+
+    def async_update_device(
+        self,
+        device_id,
+        *,
+        via_device_id=None,
+        remove_config_entry_id=None,
+        new_identifiers=None,
+    ):
+        self.update_calls.append(
+            (device_id, via_device_id, remove_config_entry_id, new_identifiers)
+        )
         dev = self.devices.get(device_id)
         if dev is None:
             return
         if via_device_id is not None:
             dev.via_device_id = via_device_id
+        if new_identifiers is not None:
+            # Re-index: replace this device's identifier slots.
+            dev.identifiers = set(new_identifiers)
+            for ident in dev.identifiers:
+                self._ident_index[ident] = device_id
         if remove_config_entry_id is not None:
             dev.config_entries.discard(remove_config_entry_id)
             # HA auto-deletes when this was the sole entry.
             if not dev.config_entries:
                 self.removed.append(device_id)
                 self.devices.pop(device_id, None)
+                # HA's __delitem__ drops the identifier slot
+                # UNCONDITIONALLY — mirror that here so the un-index
+                # hazard shows up in tests (B2 must re-index).
+                for ident in list(dev.identifiers):
+                    self._ident_index.pop(ident, None)
 
 
 class _FakeEntReg:
@@ -1299,10 +1362,331 @@ async def test_v5_94_1_shell_cleanup_survival_all_three_identifiers(monkeypatch)
         assert rid in fake_reg.devices, (
             f"REAL device {rid} for {ident} was destroyed — safety guard failed"
         )
-    # Removal ops targeted shell IDs ONLY, never a real id
+    # Removal ops targeted shell IDs ONLY, never a real id. Filter to
+    # remove_config_entry_id calls — B2 re-index calls (new_identifiers)
+    # deliberately DO target the surviving real device.
     real_id_set = set(real_ids.values())
-    for (dev_id, via, remove_ce) in fake_reg.update_calls:
+    for (dev_id, via, remove_ce, _new_ids) in fake_reg.update_calls:
+        if remove_ce is None:
+            continue
         assert dev_id not in real_id_set, (
-            f"async_update_device called on REAL device {dev_id} — must be "
-            f"shell-only"
+            f"async_update_device(remove_config_entry_id=...) called on REAL "
+            f"device {dev_id} — must be shell-only"
         )
+
+
+# ---------------------------------------------------------------------------
+# v5.94.1 review-fix-up tests — B2 re-index, A-MED ordering, B1 kill-switch.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_b2_reindex_after_shell_removal(monkeypatch):
+    """B2: after cleanup, `async_get_device({(DOMAIN,'coordinator_manager')})`
+    resolves to the surviving CM device — the shared identifier slot was
+    re-indexed deterministically (not left un-indexed by
+    __delitem__).
+    """
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+    real_cm = _FakeDevice2(
+        "dev_real_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={cm},
+    )
+    shell = _FakeDevice2(
+        "dev_shell_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={parent},
+    )
+    # Insert shell LAST so the initial index points at the shell — this is
+    # the exact pre-condition that motivates B2 (removing the shell drops
+    # the shared slot; without re-index the survivor is unfindable).
+    fake_reg = _FakeDevReg2([real_cm, shell])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({
+        "dev_real_cm": ["entity_1"], "dev_shell_cm": [],
+    }))
+
+    hass = MagicMock()
+    ident = ("universal_room_automation", "coordinator_manager")
+
+    # Pre-condition: index resolves to the shell (last-writer-wins).
+    assert fake_reg.async_get_device(identifiers={ident}).id == "dev_shell_cm"
+
+    removed = await d.async_cleanup_parent_entry_shells(
+        hass, parent, cm_entry_id=cm,
+    )
+    assert removed == 1
+
+    # Post-condition: index resolves to the survivor (re-indexed).
+    resolved = fake_reg.async_get_device(identifiers={ident})
+    assert resolved is not None, (
+        "B2: identifier slot un-indexed and NOT re-indexed — a subsequent "
+        "async_get_or_create would mint a DUPLICATE for coordinator_manager"
+    )
+    assert resolved.id == "dev_real_cm", (
+        f"B2: identifier slot re-indexed to wrong device {resolved.id}"
+    )
+
+    # A simulated second async_get_or_create (what CM setup does at
+    # ~__init__.py:4181) must resolve to the survivor — no duplicate.
+    result = fake_reg.async_get_or_create(
+        config_entry_id=cm, identifiers={ident},
+    )
+    assert result.id == "dev_real_cm", (
+        f"B2: get_or_create minted a duplicate ({result.id}) instead of "
+        f"resolving to the re-indexed survivor"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_amed_order_cleanup_before_get_or_create(monkeypatch):
+    """A-MED: with a pre-existing empty parent-owned shell + real CM,
+    the intended CM-setup sequence — cleanup FIRST, then get_or_create —
+    yields EXACTLY ONE coordinator_manager device bound to the CM entry.
+
+    The bug the ordering fix prevents: get_or_create runs first, the
+    identifier index resolves to the shell (last-writer-wins), the shell
+    is bound to the CM entry (`config_entries` becomes {parent, cm}),
+    guard-1 (== {parent}) then permanently excludes it and the CM
+    entities re-home onto the shell.
+    """
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+    ident = ("universal_room_automation", "coordinator_manager")
+    real_cm = _FakeDevice2("dev_real_cm", {ident}, config_entries={cm})
+    shell = _FakeDevice2("dev_shell_cm", {ident}, config_entries={parent})
+    # Shell inserted last — index resolves to shell.
+    fake_reg = _FakeDevReg2([real_cm, shell])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({
+        "dev_real_cm": ["e_cm_1"], "dev_shell_cm": [],
+    }))
+    hass = MagicMock()
+
+    # A-MED sequence: cleanup, THEN get_or_create.
+    await d.async_cleanup_parent_entry_shells(hass, parent, cm_entry_id=cm)
+    result = fake_reg.async_get_or_create(
+        config_entry_id=cm, identifiers={ident},
+        name="URA: Coordinator Manager",
+    )
+
+    # Exactly one device carries the identifier + it's the real CM +
+    # sole-owned by CM.
+    carriers = [
+        dev for dev in fake_reg.devices.values() if ident in dev.identifiers
+    ]
+    assert len(carriers) == 1, (
+        f"A-MED: expected exactly 1 coordinator_manager device, got "
+        f"{len(carriers)}: {[d.id for d in carriers]}"
+    )
+    assert result.id == "dev_real_cm"
+    assert result.config_entries == {cm}, (
+        f"A-MED: real CM ended up with wrong config_entries={result.config_entries}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_amed_wrong_order_would_bind_shell_to_cm(monkeypatch):
+    """A-MED counter-example: the OLD ordering (get_or_create first, then
+    cleanup) leaves the shell bound to BOTH entries and guard-1 permanently
+    excludes it. Test proves the failure mode is real (would FAIL without
+    the ordering fix).
+    """
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+    ident = ("universal_room_automation", "coordinator_manager")
+    real_cm = _FakeDevice2("dev_real_cm", {ident}, config_entries={cm})
+    shell = _FakeDevice2("dev_shell_cm", {ident}, config_entries={parent})
+    fake_reg = _FakeDevReg2([real_cm, shell])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({
+        "dev_real_cm": ["e_cm_1"], "dev_shell_cm": [],
+    }))
+    hass = MagicMock()
+
+    # OLD (broken) sequence: get_or_create FIRST, then cleanup.
+    fake_reg.async_get_or_create(
+        config_entry_id=cm, identifiers={ident},
+    )
+    # Shell now dual-owned.
+    assert fake_reg.devices["dev_shell_cm"].config_entries == {parent, cm}
+    removed = await d.async_cleanup_parent_entry_shells(
+        hass, parent, cm_entry_id=cm,
+    )
+    # Guard-1 (sole == {parent}) skips the dual-owned shell; guard-2
+    # (cm-owned) also skips. Removal is zero — the shell lingers with
+    # the CM entry bound.
+    assert removed == 0, (
+        "Counter-example broken — cleanup unexpectedly removed a "
+        "dual-owned shell (violates safety guards)"
+    )
+    # And there are TWO coordinator_manager carriers — the exact
+    # nondeterministic-duplicate state A-MED prevents.
+    carriers = [
+        dev for dev in fake_reg.devices.values() if ident in dev.identifiers
+    ]
+    assert len(carriers) == 2, (
+        "Counter-example broken — expected 2 carriers under the old order"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v5_94_1_b1_kill_switch_disables_shell_cleanup(monkeypatch):
+    """B1: `URA_DEVICE_TREE_STAMPING_ENABLED = False` disables shell
+    cleanup as well (fate-share with the stamper). Otherwise disabling
+    D-NEST would strand the 6 real coordinators with via_device_id=None
+    while still deleting the shells that were their only parent slot.
+    """
+    d = _import_devices()
+    parent = "PARENT_ENTRY"
+    cm = "CM_ENTRY"
+    shell = _FakeDevice2(
+        "dev_shell_cm",
+        {("universal_room_automation", "coordinator_manager")},
+        config_entries={parent},
+    )
+    fake_reg = _FakeDevReg2([shell])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(monkeypatch, _FakeEntReg({"dev_shell_cm": []}))
+
+    monkeypatch.setattr(d, "URA_DEVICE_TREE_STAMPING_ENABLED", False)
+
+    hass = MagicMock()
+    removed = await d.async_cleanup_parent_entry_shells(
+        hass, parent, cm_entry_id=cm,
+    )
+    assert removed == 0, (
+        "B1: kill-switch False should make cleanup a no-op"
+    )
+    assert "dev_shell_cm" in fake_reg.devices, (
+        "B1: shell removed despite URA_DEVICE_TREE_STAMPING_ENABLED=False"
+    )
+    assert fake_reg.update_calls == [], (
+        "B1: no update_device calls should have been made under kill-switch"
+    )
+
+
+def test_v5_94_1_amed_source_order_cleanup_precedes_get_or_create():
+    """A-MED source anchor: in the CM entry setup branch of __init__.py,
+    `async_cleanup_parent_entry_shells` MUST appear textually BEFORE the
+    CM `dev_reg.async_get_or_create(identifiers={(DOMAIN, "coordinator_manager")`.
+    Mutating the ordering (reverting A-MED) makes this test RED.
+    """
+    src = (PKG_ROOT / "__init__.py").read_text()
+    cm_anchor = "if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:"
+    cm_idx = src.find(cm_anchor)
+    assert cm_idx >= 0, "CM entry branch anchor not found in __init__.py"
+    # Scope the search window to the CM branch — pick the FIRST occurrence
+    # of each marker after the CM anchor.
+    body = src[cm_idx:cm_idx + 20000]
+    cleanup_pos = body.find("async_cleanup_parent_entry_shells(")
+    goc_pos = body.find('identifiers={(DOMAIN, "coordinator_manager")}')
+    assert cleanup_pos > 0, "shell-cleanup call not found in CM branch"
+    assert goc_pos > 0, "CM async_get_or_create not found in CM branch"
+    assert cleanup_pos < goc_pos, (
+        f"A-MED regression: async_cleanup_parent_entry_shells at "
+        f"offset {cleanup_pos} runs AFTER the CM async_get_or_create at "
+        f"offset {goc_pos}. Cleanup MUST precede get_or_create so the "
+        f"identifier index isn't populated with the shell before "
+        f"resolution (see v5.94.1 A-MED)."
+    )
+
+
+def test_v5_94_1_b3_teardown_helper_drains_sweep_handles():
+    """B3: `async_teardown_device_tree_sweep_handles` invokes each unsub
+    (callable) and cancels each async_call_later handle, then clears the
+    lists so a subsequent unload no-ops."""
+    d = _import_devices()
+
+    called_unsub = []
+    called_cancel = []
+
+    def _unsub():
+        called_unsub.append("u1")
+
+    class _Handle:
+        def cancel(self):
+            called_cancel.append("c1")
+
+    _DOM = "universal_room_automation"
+    hass = MagicMock()
+    hass.data = {
+        _DOM: {
+            "_device_tree_sweep_unsubs": [_unsub],
+            "_device_tree_sweep_retry_handles": [_Handle()],
+            "_device_tree_sweep_scheduled": True,
+        }
+    }
+
+    d.async_teardown_device_tree_sweep_handles(hass)
+    assert called_unsub == ["u1"], "B3: unsub was not invoked"
+    assert called_cancel == ["c1"], "B3: retry handle was not cancelled"
+    assert hass.data[_DOM]["_device_tree_sweep_unsubs"] == []
+    assert hass.data[_DOM]["_device_tree_sweep_retry_handles"] == []
+    assert hass.data[_DOM]["_device_tree_sweep_scheduled"] is False
+
+    # Idempotent — second call is a no-op.
+    d.async_teardown_device_tree_sweep_handles(hass)
+    assert called_unsub == ["u1"]  # not re-invoked
+    assert called_cancel == ["c1"]
+
+
+def test_v5_94_1_b3_teardown_wired_into_cm_and_integration_unload():
+    """B3 source anchor: `async_teardown_device_tree_sweep_handles` is
+    called from BOTH the CM and INTEGRATION unload paths in __init__.py."""
+    src = (PKG_ROOT / "__init__.py").read_text()
+    # Find the unload function.
+    unload_idx = src.find("async def async_unload_entry(")
+    assert unload_idx > 0
+    unload_body = src[unload_idx:]
+
+    # INTEGRATION branch.
+    int_branch = unload_body.find("if entry_type == ENTRY_TYPE_INTEGRATION:")
+    assert int_branch > 0
+    int_slice = unload_body[int_branch:int_branch + 4000]
+    assert "async_teardown_device_tree_sweep_handles" in int_slice, (
+        "B3: teardown not wired into INTEGRATION unload branch"
+    )
+
+    # CM branch.
+    cm_branch = unload_body.find("if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:")
+    assert cm_branch > 0
+    cm_slice = unload_body[cm_branch:cm_branch + 4000]
+    assert "async_teardown_device_tree_sweep_handles" in cm_slice, (
+        "B3: teardown not wired into CM unload branch"
+    )
+
+
+def test_v5_94_1_b1_schedule_hoisted_out_of_stamp_try_except():
+    """B1 source anchor: in the CM setup branch, the
+    `async_schedule_device_tree_sweep(hass)` call must live in its OWN
+    try/except — a stamp exception must NOT prevent sweep scheduling.
+    Concretely: the call must NOT sit inside the same `try:` block as
+    `await async_stamp_via_device_tree(hass)`.
+    """
+    src = (PKG_ROOT / "__init__.py").read_text()
+    cm_idx = src.find("if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:")
+    assert cm_idx > 0
+    # Grab a large window covering the D-NEST section.
+    body = src[cm_idx:cm_idx + 20000]
+    # Find the stamp await and the schedule call.
+    stamp_pos = body.find("await async_stamp_via_device_tree(hass)")
+    sched_pos = body.find("async_schedule_device_tree_sweep(hass)")
+    assert stamp_pos > 0 and sched_pos > 0
+    # Between stamp and schedule there MUST be an `except` block closure —
+    # i.e., a line starting with `except` after stamp and before schedule.
+    interstitial = body[stamp_pos:sched_pos]
+    assert "\n        except" in interstitial, (
+        "B1: async_schedule_device_tree_sweep still sits inside the same "
+        "try/except as async_stamp_via_device_tree — a stamp raise would "
+        "skip sweep scheduling"
+    )
