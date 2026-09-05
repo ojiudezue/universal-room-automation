@@ -396,6 +396,63 @@ cards:
   refs: ['domain_coordinators/house_state.py (GUEST state machine)', 'camera_census.py:4266 (_get_wifi_guest_count — diagnostic only)', 'camera_census.py:4530+ (census formula, wifi excluded)', 'memory project_guest_mode_false_positive_backlog', 'memory project_presence_guest_latch_and_veto_gap']
   sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
 
+- id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+  title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
+  thread: device-tree
+  status: planned
+  created: 2026-09-05 17:05
+  updated: 2026-09-05 17:05
+  refinement_status: initial
+  approval: unreviewed
+  tags: [device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled
+     cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is
+     incremented but NEVER reset (_devices.py:519). Once 3 sweeps have run (a degraded cold boot can
+     burn all 3 via retries), the scheduled sweep is dead for the rest of the session, so a device
+     that appears late whose parent lands after its own inline stamp stays unparented (via_device_id
+     None) until a full restart. This is the SAME "resolve/gate once, never self-heal" shape we just
+     fixed in the face-producer health cache (v5.95.1). Blast radius is display-only (via_device is the
+     visual tree, not ownership/reload), self-heals on restart, and needs an already-degraded boot to
+     reach. Solution: reset the counter to 0 on a successful sweep (residual==0, _devices.py:586-590),
+     converting a lifetime cap into a consecutive-failure cap and restoring post-boot self-heal.'
+  origin: {date: '2026-09-05', gist: device-linker audit vs this-session bug classes (operator "improve URA overall")}
+  why: 'Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree,
+    restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.'
+  constraints:
+  - 'Touches the device-registry sweep (DEVICE_TREE surface) — regression-prone; read DEVICE_TREE.md +
+    the defrag postmortem; Tier-2 despite the small diff. Do not reset _device_tree_sweep_scheduled semantics.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'sweep counter is a lifetime latch -> late devices unparented until restart', verdict: BUILD}
+  next: 'Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.'
+  refs: ['_devices.py:509-519 (schedule cap)', '_devices.py:586-590 (success branch)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', 'card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)']
+- id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
+  title: Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
+  thread: device-tree
+  status: planned
+  created: 2026-09-05 17:05
+  updated: 2026-09-05 17:05
+  refinement_status: initial
+  approval: unreviewed
+  tags: [device-tree, defensive-consistency]
+  problem_solution:
+  - 'Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack)
+     — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here
+     they iterate only devices attached to a URA config entry (narrow scope), so a foreign 3-tuple is
+     unlikely, and both are wrapped in try/except that logs non-fatal — but a 3-tuple would SILENTLY abort
+     the zone-orphan cleanup rather than crash. Solution: align to the defensive len>=2 + indexing pattern
+     already used in _devices.py (post-v5.94.3), for consistency and to remove the silent-abort risk.'
+  origin: {date: '2026-09-05', gist: device-linker audit — residual Class-2 sites}
+  why: 'Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.'
+  constraints: []
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier', verdict: BUILD}
+  next: 'Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.'
+  refs: ['__init__.py:1650', '__init__.py:4086', '_devices.py:227-234 (the correct pattern)', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md']
+  sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc

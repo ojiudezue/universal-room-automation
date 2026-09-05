@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T13:22:57-05:00_ - _Data commit: `e290e94e0aa4`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T16:39:25-05:00_ - _Data commit: `ac001f02df8c`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,7 +14,7 @@ _Generated: 2026-09-05T13:22:57-05:00_ - _Data commit: `e290e94e0aa4`_ - _last_r
 | 📥 Inbox | 30 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 7 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 58 |
@@ -641,8 +641,33 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (9)
 _has plan / acceptance_
+
+### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
+thread: **device-tree** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is incremented but NEVER reset (_devices.py:519). On...
+- **Origin:** 2026-09-05 - device-linker audit vs this-session bug classes (operator "improve URA overall")
+- **Why:** Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree, restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.
+- **Next:** Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.
+- **Tags:** device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify
+- **Parsimony:** [BUILD] sweep counter is a lifetime latch -> late devices unparented until restart
+- **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
+
+### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
+thread: **device-tree** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack) — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here they iterate only devices attached to...
+- **Origin:** 2026-09-05 - device-linker audit — residual Class-2 sites
+- **Why:** Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.
+- **Next:** Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.
+- **Tags:** device-tree, defensive-consistency
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
+- **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**

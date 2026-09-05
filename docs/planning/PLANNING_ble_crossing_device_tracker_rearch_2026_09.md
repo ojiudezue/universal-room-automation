@@ -1,77 +1,63 @@
-# PLANNING — BLE crossing producer: device_tracker re-architecture (rev 3)
+# PLANNING — BLE crossing producer: device_tracker re-architecture (rev 4)
 
 **Card:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 (pivoted to re-arch)
-**Tier:** 3 (delicate, cross-component, invariant-critical — the mission-critical egress-identity producer; wrong attribution = corrupted person_id).
-**Rev 3 (reuse-first + BLE-only, operator-directed + measured 2026-09-05):**
-- **Source = the resident device_trackers whose `source_type == bluetooth_le`, everything else excluded** (operator: "make the list the same as the device trackers that are ble; exclude the rest"). Derived at RUNTIME (no hardcoded map, no CONF): iterate `_get_tracked_person_slugs()` → each `person.<slug>.attributes["device_trackers"]` → keep only `source_type == bluetooth_le`. This structurally excludes wall tablets / entrypad / Macs (all `gps`) with no allowlist. **The rev-2 hardcoded `EGRESS_CROSSING_TRACKERS` map is DROPPED.**
-- **GPS is NOT admitted** — measured BLE-ONLY-SUFFICIENT: BLE trackers fire both directions with 0 unavailable churn; the GPS phone had 355 unavailable flaps / 9 departures and the 2nd GPS phone was silent 14d. So there is ONE provenance class (ble); the rev-2 GPS/BLE window split is DROPPED.
-- **NEW mandatory sustain/debounce gate** (measured: bermuda trackers proximity-flap ~2× near the boundary; sustained >30min converges to ~0.7–0.9 real trips/day/resident). A raw edge is trusted as a crossing only if it SUSTAINS for `BLE_CROSSING_SUSTAIN_S` (see D1a).
-- **REUSE, do not rebuild** (per the presence-infra inventory): the existing listener machinery (`_register_ble_transition_listeners`/`_on_person_state_change`, re-sourced — NOT a parallel listener), the source_type classifier (`person_coordinator._read_source_inventory`), `_ble_fleet_live`, the `_face_arrival_cooldown` refractory pattern, and the `_resolve_ble_legs` TTL cache. Keep the shared function GENERAL (operator: don't permanently narrow it to BLE).
-**Rev 2 (retained):** PLAN-CRIT-1 (unavailable-forges-crossing), per-(slug,direction) single-use, TTL coupling, INV-EGRESS-ID validation, discriminating observability, asymmetric window.
-**Supersedes:** the `feature/ble-crossing-tracker-allowlist` approach (person.state + source-allowlist filter).
+**Tier:** 3 (mission-critical egress-identity producer; wrong attribution = corrupted person_id).
 
-## Why (root causes)
-1. Attach = 1/7314: BLE leg keyed off `person.<slug>` with a Bermuda-only gate; departures are GPS-sourced → every departure rejected.
-2. **D-HIGH-1:** `person.state` is a lossy HA aggregate of ALL the person's trackers, resolved by a `last_updated` race (HA `person`; `_get_latest` picks the most-recently-updated GPS tracker). `person.oji_udezue` = 19 trackers incl. 6 stationary GPS Macs that can flip/consume the edge → real crossings later produce no leg.
-3. **A-3 (HIGH):** symmetric ±330s window + legs never consumed → one person's departure leg labels ANOTHER's crossing.
-4. **D-MED-1:** rejected-leg counter surfaced nowhere → the 1/7314 hid for months.
+## Rev history (why this shape)
+- **rev1/2:** device_tracker re-arch to escape the `person.state` last_updated race (D-HIGH-1); + A-3 (wrong-person mislabel), INV-EGRESS-ID, observability.
+- **rev3:** operator-directed BLE-ONLY — source = resident device_trackers with `source_type == bluetooth_le`, GPS excluded (measured BLE-ONLY-SUFFICIENT; GPS is the flappy/unavailable source). Reuse existing machinery, no hardcoded map.
+- **rev4 (this — after 3rd plan-review, PLAN-FIX-REQUIRED):**
+  - **DROP the produce-time sustain/debounce gate entirely.** It was self-defeating (R3-1 CRIT): identity resolves once at crossing+`ENTRY_WINDOW_SECONDS`=45s (`transit_validator.py:1070/1109` → `_resolve_direction` → `_resolve_egress_face_identity` at :1688 → INSERT at `database.py:3915`, no backfill). A leg delayed 180s lands ~135s after the only read → `person_id=None` forever. Flap-filtering is DEFERRED to a measured follow-up (see Deferred).
+  - **A-3 primary fix = per-(slug,direction) single-use consumption**, not the asymmetric window. With BLE-only, edges land near the physical crossing (not GPS-lagged), so the A-3 GPS-lag repro is largely mooted; single-use closes the residual.
+  - **Window bounds are MEASURED (D0), not asserted.** The face family carries probe medians in-source; the BLE family must too. Keep the EXISTING symmetric `_resolve_ble_legs` window until D0 sets the numbers; asymmetric direction is DEFERRED (R3-7: a bermuda arrival may trail, not lead — unverified).
+  - Correct the reuse claim (R3-3): `_read_source_inventory` is a PersonCoordinator method with NO `bluetooth_le` branch — it is the READ PATTERN only; add a NEW census helper.
+  - Add the boot-ordering re-register path (R3-4) and the home-boundary gate (R3-5).
 
-## Solution — subscribe to the body-phone device_trackers directly
-Stop consuming `person.<slug>`. Subscribe to each resident's explicitly-configured body-phone **device_trackers**. A device_tracker edge is the unaggregated signal — no person-component race; stationary devices excluded by not being subscribed.
+## Root cause recap
+Attach=1/7314 because the BLE leg keyed off `person.<slug>` (a lossy HA aggregate, GPS-race D-HIGH-1) with a Bermuda-only provenance gate that dropped GPS-sourced departures. BLE-only device_tracker subscription escapes both.
 
-### Falsifiable invariant (Tier-3)
-> For resident R, a crossing leg is recorded **iff** one of R's explicitly-configured body-phone device_trackers makes a **valid** home↔away edge, where **valid** = both old and new state ∈ {`home`, `not_home`, a zone name} (a transition where either side is `unknown`/`unavailable`/`None` is NEVER a crossing). And:
-> - (a) **no** non-subscribed device (stationary, another resident's, or an offline-flapping tracker) can produce OR consume R's crossing edge;
-> - (b) a real crossing event produces **exactly one** leg per (slug, direction) even when R has multiple trackers firing (dedup/refractory), and that leg attaches to **at most one** crossing (per-(slug,direction) single-use);
-> - (c) a leg attaches only in the **direction-correct** window: a departure (exit) leg may only *trail* its crossing; an arrival (entry) leg may only *lead* it;
-> - (d) every attached `person_id` is a canonical slug in `tracked_persons` (INV-EGRESS-ID).
+## Falsifiable invariant (Tier-3)
+> For resident R, a crossing leg is recorded **iff** one of R's `source_type==bluetooth_le` device_trackers makes a **home↔away boundary** edge (`home` ∈ {old,new} and old≠new, both sides ∈ {home,not_home,zone}); no `unknown`/`unavailable`/`None` side, and no zone→zone (both-away) edge, ever produces a leg. (a) No non-`bluetooth_le` device (wall tablet/Mac/GPS phone) can produce or consume R's edge; (b) one real crossing attaches at most one `person_id`, per-(slug,direction) single-use; (c) every attached `person_id` ∈ `tracked_persons`.
 
-Falsified by: a leg from an `unavailable`/`unknown` transition; a leg from a non-subscribed device; ≥2 legs or ≥2 attaches for one real crossing event; an attach out of direction/time; a real single-resident crossing producing no leg when its phone edge fired; an attached slug not in `tracked_persons`.
+## D0 — MEASURE the BLE-edge↔crossing lag (probe first, gates D2 numbers)
+One-shot read-only recorder probe: for each resident's `bluetooth_le` tracker, the signed lag (BLE edge ts − nearest egress crossing ts) per direction, over 14d. Set `BLE_EGRESS_*` window bounds from the measured medians/spread (mirror the face family's in-source probe medians at `const.py:2204-2206`). If arrivals trail rather than lead, the window stays symmetric. Put the numbers in this doc before D2 lands.
 
-## Deliverables
+## D1 — BLE device_tracker subscription (runtime-derived), re-sourcing the existing listener
+- **NEW census helper `_derive_ble_crossing_trackers() -> dict[str,str]`** (tracker_id→slug): for each slug in `_get_tracked_person_slugs()` (`camera_census.py:3142`), read `person.<slug>.attributes["device_trackers"]`, keep each tracker whose live `state.attributes.get("source_type","").lower() == "bluetooth_le"`. Cite `person_coordinator._read_source_inventory` (`person_coordinator.py:206-243`) as the READ PATTERN only — it is a PersonCoordinator method with no bluetooth_le branch, NOT reusable directly. Live-verified set: oji=`iphone_oji_bermuda_tracker` (ONLY one — no redundancy); ezinne=`ezinne_iphone`,`ezinne_iphone_bermuda_tracker`; jaya=`private_ble_device_249050`,`iphone_jaya_bermuda_tracker`; ziri=`ziri_iphone` (away).
+- **INV-EGRESS-ID:** slugs are from `_get_tracked_person_slugs()` by construction; assert + drop any non-tracked, one-time WARNING.
+- **Re-source the EXISTING `_register_ble_transition_listeners`** (`camera_census.py:3814`) to `async_track_state_change_event` on the derived tracker ids (was `f"person.{slug}"`). Reuse its `_ble_transition_unsubs` teardown (`__init__.py:4881`). Keep the function general (operator: don't permanently narrow it).
+- **Boot-ordering re-register (R3-4, the bootcache class):** registration now depends on reading `source_type` at setup — a device_tracker integration loading AFTER URA yields `state is None` → that tracker silently unsubscribed for the process (fatal for oji, who has ONE BLE tracker). Fix: derive on `EVENT_HOMEASSISTANT_STARTED` AND re-derive on the periodic census tick with a set-diff → idempotent re-register of any newly-appearing trackers; one-line WARNING if a tracked slug derives ZERO bluetooth_le trackers.
+- **Edge handler** (re-sourced `_on_person_state_change`, rename `_on_crossing_tracker_state_change` everywhere incl. Housekeeping):
+  - **State gate (R3-5 + PLAN-CRIT-1):** admit ONLY when `old!=new`, `"home" ∈ {old,new}`, and BOTH sides ∈ {`home`,`not_home`,zone-name}. Reject (count `_ble_edge_dropped_invalid_count`) if either side is `unknown`/`unavailable`/`None`/`""`. This preserves today's home↔away-boundary guarantee and blocks zone→zone forged legs.
+  - Direction: new==`home` → `arriving`; else (valid away) → `departing`. slug from the derived map.
+  - Append `BleTransitionLeg(slug, direction, ts=new_state.last_changed→UTC-aware, provenance="ble")` immediately (no delay).
+- **Acceptance:** a home↔away edge on `iphone_oji_bermuda_tracker` appends one leg for `oji_udezue`; a gps tracker / wall tablet is never subscribed → nothing; an `unavailable` edge → nothing (counted); a `Work→Gym` zone→zone edge → nothing; a BLE tracker that loads after URA is picked up on the next census tick (not orphaned).
 
-### D1 — BLE device_tracker subscription, RUNTIME-DERIVED (replaces the person.state listener)
-- **No const map, no CONF.** Build the subscription set at REGISTRATION time by reusing the existing runtime inventory: for each slug in `_get_tracked_person_slugs()` (`camera_census.py:3142`), read `person.<slug>.attributes["device_trackers"]`, and keep each tracker whose `source_type == "bluetooth_le"` (read it exactly as `person_coordinator._read_source_inventory` does, `person_coordinator.py:206-243`). Build the resulting `tracker_id → slug` dict in memory. This yields (live 2026-09-05): oji=`iphone_oji_bermuda_tracker`; ezinne=`ezinne_iphone`,`ezinne_iphone_bermuda_tracker`; jaya=`private_ble_device_249050`,`iphone_jaya_bermuda_tracker`; ziri=`ziri_iphone` (away). GPS/router trackers (wall tablets, Macs, entrypad, the phalanx iPhones) are excluded by the `bluetooth_le` filter.
-- **INV-EGRESS-ID:** slugs come from `_get_tracked_person_slugs()` by construction, so they're tracked by definition — still assert it and drop any that aren't, one-time WARNING.
-- **Listener:** re-source the EXISTING `_register_ble_transition_listeners` (`camera_census.py:3810`) to `async_track_state_change_event` on the derived tracker ids instead of `person.<slug>`. Reuse its existing idempotent teardown/`_ble_transition_unsubs` machinery — do NOT stand up a parallel listener (double-ingest hazard). Keep the shared function general; re-register on options/person change (the set is now derived from `tracked_persons` + their trackers, so a person/tracker change must re-derive — hook the existing re-register path).
-- **Edge handling** (the re-sourced `_on_person_state_change`, now fed device_tracker events — rename to `_on_crossing_tracker_state_change` for clarity):
-  - **PLAN-CRIT-1 state-validity gate:** admit ONLY when BOTH old and new state ∈ {`home`, `not_home`, zone-name}. If either is `unknown`/`unavailable`/`None`/`""` → DROP + increment `_ble_edge_dropped_invalid_count`. (Measured: BLE trackers had 0 unavailable churn, but keep the guard — it's the CRIT.)
-  - Direction: new==`home` → `arriving`; new is a valid away value → `departing`. slug from the derived map.
-  - Provenance is uniformly `ble` (the source filter guarantees it) — no GPS/BLE split, one window class.
-- **D1a — sustain/debounce gate (NEW, measured-mandatory).** Bermuda trackers proximity-flap ~2× near the boundary. A raw edge is trusted as a crossing only if it SUSTAINS: on an edge, schedule a confirm after `BLE_CROSSING_SUSTAIN_S` (reuse the `async_call_later` supersession/teardown precedent — cancel the pending confirm if the state reverses before it fires); if the state still holds at confirm, append `BleTransitionLeg(slug, direction, ts=ORIGINAL edge last_changed→UTC-aware, provenance="ble")` (original timestamp preserved so the ±window correlation stays accurate); if it reversed, drop it as flap (+ increment `_ble_edge_flap_dropped_count`). This subsumes the rev-2 per-(slug,direction) refractory: a same-person second tracker firing the same direction within the sustain window collapses to the one confirmed leg. `BLE_CROSSING_SUSTAIN_S` = module knob, default 180 (measured: most bermuda flap reverses well under 5 min; 180s filters it while adding ≤3 min stamp latency — acceptable for identity, not real-time actuation). One-line why on the knob.
-- **Acceptance:** a sustained edge on `device_tracker.iphone_oji_bermuda_tracker` appends one leg for `oji_udezue`; a `gps` tracker (e.g. `phalanxiphone15promaxcflare`) or a wall tablet is never subscribed → produces nothing; an edge that reverses within `BLE_CROSSING_SUSTAIN_S` produces no leg (flap dropped+counted); an edge into/out of `unavailable` produces nothing (dropped+counted).
+## D2 — A-3 fix: per-(slug,direction) single-use consumption (site: `_resolve_ble_legs` + attach path)
+- Keep the EXISTING window in `_resolve_ble_legs` (`camera_census.py:~3798`) but set its magnitude from D0. Asymmetric direction DEFERRED.
+- **Single-use:** consumption in a census method called from the resolver ONLY on the attach branch (`transit_validator.py:1378-1390`) — NOT abstain/disagree/no-leg. On attach, remove ALL legs for that `(slug, direction)`.
+- **TTL:** keep `BLE_TRANSITION_CACHE_TTL_S` ≥ max(window bounds)+slack; re-derive off the BLE family, comment the relation. (No sustain term now.)
+- **Acceptance (discriminating):** two residents crossing close together attach to THEMSELVES, not each other; after an attach, the slug's legs are gone (no double-attach).
 
-### D2 — A-3 fix: asymmetric window + per-(slug,direction) single-use (site: `_resolve_ble_legs` ONLY; face windows untouched)
-- **Asymmetric window** in `_resolve_ble_legs` (`camera_census.py:3803-3808`) — the ONLY site to change; the face window at `transit_validator.py:1343-1349` is NOT touched. Replace the symmetric `-ttl ≤ cross_age ≤ ttl` test with direction-keyed bounds (verify the existing `cross_age` sign against the current symmetric test before wiring):
-  - **Departure (exit):** the leg must TRAIL the crossing — admit only `0 ≤ (leg_ts − crossing_ts) ≤ TRAIL`.
-  - **Arrival (entry):** the leg must LEAD the crossing — admit only `0 ≤ (crossing_ts − leg_ts) ≤ LEAD`.
-  - Bounds (single BLE class — the source filter guarantees all legs are BLE; the rev-2 GPS split is dropped): `BLE_EGRESS_EXIT_TRAIL_S = 90`, `BLE_EGRESS_ENTRY_LEAD_S = 90` (BLE proximity edges land close to the physical crossing). Module rung, one-line why each.
-  - **TTL coupling (must-fix):** re-derive `BLE_TRANSITION_CACHE_TTL_S` off the BLE family, not the face family: `BLE_TRANSITION_CACHE_TTL_S = max(BLE_EGRESS_EXIT_TRAIL_S, BLE_EGRESS_ENTRY_LEAD_S, BLE_CROSSING_SUSTAIN_S) + 30`. Add an explicit invariant/comment `TTL ≥ max(all bounds incl sustain)` so a future bound bump can't be silently pruned before its window closes.
-- **Per-(slug,direction) single-use:** consumption happens in a census method called from the resolver **after the attach branch commits** (`transit_validator.py:1378-1390`), and ONLY on the attach path — abstain/disagree/no-leg paths must NOT consume. On attach, remove **ALL** legs for that `(slug, direction)` from the cache (not just the one matched) — one real departure may have collapsed to one leg via refractory, but belt-and-suspenders across any residual siblings.
-- **Acceptance (discriminating):** A-3 repro — Oji leaves T0 (leg trails his own crossing, attaches oji); Ezinne crosses T+200 with Oji's leg still in cache → Ezinne's crossing does NOT attach `oji_udezue` (Oji's leg PRECEDES her crossing → outside the trailing window, and/or already consumed).
+## D3 — discriminating observability (D-MED-1)
+- **Retire** `_ble_leg_rejected_provenance_count` (subscription is now the gate) AND rewrite the two tests that assert it (`test_identity_fusion_d2_d3_d4.py` ~:270, ~:658) against the new counters. (R3-11: retire, not repurpose.)
+- Surface on the persons-in-house sensor: legs produced per direction, attaches, abstains, `_ble_edge_dropped_invalid_count`. This is the ONLY observable distinguishing working from dead post-re-arch, and it feeds the Deferred flap decision.
 
-### D3 — discriminating observability (replaces the non-discriminating rejected-count)
-- The old `_ble_leg_rejected_provenance_count` provenance gate is GONE (subscription IS the gate); **retire it** (or repurpose to count `_ble_edge_dropped_invalid_count` from the state-validity gate — pick one, document it).
-- **Mandatory** discriminating counters, surfaced as attributes on the persons-in-house sensor (alongside `egress_identity_last_attach`): legs produced per direction, attaches, abstains, and `_ble_edge_dropped_invalid_count`. This is the ONLY observable that distinguishes "working" from "dead" post-re-arch (the rejected-count reads 0 either way).
-- **Acceptance:** the produced/attached/abstained counters are readable live and a query shows attaches climbing off 1/7314.
+## Deferred (measured follow-ups — do NOT build on spec)
+- **Flap/sustain filter** — only if D3 observability shows flap-driven WRONG attaches in production. The camera-crossing ±window + single-use already gate most flap (a flap not near a real crossing attaches to nothing). Card with an evidence trigger.
+- **Asymmetric direction window** — only if the D0 probe shows a clear directional asymmetry worth it.
 
-## Housekeeping (builder MUST do)
-- The five existing tests driving `_on_person_state_change` with synthetic `person.*` events (`quality/tests/test_identity_fusion_d2_d3_d4.py:246,270,658,678,727`): **rewrite in place** to drive the new `_on_tracker_state_change` with `device_tracker.*` events (do not delete — they encode real behaviours). The 4 provenance-allowlist tests from the prior build likewise migrate.
-- Fix the now-wrong docstrings/comments: `camera_census.py:220-236` ("a single BLE home↔away transition on `person.<slug>`") and the cache comment at `:1280-1283`.
-
-## Non-goals / parked
-- Config-flow exposure of the tracker map (module rung is deliberate — security).
-- D-LOW-2 rename brittleness (inherent to explicit ids; the D3 observability catches it).
-- Face/D1 sub_label bridge (separate card; face path untouched here; the same asymmetric+single-use fixes will benefit it later).
-- Ziri redundancy (`iphone_ziri_bermuda_tracker` exists but not in `person.ziri` — config gap, note only; Ziri away for months).
+## Reuse ledger (per the presence-infra inventory)
+REUSE: `_register_ble_transition_listeners` machinery + teardown; `_get_tracked_person_slugs`; `_resolve_ble_legs` TTL cache; `BleTransitionLeg`; the `_read_source_inventory` READ PATTERN (not the classifier). BUILD-NEW (justified): `_derive_ble_crossing_trackers` (no existing bluetooth_le per-tracker filter); the boot-ordering re-register; the home-boundary gate; single-use; observability counters.
 
 ## Tier-3 review framings (framing-disjoint, parallel)
-- **A — local correctness:** map→slug, direction derivation, source_type classification + fallback, refractory dedup, leg append; every resident produces both directions where their trackers allow.
-- **B — integration/lifecycle:** listener register/teardown (no leak, no double-subscribe), restart, the asymmetric-window + single-use interacting with the shared face-leg path (face attribution NOT regressed), D4 fail-safe still orthogonal, TTL≥max(bounds) holds.
-- **C — test authority (per-site source mutation):** RED-on-neuter for each of {subscription admits a valid edge, unavailable-edge dropped, stationary/non-subscribed rejected, refractory dedup, asymmetric window, per-slug single-use}.
-- **D — adversarial completeness:** falsify the invariant across the whole surface — unavailable-forge, non-subscribed produce/consume, double-attach, silent-drop of a real crossing, out-of-`tracked_persons` slug. Legal-config repros required.
+- **A — local correctness:** derivation helper (source_type filter), home-boundary gate, direction, leg append, single-use.
+- **B — integration/lifecycle:** re-register/teardown, boot-ordering re-derive (no orphaned tracker; oji's single-tracker case), restart, no double-ingest, face-leg path untouched, D4 fail-safe orthogonal, TTL≥bounds.
+- **C — test authority (per-site source mutation):** RED-on-neuter for {bluetooth_le filter admits, gps/wall-tablet excluded, unavailable dropped, zone→zone dropped, home-boundary required, single-use, boot-race re-derive}.
+- **D — adversarial completeness:** falsify the invariant across the whole surface (non-ble produce/consume, double-attach, forged zone→zone leg, orphaned-at-boot silent-miss, out-of-tracked_persons slug). Legal-config repros.
 
 ## Acceptance criteria (cycle)
+- **D0:** window bounds recorded from measured lag.
 - **Test:** the D1/D2/D3 anchors, each RED-on-neuter.
-- **Live:** on the next real resident departure/arrival, `person_entry_exit_events` gets a row with the correct `person_id`; the produced/attached counters move; `_ble_edge_dropped_invalid_count` catches any offline flaps.
-- **Live (discriminating):** a departure attaches the departer's slug, NOT a co-present other resident's (A-3 closed); an `unavailable` flap on a phone produces no crossing (PLAN-CRIT-1 closed).
+- **Live:** next real resident departure/arrival → `person_entry_exit_events` row with correct `person_id`; produced/attached counters move; `_ble_edge_dropped_invalid_count` catches any offline flaps.
+- **Live (discriminating):** a departure attaches the departer, NOT a co-present resident; a wall-tablet/GPS change produces no crossing.
