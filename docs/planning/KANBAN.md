@@ -2,16 +2,10 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T07:49:37-05:00_ - _Data commit: `947b14bf48b2`_ - _last_reconciled: 2026-09-04_
+_Generated: 2026-09-05T07:55:56-05:00_ - _Data commit: `7bf386439b07`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.95.0.md (2026-09-05) is newer than last_reconciled (2026-09-04)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -20,10 +14,10 @@ _Generated: 2026-09-05T07:49:37-05:00_ - _Data commit: `947b14bf48b2`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 8 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 9 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 56 |
+| 🚀 Shipped (organic open) | 57 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 25 |
@@ -634,7 +628,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (8)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
@@ -651,6 +645,22 @@ _created 2026-09-05 00:30 · initial_
 - **Refs:** transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate); camera_census.py:4269-4290 (enhanced-census not_home veto to backport); docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0); docs/reviews review-D findings
 - **Forensic keys (1):**
   - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
+
+### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+thread: **identity** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 08:20 · initial_
+- **Problem / Solution:**
+  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
+  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
+- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
+- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
+- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
+- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
+- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
+- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+- **Forensic keys (1):**
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -770,20 +780,10 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `IDENTITY-FUSION-PRODUCER-1` - Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
-thread: **identity** - status: **in_progress** - approval: **explicit**
-_created 2026-09-05 00:40 · refined_
-- **Problem / Solution:**
-  - Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras, ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition the PRIMARY named...
-- **Origin:** 2026-09-05 - 6.0.0 identity arc
-- **Why:** Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe is the operator #1 concern. Extend the resolver, do not rebuild.
-- **Next:** Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons: D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.
-- **Tags:** tier-2db, identity, fail-safe
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
-- **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
+_(none)_
 
 ## 🔍 Review (1)
 _under review_
@@ -810,7 +810,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (56)
+## 🚀 Shipped (organic open) (57)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -825,6 +825,18 @@ _created 2026-09-03 10:30 · initial_
 - **Refs:** docs/readmes/README_v5.92.3.md; feature/via-device-2026-9-hotfix@260a5b9dc
 - **Forensic keys (1):**
   - `disposition_2026_09_03`: DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day, ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error adding entity None" post-restart. Discriminator met at ...
+
+### `IDENTITY-FUSION-PRODUCER-1` - Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-05 00:40 · refined_
+- **Problem / Solution:**
+  - Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras, ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition the PRIMARY named...
+- **Origin:** 2026-09-05 - 6.0.0 identity arc
+- **Why:** Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe is the operator #1 concern. Extend the resolver, do not rebuild.
+- **Next:** Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons: D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.
+- **Tags:** tier-2db, identity, fail-safe
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
 
 ### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
 thread: **platform** - status: **shipped_organic** - approval: **explicit**

@@ -272,6 +272,46 @@ cards:
   refs: ['transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate)', 'camera_census.py:4269-4290 (enhanced-census not_home veto to backport)', 'docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0)', 'docs/reviews review-D findings']
   spawned_from: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+- id: IDENTITY-FACE-HEALTH-BOOTCACHE-1
+  title: Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+  thread: identity
+  status: planned
+  created: 2026-09-05 08:20
+  updated: 2026-09-05 08:20
+  refinement_status: initial
+  approval: unreviewed
+  tags: [identity, fail-safe, tier-2, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2)
+     via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity
+     sets _face_producer_health_resolved = True at :3598 even when it resolved to None). If the first census
+     tick runs before sensor.frigate_status_2 has acquired a state (observed live 2026-09-05: URA census ran
+     08:00:24, frigate_status_2 came up 08:00:45 — a 21s lag), the health entity caches None for the WHOLE HA
+     session, so _is_face_producer_live() reports frigate_status_missing_configured (fail-CLOSED) forever even
+     though Frigate is running. This fails SAFE (face suppressed — no misattribution) but leaves face
+     corroboration entirely INERT whenever Frigate lags URA at boot, defeating the corroboration value the
+     6.0.0 arc is meant to add once face coverage matters. Solution: latch the cache only when resolution
+     succeeded (resolved is not None); keep retrying the cheap registry lookup while unresolved, so the gate
+     self-heals the first tick after frigate_status_2 appears.'
+  - 'Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to
+     face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL
+     identified persons incl BLE, NOT face-provenance. Not a leak (the true face path face_recognized_persons
+     is correctly [] under outage) but it misleads validation. Rename the attribute (keep the old key as an
+     alias one cycle if any dashboard reads it).'
+  origin: {date: '2026-09-05', gist: v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran}
+  why: 'Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped
+    face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.'
+  constraints:
+  - 'Touches the D4 fail-safe primitive (_is_face_producer_live) that had 3 framing-disjoint reviews — treat as
+    Tier-2 regression-prone, not a silent hotfix. Must not open the fail-CLOSED-when-configured-but-absent path
+    (Review FS-1 behaviour).'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race', verdict: BUILD}
+  next: 'Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; rename face_confirmed. Verify FS-1 configured-but-absent fail-closed path unchanged.'
+  refs: ['camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache)', 'camera_census.py:3499-3556 (_is_face_producer_live)', 'camera_census.py:1424 (face_persons/face_confirmed misnomer)', 'docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)']
+  spawned_from: IDENTITY-FUSION-PRODUCER-1
+  sibling_of: [IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1]
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
