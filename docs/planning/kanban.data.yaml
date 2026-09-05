@@ -275,11 +275,12 @@ cards:
 - id: IDENTITY-FACE-HEALTH-BOOTCACHE-1
   title: Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
   thread: identity
-  status: planned
+  status: in_progress
   created: 2026-09-05 08:20
-  updated: 2026-09-05 08:20
-  refinement_status: initial
-  approval: unreviewed
+  updated: 2026-09-05 09:05
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-05 ("This seems bad. It should be more flexible") — greenlight the self-healing health-cache fix'
   tags: [identity, fail-safe, tier-2, no-fabrication-verify]
   problem_solution:
   - 'Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2)
@@ -305,6 +306,8 @@ cards:
   - 'Touches the D4 fail-safe primitive (_is_face_producer_live) that had 3 framing-disjoint reviews — treat as
     Tier-2 regression-prone, not a silent hotfix. Must not open the fail-CLOSED-when-configured-but-absent path
     (Review FS-1 behaviour).'
+  refinement:
+  - "operator: 'this seems bad, it should be more flexible' -> confirmed self-healing design (re-resolve while unresolved) over a restart-dependent one; scope THIS cycle to the boot-cache self-heal ONLY, defer the face_confirmed rename to keep it single-concern"
   parked_alts: []
   knobs: []
   parsimony: {problem: 'health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race', verdict: BUILD}
