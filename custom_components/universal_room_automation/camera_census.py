@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.95.0
+# Universal Room Automation vv5.95.1
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -3594,8 +3594,18 @@ class PersonCensus:
                 continue
             resolved = candidate
             break
-        self._face_producer_health_entity = resolved
-        self._face_producer_health_resolved = True
+        # Self-heal: only LATCH when resolution succeeded. If the
+        # producer entity has not yet appeared (boot-ordering race —
+        # census can tick seconds before frigate_status_2 acquires a
+        # state), leave the cache unset so the next tick re-runs this
+        # cheap registry+state lookup and recovers without a restart.
+        # Once resolved to a real id, the flag latches for the session
+        # and later up/down is handled by the state-based branch in
+        # _is_face_producer_live (`frigate_down` /
+        # `frigate_status_state_missing`).
+        if resolved is not None:
+            self._face_producer_health_entity = resolved
+            self._face_producer_health_resolved = True
         return resolved
 
     def _face_suppressed_now(self) -> bool:
