@@ -364,6 +364,10 @@ from .const import (
     CONF_ENHANCED_CENSUS,
     # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 kill switch (default OFF).
     CONF_EGRESS_IDENTITY_ENABLED,
+    CONF_KNOWN_FACE_GUESTS,
+    DEFAULT_KNOWN_FACE_GUESTS,
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
     DEFAULT_EGRESS_IDENTITY_ENABLED,
     CONF_CENSUS_HOLD_INTERIOR,
     CONF_CENSUS_HOLD_EXTERIOR,
@@ -2990,6 +2994,38 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_EGRESS_IDENTITY_ENABLED,
                     DEFAULT_EGRESS_IDENTITY_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # Review OF-1 (2026-09-04): D3 known-face guest list. Empty
+            # by default; add face-library names (e.g. "Ojini") so
+            # face-recognized visitors are attributed to the
+            # `guest:<first_token>` namespace instead of dropping to
+            # pass-through. Multi-select text list.
+            vol.Optional(
+                CONF_KNOWN_FACE_GUESTS,
+                default=self._get_current(
+                    CONF_KNOWN_FACE_GUESTS,
+                    DEFAULT_KNOWN_FACE_GUESTS,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            # Review OF-1 (2026-09-04): D4 fail-safe STRICT kill-switch.
+            # Default True — every face-emission site is gated by
+            # `_is_face_producer_live()`. Operators who want to disable
+            # the fail-safe machinery (e.g. debugging under a Frigate
+            # outage) turn this OFF. Distinct from the on-demand
+            # `switch.egress_identity_face_failsafe_drill`.
+            vol.Optional(
+                CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+                default=self._get_current(
+                    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+                    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
                 ),
             ): selector.BooleanSelector(),
             vol.Optional(

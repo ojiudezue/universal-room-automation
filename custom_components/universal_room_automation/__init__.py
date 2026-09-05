@@ -2238,6 +2238,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             census = PersonCensus(hass, camera_manager)
             hass.data[DOMAIN]["census"] = census
 
+            # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: register the
+            # per-slug person.<slug> state_changed listeners that feed
+            # the BLE-transition leg cache. Idempotent — census tears
+            # down any prior handles before re-registering. Teardown is
+            # hooked from `async_unload_entry` alongside `unsub_census`.
+            try:
+                census._register_ble_transition_listeners()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "BLE-transition listener registration failed at setup",
+                    exc_info=True,
+                )
+
             # Periodic census updates
             async def _census_update_cb(_now):
                 """Periodic callback for census updates."""
@@ -4861,6 +4874,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.10.1: Clean up event-driven census listeners
         for unsub in hass.data[DOMAIN].pop("unsub_census_events", []):
             unsub()
+        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: tear down
+        # BLE-transition state_changed listeners.
+        _cens_for_teardown = hass.data[DOMAIN].get("census")
+        if _cens_for_teardown is not None and hasattr(
+            _cens_for_teardown, "async_teardown_ble_transition_listeners"
+        ):
+            try:
+                _cens_for_teardown.async_teardown_ble_transition_listeners()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "BLE-transition listener teardown raised (non-fatal)",
+                    exc_info=True,
+                )
         # B-HIGH-1: tear down the CameraResolver cache-invalidation listeners
         # before dropping the manager reference (Bug Class #42: untracked
         # listeners → stale invalidations against a torn-down manager).

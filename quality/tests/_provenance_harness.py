@@ -73,6 +73,10 @@ _mods = {
         "utcnow": datetime.utcnow,
         "now": datetime.now,
         "as_local": lambda dt: dt,
+        # Real HA exposes `dt_util.UTC = timezone.utc`; pin it so
+        # `lc.replace(tzinfo=dt_util.UTC)` doesn't silently corrupt
+        # a datetime with a MagicMock stand-in tzinfo.
+        "UTC": __import__("datetime").timezone.utc,
     },
     "homeassistant.components": {},
     "homeassistant.components.sensor": {
