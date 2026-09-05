@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T08:09:51-05:00_ - _Data commit: `bfae24225a8e`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T09:06:48-05:00_ - _Data commit: `449a2ede8203`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,13 +14,13 @@ _Generated: 2026-09-05T08:09:51-05:00_ - _Data commit: `bfae24225a8e`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 8 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 57 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 25 |
+| 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
 ## 📥 Inbox (29)
@@ -628,23 +628,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
-
-### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-05 00:30 · initial_
-- **Problem / Solution:**
-  - Problem: the v5.95.0 identity fail-safe suppresses face identity when the producer is DOWN (frigate_status_2 unavailable) or the face name is SILENTLY frozen (sensor holds an old value, last_changed genuinely old). It does NOT catch a FL...
-- **Origin:** 2026-09-05 - Review D D-1 + orchestrator flapping-analysis at the v5.95.0 ship checkpoint
-- **Why:** The producer-OUTAGE fail-safe (operator #1 concern) is closed + verified; this flapping-while-healthy variant is a narrower data-quality edge, but it corrupts person_id (the value the whole 6.0.0 arc is built on), so it must be closed — ...
-- **Next:** Tier-2 fast-follow after v5.95.0: backport person-not_home veto onto the resolver multi-leg path + a flap/corroboration guard; update the vetoed/no_leg observability labels; mutation-anchored test replaying the flapping-frozen repro (stu...
-- **Tags:** identity, fail-safe, tier-2
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] flapping-frozen face can misattribute a crossing while Frigate reports healthy
-- **Refs:** transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate); camera_census.py:4269-4290 (enhanced-census not_home veto to backport); docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0); docs/reviews review-D findings
-- **Forensic keys (1):**
-  - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -1813,7 +1798,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (25)
+## 🅿️ Parked (26)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -1837,6 +1822,22 @@ _created 2026-09-01 20:30 · initial_
 - **Next:** Revive when: a real blind-telemetry breaker-trip is observed, OR the operator enables the grid-import guard and wants stale-safe behavior. Design: battery-unknown propagation in _effective_import_kw + isfinite-guard gate + non-sticky abo...
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
+
+### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
+thread: **identity** - status: **parked** - approval: **explicit**
+_created 2026-09-05 00:30 · updated 2026-09-05 09:40 · refined_
+- **Problem / Solution:**
+  - Problem: the v5.95.0 identity fail-safe suppresses face identity when the producer is DOWN (frigate_status_2 unavailable) or the face name is SILENTLY frozen (sensor holds an old value, last_changed genuinely old). It does NOT catch a FL...
+- **Origin:** 2026-09-05 - Review D D-1 + orchestrator flapping-analysis at the v5.95.0 ship checkpoint
+- **Why:** The producer-OUTAGE fail-safe (operator #1 concern) is closed + verified; this flapping-while-healthy variant is a narrower data-quality edge, but it corrupts person_id (the value the whole 6.0.0 arc is built on), so it must be closed — ...
+- **Next:** PARKED (operator 2026-09-05: "if 3 is known to happen then schedule it, but let's not solve phantom problems"). This is a THEORETICAL Review-D falsification with ZERO observed evidence. REVIVAL TRIGGER (evidence-based, not calendar): onc...
+- **Tags:** identity, fail-safe, tier-2
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] flapping-frozen face can misattribute a crossing while Frigate reports healthy
+- **Refs:** transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate); camera_census.py:4269-4290 (enhanced-census not_home veto to backport); docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0); docs/reviews review-D findings
+- **Forensic keys (2):**
+  - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
+  - `revival_trigger`: Observed flapping-frozen face misattribution in production data AFTER D1 makes face flow. Until then: phantom — do not build.
 
 ### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones)
 thread: **platform** - status: **parked** - approval: **unreviewed**

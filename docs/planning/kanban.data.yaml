@@ -239,10 +239,10 @@ cards:
 - id: IDENTITY-FLAPPING-FACE-VETO-1
   title: Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
   thread: identity
-  status: planned
+  status: parked
   created: 2026-09-05 00:30
-  updated: 2026-09-05 00:30
-  refinement_status: initial
+  updated: 2026-09-05 09:40
+  refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-05 ("Ship and card") — ship the fusion cycle, card this residual as a fast-follow'
   tags: [identity, fail-safe, tier-2]
@@ -268,10 +268,11 @@ cards:
   parked_alts: []
   knobs: []
   parsimony: {problem: 'flapping-frozen face can misattribute a crossing while Frigate reports healthy', verdict: BUILD}
-  next: 'Tier-2 fast-follow after v5.95.0: backport person-not_home veto onto the resolver multi-leg path + a flap/corroboration guard; update the vetoed/no_leg observability labels; mutation-anchored test replaying the flapping-frozen repro (stuck Oji re-stamped + Jaya crosses -> NOT attributed to Oji).'
+  next: 'PARKED (operator 2026-09-05: "if 3 is known to happen then schedule it, but let''s not solve phantom problems"). This is a THEORETICAL Review-D falsification with ZERO observed evidence. REVIVAL TRIGGER (evidence-based, not calendar): once face names flow via D1, watch for an ACTUAL flapping-frozen face at a door/garage camera (entity bouncing unavailable<->name while re-stamping last_changed, attributed to the wrong crosser). Only build if observed. Revival is cheap: the veto helper is_face_leg_person_vetoed already exists at camera_census.py:3640; constants land at const.py:2266 (FACE_FLAP_LOOKBACK_S / FACE_FLAP_MIN_TRANSITIONS); flap-listener template at camera_census.py:3803.'
   refs: ['transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate)', 'camera_census.py:4269-4290 (enhanced-census not_home veto to backport)', 'docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0)', 'docs/reviews review-D findings']
   spawned_from: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+  revival_trigger: 'Observed flapping-frozen face misattribution in production data AFTER D1 makes face flow. Until then: phantom — do not build.'
 - id: IDENTITY-FACE-HEALTH-BOOTCACHE-1
   title: Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
   thread: identity
