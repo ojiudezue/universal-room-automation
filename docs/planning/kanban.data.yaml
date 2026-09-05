@@ -322,11 +322,11 @@ cards:
   thread: identity
   status: in_progress
   created: 2026-09-05 10:10
-  updated: 2026-09-05 10:30
+  updated: 2026-09-05 11:15
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-05 — chose Option A (admit resident phone BLE+GPS, reject stationary via allowlist) + "drive to ship"'
-  tags: [identity, producer, tier-2, no-fabrication-verify, regression-from-review-fix]
+  tags: [identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix]
   problem_solution:
   - 'Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door
      crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert
@@ -352,13 +352,17 @@ cards:
   - 'Touches the identity producer / resolver — regression-prone, Tier-2 (framing-disjoint reviews).'
   parked_alts: []
   refinement:
+  - 'Review A FIX-REQUIRED: A-3 HIGH — symmetric +/-330s window + no leg consumption -> one person''s departure leg labels ANOTHER person''s crossing (wrong person_id). Must add asymmetric exit window + single-use legs.'
+  - 'Review D SHIP-on-security but D-HIGH-1: person.<slug> edge is a last_updated race across ALL the person''s GPS trackers (6 stationary Macs on oji can consume the edge) -> departures a race not a guarantee. Root cure = listen on the phone device_trackers directly, not person.state.'
+  - 'operator: "device_tracker would be more reliable, lean to re-arch; correctness better than not if burning tokens" + asked what emits person.state -> it is HA person integration aggregating all trackers by last_updated (lossy). Decision: RE-ARCHITECT to per-phone device_tracker listeners.'
+  - 'operator excluded okosisipadmini6_2 + samsung_a73 (occasional carries) from the allowlist despite the iPad showing 3 measured off-site-GPS departures.'
   - 'timestamp/TZ-skew hypothesis (from the measurement bug) -> REFUTED for production: resolver coerces both operands tz-aware; the matcher is correct. Root cause is the producer-side provenance gate, not the matcher.'
   - 'operator picked Option A (phone BLE+GPS, reject stationary) over Bermuda-direct: departures are GPS-sourced, so Bermuda-only would still miss them.'
   - 'operator asked "do we even need an allowlist if tablets aren''t assigned to anyone" -> VERIFIED live: person.oji_udezue has 19 trackers incl study_a_wall_tablet + master_bedroom_tab + entrypad + Macs/minis. Tablets ARE assigned to oji -> allowlist IS needed; A-HIGH-1 forgery risk is real, not theoretical.'
   knobs:
   - 'EGRESS_CROSSING_ADMISSIBLE_TRACKERS (module constant, const.py) — per-resident body-phone tracker allowlist; module rung because a wrong entry = a forgeable identity crossing (security).'
   parsimony: {problem: 'BLE crossing-namer drops all GPS-sourced departures -> attaches nobody', verdict: BUILD}
-  next: 'Operator picks the fix approach (see AskUserQuestion 2026-09-05); then Tier-2 build: fix the provenance admission, mutation-anchored test replaying a real person->not_home GPS-sourced departure -> asserts a BleTransitionLeg IS appended and a crossing attaches; wall-tablet source still rejected; live-validate against a real departure.'
+  next: 'RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person''s trackers, won by last_updated race — D-HIGH-1). Instead subscribe directly to each resident''s body-phone device_trackers (the allowlist entities) home<->away edges; map tracker->slug. Also fix A-3 (asymmetric exit window + single-use leg consumption -> no wrong-person label) and D-MED-1 (surface rejected-count + per-person attach observability). Exclude okosisipadmini6_2 + samsung_a73 (occasional carries). Plan -> plan-review -> Tier-3 build -> 3 framing-disjoint reviews -> mutation-verify -> ship + organic live-validate on next real departure.'
   refs: ['camera_census.py:3676 (_on_person_state_change)', 'camera_census.py:~3721-3737 (_ble_source_is_admissible)', 'transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write)', 'database.py:3903 (log_entry_exit_event)', 'reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)']
   spawned_from: IDENTITY-FUSION-PRODUCER-1
   sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T09:16:00-05:00_ - _Data commit: `17db4e164a12`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T09:37:59-05:00_ - _Data commit: `1a966119e3ec`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -754,13 +754,13 @@ _being built_
 
 ### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
 thread: **identity** - status: **in_progress** - approval: **explicit**
-_created 2026-09-05 10:10 · updated 2026-09-05 10:30 · refined ×3_
+_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
 - **Problem / Solution:**
   - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
 - **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
 - **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
-- **Next:** Operator picks the fix approach (see AskUserQuestion 2026-09-05); then Tier-2 build: fix the provenance admission, mutation-anchored test replaying a real person->not_home GPS-sourced departure -> asserts a BleTransitionLeg IS appended a...
-- **Tags:** identity, producer, tier-2, no-fabrication-verify, regression-from-review-fix
+- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
+- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
 - **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
 - **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
 - **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
