@@ -212,6 +212,29 @@ cards:
     gate + non-sticky abort + grid-cap discharge-under-stale. Reuse C''s _run_attain_branch anchor recipe
     (scratchpad/proposed_bc_anchor.py, precedent test_arbitrage_grid_import_guard_expose.py:525-670).'
   refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D 2026-09-01']
+- id: IDENTITY-FUSION-PRODUCER-1
+  title: Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
+  thread: identity
+  status: in_progress
+  created: 2026-09-05 00:40
+  updated: 2026-09-05 00:40
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-05 ("Ship and card")'
+  tags: [tier-2db, identity, fail-safe]
+  problem_solution:
+  - 'Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras,
+     ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition
+     the PRIMARY named crossing signal in the existing resolver, with face as confidence corroboration and a
+     known-face-guest class; add a centralized producer-outage fail-safe (suppress all face paths when the
+     producer is down/drilled) so a Frigate flap can never misattribute or stall.'
+  origin: {date: '2026-09-05', gist: 6.0.0 identity arc, producer half — pivoted to BLE-primary after measure-before-build}
+  why: 'Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe
+    is the operator #1 concern. Extend the resolver, do not rebuild.'
+  next: 'Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons:
+    D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.'
+  refs: ['docs/planning/PLANNING_identity_fusion_producer_2026_09.md', 'docs/readmes/README_v5.95.0.md']
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1]
 - id: IDENTITY-FLAPPING-FACE-VETO-1
   title: Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
   thread: identity

@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-04T04:02:48-05:00_ - _Data commit: `5b7025f4dd01`_ - _last_reconciled: 2026-09-04_
+_Generated: 2026-09-05T07:49:37-05:00_ - _Data commit: `947b14bf48b2`_ - _last_reconciled: 2026-09-04_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.95.0.md (2026-09-05) is newer than last_reconciled (2026-09-04)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -15,7 +21,7 @@ _Generated: 2026-09-04T04:02:48-05:00_ - _Data commit: `5b7025f4dd01`_ - _last_r
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 8 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 56 |
 | ⏸️ Waiting on operator | 8 |
@@ -764,10 +770,20 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `IDENTITY-FUSION-PRODUCER-1` - Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
+thread: **identity** - status: **in_progress** - approval: **explicit**
+_created 2026-09-05 00:40 · refined_
+- **Problem / Solution:**
+  - Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras, ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition the PRIMARY named...
+- **Origin:** 2026-09-05 - 6.0.0 identity arc
+- **Why:** Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe is the operator #1 concern. Extend the resolver, do not rebuild.
+- **Next:** Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons: D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.
+- **Tags:** tier-2db, identity, fail-safe
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
 
 ## 🔍 Review (1)
 _under review_
