@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-04'
+  last_reconciled: '2026-09-05'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -212,12 +212,84 @@ cards:
     gate + non-sticky abort + grid-cap discharge-under-stale. Reuse C''s _run_attain_branch anchor recipe
     (scratchpad/proposed_bc_anchor.py, precedent test_arbitrage_grid_import_guard_expose.py:525-670).'
   refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D 2026-09-01']
+- id: IDENTITY-FUSION-PRODUCER-1
+  title: Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
+  thread: identity
+  status: shipped_organic
+  shipped_version: v5.95.0
+  created: 2026-09-05 00:40
+  updated: 2026-09-05 00:40
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-05 ("Ship and card")'
+  tags: [tier-2db, identity, fail-safe]
+  problem_solution:
+  - 'Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras,
+     ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition
+     the PRIMARY named crossing signal in the existing resolver, with face as confidence corroboration and a
+     known-face-guest class; add a centralized producer-outage fail-safe (suppress all face paths when the
+     producer is down/drilled) so a Frigate flap can never misattribute or stall.'
+  origin: {date: '2026-09-05', gist: 6.0.0 identity arc, producer half — pivoted to BLE-primary after measure-before-build}
+  why: 'Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe
+    is the operator #1 concern. Extend the resolver, do not rebuild.'
+  next: 'Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons:
+    D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.'
+  refs: ['docs/planning/PLANNING_identity_fusion_producer_2026_09.md', 'docs/readmes/README_v5.95.0.md']
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1]
+- id: IDENTITY-FLAPPING-FACE-VETO-1
+  title: Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
+  thread: identity
+  status: planned
+  created: 2026-09-05 00:30
+  updated: 2026-09-05 00:30
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-05 ("Ship and card") — ship the fusion cycle, card this residual as a fast-follow'
+  tags: [identity, fail-safe, tier-2]
+  problem_solution:
+  - 'Problem: the v5.95.0 identity fail-safe suppresses face identity when the producer is DOWN (frigate_status_2
+     unavailable) or the face name is SILENTLY frozen (sensor holds an old value, last_changed genuinely old).
+     It does NOT catch a FLAPPING-frozen sensor — one that flaps unavailable<->name and re-stamps last_changed on
+     each flap, so the age(now-last_changed) staleness gate sees age~0 and lets the stale name through. While
+     Frigate reports healthy, a stuck "Oji" can then be attributed to a different person (e.g. Jaya) crossing in
+     the window with no BLE leg and no person-status veto. Solution: backport the person.<slug>=not_home veto
+     (exists in the enhanced-census path, camera_census.py:4269-4290) onto the resolver multi-leg path, plus a
+     flap/corroboration guard (reject a face leg whose entity is currently flapping / require corroboration for a
+     single stale-suspect leg). The veto backport was deferred in v5.95.0 only because it collides with the
+     observability outcome-label (vetoed vs no_leg) that a regression test asserts.'
+  origin: {date: '2026-09-05', gist: Review D D-1 + orchestrator flapping-analysis at the v5.95.0 ship checkpoint}
+  why: 'The producer-OUTAGE fail-safe (operator #1 concern) is closed + verified; this flapping-while-healthy
+    variant is a narrower data-quality edge, but it corrupts person_id (the value the whole 6.0.0 arc is built
+    on), so it must be closed — just not blocking the cycle that makes the fail-safe real.'
+  constraints:
+  - 'Backporting the not_home veto must NOT break test_d2b_vetoed_outcome_distinct_from_no_leg — update the
+    observability outcome labels alongside (that coupling is why it was deferred).'
+  - 'Only closes the away-subset via the veto; the flap-guard/corroboration handles the claimed-person-home case.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'flapping-frozen face can misattribute a crossing while Frigate reports healthy', verdict: BUILD}
+  next: 'Tier-2 fast-follow after v5.95.0: backport person-not_home veto onto the resolver multi-leg path + a flap/corroboration guard; update the vetoed/no_leg observability labels; mutation-anchored test replaying the flapping-frozen repro (stuck Oji re-stamped + Jaya crosses -> NOT attributed to Oji).'
+  refs: ['transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate)', 'camera_census.py:4269-4290 (enhanced-census not_home veto to backport)', 'docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0)', 'docs/reviews review-D findings']
+  spawned_from: FRIGATE-SUBLABEL-FACE-BRIDGE-1
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
   thread: identity
   status: investigating
   created: 2026-09-03 15:10
+  live_correction_2026_09_04: 'GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card''s stated reason.
+    The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is
+    STALE — Frigate face is LIVE and NAMING residents right now: 15 _last_recognized_face_2 sensors active
+    7d, aggregate Oji 66 / Jaya 31 / Ojini 27 / Ezinne 10 / Ziri 1 (family_room Oji 41/Jaya 15/Ojini 8/
+    Ezinne 5). YET person_entry_exit_events person_id attach is STILL 1 of 7,265. So the bug is NOT sensor
+    availability and NOT "face down" — the names are demonstrably present on the _2 sensors and the egress
+    JOIN still does not stamp them. REFRAME the investigation: why does the join fail to attach a name that
+    IS present? Leading hypothesis = timing/real-time match — the _2 HA sensor updates on Frigate cadence,
+    not synchronized to the egress-crossing instant, so the join window misses it; the MQTT sub_label
+    (frigate/events, real-time) is the fix (name matched to the crossing moment). This card remains the
+    FIRST deliverable of the 6.0.0 arc, with corrected framing. Also correct the depends_on cluster premise
+    (EGRESS-IDENTITY-JOIN-GAP-1 et al. cite "face down" / "sensors unavailable" — refuted).'
   updated: 2026-09-03 15:10
   refinement_status: initial
   approval: explicit
@@ -323,7 +395,7 @@ cards:
   title: v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier
     nesting mis-wire — remove shells, fix the D-NEST sweep resolution
   thread: platform
-  status: shipped_organic
+  status: done
   shipped_version: v5.94.3
   created: 2026-09-03 21:20
   updated: 2026-09-03 21:20
@@ -352,7 +424,7 @@ cards:
   - 'Whole House device (80 entities, identifier integration) must never be a removal candidate.'
   knobs: []
   parsimony: {problem: '3 empty duplicate device cards + real coordinators nested under an empty shell', verdict: BUILD}
-  next: 'Build on feature/device-shell-cleanup (worktree) → Tier 2-DB 3 reviews + orchestrator verify → deploy v5.94.1 → live-registry validation (3 shells gone, real CM 60 ents + via→Whole House, coordinators nest under real CM).'
+  next: 'DONE + validated live 2026-09-04 (v5.94.3): 56 URA devices, 3 empty shells removed, one device per coordinator, tree correctly nested, real entities intact, clean boot. Root cause was a 2-tuple identifier-unpack crashing on bond/homekit 3-tuples (v5.94.1/.2 no-op''d silently); fixed in v5.94.3 with defensive indexing + 3-tuple regression test.'
   refs: ['__init__.py CM branch ~:4194-4267', '_devices.py async_stamp_via_device_tree ~:162-185',
     'docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md', 'docs/readmes/README_v5.94.0.md']
   spawned_from: DEVICE-ENTITY-REORG-1

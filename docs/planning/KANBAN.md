@@ -2,10 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-03T20:48:43-05:00_ - _Data commit: `05017c5896be`_ - _last_reconciled: 2026-09-03_
+_Generated: 2026-09-05T07:49:37-05:00_ - _Data commit: `947b14bf48b2`_ - _last_reconciled: 2026-09-04_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.95.0.md (2026-09-05) is newer than last_reconciled (2026-09-04)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -14,14 +20,14 @@ _Generated: 2026-09-03T20:48:43-05:00_ - _Data commit: `05017c5896be`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 7 |
+| 📝 Planned | 8 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 56 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 25 |
-| ✅ Done | 58 |
+| ✅ Done | 59 |
 
 ## 📥 Inbox (29)
 _raw capture_
@@ -364,6 +370,8 @@ _created 2026-09-03 15:10 · initial_
 - **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
 - **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
 - **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+- **Forensic keys (1):**
+  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -626,8 +634,23 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (8)
 _has plan / acceptance_
+
+### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-05 00:30 · initial_
+- **Problem / Solution:**
+  - Problem: the v5.95.0 identity fail-safe suppresses face identity when the producer is DOWN (frigate_status_2 unavailable) or the face name is SILENTLY frozen (sensor holds an old value, last_changed genuinely old). It does NOT catch a FL...
+- **Origin:** 2026-09-05 - Review D D-1 + orchestrator flapping-analysis at the v5.95.0 ship checkpoint
+- **Why:** The producer-OUTAGE fail-safe (operator #1 concern) is closed + verified; this flapping-while-healthy variant is a narrower data-quality edge, but it corrupts person_id (the value the whole 6.0.0 arc is built on), so it must be closed — ...
+- **Next:** Tier-2 fast-follow after v5.95.0: backport person-not_home veto onto the resolver multi-leg path + a flap/corroboration guard; update the vetoed/no_leg observability labels; mutation-anchored test replaying the flapping-frozen repro (stu...
+- **Tags:** identity, fail-safe, tier-2
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] flapping-frozen face can misattribute a crossing while Frigate reports healthy
+- **Refs:** transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate); camera_census.py:4269-4290 (enhanced-census not_home veto to backport); docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0); docs/reviews review-D findings
+- **Forensic keys (1):**
+  - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -750,20 +773,17 @@ _created 2026-08-26 09:45 · initial_
 ## 🔨 In progress (1)
 _being built_
 
-### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
-thread: **platform** - status: **in_progress** - approval: **explicit**
-_created 2026-09-03 21:20 · initial_
+### `IDENTITY-FUSION-PRODUCER-1` - Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
+thread: **identity** - status: **in_progress** - approval: **explicit**
+_created 2026-09-05 00:40 · refined_
 - **Problem / Solution:**
-  - Problem: after the v5.94.0 de-frag moved all coordinator entities onto the Coordinator-Manager config entry, three now-empty duplicate device records (Coordinator Manager, Security, Music Following) are left dangling on the parent "Unive...
-- **Origin:** 2026-09-03 - v5.94.0 live validation — de-frag worked at entity level
-- **Why:** Verified via live registry + a deep HA-source code read: parent entry no longer forwards coordinator platforms (so shell removal is durable), and the sweep's last-writer-wins on duplicate identifiers is the root of the mis-nesting. Nothi...
-- **Next:** Build on feature/device-shell-cleanup (worktree) → Tier 2-DB 3 reviews + orchestrator verify → deploy v5.94.1 → live-registry validation (3 shells gone, real CM 60 ents + via→Whole House, coordinators nest under real CM).
-- **Tags:** tier-2db, device-registry, no-fabrication-verify
-- **Sibling of:** DEVICE-ENTITY-REORG-1
-- **Parsimony:** [BUILD] 3 empty duplicate device cards + real coordinators nested under an empty shell
-- **Refs:** __init__.py CM branch ~:4194-4267; _devices.py async_stamp_via_device_tree ~:162-185; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/readmes/README_v5.94.0.md
-- **Forensic keys (1):**
-  - `spawned_from`: DEVICE-ENTITY-REORG-1
+  - Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras, ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition the PRIMARY named...
+- **Origin:** 2026-09-05 - 6.0.0 identity arc
+- **Why:** Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe is the operator #1 concern. Extend the resolver, do not rebuild.
+- **Next:** Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons: D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.
+- **Tags:** tier-2db, identity, fail-safe
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
 
 ## 🔍 Review (1)
 _under review_
@@ -2118,7 +2138,7 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (58)
+## ✅ Done (59)
 _closed, evidence in refs_
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
@@ -2134,6 +2154,21 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
+thread: **platform** - status: **done** - approval: **explicit**
+_created 2026-09-03 21:20 · initial_
+- **Problem / Solution:**
+  - Problem: after the v5.94.0 de-frag moved all coordinator entities onto the Coordinator-Manager config entry, three now-empty duplicate device records (Coordinator Manager, Security, Music Following) are left dangling on the parent "Unive...
+- **Origin:** 2026-09-03 - v5.94.0 live validation — de-frag worked at entity level
+- **Why:** Verified via live registry + a deep HA-source code read: parent entry no longer forwards coordinator platforms (so shell removal is durable), and the sweep's last-writer-wins on duplicate identifiers is the root of the mis-nesting. Nothi...
+- **Next:** DONE + validated live 2026-09-04 (v5.94.3): 56 URA devices, 3 empty shells removed, one device per coordinator, tree correctly nested, real entities intact, clean boot. Root cause was a 2-tuple identifier-unpack crashing on bond/homekit ...
+- **Tags:** tier-2db, device-registry, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1
+- **Parsimony:** [BUILD] 3 empty duplicate device cards + real coordinators nested under an empty shell
+- **Refs:** __init__.py CM branch ~:4194-4267; _devices.py async_stamp_via_device_tree ~:162-185; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/readmes/README_v5.94.0.md
+- **Forensic keys (1):**
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**

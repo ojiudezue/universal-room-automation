@@ -1887,6 +1887,10 @@
     }
   },
   "issues": {
+    "egress_identity_face_failsafe_drill_boot_on": {
+      "title": "Egress Identity Fail-Safe Drill still engaged after restart",
+      "description": "The on-demand face-producer fail-safe drill (`switch.egress_identity_face_failsafe_drill`) was ON at Home Assistant restart. While engaged, face-provenance identity CANNOT attach on any egress path; BLE identification of residents still works, guests read as anonymous. Turn the switch OFF from the URA: Coordinator Manager device to release the drill and clear this issue."
+    },
     "energy_envoy_invalid": {
       "title": "Energy Coordinator: Envoy entity validation failed",
       "description": "The Energy Coordinator did not start because envoy entity validation failed at startup. Errors: {errors}.\n\nFix via Coordinator Manager → Configure → Energy. Pick any Envoy sensor whose serial matches your installed Envoy. URA auto-derives all related entities from that serial.",

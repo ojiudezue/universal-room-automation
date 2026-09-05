@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "090",
+  "author": "ojiudezue",
+  "session_id": "claude_20260905_125556_ship_v5_95_0",
+  "timestamp": "2026-09-05T12:55:56Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.95.0 shipped: Identity fusion: BLE-primary egress producer + face corroboration + producer-outage fail-safe",
+  "summary": "Identity fusion: BLE-primary egress producer + face corroboration + producer-outage fail-safe",
+  "why": "Measure-before-build overturned the face-first premise: egress person_id attach was 1/7265 not from a coverage ceiling but because Frigate face is intermittent and fires at interior cameras ~never within the 45s door-crossing window, while BLE person.<slug> home<->away transitions (106/14d, Bermuda-sourced) are the reliable named crossing edge. So identity is BLE-primary + face-corroboration, built by extending the existing resolver not rebuilding. The producer-outage fail-safe is the operator's #1 requirement and was only 1/4 implemented in the first build \u2014 plan review + 3 framing-disjoint build reviews caught 4 independent leaks (wrong health entity, frozen-face, ungated raw census, ungated presence path) + 2 zero-config attribution bugs (guest attributed to resident; wall-tablet substring forging BLE legs); the fix-up centralized suppression and closed both; orchestrator mutation-verified the checkpoint is load-bearing.",
+  "implications": "Shipped IDENTITY-FUSION-PRODUCER-1 at v5.95.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.95.0.md (Live criteria).",
+  "revisit_trigger": "Post-restart + drill: with the drill switch ON and Frigate healthy, all four face paths suppress, BLE still names Oji/Ezinne/Jaya, a known guest reads anonymous (never misattributed), no pipeline stall, no alert downgrade; person_id attach rises from 1/7265 toward the BLE-transition rate; face_producer_health + identified_guests_count exposed on the persons-in-house sensor.",
+  "refs": {
+    "cards": [
+      "IDENTITY-FUSION-PRODUCER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.95.0.md"
+    ],
+    "release_notes": "Extends the egress-identity resolver with a BLE person.<slug> home<->away transition leg (the primary named crossing signal, provenance-guarded to Bermuda/BLE), face corroboration, a known-face-guest class, and a centralized producer-outage fail-safe (_face_suppressed_now across resolver + raw census + presence paths) with a drill switch. D1 real-time MQTT face bridge is a follow-on (measure-gated on Frigate restart). Tier 2-DB: plan review + 3 framing-disjoint build reviews + fix-up; caught 4 fail-safe leaks + 2 attribution bugs pre-ship."
+  }
+}

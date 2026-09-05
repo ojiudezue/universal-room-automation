@@ -42,5 +42,22 @@ flake surfaced by the no-cache ordering, not this change). py_compile clean.
   each coordinator device remains; Whole House stands alone on the parent entry; real
   CM (~60) / Security (~21) / Music (~10) entities intact; no "Error adding entity None".
 
+## Validated 2026-09-04 (post-restart)
+
+| Criterion | Observed | Result |
+|---|---|---|
+| v5.94.3 actually loaded | all URA devices `sw_version=v5.94.3` | **PASS** |
+| 3 empty shells removed | URA device count **56** (was 59); `df3b`/`29c9`/`3e9b` gone from the registry | **PASS** |
+| Exactly one of each coordinator device | one `coordinator_manager` (`0a83`), one `security_coordinator` (`29af`), one `music_following_coordinator` (`8609`) | **PASS** |
+| Nesting correct | `0a83` → Whole House; all coordinators → `0a83`; zones → ZM → Whole House; rooms → Whole House; Whole House `via_device_id=null` (root) | **PASS** |
+| Whole House alone on parent entry | parent entry `01KAYV8` owns only the Whole House device | **PASS** |
+| Real entities intact | CM `0a83` = **60** entities (52 core + 8 per-person); Security/Music populated | **PASS** |
+| Clean boot | zero "Error adding entity None", zero via_device errors, zero "shell removal raised"/"guard raised" in the log; cleanup ran without exception | **PASS** |
+
+Cycle closed. The device tree is fully de-fragmented and correctly nested; the three empty
+duplicate shells are gone. Deploy note: the deploy.sh PR-merge step hit a transient GitHub GraphQL
+error; PR #543 merged anyway (`6b6128edf` on master), and the release + HACS install were completed
+manually.
+
 ## References
 - [`docs/architecture/DEVICE_TREE.md`](../architecture/DEVICE_TREE.md) · [`docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md`](../reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md) (this arm-length/mis-diagnosis chain is a postmortem entry).
