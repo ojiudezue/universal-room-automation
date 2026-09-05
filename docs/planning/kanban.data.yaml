@@ -317,6 +317,52 @@ cards:
   refs: ['camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache)', 'camera_census.py:3499-3556 (_is_face_producer_live)', 'camera_census.py:1424 (face_persons/face_confirmed misnomer)', 'docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)']
   spawned_from: IDENTITY-FUSION-PRODUCER-1
   sibling_of: [IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1]
+- id: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+  title: The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
+  thread: identity
+  status: in_progress
+  created: 2026-09-05 10:10
+  updated: 2026-09-05 10:30
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-05 — chose Option A (admit resident phone BLE+GPS, reject stationary via allowlist) + "drive to ship"'
+  tags: [identity, producer, tier-2, no-fabrication-verify, regression-from-review-fix]
+  problem_solution:
+  - 'Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door
+     crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert
+     despite ~202 resident phone home/away transitions every 14 days. Root cause (verified by code+recorder
+     trace 2026-09-05, NOT a timing bug — the resolver timestamps are correct): the code only counts a BLE
+     crossing when the person entity''s "source" says the update came from a Bermuda BLE tracker. But when a
+     person LEAVES, Home Assistant marks them away using the phone''s GPS/geofence tracker, never the Bermuda
+     one — so every single departure is rejected and no crossing is recorded, and person_id stays blank. This
+     is a regression from our own v5.95.0 review fix: a reviewer worried a wall tablet could fake a BLE
+     crossing, so we tightened the gate to Bermuda-only, which also threw out all the legitimate GPS-sourced
+     departures. Solution: stop trusting only the momentary Bermuda source; treat a resident''s phone
+     home/away flip as a real crossing (whether reported by its BLE or its GPS tracker) while still excluding
+     stationary infrastructure like wall tablets. Exact approach (Bermuda-tracker-direct vs mobile-vs-stationary
+     reclassification) pending operator input on tracker topology.'
+  origin: {date: '2026-09-05', gist: attach=0 root-cause investigation gating the D1 build}
+  why: 'This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer
+    does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1
+    (face). D1 face names will also flow through this same resolver once bridged, but the BLE fix does not
+    depend on D1.'
+  constraints:
+  - 'Must NOT re-open the A-HIGH-1 hole: a stationary wall tablet (e.g. study_a_wall_tablet) must still be
+    unable to forge a crossing leg. The fix admits the resident PHONE (mobile), not any BLE source.'
+  - 'Touches the identity producer / resolver — regression-prone, Tier-2 (framing-disjoint reviews).'
+  parked_alts: []
+  refinement:
+  - 'timestamp/TZ-skew hypothesis (from the measurement bug) -> REFUTED for production: resolver coerces both operands tz-aware; the matcher is correct. Root cause is the producer-side provenance gate, not the matcher.'
+  - 'operator picked Option A (phone BLE+GPS, reject stationary) over Bermuda-direct: departures are GPS-sourced, so Bermuda-only would still miss them.'
+  - 'operator asked "do we even need an allowlist if tablets aren''t assigned to anyone" -> VERIFIED live: person.oji_udezue has 19 trackers incl study_a_wall_tablet + master_bedroom_tab + entrypad + Macs/minis. Tablets ARE assigned to oji -> allowlist IS needed; A-HIGH-1 forgery risk is real, not theoretical.'
+  knobs:
+  - 'EGRESS_CROSSING_ADMISSIBLE_TRACKERS (module constant, const.py) — per-resident body-phone tracker allowlist; module rung because a wrong entry = a forgeable identity crossing (security).'
+  parsimony: {problem: 'BLE crossing-namer drops all GPS-sourced departures -> attaches nobody', verdict: BUILD}
+  next: 'Operator picks the fix approach (see AskUserQuestion 2026-09-05); then Tier-2 build: fix the provenance admission, mutation-anchored test replaying a real person->not_home GPS-sourced departure -> asserts a BleTransitionLeg IS appended and a crossing attaches; wall-tablet source still rejected; live-validate against a real departure.'
+  refs: ['camera_census.py:3676 (_on_person_state_change)', 'camera_census.py:~3721-3737 (_ble_source_is_admissible)', 'transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write)', 'database.py:3903 (log_entry_exit_event)', 'reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)']
+  spawned_from: IDENTITY-FUSION-PRODUCER-1
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc

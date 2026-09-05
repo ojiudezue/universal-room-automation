@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T09:06:48-05:00_ - _Data commit: `449a2ede8203`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T09:16:00-05:00_ - _Data commit: `17db4e164a12`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,7 +17,7 @@ _Generated: 2026-09-05T09:06:48-05:00_ - _Data commit: `449a2ede8203`_ - _last_r
 | 📝 Planned | 7 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 57 |
+| 🚀 Shipped (organic open) | 58 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
@@ -752,19 +752,18 @@ _created 2026-08-26 09:45 · initial_
 ## 🔨 In progress (1)
 _being built_
 
-### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
 thread: **identity** - status: **in_progress** - approval: **explicit**
-_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
+_created 2026-09-05 10:10 · updated 2026-09-05 10:30 · refined ×3_
 - **Problem / Solution:**
-  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
-  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
-- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
-- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
-- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
-- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
-- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
-- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
-- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
+- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
+- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
+- **Next:** Operator picks the fix approach (see AskUserQuestion 2026-09-05); then Tier-2 build: fix the provenance admission, mutation-anchored test replaying a real person->not_home GPS-sourced departure -> asserts a BleTransitionLeg IS appended a...
+- **Tags:** identity, producer, tier-2, no-fabrication-verify, regression-from-review-fix
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
+- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
 - **Forensic keys (1):**
   - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
 
@@ -793,7 +792,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (57)
+## 🚀 Shipped (organic open) (58)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -820,6 +819,22 @@ _created 2026-09-05 00:40 · refined_
 - **Tags:** tier-2db, identity, fail-safe
 - **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
 - **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
+
+### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
+  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
+- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
+- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
+- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
+- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
+- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
+- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+- **Forensic keys (1):**
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
 
 ### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
