@@ -849,3 +849,45 @@ def test_fs_all_four_paths_suppressed_under_drill():
     assert coord._get_face_for_camera(
         "binary_sensor.front_door_person_occupancy",
     ) is None
+
+
+# --- IDENTITY-FACE-HEALTH-BOOTCACHE-1 self-heal ---------------------------
+
+
+def test_bootcache_selfheal_when_frigate_status_appears_late():
+    """Boot-ordering race: census ticks BEFORE `sensor.frigate_status_2`
+    has acquired a state (registry entry present, state absent).
+
+    Bug: the resolver used to latch `_face_producer_health_resolved = True`
+    UNCONDITIONALLY, caching `None` forever and returning the fail-CLOSED
+    `frigate_status_missing_configured` verdict for the whole HA session.
+
+    Fix: only latch when resolution SUCCEEDED. While `resolved is None`,
+    the next tick re-runs the cheap registry+state lookup and recovers
+    the moment the status entity acquires a state — no restart needed.
+
+    Mutation anchor: restore the buggy unconditional latch in
+    ``_resolve_face_producer_health_entity`` (indent the two assignments
+    OUT of the `if resolved is not None:` block) and this test MUST go
+    RED — the second call would still return False with reason
+    `frigate_status_missing_configured`. Verified 2026-09-05:
+    `FAILED ... assert False is True` on the second `_is_face_producer_live()`.
+    """
+    census, _, st_map = _make_census_with_frigate(
+        present_health=("sensor.frigate_status_2",),
+        frigate_status=None,  # registry entry present, state ABSENT
+    )
+    # Tick 1: state not yet up -> fail-CLOSED, cache MUST NOT latch.
+    assert census._is_face_producer_live() is False
+    assert census._face_producer_health_reason == "frigate_status_missing_configured"
+    assert census._face_producer_health_resolved is False
+    assert census._face_producer_health_entity is None
+
+    # frigate_status_2 comes up (Frigate finished booting).
+    st_map["sensor.frigate_status_2"] = _make_state("running")
+
+    # Tick 2: self-heal — resolver re-runs, latches, returns LIVE.
+    assert census._is_face_producer_live() is True
+    assert census._face_producer_health_reason == "live"
+    assert census._face_producer_health_resolved is True
+    assert census._face_producer_health_entity == "sensor.frigate_status_2"
