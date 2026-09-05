@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T16:39:25-05:00_ - _Data commit: `ac001f02df8c`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T16:49:13-05:00_ - _Data commit: `06cd4b24708e`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,7 +14,7 @@ _Generated: 2026-09-05T16:39:25-05:00_ - _Data commit: `ac001f02df8c`_ - _last_r
 | 📥 Inbox | 30 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 58 |
@@ -641,7 +641,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
@@ -668,6 +668,21 @@ _created 2026-09-05 17:05 · initial_
 - **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
+
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-05 17:35 · initial_
+- **Problem / Solution:**
+  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
+- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
+- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
+- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
+- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
+- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
+- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
+- **Forensic keys (1):**
+  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**

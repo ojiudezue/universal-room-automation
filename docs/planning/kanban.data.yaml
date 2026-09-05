@@ -453,6 +453,46 @@ cards:
   refs: ['__init__.py:1650', '__init__.py:4086', '_devices.py:227-234 (the correct pattern)', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md']
   sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
 
+- id: EGRESS-EXIT-IDENTITY-BACKFILL-1
+  title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
+  thread: identity
+  status: planned
+  created: 2026-09-05 17:35
+  updated: 2026-09-05 17:35
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-05 — chose backfill for exit naming ("someone exited; that someone is person after 5 min is ok — timeliness AND accuracy"); v1 ships entry-only, this is the exit follow-up'
+  tags: [identity, producer, tier-3, backfill, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone
+     BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within
+     ~280s of the crossing) because Bermuda RSSI decays slowly. The egress resolver reads identity once,
+     45s after the crossing, and writes the row then with no later update — so the departer BLE edge always
+     arrives after the only read and the exit crossing is never named. Solution (operator-chosen): backfill.
+     Write the exit crossing immediately with person_id null (the record says "someone exited"), then UPDATE
+     that row with the resident person_id when their BLE not_home edge fires within a ~600s window. Gives a
+     timely record AND an accurate name a few minutes later.'
+  origin: {date: '2026-09-05', gist: D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)}
+  why: 'Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill
+    is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry
+    v1 ships without it; exit is a deliberate, delicate follow-up (new row-UPDATE write path).'
+  constraints:
+  - 'New write path: person_entry_exit_events row UPDATE (today it is INSERT-only, database.py:3915). Tier-3 —
+    touches the resolve/write state machine; must not double-write, must supersede a pending backfill on
+    teardown, must fail-safe (a backfill that never resolves leaves person_id null, not wrong).'
+  - 'Which resident: the not_home edge that fires within the window IS the disambiguator (only the leaver goes
+    not_home). If two leave close together, attribute each exit to its own not_home edge in order; abstain on ambiguity.'
+  parked_alts:
+  - 'state-at-crossing (single home resident) — cheaper but only names the unambiguous case; operator preferred backfill for accuracy.'
+  - 'lengthen exit resolve to ~600s — delays the record; backfill keeps the record timely.'
+  knobs:
+  - 'BLE_EGRESS_EXIT_BACKFILL_WINDOW_S (module rung, ~600 from D0 p90 612) — how long to accept a not_home edge as the exit backfill.'
+  parsimony: {problem: 'exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve', verdict: BUILD}
+  next: 'After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying a real +369s not_home edge -> row updated; supersession/teardown of the pending backfill; fail-safe leaves null.'
+  refs: ['database.py:3915 (INSERT — needs an UPDATE sibling)', 'transit_validator.py:1688 (resolver)', 'D0 probe (exit median +369s, p90 612s)', 'PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)']
+  spawned_from: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+  sibling_of: [EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc

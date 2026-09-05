@@ -13,6 +13,12 @@
   - Correct the reuse claim (R3-3): `_read_source_inventory` is a PersonCoordinator method with NO `bluetooth_le` branch — it is the READ PATTERN only; add a NEW census helper.
   - Add the boot-ordering re-register path (R3-4) and the home-boundary gate (R3-5).
 
+## REV5 SCOPE DECISION (operator 2026-09-05, after D0 measurement)
+D0 measured (7d recorder; TZ-aligned): **ENTRY** BLE `home` edge fires ~**+105s BEFORE** the crossing (median +105, p25/p75 +82/+151); **EXIT** `not_home` edge fires ~**369s AFTER** (p90 earliest −281s → NEVER within the 45s resolve). So entry resolves in the existing window; exit's disambiguating edge arrives ~6 min late.
+- **v1 = ENTRY-ONLY.** Build BLE entry attribution only. Set `BLE_EGRESS_ENTRY_LEAD_S = 180` (module rung; from D0 median 105 / p75 151 — captures the bulk; one-line why cites the probe). The listener still fires on all edges but v1 only PRODUCES/attributes `arriving` legs (home-boundary INTO home); `departing` edges are counted for observability, not attributed.
+- **EXIT deferred → card `EGRESS-EXIT-IDENTITY-BACKFILL-1`** (operator chose backfill: "someone exited; that someone is 'person' after 5 min is ok — timeliness AND accuracy"). INSERT the exit crossing immediately with `person_id` null, UPDATE it when the resident's `not_home` edge fires (~369s later, within a ~600s window). New write path (row UPDATE) → its own Tier-3 cycle.
+- Everything below (runtime bluetooth_le derivation, boot-race re-register, home-boundary gate, single-use, observability, reuse ledger) applies to v1 entry; the `_resolve_ble_legs` window uses the ENTRY LEAD bound only.
+
 ## Root cause recap
 Attach=1/7314 because the BLE leg keyed off `person.<slug>` (a lossy HA aggregate, GPS-race D-HIGH-1) with a Bermuda-only provenance gate that dropped GPS-sourced departures. BLE-only device_tracker subscription escapes both.
 
