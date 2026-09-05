@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-04'
+  last_reconciled: '2026-09-05'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -215,7 +215,8 @@ cards:
 - id: IDENTITY-FUSION-PRODUCER-1
   title: Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
   thread: identity
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.95.0
   created: 2026-09-05 00:40
   updated: 2026-09-05 00:40
   refinement_status: refined

@@ -1,0 +1,41 @@
+{
+ "format_version": "2.1",
+ "entry_id": "089",
+ "author": "ojiudezue",
+ "session_id": "claude_20260905_identity_fusion",
+ "timestamp": "2026-09-05T00:00:00Z",
+ "type": "reasoning",
+ "weight": "critical",
+ "title": "6.0.0 identity: BLE-primary + face-corroboration fusion (face is intermittent), with a centralized producer-outage fail-safe",
+ "summary": "The 6.0.0 identity arc pivoted from face-first to BLE-primary + face-corroboration. Measure-before-build ground truth: Frigate face is INTERMITTENT (proven-capable ~135 named recognitions in an 08-30/31 burst, then service flapped unavailable) and egress-face person_id attach is ~0% (1/7265) because face fires while people linger at INTERIOR cameras, essentially never within the 45s crossing window at door cameras. The always-on named crossing signal is BLE person.<slug> home<->away transitions (~106/14d, both directions, Bermuda-sourced for the 3 active residents). Design: EXTEND the existing resolver transit_validator._resolve_egress_face_identity (leg-set + asymmetric window + agreement/confidence) with a BLE-transition leg (primary) + a known-face-guest class; do NOT rebuild.",
+ "why": "Face-first was built on a false premise the live probes refuted: identity was never a coverage ceiling and face is not permanently dead — it is intermittent, and even when up it is temporally/spatially decoupled from threshold crossings (0% face within the 45s window; ~3% even at +-300s; 5/126 BLE arrivals face-corroborated). BLE transitions ARE the crossing edge (zero temporal gap) and are reliably named for phone-carrying residents, so BLE must be primary and face a confidence corroborator + the only namer for phone-less guests. Parsimony (operator: 'parsimony should win if compelling'): don't build camera-dependent naming for a producer that is dead most of the time; build on the always-on producer and let face upgrade confidence via resolver indirection when up.",
+ "implications": "Cards: FRIGATE-SUBLABEL-FACE-BRIDGE-1 (task #11) REFRAMED — it is D1 (real-time MQTT sub_label bridge, listens to the frigate_events HA bus, NOT tracked_object_update), MEASURE-GATED on Frigate being up, and is a confidence enhancer, NOT the gate. 6.0.0 consumer cards run on the BLE-backed resolver. Identity model: residents = BLE+face (Oji/Ezinne/Jaya active; Ziri AWAY for months = expected-silent, not a coverage fault); Ojini = the operator's mum = face-known GUEST with no BLE (guest:<name> slug class, must be NAMED not dropped). Parked with revival triggers: SECURITY-CENSUS-UNKNOWN-WIRE-1 (measure FP/FN first), LAST-RESIDENT-EGRESS-ARM-1 (parsimony; all-away arm already covers it). Two door-naming cards (PERIMETER-ALERT-NAME, SECURITY-ENTRY-VERDICT-NAME) are door-face-coverage-gated (Frigate face-zones on door cams = homelab). Fail-safe (D4) is a HARD requirement (operator's #1 concern): a centralized _face_suppressed_now() checkpoint that ALL face-emission paths (resolver, raw census union, presence pre-arrival) route through, driven by a registry-resolved sensor.frigate_status_2 health gate + a drill switch. Build branch: feature/identity-fusion-d2d3d4.",
+ "revisit_trigger": "OPEN RESIDUAL at the ship checkpoint: FS-2's staleness gate is age(now - last_changed) > TTL, which closes a SILENTLY-frozen face but NOT a FLAPPING-frozen one (a sensor that flaps unavailable<->name re-stamps last_changed -> age~0 -> evades it) — so a stuck 'Oji' can still misattribute Jaya's crossing while Frigate reports healthy. Close it by backporting the person.<slug>=not_home veto onto the resolver's multi-leg path + a flap/corroboration guard (deferred only due to an observability outcome-label coupling). Operator holds the ship-vs-hold decision on this residual. D1 MQTT bridge is the follow-on after the Frigate hardware restart + a live frigate_events bus-shape probe.",
+ "refs": {
+  "cards": [
+   "FRIGATE-SUBLABEL-FACE-BRIDGE-1",
+   "PERIMETER-ALERT-NAME-PERSON-1",
+   "GUEST-GATE-DOOR-IDENTITY-1",
+   "ARRIVAL-DEPARTURE-NOTIFY-1",
+   "SECURITY-ENTRY-VERDICT-NAME-1",
+   "UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1",
+   "EGRESS-IDENTITY-DASHBOARD-TILE-1",
+   "SECURITY-CENSUS-UNKNOWN-WIRE-1",
+   "LAST-RESIDENT-EGRESS-ARM-1"
+  ],
+  "docs": [
+   "docs/planning/PLANNING_identity_fusion_producer_2026_09.md",
+   "docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md"
+  ],
+  "memories": [
+   "reference_egress_face_coverage_7pct_not_a_ceiling"
+  ],
+  "code": [
+   "transit_validator.py::_resolve_egress_face_identity",
+   "camera_census.py::_face_suppressed_now / _canonical_person_slug / _on_person_state_change",
+   "person_coordinator.py (person.<slug> BLE source)",
+   "switch.py::EgressIdentityFaceFailsafeDrillSwitch"
+  ],
+  "process": "Plan-review (FIX-REQUIRED: SIGNAL_PERSON_ARRIVING is multi-source incl camera_face; no departure signal; census-union is a live consumer) + 3 framing-disjoint build reviews (FIX-REQUIRED: 4 independent fail-safe leaks — wrong health entity binary_sensor vs sensor, frozen-face, ungated raw census, ungated presence path — + 2 zero-config attribution bugs: Ojini->Oji and wall-tablet 'ble'-substring forging BLE legs) caught pre-ship; consolidated fix-up centralized suppression + fixed both attributions."
+ }
+}
