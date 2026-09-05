@@ -367,6 +367,35 @@ cards:
   spawned_from: IDENTITY-FUSION-PRODUCER-1
   sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
 
+- id: GUEST-FALSE-POSITIVE-JAYA-ONLY-1
+  title: House flips to GUEST when only a single resident (Jaya) is home
+  thread: identity
+  status: inbox
+  created: 2026-09-05 16:40
+  updated: 2026-09-05 16:40
+  refinement_status: initial
+  approval: unreviewed
+  tags: [identity, presence, guest-false-positive, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the house reported GUEST mode earlier today when only Jaya (a resident) was physically
+     home; it self-corrected to home_day at 21:30 CDT. GUEST mode changes automation behavior, so a
+     false GUEST is a real nuisance. Solution: trace the census composition at the instant the house
+     flipped to GUEST (recorder history of unidentified_count / camera_unrecognized / counted-vs-identified
+     gap) to find which phantom body proposed GUEST, then close that over-count path.'
+  origin: {date: '2026-09-05', gist: operator asked "why does the house say guest when only Jaya is home"}
+  why: 'Known class (census over-count -> phantom unidentified -> GUEST). Likely an exterior camera
+    person-detect or BLE area-bleed counted as an unidentified body, or the counted-bodies exceeding
+    identified residents while identity was thin. Needs the flip-time snapshot to pin the exact trigger.'
+  constraints:
+  - 'wifi_guest_floor is DIAGNOSTIC ONLY (camera_census.py:4531, excluded from the formula due to IoT
+    false positives) — do NOT chase the wifi-guest path; it does not drive guest mode. Verified 2026-09-05.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'house flips GUEST with a single resident home -> census over-count proposes a phantom body', verdict: INVESTIGATE}
+  next: 'Recorder trace: pull sensor.universal_room_automation_persons_in_house unidentified_count + camera_unrecognized + identified_count history around the guest-entry time today; identify the phantom contributor (exterior cam person-detect? BLE bleed? count>identified?). Then scope the fix. Sibling of the census/identity guest-mode work.'
+  refs: ['domain_coordinators/house_state.py (GUEST state machine)', 'camera_census.py:4266 (_get_wifi_guest_count — diagnostic only)', 'camera_census.py:4530+ (census formula, wifi excluded)', 'memory project_guest_mode_false_positive_backlog', 'memory project_presence_guest_latch_and_veto_gap']
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc

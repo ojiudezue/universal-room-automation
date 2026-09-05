@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T09:37:59-05:00_ - _Data commit: `1a966119e3ec`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T13:22:57-05:00_ - _Data commit: `e290e94e0aa4`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-09-05T09:37:59-05:00_ - _Data commit: `1a966119e3ec`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 7 |
@@ -23,7 +23,7 @@ _Generated: 2026-09-05T09:37:59-05:00_ - _Data commit: `1a966119e3ec`_ - _last_r
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
@@ -36,6 +36,19 @@ _created 2026-09-01 17:40 · initial_
 - **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
 - **Tags:** no-fabrication-verify
 - **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
+
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home
+thread: **identity** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-05 16:40 · initial_
+- **Problem / Solution:**
+  - Problem: the house reported GUEST mode earlier today when only Jaya (a resident) was physically home; it self-corrected to home_day at 21:30 CDT. GUEST mode changes automation behavior, so a false GUEST is a real nuisance. Solution: trac...
+- **Origin:** 2026-09-05 - operator asked "why does the house say guest when only Jaya is home"
+- **Why:** Known class (census over-count -> phantom unidentified -> GUEST). Likely an exterior camera person-detect or BLE area-bleed counted as an unidentified body, or the counted-bodies exceeding identified residents while identity was thin. Ne...
+- **Next:** Recorder trace: pull sensor.universal_room_automation_persons_in_house unidentified_count + camera_unrecognized + identified_count history around the guest-entry time today; identify the phantom contributor (exterior cam person-detect? B...
+- **Tags:** identity, presence, guest-false-positive, no-fabrication-verify
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
+- **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
