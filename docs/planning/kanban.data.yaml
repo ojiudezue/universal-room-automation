@@ -276,7 +276,8 @@ cards:
 - id: IDENTITY-FACE-HEALTH-BOOTCACHE-1
   title: Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
   thread: identity
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.95.1
   created: 2026-09-05 08:20
   updated: 2026-09-05 09:05
   refinement_status: refined

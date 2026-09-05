@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "091",
+  "author": "ojiudezue",
+  "session_id": "claude_20260905_141559_ship_v5_95_1",
+  "timestamp": "2026-09-05T14:15:59Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.95.1 shipped: Face-producer health gate self-heals the boot race",
+  "summary": "Face-producer health gate self-heals the boot race",
+  "why": "The v5.95.0 fail-safe health gate resolved sensor.frigate_status_2 via the registry once and cached the result unconditionally, including when it resolved to None. At boot, URA's first census tick can run before frigate_status_2 has a state (observed live: a 21s lag), so it cached None for the whole session and reported frigate_status_missing_configured (fail-closed) forever, suppressing face even with Frigate running. It failed safe but left the just-shipped corroboration feature inert until a lucky restart. The fix only latches the cache on a successful resolve and re-checks each tick while unresolved, so it self-heals the moment Frigate appears.",
+  "implications": "Shipped IDENTITY-FACE-HEALTH-BOOTCACHE-1 at v5.95.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.95.1.md (Live criteria).",
+  "revisit_trigger": "Post-restart: face_producer_health reads live (not frigate_status_missing_configured) once Frigate is up and past the first census tick",
+  "refs": {
+    "cards": [
+      "IDENTITY-FACE-HEALTH-BOOTCACHE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.95.1.md"
+    ],
+    "release_notes": "The face fail-safe health gate cached a failed Frigate-status lookup permanently when Frigate lagged URA at boot, leaving face corroboration suppressed all session (fail-safe direction). Now re-resolves each census tick until the status entity appears, then self-heals to live. 2 framing-disjoint reviews + orchestrator mutation-verify."
+  }
+}
