@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-04T03:24:15-05:00_ - _Data commit: `5a3376951211`_ - _last_reconciled: 2026-09-04_
+_Generated: 2026-09-04T04:02:48-05:00_ - _Data commit: `5b7025f4dd01`_ - _last_reconciled: 2026-09-04_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,7 +14,7 @@ _Generated: 2026-09-04T03:24:15-05:00_ - _Data commit: `5a3376951211`_ - _last_r
 | 📥 Inbox | 29 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 7 |
+| 📝 Planned | 8 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 56 |
@@ -628,8 +628,23 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (8)
 _has plan / acceptance_
+
+### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-05 00:30 · initial_
+- **Problem / Solution:**
+  - Problem: the v5.95.0 identity fail-safe suppresses face identity when the producer is DOWN (frigate_status_2 unavailable) or the face name is SILENTLY frozen (sensor holds an old value, last_changed genuinely old). It does NOT catch a FL...
+- **Origin:** 2026-09-05 - Review D D-1 + orchestrator flapping-analysis at the v5.95.0 ship checkpoint
+- **Why:** The producer-OUTAGE fail-safe (operator #1 concern) is closed + verified; this flapping-while-healthy variant is a narrower data-quality edge, but it corrupts person_id (the value the whole 6.0.0 arc is built on), so it must be closed — ...
+- **Next:** Tier-2 fast-follow after v5.95.0: backport person-not_home veto onto the resolver multi-leg path + a flap/corroboration guard; update the vetoed/no_leg observability labels; mutation-anchored test replaying the flapping-frozen repro (stu...
+- **Tags:** identity, fail-safe, tier-2
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] flapping-frozen face can misattribute a crossing while Frigate reports healthy
+- **Refs:** transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate); camera_census.py:4269-4290 (enhanced-census not_home veto to backport); docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0); docs/reviews review-D findings
+- **Forensic keys (1):**
+  - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**

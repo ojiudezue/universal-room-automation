@@ -212,6 +212,42 @@ cards:
     gate + non-sticky abort + grid-cap discharge-under-stale. Reuse C''s _run_attain_branch anchor recipe
     (scratchpad/proposed_bc_anchor.py, precedent test_arbitrage_grid_import_guard_expose.py:525-670).'
   refs: ['docs/planning/PLANNING_shared_power_read_staleness.md', 'Envoy Tier-3 reviews A/B/C/D 2026-09-01']
+- id: IDENTITY-FLAPPING-FACE-VETO-1
+  title: Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing
+  thread: identity
+  status: planned
+  created: 2026-09-05 00:30
+  updated: 2026-09-05 00:30
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-05 ("Ship and card") — ship the fusion cycle, card this residual as a fast-follow'
+  tags: [identity, fail-safe, tier-2]
+  problem_solution:
+  - 'Problem: the v5.95.0 identity fail-safe suppresses face identity when the producer is DOWN (frigate_status_2
+     unavailable) or the face name is SILENTLY frozen (sensor holds an old value, last_changed genuinely old).
+     It does NOT catch a FLAPPING-frozen sensor — one that flaps unavailable<->name and re-stamps last_changed on
+     each flap, so the age(now-last_changed) staleness gate sees age~0 and lets the stale name through. While
+     Frigate reports healthy, a stuck "Oji" can then be attributed to a different person (e.g. Jaya) crossing in
+     the window with no BLE leg and no person-status veto. Solution: backport the person.<slug>=not_home veto
+     (exists in the enhanced-census path, camera_census.py:4269-4290) onto the resolver multi-leg path, plus a
+     flap/corroboration guard (reject a face leg whose entity is currently flapping / require corroboration for a
+     single stale-suspect leg). The veto backport was deferred in v5.95.0 only because it collides with the
+     observability outcome-label (vetoed vs no_leg) that a regression test asserts.'
+  origin: {date: '2026-09-05', gist: Review D D-1 + orchestrator flapping-analysis at the v5.95.0 ship checkpoint}
+  why: 'The producer-OUTAGE fail-safe (operator #1 concern) is closed + verified; this flapping-while-healthy
+    variant is a narrower data-quality edge, but it corrupts person_id (the value the whole 6.0.0 arc is built
+    on), so it must be closed — just not blocking the cycle that makes the fail-safe real.'
+  constraints:
+  - 'Backporting the not_home veto must NOT break test_d2b_vetoed_outcome_distinct_from_no_leg — update the
+    observability outcome labels alongside (that coupling is why it was deferred).'
+  - 'Only closes the away-subset via the veto; the flap-guard/corroboration handles the claimed-person-home case.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'flapping-frozen face can misattribute a crossing while Frigate reports healthy', verdict: BUILD}
+  next: 'Tier-2 fast-follow after v5.95.0: backport person-not_home veto onto the resolver multi-leg path + a flap/corroboration guard; update the vetoed/no_leg observability labels; mutation-anchored test replaying the flapping-frozen repro (stuck Oji re-stamped + Jaya crosses -> NOT attributed to Oji).'
+  refs: ['transit_validator.py::_resolve_egress_face_identity (FS-2 staleness gate)', 'camera_census.py:4269-4290 (enhanced-census not_home veto to backport)', 'docs/planning/PLANNING_identity_fusion_producer_2026_09.md (D4/§0)', 'docs/reviews review-D findings']
+  spawned_from: FRIGATE-SUBLABEL-FACE-BRIDGE-1
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
