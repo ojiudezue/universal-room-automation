@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.95.1
+# Universal Room Automation vv5.96.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.95.1"
+VERSION: Final = "v5.96.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2250,8 +2250,21 @@ BLE_TRANSITION_ONLY_CONFIDENCE: Final = 0.72
 # Confidence when BLE + face agree on the same RESIDENT slug (must
 # strictly dominate face-only and BLE-only ranks).
 BLE_PLUS_FACE_CORROBORATED_CONFIDENCE: Final = 0.95
+# EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 (2026-09-05) rev5 D2:
+# Entry-only LEAD window between the BLE `home` edge and the camera
+# crossing. D0 probe (7d recorder, TZ-aligned): the BLE edge fires
+# ~median +105s (p25 +82s, p75 +151s) BEFORE the crossing — 180s
+# captures the bulk of arrivals. Exit is deferred to
+# EGRESS-EXIT-IDENTITY-BACKFILL-1 (measured +369s median → far outside
+# the resolve window). Module rung: safety-adjacent; a knob change
+# needs review, not an operator slider.
+BLE_EGRESS_ENTRY_LEAD_S: Final = 180
+
 # TTL of the BLE-transition leg cache. Derived from the FACE_MATCH_*
 # window FAMILY (C4). Max face window today = 300s + 30s slack.
+# Also >= BLE_EGRESS_ENTRY_LEAD_S + 30 (rev5): the entry-only BLE
+# LEAD bound must fit inside the TTL or fresh legs would be pruned
+# before the crossing resolves them.
 BLE_TRANSITION_CACHE_TTL_S: Final = (
     max(
         FACE_MATCH_EXIT_WINDOW_BEFORE_S,

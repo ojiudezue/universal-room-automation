@@ -1384,9 +1384,52 @@ class EgressDirectionTracker:
                 # Multi-slug BLE (rare — two housemates crossing
                 # simultaneously): defer to face-style DISAGREE.
                 if len(ble_slugs) >= 2:
+                    try:
+                        census._ble_legs_abstained_count += 1
+                    except Exception:  # noqa: BLE001
+                        pass
                     _record("abstain", CENSUS_AGREEMENT_DISAGREE)
                     return (None, None, CENSUS_AGREEMENT_DISAGREE)
                 slug = next(iter(ble_slugs))
+                # D-5: INV-EGRESS-ID — a leg produced before a slug
+                # was untracked must not attach after.
+                try:
+                    _tracked_all = set(census._get_tracked_person_slugs())
+                except Exception:  # noqa: BLE001
+                    _tracked_all = set()
+                if slug not in _tracked_all:
+                    try:
+                        census._ble_legs_abstained_count += 1
+                    except Exception:  # noqa: BLE001
+                        pass
+                    _record("abstain", CENSUS_AGREEMENT_DISAGREE)
+                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
+                # D-2: cross-resident mislabel guard. If ANY tracked
+                # resident currently derives ZERO bluetooth_le
+                # trackers (i.e. an invisible potential crosser),
+                # attribution is ambiguous — we cannot rule out that
+                # THEIR crossing produced no leg and this leg belongs
+                # to someone else. Abstain (fail closed).
+                try:
+                    _slug_map = dict(getattr(census, "_ble_tracker_slug_map", {}) or {})
+                except Exception:  # noqa: BLE001
+                    _slug_map = {}
+                _slugs_with_ble = set(_slug_map.values())
+                _invisible = [s for s in _tracked_all if s not in _slugs_with_ble]
+                if _invisible:
+                    _LOGGER.info(
+                        "egress-identity: BLE-only attach ambiguous — "
+                        "tracked resident(s) %r have zero bluetooth_le "
+                        "trackers; abstaining to avoid cross-resident "
+                        "mislabel (candidate=%s).",
+                        sorted(_invisible), slug,
+                    )
+                    try:
+                        census._ble_legs_abstained_count += 1
+                    except Exception:  # noqa: BLE001
+                        pass
+                    _record("abstain_ble_ambiguous", CENSUS_AGREEMENT_DISAGREE)
+                    return (None, None, CENSUS_AGREEMENT_DISAGREE)
                 _leg = next(l for l in ble_legs if l.person_slug == slug)
                 try:
                     census._egress_identity_last_attach = {
@@ -1405,6 +1448,11 @@ class EgressDirectionTracker:
                 except Exception:  # noqa: BLE001
                     pass
                 _record("attached_ble", CENSUS_AGREEMENT_SINGLE)
+                # rev5 D2 single-use: consume ONLY on the attach branch.
+                try:
+                    census._consume_ble_arriving_legs(slug)
+                except Exception:  # noqa: BLE001
+                    pass
                 return (
                     slug,
                     float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1447,6 +1495,11 @@ class EgressDirectionTracker:
                         }
                     except Exception:  # noqa: BLE001
                         pass
+                    # rev5 D2 single-use: attach branch only.
+                    try:
+                        census._consume_ble_arriving_legs(b_slug)
+                    except Exception:  # noqa: BLE001
+                        pass
                     return (
                         b_slug,
                         float(BLE_PLUS_FACE_CORROBORATED_CONFIDENCE),
@@ -1472,6 +1525,10 @@ class EgressDirectionTracker:
                         "(ble=%s, face=%s, tracked=%s)",
                         b_slug, f_slug, "yes" if b_slug in _tracked else "no",
                     )
+                    try:
+                        census._ble_legs_abstained_count += 1
+                    except Exception:  # noqa: BLE001
+                        pass
                     _record(
                         "abstain_resident_vs_guest",
                         CENSUS_AGREEMENT_DISAGREE,
@@ -1499,6 +1556,11 @@ class EgressDirectionTracker:
                     }
                 except Exception:  # noqa: BLE001
                     pass
+                # rev5 D2 single-use: attach branch only (BLE-wins).
+                try:
+                    census._consume_ble_arriving_legs(b_slug)
+                except Exception:  # noqa: BLE001
+                    pass
                 return (
                     b_slug,
                     float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1508,6 +1570,10 @@ class EgressDirectionTracker:
             # ABSTAIN semantics (transit_validator.py DISAGREE branch,
             # RETAINED per H2 precedence rule).
             if len(ble_slugs | face_slugs) >= 2:
+                try:
+                    census._ble_legs_abstained_count += 1
+                except Exception:  # noqa: BLE001
+                    pass
                 _record("abstain", CENSUS_AGREEMENT_DISAGREE)
                 return (None, None, CENSUS_AGREEMENT_DISAGREE)
 

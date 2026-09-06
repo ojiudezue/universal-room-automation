@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T09:06:48-05:00_ - _Data commit: `449a2ede8203`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T16:49:13-05:00_ - _Data commit: `06cd4b24708e`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-05T09:06:48-05:00_ - _Data commit: `449a2ede8203`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 7 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 57 |
+| 🚀 Shipped (organic open) | 58 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
@@ -36,6 +36,19 @@ _created 2026-09-01 17:40 · initial_
 - **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
 - **Tags:** no-fabrication-verify
 - **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
+
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home
+thread: **identity** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-05 16:40 · initial_
+- **Problem / Solution:**
+  - Problem: the house reported GUEST mode earlier today when only Jaya (a resident) was physically home; it self-corrected to home_day at 21:30 CDT. GUEST mode changes automation behavior, so a false GUEST is a real nuisance. Solution: trac...
+- **Origin:** 2026-09-05 - operator asked "why does the house say guest when only Jaya is home"
+- **Why:** Known class (census over-count -> phantom unidentified -> GUEST). Likely an exterior camera person-detect or BLE area-bleed counted as an unidentified body, or the counted-bodies exceeding identified residents while identity was thin. Ne...
+- **Next:** Recorder trace: pull sensor.universal_room_automation_persons_in_house unidentified_count + camera_unrecognized + identified_count history around the guest-entry time today; identify the phantom contributor (exterior cam person-detect? B...
+- **Tags:** identity, presence, guest-false-positive, no-fabrication-verify
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
+- **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -628,8 +641,48 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (10)
 _has plan / acceptance_
+
+### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
+thread: **device-tree** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is incremented but NEVER reset (_devices.py:519). On...
+- **Origin:** 2026-09-05 - device-linker audit vs this-session bug classes (operator "improve URA overall")
+- **Why:** Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree, restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.
+- **Next:** Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.
+- **Tags:** device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify
+- **Parsimony:** [BUILD] sweep counter is a lifetime latch -> late devices unparented until restart
+- **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
+
+### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
+thread: **device-tree** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack) — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here they iterate only devices attached to...
+- **Origin:** 2026-09-05 - device-linker audit — residual Class-2 sites
+- **Why:** Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.
+- **Next:** Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.
+- **Tags:** device-tree, defensive-consistency
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
+- **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
+
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-05 17:35 · initial_
+- **Problem / Solution:**
+  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
+- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
+- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
+- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
+- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
+- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
+- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
+- **Forensic keys (1):**
+  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -752,19 +805,18 @@ _created 2026-08-26 09:45 · initial_
 ## 🔨 In progress (1)
 _being built_
 
-### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
 thread: **identity** - status: **in_progress** - approval: **explicit**
-_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
+_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
 - **Problem / Solution:**
-  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
-  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
-- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
-- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
-- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
-- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
-- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
-- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
-- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
+- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
+- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
+- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
+- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
+- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
 - **Forensic keys (1):**
   - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
 
@@ -793,7 +845,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (57)
+## 🚀 Shipped (organic open) (58)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -820,6 +872,22 @@ _created 2026-09-05 00:40 · refined_
 - **Tags:** tier-2db, identity, fail-safe
 - **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
 - **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
+
+### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
+  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
+- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
+- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
+- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
+- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
+- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
+- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+- **Forensic keys (1):**
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
 
 ### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
 thread: **platform** - status: **shipped_organic** - approval: **explicit**

@@ -317,6 +317,183 @@ cards:
   refs: ['camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache)', 'camera_census.py:3499-3556 (_is_face_producer_live)', 'camera_census.py:1424 (face_persons/face_confirmed misnomer)', 'docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)']
   spawned_from: IDENTITY-FUSION-PRODUCER-1
   sibling_of: [IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1]
+- id: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+  title: The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
+  thread: identity
+  status: shipped_organic
+  shipped_version: v5.96.0
+  created: 2026-09-05 10:10
+  updated: 2026-09-05 11:15
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-05 — chose Option A (admit resident phone BLE+GPS, reject stationary via allowlist) + "drive to ship"'
+  tags: [identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix]
+  problem_solution:
+  - 'Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door
+     crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert
+     despite ~202 resident phone home/away transitions every 14 days. Root cause (verified by code+recorder
+     trace 2026-09-05, NOT a timing bug — the resolver timestamps are correct): the code only counts a BLE
+     crossing when the person entity''s "source" says the update came from a Bermuda BLE tracker. But when a
+     person LEAVES, Home Assistant marks them away using the phone''s GPS/geofence tracker, never the Bermuda
+     one — so every single departure is rejected and no crossing is recorded, and person_id stays blank. This
+     is a regression from our own v5.95.0 review fix: a reviewer worried a wall tablet could fake a BLE
+     crossing, so we tightened the gate to Bermuda-only, which also threw out all the legitimate GPS-sourced
+     departures. Solution: stop trusting only the momentary Bermuda source; treat a resident''s phone
+     home/away flip as a real crossing (whether reported by its BLE or its GPS tracker) while still excluding
+     stationary infrastructure like wall tablets. Exact approach (Bermuda-tracker-direct vs mobile-vs-stationary
+     reclassification) pending operator input on tracker topology.'
+  origin: {date: '2026-09-05', gist: attach=0 root-cause investigation gating the D1 build}
+  why: 'This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer
+    does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1
+    (face). D1 face names will also flow through this same resolver once bridged, but the BLE fix does not
+    depend on D1.'
+  constraints:
+  - 'Must NOT re-open the A-HIGH-1 hole: a stationary wall tablet (e.g. study_a_wall_tablet) must still be
+    unable to forge a crossing leg. The fix admits the resident PHONE (mobile), not any BLE source.'
+  - 'Touches the identity producer / resolver — regression-prone, Tier-2 (framing-disjoint reviews).'
+  parked_alts: []
+  refinement:
+  - 'Review A FIX-REQUIRED: A-3 HIGH — symmetric +/-330s window + no leg consumption -> one person''s departure leg labels ANOTHER person''s crossing (wrong person_id). Must add asymmetric exit window + single-use legs.'
+  - 'Review D SHIP-on-security but D-HIGH-1: person.<slug> edge is a last_updated race across ALL the person''s GPS trackers (6 stationary Macs on oji can consume the edge) -> departures a race not a guarantee. Root cure = listen on the phone device_trackers directly, not person.state.'
+  - 'operator: "device_tracker would be more reliable, lean to re-arch; correctness better than not if burning tokens" + asked what emits person.state -> it is HA person integration aggregating all trackers by last_updated (lossy). Decision: RE-ARCHITECT to per-phone device_tracker listeners.'
+  - 'operator excluded okosisipadmini6_2 + samsung_a73 (occasional carries) from the allowlist despite the iPad showing 3 measured off-site-GPS departures.'
+  - 'timestamp/TZ-skew hypothesis (from the measurement bug) -> REFUTED for production: resolver coerces both operands tz-aware; the matcher is correct. Root cause is the producer-side provenance gate, not the matcher.'
+  - 'operator picked Option A (phone BLE+GPS, reject stationary) over Bermuda-direct: departures are GPS-sourced, so Bermuda-only would still miss them.'
+  - 'operator asked "do we even need an allowlist if tablets aren''t assigned to anyone" -> VERIFIED live: person.oji_udezue has 19 trackers incl study_a_wall_tablet + master_bedroom_tab + entrypad + Macs/minis. Tablets ARE assigned to oji -> allowlist IS needed; A-HIGH-1 forgery risk is real, not theoretical.'
+  knobs:
+  - 'EGRESS_CROSSING_ADMISSIBLE_TRACKERS (module constant, const.py) — per-resident body-phone tracker allowlist; module rung because a wrong entry = a forgeable identity crossing (security).'
+  parsimony: {problem: 'BLE crossing-namer drops all GPS-sourced departures -> attaches nobody', verdict: BUILD}
+  next: 'RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person''s trackers, won by last_updated race — D-HIGH-1). Instead subscribe directly to each resident''s body-phone device_trackers (the allowlist entities) home<->away edges; map tracker->slug. Also fix A-3 (asymmetric exit window + single-use leg consumption -> no wrong-person label) and D-MED-1 (surface rejected-count + per-person attach observability). Exclude okosisipadmini6_2 + samsung_a73 (occasional carries). Plan -> plan-review -> Tier-3 build -> 3 framing-disjoint reviews -> mutation-verify -> ship + organic live-validate on next real departure.'
+  refs: ['camera_census.py:3676 (_on_person_state_change)', 'camera_census.py:~3721-3737 (_ble_source_is_admissible)', 'transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write)', 'database.py:3903 (log_entry_exit_event)', 'reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)']
+  spawned_from: IDENTITY-FUSION-PRODUCER-1
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+
+- id: GUEST-FALSE-POSITIVE-JAYA-ONLY-1
+  title: House flips to GUEST when only a single resident (Jaya) is home
+  thread: identity
+  status: inbox
+  created: 2026-09-05 16:40
+  updated: 2026-09-05 16:40
+  refinement_status: initial
+  approval: unreviewed
+  tags: [identity, presence, guest-false-positive, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the house reported GUEST mode earlier today when only Jaya (a resident) was physically
+     home; it self-corrected to home_day at 21:30 CDT. GUEST mode changes automation behavior, so a
+     false GUEST is a real nuisance. Solution: trace the census composition at the instant the house
+     flipped to GUEST (recorder history of unidentified_count / camera_unrecognized / counted-vs-identified
+     gap) to find which phantom body proposed GUEST, then close that over-count path.'
+  origin: {date: '2026-09-05', gist: operator asked "why does the house say guest when only Jaya is home"}
+  why: 'Known class (census over-count -> phantom unidentified -> GUEST). Likely an exterior camera
+    person-detect or BLE area-bleed counted as an unidentified body, or the counted-bodies exceeding
+    identified residents while identity was thin. Needs the flip-time snapshot to pin the exact trigger.'
+  constraints:
+  - 'wifi_guest_floor is DIAGNOSTIC ONLY (camera_census.py:4531, excluded from the formula due to IoT
+    false positives) — do NOT chase the wifi-guest path; it does not drive guest mode. Verified 2026-09-05.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'house flips GUEST with a single resident home -> census over-count proposes a phantom body', verdict: INVESTIGATE}
+  next: 'Recorder trace: pull sensor.universal_room_automation_persons_in_house unidentified_count + camera_unrecognized + identified_count history around the guest-entry time today; identify the phantom contributor (exterior cam person-detect? BLE bleed? count>identified?). Then scope the fix. Sibling of the census/identity guest-mode work.'
+  refs: ['domain_coordinators/house_state.py (GUEST state machine)', 'camera_census.py:4266 (_get_wifi_guest_count — diagnostic only)', 'camera_census.py:4530+ (census formula, wifi excluded)', 'memory project_guest_mode_false_positive_backlog', 'memory project_presence_guest_latch_and_veto_gap']
+  sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+
+- id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+  title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
+  thread: device-tree
+  status: planned
+  created: 2026-09-05 17:05
+  updated: 2026-09-05 17:05
+  refinement_status: initial
+  approval: unreviewed
+  tags: [device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled
+     cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is
+     incremented but NEVER reset (_devices.py:519). Once 3 sweeps have run (a degraded cold boot can
+     burn all 3 via retries), the scheduled sweep is dead for the rest of the session, so a device
+     that appears late whose parent lands after its own inline stamp stays unparented (via_device_id
+     None) until a full restart. This is the SAME "resolve/gate once, never self-heal" shape we just
+     fixed in the face-producer health cache (v5.95.1). Blast radius is display-only (via_device is the
+     visual tree, not ownership/reload), self-heals on restart, and needs an already-degraded boot to
+     reach. Solution: reset the counter to 0 on a successful sweep (residual==0, _devices.py:586-590),
+     converting a lifetime cap into a consecutive-failure cap and restoring post-boot self-heal.'
+  origin: {date: '2026-09-05', gist: device-linker audit vs this-session bug classes (operator "improve URA overall")}
+  why: 'Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree,
+    restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.'
+  constraints:
+  - 'Touches the device-registry sweep (DEVICE_TREE surface) — regression-prone; read DEVICE_TREE.md +
+    the defrag postmortem; Tier-2 despite the small diff. Do not reset _device_tree_sweep_scheduled semantics.'
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'sweep counter is a lifetime latch -> late devices unparented until restart', verdict: BUILD}
+  next: 'Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.'
+  refs: ['_devices.py:509-519 (schedule cap)', '_devices.py:586-590 (success branch)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', 'card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)']
+- id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
+  title: Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
+  thread: device-tree
+  status: planned
+  created: 2026-09-05 17:05
+  updated: 2026-09-05 17:05
+  refinement_status: initial
+  approval: unreviewed
+  tags: [device-tree, defensive-consistency]
+  problem_solution:
+  - 'Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack)
+     — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here
+     they iterate only devices attached to a URA config entry (narrow scope), so a foreign 3-tuple is
+     unlikely, and both are wrapped in try/except that logs non-fatal — but a 3-tuple would SILENTLY abort
+     the zone-orphan cleanup rather than crash. Solution: align to the defensive len>=2 + indexing pattern
+     already used in _devices.py (post-v5.94.3), for consistency and to remove the silent-abort risk.'
+  origin: {date: '2026-09-05', gist: device-linker audit — residual Class-2 sites}
+  why: 'Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.'
+  constraints: []
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier', verdict: BUILD}
+  next: 'Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.'
+  refs: ['__init__.py:1650', '__init__.py:4086', '_devices.py:227-234 (the correct pattern)', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md']
+  sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
+
+- id: EGRESS-EXIT-IDENTITY-BACKFILL-1
+  title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
+  thread: identity
+  status: planned
+  created: 2026-09-05 17:35
+  updated: 2026-09-05 17:35
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-05 — chose backfill for exit naming ("someone exited; that someone is person after 5 min is ok — timeliness AND accuracy"); v1 ships entry-only, this is the exit follow-up'
+  tags: [identity, producer, tier-3, backfill, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone
+     BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within
+     ~280s of the crossing) because Bermuda RSSI decays slowly. The egress resolver reads identity once,
+     45s after the crossing, and writes the row then with no later update — so the departer BLE edge always
+     arrives after the only read and the exit crossing is never named. Solution (operator-chosen): backfill.
+     Write the exit crossing immediately with person_id null (the record says "someone exited"), then UPDATE
+     that row with the resident person_id when their BLE not_home edge fires within a ~600s window. Gives a
+     timely record AND an accurate name a few minutes later.'
+  origin: {date: '2026-09-05', gist: D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)}
+  why: 'Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill
+    is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry
+    v1 ships without it; exit is a deliberate, delicate follow-up (new row-UPDATE write path).'
+  constraints:
+  - 'New write path: person_entry_exit_events row UPDATE (today it is INSERT-only, database.py:3915). Tier-3 —
+    touches the resolve/write state machine; must not double-write, must supersede a pending backfill on
+    teardown, must fail-safe (a backfill that never resolves leaves person_id null, not wrong).'
+  - 'Which resident: the not_home edge that fires within the window IS the disambiguator (only the leaver goes
+    not_home). If two leave close together, attribute each exit to its own not_home edge in order; abstain on ambiguity.'
+  parked_alts:
+  - 'state-at-crossing (single home resident) — cheaper but only names the unambiguous case; operator preferred backfill for accuracy.'
+  - 'lengthen exit resolve to ~600s — delays the record; backfill keeps the record timely.'
+  knobs:
+  - 'BLE_EGRESS_EXIT_BACKFILL_WINDOW_S (module rung, ~600 from D0 p90 612) — how long to accept a not_home edge as the exit backfill.'
+  parsimony: {problem: 'exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve', verdict: BUILD}
+  next: 'After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying a real +369s not_home edge -> row updated; supersession/teardown of the pending backfill; fail-safe leaves null.'
+  refs: ['database.py:3915 (INSERT — needs an UPDATE sibling)', 'transit_validator.py:1688 (resolver)', 'D0 probe (exit median +369s, p90 612s)', 'PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)']
+  spawned_from: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+  sibling_of: [EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc

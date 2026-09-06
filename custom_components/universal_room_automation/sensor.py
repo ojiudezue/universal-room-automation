@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.95.1
+# Universal Room Automation vv5.96.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3796,6 +3796,29 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                         attrs["egress_identity_correlated_boost_count_24h"] = 0
                     attrs["egress_identity_last_attach"] = dict(
                         getattr(census, "_egress_identity_last_attach", {}) or {}
+                    )
+                    # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5
+                    # D3 observability. Retired the pre-rev5
+                    # `_ble_leg_rejected_provenance_count` (subscription
+                    # is now the provenance gate) in favour of counters
+                    # that discriminate WORKING from DEAD post-re-arch.
+                    attrs["ble_edge_dropped_invalid_count"] = int(
+                        getattr(census, "_ble_edge_dropped_invalid_count", 0) or 0
+                    )
+                    attrs["ble_departing_edge_seen_count"] = int(
+                        getattr(census, "_ble_departing_edge_seen_count", 0) or 0
+                    )
+                    attrs["ble_legs_produced_count"] = int(
+                        getattr(census, "_ble_legs_produced_count", 0) or 0
+                    )
+                    attrs["ble_legs_attached_count"] = int(
+                        getattr(census, "_ble_legs_attached_count", 0) or 0
+                    )
+                    attrs["ble_legs_abstained_count"] = int(
+                        getattr(census, "_ble_legs_abstained_count", 0) or 0
+                    )
+                    attrs["ble_crossing_trackers_derived"] = sorted(
+                        (getattr(census, "_ble_tracker_slug_map", {}) or {}).keys()
                     )
                     attrs["egress_identity_agreement_class_last"] = getattr(
                         census, "_egress_identity_agreement_class_last", None,
