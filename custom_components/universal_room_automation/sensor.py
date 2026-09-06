@@ -3817,6 +3817,17 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["ble_legs_abstained_count"] = int(
                         getattr(census, "_ble_legs_abstained_count", 0) or 0
                     )
+                    # EGRESS-EXIT-IDENTITY-BACKFILL-1 (2026-09-05) — D3
+                    # exit backfill counters (next to the entry counters).
+                    attrs["ble_exit_backfilled_count"] = int(
+                        getattr(census, "_ble_exit_backfilled_count", 0) or 0
+                    )
+                    attrs["ble_exit_edge_no_match_count"] = int(
+                        getattr(census, "_ble_exit_edge_no_match_count", 0) or 0
+                    )
+                    attrs["ble_exit_ambiguity_abstain_count"] = int(
+                        getattr(census, "_ble_exit_ambiguity_abstain_count", 0) or 0
+                    )
                     attrs["ble_crossing_trackers_derived"] = sorted(
                         (getattr(census, "_ble_tracker_slug_map", {}) or {}).keys()
                     )

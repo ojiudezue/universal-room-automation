@@ -2260,6 +2260,16 @@ BLE_PLUS_FACE_CORROBORATED_CONFIDENCE: Final = 0.95
 # needs review, not an operator slider.
 BLE_EGRESS_ENTRY_LEAD_S: Final = 180
 
+# EGRESS-EXIT-IDENTITY-BACKFILL-1 (2026-09-05) — window after a camera
+# exit crossing during which a BLE `home -> non-home` edge is considered
+# corroboration and backfills the null `person_id` on that crossing row.
+# D0 probe: exit edge lags the crossing by median +369s, p90 +612s → 600s
+# captures the bulk without opening the door to a much-later resident
+# departure being mis-attributed to the earlier crossing. Module rung: a
+# knob change reshapes attribution risk; needs review, not an operator
+# slider.
+BLE_EGRESS_EXIT_BACKFILL_WINDOW_S: Final = 600
+
 # TTL of the BLE-transition leg cache. Derived from the FACE_MATCH_*
 # window FAMILY (C4). Max face window today = 300s + 30s slack.
 # Also >= BLE_EGRESS_ENTRY_LEAD_S + 30 (rev5): the entry-only BLE

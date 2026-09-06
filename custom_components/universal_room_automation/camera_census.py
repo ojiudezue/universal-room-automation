@@ -18,7 +18,7 @@ import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -82,6 +82,8 @@ from .const import (
     # FACE_MATCH_*_WINDOW_* consumed only by transit_validator; not
     # imported here (Review A-LOW-3).
     BLE_EGRESS_ENTRY_LEAD_S,
+    BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
+    BLE_TRANSITION_ONLY_CONFIDENCE,
     BLE_TRANSITION_CACHE_TTL_S,
     BLE_TRANSITION_CONFIDENCE,
     FACE_PRODUCER_STALE_TTL_S,
@@ -1318,6 +1320,22 @@ class PersonCensus:
         # One-time WARN latch for slugs that derive ZERO bluetooth_le
         # trackers (fatal for oji, who has only one BLE tracker).
         self._ble_zero_tracker_warned: set[str] = set()
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 (2026-09-05) — rebuilt fresh
+        # each `_derive_ble_crossing_trackers` pass. Names the tracked
+        # residents currently BLE-invisible (0 bluetooth_le trackers
+        # this pass). Consumed by `_backfill_exit_identity` as the
+        # cross-resident abstain guard (invariant e). MUST NOT be
+        # unioned with `_ble_zero_tracker_warned` (that latch never
+        # clears → permanent abstain after one boot blip).
+        self._ble_zero_tracker_slugs: set[str] = set()
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — tracked async backfill
+        # tasks scheduled from the (sync) departing-edge callback.
+        # Cancelled in `async_teardown_ble_transition_listeners`.
+        self._backfill_tasks: set[asyncio.Task] = set()
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — D3 observability counters.
+        self._ble_exit_backfilled_count: int = 0
+        self._ble_exit_edge_no_match_count: int = 0
+        self._ble_exit_ambiguity_abstain_count: int = 0
         # Rev5 fix-up (D-1a): sticky classification. Once a tracker in
         # a resident's `device_trackers` has been observed with
         # `source_type == "bluetooth_le"` while available, keep it in
@@ -3759,6 +3777,9 @@ class PersonCensus:
         PersonCoordinator method with no bluetooth_le branch).
         """
         out: dict[str, str] = {}
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — freshly-built set each pass
+        # (invariant e: rebuilt, never accumulated).
+        zero_tracker_slugs_this_pass: set[str] = set()
         try:
             slugs = self._get_tracked_person_slugs()
         except Exception:  # noqa: BLE001
@@ -3836,6 +3857,8 @@ class PersonCensus:
                             "rev5 BLE producer: tracker %s demoted from "
                             "bluetooth_le (source_type=%s)", tid, src_type,
                         )
+            if slug_ble_count == 0:
+                zero_tracker_slugs_this_pass.add(slug)
             if slug_ble_count == 0 and slug not in self._ble_zero_tracker_warned:
                 _LOGGER.warning(
                     "rev5 BLE producer: tracked slug %s derives ZERO "
@@ -3850,6 +3873,9 @@ class PersonCensus:
         for tid in list(self._known_ble_trackers.keys()):
             if tid not in seen_known:
                 self._known_ble_trackers.pop(tid, None)
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1: publish this pass's fresh
+        # zero-tracker set (assign, do NOT union).
+        self._ble_zero_tracker_slugs = zero_tracker_slugs_this_pass
         return out
 
     @callback
@@ -3972,12 +3998,95 @@ class PersonCensus:
                 slug, tracker_id, old_s, new_s,
             )
         else:
-            # Departing boundary — count only, do NOT attribute in v1.
+            # Departing boundary — count and schedule the async
+            # backfill of any in-window null exit crossing
+            # (EGRESS-EXIT-IDENTITY-BACKFILL-1).
             self._ble_departing_edge_seen_count += 1
             _LOGGER.debug(
-                "rev5 BLE departing edge (observability only): "
-                "person=%s tracker=%s old=%s new=%s",
+                "rev5 BLE departing edge: person=%s tracker=%s old=%s new=%s",
                 slug, tracker_id, old_s, new_s,
+            )
+            try:
+                task = self.hass.async_create_task(
+                    self._backfill_exit_identity(slug, ts)
+                )
+                self._backfill_tasks.add(task)
+                task.add_done_callback(self._backfill_tasks.discard)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill: failed to schedule task for %s",
+                    slug, exc_info=True,
+                )
+
+    async def _backfill_exit_identity(self, slug: str, t_edge) -> None:
+        """EGRESS-EXIT-IDENTITY-BACKFILL-1 — attribute a `slug` to the
+        nearest in-window null-`person_id` exit crossing.
+
+        TZ CONTRACT: the INSERT at database.py:3919 writes
+        ``datetime.utcnow().isoformat()`` (NAIVE-UTC, no offset). We
+        MUST derive the SELECT bounds identically or the comparison
+        silently returns zero matches.
+        """
+        try:
+            # tz-safe naive-UTC bounds (F2 in the plan).
+            try:
+                t_hi_dt = t_edge.astimezone(timezone.utc).replace(tzinfo=None)
+            except Exception:  # noqa: BLE001
+                # If `t_edge` is naive already, assume UTC (matches
+                # the sync callback path where dt_util.utcnow() feeds).
+                t_hi_dt = t_edge.replace(tzinfo=None) if getattr(
+                    t_edge, "tzinfo", None
+                ) else t_edge
+            t_lo_dt = t_hi_dt - timedelta(
+                seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+            )
+            t_lo_iso = t_lo_dt.isoformat()
+            t_hi_iso = t_hi_dt.isoformat()
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            try:
+                rows = await database.find_unnamed_exit_crossings(
+                    t_lo_iso, t_hi_iso
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill: SELECT failed for %s", slug, exc_info=True,
+                )
+                return
+            if not rows:
+                self._ble_exit_edge_no_match_count += 1
+                return
+            # Cross-resident guard (invariant e).
+            if self._ble_zero_tracker_slugs:
+                self._ble_exit_ambiguity_abstain_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: abstain — BLE-invisible slugs present: %r",
+                    sorted(self._ble_zero_tracker_slugs),
+                )
+                return
+            row_id = rows[0][0]
+            try:
+                ok = await database.backfill_entry_exit_person_id(
+                    row_id, slug, BLE_TRANSITION_ONLY_CONFIDENCE
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill: UPDATE failed for row_id=%s slug=%s",
+                    row_id, slug, exc_info=True,
+                )
+                return
+            if ok:
+                self._ble_exit_backfilled_count += 1
+                _LOGGER.info(
+                    "exit-backfill: row_id=%s <- person_id=%s "
+                    "(window %ss, bounds %s..%s)",
+                    row_id, slug, BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
+                    t_lo_iso, t_hi_iso,
+                )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "exit-backfill: unexpected failure for %s", slug, exc_info=True,
             )
 
     def _consume_ble_arriving_legs(self, slug: str) -> int:
@@ -4163,6 +4272,18 @@ class PersonCensus:
                     exc_info=True,
                 )
         self._ble_transition_unsubs = []
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — cancel any pending async
+        # backfill tasks scheduled from the departing-edge callback.
+        for task in list(self._backfill_tasks):
+            try:
+                if not task.done():
+                    task.cancel()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill task cancel raised (non-fatal)",
+                    exc_info=True,
+                )
+        self._backfill_tasks.clear()
 
     # ------------------------------------------------------------------
     # v3.10.1: Enhanced Census (event-driven sensor fusion)
