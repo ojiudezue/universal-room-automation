@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T16:49:13-05:00_ - _Data commit: `06cd4b24708e`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T21:38:40-05:00_ - _Data commit: `53ee91b00068`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,10 +14,10 @@ _Generated: 2026-09-05T16:49:13-05:00_ - _Data commit: `06cd4b24708e`_ - _last_r
 | 📥 Inbox | 30 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 10 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 11 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 58 |
+| 🚀 Shipped (organic open) | 60 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
@@ -641,7 +641,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (10)
+## 📝 Planned (11)
 _has plan / acceptance_
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
@@ -669,20 +669,31 @@ _created 2026-09-05 17:05 · initial_
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 
-### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-05 17:35 · initial_
+### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
+thread: **identity** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
 - **Problem / Solution:**
-  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
-- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
-- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
-- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
-- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
-- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
-- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
-- **Forensic keys (1):**
-  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
+- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
+- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
+- **Tags:** identity, display, should-be-consuming, ble-mopup
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
+- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
+
+### `EGRESS-SENSOR-READER-TZ-OVERCOUNT-1` - persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
+thread: **identity** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
+- **Problem / Solution:**
+  - Problem: sensor.py:4447 and :4559 compute today_start = dt_util.now().replace(hour=0,...) (LOCAL midnight) then string-compare its isoformat against the person_entry_exit_events.timestamp column, which is naive-UTC (datetime.utcnow().iso...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-2 (diff-blind
+- **Why:** Real over-count on a user-facing count; cheap fix; same tz-convention discipline as the DAO the cycle got right.
+- **Next:** BLE mop-up: convert the day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 and :4559; test across a restart at UTC-5.
+- **Tags:** identity, timezone, pre-existing, ble-mopup, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
+- **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -802,23 +813,10 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
-thread: **identity** - status: **in_progress** - approval: **explicit**
-_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
-- **Problem / Solution:**
-  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
-- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
-- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
-- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
-- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
-- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
-- **Forensic keys (1):**
-  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+_(none)_
 
 ## 🔍 Review (1)
 _under review_
@@ -845,7 +843,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (58)
+## 🚀 Shipped (organic open) (60)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -888,6 +886,36 @@ _created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
 - **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
 - **Forensic keys (1):**
   - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+
+### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
+- **Problem / Solution:**
+  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
+- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
+- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
+- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
+- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
+- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
+- **Forensic keys (1):**
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-05 17:35 · initial_
+- **Problem / Solution:**
+  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
+- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
+- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
+- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
+- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
+- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
+- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
+- **Forensic keys (1):**
+  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
 ### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
 thread: **platform** - status: **shipped_organic** - approval: **explicit**

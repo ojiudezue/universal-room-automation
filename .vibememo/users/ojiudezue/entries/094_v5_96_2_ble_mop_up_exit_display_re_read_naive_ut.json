@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "094",
+  "author": "ojiudezue",
+  "session_id": "claude_20260906_032834_ship_v5_96_2",
+  "timestamp": "2026-09-06T03:28:34Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.96.2 shipped: BLE mop-up: exit-display re-read + naive-UTC day boundary + listener cleanup",
+  "summary": "BLE mop-up: exit-display re-read + naive-UTC day boundary + listener cleanup",
+  "why": "Two low-severity display/count correctness gaps surfaced by the v5.96.1 reviews plus a pre-existing listener leak on the same sensors. The exit list never re-read after a backfill so shipped exit names were invisible until restart; the today-counts used local midnight against a naive-UTC column so they over-counted the prior evening. Fixed together as the sequence's BLE mop-up; the listener leak was two lines in the same file and a real dead-entity-update-on-reload HIGH, so fixed in-place rather than carded.",
+  "implications": "Shipped EGRESS-EXIT-DISPLAY-REREAD-1, EGRESS-SENSOR-READER-TZ-OVERCOUNT-1 at v5.96.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.96.2.md (Live criteria).",
+  "revisit_trigger": "Post-restart: persons-entered/exited-today reset at local midnight not 19:00 prior day; a backfilled exit shows the named person in the exit list without a restart",
+  "refs": {
+    "cards": [
+      "EGRESS-EXIT-DISPLAY-REREAD-1",
+      "EGRESS-SENSOR-READER-TZ-OVERCOUNT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.96.2.md"
+    ],
+    "release_notes": "Step-3 mop-up of the identity sequence. Exit-display list refreshes when v5.96.1 backfills a name (SIGNAL_EGRESS_EXIT_BACKFILLED + sensor re-read) instead of showing unidentified until restart. persons-entered/exited-today now compute the day boundary in naive-UTC to match the DB column (was over-counting ~5h of the prior evening at UTC-5). DB re-read rows normalized to the live entry shape. Pre-existing HIGH fixed: four count-sensor listeners now torn down via async_on_remove. 1 review SHIP + fix-up + orchestrator mutation-verify."
+  }
+}

@@ -495,6 +495,60 @@ cards:
   spawned_from: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
   sibling_of: [EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1]
 
+- id: EGRESS-EXIT-DISPLAY-REREAD-1
+  title: Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
+  thread: identity
+  status: shipped_organic
+  shipped_version: v5.96.2
+  created: 2026-09-05 22:20
+  updated: 2026-09-05 22:20
+  refinement_status: initial
+  approval: unreviewed
+  tags: [identity, display, should-be-consuming, ble-mopup]
+  problem_solution:
+  - 'Problem: v5.96.1 backfills an exit crossing''s person_id ~10 min after the crossing, but the
+     persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at
+     bus-fire time and never re-reads the row, so a backfilled exit keeps showing "unidentified" until
+     the next restart. The DB is correct; only the display is stale. Solution: have the exit-list
+     sensor re-read (or subscribe to a backfill signal) so a named exit updates in the UI.'
+  origin: {date: '2026-09-05', gist: v5.96.1 review D-LOW-3}
+  why: 'Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit
+    naming invisible to the operator until restart.'
+  constraints: []
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'backfilled exit name never reaches the display until restart', verdict: BUILD}
+  next: 'BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.'
+  refs: ['sensor.py ~4573 (exit list build)', 'camera_census.py _backfill_exit_identity', 'README_v5.96.1 (known scope)']
+  sibling_of: [EGRESS-EXIT-IDENTITY-BACKFILL-1]
+- id: EGRESS-SENSOR-READER-TZ-OVERCOUNT-1
+  title: persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
+  thread: identity
+  status: shipped_organic
+  shipped_version: v5.96.2
+  created: 2026-09-05 22:20
+  updated: 2026-09-05 22:20
+  refinement_status: initial
+  approval: unreviewed
+  tags: [identity, timezone, pre-existing, ble-mopup, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: sensor.py:4447 and :4559 compute today_start = dt_util.now().replace(hour=0,...) (LOCAL
+     midnight) then string-compare its isoformat against the person_entry_exit_events.timestamp column,
+     which is naive-UTC (datetime.utcnow().isoformat()). At UTC-5 the "today" window opens at 19:00 the
+     previous day, so persons-entered/exited-today over-count (include ~5h of the prior day). Pre-existing,
+     but it is the SAME tz class the exit-backfill cycle was designed against, on the table it now writes.
+     Solution: derive the day-boundary in naive-UTC to match the column (or convert the column), so the
+     "today" window is a true local day expressed in the column''s convention.'
+  origin: {date: '2026-09-05', gist: v5.96.1 review D-LOW-2 (diff-blind, pre-existing)}
+  why: 'Real over-count on a user-facing count; cheap fix; same tz-convention discipline as the DAO the cycle got right.'
+  constraints: ['Verify the exact column convention before fixing (naive-UTC per database.py:3919).']
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'today-count window uses local midnight against a naive-UTC column -> ~5h overcount', verdict: BUILD}
+  next: 'BLE mop-up: convert the day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 and :4559; test across a restart at UTC-5.'
+  refs: ['sensor.py:4447', 'sensor.py:4559', 'database.py:3919 (naive-UTC column)']
+  sibling_of: [EGRESS-EXIT-IDENTITY-BACKFILL-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc

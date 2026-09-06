@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.96.1
+# Universal Room Automation vv5.96.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -4302,6 +4302,24 @@ class PersonCensus:
                     BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
                     t_lo_iso, t_hi_iso,
                 )
+                # EGRESS-EXIT-DISPLAY-REREAD-1: notify display sensors so
+                # PersonsExitedToday can re-read the now-named row from DB
+                # instead of showing "unidentified" until restart.
+                try:
+                    from homeassistant.helpers.dispatcher import async_dispatcher_send
+                    from .domain_coordinators.signals import (
+                        SIGNAL_EGRESS_EXIT_BACKFILLED,
+                    )
+                    async_dispatcher_send(
+                        self.hass,
+                        SIGNAL_EGRESS_EXIT_BACKFILLED,
+                        {"row_id": row_id, "person_id": slug},
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "exit-backfill: dispatcher send failed",
+                        exc_info=True,
+                    )
             else:
                 # Contended: another writer named the row between our
                 # SELECT and UPDATE (or the row vanished). Not a bug —
