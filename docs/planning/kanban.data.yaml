@@ -9809,7 +9809,8 @@ cards:
     by finding there was nothing to delete — and by catching that "dead" was being conflated with "deletable".'
 - id: PERIMETER-ALERT-NAME-PERSON-1
   title: Perimeter alerts should NAME the person (consume egress/face identity)
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   thread: security
   created: 2026-08-18 09:45
   updated: '2026-08-29 13:20'
@@ -9880,7 +9881,8 @@ cards:
     do NOT re-recommend it off the 7%.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   thread: notifications
   created: 2026-08-18 09:45
   updated: '2026-08-29 13:20'
@@ -13440,7 +13442,8 @@ cards:
   title: HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone
     preconditioning
   thread: hvac
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   tier: 1-2
   created: '2026-08-28 12:00'
   updated: '2026-08-29 13:20'
@@ -13548,7 +13551,8 @@ cards:
 - id: EGRESS-IDENTITY-DASHBOARD-TILE-1
   title: Surface the egress observability attrs as a "who entered today, named" dashboard tile
   thread: dashboarding
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   tier: 1
   created: '2026-08-28 12:00'
   updated: '2026-08-29 13:20'
