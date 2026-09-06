@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T15:10:40-05:00_ - _Data commit: `c2176937ee7e`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T15:16:13-05:00_ - _Data commit: `000b2bdeb6f8`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,7 +14,7 @@ _Generated: 2026-09-06T15:10:40-05:00_ - _Data commit: `c2176937ee7e`_ - _last_r
 | 📥 Inbox | 31 |
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 63 |
@@ -639,7 +639,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
@@ -666,6 +666,21 @@ _created 2026-09-05 17:05 · initial_
 - **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
+
+### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-06 15:45 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
+- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
+- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
+- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
+- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
+- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
+- **Forensic keys (1):**
+  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**

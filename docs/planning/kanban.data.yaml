@@ -577,6 +577,48 @@ cards:
   next: 'Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.'
   refs: ['switch.py:1195-1225 (EC deferred-restore callback)', 'v5.97.0 post-restart error_log']
 
+- id: EGRESS-EXIT-COMULTI-DEPART-1
+  title: Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
+  thread: identity
+  status: planned
+  created: 2026-09-06 15:45
+  updated: 2026-09-06 15:45
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-06 ("Card option 1 and do it now") — each tracker uniquely identifies one person; co-departure should name both, not abstain'
+  tags: [identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window,
+     to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each
+     resident carries their OWN bluetooth_le tracker, and each tracker loses signal at its own edge, so two
+     people leaving produce two distinct, self-identifying not_home edges. The uncertainty is only WHICH camera
+     crossing row to bind each to — a who-problem we already solved being treated as an assignment-problem and
+     dropped. Solution (Option 1): treat each admissible BLE not_home edge as a first-class "person departed"
+     fact (the tracker IS the identity), so a couple leaving names BOTH, never abstaining on who. Camera
+     confirms the exit direction (identity-agnostic, its own 0.3-0.9 confidence); BLE supplies identity
+     (0.72); camera+BLE agreement raises identity confidence. Bind each edge to a distinct nearest unconsumed
+     null exit row (best-effort); the SET of departers is always correct even if a row-binding swaps, which is
+     what the consumers (departure notify / guest gate) actually need.'
+  origin: {date: '2026-09-06', gist: operator pushed back on the abstain-on-co-departure trade}
+  why: 'The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a
+    certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort,
+    and set-correctness is what departures need. Big coverage gain, no accuracy loss on identity.'
+  constraints:
+  - 'Keep the flap-settle (still-away confirm) + sentinel filter + person-not_home veto — the wrong-name guards
+    that are about IDENTITY validity, not the abstain-on-multiple gate we are removing.'
+  - 'Each edge consumes a DISTINCT null exit row (per-row claim + the SQL IS-NULL guard) so two edges never
+    both write the same row and never leave a co-departer unnamed.'
+  - 'Do NOT regress the single-departer path or the exit fail-safe (never a wrong WHO).'
+  parked_alts:
+  - 'Option 2 bipartite/Hungarian edge<->row assignment (keeps per-row precision but still fights lag-skew).'
+  - 'Option 3 order-pairing with a separation gate (crudest).'
+  knobs: []
+  parsimony: {problem: 'co-departure leaves both exits unnamed though BLE identifies each departer certainly', verdict: BUILD}
+  next: 'Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle / adversarial-no-wrong-WHO) -> mutation-verify -> ship.'
+  refs: ['transit_validator.py EgressDirectionTracker (direction+confidence, person_id None)', 'camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax)', 'PLANNING_egress_exit_identity_backfill_2026_09.md', 'reviews A-3/D-HIGH (swap concern the SET-correct model resolves)']
+  spawned_from: EGRESS-EXIT-IDENTITY-BACKFILL-1
+  sibling_of: [EGRESS-EXIT-IDENTITY-BACKFILL-1]
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
