@@ -34,7 +34,7 @@ Keep the exit counters; the discriminating live check: a co-departure produces T
 
 ## Non-goals
 - Precise per-row binding under bunched co-departure (best-effort; set-correctness is the guarantee). Option 2 (bipartite) / Option 3 (order-pairing) parked if row-precision is later needed.
-- Face-based exit naming (BLE is the exit signal; face corroborates via the shipped bridge).
+- Face exit naming is NOT built here — it is ALREADY SHIPPED (v5.97.0 bridge + the resolver's exit face window). This card builds ONLY the BLE fallback for un-faced exits; the two coexist via the IS-NULL claim.
 
 ## Tier-2 review framings (framing-disjoint)
 - A correctness: each edge names its own slug; nearest-unconsumed claim; IS-NULL prevents double-claim; guards intact.
