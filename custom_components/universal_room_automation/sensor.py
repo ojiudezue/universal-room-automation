@@ -4455,7 +4455,13 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         # Restore from database
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
-            today_start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            # EGRESS-SENSOR-READER-TZ-OVERCOUNT-1 (2026-09-05): the
+            # person_entry_exit_events.timestamp column is naive-UTC
+            # (datetime.utcnow().isoformat(), database.py). Compare in
+            # that convention — take LOCAL midnight, convert to UTC,
+            # then strip tzinfo so isoformat() matches the column.
+            local_midnight = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
             events = await database.get_entry_exit_events_since(today_start, direction="entry")
             self._count = len(events)
             self._entries = events[-20:]
@@ -4567,7 +4573,10 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
         # Restore from database
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database:
-            today_start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            # EGRESS-SENSOR-READER-TZ-OVERCOUNT-1 (2026-09-05): see note
+            # on PersonsEnteredToday — align with the naive-UTC column.
+            local_midnight = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
             events = await database.get_entry_exit_events_since(today_start, direction="exit")
             self._count = len(events)
             self._entries = events[-20:]
@@ -4576,6 +4585,20 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
 
         self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
         async_track_time_change(self.hass, self._midnight_reset, hour=0, minute=0, second=0)
+
+        # EGRESS-EXIT-DISPLAY-REREAD-1 (2026-09-05): when camera_census
+        # backfills an exit crossing's person_id (~10 min after the fact),
+        # re-read today's exits from DB so the display reflects the newly
+        # named person instead of the stale "unidentified".
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_EGRESS_EXIT_BACKFILLED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_EGRESS_EXIT_BACKFILLED,
+                self._handle_exit_backfilled,
+            )
+        )
 
         self._restoring = False
         self.async_write_ha_state()
@@ -4594,6 +4617,25 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
             "egress_camera": event.data.get("egress_camera"),
         })
         self.async_schedule_update_ha_state()
+
+    @callback
+    def _handle_exit_backfilled(self, payload) -> None:
+        """Re-read today's exits from DB after a backfill named a row."""
+        self.hass.async_create_task(self._async_reread_exits())
+
+    async def _async_reread_exits(self) -> None:
+        """Refresh _entries from DB so backfilled person_ids show up."""
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if not database:
+                return
+            local_midnight = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
+            events = await database.get_entry_exit_events_since(today_start, direction="exit")
+            self._entries = events[-20:]
+            self.async_write_ha_state()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("PersonsExitedToday: re-read after backfill failed", exc_info=True)
 
     @callback
     def _midnight_reset(self, now) -> None:
