@@ -526,7 +526,7 @@ class HVACCoordinator(BaseCoordinator):
 
         # v3.18.6: Pre-arrival source filter and tracking
         self._pre_arrival_enabled: bool = True
-        self._pre_arrival_sources: list[str] = ["geofence", "ble"]
+        self._pre_arrival_sources: list[str] = ["geofence", "ble", "camera_face"]
         self._last_pre_arrival_time: Any = None
         self._last_pre_arrival_source: str = ""
         self._last_pre_arrival_person: str = ""
