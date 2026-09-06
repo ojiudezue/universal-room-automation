@@ -430,6 +430,42 @@ cards:
   refs: ['config_flow.py / options_flow.py (CM options steps)', 'operator screenshots 2026-09-06', 'project_sequence_wishes_2026_09_05 (step 5)']
   sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
 
+- id: ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1
+  title: Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
+  thread: energy
+  status: investigating
+  created: 2026-09-06 18:00
+  updated: 2026-09-06 18:00
+  refinement_status: initial
+  approval: unreviewed
+  tags: [energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked]
+  problem_solution:
+  - 'Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary
+     even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used.
+     Spot-checked live (09-05 13:25-13:32 CDT: solar ~18kW, SOC 96%, net -10..-11kW EXPORTING after grid-charging
+     earlier that morning; 09-06 pulled 20+kW to close a projected 1% gap on a weak-solar morning). The attain
+     path DOES gate on solar (credits forecast+observed), so this is not blind — it is three structural biases:
+     (1) SOLAR_CAPTURE_FACTOR=0.5 under-credits the Solcast forecast (fail-toward-charging); (2) entry-only latch
+     — _should_attain_peak_buffer is evaluated only at ~11:00 entry, so a later solar ramp cannot release it;
+     (3) binary ~20kW grid (cannot modulate to top-up-only-what-solar-misses) + a demanding 80%-by-14:00 target.
+     Solution direction (NOT built — investigation only): re-evaluate attain each tick (not entry-only) so a
+     solar ramp releases it; and/or raise the solar capture credit / modulate grid to fill only the solar
+     shortfall; gated on pricing the peak-vs-export tariff spread first (measure-before-build: is the early
+     grid-charge actually net-negative, or conservative-by-design insurance against missing peak?).'
+  origin: {date: '2026-09-06', gist: operator side-quest — is attain aggressive vs solar? investigation + answers only}
+  why: 'Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change
+    the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface
+    (ura-energy-invariants-campaign), and a wrong change silently loses money or misses peak.'
+  constraints:
+  - 'Energy-strategy change = Tier-3 (ura-energy-invariants-campaign): reserve/charge/discharge invariants,
+    framing-disjoint reviews, no aggressive grid change without pricing.'
+  parked_alts: []
+  knobs:
+  - 'SOLAR_CAPTURE_FACTOR (module const, energy_battery.py:260, currently 0.5) — raising it credits more solar; reviewed-rung (fitted safety bias).'
+  parsimony: {problem: 'attain grid-charges early then exports solar it could have used', verdict: INVESTIGATE}
+  next: 'MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release on solar ramp) and/or modulate grid to the solar shortfall. Tier-3 per the energy campaign.'
+  refs: ['energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
+
 - id: URA-INTEGRATION-ARRANGEMENT-1
   title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
   thread: device-tree
