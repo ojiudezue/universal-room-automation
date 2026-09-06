@@ -613,7 +613,8 @@ cards:
 - id: EGRESS-EXIT-COMULTI-DEPART-1
   title: Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.97.1
   created: 2026-09-06 15:45
   updated: 2026-09-06 15:45
   refinement_status: initial
