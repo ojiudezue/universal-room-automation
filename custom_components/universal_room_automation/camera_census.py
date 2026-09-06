@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections import deque
 from dataclasses import dataclass, field
@@ -79,6 +80,7 @@ from .const import (
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     EGRESS_FACE_UNION_TTL_S,
     FACE_MATCH_MIN_CONFIDENCE,
+    FACE_NAME_LATCH_TTL_S,
     # FACE_MATCH_*_WINDOW_* consumed only by transit_validator; not
     # imported here (Review A-LOW-3).
     BLE_EGRESS_ENTRY_LEAD_S,
@@ -1319,6 +1321,30 @@ class PersonCensus:
         # `_ble_edge_dropped_invalid_count`, so the latter reflects
         # forgery-shaped drops only.
         self._ble_edge_dropped_benign_count: int = 0
+        # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D1: URA-owned
+        # Frigate face-NAME latch. Fed by the MQTT bridge
+        # (`_on_frigate_face_msg` on `frigate/tracked_object_update`
+        # where type=="face"); read by `_resolve_face_legs` to emit a
+        # synthetic FaceLeg when the Frigate integration's
+        # `sensor.*_last_recognized_face[_2]` has already reset (its
+        # `async_call_later(60s)` latch-reset bug). Additive: never
+        # replaces a live entity leg. Pruned on read/write against
+        # `FACE_NAME_LATCH_TTL_S`. Fail-safe INHERITED via
+        # `transit_validator._resolve_egress_face_identity` (leg-drop
+        # under drill / producer outage) — no gate added here.
+        # Key: URA base_stem. Value: (canonical_name_raw, utcnow ts).
+        self._frigate_face_latch: dict[str, tuple[str, datetime]] = {}
+        # MQTT subscription unsub callable (populated by
+        # `async_register_frigate_face_listener`, drained by
+        # `async_teardown_frigate_face_listener`). None when MQTT is
+        # not loaded or subscribe raised — bridge is inert then.
+        self._frigate_face_unsub: Any = None
+        # D3 observability counters.
+        self._frigate_face_msg_seen_count: int = 0
+        self._frigate_face_msg_dropped_count: int = 0
+        # Last successful latch write (base_stem, canonical_name_raw, ts)
+        # — for the persons-in-house sensor.
+        self._frigate_face_last_latched: tuple[str, str, datetime] | None = None
         # One-time WARN latch for slugs that derive ZERO bluetooth_le
         # trackers (fatal for oji, who has only one BLE tracker).
         self._ble_zero_tracker_warned: set[str] = set()
@@ -2994,6 +3020,106 @@ class PersonCensus:
                     last_changed=last_changed,
                     confidence=conf,
                 ))
+            # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D2: emit a
+            # synthetic Frigate FaceLeg from the URA-owned MQTT latch
+            # if a fresh (name, ts) exists for this base_stem. Additive
+            # ONLY — designed to DEDUP with (not corroborate) any live
+            # Frigate entity leg above, since Frigate's own sensor
+            # resets after 60s via async_call_later.
+            try:
+                latch_entry = self._frigate_face_latch.get(base_name)
+                if latch_entry is not None and FACE_NAME_LATCH_TTL_S > 0:
+                    lname, lts = latch_entry
+                    now = dt_util.utcnow()
+                    age = (now - lts).total_seconds() if lts else None
+                    if age is not None and age <= FACE_NAME_LATCH_TTL_S:
+                        # canonicalize (mirrors the entity loop above).
+                        try:
+                            canonical = self._canonical_person_slug(lname)
+                        except Exception:  # noqa: BLE001
+                            canonical = ""
+                        canonical_slug = canonical or None
+                        # Choose the engine tag EXACTLY as the entity
+                        # path would for this camera so the two dedup
+                        # rather than count as two agreeing engines
+                        # (would spuriously boost corroboration in
+                        # transit_validator._resolve_egress_face_identity).
+                        engine_tag: str | None = None
+                        for _r in results:
+                            if _r.engine in ("frigate", "frigate2"):
+                                engine_tag = _r.engine
+                                break
+                        if engine_tag is None:
+                            # F1 retired (memory: frigate1 retired /
+                            # `_2` permanent) — default to the `_2`
+                            # engine tag matching the live F2 entity.
+                            _f2_eid = f"sensor.{base_name}_last_recognized_face_2"
+                            _f1_eid = f"sensor.{base_name}_last_recognized_face"
+                            try:
+                                _has_f2 = self.hass.states.get(_f2_eid) is not None
+                            except Exception:  # noqa: BLE001
+                                _has_f2 = True
+                            engine_tag = "frigate2" if _has_f2 else "frigate"
+                            entity_sentinel = _f2_eid if _has_f2 else _f1_eid
+                        else:
+                            entity_sentinel = (
+                                f"sensor.{base_name}_last_recognized_face_2"
+                                if engine_tag == "frigate2"
+                                else f"sensor.{base_name}_last_recognized_face"
+                            )
+                        # Resolve device_id via the shared resolver
+                        # (best-effort; None on failure).
+                        _dev_id: str | None = None
+                        try:
+                            _resolver = None
+                            if hasattr(self._camera_manager, "_get_resolver"):
+                                _resolver = self._camera_manager._get_resolver()
+                            if _resolver is not None:
+                                _dev_id = _resolver.resolve_entity_to_device_id(
+                                    entity_sentinel,
+                                )
+                        except Exception:  # noqa: BLE001
+                            _dev_id = None
+                        synthetic = FaceLeg(
+                            entity_id=entity_sentinel,
+                            engine=engine_tag,
+                            device_id=_dev_id,
+                            base_stem=base_name,
+                            canonical_slug=canonical_slug,
+                            last_changed=lts,  # REQUIRED — classifier keys on it
+                            confidence=None,   # passes FACE_MATCH_MIN_CONFIDENCE floor
+                        )
+                        # Dedup rule: if results already carries a leg
+                        # with the same (canonical_slug, engine,
+                        # base_stem), KEEP the fresher last_changed
+                        # (mutate in place by replacement) instead of
+                        # appending. A duplicate would double-count as
+                        # agreement at transit_validator.py:1657.
+                        _dup_idx: int | None = None
+                        for _i, _r in enumerate(results):
+                            if (
+                                _r.canonical_slug == synthetic.canonical_slug
+                                and _r.engine == synthetic.engine
+                                and _r.base_stem == synthetic.base_stem
+                            ):
+                                _dup_idx = _i
+                                break
+                        if _dup_idx is None:
+                            results.append(synthetic)
+                        else:
+                            _existing = results[_dup_idx]
+                            _existing_ts = _existing.last_changed
+                            if (
+                                _existing_ts is None
+                                or (synthetic.last_changed is not None
+                                    and synthetic.last_changed > _existing_ts)
+                            ):
+                                results[_dup_idx] = synthetic
+            except Exception:  # noqa: BLE001 — never fail the entity path
+                _LOGGER.debug(
+                    "_resolve_face_legs: frigate face latch emit raised "
+                    "for base=%s", base_name, exc_info=True,
+                )
         except Exception:  # noqa: BLE001 — fail-CLOSED: measure + return []
             self._face_lookup_missing_count += 1
             _LOGGER.debug(
@@ -4526,6 +4652,180 @@ class PersonCensus:
         # abort any in-flight settle sleep every time the tracked-set
         # is recomputed. Cancellation lives on the entry-unload path
         # via `async_cancel_pending_backfill_tasks()` instead.
+
+    # ------------------------------------------------------------------
+    # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D1: MQTT bridge.
+    # Subscribes to `frigate/tracked_object_update` and latches
+    # (URA-base-stem -> (name, ts)) so `_resolve_face_legs` can emit a
+    # synthetic FaceLeg while Frigate's own recognized-face sensor is
+    # in its 60s reset window. Additive path — never touches the frozen
+    # `_resolve_face_entity_id` / `_get_face_recognized_persons*` (fenced
+    # by the B-HIGH-1 revert comment at camera_census.py:2856-2864).
+    # ------------------------------------------------------------------
+    async def async_register_frigate_face_listener(self) -> None:
+        """Subscribe to the Frigate face-name MQTT topic. Idempotent —
+        tears down any prior subscription first. Wrapped in try/except:
+        if MQTT is not loaded / raises, the bridge stays inert (unsub
+        None) and the point-read path is unaffected."""
+        # Idempotent: drop any prior sub before re-registering.
+        self.async_teardown_frigate_face_listener()
+        try:
+            from homeassistant.components import mqtt as _mqtt
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "frigate-face bridge: mqtt import failed — bridge inert",
+                exc_info=True,
+            )
+            return
+        try:
+            unsub = await _mqtt.async_subscribe(
+                self.hass,
+                "frigate/tracked_object_update",
+                self._on_frigate_face_msg,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "frigate-face bridge: mqtt.async_subscribe failed — "
+                "bridge inert (point-read path unaffected)",
+                exc_info=True,
+            )
+            return
+        self._frigate_face_unsub = unsub
+        _LOGGER.info(
+            "frigate-face bridge: subscribed to "
+            "frigate/tracked_object_update (TTL=%ds)",
+            FACE_NAME_LATCH_TTL_S,
+        )
+
+    def async_teardown_frigate_face_listener(self) -> None:
+        """Drain the Frigate face MQTT subscription. Safe to call
+        multiple times. Called on entry-unload only (mirrors
+        `async_teardown_ble_transition_listeners`)."""
+        unsub = self._frigate_face_unsub
+        self._frigate_face_unsub = None
+        if unsub is None:
+            return
+        try:
+            unsub()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "frigate-face bridge teardown raised (non-fatal)",
+                exc_info=True,
+            )
+
+    @callback
+    def _on_frigate_face_msg(self, msg: Any) -> None:
+        """MQTT callback for `frigate/tracked_object_update`. Filters
+        `type=="face"`, maps Frigate camname -> URA base_stem via the
+        CameraResolver's Frigate-stem index (NEVER string-built —
+        `_2` disambiguation is permanent), and latches (name, ts).
+        Malformed / non-face / unknown-camera messages are counted
+        under `_frigate_face_msg_dropped_count`."""
+        self._frigate_face_msg_seen_count += 1
+        try:
+            payload_raw = getattr(msg, "payload", None)
+            if payload_raw is None:
+                self._frigate_face_msg_dropped_count += 1
+                return
+            if isinstance(payload_raw, (bytes, bytearray)):
+                try:
+                    payload_raw = payload_raw.decode("utf-8")
+                except Exception:  # noqa: BLE001
+                    self._frigate_face_msg_dropped_count += 1
+                    return
+            if isinstance(payload_raw, str):
+                try:
+                    data = json.loads(payload_raw)
+                except Exception:  # noqa: BLE001
+                    self._frigate_face_msg_dropped_count += 1
+                    return
+            elif isinstance(payload_raw, dict):
+                data = payload_raw
+            else:
+                self._frigate_face_msg_dropped_count += 1
+                return
+            # Top-level fields (per Frigate integration
+            # FrigateRecognizedFaceSensor consumer: data.get("type") /
+            # data["name"] / data["camera"] — settled by the wire
+            # parser, per D0).
+            if not isinstance(data, dict):
+                self._frigate_face_msg_dropped_count += 1
+                return
+            if data.get("type") != "face":
+                # Non-face update on the shared topic — not a drop
+                # error; increment neither seen nor dropped beyond
+                # the seen we already counted.
+                return
+            name = data.get("name")
+            camname = data.get("camera")
+            if not isinstance(name, str) or not name.strip():
+                self._frigate_face_msg_dropped_count += 1
+                return
+            if not isinstance(camname, str) or not camname.strip():
+                self._frigate_face_msg_dropped_count += 1
+                return
+            camname = camname.strip()
+            name = name.strip()
+            # Map Frigate camname -> device_ids via the shared
+            # resolver's Frigate-stem index; then compute URA base
+            # stems. Collision guard: `camname ∈ known frigate set`
+            # (host is discarded by rsplit at camera_resolver.py:518 —
+            # F1 is retired so no host disambiguation is available or
+            # needed; memory: frigate1 retired / `_2` permanent).
+            resolver = None
+            try:
+                if hasattr(self._camera_manager, "_get_resolver"):
+                    resolver = self._camera_manager._get_resolver()
+            except Exception:  # noqa: BLE001
+                resolver = None
+            if resolver is None:
+                self._frigate_face_msg_dropped_count += 1
+                return
+            frig_index = getattr(
+                resolver, "_frigate_stem_to_device_ids", None,
+            ) or {}
+            device_ids = list(frig_index.get(camname) or [])
+            if not device_ids:
+                # Unknown / non-URA camera — drop with counter.
+                self._frigate_face_msg_dropped_count += 1
+                return
+            try:
+                stems = resolver._compute_device_stems(device_ids)
+            except Exception:  # noqa: BLE001
+                stems = {}
+            base_stems = {s for s in stems.values() if s}
+            if not base_stems:
+                # No URA-visible stem for these devices — drop.
+                self._frigate_face_msg_dropped_count += 1
+                return
+            now = dt_util.utcnow()
+            # Latch write + prune-on-write. TTL derived from the
+            # FACE_MATCH_* window family (const.py:FACE_NAME_LATCH_TTL_S).
+            if FACE_NAME_LATCH_TTL_S > 0:
+                cutoff = now - timedelta(seconds=FACE_NAME_LATCH_TTL_S)
+                # Prune stale entries opportunistically (bounded work
+                # per message; the map keyed by base_stem is small).
+                stale = [
+                    k for k, (_n, t) in self._frigate_face_latch.items()
+                    if t < cutoff
+                ]
+                for k in stale:
+                    self._frigate_face_latch.pop(k, None)
+            for stem in base_stems:
+                self._frigate_face_latch[stem] = (name, now)
+                self._frigate_face_last_latched = (stem, name, now)
+            _LOGGER.debug(
+                "frigate-face bridge: latched name=%r camname=%r "
+                "stems=%r (latch_size=%d)",
+                name, camname, sorted(base_stems),
+                len(self._frigate_face_latch),
+            )
+        except Exception:  # noqa: BLE001 — never raise from the cb
+            self._frigate_face_msg_dropped_count += 1
+            _LOGGER.debug(
+                "frigate-face bridge: cb raised (non-fatal)",
+                exc_info=True,
+            )
 
     def async_cancel_pending_backfill_tasks(self) -> None:
         """EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05) —
