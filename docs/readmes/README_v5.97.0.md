@@ -31,3 +31,19 @@ Face SCORE confidence gate (deferred — no score field confirmed on the wire; c
 - `frigate_face_msg_face_count` climbs when a resident is recognized on a door/garage cam; `frigate_face_latch_size` non-zero.
 - A recognized face within a crossing window corroborates/attaches identity.
 - The fail-safe drill suppresses the synthetic leg.
+
+---
+
+## Validated 2026-09-06 (post-restart boot-load; organic confirm pending)
+
+HA restarted; v5.97.0 loaded — all 43 URA config entries `loaded` (setup healthy, no frigate-bridge error, no `after_dependencies` stranding). Bridge **armed**:
+
+| Check | Result | Evidence |
+|---|---|---|
+| Bridge wired + counters surfaced | **PASS** | `sensor.*_persons_in_house`: `frigate_face_latch_size`, `frigate_face_msg_seen_count`, `frigate_face_msg_face_count`, `frigate_face_msg_dropped_count`, `frigate_face_last_latched` all present (0 at boot). |
+| Setup healthy (no boot-stranding) | **PASS** | 43/43 entries `loaded`; no `after_dependencies`; no frigate-bridge exception in error_log. |
+| Subscription active (msg traffic) | **PENDING (organic)** | `seen_count=0` immediately post-restart (no `tracked_object_update` in the first seconds; nobody in front of a cam). Confirms on the next recognition — `frigate_face_msg_face_count` + `frigate_face_latch_size` move (recognition was flowing ~1h pre-restart: family_room named Jaya/Ezinne). |
+| Face corroborates/attaches at a crossing | **PENDING (organic)** | proves on the next door/garage recognition within a crossing window. |
+| Fail-safe drill suppresses the synthetic leg | **PASS (in-suite)** | `test_end_to_end_drill_engaged_caller_drops_face_legs` drives the real caller drop, RED-on-neuter verified. |
+
+Unrelated finding during the log scan (carded, NOT v5.97.0): a pre-existing EC sub-switch off-loop `async_write_ha_state` (switch.py:1221) that HA 2026.x escalates to ERROR → `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1`.

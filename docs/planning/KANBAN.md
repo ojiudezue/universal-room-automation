@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T22:28:34-05:00_ - _Data commit: `fce602210528`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-06T15:10:40-05:00_ - _Data commit: `c2176937ee7e`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-05T22:28:34-05:00_ - _Data commit: `fce602210528`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
+| 📥 Inbox | 31 |
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 10 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 62 |
+| 🚀 Shipped (organic open) | 63 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (31)
 _raw capture_
 
 ### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
@@ -49,6 +49,18 @@ _created 2026-09-05 16:40 · initial_
 - **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
 - **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
 - **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
+
+### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-06 15:20 · initial_
+- **Problem / Solution:**
+  - Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a warning to an ERROR with a full RuntimeError ...
+- **Origin:** 2026-09-06 - v5.97.0 post-restart error_log scan
+- **Why:** Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the signal fired from a worker?).
+- **Next:** Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.
+- **Tags:** energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation
+- **Parsimony:** [BUILD] EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash
+- **Refs:** switch.py:1195-1225 (EC deferred-restore callback); v5.97.0 post-restart error_log
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -627,7 +639,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
@@ -654,21 +666,6 @@ _created 2026-09-05 17:05 · initial_
 - **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
-
-### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-03 15:10 · initial_
-- **Problem / Solution:**
-  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
-- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
-- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
-- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
-- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
-- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
-- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
-- **Forensic keys (2):**
-  - `live_correction_2026_09_06`: SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is top-level name on frigate/tracked_object_update where type==face and camera matches the cam, NOT sub_label on frigate/events (sub_label is Frig...
-  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -818,7 +815,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (62)
+## 🚀 Shipped (organic open) (63)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -917,6 +914,21 @@ _created 2026-09-05 22:20 · initial_
 - **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
 - **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
 - **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
+
+### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-03 15:10 · initial_
+- **Problem / Solution:**
+  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
+- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
+- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
+- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
+- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
+- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
+- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+- **Forensic keys (2):**
+  - `live_correction_2026_09_06`: SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is top-level name on frigate/tracked_object_update where type==face and camera matches the cam, NOT sub_label on frigate/events (sub_label is Frig...
+  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
 thread: **platform** - status: **shipped_organic** - approval: **explicit**

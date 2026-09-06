@@ -549,6 +549,34 @@ cards:
   refs: ['sensor.py:4447', 'sensor.py:4559', 'database.py:3919 (naive-UTC column)']
   sibling_of: [EGRESS-EXIT-IDENTITY-BACKFILL-1]
 
+- id: EC-SUBSWITCH-ASYNC-WRITE-THREAD-1
+  title: EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
+  thread: energy
+  status: inbox
+  created: 2026-09-06 15:20
+  updated: 2026-09-06 15:20
+  refinement_status: initial
+  approval: unreviewed
+  tags: [energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation]
+  problem_solution:
+  - 'Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls
+     self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a
+     warning to an ERROR with a full RuntimeError traceback (and warns it may crash / corrupt state), so the
+     log now carries the traceback on the SIGNAL_ENERGY_COORDINATOR_READY restore path. Pre-existing (not in
+     the v5.97.0 identity diff); surfaced in the v5.97.0 post-restart log scan. Solution: marshal the state
+     write onto the loop — wrap in hass.async_create_task / call_soon_threadsafe, or make the SIGNAL dispatch
+     deliver on the loop — so async_write_ha_state runs on the event loop.'
+  origin: {date: '2026-09-06', gist: v5.97.0 post-restart error_log scan}
+  why: 'Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC
+    scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the
+    signal fired from a worker?).'
+  constraints: ['Confirm which thread fires SIGNAL_ENERGY_COORDINATOR_READY before choosing the marshalling fix; may affect all EC sub-switches on that signal (flood).']
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash', verdict: BUILD}
+  next: 'Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.'
+  refs: ['switch.py:1195-1225 (EC deferred-restore callback)', 'v5.97.0 post-restart error_log']
+
 - id: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
