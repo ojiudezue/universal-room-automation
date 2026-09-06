@@ -1,0 +1,20 @@
+{
+ "format_version": "2.1",
+ "entry_id": "097",
+ "author": "ojiudezue",
+ "session_id": "claude_20260906_identity_arc",
+ "timestamp": "2026-09-06T21:35:00Z",
+ "type": "correction",
+ "weight": "critical",
+ "title": "Frigate real-time face NAME is top-level `name` on `frigate/tracked_object_update`, NOT `sub_label` on `frigate/events`",
+ "summary": "The v5.97.0 face bridge premise in the card AND an earlier session probe AND the coverage memory was WRONG on the field/topic: they said the recognized name arrives as `sub_label` on `frigate/events`. A source-read of the HA Frigate integration on the box (FrigateRecognizedFaceSensor) is authoritative and corrects it: the name is the TOP-LEVEL `name` field on MQTT `frigate/tracked_object_update` where `type==\"face\"` and `camera==<cam>`. `sub_label` is Frigate's classification-model path (a different sensor). The integration latches `name` real-time then async_call_later(60s) resets to \"None\" — that 60s reset (not a producer outage) is why URA's point-poll resolver saw None ~always. Building on the sub_label premise would have wired to the wrong topic/field entirely.",
+ "why": "The wrong-field premise had propagated across three artifacts (card live_correction_2026_09_04, the earlier HTTP /api/events probe that DID see sub_label on the API object, and the coverage memory). The API event object carries sub_label, but the REAL-TIME path the HA integration consumes — and thus the only path a URA MQTT bridge should mirror — is tracked_object_update/name. Reading the CONSUMER SOURCE (the code that populates the sensors URA joins on) was dispositive; a wire sniff was not even needed (and a late-night sniff caught nothing). This is the No-Fabrication / verify-by-source discipline paying off, and the correction is now in the card + memory + this entry so nobody re-makes the sub_label mistake.",
+ "implications": "v5.97.0 subscribes URA directly to frigate/tracked_object_update, filters type==face, maps camname->URA face-sensor base_stem via CameraResolver._frigate_stem_to_device_ids (registry-anchored, _2 permanent), stores (name,ts) in a URA-owned latch with URA-controlled retention (FACE_NAME_LATCH_TTL_S), and _resolve_face_legs emits a synthetic FaceLeg from it — routed through the same caller-side drop that the drill/producer-outage fail-safe uses. NOT after_dependencies:[mqtt] (that reintroduces the 2026-06-12 Envoy boot-stranding P0) — late-MQTT recovered via async_when_setup guarded against a torn-down census. A face `\"unknown\"` label is sentinel-filtered so it never becomes a person_id.",
+ "revisit_trigger": "If a daytime frigate/tracked_object_update capture shows a face SCORE field, add the optional confidence gate (deferred; confidence=None today). If Frigate/the integration changes the topic/field again, re-read FrigateRecognizedFaceSensor before trusting any doc.",
+ "refs": {
+  "cards": ["FRIGATE-SUBLABEL-FACE-BRIDGE-1"],
+  "docs": ["docs/planning/PLANNING_frigate_face_name_bridge_2026_09.md", "docs/readmes/README_v5.97.0.md"],
+  "memories": ["reference_egress_face_coverage_7pct_not_a_ceiling"],
+  "code": ["camera_census.py::_on_frigate_face_msg / _compute_face_latch_stems / _resolve_face_legs synthetic leg", "/config/custom_components/frigate/sensor.py::FrigateRecognizedFaceSensor (source of truth)"]
+ }
+}
