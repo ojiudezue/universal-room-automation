@@ -2277,14 +2277,25 @@ BLE_EGRESS_EXIT_BACKFILL_WINDOW_S: Final = 600
 # home). At ~90s the async backfill re-reads the tracker's live state;
 # if it has returned to a home state, the backfill aborts. Module rung:
 # safety guard, not an operator slider.
-BLE_EXIT_DEPARTURE_SETTLE_S: Final = 90
+# Fix-up 2026-09-06 (D-1): raised 90 → 300 so the settle re-read samples
+# comfortably beyond a multi-minute Bermuda tracker flap (observed
+# distribution: multi-minute not_home→home oscillations while a resident
+# is home-asleep). This is a WRONG-WHO safety guard, NOT a latency knob:
+# it MUST outlast the flap distribution or a flap can stamp a resident
+# as departed on an unrelated null exit row. Operator accepts the
+# ~5-minute exit-naming delay in exchange for the coverage.
+BLE_EXIT_DEPARTURE_SETTLE_S: Final = 300
 
-# EGRESS-EXIT-IDENTITY-BACKFILL-1 D-HIGH-1 fix-up (2026-09-05) — small
-# margin added past `R_ts + WINDOW` before the deferred attribution
-# decision. Ensures any competing departing edge that fires right at the
-# end of the attribution window is in the deque BEFORE the distinct-
-# departer scan reads it (async-scheduling slack). Module rung.
-BLE_EXIT_DECISION_MARGIN_S: Final = 2
+# EGRESS-EXIT-COMULTI-DEPART-1 (2026-09-06) — bound on the retry-claim
+# loop in `_backfill_exit_identity`. On a `changed==0` from the DAO
+# (row claimed by a concurrent edge), the coroutine re-SELECTs and
+# tries the next nearest unconsumed null row, up to this many
+# attempts total. Guards against pathological SELECT/UPDATE oscillation
+# under a burst of co-departing edges. Module rung.
+# Fix-up 2026-09-06 (B1): raised 3 → 6 so a household-sized burst of
+# co-departers cannot exhaust the retry budget in the pathological case
+# where an edge loses N-1 races. Sized to household + margin.
+BLE_EXIT_CLAIM_MAX_ATTEMPTS: Final = 6
 
 # Per-slug cooldown after a departing edge is processed (either
 # backfilled or abstained). Prevents a multi-tracker resident (phone +
