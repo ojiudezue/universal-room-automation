@@ -2251,6 +2251,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     exc_info=True,
                 )
 
+            # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D1: subscribe
+            # to Frigate face-name MQTT topic so `_resolve_face_legs`
+            # can emit a synthetic FaceLeg while Frigate's own sensor
+            # is in its 60s reset window. SOFT MQTT dependency — do
+            # NOT add `after_dependencies:["mqtt"]` (the 2026-06-12
+            # Envoy boot-stranding P0 rolled that out globally).
+            # Attempt an eager register (inert if MQTT not yet loaded)
+            # then re-register when MQTT actually finishes setup via
+            # `async_when_setup` (idempotent: register drops any prior
+            # sub first). Teardown at unload alongside
+            # `async_teardown_ble_transition_listeners`.
+            try:
+                await census.async_register_frigate_face_listener()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "frigate-face bridge registration failed at setup",
+                    exc_info=True,
+                )
+            try:
+                from homeassistant.setup import async_when_setup as _awh_setup
+
+                async def _late_mqtt_register(_hass, _component):
+                    # D2-MED-1: no-op if this census is no longer the
+                    # live one (entry unloaded/reloaded before mqtt
+                    # loaded). Prevents an orphan MQTT subscription on a
+                    # torn-down census with no reachable teardown.
+                    try:
+                        if _hass.data.get(DOMAIN, {}).get("census") is not census:
+                            return
+                    except Exception:  # noqa: BLE001
+                        return
+                    try:
+                        await census.async_register_frigate_face_listener()
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "frigate-face bridge late MQTT re-register failed",
+                            exc_info=True,
+                        )
+
+                _awh_setup(hass, "mqtt", _late_mqtt_register)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "frigate-face bridge async_when_setup hook failed",
+                    exc_info=True,
+                )
+
             # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5 D1:
             # boot-race re-register. Any bluetooth_le tracker whose
             # integration loads AFTER URA is invisible at setup (state
@@ -4928,6 +4974,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "BLE-transition listener teardown raised (non-fatal)",
+                    exc_info=True,
+                )
+        # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D1: tear down
+        # the Frigate face-name MQTT subscription on entry unload.
+        if _cens_for_teardown is not None and hasattr(
+            _cens_for_teardown, "async_teardown_frigate_face_listener"
+        ):
+            try:
+                _cens_for_teardown.async_teardown_frigate_face_listener()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "frigate-face bridge teardown raised (non-fatal)",
                     exc_info=True,
                 )
         # EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05): cancel
