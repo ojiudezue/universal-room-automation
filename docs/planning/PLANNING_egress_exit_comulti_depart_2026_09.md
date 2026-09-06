@@ -22,14 +22,28 @@ Interaction: whichever names first wins via the `person_id IS NULL` claim. If fa
 
 Falsified by: a name attached for a resident who did not go not_home; one edge consuming ≥2 rows; a co-departure leaving a row NULL when a distinct null row was available; a sentinel/flap/vetoed name attaching.
 
-## D1 — relax the abstain, claim per edge
+## D1 — relax the abstain; retry-claim per edge; RETAIN the settle (rev2, plan-review fixes)
 In `_backfill_exit_identity`:
-- REMOVE: the `len(rows) > 1` abstain, the competing-edge abstain, and the deferred distinct-departer wait/count (their sole purpose was preventing a wrong WHO via assignment — dissolved).
-- KEEP: flap-settle (re-read tracker still-away), sentinel-name filter, person-not_home veto, the TZ contract, the IS-NULL single-use claim.
-- Each edge (identity = its own slug, certain): after settle+guards, `find_unnamed_exit_crossings(window)` → claim the NEAREST unconsumed null exit row (`ORDER BY timestamp DESC, id DESC LIMIT 1`) → `backfill_entry_exit_person_id(row_id, slug)`. The IS-NULL guard guarantees two concurrent edges never claim the same row; edge order determines best-effort binding. No abstain on multiplicity.
-- Counters: `_ble_exit_ambiguity_abstain_count` now increments only on genuine identity-invalid (sentinel/veto/flap) — repurpose/rename or keep; add `_ble_exit_codepart_named_count` if useful.
+- **RETAIN the settle wait (F2 — CRITICAL):** the flap re-read is deliberately downstream of the one `asyncio.sleep`. Remove ONLY the window-length *deferral* (`r_ts + WINDOW`) and the distinct-departer scan; REINSTATE a FIXED settle before the re-read using the existing `BLE_EXIT_DEPARTURE_SETTLE_S = 90` (const.py:2283). New ordering: **settle sleep (honor the `_exit_settle_s` test override) → live tracker re-read flap-abort → SELECT/claim.** Deleting the sleep is forbidden — it voids the flap guard and opens a wrong-WHO path (a BLE drop while home naming someone else's crossing).
+- **REMOVE:** the `len(rows) > 1` abstain, the competing-edge abstain, and the distinct-departer scan (their purpose — preventing a wrong WHO via assignment — is dissolved because each edge carries its own certain slug).
+- **KEEP (the real BLE-path guards, F4 corrected):** the derived tracker→slug map lookup (`_ble_tracker_slug_map`, camera_census.py:4157 — the edge's OWN person, never inferred from the row), the `tracked_persons` INV-EGRESS-ID check (:4161-4172), the **per-slug cooldown** `BLE_EXIT_PER_SLUG_COOLDOWN_S` (:4213-4224 — F3; without it a phone+watch resident double-claims), and the retained tracker flap-settle. (Sentinel filter + not_home veto are FACE-path only — they do NOT run here; do not claim them.)
+- **Retry-claim loop (F1 — CRITICAL, this is also Case-1 co-departure reconciliation):** the SQL `IS NULL` guard prevents a double-WRITE, NOT a double-CLAIM — two concurrent edges both SELECT the same nearest row, A writes, B gets `changed==0`. So on `ok is False`, do NOT return — RE-SELECT and claim the NEXT unconsumed null row, bounded by `BLE_EXIT_CLAIM_MAX_ATTEMPTS: Final = 3` (const.py, module rung). Exit the loop on a successful claim (invariant b: one row per edge) or when the re-SELECT is empty (`_ble_exit_edge_no_match_count`). `LIMIT 2` in the DAO stays valid ONLY because we re-SELECT after each write (post-A the remaining row becomes rows[0]); do NOT pre-fetch an N-row list against `LIMIT 2`.
+- **Case-2 disagreement (operator question 2026-09-06; adjudicated keep-face+flag+measure, reversible):** if the retry loop exhausts with NO claimable null row AND a face-named row in the window carries a DIFFERENT slug than this edge (genuine same-row conflict, this slug has no own crossing): do NOT overwrite the committed face name (real-time, at the door) and do NOT silently drop — increment `_ble_exit_face_disagree_count` and record the dispute (attr), so we can measure the disagreement rate before choosing a precedence policy. (Alternative on file: BLE-wins-overwrite, matching the resolver's existing BLE-over-disagreeing-resident-face precedence — deferred pending the disagreement data + operator confirm.)
+
+## D1b — retired/inverted tests (F5)
+- `test_exit_backfill_abstains_when_multiple_candidate_rows` (:304) → INVERT to "two candidate rows + two edges → BOTH named their own slug".
+- `test_exit_backfill_abstains_on_competing_departing_edge` (:324) → INVERT to "both competing edges named with their own slugs".
+- `test_exit_backfill_defers_and_abstains_on_late_competing_edge` (:599) → DELETE (the deferral is gone).
+- PRESERVE the `_exit_settle_s` override contract (tests :373/:441/:505/:620) against the re-based fixed settle.
+
+## D1c — supersession triage (F6/F7)
+- `_ble_exit_recent_departing_edges` deque + prune (:1407, :4227-4237) and `BLE_EXIT_DECISION_MARGIN_S` (const.py:2287): DELETE (only the distinct-departer scan / deferral used them) — verify no other reader.
+- Counter key `ble_exit_ambiguity_abstain_count` (sensor.py:3828): KEEP the attribute key stable (shipwatch history), REDEFINE to identity-invalid-only; ADD `ble_exit_row_contention_retry_count` (F1 retries) + `ble_exit_face_disagree_count` (Case-2) as new surfaces.
+- Drop plan line 13's "resolver agreement raises confidence on a BLE-named row" — no row-level path (face INSERTs, backfill refuses the confidence column). Face/BLE agreement confidence lives only in the resolver's in-memory attrs at resolve time, not on a backfilled row.
 
 ## D2 — observability + acceptance discriminator
+
+
 Keep the exit counters; the discriminating live check: a co-departure produces TWO named exit rows (not one named + one null, and not a wrong-WHO). Surface last-two-attached for validation.
 
 ## Non-goals
