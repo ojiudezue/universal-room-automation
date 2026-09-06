@@ -485,6 +485,7 @@ cards:
      restart, ~5min). (4) The ZONE menu config/reconfig is non-standard (a dropdown) relative to the House,
      CM, and Room menus — needs harmonizing. Solution: rework the device representation to the target tree
      below, clean the registry ownership, fix the reload-cascade perf, and harmonize the menus.'
+  house_node_decision: 'operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_device House->Rooms. Zones/Coordinators nodes unchanged. This is the clean/low-risk via_device part; rides the D-NEST sweep so the sweep-counter latch fix is a prerequisite.'
   target_operator_representation: |
     House
      |- Rooms          (NEW actual node — a parent the rooms roll up under. TODAY there is NO such node;

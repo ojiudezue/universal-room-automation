@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T16:53:00-05:00_ - _Data commit: `59e47b6d80c8`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T17:12:37-05:00_ - _Data commit: `8fb97a8093bd`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -509,7 +509,8 @@ _created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
 - **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
 - **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
 - **Refs:** docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard; memory reload_suppression_cycle
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
   - `target_operator_representation`: House
   - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 
