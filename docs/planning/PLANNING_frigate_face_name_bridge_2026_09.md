@@ -15,8 +15,8 @@
 ## Falsifiable invariant
 > A synthetic face `FaceLeg` for URA camera C is produced by `_resolve_face_legs` iff a `frigate/tracked_object_update` (`type=="face"`, `camera`→C via the resolver, non-empty `name`) was received within `FACE_NAME_LATCH_TTL_S`; the latch entry is pruned after the TTL; the synthetic leg carries the SAME `engine` tag as C's Frigate entity leg so the two DEDUP (never corroborate as two engines); and the synthetic leg is dropped under the drill / producer-outage fail-safe exactly like an entity leg (because the caller drops all legs). No message from a non-face / unknown-camera / non-URA source produces a leg.
 
-## D0 — confirm wire payload (measure gate; build proceeds regardless per operator)
-Daytime `mosquitto_sub -t 'frigate/tracked_object_update' -v` to confirm the `type`/`camera`/`name` triplet is top-level (vs nested under `after.`) and whether a `score` field exists. Field names are authoritative from the consumer source; this confirms the wire nesting for the parser + a possible confidence gate.
+## D0 — NON-BLOCKING confirm (NOT a gate — the source-read is authoritative)
+The gate is phantom: `FrigateRecognizedFaceSensor`'s callback parses the SAME topic payload URA will receive as top-level `data.get("type")` / `data["name"]`, so field names AND top-level nesting are settled by the code that parses the wire. A daytime `mosquitto_sub` only CONFIRMS it; it does not block. The one genuinely-open item — a `score` field — is an optional confidence-gate enhancement, NOT a correctness requirement (the synthetic leg with `confidence=None` already flows through the classifier + fail-safe). → **BUILD NOW on the source-read; card the score-gate as a follow-up if a later capture shows a usable score.** If the running capture returns a payload, fold the nesting/score into the parser opportunistically.
 
 ## D1 — MQTT subscriber + URA-owned latch (camera_census + manifest + __init__)
 - **manifest.json:** add `"after_dependencies": ["mqtt"]` (SOFT — URA must still load on an MQTT-less install).
