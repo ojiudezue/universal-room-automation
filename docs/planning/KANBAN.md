@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T15:16:13-05:00_ - _Data commit: `000b2bdeb6f8`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T15:58:55-05:00_ - _Data commit: `da2b049875c6`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,7 +14,7 @@ _Generated: 2026-09-06T15:16:13-05:00_ - _Data commit: `000b2bdeb6f8`_ - _last_r
 | 📥 Inbox | 31 |
 | 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 10 |
+| 📝 Planned | 11 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 63 |
@@ -639,8 +639,21 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (10)
+## 📝 Planned (11)
 _has plan / acceptance_
+
+### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
+thread: **device-tree** - status: **planned** - approval: **explicit**
+_created 2026-09-06 16:10 · initial_
+- **Problem / Solution:**
+  - Problem: the URA Coordinator Manager (CM) config-entry "Configure Settings" menu (Options flow) has TWO BLANK category rows — bare ">" arrows with no label between Notifications and Signal Responses (operator screenshot) — i.e. menu opti...
+- **Origin:** 2026-09-06 - operator screenshots of CM Options flow during the entity-reorg discussion
+- **Why:** The CM config surface is the operator-facing control panel; blank rows are a bug (dead/mislabeled step) and the crude editors invite mis-configuration of safety/notification knobs. Fits the integration-arrangement (step 5) scope since it...
+- **Next:** Step-5 (integration arrangement): identify the 2 blank options-flow categories (missing label/handler) in config_flow.py/options_flow.py; fix or remove; add friendly labels+help+selectors to the nm_*/a* sub-editors. Institutional-context...
+- **Tags:** config-flow, ux, device-tree, integration-arrangement, found-during-review
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk
+- **Refs:** config_flow.py / options_flow.py (CM options steps); operator screenshots 2026-09-06; project_sequence_wishes_2026_09_05 (step 5)
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
 thread: **device-tree** - status: **planned** - approval: **unreviewed**

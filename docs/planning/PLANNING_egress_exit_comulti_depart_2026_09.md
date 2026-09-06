@@ -59,3 +59,6 @@ Keep the exit counters; the discriminating live check: a co-departure produces T
 ## Acceptance criteria
 - **Test:** two co-departure edges → two distinct rows each named its own resident (the headline anchor); a single departer still names one; a flap/sentinel/vetoed name never attaches. Each RED-on-neuter.
 - **Live:** a real couple leaving together → BOTH exit rows carry the correct `person_id` (not one-null); a resident whose tracker flaps not_home while home is NOT recorded as departed.
+
+## Reconciliation collapse — scope boundary (operator 2026-09-06)
+Multi-exit is RECONCILIATION, not a confirmation matrix. The departer set = `dedup(BLE not_home edges ∪ face-named exit crossings)` by person; each named to a distinct row; per-person confidence rises with agreeing signals. We do NOT enumerate the 2×(0/1/2/3 BLE) combinations, do NOT branch on which signal confirmed whom — the SET of who-left being correct is the guarantee; the per-signal combinatorics are out of scope ("don't make every gnat important"). Reviewers judge against set-correctness + best-signal confidence, NOT full-matrix coverage. Row-binding is best-effort.

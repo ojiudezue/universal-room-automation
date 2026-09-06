@@ -397,6 +397,39 @@ cards:
   refs: ['domain_coordinators/house_state.py (GUEST state machine)', 'camera_census.py:4266 (_get_wifi_guest_count — diagnostic only)', 'camera_census.py:4530+ (census formula, wifi excluded)', 'memory project_guest_mode_false_positive_backlog', 'memory project_presence_guest_latch_and_veto_gap']
   sibling_of: [FRIGATE-SUBLABEL-FACE-BRIDGE-1]
 
+- id: CM-CONFIG-FLOW-UX-1
+  title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
+  thread: device-tree
+  status: planned
+  created: 2026-09-06 16:10
+  updated: 2026-09-06 16:10
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-06 (screenshots) — noted during entity-reorg review; addres in the integration arrangement (step 5)'
+  tags: [config-flow, ux, device-tree, integration-arrangement, found-during-review]
+  problem_solution:
+  - 'Problem: the URA Coordinator Manager (CM) config-entry "Configure Settings" menu (Options flow) has TWO
+     BLANK category rows — bare ">" arrows with no label between Notifications and Signal Responses (operator
+     screenshot) — i.e. menu options with a missing/absent label or a dead handler. And the actual sub-menus
+     (Notifications nm_* and Signal-Responses a1/a3/a4/a5 knobs) are very crude and not user-friendly: raw
+     number fields with unit-only labels (e.g. nm_a1_tripped_breaker_zero_window_s = 900 seconds), collapsed
+     YAML-blob editors for nm_person_routing_matrix / nm_person_hazard_overrides / nm_person_dnd_bypass_severities,
+     no friendly names, no help text, no grouping. Hard to configure safely. Solution: (a) find and fix/remove
+     the two blank category rows (missing label or unregistered step in the options flow); (b) give the sub-option
+     editors friendly labels + help + sane grouping (selectors instead of raw YAML where feasible). Address as
+     part of the step-5 integration arrangement (the CM entry is the reorg surface).'
+  origin: {date: '2026-09-06', gist: operator screenshots of CM Options flow during the entity-reorg discussion}
+  why: 'The CM config surface is the operator-facing control panel; blank rows are a bug (dead/mislabeled step)
+    and the crude editors invite mis-configuration of safety/notification knobs. Fits the integration-arrangement
+    (step 5) scope since it is about the CM entry.'
+  constraints: ['Config-flow changes: read homeassistant_coding + options-flow prior art; do not break existing option round-trip / RestoreEntity.']
+  parked_alts: []
+  knobs: []
+  parsimony: {problem: 'CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk', verdict: BUILD}
+  next: 'Step-5 (integration arrangement): identify the 2 blank options-flow categories (missing label/handler) in config_flow.py/options_flow.py; fix or remove; add friendly labels+help+selectors to the nm_*/a* sub-editors. Institutional-context scan of the options-flow surface first.'
+  refs: ['config_flow.py / options_flow.py (CM options steps)', 'operator screenshots 2026-09-06', 'project_sequence_wishes_2026_09_05 (step 5)']
+  sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
+
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree
