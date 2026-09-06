@@ -498,7 +498,8 @@ cards:
 - id: EGRESS-EXIT-DISPLAY-REREAD-1
   title: Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.96.2
   created: 2026-09-05 22:20
   updated: 2026-09-05 22:20
   refinement_status: initial
@@ -523,7 +524,8 @@ cards:
 - id: EGRESS-SENSOR-READER-TZ-OVERCOUNT-1
   title: persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.96.2
   created: 2026-09-05 22:20
   updated: 2026-09-05 22:20
   refinement_status: initial
