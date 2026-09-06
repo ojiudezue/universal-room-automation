@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.96.0
+# Universal Room Automation vv5.96.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4928,6 +4928,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "BLE-transition listener teardown raised (non-fatal)",
+                    exc_info=True,
+                )
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05): cancel
+        # pending exit-backfill tasks on the entry-unload path only
+        # (teardown-on-refresh must NOT kill in-flight settle sleeps).
+        if _cens_for_teardown is not None and hasattr(
+            _cens_for_teardown, "async_cancel_pending_backfill_tasks"
+        ):
+            try:
+                _cens_for_teardown.async_cancel_pending_backfill_tasks()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill cancel raised (non-fatal)",
                     exc_info=True,
                 )
         # B-HIGH-1: tear down the CameraResolver cache-invalidation listeners

@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.96.0
+# Universal Room Automation vv5.96.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -3953,6 +3953,97 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error fetching entry/exit events: %s", e)
             return []
+
+    # =========================================================================
+    # EGRESS-EXIT-IDENTITY-BACKFILL-1 (2026-09-05): exit-identity backfill
+    # =========================================================================
+
+    async def find_unnamed_exit_crossings(
+        self,
+        t_lo_iso: str,
+        t_hi_iso: str,
+    ) -> list[tuple[int, str, str]]:
+        """Return null-`person_id` exit rows in the half-open window
+        ``(t_lo_iso, t_hi_iso]`` (ISO strings — the caller MUST supply
+        NAIVE-UTC bounds matching the INSERT format at
+        `log_entry_exit_event`).
+
+        Nearest first (largest timestamp), ties broken by largest id
+        (deterministic). Uses the transient read context — this is a
+        pure query, not queued behind writes.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """
+                    SELECT id, timestamp, egress_camera
+                    FROM person_entry_exit_events
+                    WHERE person_id IS NULL
+                      AND direction = 'exit'
+                      AND timestamp > ?
+                      AND timestamp <= ?
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT 2
+                    """,
+                    (t_lo_iso, t_hi_iso),
+                )
+                rows = await cursor.fetchall()
+                return [(int(r[0]), str(r[1]), str(r[2])) for r in rows]
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error(
+                "Error fetching unnamed exit crossings (%s..%s): %s",
+                t_lo_iso, t_hi_iso, e,
+            )
+            return []
+
+    async def backfill_entry_exit_person_id(
+        self,
+        row_id: int,
+        person_id: str,
+        confidence: float,
+    ) -> bool:
+        """Idempotent UPDATE: set ``person_id`` on the row iff it is
+        currently NULL. Returns True on a real write (rowcount == 1),
+        False on the no-op (already named, or row missing).
+
+        Uses the write queue via ``self._db()`` (same pattern as
+        `update_transition_validation`). The ``AND person_id IS NULL``
+        clause is the single-use / concurrent-double-fire guard.
+
+        Fix-up (2026-09-05): ``confidence`` on this row carries the
+        CROSSING/direction confidence written at INSERT time (see
+        transit_validator.py). We MUST NOT clobber it with the
+        identity-attach confidence; the caller keeps ``confidence`` in
+        the signature for logging / backward compatibility but the
+        UPDATE writes ``person_id`` only.
+        """
+        _ = confidence  # intentionally unused — do NOT overwrite col
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """
+                    UPDATE person_entry_exit_events
+                    SET person_id = ?
+                    WHERE id = ? AND person_id IS NULL
+                    """,
+                    (person_id, int(row_id)),
+                )
+                await db.commit()
+                changed = int(getattr(cursor, "rowcount", 0) or 0)
+                if changed:
+                    _LOGGER.info(
+                        "exit-backfill DAO: row_id=%s <- person_id=%s "
+                        "confidence=%.3f",
+                        row_id, person_id, confidence,
+                    )
+                return changed == 1
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.error(
+                "Error backfilling entry_exit person_id (row_id=%s, "
+                "person_id=%s): %s",
+                row_id, person_id, e,
+            )
+            return False
 
     # =========================================================================
     # v3.6.29: Notification Manager database methods
