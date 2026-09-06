@@ -464,7 +464,7 @@ cards:
   - 'SOLAR_CAPTURE_FACTOR (module const, energy_battery.py:260, currently 0.5) — raising it credits more solar; reviewed-rung (fitted safety bias).'
   parsimony: {problem: 'attain grid-charges early then exports solar it could have used', verdict: INVESTIGATE}
   next: 'MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release on solar ramp) and/or modulate grid to the solar shortfall. Tier-3 per the energy campaign.'
-  refs: ['energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
+  refs: ['docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check)', 'energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
 
 - id: URA-INTEGRATION-ARRANGEMENT-1
   title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization

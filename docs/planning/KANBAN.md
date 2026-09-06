@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T17:12:37-05:00_ - _Data commit: `8fb97a8093bd`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T17:30:04-05:00_ - _Data commit: `a9e593019c6b`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -388,7 +388,7 @@ _created 2026-09-06 18:00 · initial_
 - **Next:** MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release...
 - **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
 - **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
-- **Refs:** energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked); .claude/skills/ura-energy-invariants-campaign
+- **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
