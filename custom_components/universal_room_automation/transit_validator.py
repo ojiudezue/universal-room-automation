@@ -1405,6 +1405,11 @@ class EgressDirectionTracker:
                 except Exception:  # noqa: BLE001
                     pass
                 _record("attached_ble", CENSUS_AGREEMENT_SINGLE)
+                # rev5 D2 single-use: consume ONLY on the attach branch.
+                try:
+                    census._consume_ble_arriving_legs(slug)
+                except Exception:  # noqa: BLE001
+                    pass
                 return (
                     slug,
                     float(BLE_TRANSITION_ONLY_CONFIDENCE),
@@ -1445,6 +1450,11 @@ class EgressDirectionTracker:
                             ),
                             "provenance": "ble+face",
                         }
+                    except Exception:  # noqa: BLE001
+                        pass
+                    # rev5 D2 single-use: attach branch only.
+                    try:
+                        census._consume_ble_arriving_legs(b_slug)
                     except Exception:  # noqa: BLE001
                         pass
                     return (
@@ -1497,6 +1507,11 @@ class EgressDirectionTracker:
                         "contributor_engines": ["ble"],
                         "provenance": "ble",
                     }
+                except Exception:  # noqa: BLE001
+                    pass
+                # rev5 D2 single-use: attach branch only (BLE-wins).
+                try:
+                    census._consume_ble_arriving_legs(b_slug)
                 except Exception:  # noqa: BLE001
                     pass
                 return (

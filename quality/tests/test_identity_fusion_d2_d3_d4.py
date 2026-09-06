@@ -227,49 +227,89 @@ def test_d3_guest_removed_reverts_to_passthrough():
 # ---------------------------------------------------------------------------
 
 
-def test_d2_person_state_change_provenance_guard_admits_bermuda():
-    """Bermuda-source `person.<slug>` home->not_home transition creates
-    a BleTransitionLeg. Mutation anchor: the substring provenance
-    guard in `_on_person_state_change`."""
-    census, _, _ = _make_census({})
-    new_state = _make_state(
-        "home", datetime(2026, 9, 4, 12, 0, tzinfo=UTC),
-        attributes={"source": "device_tracker.bermuda_oji"},
-    )
-    new_state.entity_id = "person.oji_udezue"
-    old_state = _make_state(
-        "not_home", datetime(2026, 9, 4, 11, 58, tzinfo=UTC),
-        attributes={"source": "device_tracker.bermuda_oji"},
-    )
-    event = MagicMock()
-    event.data = {"new_state": new_state, "old_state": old_state}
-    census._on_person_state_change(event)
+def _seed_bluetooth_le_derivation(hass, st_map, mapping):
+    """Populate hass.states so `_derive_ble_crossing_trackers` yields
+    the requested tracker_id -> slug map. `mapping` is a dict of
+    ``{slug: [(tracker_id, source_type), ...]}``."""
+    for slug, trackers in mapping.items():
+        st_map[f"person.{slug}"] = _make_state(
+            "home", None, attributes={
+                "device_trackers": [tid for tid, _ in trackers],
+            },
+        )
+        for tid, src_type in trackers:
+            st_map[tid] = _make_state(
+                "home", None, attributes={"source_type": src_type},
+            )
+    hass.states.get = lambda eid: st_map.get(eid)
+
+
+def _make_edge_event(entity_id, old_s, new_s, ts=None):
+    ns = _make_state(new_s, ts or datetime.now(UTC).replace(microsecond=0))
+    ns.entity_id = entity_id
+    os = _make_state(old_s, (ts or datetime.now(UTC).replace(microsecond=0)) - timedelta(seconds=60))
+    os.entity_id = entity_id
+    ev = MagicMock()
+    ev.data = {"new_state": ns, "old_state": os}
+    return ev
+
+
+def test_rev5_bluetooth_le_filter_admits_bermuda_tracker():
+    """rev5 D1: `_derive_ble_crossing_trackers` includes a tracker
+    whose live `source_type == "bluetooth_le"` and excludes a GPS
+    tracker / wall tablet. Edge on the admitted tracker appends an
+    arriving leg for the resident slug.
+    Mutation anchor: the `src_type == "bluetooth_le"` filter in
+    `_derive_ble_crossing_trackers`; the append in
+    `_on_crossing_tracker_state_change`."""
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "oji_udezue": [
+            ("device_tracker.iphone_oji_bermuda_tracker", "bluetooth_le"),
+            ("device_tracker.phalanxiphone15promaxcflare", "gps"),
+        ],
+        "ezinne_udezue": [
+            ("device_tracker.study_a_wall_tablet", "router"),
+        ],
+    })
+    derived = census._derive_ble_crossing_trackers()
+    assert derived == {
+        "device_tracker.iphone_oji_bermuda_tracker": "oji_udezue",
+    }
+    census._ble_tracker_slug_map = dict(derived)
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.iphone_oji_bermuda_tracker", "not_home", "home",
+    ))
     assert len(census._ble_transition_cache) == 1
     leg = census._ble_transition_cache[0]
     assert leg.person_slug == "oji_udezue"
     assert leg.direction == "arriving"
     assert leg.provenance == "ble"
+    assert census._ble_legs_produced_count == 1
 
 
-def test_d2_person_state_change_rejects_camera_face_source():
-    """A `person.<slug>` update whose `source` is a camera_face
-    provider is NOT admitted as a BLE leg (§0: face-provenance in
-    disguise). Mutation anchor: the provenance guard."""
-    census, _, _ = _make_census({})
-    new_state = _make_state(
-        "home", datetime(2026, 9, 4, 12, 0, tzinfo=UTC),
-        attributes={"source": "camera.front_door_face"},
-    )
-    new_state.entity_id = "person.oji_udezue"
-    old_state = _make_state(
-        "not_home", datetime(2026, 9, 4, 11, 58, tzinfo=UTC),
-        attributes={"source": "camera.front_door_face"},
-    )
-    event = MagicMock()
-    event.data = {"new_state": new_state, "old_state": old_state}
-    census._on_person_state_change(event)
+def test_rev5_non_bluetooth_le_edge_never_subscribed_and_dropped_if_unmapped():
+    """rev5 D1: an edge from a non-bluetooth_le tracker (GPS / router)
+    is never in the subscription set. If one somehow reaches the
+    handler (defence-in-depth), it is dropped because the tracker id
+    is not in `_ble_tracker_slug_map`, and no leg is appended.
+    Mutation anchor: the `slug = self._ble_tracker_slug_map.get(...)`
+    lookup + empty-string drop in `_on_crossing_tracker_state_change`."""
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "oji_udezue": [
+            ("device_tracker.phalanxiphone15promaxcflare", "gps"),
+        ],
+    })
+    # Derivation excludes the GPS tracker → empty map.
+    census._ble_tracker_slug_map = dict(census._derive_ble_crossing_trackers())
+    assert census._ble_tracker_slug_map == {}
+    # A stray edge on the GPS tracker is silently dropped (unmapped).
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.phalanxiphone15promaxcflare", "not_home", "home",
+    ))
     assert list(census._ble_transition_cache) == []
-    assert census._ble_leg_rejected_provenance_count == 1
+    assert census._ble_legs_produced_count == 0
 
 
 def test_d2_ble_only_attaches_with_ble_provenance():
@@ -639,45 +679,49 @@ def test_at1_ble_plus_ojini_face_without_configured_guest_still_abstains():
 # --- AT-2: wall-tablet source must NOT forge a BLE leg --------------------
 
 
-def test_at2_wall_tablet_source_rejected_by_provenance_guard():
-    """`device_tracker.study_a_wall_tablet` -- containing 'ble' as a
-    substring of 'tablet' -- must NOT be accepted as a BLE source under
-    the token/prefix allowlist. Mutation anchor: `_ble_source_is_admissible`."""
-    census, _, _ = _make_census({})
-    new_state = _make_state(
-        "home", datetime.now(UTC).replace(microsecond=0),
-        attributes={"source": "device_tracker.study_a_wall_tablet"},
-    )
-    new_state.entity_id = "person.oji_udezue"
-    old_state = _make_state(
-        "not_home", datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=60),
-        attributes={"source": "device_tracker.study_a_wall_tablet"},
-    )
-    event = MagicMock()
-    event.data = {"new_state": new_state, "old_state": old_state}
-    census._on_person_state_change(event)
+def test_rev5_unavailable_edge_dropped_and_counted():
+    """rev5 D1 STATE GATE: an edge with `unavailable` on either side
+    produces no leg and increments `_ble_edge_dropped_invalid_count`.
+    (Replaces the retired `_ble_leg_rejected_provenance_count` — see
+    plan §D3.) Mutation anchor: the `_BAD` guard in
+    `_on_crossing_tracker_state_change`."""
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "oji_udezue": [
+            ("device_tracker.iphone_oji_bermuda_tracker", "bluetooth_le"),
+        ],
+    })
+    census._ble_tracker_slug_map = dict(census._derive_ble_crossing_trackers())
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.iphone_oji_bermuda_tracker",
+        "not_home", "unavailable",
+    ))
     assert list(census._ble_transition_cache) == []
-    assert census._ble_leg_rejected_provenance_count == 1
+    assert census._ble_edge_dropped_invalid_count == 1
 
 
-def test_at2_private_ble_device_prefix_admitted():
-    """`device_tracker.private_ble_device_deadbeef` MUST be admitted."""
-    census, _, _ = _make_census({})
-    now = datetime.now(UTC).replace(microsecond=0)
-    new_state = _make_state(
-        "home", now,
-        attributes={"source": "device_tracker.private_ble_device_deadbeef"},
-    )
-    new_state.entity_id = "person.oji_udezue"
-    old_state = _make_state(
-        "not_home", now - timedelta(seconds=60),
-        attributes={"source": "device_tracker.private_ble_device_deadbeef"},
-    )
-    event = MagicMock()
-    event.data = {"new_state": new_state, "old_state": old_state}
-    census._on_person_state_change(event)
+def test_rev5_private_ble_device_admitted_by_source_type():
+    """rev5 D1: a `private_ble_device_*` tracker whose live
+    `source_type == "bluetooth_le"` IS admitted (subscription IS the
+    gate). Mutation anchor: `_derive_ble_crossing_trackers`
+    source_type check + edge append."""
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "ezinne_udezue": [
+            ("device_tracker.private_ble_device_249050", "bluetooth_le"),
+        ],
+    })
+    derived = census._derive_ble_crossing_trackers()
+    assert derived == {
+        "device_tracker.private_ble_device_249050": "ezinne_udezue",
+    }
+    census._ble_tracker_slug_map = dict(derived)
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.private_ble_device_249050", "not_home", "home",
+    ))
     assert len(census._ble_transition_cache) == 1
     assert census._ble_transition_cache[0].provenance == "ble"
+    assert census._ble_transition_cache[0].person_slug == "ezinne_udezue"
 
 
 # --- DL-1: drill flag survives census replacement (reload) -----------------
@@ -891,3 +935,130 @@ def test_bootcache_selfheal_when_frigate_status_appears_late():
     assert census._face_producer_health_reason == "live"
     assert census._face_producer_health_resolved is True
     assert census._face_producer_health_entity == "sensor.frigate_status_2"
+
+
+# ---------------------------------------------------------------------------
+# EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5 — additional
+# mutation-anchored tests (anchors 3-7 of the build brief).
+# ---------------------------------------------------------------------------
+
+
+def _rev5_make_census_with_oji_ble():
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "oji_udezue": [
+            ("device_tracker.iphone_oji_bermuda_tracker", "bluetooth_le"),
+        ],
+    })
+    census._ble_tracker_slug_map = dict(census._derive_ble_crossing_trackers())
+    return census, hass, st
+
+
+def test_rev5_zone_to_zone_edge_dropped_no_home_boundary():
+    """rev5 D1 STATE GATE: a zone->zone (both-away) edge — e.g.
+    Work -> Gym, no `home` on either side — is NOT a home-boundary
+    edge and must be dropped and counted.
+    Mutation anchor: `"home" not in (new_s, old_s)` guard in
+    `_on_crossing_tracker_state_change`."""
+    census, hass, st = _rev5_make_census_with_oji_ble()
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.iphone_oji_bermuda_tracker", "Work", "Gym",
+    ))
+    assert list(census._ble_transition_cache) == []
+    assert census._ble_edge_dropped_invalid_count == 1
+    assert census._ble_legs_produced_count == 0
+
+
+def test_rev5_entry_lead_window_admits_and_rejects():
+    """rev5 D2: an arriving BLE leg that LEADS the crossing within
+    BLE_EGRESS_ENTRY_LEAD_S (180s) attaches; a leg that leads by more
+    than 180s is out-of-window.
+    Mutation anchor: the `0 <= cross_age <= lead_bound` clause in
+    `_resolve_ble_legs`."""
+    census, hass, st = _rev5_make_census_with_oji_ble()
+    crossing = datetime.now(UTC).replace(microsecond=0)
+    # In-window: leg fires 150s BEFORE crossing (cross_age = +150).
+    _seed_ble_transition(
+        census, "oji_udezue", crossing - timedelta(seconds=150),
+        direction="arriving",
+    )
+    matches = census._resolve_ble_legs(crossing, "entry")
+    assert len(matches) == 1
+    # Out-of-window: leg fires 240s BEFORE crossing (cross_age = +240).
+    census._ble_transition_cache.clear()
+    _seed_ble_transition(
+        census, "oji_udezue", crossing - timedelta(seconds=240),
+        direction="arriving",
+    )
+    assert census._resolve_ble_legs(crossing, "entry") == []
+
+
+def test_rev5_single_use_removes_arriving_legs_on_attach():
+    """rev5 D2: `_consume_ble_arriving_legs(slug)` removes ALL arriving
+    legs for that slug from the cache; a second resolve returns [].
+    Mutation anchor: the `_consume_ble_arriving_legs` filter and the
+    attach-only call site in `_resolve_egress_face_identity`."""
+    census, hass, st = _rev5_make_census_with_oji_ble()
+    crossing = datetime.now(UTC).replace(microsecond=0)
+    _seed_ble_transition(
+        census, "oji_udezue", crossing - timedelta(seconds=100),
+        direction="arriving",
+    )
+    _seed_ble_transition(
+        census, "oji_udezue", crossing - timedelta(seconds=140),
+        direction="arriving",
+    )
+    assert len(census._resolve_ble_legs(crossing, "entry")) == 2
+    removed = census._consume_ble_arriving_legs("oji_udezue")
+    assert removed == 2
+    assert census._resolve_ble_legs(crossing, "entry") == []
+
+
+def test_rev5_boot_race_late_tracker_picked_up_on_refresh():
+    """rev5 D1: a bluetooth_le tracker whose state is None at
+    registration (integration not yet loaded) is silently skipped;
+    when its state becomes available, `_refresh_ble_crossing_listeners`
+    picks it up and its later edge attaches.
+    Mutation anchor: the `if ts_state is None: continue` skip in
+    `_derive_ble_crossing_trackers` and the set-diff re-register in
+    `_refresh_ble_crossing_listeners`."""
+    census, hass, st = _make_census({})
+    # Setup: person entity references the tracker, but tracker STATE
+    # is not yet in st_map (integration not loaded).
+    st["person.oji_udezue"] = _make_state(
+        "home", None, attributes={
+            "device_trackers": ["device_tracker.iphone_oji_bermuda_tracker"],
+        },
+    )
+    hass.states.get = lambda eid: st.get(eid)
+    # Initial derive: tracker state is None → excluded.
+    census._ble_tracker_slug_map = dict(census._derive_ble_crossing_trackers())
+    assert census._ble_tracker_slug_map == {}
+    # Integration loads later: tracker state appears.
+    st["device_tracker.iphone_oji_bermuda_tracker"] = _make_state(
+        "home", None, attributes={"source_type": "bluetooth_le"},
+    )
+    added = census._refresh_ble_crossing_listeners()
+    assert added == 1
+    assert "device_tracker.iphone_oji_bermuda_tracker" in census._ble_tracker_slug_map
+    # Edge on the newly-visible tracker now attaches.
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.iphone_oji_bermuda_tracker", "not_home", "home",
+    ))
+    assert len(census._ble_transition_cache) == 1
+
+
+def test_rev5_departing_edge_counted_not_attributed_v1():
+    """rev5 D1 v1 ENTRY-ONLY: a departing boundary edge
+    (home -> not_home) produces NO attribution leg — only the
+    departing-edge observability counter increments. Exit is deferred
+    to card EGRESS-EXIT-IDENTITY-BACKFILL-1.
+    Mutation anchor: the `if new_s == "home":` branch vs. the
+    `else` counter-only branch in `_on_crossing_tracker_state_change`."""
+    census, hass, st = _rev5_make_census_with_oji_ble()
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.iphone_oji_bermuda_tracker", "home", "not_home",
+    ))
+    assert list(census._ble_transition_cache) == []
+    assert census._ble_legs_produced_count == 0
+    assert census._ble_departing_edge_seen_count == 1

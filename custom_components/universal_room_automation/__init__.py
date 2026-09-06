@@ -2251,6 +2251,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     exc_info=True,
                 )
 
+            # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5 D1:
+            # boot-race re-register. Any bluetooth_le tracker whose
+            # integration loads AFTER URA is invisible at setup (state
+            # is None). Re-derive on EVENT_HOMEASSISTANT_STARTED so
+            # oji's single-tracker case does not silently miss its
+            # subscription for the entire process lifetime. The
+            # periodic census tick provides a second safety net.
+            try:
+                from homeassistant.const import (
+                    EVENT_HOMEASSISTANT_STARTED as _EV_HA_STARTED,
+                )
+            except Exception:  # noqa: BLE001
+                _EV_HA_STARTED = "homeassistant_started"
+
+            @callback
+            def _on_ha_started_ble_refresh(_evt):
+                try:
+                    census._refresh_ble_crossing_listeners()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "rev5 BLE HA-started refresh raised (non-fatal)",
+                        exc_info=True,
+                    )
+
+            try:
+                hass.bus.async_listen_once(
+                    _EV_HA_STARTED, _on_ha_started_ble_refresh,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "rev5 BLE HA-started refresh listener registration "
+                    "failed (non-fatal)", exc_info=True,
+                )
+
             # Periodic census updates
             async def _census_update_cb(_now):
                 """Periodic callback for census updates."""
