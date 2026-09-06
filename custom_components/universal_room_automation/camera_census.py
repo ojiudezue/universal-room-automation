@@ -18,7 +18,7 @@ import asyncio
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
@@ -82,6 +82,10 @@ from .const import (
     # FACE_MATCH_*_WINDOW_* consumed only by transit_validator; not
     # imported here (Review A-LOW-3).
     BLE_EGRESS_ENTRY_LEAD_S,
+    BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
+    BLE_EXIT_DECISION_MARGIN_S,
+    BLE_EXIT_PER_SLUG_COOLDOWN_S,
+    BLE_TRANSITION_ONLY_CONFIDENCE,
     BLE_TRANSITION_CACHE_TTL_S,
     BLE_TRANSITION_CONFIDENCE,
     FACE_PRODUCER_STALE_TTL_S,
@@ -1318,6 +1322,53 @@ class PersonCensus:
         # One-time WARN latch for slugs that derive ZERO bluetooth_le
         # trackers (fatal for oji, who has only one BLE tracker).
         self._ble_zero_tracker_warned: set[str] = set()
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 (2026-09-05) — rebuilt fresh
+        # each `_derive_ble_crossing_trackers` pass. Names the tracked
+        # residents currently BLE-invisible (0 bluetooth_le trackers
+        # this pass). Consumed by `_backfill_exit_identity` as the
+        # cross-resident abstain guard (invariant e). MUST NOT be
+        # unioned with `_ble_zero_tracker_warned` (that latch never
+        # clears → permanent abstain after one boot blip).
+        self._ble_zero_tracker_slugs: set[str] = set()
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — tracked async backfill
+        # tasks scheduled from the (sync) departing-edge callback.
+        # Cancelled in `async_cancel_pending_backfill_tasks` (invoked
+        # from the entry-unload path ONLY — NOT from listener refresh /
+        # teardown, which would kill in-flight settle sleeps mid-flap
+        # remediation).
+        self._backfill_tasks: set[asyncio.Task] = set()
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — D3 observability counters.
+        self._ble_exit_backfilled_count: int = 0
+        self._ble_exit_edge_no_match_count: int = 0
+        self._ble_exit_ambiguity_abstain_count: int = 0
+        # Fix-up (2026-09-05) — additional exclusive-attribution guards.
+        # Incremented when a settle re-read finds the tracker back in a
+        # home state (flap, not real departure).
+        self._ble_exit_flap_aborted_count: int = 0
+        # Incremented when the DAO returns False (contended: row already
+        # named by a concurrent write). Keeps counter sum reconcilable
+        # against edges-reaching-DAO.
+        self._ble_exit_backfill_noop_count: int = 0
+        # D-LOW (counter-honesty, 2026-09-05): silent-return paths that
+        # were previously invisible to the edges-reaching-DAO
+        # reconciliation (`database is None`, SELECT exception, UPDATE
+        # exception, task-schedule failure).
+        self._ble_exit_error_count: int = 0
+        # Incremented when the same slug's cooldown suppresses a
+        # duplicate departing edge (multi-tracker resident: phone +
+        # watch fire two edges from one physical departure).
+        self._ble_exit_per_slug_cooldown_skipped_count: int = 0
+        # Recent departing edges as (slug, t_edge_naive_utc). Used to
+        # detect competing-edge ambiguity (a different resident also
+        # departing inside the same window → cannot exclusively
+        # attribute the single null row). Pruned lazily.
+        self._ble_exit_recent_departing_edges: deque[
+            tuple[str, datetime]
+        ] = deque()
+        # Per-slug cooldown timestamps (naive-UTC) — set when a slug
+        # processes a departing edge (backfill OR abstain), read on
+        # subsequent same-slug edges.
+        self._ble_exit_last_edge_by_slug: dict[str, datetime] = {}
         # Rev5 fix-up (D-1a): sticky classification. Once a tracker in
         # a resident's `device_trackers` has been observed with
         # `source_type == "bluetooth_le"` while available, keep it in
@@ -3759,6 +3810,9 @@ class PersonCensus:
         PersonCoordinator method with no bluetooth_le branch).
         """
         out: dict[str, str] = {}
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — freshly-built set each pass
+        # (invariant e: rebuilt, never accumulated).
+        zero_tracker_slugs_this_pass: set[str] = set()
         try:
             slugs = self._get_tracked_person_slugs()
         except Exception:  # noqa: BLE001
@@ -3836,6 +3890,8 @@ class PersonCensus:
                             "rev5 BLE producer: tracker %s demoted from "
                             "bluetooth_le (source_type=%s)", tid, src_type,
                         )
+            if slug_ble_count == 0:
+                zero_tracker_slugs_this_pass.add(slug)
             if slug_ble_count == 0 and slug not in self._ble_zero_tracker_warned:
                 _LOGGER.warning(
                     "rev5 BLE producer: tracked slug %s derives ZERO "
@@ -3850,6 +3906,9 @@ class PersonCensus:
         for tid in list(self._known_ble_trackers.keys()):
             if tid not in seen_known:
                 self._known_ble_trackers.pop(tid, None)
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1: publish this pass's fresh
+        # zero-tracker set (assign, do NOT union).
+        self._ble_zero_tracker_slugs = zero_tracker_slugs_this_pass
         return out
 
     @callback
@@ -3972,12 +4031,291 @@ class PersonCensus:
                 slug, tracker_id, old_s, new_s,
             )
         else:
-            # Departing boundary — count only, do NOT attribute in v1.
+            # Departing boundary — count and schedule the async
+            # backfill of any in-window null exit crossing
+            # (EGRESS-EXIT-IDENTITY-BACKFILL-1).
             self._ble_departing_edge_seen_count += 1
             _LOGGER.debug(
-                "rev5 BLE departing edge (observability only): "
-                "person=%s tracker=%s old=%s new=%s",
+                "rev5 BLE departing edge: person=%s tracker=%s old=%s new=%s",
                 slug, tracker_id, old_s, new_s,
+            )
+            # naive-UTC form for cooldown + competing-edge bookkeeping.
+            try:
+                t_edge_naive = ts.astimezone(timezone.utc).replace(
+                    tzinfo=None
+                )
+            except Exception:  # noqa: BLE001
+                t_edge_naive = ts.replace(tzinfo=None) if getattr(
+                    ts, "tzinfo", None
+                ) else ts
+            # Per-slug cooldown (fix-up: multi-tracker dedup). A phone +
+            # watch on the same person will fire two edges from one
+            # physical departure; only the FIRST reaches the DAO.
+            cooldown_win = timedelta(seconds=BLE_EXIT_PER_SLUG_COOLDOWN_S)
+            last_edge = self._ble_exit_last_edge_by_slug.get(slug)
+            if last_edge is not None and (
+                t_edge_naive - last_edge
+            ) < cooldown_win:
+                self._ble_exit_per_slug_cooldown_skipped_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: cooldown-skip slug=%s last=%s new=%s",
+                    slug, last_edge.isoformat(), t_edge_naive.isoformat(),
+                )
+                return
+            self._ble_exit_last_edge_by_slug[slug] = t_edge_naive
+            # Push + prune the recent-edges deque used by competing-edge
+            # detection inside _backfill_exit_identity.
+            self._ble_exit_recent_departing_edges.append(
+                (slug, t_edge_naive)
+            )
+            prune_cutoff = t_edge_naive - timedelta(
+                seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+            )
+            while (
+                self._ble_exit_recent_departing_edges
+                and self._ble_exit_recent_departing_edges[0][1] < prune_cutoff
+            ):
+                self._ble_exit_recent_departing_edges.popleft()
+            try:
+                task = self.hass.async_create_task(
+                    self._backfill_exit_identity(slug, ts, tracker_id)
+                )
+                self._backfill_tasks.add(task)
+                task.add_done_callback(self._backfill_tasks.discard)
+            except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: failed to schedule task for %s",
+                    slug, exc_info=True,
+                )
+
+    async def _backfill_exit_identity(
+        self, slug: str, t_edge, tracker_id: str | None = None,
+    ) -> None:
+        """EGRESS-EXIT-IDENTITY-BACKFILL-1 — attribute a `slug` to the
+        nearest in-window null-`person_id` exit crossing, but ONLY when
+        the attribution is unambiguous. Operator directive
+        (2026-09-05): accuracy over coverage — "leave null is ok".
+
+        Fix-up ambiguity gates (all abstain-to-null, never guess):
+          - Deferred decision (D-HIGH-1 fix, 2026-09-05): wait until
+            `R_ts + BLE_EGRESS_EXIT_BACKFILL_WINDOW_S + margin`, then
+            re-read tracker live state. Any competing departing edge
+            that could match R must have fired by then and is visible
+            to the distinct-departer scan. A flap that has reverted to
+            home aborts.
+          - >1 candidate rows in window: abstain (co-departures stay
+            null; we cannot exclusively attribute one of two rows to
+            this slug).
+          - A DIFFERENT resident's departing edge inside the same
+            window: abstain (cannot say which of the two co-departers
+            owns the single row).
+
+        TZ CONTRACT: the INSERT at database.py:3919 writes
+        ``datetime.utcnow().isoformat()`` (NAIVE-UTC, no offset). We
+        MUST derive the SELECT bounds identically or the comparison
+        silently returns zero matches.
+        """
+        try:
+            # tz-safe naive-UTC bounds (F2 in the plan).
+            if getattr(t_edge, "tzinfo", None) is not None:
+                t_hi_dt = t_edge.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                # naive already — assume UTC (matches the sync callback
+                # path where dt_util.utcnow() feeds).
+                t_hi_dt = t_edge
+            t_lo_dt = t_hi_dt - timedelta(
+                seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+            )
+            t_lo_iso = t_lo_dt.isoformat()
+            t_hi_iso = t_hi_dt.isoformat()
+
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                self._ble_exit_error_count += 1
+                return
+
+            # First-pass SELECT identifies the candidate row. We need
+            # `R_ts` (the crossing timestamp) to compute the deferred
+            # decision window `[R_ts, R_ts+WINDOW]` — the interval in
+            # which a competing departing edge could ALSO attribute
+            # this row. Waiting until decision_at ensures every
+            # competing edge that could match R has fired and is
+            # visible in the deque BEFORE the distinct-departer scan.
+            try:
+                rows = await database.find_unnamed_exit_crossings(
+                    t_lo_iso, t_hi_iso
+                )
+            except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: SELECT failed for %s", slug, exc_info=True,
+                )
+                return
+            if not rows:
+                self._ble_exit_edge_no_match_count += 1
+                return
+            # Multiple candidate rows → cannot exclusively attribute.
+            if len(rows) > 1:
+                self._ble_exit_ambiguity_abstain_count += 1
+                _LOGGER.info(
+                    "exit-backfill: abstain slug=%s reason=multi-row "
+                    "count=%d bounds=%s..%s",
+                    slug, len(rows), t_lo_iso, t_hi_iso,
+                )
+                return
+            candidate_row_id, candidate_row_ts_iso, _cam0 = rows[0]
+
+            # Deferred decision (D-HIGH-1 fix, 2026-09-05). The prior
+            # design applied a fixed 90s settle then decided; a
+            # competing departing edge firing later than that (still
+            # within the 600s window) was invisible, and this slug
+            # could wrongly claim a co-departer's row. Now we wait
+            # until `R_ts + WINDOW + margin` before deciding.
+            #
+            # Test/override contract: setting `census._exit_settle_s`
+            # to any numeric value REPLACES the computed wait with
+            # that literal (0 = immediate). Direct-call test paths
+            # (no tracker_id) skip the wait entirely; the fixed 90s
+            # settle constant is retained as documentation of the
+            # historical value but is no longer used at runtime — the
+            # decision-timing invariant is R_ts + WINDOW.
+            settle_override = getattr(self, "_exit_settle_s", None)
+            if tracker_id:
+                if settle_override is None:
+                    try:
+                        r_ts_dt = datetime.fromisoformat(
+                            candidate_row_ts_iso
+                        )
+                    except Exception:  # noqa: BLE001 — defensive parse
+                        r_ts_dt = t_hi_dt
+                    decision_at = r_ts_dt + timedelta(
+                        seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+                        + BLE_EXIT_DECISION_MARGIN_S
+                    )
+                    now_utc = datetime.utcnow()
+                    wait_s = max(
+                        0.0, (decision_at - now_utc).total_seconds(),
+                    )
+                else:
+                    wait_s = float(settle_override)
+                if wait_s > 0:
+                    try:
+                        await asyncio.sleep(wait_s)
+                    except asyncio.CancelledError:
+                        raise
+
+            # Flap re-read (moved to the decision point). If the
+            # tracker has returned home during the wait, the departure
+            # was not durable — do NOT attribute.
+            if tracker_id:
+                try:
+                    live = self.hass.states.get(tracker_id)
+                    live_state = getattr(live, "state", None) if live else None
+                except Exception:  # noqa: BLE001 — defensive
+                    live_state = None
+                if live_state in ("home", None, "unknown", "unavailable"):
+                    self._ble_exit_flap_aborted_count += 1
+                    _LOGGER.info(
+                        "exit-backfill: flap-abort slug=%s tracker=%s "
+                        "live_state=%r",
+                        slug, tracker_id, live_state,
+                    )
+                    return
+
+            # Distinct-departer scan (D-HIGH-1 core). Look at edges
+            # that fired inside the candidate row's OWN attribution
+            # window `[R_ts, R_ts+WINDOW]`. Any DISTINCT slug other
+            # than this one means we cannot exclusively attribute the
+            # row.
+            try:
+                r_ts_dt = datetime.fromisoformat(candidate_row_ts_iso)
+            except Exception:  # noqa: BLE001 — defensive parse
+                r_ts_dt = t_hi_dt
+            win_lo = r_ts_dt
+            win_hi = r_ts_dt + timedelta(
+                seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+            )
+            distinct_slugs = {
+                s for (s, t) in self._ble_exit_recent_departing_edges
+                if win_lo <= t <= win_hi
+            }
+            other = distinct_slugs - {slug}
+            if other:
+                self._ble_exit_ambiguity_abstain_count += 1
+                _LOGGER.info(
+                    "exit-backfill: abstain slug=%s reason=competing-"
+                    "edge others=%s",
+                    slug, sorted(other),
+                )
+                return
+
+            # Re-SELECT at the decision point: state may have changed
+            # during the wait (row named by another writer, or a new
+            # unnamed row appeared inside the bounds).
+            try:
+                rows2 = await database.find_unnamed_exit_crossings(
+                    t_lo_iso, t_hi_iso
+                )
+            except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: re-SELECT failed for %s",
+                    slug, exc_info=True,
+                )
+                return
+            if not rows2:
+                # Candidate was named (or deleted) during the wait.
+                self._ble_exit_backfill_noop_count += 1
+                return
+            if len(rows2) > 1:
+                self._ble_exit_ambiguity_abstain_count += 1
+                _LOGGER.info(
+                    "exit-backfill: abstain slug=%s reason=multi-row-"
+                    "post-wait count=%d",
+                    slug, len(rows2),
+                )
+                return
+            row_id, _row_ts, egress_camera = rows2[0]
+            if row_id != candidate_row_id:
+                # A different row is now the sole candidate — abstain
+                # rather than silently re-anchor onto it.
+                self._ble_exit_ambiguity_abstain_count += 1
+                return
+            try:
+                ok = await database.backfill_entry_exit_person_id(
+                    row_id, slug, BLE_TRANSITION_ONLY_CONFIDENCE
+                )
+            except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: UPDATE failed for row_id=%s slug=%s",
+                    row_id, slug, exc_info=True,
+                )
+                return
+            if ok:
+                self._ble_exit_backfilled_count += 1
+                _LOGGER.info(
+                    "exit-backfill: row_id=%s <- person_id=%s cam=%s "
+                    "(window %ss, bounds %s..%s)",
+                    row_id, slug, egress_camera,
+                    BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
+                    t_lo_iso, t_hi_iso,
+                )
+            else:
+                # Contended: another writer named the row between our
+                # SELECT and UPDATE (or the row vanished). Not a bug —
+                # count so edges-reaching-DAO reconciles.
+                self._ble_exit_backfill_noop_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: noop row_id=%s slug=%s (already named)",
+                    row_id, slug,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "exit-backfill: unexpected failure for %s", slug, exc_info=True,
             )
 
     def _consume_ble_arriving_legs(self, slug: str) -> int:
@@ -4163,6 +4501,29 @@ class PersonCensus:
                     exc_info=True,
                 )
         self._ble_transition_unsubs = []
+        # NOTE: pending exit-backfill tasks are NOT cancelled here.
+        # This method runs on every refresh/re-register (see the
+        # `async_teardown_ble_transition_listeners()` call inside
+        # `_register_ble_transition_listeners`); cancelling here would
+        # abort any in-flight settle sleep every time the tracked-set
+        # is recomputed. Cancellation lives on the entry-unload path
+        # via `async_cancel_pending_backfill_tasks()` instead.
+
+    def async_cancel_pending_backfill_tasks(self) -> None:
+        """EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05) —
+        cancel any pending exit-backfill tasks scheduled from the
+        departing-edge callback. Called from the entry-unload path
+        ONLY. Safe to call multiple times."""
+        for task in list(self._backfill_tasks):
+            try:
+                if not task.done():
+                    task.cancel()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill task cancel raised (non-fatal)",
+                    exc_info=True,
+                )
+        self._backfill_tasks.clear()
 
     # ------------------------------------------------------------------
     # v3.10.1: Enhanced Census (event-driven sensor fusion)

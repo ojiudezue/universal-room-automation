@@ -4930,6 +4930,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "BLE-transition listener teardown raised (non-fatal)",
                     exc_info=True,
                 )
+        # EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05): cancel
+        # pending exit-backfill tasks on the entry-unload path only
+        # (teardown-on-refresh must NOT kill in-flight settle sleeps).
+        if _cens_for_teardown is not None and hasattr(
+            _cens_for_teardown, "async_cancel_pending_backfill_tasks"
+        ):
+            try:
+                _cens_for_teardown.async_cancel_pending_backfill_tasks()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "exit-backfill cancel raised (non-fatal)",
+                    exc_info=True,
+                )
         # B-HIGH-1: tear down the CameraResolver cache-invalidation listeners
         # before dropping the manager reference (Bug Class #42: untracked
         # listeners → stale invalidations against a torn-down manager).
