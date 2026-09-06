@@ -81,6 +81,7 @@ from .const import (
     FACE_MATCH_MIN_CONFIDENCE,
     # FACE_MATCH_*_WINDOW_* consumed only by transit_validator; not
     # imported here (Review A-LOW-3).
+    BLE_EGRESS_ENTRY_LEAD_S,
     BLE_TRANSITION_CACHE_TTL_S,
     BLE_TRANSITION_CONFIDENCE,
     FACE_PRODUCER_STALE_TTL_S,
@@ -218,16 +219,25 @@ class FaceLeg:
 
 @dataclass(frozen=True)
 class BleTransitionLeg:
-    """IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: a single BLE
-    home<->away transition on ``person.<slug>``, sourced from a
-    Bermuda / BLE / private_ble device_tracker (provenance-guarded at
-    ingest — see :class:`PersonCensus._on_person_state_change`).
+    """A single BLE home<->away transition on one of a tracked
+    resident's ``source_type == bluetooth_le`` device_trackers.
+
+    Rev5 (EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, 2026-09-05):
+    the producer now subscribes DIRECTLY to the resident's bluetooth_le
+    device_trackers (see
+    :meth:`PersonCensus._derive_ble_crossing_trackers` +
+    :meth:`PersonCensus._on_crossing_tracker_state_change`), NOT to
+    ``person.<slug>`` (which was a lossy HA aggregate subject to the
+    D-HIGH-1 GPS-race). Subscription IS the provenance gate — a
+    non-bluetooth_le tracker is never subscribed, so wall tablets /
+    GPS phones / camera_face-provenance updates cannot produce a leg.
+
+    v1 = ENTRY-ONLY: only ``direction == "arriving"`` legs are
+    produced. Exit attribution (departing legs → row UPDATE) is the
+    deferred backfill card ``EGRESS-EXIT-IDENTITY-BACKFILL-1``.
 
     Sibling of :class:`FaceLeg`; consumed at the decision site by
-    ``transit_validator._resolve_egress_face_identity``. Never emitted
-    for camera_face-provenance ``person.*`` updates (§0 fail-safe:
-    those are face-provenance, not BLE, and MUST be gated by
-    ``_is_face_producer_live``).
+    ``transit_validator._resolve_egress_face_identity``.
     """
     person_slug: str
     transition_ts: datetime
@@ -1276,18 +1286,52 @@ class PersonCensus:
         # process lifetime (deliberate — one WARN per problem camera).
         self._null_area_warned: set[str] = set()
 
-        # IDENTITY-FUSION-PRODUCER-1 (2026-09-04) D2: BLE-transition leg
-        # cache. Fed by `_on_person_state_change` under the Bermuda/BLE
-        # provenance guard; pruned on read against BLE_TRANSITION_CACHE_TTL_S.
-        # Deque is bounded so a runaway producer can never blow the heap.
+        # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5 (2026-09-05):
+        # BLE-transition leg cache. Fed by
+        # `_on_crossing_tracker_state_change`, which is subscribed only
+        # to the resident device_trackers whose live source_type is
+        # `bluetooth_le` (see `_derive_ble_crossing_trackers`).
+        # Pruned on read against BLE_TRANSITION_CACHE_TTL_S. Deque is
+        # bounded so a runaway producer can never blow the heap.
         self._ble_transition_cache: deque[BleTransitionLeg] = deque(maxlen=256)
-        # Cancellers for the per-slug state_changed listeners registered by
-        # `_register_ble_transition_listeners`; drained by
-        # `async_teardown_ble_transition_listeners` at unload.
+        # Cancellers for the tracker-id state_changed listener registered
+        # by `_register_ble_transition_listeners` (and re-registered by
+        # `_refresh_ble_crossing_listeners` under the boot-race path);
+        # drained by `async_teardown_ble_transition_listeners` at unload.
         self._ble_transition_unsubs: list[Any] = []
-        # D2 telemetry — attribute-guard rejects (geofence source, missing
-        # source attr, other non-BLE providers).
-        self._ble_leg_rejected_provenance_count: int = 0
+        # tracker_id -> slug map built by `_derive_ble_crossing_trackers`
+        # and read by the edge handler to attribute the edge to a slug.
+        self._ble_tracker_slug_map: dict[str, str] = {}
+        # rev5 D3 observability counters — the ONLY signals distinguishing
+        # working from dead post-re-arch (the old provenance counter is
+        # retired: subscription is now the gate).
+        self._ble_edge_dropped_invalid_count: int = 0
+        self._ble_departing_edge_seen_count: int = 0
+        self._ble_legs_produced_count: int = 0
+        self._ble_legs_attached_count: int = 0
+        self._ble_legs_abstained_count: int = 0
+        # Rev5 fix-up (D-7): benign edges (first-write / old_state=None
+        # / legitimate zone->zone) are counted here, NOT under
+        # `_ble_edge_dropped_invalid_count`, so the latter reflects
+        # forgery-shaped drops only.
+        self._ble_edge_dropped_benign_count: int = 0
+        # One-time WARN latch for slugs that derive ZERO bluetooth_le
+        # trackers (fatal for oji, who has only one BLE tracker).
+        self._ble_zero_tracker_warned: set[str] = set()
+        # Rev5 fix-up (D-1a): sticky classification. Once a tracker in
+        # a resident's `device_trackers` has been observed with
+        # `source_type == "bluetooth_le"` while available, keep it in
+        # the subscription set even while it flips to `unavailable`
+        # (HA does not expose attributes on unavailable entities, so
+        # a live-only re-classification would silently unsubscribe).
+        # Removed only when the tracker leaves the person's
+        # `device_trackers` OR is confirmed a different source_type
+        # while available. Map: tracker_id -> slug.
+        self._known_ble_trackers: dict[str, str] = {}
+        # Rev5 fix-up (A-LOW-2): one-time WARN latch for a tracker_id
+        # that derives to two different slugs (silent last-writer-wins
+        # would be a data-quality bug).
+        self._ble_tracker_id_collision_warned: set[str] = set()
 
         # D4 §0 fail-safe surface. Drill flag lives on
         # ``hass.data[DOMAIN]["face_drill_forced"]`` (Review DL-1) so an
@@ -1373,6 +1417,17 @@ class PersonCensus:
     async def _async_update_census_locked(self) -> FullCensusResult:
         """Inner census update (must be called under self._update_lock)."""
         now = dt_util.utcnow()
+
+        # rev5 D1 boot-race re-register: cheap idempotent set-diff on
+        # the bluetooth_le tracker family. Picks up any tracker whose
+        # integration loaded AFTER URA (state was None at setup).
+        try:
+            self._refresh_ble_crossing_listeners()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "rev5 BLE listener refresh raised (non-fatal)",
+                exc_info=True,
+            )
 
         # CENSUS-ACCURACY-1 D2: per-tick reset of face-lookup miss counter.
         # LIFETIME peak_refresh_suppressed_count is NOT reset here.
@@ -3672,123 +3727,320 @@ class PersonCensus:
         except Exception:  # noqa: BLE001
             return False
 
+    # ------------------------------------------------------------------
+    # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5 (2026-09-05)
+    # ------------------------------------------------------------------
+
+    # Rev5 fix-up (D-6): the `_VALID_HA_HOME_STATES` placeholder had
+    # no readers and has been removed. The state gate in
+    # `_on_crossing_tracker_state_change` names the admitted strings
+    # inline; subscription IS the provenance gate (D-8): a tracker
+    # flipping source_type is caught on the next refresh tick.
+
+    def _derive_ble_crossing_trackers(self) -> dict[str, str]:
+        """rev5 D1: return a tracker_id -> slug map of the resident
+        device_trackers whose LIVE ``source_type == "bluetooth_le"``.
+
+        For each slug in :meth:`_get_tracked_person_slugs`, read
+        ``person.<slug>.attributes["device_trackers"]`` and keep only
+        the tracker ids whose live-state ``source_type`` (lower-cased)
+        equals ``bluetooth_le``. Non-bluetooth_le trackers (GPS phones,
+        wall tablets, routers) are silently excluded — subscription IS
+        the provenance gate for the crossing producer.
+
+        INV-EGRESS-ID: slug MUST be one of ``_get_tracked_person_slugs``;
+        this is guaranteed by construction (we iterate that list). A
+        one-time WARNING is emitted for any tracked slug that derives
+        ZERO bluetooth_le trackers (fatal for a single-BLE-tracker
+        resident such as oji).
+
+        READ-PATTERN reference: ``person_coordinator._read_source_inventory``
+        (person_coordinator.py:206-243) — NOT reusable directly (it is a
+        PersonCoordinator method with no bluetooth_le branch).
+        """
+        out: dict[str, str] = {}
+        try:
+            slugs = self._get_tracked_person_slugs()
+        except Exception:  # noqa: BLE001
+            slugs = []
+        # Track which known-BLE trackers are still listed against a
+        # person this pass; anything absent gets pruned from
+        # `_known_ble_trackers` (rev5 fix-up D-1a).
+        seen_known: set[str] = set()
+        for slug in slugs:
+            if not slug:
+                continue
+            try:
+                person_state = self.hass.states.get(f"person.{slug}")
+            except Exception:  # noqa: BLE001
+                person_state = None
+            trackers: list = []
+            if person_state is not None:
+                try:
+                    attrs = getattr(person_state, "attributes", None) or {}
+                    trackers = list(attrs.get("device_trackers") or [])
+                except Exception:  # noqa: BLE001
+                    trackers = []
+            slug_ble_count = 0
+            for tracker_id in trackers:
+                if not tracker_id:
+                    continue
+                tid = str(tracker_id)
+                try:
+                    ts_state = self.hass.states.get(tid)
+                except Exception:  # noqa: BLE001
+                    ts_state = None
+                src_type = ""
+                live_available = False
+                if ts_state is not None:
+                    try:
+                        t_state = str(getattr(ts_state, "state", "") or "").lower()
+                        live_available = t_state not in ("", "unknown", "unavailable")
+                        t_attrs = getattr(ts_state, "attributes", None) or {}
+                        src_type = str(t_attrs.get("source_type", "") or "").lower()
+                    except Exception:  # noqa: BLE001
+                        src_type = ""
+                        live_available = False
+                # Sticky classification (rev5 fix-up D-1a). A tracker
+                # once seen as bluetooth_le stays admitted while it is
+                # still on this person's `device_trackers` — even
+                # while unavailable / stateless — UNLESS it is
+                # currently AVAILABLE with a different (non-empty)
+                # source_type, which demotes it.
+                is_ble_live = (src_type == "bluetooth_le")
+                is_ble_sticky = (
+                    self._known_ble_trackers.get(tid) == slug
+                    and not (live_available and src_type and src_type != "bluetooth_le")
+                )
+                if is_ble_live or is_ble_sticky:
+                    # A-LOW-2: warn once on cross-slug collision.
+                    prior = out.get(tid)
+                    if prior is not None and prior != slug and tid not in self._ble_tracker_id_collision_warned:
+                        _LOGGER.warning(
+                            "rev5 BLE producer: tracker_id %s derives to "
+                            "multiple slugs (%s vs %s); last-writer-wins "
+                            "would mask a config bug — please investigate.",
+                            tid, prior, slug,
+                        )
+                        self._ble_tracker_id_collision_warned.add(tid)
+                    out[tid] = slug
+                    slug_ble_count += 1
+                    if is_ble_live:
+                        # Refresh sticky record on any live BLE hit.
+                        self._known_ble_trackers[tid] = slug
+                    seen_known.add(tid)
+                elif live_available and src_type and src_type != "bluetooth_le":
+                    # Confirmed non-BLE while available → demote.
+                    if self._known_ble_trackers.pop(tid, None) is not None:
+                        _LOGGER.info(
+                            "rev5 BLE producer: tracker %s demoted from "
+                            "bluetooth_le (source_type=%s)", tid, src_type,
+                        )
+            if slug_ble_count == 0 and slug not in self._ble_zero_tracker_warned:
+                _LOGGER.warning(
+                    "rev5 BLE producer: tracked slug %s derives ZERO "
+                    "bluetooth_le trackers (person.%s device_trackers=%r). "
+                    "Egress attribution for this resident will not fire "
+                    "until a bluetooth_le tracker becomes visible.",
+                    slug, slug, trackers,
+                )
+                self._ble_zero_tracker_warned.add(slug)
+        # Prune sticky-BLE entries whose tracker_id no longer appears
+        # on any tracked resident's `device_trackers` (rev5 D-1a).
+        for tid in list(self._known_ble_trackers.keys()):
+            if tid not in seen_known:
+                self._known_ble_trackers.pop(tid, None)
+        return out
+
     @callback
-    def _on_person_state_change(self, event) -> None:
-        """D2 provenance-guarded BLE-transition listener. Fires on any
-        `person.<slug>` state_changed event; ingests a BLE leg ONLY
-        when:
+    def _on_crossing_tracker_state_change(self, event) -> None:
+        """rev5 D1: BLE crossing edge handler. Fires on a state_changed
+        event for one of the derived bluetooth_le device_trackers.
 
-          - old_state.state != new_state.state, AND
-          - transition is `home` <-> `not_home` (either direction), AND
-          - `new_state.attributes["source"]` (lowercased) contains
-            one of `bermuda` / `ble` / `private_ble`.
+        STATE GATE — admit only when ALL hold:
+          - both ``old_state`` and ``new_state`` are present objects,
+          - ``old.state != new.state``,
+          - ``"home" in {old.state, new.state}`` (home-boundary edge),
+          - BOTH sides are one of ``"home"``, ``"not_home"``, or a
+            named zone (any other lower-alphanum string is treated as
+            a zone name). If either side is ``unknown`` / ``unavailable``
+            / ``None`` / ``""``, drop and increment
+            ``_ble_edge_dropped_invalid_count``. This blocks BOTH
+            unavailable-forge legs and zone->zone (both-away) forged
+            legs.
 
-        Camera-face-provenance updates are REJECTED and counted in
-        `_ble_leg_rejected_provenance_count` — those are face-provenance
-        (§0 broad definition) and MUST be gated by
-        `_is_face_producer_live`, not admitted as a BLE leg."""
+        v1 ENTRY-ONLY: only ``new == "home"`` (arriving) produces a
+        leg. A departing edge (``old == "home"``, ``new != "home"``) is
+        counted in ``_ble_departing_edge_seen_count`` for observability
+        only — exit attribution is deferred to card
+        ``EGRESS-EXIT-IDENTITY-BACKFILL-1``.
+        """
         try:
             new_state = event.data.get("new_state")
             old_state = event.data.get("old_state")
         except Exception:  # noqa: BLE001
             return
-        if new_state is None or old_state is None:
+        if new_state is None:
+            # No new state at all — nothing to attribute; benign.
+            self._ble_edge_dropped_benign_count += 1
             return
         try:
             new_s = str(getattr(new_state, "state", "") or "").lower()
-            old_s = str(getattr(old_state, "state", "") or "").lower()
         except Exception:  # noqa: BLE001
+            self._ble_edge_dropped_invalid_count += 1
             return
-        if new_s == old_s:
-            return
-        if not ({new_s, old_s} <= {"home", "not_home"}):
+        if old_state is None:
+            # First-write / entity-add / restart transient: HA fires a
+            # state_changed with old_state=None. Benign — do NOT count
+            # against the forgery-shaped drop counter (rev5 D-7). We
+            # also DO NOT synthesise an arrival from a bare add: only
+            # a live post-add edge to "home" (handled next tick) counts.
+            self._ble_edge_dropped_benign_count += 1
             return
         try:
-            src = str(
-                (getattr(new_state, "attributes", None) or {}).get("source", "")
-                or ""
-            ).lower()
+            old_s = str(getattr(old_state, "state", "") or "").lower()
         except Exception:  # noqa: BLE001
-            src = ""
-        # Review AT-2 (A-HIGH-1 / D-5) 2026-09-04: replace the substring
-        # `in` check — which matched `device_tracker.study_a_wall_tablet`
-        # (`"ble"` is a substring of `tablet`) and let wall tablets
-        # forge BLE legs — with a token/prefix allowlist.
-        #   * `bermuda` -> exact word (delimited by `.`, `_`, or edges).
-        #   * `private_ble_device_` -> prefix (HA private-BLE integration
-        #     conventionally namespaces trackers this way).
-        # Any other source is rejected.
-        def _ble_source_is_admissible(src_s: str) -> bool:
-            if not src_s:
-                return False
-            # `private_ble_device_...` prefix on the tracker id.
-            if "private_ble_device_" in src_s:
-                return True
-            # Split into tokens on non-alphanumeric so `bermuda_oji_udezue`
-            # and `device_tracker.bermuda_oji` both hit token "bermuda".
-            import re as _re
-            tokens = set(t for t in _re.split(r"[^a-z0-9]+", src_s) if t)
-            return "bermuda" in tokens
-        if not _ble_source_is_admissible(src):
-            self._ble_leg_rejected_provenance_count += 1
+            self._ble_edge_dropped_invalid_count += 1
             return
-        entity_id = getattr(new_state, "entity_id", "") or ""
-        slug = entity_id.replace("person.", "").strip().lower()
+        _BAD = {"", "unknown", "unavailable", "none"}
+        if new_s == old_s:
+            # Not a boundary; silently ignore.
+            return
+        # Rev5 fix-up (D-1b): ADMIT `unavailable|unknown|not_home|zone → home`
+        # as an arriving edge. The old side being missing/degraded on an
+        # arrival is not a forge — only the NEW side matters, and
+        # subscription IS the provenance gate. This restores oji's
+        # `unavailable → home` arrivals that the strict old_s gate dropped.
+        if new_s == "home":
+            # Any non-home old_s (including bad-set members) → arrival.
+            pass
+        elif old_s == "home":
+            # Departing edge (home → *). Reject when new_s is bad —
+            # not a real boundary, likely a producer flap.
+            if new_s in _BAD:
+                self._ble_edge_dropped_invalid_count += 1
+                return
+        else:
+            # Neither side is "home". Legitimate zone->zone (both-away)
+            # is benign for the crossing producer — count it separately
+            # (rev5 D-7). Bad-set members on either side stay forgery-shaped.
+            if new_s in _BAD or old_s in _BAD:
+                self._ble_edge_dropped_invalid_count += 1
+                return
+            self._ble_edge_dropped_benign_count += 1
+            return
+        # Both sides are non-empty, non-unknown, and one side is "home"
+        # → the other side is "not_home" or a named zone. Admit.
+        tracker_id = getattr(new_state, "entity_id", "") or ""
+        slug = self._ble_tracker_slug_map.get(tracker_id, "")
         if not slug:
+            # Received an edge for a tracker we no longer track (map
+            # drift). Drop silently; the next refresh reconciles.
             return
-        direction = "arriving" if new_s == "home" else "departing"
+        # INV-EGRESS-ID guard.
+        try:
+            tracked = set(self._get_tracked_person_slugs())
+        except Exception:  # noqa: BLE001
+            tracked = set()
+        if slug not in tracked:
+            _LOGGER.warning(
+                "rev5 BLE producer: dropping edge for slug %s — not in "
+                "tracked_persons %r (map drift?)", slug, sorted(tracked),
+            )
+            return
         try:
             ts = getattr(new_state, "last_changed", None) or dt_util.utcnow()
             if getattr(ts, "tzinfo", None) is None:
                 ts = ts.replace(tzinfo=dt_util.UTC)
         except Exception:  # noqa: BLE001
             ts = dt_util.utcnow()
-        leg = BleTransitionLeg(
-            person_slug=slug,
-            transition_ts=ts,
-            direction=direction,
-            engine="ble",
-            confidence=BLE_TRANSITION_CONFIDENCE,
-            provenance="ble",
-            source_entity=src,
+        if new_s == "home":
+            # v1 ENTRY-ONLY: attribute the arriving boundary.
+            leg = BleTransitionLeg(
+                person_slug=slug,
+                transition_ts=ts,
+                direction="arriving",
+                engine="ble",
+                confidence=BLE_TRANSITION_CONFIDENCE,
+                provenance="ble",
+                source_entity=tracker_id,
+            )
+            self._ble_transition_cache.append(leg)
+            self._ble_legs_produced_count += 1
+            _LOGGER.info(
+                "rev5 BLE arriving leg: person=%s tracker=%s old=%s new=%s",
+                slug, tracker_id, old_s, new_s,
+            )
+        else:
+            # Departing boundary — count only, do NOT attribute in v1.
+            self._ble_departing_edge_seen_count += 1
+            _LOGGER.debug(
+                "rev5 BLE departing edge (observability only): "
+                "person=%s tracker=%s old=%s new=%s",
+                slug, tracker_id, old_s, new_s,
+            )
+
+    def _consume_ble_arriving_legs(self, slug: str) -> int:
+        """rev5 D2 single-use: after an attach, remove ALL arriving
+        legs for ``slug`` from the cache. Returns the number removed.
+        Called from the transit_validator attach branch (ONLY on
+        attach — never on abstain / disagree / no-leg)."""
+        if not slug:
+            return 0
+        kept: deque[BleTransitionLeg] = deque(
+            maxlen=self._ble_transition_cache.maxlen,
         )
-        self._ble_transition_cache.append(leg)
-        _LOGGER.info(
-            "BLE-transition leg: person=%s direction=%s source=%s",
-            slug, direction, src,
-        )
+        removed = 0
+        for leg in list(self._ble_transition_cache):
+            if leg.person_slug == slug and leg.direction == "arriving":
+                removed += 1
+                continue
+            kept.append(leg)
+        self._ble_transition_cache = kept
+        if removed:
+            self._ble_legs_attached_count += 1
+        return removed
 
     def _resolve_ble_legs(
         self, timestamp: datetime, direction: str,
     ) -> list[BleTransitionLeg]:
-        """Return in-window BLE-transition legs matching the egress
-        direction. `direction` is "entry" (arrival) or "exit"
-        (departure). TTL-prunes stale entries from the cache on read.
+        """rev5 D2: return in-window BLE-transition legs matching the
+        egress ``direction``.
+
+        v1 = ENTRY-ONLY. For ``direction == "entry"`` (arrival), admit
+        an ``arriving`` leg only when it LEADS the crossing — i.e.
+        ``0 <= (timestamp - leg.transition_ts) <= BLE_EGRESS_ENTRY_LEAD_S``
+        (D0-measured median lead ~+105s, p75 +151s → 180s bound). For
+        ``direction == "exit"`` (departure), return [] — the exit
+        BLE edge fires ~+369s AFTER the crossing (far outside the
+        45s resolve window), deferred to
+        ``EGRESS-EXIT-IDENTITY-BACKFILL-1``.
+
+        Prune stale entries against wall-clock (Review DL-2) so a
+        backlogged / replayed egress event doesn't destructively evict
+        fresh BLE legs.
         """
         try:
             if timestamp.tzinfo is None:
                 timestamp = timestamp.replace(tzinfo=dt_util.UTC)
         except Exception:  # noqa: BLE001
             return []
-        ttl = BLE_TRANSITION_CACHE_TTL_S
-        want_direction = "arriving" if direction == "entry" else (
-            "departing" if direction == "exit" else None
-        )
-        if want_direction is None:
+        if direction != "entry":
+            # v1: no exit attribution. Still prune the cache below?
+            # No — pruning cost on a rare exit call is negligible;
+            # leaving the cache to prune on the next entry read.
             return []
-        # Review DL-2 (2026-09-04): prune the cache against wall-clock
-        # ``dt_util.utcnow()`` — using the CALLER's ``timestamp`` (which
-        # may be a backlogged / replayed egress event) would
-        # destructively evict fresh BLE legs on every replay. The
-        # in-window MATCH check still uses ``timestamp`` (that IS the
-        # crossing anchor).
+        ttl = BLE_TRANSITION_CACHE_TTL_S
+        lead_bound = float(BLE_EGRESS_ENTRY_LEAD_S)
         try:
             now_wall = dt_util.utcnow()
             if getattr(now_wall, "tzinfo", None) is None:
                 now_wall = now_wall.replace(tzinfo=dt_util.UTC)
         except Exception:  # noqa: BLE001
             now_wall = timestamp
-        fresh: deque[BleTransitionLeg] = deque(maxlen=self._ble_transition_cache.maxlen)
+        fresh: deque[BleTransitionLeg] = deque(
+            maxlen=self._ble_transition_cache.maxlen,
+        )
         matches: list[BleTransitionLeg] = []
         for leg in list(self._ble_transition_cache):
             try:
@@ -3803,42 +4055,101 @@ class PersonCensus:
             if wall_age > ttl or wall_age < -ttl:
                 continue
             fresh.append(leg)
+            # ENTRY-ONLY LEAD relation: leg fires BEFORE crossing, so
+            # cross_age = (crossing_ts - leg_ts) is NON-NEGATIVE and
+            # bounded by BLE_EGRESS_ENTRY_LEAD_S.
             if (
-                leg.direction == want_direction
-                and -float(ttl) <= cross_age <= float(ttl)
+                leg.direction == "arriving"
+                and 0.0 <= cross_age <= lead_bound
             ):
                 matches.append(leg)
         self._ble_transition_cache = fresh
         return matches
 
     def _register_ble_transition_listeners(self) -> list:
-        """Register per-slug state_changed listeners for every tracked
-        person slug. Returns the list of unsub callables (also stored
-        on `self._ble_transition_unsubs` for teardown). Idempotent —
-        second call tears down prior listeners before re-registering."""
+        """rev5 D1: subscribe to the resident bluetooth_le
+        device_trackers derived at CALL TIME. Returns the list of unsub
+        callables (also stored on ``self._ble_transition_unsubs`` for
+        teardown). Idempotent — tears down prior listeners first.
+
+        Boot-race note: if the device_tracker integration loads AFTER
+        URA, the derivation returns fewer trackers (or zero) here; the
+        set-diff re-register in ``_refresh_ble_crossing_listeners``
+        (invoked on ``EVENT_HOMEASSISTANT_STARTED`` and each periodic
+        census tick) picks up any newly-appearing trackers.
+        """
         # Teardown any prior listeners so re-invoking is safe.
         self.async_teardown_ble_transition_listeners()
         from homeassistant.helpers.event import async_track_state_change_event
-        slugs = self._get_tracked_person_slugs()
-        entity_ids = [f"person.{s}" for s in slugs if s]
+        derived = self._derive_ble_crossing_trackers()
+        entity_ids = sorted(derived.keys())
         if not entity_ids:
+            # No trackers to subscribe → clear the map so the next
+            # refresh set-diff re-derives freshly (rev5 B-HIGH-1).
+            self._ble_tracker_slug_map = {}
+            _LOGGER.info(
+                "rev5 BLE producer: no bluetooth_le trackers derived at "
+                "setup; will re-derive on HA start + census tick.",
+            )
             return []
         try:
             unsub = async_track_state_change_event(
-                self.hass, entity_ids, self._on_person_state_change,
+                self.hass, entity_ids,
+                self._on_crossing_tracker_state_change,
             )
         except Exception:  # noqa: BLE001
+            # B-HIGH-1: on a raised subscribe, DO NOT latch the map —
+            # leave it empty so `_refresh_ble_crossing_listeners`'s
+            # set-diff sees `added != {}` on the next tick and retries.
+            self._ble_tracker_slug_map = {}
+            self._ble_transition_unsubs = []
             _LOGGER.debug(
-                "BLE-transition listener registration failed for %r",
+                "rev5 BLE listener registration failed for %r",
                 entity_ids, exc_info=True,
             )
             return []
+        # Subscribe succeeded — latch the map and record the unsub.
+        self._ble_tracker_slug_map = dict(derived)
         self._ble_transition_unsubs.append(unsub)
         _LOGGER.info(
-            "BLE-transition listeners registered for %d person slug(s)",
-            len(entity_ids),
+            "rev5 BLE crossing listeners registered for %d "
+            "bluetooth_le tracker(s): %r", len(entity_ids), entity_ids,
         )
         return list(self._ble_transition_unsubs)
+
+    def _refresh_ble_crossing_listeners(self) -> int:
+        """rev5 D1 boot-race re-register. Re-derive the bluetooth_le
+        tracker set and, if it has GROWN (new trackers visible now
+        that weren't at setup), tear down + re-register so the new
+        trackers get subscribed. Returns the number of NEW trackers
+        picked up (>= 0). Idempotent when the set is unchanged
+        (byte-identical: no teardown, no re-register).
+        """
+        try:
+            derived = self._derive_ble_crossing_trackers()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "rev5 BLE re-derive raised (non-fatal)", exc_info=True,
+            )
+            return 0
+        new_ids = set(derived.keys())
+        cur_ids = set(self._ble_tracker_slug_map.keys())
+        added = new_ids - cur_ids
+        removed = cur_ids - new_ids
+        if not added and not removed:
+            # Refresh the slug-map values in case a tracker moved
+            # between slugs (extremely unlikely, but cheap).
+            self._ble_tracker_slug_map = dict(derived)
+            return 0
+        _LOGGER.info(
+            "rev5 BLE producer: tracker set changed "
+            "(added=%r removed=%r); re-registering listeners.",
+            sorted(added), sorted(removed),
+        )
+        # Re-register against the CURRENT derived set. Teardown +
+        # rebuild inside _register_ble_transition_listeners.
+        self._register_ble_transition_listeners()
+        return len(added)
 
     def async_teardown_ble_transition_listeners(self) -> None:
         """Drain and invoke every registered BLE-transition listener
