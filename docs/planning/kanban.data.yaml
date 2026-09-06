@@ -430,6 +430,54 @@ cards:
   refs: ['config_flow.py / options_flow.py (CM options steps)', 'operator screenshots 2026-09-06', 'project_sequence_wishes_2026_09_05 (step 5)']
   sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
 
+- id: URA-INTEGRATION-ARRANGEMENT-1
+  title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
+  thread: device-tree
+  status: pre_planning
+  created: 2026-09-06 17:30
+  updated: 2026-09-06 17:30
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-06 — step 5 of the sequence; laid out the 4 problems + target operator representation, iterating to clarity'
+  tags: [device-tree, registry, config-flow, performance, integration-arrangement, umbrella]
+  problem_solution:
+  - 'Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user
+     sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and
+     Coordinators each have a parent grouping node. (2) INTERNAL REGISTRY REPRESENTATION — config-entry
+     ownership / identifiers need cleanup (same-identifier hazards per DEVICE_TREE). (3) PERFORMANCE — House
+     device changes cause outages from some load/cascade (a reload cascade -> event-loop stall -> watchdog
+     restart, ~5min). (4) The ZONE menu config/reconfig is non-standard (a dropdown) relative to the House,
+     CM, and Room menus — needs harmonizing. Solution: rework the device representation to the target tree
+     below, clean the registry ownership, fix the reload-cascade perf, and harmonize the menus.'
+  target_operator_representation: |
+    House
+     |- Rooms          (NEW actual node — a parent the rooms roll up under. TODAY there is NO such node;
+     |                  rooms hang directly off House and look independent. Menu: Add room, Reload.)
+     |   |- Room 1      (nested: House > Rooms > Room 1)
+     |   |- Room 2
+     |   |- Room n
+     |- Zones          (has a node today; Reload loads all zones. Menu is a DROPDOWN -> harmonize with others.)
+     |   |- Zone 1
+     |   |- Zone n
+     |- Coordinators   (CM device today; Reload loads all.)
+         |- Coordinator 1
+         |- Coordinator n
+  why: 'The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is
+    confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.'
+  constraints:
+  - 'DEVICE_TREE.md is canonical: config-entry OWNERSHIP vs via_device NESTING are independent axes; a "Rooms"
+    grouping node is a via_device change (+ a node needing an owner entry), not an ownership change. HA 2026.9
+    requires imperative dr.async_update_device(via_device_id=...).'
+  - 'High blast radius (device-registry surgery); read DEVICE_TREE + the defrag postmortem; Tier-3.'
+  parked_alts: []
+  refinement:
+  - 'operator laid out the target tree + 4 problems 2026-09-06; iterating to clarity before planning (the Rooms parent node is the biggest new element).'
+  knobs: []
+  parsimony: {problem: 'device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu', verdict: BUILD}
+  next: 'Excavation research in flight (device-representation agent). Then iterate the target tree to clarity with the operator, fold in the child cards, write a Tier-3 plan (prior-art scan), plan-review x2, then build.'
+  child_cards: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, CM-CONFIG-FLOW-UX-1]
+  refs: ['docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', '_devices.py', 'config_flow.py/options_flow.py', 'memory parent_entry_reload_watchdog_hazard', 'memory reload_suppression_cycle']
+
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree

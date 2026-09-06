@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T15:58:55-05:00_ - _Data commit: `da2b049875c6`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T16:28:20-05:00_ - _Data commit: `47d057aee6ce`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,11 +13,11 @@ _Generated: 2026-09-06T15:58:55-05:00_ - _Data commit: `da2b049875c6`_ - _last_r
 |---|---:|
 | 📥 Inbox | 31 |
 | 🔬 Investigating | 8 |
-| 🧭 Pre-planning | 13 |
-| 📝 Planned | 11 |
+| 🧭 Pre-planning | 14 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 63 |
+| 🚀 Shipped (organic open) | 64 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
@@ -484,8 +484,22 @@ _created 2026-08-25 22:20 · initial_
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
+
+### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
+thread: **device-tree** - status: **pre_planning** - approval: **explicit**
+_created 2026-09-06 17:30 · initial_
+- **Problem / Solution:**
+  - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
+- **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
+- **Next:** Excavation research in flight (device-representation agent). Then iterate the target tree to clarity with the operator, fold in the child cards, write a Tier-3 plan (prior-art scan), plan-review x2, then build.
+- **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
+- **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
+- **Refs:** docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard; memory reload_suppression_cycle
+- **Forensic keys (2):**
+  - `target_operator_representation`: House
+  - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -639,7 +653,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (11)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
@@ -679,21 +693,6 @@ _created 2026-09-05 17:05 · initial_
 - **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
-
-### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-06 15:45 · initial_
-- **Problem / Solution:**
-  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
-- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
-- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
-- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
-- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
-- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
-- **Forensic keys (1):**
-  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -843,7 +842,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (63)
+## 🚀 Shipped (organic open) (64)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -942,6 +941,21 @@ _created 2026-09-05 22:20 · initial_
 - **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
 - **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
 - **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
+
+### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-06 15:45 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
+- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
+- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
+- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
+- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
+- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
+- **Forensic keys (1):**
+  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
 
 ### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
 thread: **identity** - status: **shipped_organic** - approval: **explicit**
