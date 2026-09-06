@@ -3828,6 +3828,18 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["ble_exit_ambiguity_abstain_count"] = int(
                         getattr(census, "_ble_exit_ambiguity_abstain_count", 0) or 0
                     )
+                    # Fix-up (2026-09-05) — additional counters for the
+                    # exclusive-attribution guards (flap, contended
+                    # DAO, multi-tracker cooldown skip).
+                    attrs["ble_exit_flap_aborted_count"] = int(
+                        getattr(census, "_ble_exit_flap_aborted_count", 0) or 0
+                    )
+                    attrs["ble_exit_backfill_noop_count"] = int(
+                        getattr(census, "_ble_exit_backfill_noop_count", 0) or 0
+                    )
+                    attrs["ble_exit_per_slug_cooldown_skipped_count"] = int(
+                        getattr(census, "_ble_exit_per_slug_cooldown_skipped_count", 0) or 0
+                    )
                     attrs["ble_crossing_trackers_derived"] = sorted(
                         (getattr(census, "_ble_tracker_slug_map", {}) or {}).keys()
                     )

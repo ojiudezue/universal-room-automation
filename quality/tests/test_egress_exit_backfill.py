@@ -149,11 +149,13 @@ class _StubDatabase:
         return [(r["id"], r["timestamp"], r["egress_camera"]) for r in matches]
 
     async def backfill_entry_exit_person_id(self, row_id: int, person_id: str, confidence: float) -> bool:
+        # Fix-up (2026-09-05): DAO writes person_id ONLY; the
+        # `confidence` column carries the CROSSING confidence written
+        # at INSERT time and must NOT be overwritten. Stub mirrors.
         self.backfill_calls.append((row_id, person_id, confidence))
         for r in self.rows:
             if r["id"] == row_id and r["person_id"] is None:
                 r["person_id"] = person_id
-                r["confidence"] = confidence
                 return True
         return False
 
@@ -216,7 +218,9 @@ def test_exit_backfill_utc_naive_bound_matches_insert_shape():
     t_edge = (t_crossing_aware + timedelta(seconds=369)).astimezone(non_utc)
     _run(census._backfill_exit_identity("oji_udezue", t_edge))
     assert db.rows[0]["person_id"] == "oji_udezue"
-    assert db.rows[0]["confidence"] == float(ura_const.BLE_TRANSITION_ONLY_CONFIDENCE)
+    # Crossing confidence (written at INSERT) MUST be preserved — the
+    # identity attach does not clobber it (fix-up 2026-09-05).
+    assert db.rows[0]["confidence"] == 0.0
     assert census._ble_exit_backfilled_count == 1
     assert db.backfill_calls == [(row_id, "oji_udezue", float(ura_const.BLE_TRANSITION_ONLY_CONFIDENCE))]
 
@@ -297,19 +301,47 @@ def test_exit_backfill_second_edge_does_not_rewrite_named_row():
 # ---------------------------------------------------------------------------
 
 
-def test_exit_backfill_abstains_when_zero_tracker_slug_present():
+def test_exit_backfill_abstains_when_multiple_candidate_rows():
+    """Fix-up (2026-09-05): two null-exit rows in the window → cannot
+    exclusively attribute one to this slug. Both stay NULL, DAO
+    UPDATE is never called. Mutation anchor: the `if len(rows) > 1`
+    abstain in `_backfill_exit_identity`.
+    """
     census, _, db = _make_census()
-    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=300)
+    t_crossing_a = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=300)
+    t_crossing_b = t_crossing_a - timedelta(seconds=60)
+    db.add_null_exit(_naive_utc(t_crossing_a))
+    db.add_null_exit(_naive_utc(t_crossing_b))
+    t_edge = t_crossing_a + timedelta(seconds=100)
+    _run(census._backfill_exit_identity("oji_udezue", t_edge))
+    assert db.rows[0]["person_id"] is None
+    assert db.rows[1]["person_id"] is None
+    assert census._ble_exit_backfilled_count == 0
+    assert census._ble_exit_ambiguity_abstain_count == 1
+    assert db.backfill_calls == []
+
+
+def test_exit_backfill_abstains_on_competing_departing_edge():
+    """Fix-up (2026-09-05): a DIFFERENT resident's departing edge in
+    the recent-edges deque within the window → abstain (cannot say
+    which of the two co-departers owns the single row). Mutation
+    anchor: the competing-edge scan over
+    `_ble_exit_recent_departing_edges` in `_backfill_exit_identity`.
+    """
+    census, _, db = _make_census()
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
     db.add_null_exit(_naive_utc(t_crossing))
-    # Simulate: a tracked resident derived ZERO bluetooth_le trackers
-    # this pass -> ambiguity guard must fire.
-    census._ble_zero_tracker_slugs = {"ezinne_udezue"}
-    t_edge = t_crossing + timedelta(seconds=300)
+    t_edge = t_crossing + timedelta(seconds=200)
+    # Simulate: the other resident just fired a departing edge too.
+    other_naive = _naive_utc(t_edge - timedelta(seconds=30))
+    census._ble_exit_recent_departing_edges.append(
+        ("ezinne_udezue", other_naive)
+    )
     _run(census._backfill_exit_identity("oji_udezue", t_edge))
     assert db.rows[0]["person_id"] is None
     assert census._ble_exit_backfilled_count == 0
     assert census._ble_exit_ambiguity_abstain_count == 1
-    assert db.backfill_calls == []  # DAO never called
+    assert db.backfill_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +367,13 @@ def test_exit_backfill_home_to_named_zone_is_eligible():
     # In the harness `hass.async_create_task` is a MagicMock; make it
     # actually schedule the coroutine so we can await it.
     hass.async_create_task = lambda coro: _asyncio.get_event_loop().create_task(coro)
+    # Fix-up (2026-09-05) — bypass the settle sleep + configure the
+    # live re-read to see the tracker still in a non-home state so the
+    # flap guard does not abort.
+    census._exit_settle_s = 0
+    _live = MagicMock()
+    _live.state = "work"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
 
     # Build a home->work state_changed event.
     t_edge_aware = t_crossing + timedelta(seconds=200)
@@ -399,6 +438,10 @@ def test_exit_backfill_task_is_tracked_and_teardown_cancels():
     tracker_id = "device_tracker.oji_ble"
     census._ble_tracker_slug_map = {tracker_id: "oji_udezue"}
     census._get_tracked_person_slugs = lambda: ["oji_udezue"]
+    census._exit_settle_s = 0
+    _live = MagicMock()
+    _live.state = "not_home"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
 
     async def _scenario():
         loop = _asyncio.get_event_loop()
@@ -427,9 +470,11 @@ def test_exit_backfill_task_is_tracked_and_teardown_cancels():
         (tracked_task,) = tuple(census._backfill_tasks)
         assert not tracked_task.done()
 
-        # Now tear down.
-        census.async_teardown_ble_transition_listeners()
-        # ANCHOR: teardown must cancel and drain.
+        # Fix-up (2026-09-05): cancellation lives on the entry-unload
+        # path (`async_cancel_pending_backfill_tasks`), NOT on the
+        # listener teardown (which runs on every refresh).
+        census.async_cancel_pending_backfill_tasks()
+        # ANCHOR: cancel must cancel and drain.
         try:
             await _asyncio.wait_for(tracked_task, timeout=1.0)
         except (_asyncio.CancelledError, _asyncio.TimeoutError):
@@ -438,4 +483,140 @@ def test_exit_backfill_task_is_tracked_and_teardown_cancels():
         # Release the sentinel so any latecomers unblock cleanly.
         forever.set()
 
+    _run(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# Anchor 8 — flap abort on settle re-read (fix-up 2026-09-05)
+# ---------------------------------------------------------------------------
+
+
+def test_exit_backfill_flap_home_within_settle_aborts():
+    """A tracker flaps home->not_home but has already returned to home
+    by the time the settle sleep expires. The backfill MUST abort —
+    this is not a real departure. Mutation anchor: the live-state
+    re-read gate in `_backfill_exit_identity` (removing the abort
+    lets a flap name a co-departer's exit row).
+    """
+    census, hass, db = _make_census()
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    tracker_id = "device_tracker.oji_ble"
+    census._exit_settle_s = 0  # zero settle for test speed
+    # Live state has returned home — flap.
+    _live = MagicMock()
+    _live.state = "home"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
+    t_edge = t_crossing + timedelta(seconds=200)
+    _run(census._backfill_exit_identity("oji_udezue", t_edge, tracker_id))
+    assert db.rows[0]["person_id"] is None
+    assert census._ble_exit_backfilled_count == 0
+    assert census._ble_exit_flap_aborted_count == 1
+    assert db.backfill_calls == []  # DAO never called
+
+
+# ---------------------------------------------------------------------------
+# Anchor 9 — per-slug cooldown suppresses multi-tracker duplicate edge
+# ---------------------------------------------------------------------------
+
+
+def test_exit_backfill_per_slug_cooldown_suppresses_duplicate_edge():
+    """A resident with two BLE trackers (phone + watch) will fire TWO
+    departing edges from the same physical departure. Only the FIRST
+    reaches the DAO — the second is cooldown-skipped. Mutation anchor:
+    the `_ble_exit_last_edge_by_slug` check in the departing branch.
+    """
+    census, hass, _ = _make_census()
+    tracker_a = "device_tracker.oji_phone_ble"
+    tracker_b = "device_tracker.oji_watch_ble"
+    census._ble_tracker_slug_map = {
+        tracker_a: "oji_udezue", tracker_b: "oji_udezue",
+    }
+    census._get_tracked_person_slugs = lambda: ["oji_udezue"]
+    # Do NOT actually run the backfill task — just verify scheduling.
+    scheduled: list = []
+    hass.async_create_task = lambda coro: scheduled.append(coro) or coro.close()
+
+    def _ev(tracker, offset_s):
+        t = datetime.now(UTC).replace(microsecond=0) + timedelta(seconds=offset_s)
+        ns = MagicMock(); ns.state = "not_home"; ns.last_changed = t
+        ns.entity_id = tracker; ns.attributes = {}
+        os = MagicMock(); os.state = "home"; os.last_changed = t - timedelta(seconds=60)
+        os.entity_id = tracker; os.attributes = {}
+        ev = MagicMock(); ev.data = {"new_state": ns, "old_state": os}
+        return ev
+
+    census._on_crossing_tracker_state_change(_ev(tracker_a, 0))
+    census._on_crossing_tracker_state_change(_ev(tracker_b, 5))
+    assert len(scheduled) == 1  # only the first edge scheduled
+    assert census._ble_exit_per_slug_cooldown_skipped_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Anchor 10 — listener refresh MUST NOT cancel pending tasks
+# ---------------------------------------------------------------------------
+
+
+def test_teardown_ble_listeners_does_not_cancel_pending_backfill():
+    """`async_teardown_ble_transition_listeners()` runs on every
+    listener re-register. It MUST NOT touch `_backfill_tasks` — that
+    would abort in-flight settle sleeps. Only the entry-unload path
+    (`async_cancel_pending_backfill_tasks`) cancels. Mutation anchor:
+    moving the cancel block back into the teardown method would fail
+    this test.
+    """
+    census, _, _ = _make_census()
+
+    async def _forever():
+        await _asyncio.Event().wait()
+
+    async def _run_it():
+        loop = _asyncio.get_event_loop()
+        task = loop.create_task(_forever())
+        census._backfill_tasks.add(task)
+        # Refresh — must NOT cancel.
+        census.async_teardown_ble_transition_listeners()
+        await _asyncio.sleep(0)
+        assert not task.done()
+        assert task in census._backfill_tasks
+        # Now explicit cancel path.
+        census.async_cancel_pending_backfill_tasks()
+        try:
+            await _asyncio.wait_for(task, timeout=1.0)
+        except (_asyncio.CancelledError, _asyncio.TimeoutError):
+            pass
+        assert task.cancelled() or task.done()
+        assert not census._backfill_tasks
+
+    _run(_run_it())
+
+
+# ---------------------------------------------------------------------------
+# Anchor 11 — DAO backfill does NOT clobber the crossing confidence
+# ---------------------------------------------------------------------------
+
+
+def test_dao_backfill_preserves_confidence_column():
+    """Fix-up (2026-09-05): the `confidence` column on the exit row
+    carries CROSSING confidence written at INSERT. The identity-
+    attach must NOT overwrite it. Mutation anchor: adding
+    `confidence = ?` back to the UPDATE would fail this test.
+    """
+    async def _scenario():
+        dao = _RealDaoHarness()
+        await dao.open()
+        t_hi = datetime.now(UTC).replace(microsecond=0, tzinfo=None)
+        row_id = await dao.insert_null_exit((t_hi - timedelta(seconds=100)).isoformat())
+        # Pre-set the crossing confidence to a distinctive value.
+        await dao._conn.execute(
+            "UPDATE person_entry_exit_events SET confidence = 0.91 WHERE id = ?",
+            (row_id,),
+        )
+        await dao._conn.commit()
+        ok = await dao.backfill_entry_exit_person_id(row_id, "oji_udezue", 0.72)
+        assert ok is True
+        r = await dao.fetch(row_id)
+        assert r[2] == "oji_udezue"
+        # Confidence UNCHANGED (would be 0.72 under the pre-fix UPDATE).
+        assert abs(float(r[3]) - 0.91) < 1e-9
     _run(_scenario())

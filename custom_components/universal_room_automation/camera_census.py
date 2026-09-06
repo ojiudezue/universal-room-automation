@@ -83,6 +83,8 @@ from .const import (
     # imported here (Review A-LOW-3).
     BLE_EGRESS_ENTRY_LEAD_S,
     BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
+    BLE_EXIT_DEPARTURE_SETTLE_S,
+    BLE_EXIT_PER_SLUG_COOLDOWN_S,
     BLE_TRANSITION_ONLY_CONFIDENCE,
     BLE_TRANSITION_CACHE_TTL_S,
     BLE_TRANSITION_CONFIDENCE,
@@ -1330,12 +1332,38 @@ class PersonCensus:
         self._ble_zero_tracker_slugs: set[str] = set()
         # EGRESS-EXIT-IDENTITY-BACKFILL-1 — tracked async backfill
         # tasks scheduled from the (sync) departing-edge callback.
-        # Cancelled in `async_teardown_ble_transition_listeners`.
+        # Cancelled in `async_cancel_pending_backfill_tasks` (invoked
+        # from the entry-unload path ONLY — NOT from listener refresh /
+        # teardown, which would kill in-flight settle sleeps mid-flap
+        # remediation).
         self._backfill_tasks: set[asyncio.Task] = set()
         # EGRESS-EXIT-IDENTITY-BACKFILL-1 — D3 observability counters.
         self._ble_exit_backfilled_count: int = 0
         self._ble_exit_edge_no_match_count: int = 0
         self._ble_exit_ambiguity_abstain_count: int = 0
+        # Fix-up (2026-09-05) — additional exclusive-attribution guards.
+        # Incremented when a settle re-read finds the tracker back in a
+        # home state (flap, not real departure).
+        self._ble_exit_flap_aborted_count: int = 0
+        # Incremented when the DAO returns False (contended: row already
+        # named by a concurrent write). Keeps counter sum reconcilable
+        # against edges-reaching-DAO.
+        self._ble_exit_backfill_noop_count: int = 0
+        # Incremented when the same slug's cooldown suppresses a
+        # duplicate departing edge (multi-tracker resident: phone +
+        # watch fire two edges from one physical departure).
+        self._ble_exit_per_slug_cooldown_skipped_count: int = 0
+        # Recent departing edges as (slug, t_edge_naive_utc). Used to
+        # detect competing-edge ambiguity (a different resident also
+        # departing inside the same window → cannot exclusively
+        # attribute the single null row). Pruned lazily.
+        self._ble_exit_recent_departing_edges: deque[
+            tuple[str, datetime]
+        ] = deque()
+        # Per-slug cooldown timestamps (naive-UTC) — set when a slug
+        # processes a departing edge (backfill OR abstain), read on
+        # subsequent same-slug edges.
+        self._ble_exit_last_edge_by_slug: dict[str, datetime] = {}
         # Rev5 fix-up (D-1a): sticky classification. Once a tracker in
         # a resident's `device_trackers` has been observed with
         # `source_type == "bluetooth_le"` while available, keep it in
@@ -4006,9 +4034,46 @@ class PersonCensus:
                 "rev5 BLE departing edge: person=%s tracker=%s old=%s new=%s",
                 slug, tracker_id, old_s, new_s,
             )
+            # naive-UTC form for cooldown + competing-edge bookkeeping.
+            try:
+                t_edge_naive = ts.astimezone(timezone.utc).replace(
+                    tzinfo=None
+                )
+            except Exception:  # noqa: BLE001
+                t_edge_naive = ts.replace(tzinfo=None) if getattr(
+                    ts, "tzinfo", None
+                ) else ts
+            # Per-slug cooldown (fix-up: multi-tracker dedup). A phone +
+            # watch on the same person will fire two edges from one
+            # physical departure; only the FIRST reaches the DAO.
+            cooldown_win = timedelta(seconds=BLE_EXIT_PER_SLUG_COOLDOWN_S)
+            last_edge = self._ble_exit_last_edge_by_slug.get(slug)
+            if last_edge is not None and (
+                t_edge_naive - last_edge
+            ) < cooldown_win:
+                self._ble_exit_per_slug_cooldown_skipped_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: cooldown-skip slug=%s last=%s new=%s",
+                    slug, last_edge.isoformat(), t_edge_naive.isoformat(),
+                )
+                return
+            self._ble_exit_last_edge_by_slug[slug] = t_edge_naive
+            # Push + prune the recent-edges deque used by competing-edge
+            # detection inside _backfill_exit_identity.
+            self._ble_exit_recent_departing_edges.append(
+                (slug, t_edge_naive)
+            )
+            prune_cutoff = t_edge_naive - timedelta(
+                seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+            )
+            while (
+                self._ble_exit_recent_departing_edges
+                and self._ble_exit_recent_departing_edges[0][1] < prune_cutoff
+            ):
+                self._ble_exit_recent_departing_edges.popleft()
             try:
                 task = self.hass.async_create_task(
-                    self._backfill_exit_identity(slug, ts)
+                    self._backfill_exit_identity(slug, ts, tracker_id)
                 )
                 self._backfill_tasks.add(task)
                 task.add_done_callback(self._backfill_tasks.discard)
@@ -4018,9 +4083,24 @@ class PersonCensus:
                     slug, exc_info=True,
                 )
 
-    async def _backfill_exit_identity(self, slug: str, t_edge) -> None:
+    async def _backfill_exit_identity(
+        self, slug: str, t_edge, tracker_id: str | None = None,
+    ) -> None:
         """EGRESS-EXIT-IDENTITY-BACKFILL-1 — attribute a `slug` to the
-        nearest in-window null-`person_id` exit crossing.
+        nearest in-window null-`person_id` exit crossing, but ONLY when
+        the attribution is unambiguous. Operator directive
+        (2026-09-05): accuracy over coverage — "leave null is ok".
+
+        Fix-up ambiguity gates (all abstain-to-null, never guess):
+          - Settle re-read: sleep BLE_EXIT_DEPARTURE_SETTLE_S and confirm
+            the tracker is still in a non-home state before touching
+            the DAO. A flap that reverts inside settle aborts.
+          - >1 candidate rows in window: abstain (co-departures stay
+            null; we cannot exclusively attribute one of two rows to
+            this slug).
+          - A DIFFERENT resident's departing edge inside the same
+            window: abstain (cannot say which of the two co-departers
+            owns the single row).
 
         TZ CONTRACT: the INSERT at database.py:3919 writes
         ``datetime.utcnow().isoformat()`` (NAIVE-UTC, no offset). We
@@ -4029,19 +4109,46 @@ class PersonCensus:
         """
         try:
             # tz-safe naive-UTC bounds (F2 in the plan).
-            try:
+            if getattr(t_edge, "tzinfo", None) is not None:
                 t_hi_dt = t_edge.astimezone(timezone.utc).replace(tzinfo=None)
-            except Exception:  # noqa: BLE001
-                # If `t_edge` is naive already, assume UTC (matches
-                # the sync callback path where dt_util.utcnow() feeds).
-                t_hi_dt = t_edge.replace(tzinfo=None) if getattr(
-                    t_edge, "tzinfo", None
-                ) else t_edge
+            else:
+                # naive already — assume UTC (matches the sync callback
+                # path where dt_util.utcnow() feeds).
+                t_hi_dt = t_edge
             t_lo_dt = t_hi_dt - timedelta(
                 seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
             )
             t_lo_iso = t_lo_dt.isoformat()
             t_hi_iso = t_hi_dt.isoformat()
+
+            # Settle re-read (flap guard). Skipped when tracker_id is
+            # not provided (direct-call test paths). Tests can shorten
+            # via `census._exit_settle_s = 0`.
+            settle_s = getattr(
+                self, "_exit_settle_s", BLE_EXIT_DEPARTURE_SETTLE_S,
+            )
+            if tracker_id and settle_s:
+                try:
+                    await asyncio.sleep(settle_s)
+                except asyncio.CancelledError:
+                    raise
+            if tracker_id:
+                try:
+                    live = self.hass.states.get(tracker_id)
+                    live_state = getattr(live, "state", None) if live else None
+                except Exception:  # noqa: BLE001 — defensive
+                    live_state = None
+                if live_state in ("home", None, "unknown", "unavailable"):
+                    # Not a durable departure: flap, or the tracker went
+                    # dark. Do NOT attribute.
+                    self._ble_exit_flap_aborted_count += 1
+                    _LOGGER.info(
+                        "exit-backfill: flap-abort slug=%s tracker=%s "
+                        "live_state=%r (settle=%ss)",
+                        slug, tracker_id, live_state, settle_s,
+                    )
+                    return
+
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
                 return
@@ -4057,15 +4164,28 @@ class PersonCensus:
             if not rows:
                 self._ble_exit_edge_no_match_count += 1
                 return
-            # Cross-resident guard (invariant e).
-            if self._ble_zero_tracker_slugs:
+            # Multiple candidate rows → cannot exclusively attribute.
+            if len(rows) > 1:
                 self._ble_exit_ambiguity_abstain_count += 1
-                _LOGGER.debug(
-                    "exit-backfill: abstain — BLE-invisible slugs present: %r",
-                    sorted(self._ble_zero_tracker_slugs),
+                _LOGGER.info(
+                    "exit-backfill: abstain slug=%s reason=multi-row "
+                    "count=%d bounds=%s..%s",
+                    slug, len(rows), t_lo_iso, t_hi_iso,
                 )
                 return
-            row_id = rows[0][0]
+            # Competing-edge check (different resident departing inside
+            # this same window). The current edge is expected in the
+            # deque; look for any OTHER slug.
+            for other_slug, _t_other in self._ble_exit_recent_departing_edges:
+                if other_slug != slug:
+                    self._ble_exit_ambiguity_abstain_count += 1
+                    _LOGGER.info(
+                        "exit-backfill: abstain slug=%s reason=competing-"
+                        "edge other=%s",
+                        slug, other_slug,
+                    )
+                    return
+            row_id, _row_ts, egress_camera = rows[0]
             try:
                 ok = await database.backfill_entry_exit_person_id(
                     row_id, slug, BLE_TRANSITION_ONLY_CONFIDENCE
@@ -4079,11 +4199,23 @@ class PersonCensus:
             if ok:
                 self._ble_exit_backfilled_count += 1
                 _LOGGER.info(
-                    "exit-backfill: row_id=%s <- person_id=%s "
+                    "exit-backfill: row_id=%s <- person_id=%s cam=%s "
                     "(window %ss, bounds %s..%s)",
-                    row_id, slug, BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
+                    row_id, slug, egress_camera,
+                    BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
                     t_lo_iso, t_hi_iso,
                 )
+            else:
+                # Contended: another writer named the row between our
+                # SELECT and UPDATE (or the row vanished). Not a bug —
+                # count so edges-reaching-DAO reconciles.
+                self._ble_exit_backfill_noop_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: noop row_id=%s slug=%s (already named)",
+                    row_id, slug,
+                )
+        except asyncio.CancelledError:
+            raise
         except Exception:  # noqa: BLE001 — defensive
             _LOGGER.debug(
                 "exit-backfill: unexpected failure for %s", slug, exc_info=True,
@@ -4272,8 +4404,19 @@ class PersonCensus:
                     exc_info=True,
                 )
         self._ble_transition_unsubs = []
-        # EGRESS-EXIT-IDENTITY-BACKFILL-1 — cancel any pending async
-        # backfill tasks scheduled from the departing-edge callback.
+        # NOTE: pending exit-backfill tasks are NOT cancelled here.
+        # This method runs on every refresh/re-register (see the
+        # `async_teardown_ble_transition_listeners()` call inside
+        # `_register_ble_transition_listeners`); cancelling here would
+        # abort any in-flight settle sleep every time the tracked-set
+        # is recomputed. Cancellation lives on the entry-unload path
+        # via `async_cancel_pending_backfill_tasks()` instead.
+
+    def async_cancel_pending_backfill_tasks(self) -> None:
+        """EGRESS-EXIT-IDENTITY-BACKFILL-1 fix-up (2026-09-05) —
+        cancel any pending exit-backfill tasks scheduled from the
+        departing-edge callback. Called from the entry-unload path
+        ONLY. Safe to call multiple times."""
         for task in list(self._backfill_tasks):
             try:
                 if not task.done():

@@ -3983,6 +3983,7 @@ class UniversalRoomDatabase:
                       AND timestamp > ?
                       AND timestamp <= ?
                     ORDER BY timestamp DESC, id DESC
+                    LIMIT 2
                     """,
                     (t_lo_iso, t_hi_iso),
                 )
@@ -4001,24 +4002,31 @@ class UniversalRoomDatabase:
         person_id: str,
         confidence: float,
     ) -> bool:
-        """Idempotent UPDATE: set ``person_id`` + ``confidence`` on
-        the row iff it is currently NULL. Returns True on a real
-        write (rowcount == 1), False on the no-op (already named,
-        or row missing).
+        """Idempotent UPDATE: set ``person_id`` on the row iff it is
+        currently NULL. Returns True on a real write (rowcount == 1),
+        False on the no-op (already named, or row missing).
 
         Uses the write queue via ``self._db()`` (same pattern as
         `update_transition_validation`). The ``AND person_id IS NULL``
         clause is the single-use / concurrent-double-fire guard.
+
+        Fix-up (2026-09-05): ``confidence`` on this row carries the
+        CROSSING/direction confidence written at INSERT time (see
+        transit_validator.py). We MUST NOT clobber it with the
+        identity-attach confidence; the caller keeps ``confidence`` in
+        the signature for logging / backward compatibility but the
+        UPDATE writes ``person_id`` only.
         """
+        _ = confidence  # intentionally unused — do NOT overwrite col
         try:
             async with self._db() as db:
                 cursor = await db.execute(
                     """
                     UPDATE person_entry_exit_events
-                    SET person_id = ?, confidence = ?
+                    SET person_id = ?
                     WHERE id = ? AND person_id IS NULL
                     """,
-                    (person_id, float(confidence), int(row_id)),
+                    (person_id, int(row_id)),
                 )
                 await db.commit()
                 changed = int(getattr(cursor, "rowcount", 0) or 0)
