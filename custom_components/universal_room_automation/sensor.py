@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.96.2
+# Universal Room Automation vv5.97.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3846,6 +3846,45 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["egress_identity_agreement_class_last"] = getattr(
                         census, "_egress_identity_agreement_class_last", None,
                     )
+                    # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D3:
+                    # Frigate face MQTT bridge observability.
+                    attrs["frigate_face_latch_size"] = len(
+                        getattr(census, "_frigate_face_latch", {}) or {}
+                    )
+                    attrs["frigate_face_msg_seen_count"] = int(
+                        getattr(census, "_frigate_face_msg_seen_count", 0) or 0
+                    )
+                    # D2-LOW-3: honest face-yield discriminator
+                    # (increments only for type=="face" MQTT payloads).
+                    attrs["frigate_face_msg_face_count"] = int(
+                        getattr(census, "_frigate_face_msg_face_count", 0) or 0
+                    )
+                    attrs["frigate_face_msg_dropped_count"] = int(
+                        getattr(census, "_frigate_face_msg_dropped_count", 0) or 0
+                    )
+                    _last = getattr(census, "_frigate_face_last_latched", None)
+                    if _last is not None:
+                        try:
+                            _stem, _lname, _lts = _last
+                            _age = None
+                            try:
+                                from homeassistant.util import dt as _dt_util
+                                _age = (
+                                    _dt_util.utcnow() - _lts
+                                ).total_seconds() if _lts else None
+                            except Exception:  # noqa: BLE001
+                                _age = None
+                            attrs["frigate_face_last_latched"] = {
+                                "camera": _stem,
+                                "name": _lname,
+                                "age_s": (
+                                    int(_age) if _age is not None else None
+                                ),
+                            }
+                        except Exception:  # noqa: BLE001
+                            attrs["frigate_face_last_latched"] = None
+                    else:
+                        attrs["frigate_face_last_latched"] = None
                 except Exception:  # noqa: BLE001 — defensive
                     _LOGGER.debug(
                         "Failed to attach egress-identity D3 attrs",

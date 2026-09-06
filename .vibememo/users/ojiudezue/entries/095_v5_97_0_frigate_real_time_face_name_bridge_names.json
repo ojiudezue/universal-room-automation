@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "095",
+  "author": "ojiudezue",
+  "session_id": "claude_20260906_201040_ship_v5_97_0",
+  "timestamp": "2026-09-06T20:10:40Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.97.0 shipped: Frigate real-time face-name bridge (names reach the resolver)",
+  "summary": "Frigate real-time face-name bridge (names reach the resolver)",
+  "why": "Frigate recognizes residents in real time but the HA integration resets the face sensor after 60s, so URA's point-poll resolver almost always saw None and egress crossings went unnamed by face. URA now consumes the MQTT face event directly into a URA-owned latch with its own retention and feeds it to the resolver as an additive synthetic leg, routed through the existing producer-outage fail-safe. The build was hardened across three framing-disjoint reviews that caught a boot-stranding CRITICAL, a key-namespace bug that left the bridge inert for garage_a, and an unknown-face-as-person_id HIGH.",
+  "implications": "Shipped FRIGATE-SUBLABEL-FACE-BRIDGE-1 at v5.97.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.97.0.md (Live criteria).",
+  "revisit_trigger": "Post-restart with face traffic: frigate_face_msg_face_count and frigate_face_latch_size move when a resident is recognized on a door/garage cam; a recognized face within a crossing window corroborates/attaches identity; the fail-safe drill still suppresses the synthetic leg",
+  "refs": {
+    "cards": [
+      "FRIGATE-SUBLABEL-FACE-BRIDGE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.97.0.md"
+    ],
+    "release_notes": "URA now subscribes to frigate/tracked_object_update, filters type==face, maps camname->face-sensor base_stem (registry-anchored), and stores names in a URA-owned latch that _resolve_face_legs emits as a synthetic FaceLeg \u2014 so a real-time recognized name is no longer lost to the Frigate entity's 60s reset. Corrected premise (name is top-level name on tracked_object_update, not sub_label). Fail-safe inherited via the caller drop; no after_dependencies (avoids the Envoy boot-stranding P0), late-MQTT via async_when_setup; sentinel filter blocks unknown-as-person_id; dedup prevents false CONFIDENCE_HIGH. Tier-2 escalated: plan-review + 3 framing-disjoint build reviews (1 CRIT + 3 HIGH) + fix-up + adversarial re-review + final fix-up + orchestrator mutation-verify."
+  }
+}

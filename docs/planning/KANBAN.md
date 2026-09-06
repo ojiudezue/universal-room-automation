@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-05T21:38:40-05:00_ - _Data commit: `53ee91b00068`_ - _last_reconciled: 2026-09-05_
+_Generated: 2026-09-05T22:28:34-05:00_ - _Data commit: `fce602210528`_ - _last_reconciled: 2026-09-05_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,12 +12,12 @@ _Generated: 2026-09-05T21:38:40-05:00_ - _Data commit: `53ee91b00068`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 30 |
-| 🔬 Investigating | 9 |
+| 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 11 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 60 |
+| 🚀 Shipped (organic open) | 62 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
@@ -363,22 +363,8 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (9)
+## 🔬 Investigating (8)
 _measuring; truth not yet known_
-
-### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
-thread: **identity** - status: **investigating** - approval: **explicit**
-_created 2026-09-03 15:10 · initial_
-- **Problem / Solution:**
-  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
-- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
-- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
-- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
-- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
-- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
-- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
-- **Forensic keys (1):**
-  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -641,7 +627,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (11)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
@@ -669,31 +655,20 @@ _created 2026-09-05 17:05 · initial_
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 
-### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
-thread: **identity** - status: **planned** - approval: **unreviewed**
-_created 2026-09-05 22:20 · initial_
+### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-03 15:10 · initial_
 - **Problem / Solution:**
-  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
-- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
-- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
-- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
-- **Tags:** identity, display, should-be-consuming, ble-mopup
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
-- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
-
-### `EGRESS-SENSOR-READER-TZ-OVERCOUNT-1` - persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
-thread: **identity** - status: **planned** - approval: **unreviewed**
-_created 2026-09-05 22:20 · initial_
-- **Problem / Solution:**
-  - Problem: sensor.py:4447 and :4559 compute today_start = dt_util.now().replace(hour=0,...) (LOCAL midnight) then string-compare its isoformat against the person_entry_exit_events.timestamp column, which is naive-UTC (datetime.utcnow().iso...
-- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-2 (diff-blind
-- **Why:** Real over-count on a user-facing count; cheap fix; same tz-convention discipline as the DAO the cycle got right.
-- **Next:** BLE mop-up: convert the day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 and :4559; test across a restart at UTC-5.
-- **Tags:** identity, timezone, pre-existing, ble-mopup, no-fabrication-verify
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
-- **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
+  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
+- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
+- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
+- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
+- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
+- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
+- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+- **Forensic keys (2):**
+  - `live_correction_2026_09_06`: SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is top-level name on frigate/tracked_object_update where type==face and camera matches the cam, NOT sub_label on frigate/events (sub_label is Frig...
+  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -843,7 +818,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (60)
+## 🚀 Shipped (organic open) (62)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -916,6 +891,32 @@ _created 2026-09-05 17:35 · initial_
 - **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
 - **Forensic keys (1):**
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+
+### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
+thread: **identity** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
+- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
+- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
+- **Tags:** identity, display, should-be-consuming, ble-mopup
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
+- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
+
+### `EGRESS-SENSOR-READER-TZ-OVERCOUNT-1` - persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
+thread: **identity** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
+- **Problem / Solution:**
+  - Problem: sensor.py:4447 and :4559 compute today_start = dt_util.now().replace(hour=0,...) (LOCAL midnight) then string-compare its isoformat against the person_entry_exit_events.timestamp column, which is naive-UTC (datetime.utcnow().iso...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-2 (diff-blind
+- **Why:** Real over-count on a user-facing count; cheap fix; same tz-convention discipline as the DAO the cycle got right.
+- **Next:** BLE mop-up: convert the day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 and :4559; test across a restart at UTC-5.
+- **Tags:** identity, timezone, pre-existing, ble-mopup, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
+- **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
 
 ### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
 thread: **platform** - status: **shipped_organic** - approval: **explicit**

@@ -47,3 +47,14 @@ HA restarted ~19:27 CDT; v5.96.0 loaded. Producer **armed and correct**:
 | sticky subscription survives an `unavailable` blip | **PENDING (organic)** | verify a BLE tracker blip does not drop `ble_crossing_trackers_derived` membership. |
 
 Note `jjs_iphone` (jaya, bluetooth_le) was absent from the derived set at boot (it was `unavailable` → no `source_type`); jaya remains covered by `private_ble_device_249050` + `iphone_jaya_bermuda_tracker`, and the sticky classification will admit `jjs_iphone` once it reports available.
+
+---
+
+## Validated 2026-09-06 (LIVE — real attaches confirmed)
+
+The entry producer attached real crossings, off the 1/7314 baseline:
+- `person_entry_exit_events` last 24h: **6 rows with a non-null person_id** — `jaya` 03:19 (garage return), `jaya` 18:33, `ezinne` ×2 15:26 (all `direction=entry`).
+- Live `egress_identity_last_attach`: `person=jaya, provenance=ble, direction=entry, signed_lag=-31.8s` (BLE edge led the crossing ~32s, inside the 180s LEAD window), `agreement_class=single_source`.
+- `ble_legs_produced=2, ble_legs_attached=1` on the most recent arrival.
+
+**PASS** — BLE entry attribution fires correctly on real resident arrivals. (The matched crossing camera is the front `doorbell_lite`, not the garage, for Jaya's garage return — the BLE leg names *who*; the camera is whichever egress crossing fell in the window. Identity correct.)

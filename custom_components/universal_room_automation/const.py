@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.96.2
+# Universal Room Automation vv5.97.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.96.2"
+VERSION: Final = "v5.97.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -2299,6 +2299,20 @@ BLE_EXIT_PER_SLUG_COOLDOWN_S: Final = BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
 # LEAD bound must fit inside the TTL or fresh legs would be pruned
 # before the crossing resolves them.
 BLE_TRANSITION_CACHE_TTL_S: Final = (
+    max(
+        FACE_MATCH_EXIT_WINDOW_BEFORE_S,
+        FACE_MATCH_EXIT_WINDOW_AFTER_S,
+        FACE_MATCH_ENTRY_WINDOW_BEFORE_S,
+        FACE_MATCH_ENTRY_WINDOW_AFTER_S,
+    )
+    + 30
+)
+# FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D1: TTL of the URA-owned
+# Frigate face-NAME latch (MQTT `frigate/tracked_object_update`, type=face).
+# Derived from the FACE_MATCH_* window family so a latched name is
+# never pruned before the classifier's signed-lag window that would
+# still admit it. Kill-switch = 0 disables (never write inside `cb`).
+FACE_NAME_LATCH_TTL_S: Final = (
     max(
         FACE_MATCH_EXIT_WINDOW_BEFORE_S,
         FACE_MATCH_EXIT_WINDOW_AFTER_S,

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-05'
+  last_reconciled: '2026-09-06'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -553,8 +553,21 @@ cards:
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
   thread: identity
-  status: investigating
+  status: shipped_organic
+  shipped_version: v5.97.0
   created: 2026-09-03 15:10
+  live_correction_2026_09_06: >-
+    SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is
+    top-level name on frigate/tracked_object_update where type==face and camera matches the cam, NOT
+    sub_label on frigate/events (sub_label is Frigate classification path, a different sensor). The
+    earlier session probe read sub_label off the HTTP /api/events object and named the WRONG real-time
+    path. FrigateRecognizedFaceSensor latches name real-time then async_call_later 60s resets to None
+    which is the latch-reset bug; real-time on the bus, no backfill needed. garage_a and
+    front_door_aerial confirmed emitting names 2026-09-05. Bridge = direct mqtt subscribe to
+    frigate/tracked_object_update in camera_census, filter type==face, map Frigate camname to URA slug
+    via registry (_2 permanent; guard the frigate 1/2 topic collision), URA-owned per-camera latch that
+    _resolve_face_legs reads. Daytime residual: capture 2-3 live payloads to confirm the wire triplet
+    and whether a score field exists for a confidence gate.
   live_correction_2026_09_04: 'GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card''s stated reason.
     The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is
     STALE — Frigate face is LIVE and NAMING residents right now: 15 _last_recognized_face_2 sensors active
