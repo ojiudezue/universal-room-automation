@@ -2279,12 +2279,13 @@ BLE_EGRESS_EXIT_BACKFILL_WINDOW_S: Final = 600
 # safety guard, not an operator slider.
 BLE_EXIT_DEPARTURE_SETTLE_S: Final = 90
 
-# EGRESS-EXIT-IDENTITY-BACKFILL-1 D-HIGH-1 fix-up (2026-09-05) — small
-# margin added past `R_ts + WINDOW` before the deferred attribution
-# decision. Ensures any competing departing edge that fires right at the
-# end of the attribution window is in the deque BEFORE the distinct-
-# departer scan reads it (async-scheduling slack). Module rung.
-BLE_EXIT_DECISION_MARGIN_S: Final = 2
+# EGRESS-EXIT-COMULTI-DEPART-1 (2026-09-06) — bound on the retry-claim
+# loop in `_backfill_exit_identity`. On a `changed==0` from the DAO
+# (row claimed by a concurrent edge), the coroutine re-SELECTs and
+# tries the next nearest unconsumed null row, up to this many
+# attempts total. Guards against pathological SELECT/UPDATE oscillation
+# under a burst of co-departing edges. Module rung.
+BLE_EXIT_CLAIM_MAX_ATTEMPTS: Final = 3
 
 # Per-slug cooldown after a departing edge is processed (either
 # backfilled or abstained). Prevents a multi-tracker resident (phone +
