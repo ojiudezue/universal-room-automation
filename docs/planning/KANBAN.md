@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T17:30:04-05:00_ - _Data commit: `a9e593019c6b`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T17:33:53-05:00_ - _Data commit: `a6291382277d`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -508,7 +508,7 @@ _created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
 - **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
 - **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
 - **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
-- **Refs:** docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard; memory reload_suppression_cycle
+- **Refs:** docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard (+1 more)
 - **Forensic keys (3):**
   - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
   - `target_operator_representation`: House
