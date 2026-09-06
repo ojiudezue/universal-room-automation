@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T16:44:40-05:00_ - _Data commit: `f96ddf7f0728`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T16:52:25-05:00_ - _Data commit: `b9a9b062165a`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-09-06T16:44:40-05:00_ - _Data commit: `f96ddf7f0728`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 31 |
-| 🔬 Investigating | 8 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
@@ -375,8 +375,20 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
+
+### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
+thread: **energy** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-06 18:00 · initial_
+- **Problem / Solution:**
+  - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
+- **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
+- **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
+- **Next:** MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release...
+- **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
+- **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
+- **Refs:** energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked); .claude/skills/ura-energy-invariants-campaign
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**

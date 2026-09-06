@@ -452,7 +452,7 @@ cards:
      solar ramp releases it; and/or raise the solar capture credit / modulate grid to fill only the solar
      shortfall; gated on pricing the peak-vs-export tariff spread first (measure-before-build: is the early
      grid-charge actually net-negative, or conservative-by-design insurance against missing peak?).'
-  origin: {date: '2026-09-06', gist: operator side-quest — is attain aggressive vs solar? investigation + answers only}
+  origin: {date: '2026-09-06', gist: 'operator side-quest — is attain aggressive vs solar (investigation + answers only)'}
   why: 'Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change
     the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface
     (ura-energy-invariants-campaign), and a wrong change silently loses money or misses peak.'
