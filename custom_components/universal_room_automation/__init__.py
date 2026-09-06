@@ -2254,16 +2254,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # FRIGATE-SUBLABEL-FACE-BRIDGE-1 (2026-09-06) D1: subscribe
             # to Frigate face-name MQTT topic so `_resolve_face_legs`
             # can emit a synthetic FaceLeg while Frigate's own sensor
-            # is in its 60s reset window. SOFT MQTT dependency
-            # (manifest `after_dependencies:["mqtt"]`) — register is
-            # wrapped in try/except and leaves the bridge inert if
-            # MQTT is not loaded. Teardown at unload alongside
+            # is in its 60s reset window. SOFT MQTT dependency — do
+            # NOT add `after_dependencies:["mqtt"]` (the 2026-06-12
+            # Envoy boot-stranding P0 rolled that out globally).
+            # Attempt an eager register (inert if MQTT not yet loaded)
+            # then re-register when MQTT actually finishes setup via
+            # `async_when_setup` (idempotent: register drops any prior
+            # sub first). Teardown at unload alongside
             # `async_teardown_ble_transition_listeners`.
             try:
                 await census.async_register_frigate_face_listener()
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "frigate-face bridge registration failed at setup",
+                    exc_info=True,
+                )
+            try:
+                from homeassistant.setup import async_when_setup as _awh_setup
+
+                async def _late_mqtt_register(_hass, _component):
+                    try:
+                        await census.async_register_frigate_face_listener()
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "frigate-face bridge late MQTT re-register failed",
+                            exc_info=True,
+                        )
+
+                _awh_setup(hass, "mqtt", _late_mqtt_register)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "frigate-face bridge async_when_setup hook failed",
                     exc_info=True,
                 )
 
