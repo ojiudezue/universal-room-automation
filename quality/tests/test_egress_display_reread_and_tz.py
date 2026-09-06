@@ -121,6 +121,9 @@ def _make_exit_sensor(hass, db):
     s._restoring = False
     # write_ha_state is a no-op in this harness
     s.async_write_ha_state = lambda: None
+    # async_on_remove is provided by HA Entity base; not present on our
+    # object.__new__ stub — no-op accept.
+    s.async_on_remove = lambda unsub: None
     return s
 
 
@@ -308,3 +311,134 @@ def test_backfill_success_dispatches_signal():
     assert payload == {"row_id": 7, "person_id": "person.oji_udezue"}, (
         f"payload mismatch: {payload}"
     )
+
+
+# ---------------------------------------------------------------------------
+# T4 — Fix 3 (per-site TZ anchor): PersonsExitedTodaySensor's INITIAL-RESTORE
+# path (async_added_to_hass) must hand the DAO a naive-UTC bound. RED if that
+# site's `.astimezone(timezone.utc)` is reverted to local-naive midnight.
+# ---------------------------------------------------------------------------
+
+def _ensure_event_helpers():
+    """The `from homeassistant.helpers.event import async_track_time_change`
+    inside async_added_to_hass runs at call time; ensure the harness stub
+    exposes it (another test may have swapped in a different stub)."""
+    import homeassistant.helpers.event as _ev
+    if not hasattr(_ev, "async_track_time_change"):
+        _ev.async_track_time_change = lambda *a, **kw: (lambda: None)
+    if not hasattr(_ev, "async_track_state_change_event"):
+        _ev.async_track_state_change_event = lambda *a, **kw: (lambda: None)
+
+
+def _install_agg_noop():
+    from custom_components.universal_room_automation import aggregation as _agg
+    _orig = _agg.AggregationEntity.async_added_to_hass
+
+    async def _noop(self):
+        return None
+    _agg.AggregationEntity.async_added_to_hass = _noop
+    return _agg, _orig
+
+
+def _restore_agg(_agg, _orig):
+    _agg.AggregationEntity.async_added_to_hass = _orig
+
+
+def test_persons_exited_today_initial_restore_uses_naive_utc_boundary():
+    _ensure_loop()
+    hass = make_hass()
+    db = _StubDatabase()
+    hass.data[ura_const.DOMAIN] = {"database": db}
+
+    fake_local_now = datetime(2026, 9, 5, 10, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
+    expected_since_naive_utc = "2026-09-05T05:00:00"
+
+    # Pre-boundary row (yesterday LOCAL, before naive-UTC midnight cut) — MUST be excluded.
+    db.add("2026-09-05T03:00:00", "exit", "person.a")
+    # Post-boundary row — MUST be included.
+    db.add("2026-09-05T06:00:00", "exit", "person.b")
+
+    s = _make_exit_sensor(hass, db)
+
+    _ensure_event_helpers()
+    _agg, _orig = _install_agg_noop()
+    orig_now = sensor_mod.dt_util.now
+    sensor_mod.dt_util.now = lambda: fake_local_now
+    try:
+        _run(s.async_added_to_hass())
+    finally:
+        sensor_mod.dt_util.now = orig_now
+        _restore_agg(_agg, _orig)
+
+    assert db.since_calls, "DAO not called on initial restore"
+    assert db.since_calls[-1] == expected_since_naive_utc, (
+        f"initial-restore boundary was {db.since_calls[-1]!r}, "
+        f"expected {expected_since_naive_utc!r}. RED means the "
+        f"PersonsExitedToday initial-restore site's naive-UTC conversion is gone."
+    )
+    assert s._count == 1, (
+        f"expected count=1 (only post-boundary row), got {s._count}. "
+        f"Old bug would count both rows."
+    )
+    # Live-shape normalization: dict keys must be {person_id, time, egress_camera}
+    # and unnamed rows default to "unidentified" — assert the shape here.
+    assert s._entries and set(s._entries[0].keys()) == {"person_id", "time", "egress_camera"}, (
+        f"restore did not normalize to live shape; got keys "
+        f"{set(s._entries[0].keys()) if s._entries else None}"
+    )
+
+
+def test_persons_entered_today_initial_restore_uses_naive_utc_boundary():
+    from custom_components.universal_room_automation.sensor import (
+        PersonsEnteredTodaySensor,
+    )
+
+    _ensure_loop()
+    hass = make_hass()
+    db = _StubDatabase()
+    hass.data[ura_const.DOMAIN] = {"database": db}
+
+    fake_local_now = datetime(2026, 9, 5, 10, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
+    expected_since_naive_utc = "2026-09-05T05:00:00"
+
+    db.add("2026-09-05T03:00:00", "entry", "person.a")  # pre-boundary
+    db.add("2026-09-05T06:00:00", "entry", None)         # post-boundary, unnamed
+
+    s = object.__new__(PersonsEnteredTodaySensor)
+    s.hass = hass
+    s._count = 0
+    s._entries = []
+    s._last_reset = None
+    s._restoring = False
+    s._egress_identities_stamped = 0
+    s.async_write_ha_state = lambda: None
+    # async_on_remove is provided by HA Entity base; harness hass doesn't
+    # inject one, so provide a permissive stub that just calls the unsub
+    # provider so the listener registration path executes.
+    s.async_on_remove = lambda unsub: None
+
+    _ensure_event_helpers()
+    _agg, _orig = _install_agg_noop()
+    orig_now = sensor_mod.dt_util.now
+    sensor_mod.dt_util.now = lambda: fake_local_now
+    try:
+        _run(s.async_added_to_hass())
+    finally:
+        sensor_mod.dt_util.now = orig_now
+        _restore_agg(_agg, _orig)
+
+    assert db.since_calls, "DAO not called on initial restore"
+    assert db.since_calls[-1] == expected_since_naive_utc, (
+        f"initial-restore boundary was {db.since_calls[-1]!r}, "
+        f"expected {expected_since_naive_utc!r}. RED means the "
+        f"PersonsEnteredToday initial-restore site's naive-UTC conversion is gone."
+    )
+    assert s._count == 1, (
+        f"expected count=1 (only post-boundary row); got {s._count}"
+    )
+    # Live-shape + unnamed → "unidentified".
+    assert s._entries[0]["person_id"] == "unidentified", (
+        f"unnamed DB row must normalize to 'unidentified'; got "
+        f"{s._entries[0]['person_id']!r}"
+    )
+    assert set(s._entries[0].keys()) == {"person_id", "time", "egress_camera"}

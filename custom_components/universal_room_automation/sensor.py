@@ -4464,14 +4464,33 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
             today_start = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
             events = await database.get_entry_exit_events_since(today_start, direction="entry")
             self._count = len(events)
-            self._entries = events[-20:]
+            # Normalize DB rows to the LIVE-append shape (keys
+            # {person_id, time, egress_camera}; unnamed → "unidentified")
+            # so the initial-restore path and _handle_egress_event
+            # produce byte-identical entry dicts.
+            self._entries = [
+                {
+                    "person_id": row.get("person_id") or "unidentified",
+                    "time": row.get("timestamp"),
+                    "egress_camera": row.get("egress_camera"),
+                }
+                for row in events[-20:]
+            ]
 
         # Subscribe to live egress events
         from homeassistant.core import callback as ha_callback
         from homeassistant.helpers.event import async_track_time_change
 
-        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
-        async_track_time_change(self.hass, self._midnight_reset, hour=0, minute=0, second=0)
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                "ura_person_egress_event", self._handle_egress_event
+            )
+        )
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass, self._midnight_reset, hour=0, minute=0, second=0
+            )
+        )
 
         self._restoring = False
         self.async_write_ha_state()
@@ -4579,12 +4598,30 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
             today_start = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
             events = await database.get_entry_exit_events_since(today_start, direction="exit")
             self._count = len(events)
-            self._entries = events[-20:]
+            # Normalize DB rows to the LIVE-append shape (see the twin
+            # comment on PersonsEnteredTodaySensor) so initial-restore
+            # and _handle_egress_event produce byte-identical dicts.
+            self._entries = [
+                {
+                    "person_id": row.get("person_id") or "unidentified",
+                    "time": row.get("timestamp"),
+                    "egress_camera": row.get("egress_camera"),
+                }
+                for row in events[-20:]
+            ]
 
         from homeassistant.helpers.event import async_track_time_change
 
-        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
-        async_track_time_change(self.hass, self._midnight_reset, hour=0, minute=0, second=0)
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                "ura_person_egress_event", self._handle_egress_event
+            )
+        )
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass, self._midnight_reset, hour=0, minute=0, second=0
+            )
+        )
 
         # EGRESS-EXIT-DISPLAY-REREAD-1 (2026-09-05): when camera_census
         # backfills an exit crossing's person_id (~10 min after the fact),
@@ -4632,7 +4669,17 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
             local_midnight = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
             today_start = local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
             events = await database.get_entry_exit_events_since(today_start, direction="exit")
-            self._entries = events[-20:]
+            # Normalize to the LIVE-append shape (keys {person_id, time,
+            # egress_camera}; unnamed → "unidentified") so re-read and
+            # live append produce byte-identical entry dicts.
+            self._entries = [
+                {
+                    "person_id": row.get("person_id") or "unidentified",
+                    "time": row.get("timestamp"),
+                    "egress_camera": row.get("egress_camera"),
+                }
+                for row in events[-20:]
+            ]
             self.async_write_ha_state()
         except Exception:  # noqa: BLE001
             _LOGGER.debug("PersonsExitedToday: re-read after backfill failed", exc_info=True)
