@@ -26,6 +26,35 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: PYTEST-SUITE-CONST-STUB-ISOLATION-1
+  title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
+  thread: quality
+  status: inbox
+  created: '2026-09-06 18:10'
+  updated: '2026-09-06 18:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: running the whole test suite in one pytest process fails to even
+     collect — some tests import a stubbed/fake const module that stays in
+     sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS,
+     CONF_FAN_MANUAL_ON_HOLD_S) gets ImportError ''unknown location'' and the run
+     aborts. Every affected file PASSES when run on its own, so the code is fine;
+     the fragility is test isolation. It undermines the deploy zero-bugs gate and
+     any baseline name-diff that assumes a clean single-process run.
+     Solution: find the test(s) that replace custom_components.universal_room_
+     automation.const in sys.modules and make them restore/monkeypatch-scope it
+     (autouse fixture or importlib reload teardown), so a single-process full-suite
+     run collects cleanly.'
+  approval: unreviewed
+  tags: [test-authority, no-fabrication-verify]
+  origin:
+    date: '2026-09-06'
+    gist: discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
+  why: 'A green-in-isolation suite that cannot run as one process hides real
+    regressions behind an import abort and forces per-file runs; the deploy gate
+    and validator name-diff both assume a clean single-process suite.'
+  next: 'grep tests for sys.modules[...const...]= / fake const stubs; identify the poisoning test(s); scope the stub with an autouse restore fixture; confirm full-suite collects.'
+  refs: []
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
   thread: energy

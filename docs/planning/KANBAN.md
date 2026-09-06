@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T17:33:53-05:00_ - _Data commit: `a6291382277d`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T18:00:10-05:00_ - _Data commit: `1a50477f6866`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,20 +11,30 @@ _Generated: 2026-09-06T17:33:53-05:00_ - _Data commit: `a6291382277d`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 31 |
+| 📥 Inbox | 28 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 64 |
+| 🚀 Shipped (organic open) | 68 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (31)
+## 📥 Inbox (28)
 _raw capture_
+
+### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
+thread: **quality** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-06 18:10 · initial_
+- **Problem / Solution:**
+  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
+- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
+- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
+- **Next:** grep tests for sys.modules[...const...]= / fake const stubs; identify the poisoning test(s); scope the stub with an autouse restore fixture; confirm full-suite collects.
+- **Tags:** test-authority, no-fabrication-verify
 
 ### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
 thread: **platform** - status: **inbox** - approval: **unreviewed**
@@ -197,18 +207,6 @@ _created 2026-08-18 03:00 · updated 2026-08-19 07:45 · initial_
   - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
   - `subsumed_note`: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation). Keep as the concrete pollution instance; the broader re-arch owns the fix.
 
-### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
-thread: **security** - status: **inbox**
-_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
-- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316 (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census _resolve_face_entity_id / the identity union), not directly off the egress person_id crossing event. Keep it graceful-anonymous and >=0.75 to name. Measure real production rate first (§5.5 gate).'}
-- **Forensic keys (5):**
-  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build
-  - `sequence`: 1
-  - `confidence_gate`: >=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).
-  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Consume identity gracefully (name when kno...
-  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
 ### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location)
 thread: **presence** - status: **inbox**
 _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
@@ -219,18 +217,6 @@ _created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.9. Suppressing the guest gate on a WRONG identity UNDER-secures the house (a mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera corroboration, not a single leg. Suppress-only at >=0.9; never ...
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
-  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id
-thread: **notifications** - status: **inbox**
-_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
-- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known). No trust surface. Sequence-first alongside PERIMETER-ALERT-NAME-PERSON-1.'}
-- **Forensic keys (5):**
-  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
-  - `sequence`: 1
-  - `confidence_gate`: None gating the FIRE (graceful-anonymous — notify on every crossing, name when known), though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or actuate, so no safety gate applies.
-  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
 ### `UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1` - URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
@@ -335,20 +321,6 @@ _created 2026-08-28 22:00 · initial_
 - **Parsimony:** [BUILD] an optimizer finding fires N times in a row instead of once + a cooldown
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
 
-### `HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1` - HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone preconditioning
-thread: **hvac** - status: **inbox**
-_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Problem / Solution:**
-  - Problem: when a camera recognizes a face at a door/interior cam, presence fires SIGNAL_PERSON_ARRIVING with source="camera_face" (presence.py:4702) — a strong "someone just arrived" cue HVAC could use to start preconditioning a zone soon...
-- **Why:** This is INDEPENDENT of the egress-identity producer (arrival side, not the egress crossing join) — the signal already exists and already fires; HVAC just does not subscribe to that source. The cheapest, highest-signal identity/presence w...
-- **Next:** Confirm the HVAC arrival source filter at hvac.py:529/977 and the SIGNAL_PERSON_ARRIVING emit at presence.py:4702; scope whether camera_face should be gated (e.g. only for interior/near-door cams) or admitted unconditionally. Tier 1 if a...
-- **Refs:** presence.py:4702 (SIGNAL_PERSON_ARRIVING source="camera_face"); hvac.py:529,977 (arrival source filter defaults [geofence,ble]); AUDIT_census_identity_supersession_and_consumers.md (adjacency sweep)
-- **Forensic keys (4):**
-  - `tier`: 1-2
-  - `threshold_status`: PROVISIONAL — no confidence gate today (arrival signal, not egress producer); operator to confirm before build
-  - `sequence`: 1
-  - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
-
 ### `SECURITY-ENTRY-VERDICT-NAME-1` - Security entry-verdict messages name the DOOR but never the PERSON, even when the verdict already derived "known person"
 thread: **security** - status: **inbox**
 _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
@@ -361,19 +333,6 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build (name gate; must never downgrade an ALERT)
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
-
-### `EGRESS-IDENTITY-DASHBOARD-TILE-1` - Surface the egress observability attrs as a "who entered today, named" dashboard tile
-thread: **dashboarding** - status: **inbox**
-_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Why:** Small display win and the natural home for validating the producer's live yield (L2/L3). No trust surface — pure observability. Tier 1 dashboard-only.
-- **Next:** Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + the D3 attach/ambiguity-rate signals. HA dashboard leg first; PWA leg per the dashboarding workstream.
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals — but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered today, named" view. Solution: build a small dashboard tile that surfaces the named-entries list + the attach/ambiguity rates, so identity production is visible at a glance.
-- **Refs:** sensor.py:4260 (egress_face_ids_active, egress_identities_stamped); AUDIT_census_identity_supersession_and_consumers.md §3 G5
-- **Forensic keys (4):**
-  - `tier`: 1
-  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
-  - `sequence`: 1
-  - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
 ## 🔬 Investigating (9)
 _measuring; truth not yet known_
@@ -855,7 +814,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (64)
+## 🚀 Shipped (organic open) (68)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -1650,6 +1609,30 @@ _created 2026-08-18 03:10 · updated 2026-08-23 14:30 · refined_
   - `revised_2026_08_18`: PLAN-REVIEW (PLAN-NEEDS-FIXES, 1 CRIT) reshaped this. REVISED SCOPE: TWO switches only — Presence Face Matching + Name People at Doors. Smart People Counting (enhanced_census) STAYS in options (heaviest/structural at __init__.py:2253, no...
   - `shipped_2026_08_18`: SHIPPED v5.82.0 + LIVE. L1/L2/L4 PASS: both switches present+ON (defaults flipped), smart_people_counting correctly NOT a switch (404); L2 no-reload PROVEN live (untoggled sibling last_changed stable at boot across two toggles) + zero ER...
 
+### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
+thread: **security** - status: **shipped_organic**
+_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316 (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census _resolve_face_entity_id / the identity union), not directly off the egress person_id crossing event. Keep it graceful-anonymous and >=0.75 to name. Measure real production rate first (§5.5 gate).'}
+- **Forensic keys (5):**
+  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build
+  - `sequence`: 1
+  - `confidence_gate`: >=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).
+  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Consume identity gracefully (name when kno...
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id
+thread: **notifications** - status: **shipped_organic**
+_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known). No trust surface. Sequence-first alongside PERIMETER-ALERT-NAME-PERSON-1.'}
+- **Forensic keys (5):**
+  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
+  - `sequence`: 1
+  - `confidence_gate`: None gating the FIRE (graceful-anonymous — notify on every crossing, name when known), though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or actuate, so no safety gate applies.
+  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
 ### `GUEST-COUNT-DEDUP-MIGRATE-1` - ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
 thread: **presence** - status: **shipped_organic**
 _created 2026-08-18 11:00 · updated 2026-08-23 14:30 · initial_
@@ -1858,6 +1841,33 @@ _created 2026-08-28 22:00 · initial_
 - **Refs:** memory project_house_zones_vs_hvac_zones; memory reference_hvac_zone_tonnage; OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
 - **Forensic keys (1):**
   - `links`: related: OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
+
+### `HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1` - HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone preconditioning
+thread: **hvac** - status: **shipped_organic**
+_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
+- **Problem / Solution:**
+  - Problem: when a camera recognizes a face at a door/interior cam, presence fires SIGNAL_PERSON_ARRIVING with source="camera_face" (presence.py:4702) — a strong "someone just arrived" cue HVAC could use to start preconditioning a zone soon...
+- **Why:** This is INDEPENDENT of the egress-identity producer (arrival side, not the egress crossing join) — the signal already exists and already fires; HVAC just does not subscribe to that source. The cheapest, highest-signal identity/presence w...
+- **Next:** Confirm the HVAC arrival source filter at hvac.py:529/977 and the SIGNAL_PERSON_ARRIVING emit at presence.py:4702; scope whether camera_face should be gated (e.g. only for interior/near-door cams) or admitted unconditionally. Tier 1 if a...
+- **Refs:** presence.py:4702 (SIGNAL_PERSON_ARRIVING source="camera_face"); hvac.py:529,977 (arrival source filter defaults [geofence,ble]); AUDIT_census_identity_supersession_and_consumers.md (adjacency sweep)
+- **Forensic keys (4):**
+  - `tier`: 1-2
+  - `threshold_status`: PROVISIONAL — no confidence gate today (arrival signal, not egress producer); operator to confirm before build
+  - `sequence`: 1
+  - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
+
+### `EGRESS-IDENTITY-DASHBOARD-TILE-1` - Surface the egress observability attrs as a "who entered today, named" dashboard tile
+thread: **dashboarding** - status: **shipped_organic**
+_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
+- **Why:** Small display win and the natural home for validating the producer's live yield (L2/L3). No trust surface — pure observability. Tier 1 dashboard-only.
+- **Next:** Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + the D3 attach/ambiguity-rate signals. HA dashboard leg first; PWA leg per the dashboarding workstream.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals — but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered today, named" view. Solution: build a small dashboard tile that surfaces the named-entries list + the attach/ambiguity rates, so identity production is visible at a glance.
+- **Refs:** sensor.py:4260 (egress_face_ids_active, egress_identities_stamped); AUDIT_census_identity_supersession_and_consumers.md §3 G5
+- **Forensic keys (4):**
+  - `tier`: 1
+  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
+  - `sequence`: 1
+  - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
 ### `EVSE-CHARGE-ONSET-TIME-1` - EVSE charge-onset gate — hold EV charging until the battery drain target is reached AND a configurable onset hour has passed (whichever is later)
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
