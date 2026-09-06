@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "092",
+  "author": "ojiudezue",
+  "session_id": "claude_20260906_002646_ship_v5_96_0",
+  "timestamp": "2026-09-06T00:26:46Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.96.0 shipped: Egress identity: BLE entry crossing producer (naming finally fires)",
+  "summary": "Egress identity: BLE entry crossing producer (naming finally fires)",
+  "why": "Egress person_id attached on 1 of 7314 crossings because the BLE leg keyed off person.state (a last_updated race across all a person's trackers, incl stationary Macs) behind a Bermuda-only gate that dropped every GPS-sourced departure. Re-sourcing directly to bluetooth_le device_trackers escapes the race and the provenance drop; D0 measured BLE as the clean signal with the home edge leading the crossing ~105s, so entry resolves in the existing window. Exit is genuinely harder (not_home edge lags ~369s) and is deferred to a backfill cycle.",
+  "implications": "Shipped EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 at v5.96.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.96.0.md (Live criteria).",
+  "revisit_trigger": "Post-restart: the next real resident arrival writes a person_entry_exit_events row with the correct person_id; produced/attached observability counters move off zero; a bluetooth_le tracker blipping unavailable does not drop its subscription",
+  "refs": {
+    "cards": [
+      "EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.96.0.md"
+    ],
+    "release_notes": "Re-architected the egress crossing producer to subscribe directly to residents' bluetooth_le device_trackers instead of the racy person.state aggregate, so arrivals attach a person_id for the first time (was 1/7314). Entry-only v1; exit deferred to a backfill cycle. Sticky BLE classification through unavailable, boot-race self-heal, per-slug single-use, cross-resident abstain guard, discriminating observability. Tier-3: 3 plan-reviews + 3 framing-disjoint build reviews + consolidated fix-up + orchestrator mutation-verify."
+  }
+}

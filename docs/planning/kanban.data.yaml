@@ -320,7 +320,8 @@ cards:
 - id: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
   title: The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
   thread: identity
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.96.0
   created: 2026-09-05 10:10
   updated: 2026-09-05 11:15
   refinement_status: refined
