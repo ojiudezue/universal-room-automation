@@ -3844,8 +3844,11 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["ble_exit_row_contention_retry_count"] = int(
                         getattr(census, "_ble_exit_row_contention_retry_count", 0) or 0
                     )
-                    attrs["ble_exit_face_disagree_count"] = int(
-                        getattr(census, "_ble_exit_face_disagree_count", 0) or 0
+                    # Renamed 2026-09-06 (A-3/D-2): honest name for
+                    # "row lost to any concurrent writer" (not
+                    # face-specific).
+                    attrs["ble_exit_row_lost_count"] = int(
+                        getattr(census, "_ble_exit_row_lost_count", 0) or 0
                     )
                     attrs["ble_crossing_trackers_derived"] = sorted(
                         (getattr(census, "_ble_tracker_slug_map", {}) or {}).keys()

@@ -284,7 +284,6 @@ def test_backfill_success_dispatches_signal():
     hass.states.get = lambda eid: None
 
     census = PersonCensus(hass, _StubCameraManager())  # type: ignore[arg-type]
-    census._ble_exit_recent_departing_edges = []
     db = _BackfillOnlyDB()
     existing = hass.data.get(ura_const.DOMAIN, {}) if isinstance(hass.data, dict) else {}
     existing["database"] = db

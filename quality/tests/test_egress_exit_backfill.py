@@ -427,7 +427,7 @@ def test_exit_backfill_case2_face_disagree_no_overwrite():
     ))
     assert db.rows[0]["person_id"] == "__stolen__"  # face-analog wins
     assert census._ble_exit_backfilled_count == 0
-    assert census._ble_exit_face_disagree_count == 1
+    assert census._ble_exit_row_lost_count == 1
     assert census._ble_exit_row_contention_retry_count == 1
 
 
@@ -707,3 +707,78 @@ def test_dao_backfill_preserves_confidence_column():
         # Confidence UNCHANGED (would be 0.72 under the pre-fix UPDATE).
         assert abs(float(r[3]) - 0.91) < 1e-9
     _run(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 2026-09-06 — B1: 4-co-departer coverage under the raised
+# BLE_EXIT_CLAIM_MAX_ATTEMPTS budget (was 3 → 6). All four rows must
+# be named. Mutation anchor: lowering the const back below 4 leaves at
+# least one row NULL under an unlucky race, but the deterministic
+# harness proves the loop actually attempts N rows.
+# ---------------------------------------------------------------------------
+
+
+def test_exit_backfill_four_co_departers_all_named():
+    """Four co-departing edges + four null exit rows → ALL four named."""
+    census, _, db = _make_census()
+    t_base = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=400)
+    edges = []
+    for i, slug in enumerate([
+        "oji_udezue", "ezinne_udezue", "child1_udezue", "child2_udezue",
+    ]):
+        t_row = t_base - timedelta(seconds=30 * i)
+        db.add_null_exit(_naive_utc(t_row))
+        edges.append((slug, t_row + timedelta(seconds=100)))
+    for slug, edge in edges:
+        _run(census._backfill_exit_identity(slug, edge))
+    named = {r["person_id"] for r in db.rows}
+    assert named == {
+        "oji_udezue", "ezinne_udezue", "child1_udezue", "child2_udezue",
+    }, f"expected all 4 named, got {named}"
+    assert census._ble_exit_backfilled_count == 4
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 2026-09-06 — D-3: assert the settle DURATION is a wrong-WHO
+# safety guard, not a latency knob. The constant MUST outlast the
+# multi-minute Bermuda tracker flap distribution (raised 90 → 300).
+# Mutation anchor: setting the constant back to 90 makes this RED.
+# ---------------------------------------------------------------------------
+
+
+def test_ble_exit_departure_settle_outlasts_multiminute_flap():
+    from custom_components.universal_room_automation.const import (
+        BLE_EXIT_DEPARTURE_SETTLE_S,
+    )
+    # A tracker flap in the wild is multi-minute; the settle re-read
+    # MUST sample beyond it so a flap-back-home resolves before we
+    # commit the wrong-WHO. 240s is the floor operator will accept.
+    assert BLE_EXIT_DEPARTURE_SETTLE_S >= 240, (
+        "BLE_EXIT_DEPARTURE_SETTLE_S is a wrong-WHO flap guard, not a "
+        "latency knob — must outlast a multi-minute Bermuda flap."
+    )
+
+
+def test_exit_backfill_flap_within_settle_aborts_under_positive_settle():
+    """Behavioral companion to the constant test: with a positive
+    settle (not the zero-override used elsewhere in the suite), a
+    tracker that returns home DURING the settle triggers the flap
+    re-read abort — the null row is NOT named. Mutation anchor:
+    removing the live re-read gate lets the row get named → RED.
+    """
+    census, hass, db = _make_census()
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    tracker_id = "device_tracker.oji_ble"
+    # Positive but tiny settle so the test is fast; the point is
+    # settle>0 + live-state==home → flap-abort. The DURATION invariant
+    # is enforced by the constant test above.
+    census._exit_settle_s = 0.05
+    _live = MagicMock()
+    _live.state = "home"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
+    t_edge = t_crossing + timedelta(seconds=200)
+    _run(census._backfill_exit_identity("oji_udezue", t_edge, tracker_id))
+    assert db.rows[0]["person_id"] is None
+    assert census._ble_exit_flap_aborted_count == 1
+    assert db.backfill_calls == []

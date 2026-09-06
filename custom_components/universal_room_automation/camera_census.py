@@ -1405,12 +1405,19 @@ class PersonCensus:
         # observability. `row_contention_retry` = re-SELECT attempts
         # made after the DAO's IS-NULL claim lost to a concurrent
         # edge (each retry claims a DIFFERENT next-nearest null row).
-        # `face_disagree` = the retry loop exhausted with no
-        # claimable null row AND the in-window rows were all
-        # face-named for a different slug (keep-face+flag+measure,
-        # never overwrite the committed face name).
+        # `row_lost` = the retry loop exhausted OR the re-SELECT
+        # went empty after we lost the IS-NULL claim to a concurrent
+        # writer AND this edge has no own crossing to bind. This is
+        # the honest name (renamed 2026-09-06, A-3/D-2): the counter
+        # measures "row was named by someone else while we tried" —
+        # it does NOT specifically discriminate face-vs-BLE, since
+        # the concurrent writer could be another BLE edge, a face
+        # resolver, or any future writer. True face-vs-BLE
+        # disagreement measurement requires provenance
+        # discrimination — follow-up work, do NOT build here.
+        # Keep-face+flag+measure: we never overwrite a claimed row.
         self._ble_exit_row_contention_retry_count: int = 0
-        self._ble_exit_face_disagree_count: int = 0
+        self._ble_exit_row_lost_count: int = 0
         # Per-slug cooldown timestamps (naive-UTC) — set when a slug
         # processes a departing edge (backfill OR abstain), read on
         # subsequent same-slug edges.
@@ -4165,6 +4172,13 @@ class PersonCensus:
         except Exception:  # noqa: BLE001
             tracked = set()
         if slug not in tracked:
+            # A-1 (2026-09-06): count the INV-EGRESS-ID map-drift drop
+            # — this is the redefined meaning of the ambiguity/abstain
+            # counter (the prior competing-edge abstain retired with
+            # EGRESS-EXIT-COMULTI-DEPART-1). Without this incrementer
+            # the sensor attribute is permanently 0 and the drop is
+            # invisible.
+            self._ble_exit_ambiguity_abstain_count += 1
             _LOGGER.warning(
                 "rev5 BLE producer: dropping edge for slug %s — not in "
                 "tracked_persons %r (map drift?)", slug, sorted(tracked),
@@ -4332,6 +4346,7 @@ class PersonCensus:
             # claim per edge (invariant b).
             saw_contention = False
             claimed = False
+            failed_row_ids: set[int] = set()
             for attempt in range(BLE_EXIT_CLAIM_MAX_ATTEMPTS):
                 try:
                     rows = await database.find_unnamed_exit_crossings(
@@ -4352,22 +4367,38 @@ class PersonCensus:
                     if attempt == 0:
                         self._ble_exit_edge_no_match_count += 1
                     elif saw_contention:
-                        # Case-2 (keep-face+flag+measure): a
-                        # concurrent writer (face resolver, most
-                        # likely) named the row(s) with a different
-                        # slug and we have no own crossing to bind.
-                        # Do NOT overwrite; count for measurement.
-                        self._ble_exit_face_disagree_count += 1
+                        # Case-2 (keep-face+flag+measure, renamed
+                        # 2026-09-06 A-3/D-2): a concurrent writer
+                        # (face resolver OR another BLE edge) named
+                        # the row(s) and we have no own crossing to
+                        # bind. Do NOT overwrite; count for
+                        # measurement. NOTE: this counter measures
+                        # "row lost to concurrent writer", not
+                        # specifically face-vs-BLE disagreement.
+                        self._ble_exit_row_lost_count += 1
                         _LOGGER.debug(
-                            "exit-backfill: face-disagree slug=%s "
+                            "exit-backfill: row-lost slug=%s "
                             "bounds=%s..%s (no claimable null after "
                             "%d contended attempts)",
                             slug, t_lo_iso, t_hi_iso, attempt,
                         )
-                    else:
-                        self._ble_exit_backfill_noop_count += 1
                     return
                 row_id, _row_ts, egress_camera = rows[0]
+                # B2 (2026-09-06): the DAO returns False on BOTH a
+                # DB exception and a legitimate `changed==0`. If the
+                # re-SELECT returns a row_id we already failed to
+                # UPDATE this loop, that is not contention — a real
+                # concurrent writer would have named it and it would
+                # be filtered from the SELECT. Treat as a persistent
+                # DB error, not a retry.
+                if row_id in failed_row_ids:
+                    self._ble_exit_error_count += 1
+                    _LOGGER.debug(
+                        "exit-backfill: repeated UPDATE failure on "
+                        "row_id=%s slug=%s — treating as DB error",
+                        row_id, slug,
+                    )
+                    return
                 try:
                     ok = await database.backfill_entry_exit_person_id(
                         row_id, slug, BLE_TRANSITION_ONLY_CONFIDENCE
@@ -4415,6 +4446,7 @@ class PersonCensus:
                 # between our SELECT and UPDATE. Count the retry and
                 # try the next-nearest unconsumed row.
                 saw_contention = True
+                failed_row_ids.add(row_id)
                 self._ble_exit_row_contention_retry_count += 1
                 _LOGGER.debug(
                     "exit-backfill: contention retry slug=%s "
