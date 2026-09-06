@@ -3854,6 +3854,11 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     attrs["frigate_face_msg_seen_count"] = int(
                         getattr(census, "_frigate_face_msg_seen_count", 0) or 0
                     )
+                    # D2-LOW-3: honest face-yield discriminator
+                    # (increments only for type=="face" MQTT payloads).
+                    attrs["frigate_face_msg_face_count"] = int(
+                        getattr(census, "_frigate_face_msg_face_count", 0) or 0
+                    )
                     attrs["frigate_face_msg_dropped_count"] = int(
                         getattr(census, "_frigate_face_msg_dropped_count", 0) or 0
                     )

@@ -2273,6 +2273,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 from homeassistant.setup import async_when_setup as _awh_setup
 
                 async def _late_mqtt_register(_hass, _component):
+                    # D2-MED-1: no-op if this census is no longer the
+                    # live one (entry unloaded/reloaded before mqtt
+                    # loaded). Prevents an orphan MQTT subscription on a
+                    # torn-down census with no reachable teardown.
+                    try:
+                        if _hass.data.get(DOMAIN, {}).get("census") is not census:
+                            return
+                    except Exception:  # noqa: BLE001
+                        return
                     try:
                         await census.async_register_frigate_face_listener()
                     except Exception:  # noqa: BLE001

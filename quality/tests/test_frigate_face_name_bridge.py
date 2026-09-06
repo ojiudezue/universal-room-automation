@@ -465,15 +465,24 @@ def test_failsafe_is_caller_side_not_census_side():
 
 
 def test_end_to_end_drill_engaged_caller_drops_face_legs():
-    """Safety anchor: when the caller determines the face producer is
-    NOT live (drill engaged), _resolve_egress_face_identity drops all
-    face-provenance legs. This mirrors the drop at transit_validator.py:
-    the leg producer keeps producing; the caller kills them.
+    """D2-LOW-4 re-point: drive the REAL caller
+    `TransitValidator._resolve_egress_face_identity` and assert NO
+    attribution when strict + face-producer-down. Mutation anchor:
+    the `all_legs = []` line at transit_validator.py:1264-1276.
+    Neutering that line (removing the `all_legs = []` clear) lets the
+    synthetic Frigate latch leg reach the classifier and return an
+    attached slug — this test then fails.
 
-    Mutation anchor: `strict and not self._is_face_producer_live()` at
-    transit_validator.py causing the face-leg drop. Bypassing that
-    (e.g. commenting the strict gate) would let the synthetic leg
-    escape to the classifier."""
+    RED-on-neuter verified by mentally executing: without the clear,
+    the single in-window face leg reaches the SINGLE-SLUG branch and
+    returns (slug='oji_udezue', conf!=None, agreement!=DISABLED),
+    which violates the assertions below.
+    """
+    from types import SimpleNamespace
+    from custom_components.universal_room_automation import (
+        transit_validator as _tv_mod,
+    )
+
     resolver = _StubResolver(frig_index={"front_door": ["dev_fd"]})
     entities = [
         _StubEntity("camera.front_door", "dev_fd"),
@@ -481,18 +490,49 @@ def test_end_to_end_drill_engaged_caller_drops_face_legs():
     ]
     census = _make_census(resolver=resolver, entities=entities)
     try:
-        # Drill engaged.
+        # Drill engaged; failsafe strict; egress-identity feature on.
         census._is_face_producer_live = lambda: False  # type: ignore[assignment]
+        census._is_egress_identity_failsafe_strict = (  # type: ignore[assignment]
+            lambda: True
+        )
+        census._is_egress_identity_enabled = lambda: True  # type: ignore[assignment]
+        census._resolve_ble_legs = lambda ts, direction: []  # type: ignore[assignment]
+
+        # Populate the Frigate face latch via the real producer path.
         census._on_frigate_face_msg(_msg({
             "type": "face", "camera": "front_door", "name": "Oji Udezue",
         }))
-        # Producer emits.
-        producer_legs = census._resolve_face_legs("front_door")
-        assert len(producer_legs) == 1
-        # Caller-side rule: any FACE leg is dropped under strict + drill.
-        # We assert the invariant the caller relies on: a
-        # `_is_face_producer_live()` False result must be the discriminator.
-        assert census._is_face_producer_live() is False
+        # Precondition: the synthetic leg IS present in the collection
+        # the caller-drop will empty.
+        legs = census._resolve_face_legs("front_door")
+        assert len(legs) == 1
+        assert legs[0].canonical_slug is not None
+
+        # Wire hass.data[DOMAIN]["census"] for the real caller lookup.
+        census.hass.data.setdefault(_tv_mod.DOMAIN, {})["census"] = census
+
+        # Minimal TransitValidator harness — bind the real method to a
+        # SimpleNamespace supplying only what _resolve_egress_face_identity
+        # touches (hass, _extract_camera_stem, _get_interior_cameras_near).
+        harness = SimpleNamespace(
+            hass=census.hass,
+            _extract_camera_stem=lambda eid: (
+                eid.split(".", 1)[1] if isinstance(eid, str) and "." in eid
+                else eid
+            ),
+            _get_interior_cameras_near=lambda eid: [],
+        )
+        slug, conf, agreement = (
+            _tv_mod.EgressDirectionTracker._resolve_egress_face_identity(
+                harness,
+                "camera.front_door",
+                datetime.now(UTC),
+                "exit",
+            )
+        )
+        # Caller drop MUST have cleared the face leg → no attribution.
+        assert slug is None
+        assert conf is None
     finally:
         _teardown(census)
 

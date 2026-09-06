@@ -1353,7 +1353,11 @@ class PersonCensus:
         # rebuilt whenever `_resolver_dirty` flips on
         # EVENT_ENTITY_REGISTRY_UPDATED / EVENT_DEVICE_REGISTRY_UPDATED).
         self._frigate_face_camname_cache: dict[str, list[str]] = {}
-        self._frigate_face_camname_cache_resolver_id: int | None = None
+        # D2-LOW-2: hold a direct reference (not id()) so address reuse
+        # of a freed resolver cannot inherit a stale cache. weakref
+        # preferred to avoid extending resolver lifetime; falls back to
+        # a strong ref if the resolver type disallows weakrefs.
+        self._frigate_face_camname_cache_resolver_ref: Any = None
         # Last successful latch write (base_stem, canonical_name_raw, ts)
         # — for the persons-in-house sensor.
         self._frigate_face_last_latched: tuple[str, str, datetime] | None = None
@@ -4923,9 +4927,15 @@ class PersonCensus:
             # B-MED: memoized camname -> latch base_stems lookup.
             # Invalidate on resolver rebuild (`_resolver_dirty` flips
             # on registry-update events → new resolver instance).
-            if id(resolver) != self._frigate_face_camname_cache_resolver_id:
+            prev_ref = self._frigate_face_camname_cache_resolver_ref
+            prev_resolver = prev_ref() if callable(prev_ref) else prev_ref
+            if prev_resolver is not resolver:
                 self._frigate_face_camname_cache = {}
-                self._frigate_face_camname_cache_resolver_id = id(resolver)
+                try:
+                    import weakref as _wr
+                    self._frigate_face_camname_cache_resolver_ref = _wr.ref(resolver)
+                except TypeError:
+                    self._frigate_face_camname_cache_resolver_ref = resolver
             cached = self._frigate_face_camname_cache.get(camname)
             if cached is None:
                 base_stems_list = self._compute_face_latch_stems(
