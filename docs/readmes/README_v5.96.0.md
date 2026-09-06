@@ -31,3 +31,19 @@ Exit naming (`EGRESS-EXIT-IDENTITY-BACKFILL-1`), the Frigate MQTT sub_label brid
 ## Live Validation — post-restart (to record as `Validated <date>`)
 - Next real arrival for a resident → correct `person_id` on the crossing row; observability counters non-zero.
 - A BLE tracker blip to `unavailable` does NOT drop the resident's subscription (sticky).
+
+---
+
+## Validated 2026-09-05 (post-restart boot-load; organic attach pending)
+
+HA restarted ~19:27 CDT; v5.96.0 loaded. Producer **armed and correct**:
+
+| Check | Result | Evidence |
+|---|---|---|
+| bluetooth_le trackers derived (no stationary devices) | **PASS** | `sensor.*_persons_in_house` `ble_crossing_trackers_derived` = `[ezinne_iphone, ezinne_iphone_bermuda_tracker, iphone_jaya_bermuda_tracker, iphone_oji_bermuda_tracker, private_ble_device_249050, ziri_iphone]` — all 6 are bluetooth_le; every wall tablet / Mac / GPS phone excluded; Oji's single BLE tracker present. |
+| observability counters present | **PASS** | `ble_legs_produced/attached/abstained/edge_dropped_invalid/edge_dropped_benign/departing_edge_seen` all present, all 0 (clean boot, nobody home — state 0). |
+| clean boot | **PASS** | error_log scan: only benign WARNINGs (Envoy deferred re-validation, HVAC boot-settle timeout, TLS notices); no URA ERROR/traceback; no BLE-producer exception. |
+| correct person_id attach on a real arrival | **PENDING (organic)** | `egress_identity_attach_rate_24h=0`, `egress_identity_last_attach={}` at boot — proves on the next real resident arrival; watch the produced/attached counters + a `person_entry_exit_events` row with a non-null `person_id`. |
+| sticky subscription survives an `unavailable` blip | **PENDING (organic)** | verify a BLE tracker blip does not drop `ble_crossing_trackers_derived` membership. |
+
+Note `jjs_iphone` (jaya, bluetooth_le) was absent from the derived set at boot (it was `unavailable` → no `source_type`); jaya remains covered by `private_ble_device_249050` + `iphone_jaya_bermuda_tracker`, and the sticky classification will admit `jjs_iphone` once it reports available.
