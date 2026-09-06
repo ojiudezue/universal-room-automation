@@ -83,7 +83,7 @@ from .const import (
     # imported here (Review A-LOW-3).
     BLE_EGRESS_ENTRY_LEAD_S,
     BLE_EGRESS_EXIT_BACKFILL_WINDOW_S,
-    BLE_EXIT_DEPARTURE_SETTLE_S,
+    BLE_EXIT_DECISION_MARGIN_S,
     BLE_EXIT_PER_SLUG_COOLDOWN_S,
     BLE_TRANSITION_ONLY_CONFIDENCE,
     BLE_TRANSITION_CACHE_TTL_S,
@@ -1349,6 +1349,11 @@ class PersonCensus:
         # named by a concurrent write). Keeps counter sum reconcilable
         # against edges-reaching-DAO.
         self._ble_exit_backfill_noop_count: int = 0
+        # D-LOW (counter-honesty, 2026-09-05): silent-return paths that
+        # were previously invisible to the edges-reaching-DAO
+        # reconciliation (`database is None`, SELECT exception, UPDATE
+        # exception, task-schedule failure).
+        self._ble_exit_error_count: int = 0
         # Incremented when the same slug's cooldown suppresses a
         # duplicate departing edge (multi-tracker resident: phone +
         # watch fire two edges from one physical departure).
@@ -4078,6 +4083,7 @@ class PersonCensus:
                 self._backfill_tasks.add(task)
                 task.add_done_callback(self._backfill_tasks.discard)
             except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
                 _LOGGER.debug(
                     "exit-backfill: failed to schedule task for %s",
                     slug, exc_info=True,
@@ -4092,9 +4098,12 @@ class PersonCensus:
         (2026-09-05): accuracy over coverage — "leave null is ok".
 
         Fix-up ambiguity gates (all abstain-to-null, never guess):
-          - Settle re-read: sleep BLE_EXIT_DEPARTURE_SETTLE_S and confirm
-            the tracker is still in a non-home state before touching
-            the DAO. A flap that reverts inside settle aborts.
+          - Deferred decision (D-HIGH-1 fix, 2026-09-05): wait until
+            `R_ts + BLE_EGRESS_EXIT_BACKFILL_WINDOW_S + margin`, then
+            re-read tracker live state. Any competing departing edge
+            that could match R must have fired by then and is visible
+            to the distinct-departer scan. A flap that has reverted to
+            home aborts.
           - >1 candidate rows in window: abstain (co-departures stay
             null; we cannot exclusively attribute one of two rows to
             this slug).
@@ -4121,42 +4130,24 @@ class PersonCensus:
             t_lo_iso = t_lo_dt.isoformat()
             t_hi_iso = t_hi_dt.isoformat()
 
-            # Settle re-read (flap guard). Skipped when tracker_id is
-            # not provided (direct-call test paths). Tests can shorten
-            # via `census._exit_settle_s = 0`.
-            settle_s = getattr(
-                self, "_exit_settle_s", BLE_EXIT_DEPARTURE_SETTLE_S,
-            )
-            if tracker_id and settle_s:
-                try:
-                    await asyncio.sleep(settle_s)
-                except asyncio.CancelledError:
-                    raise
-            if tracker_id:
-                try:
-                    live = self.hass.states.get(tracker_id)
-                    live_state = getattr(live, "state", None) if live else None
-                except Exception:  # noqa: BLE001 — defensive
-                    live_state = None
-                if live_state in ("home", None, "unknown", "unavailable"):
-                    # Not a durable departure: flap, or the tracker went
-                    # dark. Do NOT attribute.
-                    self._ble_exit_flap_aborted_count += 1
-                    _LOGGER.info(
-                        "exit-backfill: flap-abort slug=%s tracker=%s "
-                        "live_state=%r (settle=%ss)",
-                        slug, tracker_id, live_state, settle_s,
-                    )
-                    return
-
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
+                self._ble_exit_error_count += 1
                 return
+
+            # First-pass SELECT identifies the candidate row. We need
+            # `R_ts` (the crossing timestamp) to compute the deferred
+            # decision window `[R_ts, R_ts+WINDOW]` — the interval in
+            # which a competing departing edge could ALSO attribute
+            # this row. Waiting until decision_at ensures every
+            # competing edge that could match R has fired and is
+            # visible in the deque BEFORE the distinct-departer scan.
             try:
                 rows = await database.find_unnamed_exit_crossings(
                     t_lo_iso, t_hi_iso
                 )
             except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
                 _LOGGER.debug(
                     "exit-backfill: SELECT failed for %s", slug, exc_info=True,
                 )
@@ -4173,24 +4164,130 @@ class PersonCensus:
                     slug, len(rows), t_lo_iso, t_hi_iso,
                 )
                 return
-            # Competing-edge check (different resident departing inside
-            # this same window). The current edge is expected in the
-            # deque; look for any OTHER slug.
-            for other_slug, _t_other in self._ble_exit_recent_departing_edges:
-                if other_slug != slug:
-                    self._ble_exit_ambiguity_abstain_count += 1
+            candidate_row_id, candidate_row_ts_iso, _cam0 = rows[0]
+
+            # Deferred decision (D-HIGH-1 fix, 2026-09-05). The prior
+            # design applied a fixed 90s settle then decided; a
+            # competing departing edge firing later than that (still
+            # within the 600s window) was invisible, and this slug
+            # could wrongly claim a co-departer's row. Now we wait
+            # until `R_ts + WINDOW + margin` before deciding.
+            #
+            # Test/override contract: setting `census._exit_settle_s`
+            # to any numeric value REPLACES the computed wait with
+            # that literal (0 = immediate). Direct-call test paths
+            # (no tracker_id) skip the wait entirely; the fixed 90s
+            # settle constant is retained as documentation of the
+            # historical value but is no longer used at runtime — the
+            # decision-timing invariant is R_ts + WINDOW.
+            settle_override = getattr(self, "_exit_settle_s", None)
+            if tracker_id:
+                if settle_override is None:
+                    try:
+                        r_ts_dt = datetime.fromisoformat(
+                            candidate_row_ts_iso
+                        )
+                    except Exception:  # noqa: BLE001 — defensive parse
+                        r_ts_dt = t_hi_dt
+                    decision_at = r_ts_dt + timedelta(
+                        seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+                        + BLE_EXIT_DECISION_MARGIN_S
+                    )
+                    now_utc = datetime.utcnow()
+                    wait_s = max(
+                        0.0, (decision_at - now_utc).total_seconds(),
+                    )
+                else:
+                    wait_s = float(settle_override)
+                if wait_s > 0:
+                    try:
+                        await asyncio.sleep(wait_s)
+                    except asyncio.CancelledError:
+                        raise
+
+            # Flap re-read (moved to the decision point). If the
+            # tracker has returned home during the wait, the departure
+            # was not durable — do NOT attribute.
+            if tracker_id:
+                try:
+                    live = self.hass.states.get(tracker_id)
+                    live_state = getattr(live, "state", None) if live else None
+                except Exception:  # noqa: BLE001 — defensive
+                    live_state = None
+                if live_state in ("home", None, "unknown", "unavailable"):
+                    self._ble_exit_flap_aborted_count += 1
                     _LOGGER.info(
-                        "exit-backfill: abstain slug=%s reason=competing-"
-                        "edge other=%s",
-                        slug, other_slug,
+                        "exit-backfill: flap-abort slug=%s tracker=%s "
+                        "live_state=%r",
+                        slug, tracker_id, live_state,
                     )
                     return
-            row_id, _row_ts, egress_camera = rows[0]
+
+            # Distinct-departer scan (D-HIGH-1 core). Look at edges
+            # that fired inside the candidate row's OWN attribution
+            # window `[R_ts, R_ts+WINDOW]`. Any DISTINCT slug other
+            # than this one means we cannot exclusively attribute the
+            # row.
+            try:
+                r_ts_dt = datetime.fromisoformat(candidate_row_ts_iso)
+            except Exception:  # noqa: BLE001 — defensive parse
+                r_ts_dt = t_hi_dt
+            win_lo = r_ts_dt
+            win_hi = r_ts_dt + timedelta(
+                seconds=BLE_EGRESS_EXIT_BACKFILL_WINDOW_S
+            )
+            distinct_slugs = {
+                s for (s, t) in self._ble_exit_recent_departing_edges
+                if win_lo <= t <= win_hi
+            }
+            other = distinct_slugs - {slug}
+            if other:
+                self._ble_exit_ambiguity_abstain_count += 1
+                _LOGGER.info(
+                    "exit-backfill: abstain slug=%s reason=competing-"
+                    "edge others=%s",
+                    slug, sorted(other),
+                )
+                return
+
+            # Re-SELECT at the decision point: state may have changed
+            # during the wait (row named by another writer, or a new
+            # unnamed row appeared inside the bounds).
+            try:
+                rows2 = await database.find_unnamed_exit_crossings(
+                    t_lo_iso, t_hi_iso
+                )
+            except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
+                _LOGGER.debug(
+                    "exit-backfill: re-SELECT failed for %s",
+                    slug, exc_info=True,
+                )
+                return
+            if not rows2:
+                # Candidate was named (or deleted) during the wait.
+                self._ble_exit_backfill_noop_count += 1
+                return
+            if len(rows2) > 1:
+                self._ble_exit_ambiguity_abstain_count += 1
+                _LOGGER.info(
+                    "exit-backfill: abstain slug=%s reason=multi-row-"
+                    "post-wait count=%d",
+                    slug, len(rows2),
+                )
+                return
+            row_id, _row_ts, egress_camera = rows2[0]
+            if row_id != candidate_row_id:
+                # A different row is now the sole candidate — abstain
+                # rather than silently re-anchor onto it.
+                self._ble_exit_ambiguity_abstain_count += 1
+                return
             try:
                 ok = await database.backfill_entry_exit_person_id(
                     row_id, slug, BLE_TRANSITION_ONLY_CONFIDENCE
                 )
             except Exception:  # noqa: BLE001
+                self._ble_exit_error_count += 1
                 _LOGGER.debug(
                     "exit-backfill: UPDATE failed for row_id=%s slug=%s",
                     row_id, slug, exc_info=True,

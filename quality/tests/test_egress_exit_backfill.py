@@ -596,6 +596,56 @@ def test_teardown_ble_listeners_does_not_cancel_pending_backfill():
 # ---------------------------------------------------------------------------
 
 
+def test_exit_backfill_defers_and_abstains_on_late_competing_edge():
+    """D-HIGH-1 anchor (2026-09-05 fix-up): A+B co-depart. A's edge
+    fires first and enters the deferred decision wait; while A sleeps,
+    B's edge arrives and is appended to
+    `_ble_exit_recent_departing_edges`. At A's decision point the
+    distinct-departer scan sees {A, B} inside the row's window and
+    abstains — the row stays NULL rather than being wrongly written
+    as A. Mutation anchor: removing the distinct-departer scan (or
+    restricting it to edges already present at first-SELECT time)
+    lets A write on B's crossing → RED.
+    """
+    census, hass, db = _make_census()
+    # Crossing 1s ago so R_ts+WINDOW is well in the future (forces
+    # non-trivial deferred wait under the override).
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=1)
+    db.add_null_exit(_naive_utc(t_crossing))
+    tracker_a = "device_tracker.oji_ble"
+    census._ble_tracker_slug_map = {tracker_a: "oji_udezue"}
+    census._get_tracked_person_slugs = lambda: ["oji_udezue"]
+    # Override the deferred wait to a short, non-zero interval so the
+    # test can inject B's edge MID-WAIT (0 would decide immediately).
+    census._exit_settle_s = 0.05
+    _live = MagicMock()
+    _live.state = "not_home"
+    hass.states.get = lambda eid: _live if eid == tracker_a else None
+
+    async def _scenario():
+        loop = _asyncio.get_event_loop()
+        t_edge_a = t_crossing + timedelta(seconds=1)
+        task = loop.create_task(
+            census._backfill_exit_identity("oji_udezue", t_edge_a, tracker_a)
+        )
+        # Yield so the coroutine completes first-SELECT and enters
+        # the asyncio.sleep(wait_s) branch.
+        await _asyncio.sleep(0.01)
+        # Inject B's departing edge as `_on_crossing_tracker_state_change`
+        # would (naive-UTC timestamp inside R_ts .. R_ts+WINDOW).
+        b_edge_naive = datetime.utcnow()
+        census._ble_exit_recent_departing_edges.append(
+            ("ezinne_udezue", b_edge_naive)
+        )
+        await task
+
+    _run(_scenario())
+    assert db.rows[0]["person_id"] is None
+    assert census._ble_exit_backfilled_count == 0
+    assert census._ble_exit_ambiguity_abstain_count == 1
+    assert db.backfill_calls == []
+
+
 def test_dao_backfill_preserves_confidence_column():
     """Fix-up (2026-09-05): the `confidence` column on the exit row
     carries CROSSING confidence written at INSERT. The identity-
