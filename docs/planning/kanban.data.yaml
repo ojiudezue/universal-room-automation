@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-05'
+  last_reconciled: '2026-09-06'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -553,7 +553,8 @@ cards:
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.97.0
   created: 2026-09-03 15:10
   live_correction_2026_09_06: >-
     SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is
