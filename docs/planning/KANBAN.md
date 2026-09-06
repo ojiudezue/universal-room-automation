@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T16:52:25-05:00_ - _Data commit: `b9a9b062165a`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T16:53:00-05:00_ - _Data commit: `59e47b6d80c8`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -501,11 +501,11 @@ _idea being decomposed_
 
 ### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
 thread: **device-tree** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-06 17:30 · initial_
+_created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
 - **Problem / Solution:**
   - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
 - **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
-- **Next:** Excavation research in flight (device-representation agent). Then iterate the target tree to clarity with the operator, fold in the child cards, write a Tier-3 plan (prior-art scan), plan-review x2, then build.
+- **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
 - **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
 - **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
 - **Refs:** docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard; memory reload_suppression_cycle

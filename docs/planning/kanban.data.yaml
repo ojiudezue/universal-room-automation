@@ -471,7 +471,7 @@ cards:
   thread: device-tree
   status: pre_planning
   created: 2026-09-06 17:30
-  updated: 2026-09-06 17:30
+  updated: 2026-09-06 18:30
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-06 — step 5 of the sequence; laid out the 4 problems + target operator representation, iterating to clarity'
@@ -510,7 +510,7 @@ cards:
   - 'operator laid out the target tree + 4 problems 2026-09-06; iterating to clarity before planning (the Rooms parent node is the biggest new element).'
   knobs: []
   parsimony: {problem: 'device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu', verdict: BUILD}
-  next: 'Excavation research in flight (device-representation agent). Then iterate the target tree to clarity with the operator, fold in the child cards, write a Tier-3 plan (prior-art scan), plan-review x2, then build.'
+  next: 'DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall = singleton-teardown-under-live-children + 80-entity re-add + secondary child exception-storm (NOT a 40-child cascade — folklore corrected). Option B (hand off the House device) MOVES the cheap part, does NOT fix (cost is the singleton bootstrap). Fix path: extend Option A allowlist (camera/census/perimeter family, cheap) NOW; the structural fix = decouple config-surface from singleton bootstrap (C/D, Tier-3) is GATED on a live stall-attribution probe first (measure-before-build: 80-entity re-add vs singleton rebuild vs child-storm — fix differs per cause). Then plan the via_device Rooms re-nest (clean) + sweep-counter fix (load-bearing for it) + menu harmonization.'
   child_cards: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, CM-CONFIG-FLOW-UX-1]
   refs: ['docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', '_devices.py', 'config_flow.py/options_flow.py', 'memory parent_entry_reload_watchdog_hazard', 'memory reload_suppression_cycle']
 
