@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "093",
+  "author": "ojiudezue",
+  "session_id": "claude_20260906_023839_ship_v5_96_1",
+  "timestamp": "2026-09-06T02:38:39Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.96.1 shipped: Egress EXIT identity via backfill (conservative, exclusive attribution)",
+  "summary": "Egress EXIT identity via backfill (conservative, exclusive attribution)",
+  "why": "Exit crossings were never named because the departer's BLE not_home edge lags the door crossing by ~369s (D0 median), past the +45s resolver read. Backfill the null exit row when the edge fires, but only when attribution is unambiguous \u2014 the reviews showed naive nearest-match swaps co-departers, so the decision is deferred to the row's window-close and abstains unless exactly one resident departed in the window. Operator directive: accuracy over coverage, leave null rather than write a wrong name.",
+  "implications": "Shipped EGRESS-EXIT-IDENTITY-BACKFILL-1 at v5.96.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.96.1.md (Live criteria).",
+  "revisit_trigger": "Post-restart: a real solo departure fills its exit-row person_id within ~10min and _ble_exit_backfilled_count moves; a co-departure or flap leaves person_id null (ambiguity/flap counters move) rather than writing a wrong name",
+  "refs": {
+    "cards": [
+      "EGRESS-EXIT-IDENTITY-BACKFILL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.96.1.md"
+    ],
+    "release_notes": "Completes the egress producer: exit crossings (written null at +45s) get person_id backfilled when the departer's BLE not_home edge fires ~369s later. Conservative/exclusive: deferred window-close decision + distinct-departer count (no co-departer swap), flap guard (settle re-read), per-slug cooldown (no multi-tracker double-consume), idempotent IS-NULL single-use, UTC-naive tz contract. Accuracy over coverage: ambiguous cases stay null. Tier-3: prior-art scan + plan-review + 3 framing-disjoint build reviews + fix-up + adversarial re-review + targeted fix + orchestrator mutation-verify."
+  }
+}

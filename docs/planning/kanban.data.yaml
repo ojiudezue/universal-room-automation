@@ -457,7 +457,8 @@ cards:
 - id: EGRESS-EXIT-IDENTITY-BACKFILL-1
   title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
   thread: identity
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.96.1
   created: 2026-09-05 17:35
   updated: 2026-09-05 17:35
   refinement_status: initial
