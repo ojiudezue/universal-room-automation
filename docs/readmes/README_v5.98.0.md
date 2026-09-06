@@ -88,4 +88,21 @@ attach-dict keys **verified live 2026-09-06** against the running instance.
   (22 cycle tests + 219 sibling tests green).
 
 ---
-_Validated <date> — to be filled in after post-restart live validation._
+
+## Validated 2026-09-06 (post-restart, HA core-2026.9.1, v5.98.0 live)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Clean module load (C1/C2/C3) | **PASS** | `error_log` structured scan of `universal_room_automation` post-restart: **zero ERROR / zero traceback** from `transit_validator`, `perimeter_alert`, `hvac`. Only benign pre-existing WARNINGs (SPAN energy-sensor unavailable, Bermuda polling fallback, HVAC boot-settle timeout, camera platforms unavailable). |
+| No new regression class | **PASS** | The 55× `async_write_ha_state from a thread` warning is **pre-existing** (first_seen 13:42:16, hours before the ~17:4x v5.98.0 deploy; tracked as EC-SUBSWITCH-ASYNC-WRITE-THREAD-1) — not introduced by this cycle. |
+| C4 tile — entity + attrs exist, correct types | **PASS** | `sensor.universal_room_automation_persons_in_house` live; `egress_identity_last_attach is mapping = True` (dict → the card's `.get()` calls resolve); `egress_identities_stamped`=0, `egress_face_ids_active`=0, `ble_legs_produced_count`=0, `frigate_face_*`=0 all present (0 = monotonic counters reset at restart, as documented). `face_producer_health="live"`. |
+| C4 tile — entity ids correct | **PASS** | The `sensor.universal_room_automation_*` slug resolves; the old `sensor.ura_*` slug returns ENTITY_NOT_FOUND (the CRIT the review caught, now fixed). |
+| Config validity | **PASS** | `ha_get_system_health(config_check)` → `result: valid, is_valid: true, errors: []`. |
+| **C1 arrival/departure notify** | **Deferred-organic** | Event-driven — fires on the next resolved crossing. Proven in-suite (7 tests, RED-on-neuter incl. the `_safe_notify` swallow). Loaded clean; awaits a real arrival/departure. Discriminator: an `"Arrival/departure notify:"` entry in core logs + NM history. |
+| **C2 named perimeter alert** | **Deferred-organic** | Event-driven — fires on the next exterior person alert with a live recognized face. Proven in-suite (8 tests; **severity-never-changes invariant independently mutation-verified by the orchestrator** — injecting a severity change turns the named-face tests RED). Loaded clean. Discriminator: a perimeter alert message containing `" Identified: <Name>."` with severity == the no-face baseline. |
+| **C3 HVAC camera_face pre-arrival** | **Deferred-organic** | Event-driven — contributes on the next face-at-door pre-arrival. Proven in-suite (7 tests, RED-on-neuter at both `hvac.py:529` + `hvac_const.py:345`). `camera_face` already a valid options-flow selector; the default now includes it. |
+| **Wave-2 gate measurement** | **Baseline captured** | `egress_identity_attach_rate_24h`=0 immediately post-restart (24h window reset). The organic disposition (see card `--revisit`) queries this rate once a day of crossings has accrued — it gates whether Wave 2 (guest gate / unexpected-person / security verdict) is worth building or whether producer work comes first. |
+
+**Boot-only transients dismissed:** all counters at 0 (monotonic-from-restart, by design); `egress_identity_last_attach={}` (no crossing since boot). Both expected, not defects.
+
+**Why three consumers are in-suite rather than live:** C1/C2/C3 are event-reactive on rare real-world events (a resolved crossing, an exterior alert with a recognized face, a face-at-door pre-arrival). Forcing them live would require staging those events; each is mutation-anchored in-suite (RED-on-neuter) and confirmed to load without error, and each carries a binary organic discriminator (above) for VALIDATE→DISPOSE at cycle close.
