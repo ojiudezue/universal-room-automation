@@ -319,6 +319,14 @@ def test_d2_ble_only_attaches_with_ble_provenance():
     now = datetime.now(UTC).replace(microsecond=0)
     census, hass, _ = _make_census({})
     tracker = _make_tracker(census, hass, interior_stems=[])
+    # Rev5 fix-up (D-2): the BLE-only attach path now abstains when a
+    # tracked resident has ZERO derivable bluetooth_le trackers (cross-
+    # resident mislabel risk). Prime the slug-map so both residents are
+    # visible to the ambiguity guard.
+    census._ble_tracker_slug_map = {
+        "device_tracker.oji_ble": "oji_udezue",
+        "device_tracker.ezinne_ble": "ezinne_udezue",
+    }
     _seed_ble_transition(
         census, "oji_udezue", now - timedelta(seconds=8), direction="arriving",
     )
@@ -422,6 +430,12 @@ def test_d4_drill_switch_forces_face_dead_with_frigate_live():
     assert census._face_producer_health_reason == "drill_forced"
 
     # BLE still names (D4 §0 (b)).
+    # Rev5 fix-up (D-2): prime slug-map so ambiguity guard sees both
+    # tracked residents as BLE-visible.
+    census._ble_tracker_slug_map = {
+        "device_tracker.oji_ble": "oji_udezue",
+        "device_tracker.ezinne_ble": "ezinne_udezue",
+    }
     _seed_ble_transition(
         census, "oji_udezue", now - timedelta(seconds=8),
         direction="arriving",
@@ -965,7 +979,11 @@ def test_rev5_zone_to_zone_edge_dropped_no_home_boundary():
         "device_tracker.iphone_oji_bermuda_tracker", "Work", "Gym",
     ))
     assert list(census._ble_transition_cache) == []
-    assert census._ble_edge_dropped_invalid_count == 1
+    # Rev5 fix-up (D-7): legitimate zone->zone is BENIGN (not forgery-
+    # shaped); counted separately so `_ble_edge_dropped_invalid_count`
+    # reflects real forgery drops only.
+    assert census._ble_edge_dropped_invalid_count == 0
+    assert census._ble_edge_dropped_benign_count == 1
     assert census._ble_legs_produced_count == 0
 
 
@@ -1062,3 +1080,134 @@ def test_rev5_departing_edge_counted_not_attributed_v1():
     assert list(census._ble_transition_cache) == []
     assert census._ble_legs_produced_count == 0
     assert census._ble_departing_edge_seen_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Rev5 fix-up (2026-09-05) — Tier-3 review D-1 / D-2 / B-HIGH-1 anchors
+# ---------------------------------------------------------------------------
+
+
+def test_rev5_fixup_unavailable_to_home_admits_arriving_leg():
+    """rev5 fix-up (D-1b): an `unavailable -> home` edge is a legitimate
+    ARRIVAL — the OLD side being missing/degraded on an arrival is not
+    a forge. Must produce an arriving leg and NOT increment
+    `_ble_edge_dropped_invalid_count`.
+
+    Mutation anchor: the `if new_s == "home":` early-admit branch in
+    `_on_crossing_tracker_state_change`. Neutering that branch (or
+    restoring the strict `if new_s in _BAD or old_s in _BAD:` reject)
+    RED-fails this test at the `_ble_legs_produced_count == 1`
+    assertion (would be 0)."""
+    census, hass, st = _rev5_make_census_with_oji_ble()
+    census._on_crossing_tracker_state_change(_make_edge_event(
+        "device_tracker.iphone_oji_bermuda_tracker", "unavailable", "home",
+    ))
+    assert census._ble_legs_produced_count == 1
+    assert census._ble_edge_dropped_invalid_count == 0
+    leg = census._ble_transition_cache[-1]
+    assert leg.person_slug == "oji_udezue"
+    assert leg.direction == "arriving"
+
+
+def test_rev5_fixup_unavailable_tracker_keeps_subscription():
+    """rev5 fix-up (D-1a): a tracker previously classified `bluetooth_le`
+    stays in the derived slug-map (and thus in the subscription set)
+    while it momentarily flips to `unavailable`. HA does not expose
+    `source_type` on unavailable entities, so a live-only reclassifier
+    would silently unsubscribe oji's single tracker on any blip.
+
+    Mutation anchor: the `is_ble_sticky` branch + `_known_ble_trackers`
+    read in `_derive_ble_crossing_trackers`. Neutering the sticky path
+    (e.g. `is_ble_sticky = False`) RED-fails at the second-derivation
+    assertion (map would become empty)."""
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "oji_udezue": [
+            ("device_tracker.iphone_oji_bermuda_tracker", "bluetooth_le"),
+        ],
+    })
+    # First derivation — live BLE, populates the sticky record.
+    first = census._derive_ble_crossing_trackers()
+    assert first == {
+        "device_tracker.iphone_oji_bermuda_tracker": "oji_udezue",
+    }
+    # Simulate the tracker going `unavailable`: HA drops `source_type`.
+    st["device_tracker.iphone_oji_bermuda_tracker"] = _make_state(
+        "unavailable", None, attributes={},
+    )
+    # Sticky classification must retain the tracker.
+    second = census._derive_ble_crossing_trackers()
+    assert second == {
+        "device_tracker.iphone_oji_bermuda_tracker": "oji_udezue",
+    }, "sticky bluetooth_le classification lost across unavailable blip"
+
+
+def test_rev5_fixup_failed_subscribe_leaves_map_empty_for_retry():
+    """rev5 fix-up (B-HIGH-1): if `async_track_state_change_event` raises
+    during `_register_ble_transition_listeners`, the tracker->slug map
+    MUST remain empty (not latched to `derived`) so
+    `_refresh_ble_crossing_listeners`'s set-diff sees
+    `added = derived_ids - {}` on the next tick and retries.
+
+    Mutation anchor: the `self._ble_tracker_slug_map = {}` line in the
+    `except` branch of `_register_ble_transition_listeners`. If that
+    branch instead latches the map (the pre-fix behaviour), refresh
+    computes `added = {} == derived_ids` and never retries — the map
+    ends up non-empty here and the assertion RED-fails."""
+    census, hass, st = _make_census({})
+    _seed_bluetooth_le_derivation(hass, st, {
+        "oji_udezue": [
+            ("device_tracker.iphone_oji_bermuda_tracker", "bluetooth_le"),
+        ],
+    })
+    import custom_components.universal_room_automation.camera_census as _cc
+
+    def _raise(*_a, **_kw):
+        raise RuntimeError("simulated subscribe failure")
+
+    # Patch the imported symbol at its call site.
+    import homeassistant.helpers.event as _hae
+    orig = _hae.async_track_state_change_event
+    _hae.async_track_state_change_event = _raise
+    try:
+        census._register_ble_transition_listeners()
+    finally:
+        _hae.async_track_state_change_event = orig
+    assert census._ble_tracker_slug_map == {}, (
+        "failed subscribe must not latch the slug-map (would prevent "
+        "retry on next refresh tick)"
+    )
+    assert census._ble_transition_unsubs == []
+
+
+def test_rev5_fixup_ble_only_abstains_when_resident_has_zero_ble_trackers():
+    """rev5 fix-up (D-2): the BLE-only attach path abstains when ANY
+    tracked resident currently derives ZERO bluetooth_le trackers
+    (invisible potential crosser → cross-resident mislabel risk).
+    Increments `_ble_legs_abstained_count` and emits outcome label
+    `abstain_ble_ambiguous`.
+
+    Mutation anchor: the `_invisible` guard block in the BLE-only
+    attach branch of `_resolve_egress_face_identity`
+    (transit_validator.py). Neutering the `if _invisible:` block (e.g.
+    forcing `_invisible = []`) RED-fails at both the slug=oji_udezue
+    (would attach) AND the abstain counter/label assertions."""
+    now = datetime.now(UTC).replace(microsecond=0)
+    census, hass, _ = _make_census({})
+    tracker = _make_tracker(census, hass, interior_stems=[])
+    # Only oji has a BLE tracker; ezinne is invisible → guard fires.
+    census._ble_tracker_slug_map = {
+        "device_tracker.oji_ble": "oji_udezue",
+    }
+    _seed_ble_transition(
+        census, "oji_udezue", now - timedelta(seconds=8), direction="arriving",
+    )
+    slug, conf, ac = tracker._resolve_egress_face_identity(
+        "binary_sensor.front_door_person_occupancy", now, "entry",
+    )
+    assert slug is None
+    assert conf is None
+    assert ac == ura_const.CENSUS_AGREEMENT_DISAGREE
+    assert census._ble_legs_abstained_count >= 1
+    labels = [o for _t, o in census._egress_identity_outcomes]
+    assert labels[-1] == "abstain_ble_ambiguous"

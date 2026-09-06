@@ -2276,9 +2276,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
             try:
-                hass.bus.async_listen_once(
+                # Capture the remove-callable so a reload-before-start
+                # can't fire the callback on a torn-down census
+                # (rev5 fix-up B-MED-1 / D-3). Drained alongside the
+                # event listeners in `async_unload_entry`.
+                _unsub_ha_started_ble = hass.bus.async_listen_once(
                     _EV_HA_STARTED, _on_ha_started_ble_refresh,
                 )
+                _ura_ns = hass.data.setdefault(DOMAIN, {})
+                _ura_ns.setdefault("unsub_census_events", []).append(
+                    _unsub_ha_started_ble,
+                )
+                entry.async_on_unload(_unsub_ha_started_ble)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "rev5 BLE HA-started refresh listener registration "

@@ -1310,9 +1310,28 @@ class PersonCensus:
         self._ble_legs_produced_count: int = 0
         self._ble_legs_attached_count: int = 0
         self._ble_legs_abstained_count: int = 0
+        # Rev5 fix-up (D-7): benign edges (first-write / old_state=None
+        # / legitimate zone->zone) are counted here, NOT under
+        # `_ble_edge_dropped_invalid_count`, so the latter reflects
+        # forgery-shaped drops only.
+        self._ble_edge_dropped_benign_count: int = 0
         # One-time WARN latch for slugs that derive ZERO bluetooth_le
         # trackers (fatal for oji, who has only one BLE tracker).
         self._ble_zero_tracker_warned: set[str] = set()
+        # Rev5 fix-up (D-1a): sticky classification. Once a tracker in
+        # a resident's `device_trackers` has been observed with
+        # `source_type == "bluetooth_le"` while available, keep it in
+        # the subscription set even while it flips to `unavailable`
+        # (HA does not expose attributes on unavailable entities, so
+        # a live-only re-classification would silently unsubscribe).
+        # Removed only when the tracker leaves the person's
+        # `device_trackers` OR is confirmed a different source_type
+        # while available. Map: tracker_id -> slug.
+        self._known_ble_trackers: dict[str, str] = {}
+        # Rev5 fix-up (A-LOW-2): one-time WARN latch for a tracker_id
+        # that derives to two different slugs (silent last-writer-wins
+        # would be a data-quality bug).
+        self._ble_tracker_id_collision_warned: set[str] = set()
 
         # D4 §0 fail-safe surface. Drill flag lives on
         # ``hass.data[DOMAIN]["face_drill_forced"]`` (Review DL-1) so an
@@ -3712,7 +3731,11 @@ class PersonCensus:
     # EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1 rev5 (2026-09-05)
     # ------------------------------------------------------------------
 
-    _VALID_HA_HOME_STATES: frozenset = frozenset()  # placeholder — see gate
+    # Rev5 fix-up (D-6): the `_VALID_HA_HOME_STATES` placeholder had
+    # no readers and has been removed. The state gate in
+    # `_on_crossing_tracker_state_change` names the admitted strings
+    # inline; subscription IS the provenance gate (D-8): a tracker
+    # flipping source_type is caught on the next refresh tick.
 
     def _derive_ble_crossing_trackers(self) -> dict[str, str]:
         """rev5 D1: return a tracker_id -> slug map of the resident
@@ -3740,6 +3763,10 @@ class PersonCensus:
             slugs = self._get_tracked_person_slugs()
         except Exception:  # noqa: BLE001
             slugs = []
+        # Track which known-BLE trackers are still listed against a
+        # person this pass; anything absent gets pruned from
+        # `_known_ble_trackers` (rev5 fix-up D-1a).
+        seen_known: set[str] = set()
         for slug in slugs:
             if not slug:
                 continue
@@ -3758,22 +3785,57 @@ class PersonCensus:
             for tracker_id in trackers:
                 if not tracker_id:
                     continue
+                tid = str(tracker_id)
                 try:
-                    ts_state = self.hass.states.get(tracker_id)
+                    ts_state = self.hass.states.get(tid)
                 except Exception:  # noqa: BLE001
                     ts_state = None
-                if ts_state is None:
-                    # Boot-race: integration loading after URA yields None.
-                    # `_refresh_ble_crossing_listeners` re-derives later.
-                    continue
-                try:
-                    t_attrs = getattr(ts_state, "attributes", None) or {}
-                    src_type = str(t_attrs.get("source_type", "") or "").lower()
-                except Exception:  # noqa: BLE001
-                    src_type = ""
-                if src_type == "bluetooth_le":
-                    out[str(tracker_id)] = slug
+                src_type = ""
+                live_available = False
+                if ts_state is not None:
+                    try:
+                        t_state = str(getattr(ts_state, "state", "") or "").lower()
+                        live_available = t_state not in ("", "unknown", "unavailable")
+                        t_attrs = getattr(ts_state, "attributes", None) or {}
+                        src_type = str(t_attrs.get("source_type", "") or "").lower()
+                    except Exception:  # noqa: BLE001
+                        src_type = ""
+                        live_available = False
+                # Sticky classification (rev5 fix-up D-1a). A tracker
+                # once seen as bluetooth_le stays admitted while it is
+                # still on this person's `device_trackers` — even
+                # while unavailable / stateless — UNLESS it is
+                # currently AVAILABLE with a different (non-empty)
+                # source_type, which demotes it.
+                is_ble_live = (src_type == "bluetooth_le")
+                is_ble_sticky = (
+                    self._known_ble_trackers.get(tid) == slug
+                    and not (live_available and src_type and src_type != "bluetooth_le")
+                )
+                if is_ble_live or is_ble_sticky:
+                    # A-LOW-2: warn once on cross-slug collision.
+                    prior = out.get(tid)
+                    if prior is not None and prior != slug and tid not in self._ble_tracker_id_collision_warned:
+                        _LOGGER.warning(
+                            "rev5 BLE producer: tracker_id %s derives to "
+                            "multiple slugs (%s vs %s); last-writer-wins "
+                            "would mask a config bug — please investigate.",
+                            tid, prior, slug,
+                        )
+                        self._ble_tracker_id_collision_warned.add(tid)
+                    out[tid] = slug
                     slug_ble_count += 1
+                    if is_ble_live:
+                        # Refresh sticky record on any live BLE hit.
+                        self._known_ble_trackers[tid] = slug
+                    seen_known.add(tid)
+                elif live_available and src_type and src_type != "bluetooth_le":
+                    # Confirmed non-BLE while available → demote.
+                    if self._known_ble_trackers.pop(tid, None) is not None:
+                        _LOGGER.info(
+                            "rev5 BLE producer: tracker %s demoted from "
+                            "bluetooth_le (source_type=%s)", tid, src_type,
+                        )
             if slug_ble_count == 0 and slug not in self._ble_zero_tracker_warned:
                 _LOGGER.warning(
                     "rev5 BLE producer: tracked slug %s derives ZERO "
@@ -3783,6 +3845,11 @@ class PersonCensus:
                     slug, slug, trackers,
                 )
                 self._ble_zero_tracker_warned.add(slug)
+        # Prune sticky-BLE entries whose tracker_id no longer appears
+        # on any tracked resident's `device_trackers` (rev5 D-1a).
+        for tid in list(self._known_ble_trackers.keys()):
+            if tid not in seen_known:
+                self._known_ble_trackers.pop(tid, None)
         return out
 
     @callback
@@ -3813,26 +3880,54 @@ class PersonCensus:
             old_state = event.data.get("old_state")
         except Exception:  # noqa: BLE001
             return
-        if new_state is None or old_state is None:
-            self._ble_edge_dropped_invalid_count += 1
+        if new_state is None:
+            # No new state at all — nothing to attribute; benign.
+            self._ble_edge_dropped_benign_count += 1
             return
         try:
             new_s = str(getattr(new_state, "state", "") or "").lower()
+        except Exception:  # noqa: BLE001
+            self._ble_edge_dropped_invalid_count += 1
+            return
+        if old_state is None:
+            # First-write / entity-add / restart transient: HA fires a
+            # state_changed with old_state=None. Benign — do NOT count
+            # against the forgery-shaped drop counter (rev5 D-7). We
+            # also DO NOT synthesise an arrival from a bare add: only
+            # a live post-add edge to "home" (handled next tick) counts.
+            self._ble_edge_dropped_benign_count += 1
+            return
+        try:
             old_s = str(getattr(old_state, "state", "") or "").lower()
         except Exception:  # noqa: BLE001
             self._ble_edge_dropped_invalid_count += 1
             return
-        # STATE GATE — either side is bad → drop.
         _BAD = {"", "unknown", "unavailable", "none"}
-        if new_s in _BAD or old_s in _BAD:
-            self._ble_edge_dropped_invalid_count += 1
-            return
         if new_s == old_s:
-            # Not a boundary; silently ignore (not an "invalid" edge).
+            # Not a boundary; silently ignore.
             return
-        if "home" not in (new_s, old_s):
-            # zone->zone (both-away) — forbidden by the invariant.
-            self._ble_edge_dropped_invalid_count += 1
+        # Rev5 fix-up (D-1b): ADMIT `unavailable|unknown|not_home|zone → home`
+        # as an arriving edge. The old side being missing/degraded on an
+        # arrival is not a forge — only the NEW side matters, and
+        # subscription IS the provenance gate. This restores oji's
+        # `unavailable → home` arrivals that the strict old_s gate dropped.
+        if new_s == "home":
+            # Any non-home old_s (including bad-set members) → arrival.
+            pass
+        elif old_s == "home":
+            # Departing edge (home → *). Reject when new_s is bad —
+            # not a real boundary, likely a producer flap.
+            if new_s in _BAD:
+                self._ble_edge_dropped_invalid_count += 1
+                return
+        else:
+            # Neither side is "home". Legitimate zone->zone (both-away)
+            # is benign for the crossing producer — count it separately
+            # (rev5 D-7). Bad-set members on either side stay forgery-shaped.
+            if new_s in _BAD or old_s in _BAD:
+                self._ble_edge_dropped_invalid_count += 1
+                return
+            self._ble_edge_dropped_benign_count += 1
             return
         # Both sides are non-empty, non-unknown, and one side is "home"
         # → the other side is "not_home" or a named zone. Admit.
@@ -3987,9 +4082,11 @@ class PersonCensus:
         self.async_teardown_ble_transition_listeners()
         from homeassistant.helpers.event import async_track_state_change_event
         derived = self._derive_ble_crossing_trackers()
-        self._ble_tracker_slug_map = dict(derived)
         entity_ids = sorted(derived.keys())
         if not entity_ids:
+            # No trackers to subscribe → clear the map so the next
+            # refresh set-diff re-derives freshly (rev5 B-HIGH-1).
+            self._ble_tracker_slug_map = {}
             _LOGGER.info(
                 "rev5 BLE producer: no bluetooth_le trackers derived at "
                 "setup; will re-derive on HA start + census tick.",
@@ -4001,11 +4098,18 @@ class PersonCensus:
                 self._on_crossing_tracker_state_change,
             )
         except Exception:  # noqa: BLE001
+            # B-HIGH-1: on a raised subscribe, DO NOT latch the map —
+            # leave it empty so `_refresh_ble_crossing_listeners`'s
+            # set-diff sees `added != {}` on the next tick and retries.
+            self._ble_tracker_slug_map = {}
+            self._ble_transition_unsubs = []
             _LOGGER.debug(
                 "rev5 BLE listener registration failed for %r",
                 entity_ids, exc_info=True,
             )
             return []
+        # Subscribe succeeded — latch the map and record the unsub.
+        self._ble_tracker_slug_map = dict(derived)
         self._ble_transition_unsubs.append(unsub)
         _LOGGER.info(
             "rev5 BLE crossing listeners registered for %d "
