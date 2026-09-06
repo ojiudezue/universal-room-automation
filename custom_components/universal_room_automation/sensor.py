@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.97.0
+# Universal Room Automation vv5.97.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3839,6 +3839,16 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
                     )
                     attrs["ble_exit_per_slug_cooldown_skipped_count"] = int(
                         getattr(census, "_ble_exit_per_slug_cooldown_skipped_count", 0) or 0
+                    )
+                    # EGRESS-EXIT-COMULTI-DEPART-1 (2026-09-06)
+                    attrs["ble_exit_row_contention_retry_count"] = int(
+                        getattr(census, "_ble_exit_row_contention_retry_count", 0) or 0
+                    )
+                    # Renamed 2026-09-06 (A-3/D-2): honest name for
+                    # "row lost to any concurrent writer" (not
+                    # face-specific).
+                    attrs["ble_exit_row_lost_count"] = int(
+                        getattr(census, "_ble_exit_row_lost_count", 0) or 0
                     )
                     attrs["ble_crossing_trackers_derived"] = sorted(
                         (getattr(census, "_ble_tracker_slug_map", {}) or {}).keys()

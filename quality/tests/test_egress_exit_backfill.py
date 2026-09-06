@@ -301,47 +301,134 @@ def test_exit_backfill_second_edge_does_not_rewrite_named_row():
 # ---------------------------------------------------------------------------
 
 
-def test_exit_backfill_abstains_when_multiple_candidate_rows():
-    """Fix-up (2026-09-05): two null-exit rows in the window → cannot
-    exclusively attribute one to this slug. Both stay NULL, DAO
-    UPDATE is never called. Mutation anchor: the `if len(rows) > 1`
-    abstain in `_backfill_exit_identity`.
+def test_exit_backfill_co_departure_names_both_rows():
+    """EGRESS-EXIT-COMULTI-DEPART-1 (2026-09-06) HEADLINE anchor —
+    two co-departing edges + two null exit rows → BOTH rows named,
+    each by its own slug. Retire of the prior `len(rows) > 1`
+    abstain. Mutation anchor: neutering the retry-claim loop (return
+    on the first `ok is False`) leaves one row NULL → RED.
     """
     census, _, db = _make_census()
-    t_crossing_a = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=300)
-    t_crossing_b = t_crossing_a - timedelta(seconds=60)
-    db.add_null_exit(_naive_utc(t_crossing_a))
-    db.add_null_exit(_naive_utc(t_crossing_b))
-    t_edge = t_crossing_a + timedelta(seconds=100)
-    _run(census._backfill_exit_identity("oji_udezue", t_edge))
-    assert db.rows[0]["person_id"] is None
-    assert db.rows[1]["person_id"] is None
-    assert census._ble_exit_backfilled_count == 0
-    assert census._ble_exit_ambiguity_abstain_count == 1
-    assert db.backfill_calls == []
+    t_a = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=300)
+    t_b = t_a - timedelta(seconds=60)
+    db.add_null_exit(_naive_utc(t_a))
+    db.add_null_exit(_naive_utc(t_b))
+    edge_a = t_a + timedelta(seconds=100)
+    edge_b = t_b + timedelta(seconds=100)
+    _run(census._backfill_exit_identity("oji_udezue", edge_a))
+    _run(census._backfill_exit_identity("ezinne_udezue", edge_b))
+    named = {r["person_id"] for r in db.rows}
+    assert named == {"oji_udezue", "ezinne_udezue"}
+    assert census._ble_exit_backfilled_count == 2
 
 
-def test_exit_backfill_abstains_on_competing_departing_edge():
-    """Fix-up (2026-09-05): a DIFFERENT resident's departing edge in
-    the recent-edges deque within the window → abstain (cannot say
-    which of the two co-departers owns the single row). Mutation
-    anchor: the competing-edge scan over
-    `_ble_exit_recent_departing_edges` in `_backfill_exit_identity`.
+def test_exit_backfill_each_edge_names_own_slug():
+    """An oji edge NEVER writes an ezinne name — the WHO comes from
+    the edge, never the row. Retire of the competing-edge abstain.
     """
     census, _, db = _make_census()
     t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
     db.add_null_exit(_naive_utc(t_crossing))
-    t_edge = t_crossing + timedelta(seconds=200)
-    # Simulate: the other resident just fired a departing edge too.
-    other_naive = _naive_utc(t_edge - timedelta(seconds=30))
-    census._ble_exit_recent_departing_edges.append(
-        ("ezinne_udezue", other_naive)
-    )
-    _run(census._backfill_exit_identity("oji_udezue", t_edge))
-    assert db.rows[0]["person_id"] is None
+    edge = t_crossing + timedelta(seconds=100)
+    _run(census._backfill_exit_identity("oji_udezue", edge))
+    assert db.rows[0]["person_id"] == "oji_udezue"
+    assert census._ble_exit_backfilled_count == 1
+
+
+class _ContentionDB(_StubDatabase):
+    """Simulates a concurrent writer that steals the first-SELECT
+    nearest row: the SELECT returns the row while it is still null,
+    but the DAO UPDATE finds it already claimed by the other writer
+    and returns False. Second SELECT skips that (now-named) row.
+    """
+
+    def __init__(self, steal_count: int = 1):
+        super().__init__()
+        self._steal_left = steal_count
+
+    async def backfill_entry_exit_person_id(self, row_id, person_id, confidence):
+        self.backfill_calls.append((row_id, person_id, confidence))
+        for r in self.rows:
+            if r["id"] == row_id:
+                if r["person_id"] is None:
+                    if self._steal_left > 0:
+                        # Simulate: concurrent writer claimed it
+                        # between our SELECT and this UPDATE.
+                        self._steal_left -= 1
+                        r["person_id"] = "__stolen__"
+                        return False
+                    r["person_id"] = person_id
+                    return True
+                return False
+        return False
+
+
+def test_exit_backfill_retry_claims_different_row_on_contention():
+    """Second edge's first SELECT returns nearest row A; the DAO's
+    IS-NULL claim loses (concurrent writer stole it); the retry-
+    claim loop re-SELECTs and claims the OTHER row (B). Mutation
+    anchor: turning the retry into a `return` on first `ok is False`
+    leaves row_b NULL → RED.
+    """
+    _ensure_loop()
+    hass = make_hass()
+    entry = MagicMock()
+    entry.data = {ura_const.CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_INTEGRATION}
+    entry.options = {
+        "tracked_persons": ["person.oji_udezue", "person.ezinne_udezue"],
+        ura_const.CONF_EGRESS_IDENTITY_ENABLED: True,
+    }
+    hass.config_entries.async_entries.return_value = [entry]
+    hass.states.get = lambda eid: None
+    census = PersonCensus(hass, _StubCameraManager())  # type: ignore[arg-type]
+    db = _ContentionDB(steal_count=1)
+    hass.data[ura_const.DOMAIN] = {"database": db, "census": census}
+
+    t_a = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    t_b = t_a - timedelta(seconds=30)
+    row_a = db.add_null_exit(_naive_utc(t_a))
+    row_b = db.add_null_exit(_naive_utc(t_b))
+    _run(census._backfill_exit_identity(
+        "ezinne_udezue", t_a + timedelta(seconds=50)
+    ))
+    by_id = {r["id"]: r for r in db.rows}
+    assert by_id[row_a]["person_id"] == "__stolen__"
+    assert by_id[row_b]["person_id"] == "ezinne_udezue"
+    assert census._ble_exit_row_contention_retry_count == 1
+    assert census._ble_exit_backfilled_count == 1
+
+
+def test_exit_backfill_case2_face_disagree_no_overwrite():
+    """Case-2 (keep-face+flag+measure): a face-named row is the sole
+    in-window row and this BLE edge has no own crossing. The DAO
+    returns `ok=False` (row already named); re-SELECT is empty;
+    face name STAYS, `face_disagree` +1, no overwrite. Mutation
+    anchor: replacing the noop with an overwrite would flip the
+    face name → RED.
+    """
+    _ensure_loop()
+    hass = make_hass()
+    entry = MagicMock()
+    entry.data = {ura_const.CONF_ENTRY_TYPE: ura_const.ENTRY_TYPE_INTEGRATION}
+    entry.options = {
+        "tracked_persons": ["person.oji_udezue", "person.ezinne_udezue"],
+        ura_const.CONF_EGRESS_IDENTITY_ENABLED: True,
+    }
+    hass.config_entries.async_entries.return_value = [entry]
+    hass.states.get = lambda eid: None
+    census = PersonCensus(hass, _StubCameraManager())  # type: ignore[arg-type]
+    db = _ContentionDB(steal_count=1)
+    hass.data[ura_const.DOMAIN] = {"database": db, "census": census}
+
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    _run(census._backfill_exit_identity(
+        "ezinne_udezue", t_crossing + timedelta(seconds=100)
+    ))
+    assert db.rows[0]["person_id"] == "__stolen__"  # face-analog wins
     assert census._ble_exit_backfilled_count == 0
-    assert census._ble_exit_ambiguity_abstain_count == 1
-    assert db.backfill_calls == []
+    assert census._ble_exit_row_lost_count == 1
+    assert census._ble_exit_row_contention_retry_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -596,56 +683,6 @@ def test_teardown_ble_listeners_does_not_cancel_pending_backfill():
 # ---------------------------------------------------------------------------
 
 
-def test_exit_backfill_defers_and_abstains_on_late_competing_edge():
-    """D-HIGH-1 anchor (2026-09-05 fix-up): A+B co-depart. A's edge
-    fires first and enters the deferred decision wait; while A sleeps,
-    B's edge arrives and is appended to
-    `_ble_exit_recent_departing_edges`. At A's decision point the
-    distinct-departer scan sees {A, B} inside the row's window and
-    abstains — the row stays NULL rather than being wrongly written
-    as A. Mutation anchor: removing the distinct-departer scan (or
-    restricting it to edges already present at first-SELECT time)
-    lets A write on B's crossing → RED.
-    """
-    census, hass, db = _make_census()
-    # Crossing 1s ago so R_ts+WINDOW is well in the future (forces
-    # non-trivial deferred wait under the override).
-    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=1)
-    db.add_null_exit(_naive_utc(t_crossing))
-    tracker_a = "device_tracker.oji_ble"
-    census._ble_tracker_slug_map = {tracker_a: "oji_udezue"}
-    census._get_tracked_person_slugs = lambda: ["oji_udezue"]
-    # Override the deferred wait to a short, non-zero interval so the
-    # test can inject B's edge MID-WAIT (0 would decide immediately).
-    census._exit_settle_s = 0.05
-    _live = MagicMock()
-    _live.state = "not_home"
-    hass.states.get = lambda eid: _live if eid == tracker_a else None
-
-    async def _scenario():
-        loop = _asyncio.get_event_loop()
-        t_edge_a = t_crossing + timedelta(seconds=1)
-        task = loop.create_task(
-            census._backfill_exit_identity("oji_udezue", t_edge_a, tracker_a)
-        )
-        # Yield so the coroutine completes first-SELECT and enters
-        # the asyncio.sleep(wait_s) branch.
-        await _asyncio.sleep(0.01)
-        # Inject B's departing edge as `_on_crossing_tracker_state_change`
-        # would (naive-UTC timestamp inside R_ts .. R_ts+WINDOW).
-        b_edge_naive = datetime.utcnow()
-        census._ble_exit_recent_departing_edges.append(
-            ("ezinne_udezue", b_edge_naive)
-        )
-        await task
-
-    _run(_scenario())
-    assert db.rows[0]["person_id"] is None
-    assert census._ble_exit_backfilled_count == 0
-    assert census._ble_exit_ambiguity_abstain_count == 1
-    assert db.backfill_calls == []
-
-
 def test_dao_backfill_preserves_confidence_column():
     """Fix-up (2026-09-05): the `confidence` column on the exit row
     carries CROSSING confidence written at INSERT. The identity-
@@ -670,3 +707,78 @@ def test_dao_backfill_preserves_confidence_column():
         # Confidence UNCHANGED (would be 0.72 under the pre-fix UPDATE).
         assert abs(float(r[3]) - 0.91) < 1e-9
     _run(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 2026-09-06 — B1: 4-co-departer coverage under the raised
+# BLE_EXIT_CLAIM_MAX_ATTEMPTS budget (was 3 → 6). All four rows must
+# be named. Mutation anchor: lowering the const back below 4 leaves at
+# least one row NULL under an unlucky race, but the deterministic
+# harness proves the loop actually attempts N rows.
+# ---------------------------------------------------------------------------
+
+
+def test_exit_backfill_four_co_departers_all_named():
+    """Four co-departing edges + four null exit rows → ALL four named."""
+    census, _, db = _make_census()
+    t_base = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=400)
+    edges = []
+    for i, slug in enumerate([
+        "oji_udezue", "ezinne_udezue", "child1_udezue", "child2_udezue",
+    ]):
+        t_row = t_base - timedelta(seconds=30 * i)
+        db.add_null_exit(_naive_utc(t_row))
+        edges.append((slug, t_row + timedelta(seconds=100)))
+    for slug, edge in edges:
+        _run(census._backfill_exit_identity(slug, edge))
+    named = {r["person_id"] for r in db.rows}
+    assert named == {
+        "oji_udezue", "ezinne_udezue", "child1_udezue", "child2_udezue",
+    }, f"expected all 4 named, got {named}"
+    assert census._ble_exit_backfilled_count == 4
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 2026-09-06 — D-3: assert the settle DURATION is a wrong-WHO
+# safety guard, not a latency knob. The constant MUST outlast the
+# multi-minute Bermuda tracker flap distribution (raised 90 → 300).
+# Mutation anchor: setting the constant back to 90 makes this RED.
+# ---------------------------------------------------------------------------
+
+
+def test_ble_exit_departure_settle_outlasts_multiminute_flap():
+    from custom_components.universal_room_automation.const import (
+        BLE_EXIT_DEPARTURE_SETTLE_S,
+    )
+    # A tracker flap in the wild is multi-minute; the settle re-read
+    # MUST sample beyond it so a flap-back-home resolves before we
+    # commit the wrong-WHO. 240s is the floor operator will accept.
+    assert BLE_EXIT_DEPARTURE_SETTLE_S >= 240, (
+        "BLE_EXIT_DEPARTURE_SETTLE_S is a wrong-WHO flap guard, not a "
+        "latency knob — must outlast a multi-minute Bermuda flap."
+    )
+
+
+def test_exit_backfill_flap_within_settle_aborts_under_positive_settle():
+    """Behavioral companion to the constant test: with a positive
+    settle (not the zero-override used elsewhere in the suite), a
+    tracker that returns home DURING the settle triggers the flap
+    re-read abort — the null row is NOT named. Mutation anchor:
+    removing the live re-read gate lets the row get named → RED.
+    """
+    census, hass, db = _make_census()
+    t_crossing = datetime.now(UTC).replace(microsecond=0) - timedelta(seconds=200)
+    db.add_null_exit(_naive_utc(t_crossing))
+    tracker_id = "device_tracker.oji_ble"
+    # Positive but tiny settle so the test is fast; the point is
+    # settle>0 + live-state==home → flap-abort. The DURATION invariant
+    # is enforced by the constant test above.
+    census._exit_settle_s = 0.05
+    _live = MagicMock()
+    _live.state = "home"
+    hass.states.get = lambda eid: _live if eid == tracker_id else None
+    t_edge = t_crossing + timedelta(seconds=200)
+    _run(census._backfill_exit_identity("oji_udezue", t_edge, tracker_id))
+    assert db.rows[0]["person_id"] is None
+    assert census._ble_exit_flap_aborted_count == 1
+    assert db.backfill_calls == []

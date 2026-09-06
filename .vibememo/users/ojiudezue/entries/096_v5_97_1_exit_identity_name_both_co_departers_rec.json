@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "096",
+  "author": "ojiudezue",
+  "session_id": "claude_20260906_212820_ship_v5_97_1",
+  "timestamp": "2026-09-06T21:28:20Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.97.1 shipped: Exit identity: name BOTH co-departers (reconciliation)",
+  "summary": "Exit identity: name BOTH co-departers (reconciliation)",
+  "why": "A couple/family leaving together is the common case, and v5.96.1 left those exits unnamed to avoid a wrong-name swap. But each tracker uniquely identifies its person, so the WHO is certain per edge \u2014 only the camera-row binding is ambiguous, and that is a best-effort concern (set-correct always). Reviews caught and fixed a wrong-WHO regression (a too-short flap settle that could name a home resident whose BLE merely flapped) and a co-departer-drop coverage gap; the row-binding gnat is deferred per operator scope guidance.",
+  "implications": "Shipped EGRESS-EXIT-COMULTI-DEPART-1 at v5.97.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.97.1.md (Live criteria).",
+  "revisit_trigger": "Post-restart: a real co-departure names each resident (not one-null); a resident whose tracker flaps not_home while home is NOT recorded as departed; ble_exit_row_contention_retry_count moves on co-departures",
+  "refs": {
+    "cards": [
+      "EGRESS-EXIT-COMULTI-DEPART-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.97.1.md"
+    ],
+    "release_notes": "Relaxes the v5.96.1 co-departure abstain: each resident's own bluetooth_le not_home edge names its own resident via a retry-claim loop, so a family leaving together gets all named instead of left NULL. Reconciliation (set-union/dedup), not a confirmation matrix; row-binding best-effort/set-correct. Exit naming now has 3 paths: face-at-crossing (real-time primary), BLE edge (backfill fallback), both-agree (higher confidence). Flap guard settle restored to 300s (D-1 wrong-WHO: a multi-min BLE flap can't name a resident who never left); retry budget 6 (4-person co-departure); honest counters. Tier-2: plan-review + 3 framing-disjoint reviews + 2 fix-ups + orchestrator mutation-verify."
+  }
+}
