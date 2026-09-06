@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T15:58:55-05:00_ - _Data commit: `da2b049875c6`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T17:33:53-05:00_ - _Data commit: `a6291382277d`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,12 +12,12 @@ _Generated: 2026-09-06T15:58:55-05:00_ - _Data commit: `da2b049875c6`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 31 |
-| 🔬 Investigating | 8 |
-| 🧭 Pre-planning | 13 |
-| 📝 Planned | 11 |
+| 🔬 Investigating | 9 |
+| 🧭 Pre-planning | 14 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 63 |
+| 🚀 Shipped (organic open) | 64 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
@@ -375,8 +375,20 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
+
+### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
+thread: **energy** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-06 18:00 · initial_
+- **Problem / Solution:**
+  - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
+- **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
+- **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
+- **Next:** MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release...
+- **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
+- **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
+- **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -484,8 +496,23 @@ _created 2026-08-25 22:20 · initial_
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
+
+### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
+thread: **device-tree** - status: **pre_planning** - approval: **explicit**
+_created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
+- **Problem / Solution:**
+  - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
+- **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
+- **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
+- **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
+- **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
+- **Refs:** docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard (+1 more)
+- **Forensic keys (3):**
+  - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
+  - `target_operator_representation`: House
+  - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -639,7 +666,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (11)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
@@ -679,21 +706,6 @@ _created 2026-09-05 17:05 · initial_
 - **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
-
-### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-06 15:45 · initial_
-- **Problem / Solution:**
-  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
-- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
-- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
-- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
-- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
-- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
-- **Forensic keys (1):**
-  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -843,7 +855,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (63)
+## 🚀 Shipped (organic open) (64)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -942,6 +954,21 @@ _created 2026-09-05 22:20 · initial_
 - **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
 - **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
 - **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
+
+### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
+thread: **identity** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-06 15:45 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
+- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
+- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
+- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
+- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
+- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
+- **Forensic keys (1):**
+  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
 
 ### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
 thread: **identity** - status: **shipped_organic** - approval: **explicit**

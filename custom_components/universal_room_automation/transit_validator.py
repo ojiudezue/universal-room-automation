@@ -1774,6 +1774,23 @@ class EgressDirectionTracker:
             egress_camera_id, direction, confidence, person_id,
         )
 
+        # ARRIVAL-DEPARTURE-NOTIFY-1 (Wave-1 consumer #1): turn a named
+        # egress crossing into an "Oji arrived / Oji left" notification.
+        # - Gate: direction in (entry, exit); skip ambiguous.
+        # - Name only when identity_confidence >= 0.75 (card doctrine);
+        #   otherwise graceful-anonymous "Someone arrived/left" — the
+        #   card explicitly picks anonymous-notify over suppress.
+        # - Best-effort: any NM/lookup failure MUST NOT break the emit.
+        try:
+            self._arrival_departure_notify(
+                direction, person_id, identity_confidence,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "arrival/departure notify failed (non-fatal)",
+                exc_info=True,
+            )
+
         # Feed the census union so the next census tick fuses this
         # identity with face_ids/ble_ids (I1: cardinality of the union,
         # not sum). Bounded by EGRESS_FACE_UNION_TTL_S on the census
@@ -1841,6 +1858,72 @@ class EgressDirectionTracker:
                     )
                 except Exception as e:
                     _LOGGER.error("Failed to log entry/exit event: %s", e)
+
+    # ARRIVAL-DEPARTURE-NOTIFY-1 (Wave-1 consumer #1)
+    ARRIVAL_NAME_CONFIDENCE_THRESHOLD = 0.75
+
+    def _arrival_departure_notify(
+        self,
+        direction: str,
+        person_id: str | None,
+        identity_confidence: float | None,
+    ) -> None:
+        """Dispatch an arrival/departure notification off an egress crossing.
+
+        - Skips direction=='ambiguous' (only entry/exit notify).
+        - Names the person iff person_id truthy AND identity_confidence
+          >= ARRIVAL_NAME_CONFIDENCE_THRESHOLD; else graceful-anonymous
+          ("Someone arrived/left") per card doctrine (notify > suppress).
+        - Best-effort: NM absence or exception is swallowed by the caller.
+        """
+        if direction not in ("entry", "exit"):
+            return
+
+        verb = "arrived" if direction == "entry" else "left"
+
+        if (
+            person_id
+            and identity_confidence is not None
+            and identity_confidence >= self.ARRIVAL_NAME_CONFIDENCE_THRESHOLD
+        ):
+            name = person_id.replace("_", " ").title()
+        else:
+            name = "Someone"
+
+        title = f"{name} {verb}"
+        message = title
+
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            _LOGGER.debug(
+                "arrival/departure notify skipped — NM not available (%s)",
+                title,
+            )
+            return
+
+        # Import locally to avoid a module-level dependency cycle.
+        from .domain_coordinators.notification_manager import Severity
+
+        _LOGGER.info("Arrival/departure notify: %s", title)
+
+        async def _safe_notify() -> None:
+            # LOW-1 fix (2026-09-06 review): the notify runs in a detached
+            # task, so an exception inside async_notify would surface as an
+            # unhandled-task error rather than the intended swallow. Wrap it.
+            try:
+                await nm.async_notify(
+                    coordinator_id="presence",
+                    severity=Severity.LOW,
+                    title=title,
+                    message=message,
+                )
+            except Exception:  # noqa: BLE001 — best-effort notify only
+                _LOGGER.debug(
+                    "arrival/departure notify failed (%s)", title,
+                    exc_info=True,
+                )
+
+        self.hass.async_create_task(_safe_notify())
 
     def _get_interior_cameras_near(self, egress_camera_id: str) -> list[str]:
         """Return interior camera entity IDs physically adjacent to this egress camera.

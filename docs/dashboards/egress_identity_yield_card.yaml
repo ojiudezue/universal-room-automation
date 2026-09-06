@@ -1,0 +1,127 @@
+# Egress Identity Yield — live producer panel (Wave-1 consumer #4)
+#
+# Paste into any Lovelace dashboard (Settings → Dashboards → Edit → Add Card
+# → Manual). No new entities are created; every value is a live attribute on
+# an existing URA sensor. If a row shows `unknown`, the producer has not
+# populated that counter yet since HA start (all `_count` counters
+# monotonically increment from 0 on restart).
+#
+# Entity ids + attribute keys VERIFIED LIVE 2026-09-06 via ha_get_state
+# (the domain-prefixed slug is derived from _attr_name under the full-domain
+# device, NOT the ura_ unique_id stem):
+#   - sensor.universal_room_automation_persons_entered_today
+#       * egress_face_ids_active
+#       * egress_identities_stamped
+#   - sensor.universal_room_automation_persons_in_house
+#       * egress_identity_last_attach   (dict: person, camera, identity_confidence,
+#                                        direction, agreement_class, contributor_engines,
+#                                        signed_lag_delta_seconds — NO person_id/confidence/ts)
+#       * egress_identity_attach_rate_24h / _ambiguity_rate_24h / _abstain_rate_24h
+#       * ble_legs_produced_count / ble_legs_attached_count
+#       * ble_exit_backfilled_count / ble_exit_edge_no_match_count
+#       * ble_exit_ambiguity_abstain_count / ble_exit_flap_aborted_count
+#       * ble_exit_row_contention_retry_count / ble_exit_row_lost_count
+#       * frigate_face_latch_size / frigate_face_msg_seen_count / frigate_face_msg_face_count
+
+type: vertical-stack
+title: Egress Identity Yield
+cards:
+  - type: markdown
+    content: |
+      ### Last identity attach
+      {% set a = state_attr('sensor.universal_room_automation_persons_in_house', 'egress_identity_last_attach') %}
+      {% if a %}
+      - **person:** `{{ a.get('person', '—') }}`
+      - **camera:** `{{ a.get('camera', '—') }}`
+      - **direction:** `{{ a.get('direction', '—') }}`
+      - **identity confidence:** `{{ a.get('identity_confidence', '—') }}`
+      - **agreement:** `{{ a.get('agreement_class', '—') }}`
+      - **engines:** `{{ a.get('contributor_engines', '—') | join(', ') if a.get('contributor_engines') else '—' }}`
+      - **signed lag (s):** `{{ a.get('signed_lag_delta_seconds', '—') }}`
+      {% else %}
+      _No attach observed since restart._
+      {% endif %}
+
+  - type: entities
+    title: Attach quality (24h)
+    state_color: false
+    entities:
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: egress_identity_attach_rate_24h
+        name: Attach rate
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: egress_identity_ambiguity_rate_24h
+        name: Ambiguity rate
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: egress_identity_abstain_rate_24h
+        name: Abstain rate
+
+  - type: entities
+    title: Entry legs (BLE)
+    state_color: false
+    entities:
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_legs_produced_count
+        name: Legs produced
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_legs_attached_count
+        name: Legs attached
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_entered_today
+        attribute: egress_identities_stamped
+        name: Identities stamped (today)
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_entered_today
+        attribute: egress_face_ids_active
+        name: Active face-id set size
+
+  - type: entities
+    title: Exit dispositions (BLE)
+    state_color: false
+    entities:
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_exit_backfilled_count
+        name: Backfilled
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_exit_edge_no_match_count
+        name: Edge — no match
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_exit_ambiguity_abstain_count
+        name: Ambiguity abstain
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_exit_flap_aborted_count
+        name: Flap aborted
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_exit_row_contention_retry_count
+        name: Row contention retry
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: ble_exit_row_lost_count
+        name: Row lost
+
+  - type: entities
+    title: Frigate face bridge
+    state_color: false
+    entities:
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: frigate_face_latch_size
+        name: Face latch size
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: frigate_face_msg_seen_count
+        name: MQTT messages seen
+      - type: attribute
+        entity: sensor.universal_room_automation_persons_in_house
+        attribute: frigate_face_msg_face_count
+        name: MQTT messages w/ face

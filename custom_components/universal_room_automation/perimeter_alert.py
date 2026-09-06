@@ -138,6 +138,7 @@ from .const import (
     EXTERIOR_VEHICLE_ALERT_COOLDOWN_SECONDS,
     EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
     EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
+    FACE_NAME_LATCH_TTL_S,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
@@ -1348,6 +1349,64 @@ class PerimeterAlertManager:
                     "PerimeterAlertManager: linker path enrichment failed",
                     exc_info=True,
                 )
+
+        # PERIMETER-ALERT-NAME-PERSON-1 (Wave-1 consumer #2, 2026-09-06):
+        # annotate the alert message with the recognized identity WHEN
+        # KNOWN. INVARIANT: this ONLY mutates message TEXT — severity /
+        # escalation are untouched. Best-effort: any failure leaves the
+        # original `message` intact. Consumer of census face resolver;
+        # camera_census is READ-ONLY here.
+        try:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            _name_stem = _linker_camera or self._camera_key_for_sensor(entity_id)
+            if census is not None and _name_stem and hasattr(census, "_resolve_face_legs"):
+                legs = census._resolve_face_legs(_name_stem) or []
+                # Highest-conf named leg. Frigate legs expose no numeric
+                # confidence (conf is None) and are admitted as engine-trusted
+                # (the resolver already floored them at FACE_MATCH_MIN_CONFIDENCE
+                # =0.60); non-Frigate legs that DO carry a score require >=0.75.
+                # So the effective floor is 0.60 for Frigate, 0.75 for scored
+                # legs — display-only annotation, never affects severity.
+                best_name: str | None = None
+                best_conf: float = -1.0
+                for leg in legs:
+                    slug = getattr(leg, "canonical_slug", None)
+                    if not slug:
+                        continue
+                    # MEDIUM-1 fix (2026-09-06 review): freshness gate. A latched
+                    # face name (Protect legs auto-reset only on Frigate, not
+                    # Protect) must not annotate a stale alert hours later. Drop
+                    # any leg older than the latch TTL; a leg with no timestamp
+                    # cannot be proven fresh and is kept lenient (display-only).
+                    lc = getattr(leg, "last_changed", None)
+                    if lc is not None:
+                        try:
+                            if (dt_util.utcnow() - lc).total_seconds() > FACE_NAME_LATCH_TTL_S:
+                                continue
+                        except (TypeError, ValueError):
+                            pass
+                    c = getattr(leg, "confidence", None)
+                    if c is not None and c < 0.75:
+                        continue
+                    rank = c if c is not None else 0.60
+                    if rank > best_conf:
+                        best_conf = rank
+                        best_name = slug
+                if best_name:
+                    _pretty = best_name.replace("_", " ").title()
+                    message = f"{message} Identified: {_pretty}."
+                    _LOGGER.info(
+                        "PerimeterAlertManager: annotated %s alert with "
+                        "identity=%s (conf=%s)",
+                        entity_id, best_name,
+                        f"{best_conf:.2f}" if best_conf >= 0 else "n/a",
+                    )
+        except Exception:  # noqa: BLE001 — best-effort de-escalation only
+            _LOGGER.debug(
+                "PerimeterAlertManager: identity annotation failed; "
+                "falling back to anonymous message",
+                exc_info=True,
+            )
 
         # A-M1 short-circuit: no channels at all → don't reserve, don't
         # add in-flight, WARN and return. Post-CONSOL-1: NM is the only

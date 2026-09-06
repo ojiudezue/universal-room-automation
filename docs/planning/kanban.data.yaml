@@ -430,6 +430,91 @@ cards:
   refs: ['config_flow.py / options_flow.py (CM options steps)', 'operator screenshots 2026-09-06', 'project_sequence_wishes_2026_09_05 (step 5)']
   sibling_of: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1]
 
+- id: ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1
+  title: Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
+  thread: energy
+  status: investigating
+  created: 2026-09-06 18:00
+  updated: 2026-09-06 18:00
+  refinement_status: initial
+  approval: unreviewed
+  tags: [energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked]
+  problem_solution:
+  - 'Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary
+     even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used.
+     Spot-checked live (09-05 13:25-13:32 CDT: solar ~18kW, SOC 96%, net -10..-11kW EXPORTING after grid-charging
+     earlier that morning; 09-06 pulled 20+kW to close a projected 1% gap on a weak-solar morning). The attain
+     path DOES gate on solar (credits forecast+observed), so this is not blind — it is three structural biases:
+     (1) SOLAR_CAPTURE_FACTOR=0.5 under-credits the Solcast forecast (fail-toward-charging); (2) entry-only latch
+     — _should_attain_peak_buffer is evaluated only at ~11:00 entry, so a later solar ramp cannot release it;
+     (3) binary ~20kW grid (cannot modulate to top-up-only-what-solar-misses) + a demanding 80%-by-14:00 target.
+     Solution direction (NOT built — investigation only): re-evaluate attain each tick (not entry-only) so a
+     solar ramp releases it; and/or raise the solar capture credit / modulate grid to fill only the solar
+     shortfall; gated on pricing the peak-vs-export tariff spread first (measure-before-build: is the early
+     grid-charge actually net-negative, or conservative-by-design insurance against missing peak?).'
+  origin: {date: '2026-09-06', gist: 'operator side-quest — is attain aggressive vs solar (investigation + answers only)'}
+  why: 'Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change
+    the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface
+    (ura-energy-invariants-campaign), and a wrong change silently loses money or misses peak.'
+  constraints:
+  - 'Energy-strategy change = Tier-3 (ura-energy-invariants-campaign): reserve/charge/discharge invariants,
+    framing-disjoint reviews, no aggressive grid change without pricing.'
+  parked_alts: []
+  knobs:
+  - 'SOLAR_CAPTURE_FACTOR (module const, energy_battery.py:260, currently 0.5) — raising it credits more solar; reviewed-rung (fitted safety bias).'
+  parsimony: {problem: 'attain grid-charges early then exports solar it could have used', verdict: INVESTIGATE}
+  next: 'MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release on solar ramp) and/or modulate grid to the solar shortfall. Tier-3 per the energy campaign.'
+  refs: ['docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check)', 'energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
+
+- id: URA-INTEGRATION-ARRANGEMENT-1
+  title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
+  thread: device-tree
+  status: pre_planning
+  created: 2026-09-06 17:30
+  updated: 2026-09-06 18:30
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-06 — step 5 of the sequence; laid out the 4 problems + target operator representation, iterating to clarity'
+  tags: [device-tree, registry, config-flow, performance, integration-arrangement, umbrella]
+  problem_solution:
+  - 'Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user
+     sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and
+     Coordinators each have a parent grouping node. (2) INTERNAL REGISTRY REPRESENTATION — config-entry
+     ownership / identifiers need cleanup (same-identifier hazards per DEVICE_TREE). (3) PERFORMANCE — House
+     device changes cause outages from some load/cascade (a reload cascade -> event-loop stall -> watchdog
+     restart, ~5min). (4) The ZONE menu config/reconfig is non-standard (a dropdown) relative to the House,
+     CM, and Room menus — needs harmonizing. Solution: rework the device representation to the target tree
+     below, clean the registry ownership, fix the reload-cascade perf, and harmonize the menus.'
+  house_node_decision: 'operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_device House->Rooms. Zones/Coordinators nodes unchanged. This is the clean/low-risk via_device part; rides the D-NEST sweep so the sweep-counter latch fix is a prerequisite.'
+  target_operator_representation: |
+    House
+     |- Rooms          (NEW actual node — a parent the rooms roll up under. TODAY there is NO such node;
+     |                  rooms hang directly off House and look independent. Menu: Add room, Reload.)
+     |   |- Room 1      (nested: House > Rooms > Room 1)
+     |   |- Room 2
+     |   |- Room n
+     |- Zones          (has a node today; Reload loads all zones. Menu is a DROPDOWN -> harmonize with others.)
+     |   |- Zone 1
+     |   |- Zone n
+     |- Coordinators   (CM device today; Reload loads all.)
+         |- Coordinator 1
+         |- Coordinator n
+  why: 'The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is
+    confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.'
+  constraints:
+  - 'DEVICE_TREE.md is canonical: config-entry OWNERSHIP vs via_device NESTING are independent axes; a "Rooms"
+    grouping node is a via_device change (+ a node needing an owner entry), not an ownership change. HA 2026.9
+    requires imperative dr.async_update_device(via_device_id=...).'
+  - 'High blast radius (device-registry surgery); read DEVICE_TREE + the defrag postmortem; Tier-3.'
+  parked_alts: []
+  refinement:
+  - 'operator laid out the target tree + 4 problems 2026-09-06; iterating to clarity before planning (the Rooms parent node is the biggest new element).'
+  knobs: []
+  parsimony: {problem: 'device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu', verdict: BUILD}
+  next: 'DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall = singleton-teardown-under-live-children + 80-entity re-add + secondary child exception-storm (NOT a 40-child cascade — folklore corrected). Option B (hand off the House device) MOVES the cheap part, does NOT fix (cost is the singleton bootstrap). Fix path: extend Option A allowlist (camera/census/perimeter family, cheap) NOW; the structural fix = decouple config-surface from singleton bootstrap (C/D, Tier-3) is GATED on a live stall-attribution probe first (measure-before-build: 80-entity re-add vs singleton rebuild vs child-storm — fix differs per cause). Then plan the via_device Rooms re-nest (clean) + sweep-counter fix (load-bearing for it) + menu harmonization.'
+  child_cards: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, CM-CONFIG-FLOW-UX-1]
+  refs: ['docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', '_devices.py', 'config_flow.py/options_flow.py', 'memory parent_entry_reload_watchdog_hazard', 'memory reload_suppression_cycle']
+
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree
@@ -9724,7 +9809,8 @@ cards:
     by finding there was nothing to delete — and by catching that "dead" was being conflated with "deletable".'
 - id: PERIMETER-ALERT-NAME-PERSON-1
   title: Perimeter alerts should NAME the person (consume egress/face identity)
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   thread: security
   created: 2026-08-18 09:45
   updated: '2026-08-29 13:20'
@@ -9795,7 +9881,8 @@ cards:
     do NOT re-recommend it off the 7%.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   thread: notifications
   created: 2026-08-18 09:45
   updated: '2026-08-29 13:20'
@@ -13355,7 +13442,8 @@ cards:
   title: HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone
     preconditioning
   thread: hvac
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   tier: 1-2
   created: '2026-08-28 12:00'
   updated: '2026-08-29 13:20'
@@ -13463,7 +13551,8 @@ cards:
 - id: EGRESS-IDENTITY-DASHBOARD-TILE-1
   title: Surface the egress observability attrs as a "who entered today, named" dashboard tile
   thread: dashboarding
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.98.0
   tier: 1
   created: '2026-08-28 12:00'
   updated: '2026-08-29 13:20'

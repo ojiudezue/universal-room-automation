@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "098",
+  "author": "ojiudezue",
+  "session_id": "claude_20260906_230010_ship_v5_98_0",
+  "timestamp": "2026-09-06T23:00:10Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.98.0 shipped: Wave-1 identity consumers: arrival/departure notify + named perimeter alert + HVAC camera_face pre-arrival + egress-identity yield tile",
+  "summary": "Wave-1 identity consumers: arrival/departure notify + named perimeter alert + HVAC camera_face pre-arrival + egress-identity yield tile",
+  "why": "The identity producer named crossings but had almost no consumers \u2014 value produced, unused. This cycle wires the four lowest-risk, highest-value consumers so a recognized person actually changes what the operator sees, and instruments the live attach rate that gates the higher-risk Wave-2 security suppressors. Chose four disjoint-file additive consumers over one big change so each carries a single-risk review + mutation anchor and can ship as a batch. Consolidated review returned SHIP on C1/C3 and FIX-REQUIRED on C2 (missing freshness gate on latched names \u2014 a stale name could label a fresh 3am alert) and C4 (wrong entity_ids + fabricated attach-dict keys). Both fixed and re-verified: C2's severity-never-changes invariant independently mutation-verified by the orchestrator; C4 entity ids + keys re-read live off the running instance. Pre-existing single-process suite-isolation const-stub poisoning is unrelated \u2014 every touched test file green in isolation.",
+  "implications": "Shipped ARRIVAL-DEPARTURE-NOTIFY-1, PERIMETER-ALERT-NAME-PERSON-1, HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1, EGRESS-IDENTITY-DASHBOARD-TILE-1 at v5.98.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.98.0.md (Live criteria).",
+  "revisit_trigger": "sensor.universal_room_automation_persons_in_house attr egress_identity_attach_rate_24h > 0 AND at least one 'Arrival/departure notify:' entry in NM history/core logs AND a perimeter alert message containing 'Identified:' \u2014 query at disposition, do not watch",
+  "refs": {
+    "cards": [
+      "ARRIVAL-DEPARTURE-NOTIFY-1",
+      "PERIMETER-ALERT-NAME-PERSON-1",
+      "HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1",
+      "EGRESS-IDENTITY-DASHBOARD-TILE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.98.0.md"
+    ],
+    "release_notes": "First consumers of the shipped egress person_id producer. C1 fires identity-keyed arrival/departure NM notices (>=0.75 names, else anonymous). C2 annotates exterior person alerts with the recognized name, severity byte-identical (invariant mutation-verified) + freshness gate. C3 adds camera_face to HVAC pre-arrival sources. C4 is a display-only yield tile (entity ids + attach-dict keys live-verified). These four also measure the live attach rate that gates Wave 2."
+  }
+}
