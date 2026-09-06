@@ -473,3 +473,32 @@ plan review exists to catch exactly that class before a builder inherits it.
   under-specified orderings, and options offered where none is correct are findings.
 - Plan-review findings are fixed IN THE PLAN before any build dispatch. A build dispatched against
   an unreviewed Tier 2+ plan is a process violation.
+
+### Prior-art scan — MANDATORY for every Tier 2+ plan (operator-coined 2026-09-05)
+
+Before a Tier 2+ plan proposes building ANY new mechanism (listener, coordinator, helper, signal,
+sensor, producer, state machine, config field), it MUST first scan URA's prior art and record a
+REUSE-or-BUILD verdict per proposed piece, citing the existing symbol at file:line. Scan **three**
+surfaces, not one:
+
+1. **Code** — grep the coordinators / camera_census / person_coordinator / presence / the relevant
+   domain files for an existing mechanism that already does (or half-does) the thing. The producer
+   you are about to "build" often already exists and needs only a source-swap or an extension.
+2. **Plans** — `docs/planning/PLANNING_*.md` + `AUDIT_*.md` + `CATALOG_*.md`: prior designs,
+   parked deliverables (a parked Dn with a fired trigger is READY, not new), and extend-vs-new
+   adjudications.
+3. **Analysis / memory** — prior investigation docs, review records, and memory bodies for the
+   affected domain.
+
+The plan's "Institutional context verified" section carries the result. **A Tier 2+ plan that
+proposes new infra without this scan is incomplete and must be sent back** — the plan-reviewer
+verifies the scan was done (greps re-run, not trusted).
+
+Why this rule exists (2026-09-05): a BLE-crossing re-architecture was scoped as a greenfield build
+(new device_tracker listener + tracker→slug map + provenance classifier + dedup). A read-only
+presence-infrastructure inventory found the producer (`_register_ble_transition_listeners` /
+`_on_person_state_change`), the source_type classifier read-pattern, the fleet-liveness gate, the
+cooldown/refractory pattern, and the TTL leg cache ALREADY EXISTED — collapsing the build to a
+source-swap + one small helper. The operator had to prompt "we have a lot of presence
+infrastructure — don't reinvent anything; take an inventory." Codifying it makes the scan
+automatic, not prompted. See memory [[feedback_tier2plus_prior_art_scan]].
