@@ -26,6 +26,42 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1
+  title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
+  thread: diagnostics
+  status: investigating
+  created: '2026-09-06 18:35'
+  updated: '2026-09-06 18:35'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead)
+     keeps turning off by itself a few minutes after it is turned on, even though
+     the operator set the Kitchen room to no-automation and forced-vacant. The
+     worry was that URA is doing it. It is NOT: URA''s own activity log has zero
+     entries for this light, the room automation master switch is off (which
+     correctly disables both URA actuation paths), and the reconciler has not run
+     (reconciles_today=0). The turn-offs are Home Assistant light.turn_off SERVICE
+     calls with no user and no parent context (not a person, not a HA automation/
+     script, not Adaptive Lighting which manages no lights, not Alexa/Google which
+     are not exposed). That signature = an external bridge or another integration.
+     Solution: identify the external caller (leading suspect: an iOS HomeKit Home
+     automation commanding via the active HomeKit bridge, which appears in HA as
+     exactly this orphan-context service call). Confirm by checking the Home app /
+     briefly debug-logging the bridge on the next fire, then remove/redirect it.'
+  approval: unreviewed
+  tags: [no-fabrication-verify, falsify-first]
+  origin:
+    date: '2026-09-06'
+    gist: operator — kitchen overhead turning off; kitchen has no automation and is forced vacant; trace it
+  why: 'A managed light turning off unexpectedly reads as a URA regression; proving
+    it is external prevents chasing a phantom URA bug and points at the real owner.'
+  forensic_evidence:
+  - 'ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.'
+  - 'switch.kitchen_automation=off (gates coordinator.py:4852 handler + reconciler Guard2 :496); switch.kitchen_override_vacant=on (occupancy_source=override).'
+  - 'recorder: off-transitions have call_service events, context has no user_id + no parent_id; only co-context entity is sensor.lights_on_count (passive).'
+  - 'exposure: conversation=true, cloud.alexa=false, cloud.google_assistant=false; HomeKit bridge active (150-device-limit warnings).'
+  next: 'Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown, enable debug logging on homekit/service-call origin and read the next fire to name the caller.'
+  refs: []
 - id: PYTEST-SUITE-CONST-STUB-ISOLATION-1
   title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
   thread: quality

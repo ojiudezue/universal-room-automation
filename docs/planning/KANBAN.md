@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T18:00:10-05:00_ - _Data commit: `1a50477f6866`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T18:08:18-05:00_ - _Data commit: `94c9619f58f8`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-09-06T18:00:10-05:00_ - _Data commit: `1a50477f6866`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 28 |
-| 🔬 Investigating | 9 |
+| 🔬 Investigating | 10 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
@@ -334,8 +334,20 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (9)
+## 🔬 Investigating (10)
 _measuring; truth not yet known_
+
+### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
+thread: **diagnostics** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-06 18:35 · initial_
+- **Problem / Solution:**
+  - Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead) keeps turning off by itself a few minutes after it is turned on, even though the operator set the Kitchen room to no-automation and forced-vacant. The worry wa...
+- **Origin:** 2026-09-06 - operator — kitchen overhead turning off; kitchen has no automation and is forced vacant; trace it
+- **Why:** A managed light turning off unexpectedly reads as a URA regression; proving it is external prevents chasing a phantom URA bug and points at the real owner.
+- **Next:** Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown, enable debug logging on homekit/service-call origin and read the next fire to name the caller.
+- **Tags:** no-fabrication-verify, falsify-first
+- **Forensic keys (1):**
+  - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
 
 ### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
 thread: **energy** - status: **investigating** - approval: **unreviewed**
