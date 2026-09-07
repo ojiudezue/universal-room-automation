@@ -165,6 +165,16 @@ def _load_ns(*, kill_switch: bool = True,
         "ENTRY_TYPE_COORDINATOR_MANAGER": "coordinator_manager",
         "ENTRY_TYPE_INTEGRATION": "integration",
         "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
+        # INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06): the three
+        # promoted fresh-read keys are referenced by the sliced allowlist
+        # frozenset, so the exec namespace must define their string values
+        # (mirror const.py:1473/2931/2340 exactly).
+        "CONF_CENSUS_CROSS_VALIDATION": "census_cross_validation",
+        "CONF_CENSUS_BLE_CANCEL_ENABLED": "census_ble_cancel_enabled",
+        "CONF_KNOWN_FACE_GUESTS": "known_face_guests",
+        # Deliberately NOT promoted (UNSAFE — structural listener reg at
+        # __init__.py:2364); used by the fall-through test below.
+        "CONF_ENHANCED_CENSUS": "enhanced_census",
         "CONF_ZONE": "zone",
         # Review-C M-1 fix-up (2026-08-15) — AST-slice guard requires
         # every Name load (including type annotations) to be present in
@@ -466,13 +476,26 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
     # (2026-08-18) added CONF_FACE_RECOGNITION_ENABLED (paired with
     # SIGNAL_URA_FACE_RECOGNITION_CHANGED discharge to transit_validator
     # + presence) and CONF_EGRESS_IDENTITY_ENABLED (fresh-read at all
-    # consumers, no signal). Any further expansion is a policy change
-    # that should require review; the size guard makes silent expansion
+    # consumers, no signal). INTEGRATION-RELOAD-COMPREHENSIVE Tier-1
+    # (2026-09-06) added three MORE fresh-read (path-(a)) census keys —
+    # census_cross_validation, census_ble_cancel_enabled, known_face_guests
+    # — each verified sole-consumer fresh-read + confirmed by two
+    # framing-disjoint plan reviews; NONE needs a discharge signal.
+    # enhanced_census stays OUT (UNSAFE — structural listener reg at
+    # __init__.py:2364). Any further expansion is a policy change that
+    # should require review; this exact-set guard makes silent expansion
     # a test failure rather than a live surprise.
+    assert "enhanced_census" not in allow, (
+        "UNSAFE — gates event-census listener registration at "
+        "__init__.py:2364; must stay on the reload path."
+    )
     assert allow == {
         "camera_person_entities",
         "face_recognition_enabled",
         "egress_identity_enabled",
+        "census_cross_validation",
+        "census_ble_cancel_enabled",
+        "known_face_guests",
     }
 
 
@@ -859,3 +882,67 @@ def test_ast_slice_guard_accepts_pre_seeded_symbol():
     src = "y = STUBBED_CONSTANT + 1\n"
     mod = ast.parse(src)
     _ast_slice_names_covered(mod, {"STUBBED_CONSTANT": 42})  # no raise
+
+
+# ============================================================================
+# INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06)
+# Promote three fresh-read (path-(a)) census keys to the allowlist. They have
+# NO _INTEGRATION_KEY_SIGNAL_TABLE row (no cached consumer), so a suppressed
+# save fires ZERO reloads AND dispatches NOTHING. Mutation anchor: deleting a
+# key from INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS makes its suppress test
+# RED (the save falls through to a reload).
+# ============================================================================
+
+def _seed_snapshot(hass, entry, pre):
+    hass.data.setdefault("universal_room_automation", {})[
+        "integration_last_applied_options"
+    ] = {entry.entry_id: dict(pre)}
+
+
+def test_integration_suppress_reload_on_census_cross_validation(monkeypatch):
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"census_cross_validation": False})
+    _seed_snapshot(hass, entry, {"census_cross_validation": True})
+    dispatched = []
+    _DISPATCHER.async_dispatcher_send = lambda h, sig, *a, **k: dispatched.append(sig)
+    _run(ns["_async_update_listener"](hass, entry))
+    assert hass.config_entries.reload_calls == []  # RED if key removed from allowlist
+    assert dispatched == []  # path-(a): no signal-table row → no dispatch
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"][entry.entry_id]
+    assert snap == {"census_cross_validation": False}  # snapshot advanced
+
+
+def test_integration_suppress_reload_on_ble_cancel_and_known_guests(monkeypatch):
+    """A save changing both remaining Tier-1 keys → zero reload, no dispatch."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={
+        "census_ble_cancel_enabled": False,
+        "known_face_guests": ["oji"],
+    })
+    _seed_snapshot(hass, entry, {
+        "census_ble_cancel_enabled": True, "known_face_guests": [],
+    })
+    dispatched = []
+    _DISPATCHER.async_dispatcher_send = lambda h, sig, *a, **k: dispatched.append(sig)
+    _run(ns["_async_update_listener"](hass, entry))
+    assert hass.config_entries.reload_calls == []  # RED if either key removed
+    assert dispatched == []
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"][entry.entry_id]
+    assert snap == {"census_ble_cancel_enabled": False, "known_face_guests": ["oji"]}
+
+
+def test_integration_enhanced_census_falls_through_to_reload(monkeypatch):
+    """CONF_ENHANCED_CENSUS is UNSAFE (structural listener reg at
+    __init__.py:2364) and MUST NOT be in the allowlist — a save changing it
+    reloads. RED if someone wrongly admits enhanced_census."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"enhanced_census": False})
+    _seed_snapshot(hass, entry, {"enhanced_census": True})
+    _DISPATCHER.async_dispatcher_send = lambda *a, **k: None
+    _run(ns["_async_update_listener"](hass, entry))
+    assert hass.config_entries.reload_calls == [entry.entry_id]

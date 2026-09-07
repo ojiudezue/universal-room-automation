@@ -72,6 +72,11 @@ from .const import (
     CONF_FACE_RECOGNITION_ENABLED,
     CONF_EGRESS_IDENTITY_ENABLED,
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+    # INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06): fresh-read
+    # census toggles promoted to the reload-suppress allowlist.
+    CONF_CENSUS_CROSS_VALIDATION,
+    CONF_CENSUS_BLE_CANCEL_ENABLED,
+    CONF_KNOWN_FACE_GUESTS,
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -6660,6 +6665,20 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # cached-consumer discharge signal needed (path (a) of the
     # suppression-needs-discharge rule).
     CONF_EGRESS_IDENTITY_ENABLED,
+    # INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06). All three below
+    # are path-(a) fresh-read (re-read {**entry.data, **entry.options} on every
+    # decision tick — NO setup-time cache on the decision path), so they need
+    # NO discharge signal (no _INTEGRATION_KEY_SIGNAL_TABLE row). Verified vs
+    # develop + confirmed by two framing-disjoint plan reviews. NOTE:
+    # CONF_ENHANCED_CENSUS is deliberately NOT here — it is UNSAFE (gates
+    # event-census listener registration at __init__.py:2364, a setup-time
+    # structural consumer).
+    #   CONF_CENSUS_CROSS_VALIDATION  — camera_census._is_cross_validation_enabled (sole consumer, merged per tick)
+    #   CONF_CENSUS_BLE_CANCEL_ENABLED — camera_census._get_ble_cancel_enabled (decision path fresh; _last_* is DISPLAY-only)
+    #   CONF_KNOWN_FACE_GUESTS        — camera_census._get_known_face_guests (merged per lookup)
+    CONF_CENSUS_CROSS_VALIDATION,
+    CONF_CENSUS_BLE_CANCEL_ENABLED,
+    CONF_KNOWN_FACE_GUESTS,
 })
 
 # Rung-1 kill switch (numbers-get-knobs). Flipping to False re-enables
