@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "099",
+  "author": "ojiudezue",
+  "session_id": "claude_20260907_173932_ship_v5_99_0",
+  "timestamp": "2026-09-07T17:39:32Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.99.0 shipped: Integration-reload comprehensive: 16-key reload-suppress allowlist (census + perimeter fresh-read) eliminates the ~5-min watchdog outage on config saves",
+  "summary": "Integration-reload comprehensive: 16-key reload-suppress allowlist (census + perimeter fresh-read) eliminates the ~5-min watchdog outage on config saves",
+  "why": "The parent-entry reload rebuilds the whole singleton + ~80 aggregation entities and stalls the event loop long enough for the supervisor watchdog to restart HA \u2014 a ~5min outage every time the operator edits an integration-level option. v1 (2026-08-15) suppressed the reload for 3 keys only; this comprehensively extends it to all 13 fresh-read config knobs the operator actually tunes (census + perimeter), so those saves apply in-place. The build first tried a re-read handler for the perimeter CAMERA keys; all four Tier-3 framings condemned it (permanently muted a camera + leaked uncancellable listeners on an ordinary multi-key save, and was AST-shape-tested only) \u2014 so the camera keys were reclassified UNSAFE-structural and dropped to the reload path, and the 9 non-camera perimeter keys (verified fresh-read) became allowlist-only, no handler. Orchestrator independently mutation-verified a frozenset member REDs its test by name; 33/33 + siblings clean; perimeter_alert.py reverted byte-identical to pre-cycle. Rollback tagged (v5.98.0), no schema change.",
+  "implications": "Shipped RELOAD-WATCHDOG-HAZARD at v5.99.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.99.0.md (Live criteria).",
+  "revisit_trigger": "Toggle switch.*face_recognition* or *egress_identity* then back; core log shows 'in-place apply, suppressing reload (changed_keys=...)' with NO 'scheduling reload' and no room/CM entity last_changed reset \u2014 query ha logs + entity last_changed at disposition, not a soak",
+  "refs": {
+    "cards": [
+      "RELOAD-WATCHDOG-HAZARD"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.99.0.md"
+    ],
+    "release_notes": "Expands INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS 3->16. Fresh-read census (cross_validation, ble_cancel, known_face_guests, egress_failsafe_strict) + perimeter (vehicle_hours, enrichment x6, snapshot_offset) keys now apply in-place instead of reloading the parent entry (singleton bootstrap + 80 entities -> event-loop stall -> watchdog). D2.5 success-gated snapshot. Camera/structural keys stay on reload path. Tier-3: 2 plan reviews + 4 build reviews caught+killed a camera-muting/listener-leak handler; final design is allowlist-only."
+  }
+}

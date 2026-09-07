@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-06'
+  last_reconciled: '2026-09-07'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -9251,7 +9251,7 @@ cards:
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
   status: shipped_organic
-  shipped_version: v5.77.0
+  shipped_version: v5.99.0
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
