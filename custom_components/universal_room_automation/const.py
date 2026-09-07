@@ -2183,14 +2183,6 @@ TRANSIT_DOUBLE_FIRE_DEDUP_SECONDS: Final = 5.0
 # re-init instead of a parent-entry reload (RELOAD-WATCHDOG-HAZARD).
 SIGNAL_URA_TRANSIT_CONFIG_CHANGED: Final = "ura_transit_config_changed"
 
-# INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1):
-# PerimeterAlertManager listens for this signal so an integration-
-# options save changing perimeter/egress camera lists or
-# perimeter-step knobs can rebuild its cached sensor subscriptions
-# in-place instead of triggering a full integration-entry reload
-# (RELOAD-WATCHDOG-HAZARD class).
-SIGNAL_URA_PERIMETER_CONFIG_CHANGED: Final = "ura_perimeter_config_changed"
-
 # v3.5.2 Egress Direction Tracking
 EGRESS_ENTRY_WINDOW_SECONDS: Final = 45
 EGRESS_EXIT_WINDOW_SECONDS: Final = 30

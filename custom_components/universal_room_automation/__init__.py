@@ -78,10 +78,19 @@ from .const import (
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
-    # INTEGRATION-RELOAD-COMPREHENSIVE Tier-2 (2026-09-07, plan D2.1):
-    # perimeter-step keys wired to SIGNAL_URA_PERIMETER_CONFIG_CHANGED
-    # for in-place re-read by PerimeterAlertManager (narrow re-read;
-    # does NOT reset boot-settle window per plan §A4).
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1
+    # rev-2 rework post Tier-3 review). The 9 perimeter-step keys below
+    # are ALL fresh-read via PerimeterAlertManager._get_integration_config()
+    # on every invocation - path-(a) of the suppression-needs-discharge
+    # rule; NO cached consumer, NO discharge signal, NO handler. Reviews
+    # A + D verified this by grep of every read site. Camera-list keys
+    # (CONF_PERIMETER_CAMERAS / CONF_EGRESS_CAMERAS) are DELIBERATELY
+    # excluded - they are UNSAFE-STRUCTURAL (CameraIntegrationManager.
+    # async_discover at :2253 rebuilds _cameras_by_area, consumed on the
+    # live occupancy path coordinator.py:3670 with no discharge). The
+    # zero-consumer / stripped-at-migration hours keys (CONF_PERIMETER_
+    # ALERT_HOURS_START/END) also stay OUT - migrate_consol1_perimeter_
+    # keys strips them at setup so they can never appear in changed_keys.
     CONF_PERIMETER_VEHICLE_HOURS_START,
     CONF_PERIMETER_VEHICLE_HOURS_END,
     CONF_PERIMETER_ENRICHMENT_ENABLED,
@@ -91,9 +100,6 @@ from .const import (
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
-    CONF_PERIMETER_ALERT_HOURS_START,
-    CONF_PERIMETER_ALERT_HOURS_END,
-    SIGNAL_URA_PERIMETER_CONFIG_CHANGED,
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -6704,28 +6710,26 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # options step, so a realistic egress save changes BOTH; admitting only one
     # would defeat the changed_keys.issubset() test and reload anyway.
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
-    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1 §A2/A3).
-    # Perimeter-step admission (13 keys). Each is either:
-    #   (a) discharged to SIGNAL_URA_PERIMETER_CONFIG_CHANGED for a narrow
-    #       re-read by PerimeterAlertManager (§A4 preservation contract),
-    #   OR
-    #   (b) fresh-read/retired/zero-consumer (path-(a) — no discharge row).
-    # Camera-list keys ALSO get SIGNAL_URA_TRANSIT_CONFIG_CHANGED so the
-    # transit_validator cached subs rebuild (second cached consumer).
-    # Rationale per key:
-    #   CONF_PERIMETER_CAMERAS, CONF_EGRESS_CAMERAS — cached sensor sets
-    #     in perimeter_alert.py:411-412 AND transit_validator.py:394.
-    #   CONF_PERIMETER_VEHICLE_HOURS_START/END, CONF_PERIMETER_ENRICHMENT_*,
-    #   CONF_EXTERIOR_SNAPSHOT_OFFSET_S — fresh-read via
-    #     perimeter_alert._get_integration_config() per-invocation; the
-    #     discharge signal is defensive/idempotent for these (invariant
-    #     already satisfied by fresh-read; signal keeps future cached
-    #     consumers coherent).
-    #   CONF_PERIMETER_ALERT_HOURS_START/END — zero-consumer retired keys
-    #     (stripped at save by config_flow.py:3113-3116, plan §A2 defense-
-    #     in-depth admission).
-    CONF_PERIMETER_CAMERAS,
-    CONF_EGRESS_CAMERAS,
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1
+    # rev-2 rework post Tier-3 review). Nine perimeter-step keys are
+    # ALL path-(a) fresh-read via
+    # perimeter_alert.PerimeterAlertManager._get_integration_config()
+    # on every read; NO cached consumer, NO discharge signal, NO
+    # handler. Reviews A + D verified each read site by grep. The
+    # wiring table has NO row for these keys, so the helper returns
+    # them in dispatched_ok vacuously and the snapshot advances.
+    #
+    # Fresh-read consumer cites (per review A):
+    #   CONF_PERIMETER_VEHICLE_HOURS_START/END - perimeter_alert.py:2566-2574
+    #     inside _is_in_vehicle_alert_hours (cfg=_get_integration_config()).
+    #   CONF_PERIMETER_ENRICHMENT_ENABLED     - perimeter_alert.py:1449-1461
+    #     inside dispatch fall-through (each alert re-reads).
+    #   CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS - same site :1455.
+    #   CONF_PERIMETER_ENRICHMENT_PROVIDER/MODEL/MAX_TOKENS/PROVIDER_ID -
+    #     consumed by perimeter_enrichment.enrich_dispatched_alert called
+    #     at :1441; adapter reads the fresh cfg re-read at :2810.
+    #   CONF_EXTERIOR_SNAPSHOT_OFFSET_S       - perimeter_alert.py:3657-3672
+    #     inside _get_snapshot_offset (config = _get_integration_config()).
     CONF_PERIMETER_VEHICLE_HOURS_START,
     CONF_PERIMETER_VEHICLE_HOURS_END,
     CONF_PERIMETER_ENRICHMENT_ENABLED,
@@ -6735,9 +6739,20 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
-    CONF_PERIMETER_ALERT_HOURS_START,
-    CONF_PERIMETER_ALERT_HOURS_END,
 })
+
+# EXCLUDED - UNSAFE-STRUCTURAL (Tier-3 review A3 / D-HIGH-1, 2026-09-07):
+#   CONF_PERIMETER_CAMERAS / CONF_EGRESS_CAMERAS - a save of either
+#     triggers CameraIntegrationManager.async_discover at __init__.py:2253
+#     which rebuilds _cameras_by_area (consumed live on the occupancy
+#     path at coordinator.py:3670). No discharge exists today; a Tier-2
+#     handler rebuild for PerimeterAlertManager would leave the camera
+#     manager map stale. These stay on the reload path (unchanged).
+# EXCLUDED - DEAD KEYS (Tier-1 baseline, 2026-09-06):
+#   CONF_PERIMETER_ALERT_HOURS_START/END - migrate_consol1_perimeter_keys
+#     strips them at setup (renamed to CONF_PERIMETER_VEHICLE_HOURS_*).
+#     They can never appear in changed_keys; admitting them would be
+#     dead-code noise.
 
 # Rung-1 kill switch (numbers-get-knobs). Flipping to False re-enables
 # the pre-cycle reload behavior AND skips the discharge dispatch (see
@@ -6763,29 +6778,11 @@ _INTEGRATION_KEY_SIGNAL_TABLE: dict[str, tuple[str, ...]] = {
     # indirect transit_validator.py:1094). No cached-consumer discharge
     # needed.
     #
-    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1).
-    # Perimeter-step wiring. Camera-list keys fire BOTH signals
-    # (transit_validator + perimeter_alert are both cached consumers).
-    CONF_PERIMETER_CAMERAS: (
-        SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
-        SIGNAL_URA_PERIMETER_CONFIG_CHANGED,
-    ),
-    CONF_EGRESS_CAMERAS: (
-        SIGNAL_URA_TRANSIT_CONFIG_CHANGED,
-        SIGNAL_URA_PERIMETER_CONFIG_CHANGED,
-    ),
-    CONF_PERIMETER_VEHICLE_HOURS_START: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_VEHICLE_HOURS_END: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_ENRICHMENT_ENABLED: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_ENRICHMENT_PROVIDER: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_ENRICHMENT_MODEL: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    CONF_EXTERIOR_SNAPSHOT_OFFSET_S: (SIGNAL_URA_PERIMETER_CONFIG_CHANGED,),
-    # CONF_PERIMETER_ALERT_HOURS_START/END intentionally absent — zero
-    # consumers (stripped at save); allowlisted defensively per plan §A2
-    # but no discharge row needed.
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07 post Tier-3
+    # review): the 9 perimeter-step keys admitted to the allowlist above
+    # are ALL path-(a) fresh-read - NO row here. Camera-list keys are
+    # NOT in the allowlist (UNSAFE-STRUCTURAL - CameraIntegrationManager.
+    # async_discover cache) so no row is possible or needed.
 }
 
 
