@@ -172,6 +172,7 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_CENSUS_CROSS_VALIDATION": "census_cross_validation",
         "CONF_CENSUS_BLE_CANCEL_ENABLED": "census_ble_cancel_enabled",
         "CONF_KNOWN_FACE_GUESTS": "known_face_guests",
+        "CONF_EGRESS_IDENTITY_FAILSAFE_STRICT": "egress_identity_failsafe_strict",
         # Deliberately NOT promoted (UNSAFE — structural listener reg at
         # __init__.py:2364); used by the fall-through test below.
         "CONF_ENHANCED_CENSUS": "enhanced_census",
@@ -489,6 +490,14 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "UNSAFE — gates event-census listener registration at "
         "__init__.py:2364; must stay on the reload path."
     )
+    # CONF_EGRESS_IDENTITY_FAILSAFE_STRICT added (2026-09-06) as the
+    # pair-invariant sibling of egress_identity_enabled (same options step).
+    # The two retired hours keys the plan floated (perimeter_alert_hours_*)
+    # are DELIBERATELY NOT admitted — they are stripped by
+    # migrate_consol1_perimeter_keys at setup (renamed → perimeter_vehicle_*),
+    # so they can never appear in changed_keys; admitting dead keys is noise.
+    assert "perimeter_alert_hours_start" not in allow
+    assert "perimeter_alert_hours_end" not in allow
     assert allow == {
         "camera_person_entities",
         "face_recognition_enabled",
@@ -496,6 +505,7 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "census_cross_validation",
         "census_ble_cancel_enabled",
         "known_face_guests",
+        "egress_identity_failsafe_strict",
     }
 
 
@@ -946,3 +956,27 @@ def test_integration_enhanced_census_falls_through_to_reload(monkeypatch):
     _DISPATCHER.async_dispatcher_send = lambda *a, **k: None
     _run(ns["_async_update_listener"](hass, entry))
     assert hass.config_entries.reload_calls == [entry.entry_id]
+
+
+def test_integration_suppress_egress_pair_failsafe_and_enabled(monkeypatch):
+    """PAIR-INVARIANT: a camera_census save that flips BOTH
+    egress_identity_enabled AND egress_identity_failsafe_strict (they share
+    the step) is fully suppressed. RED if failsafe_strict is dropped from the
+    allowlist — the pair would no longer be a subset → reload."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={
+        "egress_identity_enabled": False,
+        "egress_identity_failsafe_strict": False,
+    })
+    _seed_snapshot(hass, entry, {
+        "egress_identity_enabled": True, "egress_identity_failsafe_strict": True,
+    })
+    _DISPATCHER.async_dispatcher_send = lambda *a, **k: None
+    _run(ns["_async_update_listener"](hass, entry))
+    assert hass.config_entries.reload_calls == []  # RED if failsafe_strict removed
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"][entry.entry_id]
+    assert snap == {
+        "egress_identity_enabled": False, "egress_identity_failsafe_strict": False,
+    }

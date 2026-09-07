@@ -77,6 +77,7 @@ from .const import (
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -6679,6 +6680,14 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_BLE_CANCEL_ENABLED,
     CONF_KNOWN_FACE_GUESTS,
+    # CONF_EGRESS_IDENTITY_FAILSAFE_STRICT — path-(a) fresh-read via
+    # camera_census._is_egress_identity_failsafe_strict (all decision-path
+    # callers route through it: camera_census.py:3694/3713/3895,
+    # transit_validator.py:1260). PAIR-INVARIANT with the already-allowlisted
+    # CONF_EGRESS_IDENTITY_ENABLED — both are written by the same camera_census
+    # options step, so a realistic egress save changes BOTH; admitting only one
+    # would defeat the changed_keys.issubset() test and reload anyway.
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
 })
 
 # Rung-1 kill switch (numbers-get-knobs). Flipping to False re-enables
