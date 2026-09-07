@@ -173,6 +173,24 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_CENSUS_BLE_CANCEL_ENABLED": "census_ble_cancel_enabled",
         "CONF_KNOWN_FACE_GUESTS": "known_face_guests",
         "CONF_EGRESS_IDENTITY_FAILSAFE_STRICT": "egress_identity_failsafe_strict",
+        # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07 plan D2.1):
+        # perimeter-step keys admitted to the allowlist + wired to
+        # SIGNAL_URA_PERIMETER_CONFIG_CHANGED (except zero-consumer
+        # hours keys). Values mirror const.py exactly.
+        "CONF_PERIMETER_CAMERAS": "perimeter_cameras",
+        "CONF_EGRESS_CAMERAS": "egress_cameras",
+        "CONF_PERIMETER_VEHICLE_HOURS_START": "perimeter_vehicle_hours_start",
+        "CONF_PERIMETER_VEHICLE_HOURS_END": "perimeter_vehicle_hours_end",
+        "CONF_PERIMETER_ENRICHMENT_ENABLED": "perimeter_enrichment_enabled",
+        "CONF_PERIMETER_ENRICHMENT_PROVIDER": "perimeter_enrichment_provider",
+        "CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS": "perimeter_enrichment_person_sensors",
+        "CONF_PERIMETER_ENRICHMENT_MODEL": "perimeter_enrichment_model",
+        "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
+        "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
+        "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
+        "CONF_PERIMETER_ALERT_HOURS_START": "perimeter_alert_hours_start",
+        "CONF_PERIMETER_ALERT_HOURS_END": "perimeter_alert_hours_end",
+        "SIGNAL_URA_PERIMETER_CONFIG_CHANGED": "ura_perimeter_config_changed",
         # Deliberately NOT promoted (UNSAFE — structural listener reg at
         # __init__.py:2364); used by the fall-through test below.
         "CONF_ENHANCED_CENSUS": "enhanced_census",
@@ -461,18 +479,25 @@ def test_kill_switch_disables_suppress_and_skips_dispatch(monkeypatch):
 
 
 def test_egress_perimeter_keys_not_in_allowlist_v1():
-    """Pin the v1 allowlist so a future silent addition of egress/perimeter
-    without perimeter_alert.py discharge wire-up fails a test."""
+    """Allowlist membership pin.
+
+    INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1):
+    egress_cameras + perimeter_cameras + 11 more perimeter-step keys
+    are NOW allowlisted. PerimeterAlertManager subscribes to
+    SIGNAL_URA_PERIMETER_CONFIG_CHANGED and narrow-re-reads its cached
+    camera-list state per plan A4 (preserves boot-settle window).
+
+    Prior "PARKED" assertions removed - parked follow-up #1 discharged.
+    """
     ns = _load_ns()
     allow = set(ns["INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS"])
     assert "camera_person_entities" in allow
-    assert "egress_cameras" not in allow, (
-        "PARKED — see plan follow-up #1: PerimeterAlertManager caches "
-        "egress_cameras at setup with no refresh signal."
+    assert "egress_cameras" in allow, (
+        "Tier-2 D2.1 (2026-09-07): egress_cameras now discharges via "
+        "SIGNAL_URA_PERIMETER_CONFIG_CHANGED (perimeter_alert.py) and "
+        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED (transit_validator.py)."
     )
-    assert "perimeter_cameras" not in allow, (
-        "PARKED — see plan follow-up #1."
-    )
+    assert "perimeter_cameras" in allow
     # v1 seed was {camera_person_entities} only. CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
     # (2026-08-18) added CONF_FACE_RECOGNITION_ENABLED (paired with
     # SIGNAL_URA_FACE_RECOGNITION_CHANGED discharge to transit_validator
@@ -492,13 +517,14 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
     )
     # CONF_EGRESS_IDENTITY_FAILSAFE_STRICT added (2026-09-06) as the
     # pair-invariant sibling of egress_identity_enabled (same options step).
-    # The two retired hours keys the plan floated (perimeter_alert_hours_*)
-    # are DELIBERATELY NOT admitted — they are stripped by
-    # migrate_consol1_perimeter_keys at setup (renamed → perimeter_vehicle_*),
-    # so they can never appear in changed_keys; admitting dead keys is noise.
-    assert "perimeter_alert_hours_start" not in allow
-    assert "perimeter_alert_hours_end" not in allow
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07): plan A2
+    # admits the two retired hours keys as defence-in-depth against a
+    # future write-path that forgets the strip; they have zero consumers
+    # today (superseded by perimeter_vehicle_hours_*).
+    assert "perimeter_alert_hours_start" in allow
+    assert "perimeter_alert_hours_end" in allow
     assert allow == {
+        # Tier-1 (rev-1 + Wave-1 census).
         "camera_person_entities",
         "face_recognition_enabled",
         "egress_identity_enabled",
@@ -506,6 +532,20 @@ def test_egress_perimeter_keys_not_in_allowlist_v1():
         "census_ble_cancel_enabled",
         "known_face_guests",
         "egress_identity_failsafe_strict",
+        # Tier-2 D2.1 (2026-09-07) - 13 perimeter-step keys.
+        "perimeter_cameras",
+        "egress_cameras",
+        "perimeter_vehicle_hours_start",
+        "perimeter_vehicle_hours_end",
+        "perimeter_enrichment_enabled",
+        "perimeter_enrichment_provider",
+        "perimeter_enrichment_person_sensors",
+        "perimeter_enrichment_model",
+        "perimeter_enrichment_max_tokens",
+        "perimeter_enrichment_provider_id",
+        "exterior_snapshot_offset_s",
+        "perimeter_alert_hours_start",
+        "perimeter_alert_hours_end",
     }
 
 
@@ -980,3 +1020,416 @@ def test_integration_suppress_egress_pair_failsafe_and_enabled(monkeypatch):
     assert snap == {
         "egress_identity_enabled": False, "egress_identity_failsafe_strict": False,
     }
+
+
+
+# ============================================================================
+# INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1 + D2.5)
+# ============================================================================
+
+
+def test_perimeter_step_key_dispatches_perimeter_signal_once(monkeypatch):
+    """D2.1: a perimeter-step save fires SIGNAL_URA_PERIMETER_CONFIG_CHANGED
+    exactly once per allowlisted key + zero reload calls."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"perimeter_vehicle_hours_start": 21})
+    _seed_snapshot(hass, entry, {"perimeter_vehicle_hours_start": 22})
+    dispatched = []
+    _DISPATCHER.async_dispatcher_send = (
+        lambda h, sig, *a, **k: dispatched.append(sig)
+    )
+    _run(ns["_async_update_listener"](hass, entry))
+    assert hass.config_entries.reload_calls == []
+    assert dispatched.count("ura_perimeter_config_changed") == 1
+    # Snapshot advanced (dispatch succeeded).
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"][entry.entry_id]
+    assert snap == {"perimeter_vehicle_hours_start": 21}
+
+
+def test_camera_list_key_dispatches_both_transit_and_perimeter(monkeypatch):
+    """D2.1 pair invariant: perimeter_cameras / egress_cameras are cached by
+    BOTH transit_validator and perimeter_alert - must fire both signals."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"perimeter_cameras": ["camera.a"]})
+    _seed_snapshot(hass, entry, {"perimeter_cameras": []})
+    dispatched = []
+    _DISPATCHER.async_dispatcher_send = (
+        lambda h, sig, *a, **k: dispatched.append(sig)
+    )
+    _run(ns["_async_update_listener"](hass, entry))
+    assert hass.config_entries.reload_calls == []
+    assert dispatched.count("ura_transit_config_changed") == 1
+    assert dispatched.count("ura_perimeter_config_changed") == 1
+
+
+def test_snapshot_holds_key_when_dispatch_raises(monkeypatch):
+    """D2.5 (plan A7): a swallowed dispatch must NOT advance the snapshot
+    for that key - otherwise a cached-consumer regression is PERMANENT.
+
+    Mutation drill: remove the `if k in dispatched_ok:` guard on snapshot
+    advance (or the corresponding retention branch) and this test goes RED.
+    """
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"perimeter_cameras": ["camera.a"]})
+    pre = {"perimeter_cameras": []}
+    _seed_snapshot(hass, entry, pre)
+
+    def _raising(hass_arg, sig, *a, **kw):
+        raise RuntimeError("dispatcher chose violence")
+    _DISPATCHER.async_dispatcher_send = _raising
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    # Reload still suppressed (subset test passes).
+    assert hass.config_entries.reload_calls == []
+    # Snapshot MUST retain the pre-save value for the failed key so the
+    # next save's diff still shows it as changed - otherwise the cached
+    # consumer stays stale forever (Bug Class #7 amplifier).
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"][entry.entry_id]
+    assert snap["perimeter_cameras"] == [], (
+        "A7 regression: snapshot advanced for a key whose dispatch RAISED "
+        f"- snap={snap!r}. A swallowed dispatch that advances the snapshot "
+        "loses the change permanently (silent stale-consumer state)."
+    )
+
+
+def test_snapshot_advances_normally_when_dispatch_succeeds(monkeypatch):
+    """A7 complement: successful dispatch advances the snapshot fully.
+    Pins the success path so a future 'always-retain' fix-up regression
+    (which would break every subsequent suppressed save) fails a test."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"perimeter_cameras": ["camera.a"]})
+    _seed_snapshot(hass, entry, {"perimeter_cameras": []})
+    _DISPATCHER.async_dispatcher_send = lambda *a, **k: None
+    _run(ns["_async_update_listener"](hass, entry))
+    snap = hass.data["universal_room_automation"][
+        "integration_last_applied_options"][entry.entry_id]
+    assert snap == {"perimeter_cameras": ["camera.a"]}
+
+
+def test_dispatch_helper_returns_success_set(monkeypatch):
+    """A7 helper contract: `_dispatch_integration_key_signals` returns a
+    set of the keys whose dispatch fully succeeded. Fresh-read keys with
+    NO wiring row are vacuously OK. Mutation drill: remove the return
+    statement and this test fails BY NAME."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry()
+
+    # Success case.
+    _DISPATCHER.async_dispatcher_send = lambda *a, **k: None
+    ok = ns["_dispatch_integration_key_signals"](
+        hass, entry, {"perimeter_cameras", "census_cross_validation"},
+    )
+    assert isinstance(ok, set)
+    # Both should be OK: perimeter_cameras dispatches its 2 signals
+    # cleanly; census_cross_validation has no row (vacuously OK).
+    assert ok == {"perimeter_cameras", "census_cross_validation"}
+
+    # Failure case for ONE key only.
+    calls = []
+    def _selective(hass_arg, sig, *a, **kw):
+        calls.append(sig)
+        if sig == "ura_perimeter_config_changed":
+            raise RuntimeError("nope")
+    _DISPATCHER.async_dispatcher_send = _selective
+    ok = ns["_dispatch_integration_key_signals"](
+        hass, entry, {"perimeter_cameras", "camera_person_entities"},
+    )
+    # perimeter_cameras fires transit (OK) + perimeter (RAISE) -> NOT OK.
+    # camera_person_entities fires transit only (OK).
+    assert ok == {"camera_person_entities"}
+
+
+# ----------------------------------------------------------------------------
+# perimeter_alert.py wire-in anchors (mutation drills).
+# ----------------------------------------------------------------------------
+
+import ast as _ast
+
+
+def _perimeter_src():
+    return (PKG / "perimeter_alert.py").read_text()
+
+
+def test_perimeter_config_signal_unsub_field_init_to_none():
+    """Wire anchor (three-part template leg 1 - transit_validator.py:264).
+
+    __init__ MUST initialize self._config_signal_unsub = None so
+    async_setup's `if self._config_signal_unsub is None:` guard actually
+    fires on first setup and idempotency holds on re-entry. Mutation drill:
+    remove the field init and this test goes RED.
+    """
+    src = _perimeter_src()
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.ClassDef) and node.name == "PerimeterAlertManager":
+            for sub in node.body:
+                if isinstance(sub, _ast.FunctionDef) and sub.name == "__init__":
+                    # Look for an Assign to self._config_signal_unsub or
+                    # an AnnAssign of the same.
+                    for stmt in _ast.walk(sub):
+                        if isinstance(stmt, (_ast.Assign, _ast.AnnAssign)):
+                            targets = (
+                                stmt.targets if isinstance(stmt, _ast.Assign)
+                                else [stmt.target]
+                            )
+                            for t in targets:
+                                if (
+                                    isinstance(t, _ast.Attribute)
+                                    and isinstance(t.value, _ast.Name)
+                                    and t.value.id == "self"
+                                    and t.attr == "_config_signal_unsub"
+                                ):
+                                    val = stmt.value
+                                    assert isinstance(val, _ast.Constant) and val.value is None, (
+                                        "field init must be None, got "
+                                        f"{_ast.dump(val)}"
+                                    )
+                                    return
+    raise AssertionError(
+        "perimeter_alert.py __init__ missing "
+        "`self._config_signal_unsub = None` - D2.1 wire regression"
+    )
+
+
+def test_perimeter_config_signal_subscribed_in_async_setup():
+    """Wire anchor (leg 2 - transit_validator.py:347-366).
+
+    async_setup MUST call `async_dispatcher_connect` with
+    SIGNAL_URA_PERIMETER_CONFIG_CHANGED (via the imported name) AND assign
+    the result to self._config_signal_unsub. Mutation drill: delete the
+    subscribe block or the assignment and this test goes RED.
+    """
+    src = _perimeter_src()
+    tree = _ast.parse(src)
+    setup_body = None
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.AsyncFunctionDef) and node.name == "async_setup":
+            setup_body = node
+            break
+    assert setup_body is not None, "async_setup not found"
+
+    # Locate an Assign whose target is self._config_signal_unsub and
+    # whose value is a Call.
+    found = False
+    for stmt in _ast.walk(setup_body):
+        if isinstance(stmt, _ast.Assign):
+            for t in stmt.targets:
+                if (
+                    isinstance(t, _ast.Attribute)
+                    and isinstance(t.value, _ast.Name)
+                    and t.value.id == "self"
+                    and t.attr == "_config_signal_unsub"
+                    and isinstance(stmt.value, _ast.Call)
+                ):
+                    # Confirm SIGNAL_URA_PERIMETER_CONFIG_CHANGED appears
+                    # as an arg (by Name).
+                    for arg in stmt.value.args:
+                        if (
+                            isinstance(arg, _ast.Name)
+                            and arg.id == "SIGNAL_URA_PERIMETER_CONFIG_CHANGED"
+                        ):
+                            found = True
+                            break
+    assert found, (
+        "async_setup missing subscribe: no "
+        "`self._config_signal_unsub = async_dispatcher_connect(..., "
+        "SIGNAL_URA_PERIMETER_CONFIG_CHANGED, ...)` call. "
+        "D2.1 discharge wire regression."
+    )
+
+
+def test_perimeter_config_signal_unsub_in_async_teardown():
+    """Wire anchor (leg 3 - transit_validator.py:899-904).
+
+    async_teardown MUST call self._config_signal_unsub() and clear the
+    field. Mutation drill: remove the unsub block and this test goes RED
+    (leak test - a signal handler surviving teardown accumulates across
+    reload cycles).
+    """
+    src = _perimeter_src()
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.AsyncFunctionDef) and node.name == "async_teardown":
+            # Two conditions: (1) a Call on self._config_signal_unsub,
+            # (2) an Assign self._config_signal_unsub = None.
+            has_call = False
+            has_reset = False
+            for stmt in _ast.walk(node):
+                if isinstance(stmt, _ast.Call):
+                    f = stmt.func
+                    if (
+                        isinstance(f, _ast.Attribute)
+                        and isinstance(f.value, _ast.Name)
+                        and f.value.id == "self"
+                        and f.attr == "_config_signal_unsub"
+                    ):
+                        has_call = True
+                if isinstance(stmt, _ast.Assign):
+                    for t in stmt.targets:
+                        if (
+                            isinstance(t, _ast.Attribute)
+                            and isinstance(t.value, _ast.Name)
+                            and t.value.id == "self"
+                            and t.attr == "_config_signal_unsub"
+                            and isinstance(stmt.value, _ast.Constant)
+                            and stmt.value.value is None
+                        ):
+                            has_reset = True
+            assert has_call, (
+                "async_teardown missing unsub call - listener leaks across "
+                "reload cycles (three-part template leg 3 regression)"
+            )
+            assert has_reset, (
+                "async_teardown must reset self._config_signal_unsub = None "
+                "after unsub so idempotency holds if teardown is called twice"
+            )
+            return
+    raise AssertionError("async_teardown not found in perimeter_alert.py")
+
+
+def test_perimeter_config_change_preserves_boot_settle_window():
+    """A4 preservation contract: the handler MUST NOT reset self._setup_time.
+
+    A rebuild that reset _setup_time would silently disarm the perimeter
+    alarm for PERIMETER_BOOT_SETTLE_S - a security-affecting regression
+    the reload path never causes. Mutation drill: introduce
+    `self._setup_time = dt_util.now()` into the handler body (or remove
+    the `self._setup_time = saved_setup_time` restore) and this test
+    goes RED BY NAME.
+
+    Structural (AST) assertion: the handler's finally-block MUST contain
+    `self._setup_time = saved_setup_time` (or equivalent restore). This
+    is comment-invisible; a delete of the restore line is directly RED.
+    """
+    src = _perimeter_src()
+    tree = _ast.parse(src)
+    handler = None
+    for node in _ast.walk(tree):
+        if (
+            isinstance(node, _ast.AsyncFunctionDef)
+            and node.name == "_async_on_perimeter_config_changed"
+        ):
+            handler = node
+            break
+    assert handler is not None, (
+        "handler _async_on_perimeter_config_changed missing - D2.1 not built"
+    )
+
+    # Assert: the handler contains a `try/finally` where the finally block
+    # restores self._setup_time from a saved variable.
+    restore_found = False
+    for stmt in _ast.walk(handler):
+        if isinstance(stmt, _ast.Try):
+            for fstmt in _ast.walk(_ast.Module(body=stmt.finalbody, type_ignores=[])):
+                if isinstance(fstmt, _ast.Assign):
+                    for t in fstmt.targets:
+                        if (
+                            isinstance(t, _ast.Attribute)
+                            and isinstance(t.value, _ast.Name)
+                            and t.value.id == "self"
+                            and t.attr == "_setup_time"
+                        ):
+                            v = fstmt.value
+                            if isinstance(v, _ast.Name) and v.id.startswith("saved"):
+                                restore_found = True
+    assert restore_found, (
+        "A4 regression: handler does not restore self._setup_time from a "
+        "saved variable in its finally-block. A missing restore means "
+        "self.async_setup() (called inside try) will overwrite _setup_time "
+        "with dt_util.now(), silently disarming the perimeter alarm for "
+        "the boot-settle window."
+    )
+
+    # Additional guard: the handler must NOT directly assign
+    # `self._setup_time = dt_util.now()` outside the finally restore path.
+    for stmt in _ast.walk(handler):
+        if isinstance(stmt, _ast.Assign):
+            for t in stmt.targets:
+                if (
+                    isinstance(t, _ast.Attribute)
+                    and isinstance(t.value, _ast.Name)
+                    and t.value.id == "self"
+                    and t.attr == "_setup_time"
+                ):
+                    v = stmt.value
+                    if isinstance(v, _ast.Call):
+                        # A direct now() assignment is the mutation-drill
+                        # forbidden shape.
+                        raise AssertionError(
+                            "A4 regression: handler directly assigns "
+                            f"self._setup_time to a Call ({_ast.dump(v)}) - "
+                            "this resets the boot-settle window"
+                        )
+
+
+def test_perimeter_handler_preserves_active_and_in_flight_state():
+    """A4 preservation contract (extension): _active, _pending_dispatches,
+    _dispatch_in_flight, _edge_captures MUST also be restored in the
+    finally-block."""
+    src = _perimeter_src()
+    tree = _ast.parse(src)
+    handler = None
+    for node in _ast.walk(tree):
+        if (
+            isinstance(node, _ast.AsyncFunctionDef)
+            and node.name == "_async_on_perimeter_config_changed"
+        ):
+            handler = node
+            break
+    assert handler is not None
+    must_restore = {
+        "_active",
+        "_pending_dispatches",
+        "_dispatch_in_flight",
+        "_edge_captures",
+    }
+    restored = set()
+    for stmt in _ast.walk(handler):
+        if isinstance(stmt, _ast.Try):
+            for fstmt in _ast.walk(_ast.Module(body=stmt.finalbody, type_ignores=[])):
+                if isinstance(fstmt, _ast.Assign):
+                    for t in fstmt.targets:
+                        if (
+                            isinstance(t, _ast.Attribute)
+                            and isinstance(t.value, _ast.Name)
+                            and t.value.id == "self"
+                            and t.attr in must_restore
+                        ):
+                            restored.add(t.attr)
+    missing = must_restore - restored
+    assert not missing, (
+        f"A4 regression: handler finally-block does not restore {missing}. "
+        "async_setup() re-invocation would leave the lifecycle state "
+        "inconsistent."
+    )
+
+
+def test_perimeter_signal_const_matches_across_modules():
+    """B-MED-1-shape guard for the perimeter signal (mirror of
+    test_integration_key_signal_table_uses_transit_config_changed_const):
+    the string used in the wiring table must equal the string defined in
+    const.py. A rename on either side flags drift here."""
+    import re as _re
+    const_src = (PKG / "const.py").read_text()
+    m = _re.search(
+        r'^SIGNAL_URA_PERIMETER_CONFIG_CHANGED\s*:\s*Final\s*=\s*"([^"]+)"',
+        const_src, _re.MULTILINE,
+    )
+    assert m, "SIGNAL_URA_PERIMETER_CONFIG_CHANGED not found in const.py"
+    const_value = m.group(1)
+
+    ns = _load_ns()
+    tbl = ns["_INTEGRATION_KEY_SIGNAL_TABLE"]
+    # Perimeter-step key discharges perimeter signal.
+    assert const_value in tbl["perimeter_vehicle_hours_start"]
+    # Camera-list key discharges both.
+    assert "ura_transit_config_changed" in tbl["perimeter_cameras"]
+    assert const_value in tbl["perimeter_cameras"]

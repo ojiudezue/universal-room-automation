@@ -139,6 +139,13 @@ from .const import (
     EXTERIOR_VEHICLE_SENSOR_SUFFIXES,
     EXTERIOR_ANIMAL_SENSOR_SUFFIXES,
     FACE_NAME_LATCH_TTL_S,
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1):
+    # discharge signal that lets an integration-options save on a
+    # perimeter-step key trigger a NARROW re-read here instead of a
+    # full integration-entry reload (RELOAD-WATCHDOG-HAZARD class).
+    # Handler PRESERVES boot-settle window + in-flight state per
+    # plan A4 - MUST NOT reset self._setup_time.
+    SIGNAL_URA_PERIMETER_CONFIG_CHANGED,
 )
 from .domain_coordinators.base import Severity
 from .domain_coordinators._nm_cycle_a import is_life_safety_hazard  # CIRCLING-LABEL-1: I3 gate uses this
@@ -375,6 +382,11 @@ class PerimeterAlertManager:
         # SNAP-1 fix-up (F9b): last on-write prune wall-time to debounce
         # the O(N) sweep. Periodic 6h sweep is the age backstop.
         self._last_prune_ts: float = 0.0
+        # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1).
+        # Three-part template mirrors transit_validator.py:264,
+        # 347-366, 899-904. Unsub field init to None; subscribed in
+        # async_setup; unsub call in async_teardown.
+        self._config_signal_unsub: Any = None
 
     async def async_setup(self) -> None:
         """Set up perimeter camera listeners.
@@ -967,6 +979,164 @@ class PerimeterAlertManager:
         self._setup_time = dt_util.now()
         self._active = True
 
+        # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1).
+        # Subscribe to the perimeter-config discharge signal so an
+        # integration-options save on a perimeter-step key rebuilds
+        # cached camera-list subs in-place. Preserves boot-settle window
+        # + in-flight state per plan A4. Mirror transit_validator.py:347-366.
+        # Guard against double-subscribe on re-entry.
+        try:
+            if self._config_signal_unsub is None:
+                from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
+                    async_dispatcher_connect,
+                )
+
+                @callback
+                def _on_config_changed(*_a: Any) -> None:
+                    _LOGGER.info(
+                        "PerimeterAlertManager: perimeter-config "
+                        "signal received; scheduling camera-list re-read"
+                    )
+                    self.hass.async_create_task(
+                        self._async_on_perimeter_config_changed()
+                    )
+
+                self._config_signal_unsub = async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_URA_PERIMETER_CONFIG_CHANGED,
+                    _on_config_changed,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: could not connect "
+                "perimeter-config dispatcher",
+                exc_info=True,
+            )
+
+    async def _async_on_perimeter_config_changed(self) -> None:
+        """Narrow re-read handler (plan A4).
+
+        REBUILDS ONLY the camera-list-derived cached state:
+          - _unsub_perimeter/egress/vehicle/animal state subs,
+          - _sensor_platforms, _sensor_to_camera, _sensor_engine,
+          - _perimeter_allowlist (re-installed on the linker if
+             registered),
+          - perimeter/egress/vehicle/animal sensor sets.
+
+        PRESERVES (per plan A4 - a reset here would silently disarm
+        the alarm for the boot-settle window, a security-affecting
+        regression the reload path never causes):
+          - _setup_time (the four boot-settle gates at :899-904,
+             :2618, :3760 must keep measuring from the ORIGINAL setup),
+          - _active, _pending_dispatches, _dispatch_in_flight,
+             _vehicle_in_flight,
+          - in-flight _edge_captures asyncio tasks,
+          - _unsub_started (one-shot HA_STARTED re-scan),
+          - _unsub_snapshot_sweep (periodic prune timer),
+          - _unsub_frigate_events (bus listener; independent of
+             camera-list),
+          - _unsub_linker_ready, _config_signal_unsub (own lifecycle).
+
+        Vehicle-hours / enrichment-defaults / _snapshot_offset_s are
+        FRESH-READ via _get_integration_config() at each use (see
+        :1449, :1677, :2566, :2810, :3658) - the discharge signal
+        for those keys is defensively fired by
+        _INTEGRATION_KEY_SIGNAL_TABLE but the plan's 'no cached view'
+        invariant is satisfied vacuously.
+        """
+        # 1. Tear down camera-list state subscriptions.
+        for unsub in list(self._unsub_perimeter):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._unsub_perimeter.clear()
+        for unsub in list(self._unsub_egress):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._unsub_egress.clear()
+        for unsub in list(self._unsub_vehicle):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._unsub_vehicle.clear()
+        for unsub in list(self._unsub_animal):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        self._unsub_animal.clear()
+        # 2. Clear camera-derived maps (rebuilt below).
+        self._sensor_platforms.clear()
+        self._sensor_to_camera.clear()
+        self._sensor_engine.clear()
+        self._perimeter_allowlist.clear()
+        # 3. Snapshot the preservation set BEFORE re-invoking the
+        # setup body (A4). Re-invoking async_setup would reset
+        # _setup_time and re-arm boot-settle for the WHOLE house -
+        # that is the exact regression this handler must NOT cause.
+        saved_setup_time = self._setup_time
+        saved_active = self._active
+        saved_pending = list(self._pending_dispatches)
+        saved_in_flight = set(self._dispatch_in_flight)
+        saved_vehicle_in_flight = set(self._vehicle_in_flight)
+        saved_edge_captures = dict(self._edge_captures)
+        saved_unsub_started = self._unsub_started
+        saved_unsub_snapshot_sweep = self._unsub_snapshot_sweep
+        saved_unsub_frigate = self._unsub_frigate_events
+        saved_unsub_linker_ready = self._unsub_linker_ready
+        saved_config_signal_unsub = self._config_signal_unsub
+        saved_last_alert = dict(self._last_alert)
+        saved_last_vehicle_alert = dict(self._last_vehicle_alert)
+        saved_recent_alerts = dict(self._recent_alerts_by_camera)
+        saved_last_egress = self._last_egress_time
+        # Neuter the setup body's own re-subscription of these so
+        # async_setup does not duplicate; we restore after.
+        self._unsub_started = None
+        self._unsub_snapshot_sweep = None
+        self._unsub_frigate_events = None
+        self._unsub_linker_ready = None
+        self._config_signal_unsub = None
+        try:
+            await self.async_setup()
+        finally:
+            # 4. Restore preservation set (A4). Tear down any
+            # duplicate lifecycle unsubs async_setup just created,
+            # keeping the ORIGINAL ones (the operator-visible boot-
+            # settle window MUST measure from the original setup).
+            for _new_unsub, _saved in (
+                (self._unsub_started, saved_unsub_started),
+                (self._unsub_snapshot_sweep, saved_unsub_snapshot_sweep),
+                (self._unsub_frigate_events, saved_unsub_frigate),
+                (self._unsub_linker_ready, saved_unsub_linker_ready),
+                (self._config_signal_unsub, saved_config_signal_unsub),
+            ):
+                if _saved is not None and _new_unsub is not None and _new_unsub is not _saved:
+                    try:
+                        _new_unsub()
+                    except Exception:  # noqa: BLE001
+                        pass
+            self._unsub_started = saved_unsub_started
+            self._unsub_snapshot_sweep = saved_unsub_snapshot_sweep
+            self._unsub_frigate_events = saved_unsub_frigate
+            self._unsub_linker_ready = saved_unsub_linker_ready
+            self._config_signal_unsub = saved_config_signal_unsub
+            # Restore the ORIGINAL boot-settle window (A4 acceptance
+            # criterion - a rebuild that resets this MUST fail).
+            self._setup_time = saved_setup_time
+            self._active = saved_active
+            self._pending_dispatches = saved_pending
+            self._dispatch_in_flight = saved_in_flight
+            self._vehicle_in_flight = saved_vehicle_in_flight
+            self._edge_captures = saved_edge_captures
+            self._last_alert = saved_last_alert
+            self._last_vehicle_alert = saved_last_vehicle_alert
+            self._recent_alerts_by_camera = saved_recent_alerts
+            self._last_egress_time = saved_last_egress
+
     async def async_teardown(self) -> None:
         """Remove all state listeners."""
         for unsub in self._unsub_perimeter:
@@ -1017,6 +1187,16 @@ class PerimeterAlertManager:
             except Exception:  # noqa: BLE001
                 pass
             self._unsub_linker_ready = None
+
+        # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07): unsub
+        # the perimeter-config discharge signal. Three-part template
+        # tail; mirrors transit_validator.py:899-904.
+        if self._config_signal_unsub is not None:
+            try:
+                self._config_signal_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._config_signal_unsub = None
 
         # A-M3: cancel any pending delayed dispatches
         for unsub in self._pending_dispatches:
