@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.98.0
+# Universal Room Automation vv5.99.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -72,6 +72,34 @@ from .const import (
     CONF_FACE_RECOGNITION_ENABLED,
     CONF_EGRESS_IDENTITY_ENABLED,
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+    # INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06): fresh-read
+    # census toggles promoted to the reload-suppress allowlist.
+    CONF_CENSUS_CROSS_VALIDATION,
+    CONF_CENSUS_BLE_CANCEL_ENABLED,
+    CONF_KNOWN_FACE_GUESTS,
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1
+    # rev-2 rework post Tier-3 review). The 9 perimeter-step keys below
+    # are ALL fresh-read via PerimeterAlertManager._get_integration_config()
+    # on every invocation - path-(a) of the suppression-needs-discharge
+    # rule; NO cached consumer, NO discharge signal, NO handler. Reviews
+    # A + D verified this by grep of every read site. Camera-list keys
+    # (CONF_PERIMETER_CAMERAS / CONF_EGRESS_CAMERAS) are DELIBERATELY
+    # excluded - they are UNSAFE-STRUCTURAL (CameraIntegrationManager.
+    # async_discover at :2253 rebuilds _cameras_by_area, consumed on the
+    # live occupancy path coordinator.py:3670 with no discharge). The
+    # zero-consumer / stripped-at-migration hours keys (CONF_PERIMETER_
+    # ALERT_HOURS_START/END) also stay OUT - migrate_consol1_perimeter_
+    # keys strips them at setup so they can never appear in changed_keys.
+    CONF_PERIMETER_VEHICLE_HOURS_START,
+    CONF_PERIMETER_VEHICLE_HOURS_END,
+    CONF_PERIMETER_ENRICHMENT_ENABLED,
+    CONF_PERIMETER_ENRICHMENT_PROVIDER,
+    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+    CONF_PERIMETER_ENRICHMENT_MODEL,
+    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+    CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -6660,7 +6688,71 @@ INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # cached-consumer discharge signal needed (path (a) of the
     # suppression-needs-discharge rule).
     CONF_EGRESS_IDENTITY_ENABLED,
+    # INTEGRATION-RELOAD-COMPREHENSIVE Tier-1 (2026-09-06). All three below
+    # are path-(a) fresh-read (re-read {**entry.data, **entry.options} on every
+    # decision tick — NO setup-time cache on the decision path), so they need
+    # NO discharge signal (no _INTEGRATION_KEY_SIGNAL_TABLE row). Verified vs
+    # develop + confirmed by two framing-disjoint plan reviews. NOTE:
+    # CONF_ENHANCED_CENSUS is deliberately NOT here — it is UNSAFE (gates
+    # event-census listener registration at __init__.py:2364, a setup-time
+    # structural consumer).
+    #   CONF_CENSUS_CROSS_VALIDATION  — camera_census._is_cross_validation_enabled (sole consumer, merged per tick)
+    #   CONF_CENSUS_BLE_CANCEL_ENABLED — camera_census._get_ble_cancel_enabled (decision path fresh; _last_* is DISPLAY-only)
+    #   CONF_KNOWN_FACE_GUESTS        — camera_census._get_known_face_guests (merged per lookup)
+    CONF_CENSUS_CROSS_VALIDATION,
+    CONF_CENSUS_BLE_CANCEL_ENABLED,
+    CONF_KNOWN_FACE_GUESTS,
+    # CONF_EGRESS_IDENTITY_FAILSAFE_STRICT — path-(a) fresh-read via
+    # camera_census._is_egress_identity_failsafe_strict (all decision-path
+    # callers route through it: camera_census.py:3694/3713/3895,
+    # transit_validator.py:1260). PAIR-INVARIANT with the already-allowlisted
+    # CONF_EGRESS_IDENTITY_ENABLED — both are written by the same camera_census
+    # options step, so a realistic egress save changes BOTH; admitting only one
+    # would defeat the changed_keys.issubset() test and reload anyway.
+    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07, plan D2.1
+    # rev-2 rework post Tier-3 review). Nine perimeter-step keys are
+    # ALL path-(a) fresh-read via
+    # perimeter_alert.PerimeterAlertManager._get_integration_config()
+    # on every read; NO cached consumer, NO discharge signal, NO
+    # handler. Reviews A + D verified each read site by grep. The
+    # wiring table has NO row for these keys, so the helper returns
+    # them in dispatched_ok vacuously and the snapshot advances.
+    #
+    # Fresh-read consumer cites (per review A):
+    #   CONF_PERIMETER_VEHICLE_HOURS_START/END - perimeter_alert.py:2566-2574
+    #     inside _is_in_vehicle_alert_hours (cfg=_get_integration_config()).
+    #   CONF_PERIMETER_ENRICHMENT_ENABLED     - perimeter_alert.py:1449-1461
+    #     inside dispatch fall-through (each alert re-reads).
+    #   CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS - same site :1455.
+    #   CONF_PERIMETER_ENRICHMENT_PROVIDER/MODEL/MAX_TOKENS/PROVIDER_ID -
+    #     consumed by perimeter_enrichment.enrich_dispatched_alert called
+    #     at :1441; adapter reads the fresh cfg re-read at :2810.
+    #   CONF_EXTERIOR_SNAPSHOT_OFFSET_S       - perimeter_alert.py:3657-3672
+    #     inside _get_snapshot_offset (config = _get_integration_config()).
+    CONF_PERIMETER_VEHICLE_HOURS_START,
+    CONF_PERIMETER_VEHICLE_HOURS_END,
+    CONF_PERIMETER_ENRICHMENT_ENABLED,
+    CONF_PERIMETER_ENRICHMENT_PROVIDER,
+    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+    CONF_PERIMETER_ENRICHMENT_MODEL,
+    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
+    CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
 })
+
+# EXCLUDED - UNSAFE-STRUCTURAL (Tier-3 review A3 / D-HIGH-1, 2026-09-07):
+#   CONF_PERIMETER_CAMERAS / CONF_EGRESS_CAMERAS - a save of either
+#     triggers CameraIntegrationManager.async_discover at __init__.py:2253
+#     which rebuilds _cameras_by_area (consumed live on the occupancy
+#     path at coordinator.py:3670). No discharge exists today; a Tier-2
+#     handler rebuild for PerimeterAlertManager would leave the camera
+#     manager map stale. These stay on the reload path (unchanged).
+# EXCLUDED - DEAD KEYS (Tier-1 baseline, 2026-09-06):
+#   CONF_PERIMETER_ALERT_HOURS_START/END - migrate_consol1_perimeter_keys
+#     strips them at setup (renamed to CONF_PERIMETER_VEHICLE_HOURS_*).
+#     They can never appear in changed_keys; admitting them would be
+#     dead-code noise.
 
 # Rung-1 kill switch (numbers-get-knobs). Flipping to False re-enables
 # the pre-cycle reload behavior AND skips the discharge dispatch (see
@@ -6685,6 +6777,12 @@ _INTEGRATION_KEY_SIGNAL_TABLE: dict[str, tuple[str, ...]] = {
     # all consumers (camera_census._is_egress_identity_enabled +
     # indirect transit_validator.py:1094). No cached-consumer discharge
     # needed.
+    #
+    # INTEGRATION-RELOAD-COMPREHENSIVE-1 Tier-2 (2026-09-07 post Tier-3
+    # review): the 9 perimeter-step keys admitted to the allowlist above
+    # are ALL path-(a) fresh-read - NO row here. Camera-list keys are
+    # NOT in the allowlist (UNSAFE-STRUCTURAL - CameraIntegrationManager.
+    # async_discover cache) so no row is possible or needed.
 }
 
 
@@ -6692,28 +6790,45 @@ def _dispatch_integration_key_signals(
     hass: HomeAssistant,
     entry: ConfigEntry,
     changed_keys: set[str],
-) -> None:
+) -> set[str]:
     """Fire discharge signals for each allowlisted integration-entry key.
+
+    Returns the set of keys whose dispatch fully succeeded (all
+    registered signals for that key sent without raising). Keys with
+    NO wiring-table entry (path-(a) fresh-read) are considered
+    vacuously OK — nothing to fail. The caller uses this set to
+    advance the snapshot only for successfully-dispatched keys
+    (plan §A7 / D2.5): a swallowed dispatch on a cached-consumer
+    key would otherwise silently lose the change forever, because
+    the snapshot would advance past a value the consumer never
+    re-read.
 
     Sibling helper to `_apply_in_place` (NOT an extension of it — plan
     MED-2, Bug Class #27). Per-signal try/except mirrors the CM branch's
     defensive posture: persistence has already happened via
     `async_update_entry`, so a dispatch failure logs WARNING and does NOT
-    re-raise — converting a persisted write into an outage-inducing
-    reload is worse than a silent-until-next-tick cached-consumer stale.
+    re-raise — the RETURN VALUE (via §A7) is now the mechanism that
+    keeps the failed key visible in `changed_keys` at the next save.
     """
     from homeassistant.helpers.dispatcher import async_dispatcher_send
+    dispatched_ok: set[str] = set()
     for key in changed_keys:
         signals = _INTEGRATION_KEY_SIGNAL_TABLE.get(key, ())
+        all_ok = True
         for sig in signals:
             try:
                 async_dispatcher_send(hass, sig, entry.entry_id, key)
             except Exception:  # noqa: BLE001 — never re-raise; see docstring
+                all_ok = False
                 _LOGGER.warning(
                     "INTEGRATION options: dispatch of signal=%s for "
-                    "key=%s failed (non-fatal)",
+                    "key=%s failed (non-fatal); snapshot will retain "
+                    "the pre-save value so the key re-fires next save",
                     sig, key, exc_info=True,
                 )
+        if all_ok:
+            dispatched_ok.add(key)
+    return dispatched_ok
 
 
 def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -7387,11 +7502,32 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
                 "apply, suppressing reload (changed_keys=%s)",
                 entry.title, entry.entry_id, sorted(changed_keys),
             )
-            _dispatch_integration_key_signals(hass, entry, changed_keys)
-            # Snapshot advance: for v1 the apply-set equals the changed
-            # set (dispatch-only, no live-attr push). Keep the CM-branch
-            # shape for future cached-consumer additions.
-            snapshots[entry.entry_id] = dict(new)
+            dispatched_ok = _dispatch_integration_key_signals(
+                hass, entry, changed_keys,
+            ) or set()  # defensive: coerce None -> empty (test-neuter tolerant)
+            # Snapshot advance (§A7 / D2.5 success-gated): advance only
+            # for keys whose dispatch succeeded. For a key whose
+            # dispatch RAISED, retain the pre-save snapshot value so
+            # `changed_keys` still contains the key on the next save
+            # (otherwise a swallowed dispatch = PERMANENT stale-
+            # consumer state — Bug Class #7 amplifier). Fresh-read
+            # keys (no wiring row) return vacuously OK from the
+            # helper, so they advance normally.
+            merged: dict[str, object] = dict(old)
+            for k in changed_keys:
+                if k in dispatched_ok:
+                    if k in new:
+                        merged[k] = new[k]
+                    else:
+                        merged.pop(k, None)
+                # else: preserve old[k] (retention) so the diff at the
+                # next save still shows the key as changed.
+            # Non-changed keys should reflect current entry state (in
+            # case an unrelated key was quietly persisted).
+            for k in new:
+                if k not in changed_keys:
+                    merged[k] = new[k]
+            snapshots[entry.entry_id] = merged
             return
         # Mixed or non-allowlisted change → reseed snapshot to the
         # post-write options BEFORE falling through to reload so a

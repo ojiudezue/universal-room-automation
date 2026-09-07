@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-06'
+  last_reconciled: '2026-09-07'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -26,6 +26,109 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: INTEGRATION-CAMERA-DISCOVER-STALE-1
+  title: Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
+  thread: quality
+  status: inbox
+  created: '2026-09-07 00:30'
+  updated: '2026-09-07 00:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the integration keeps a camera→area map (built once at setup by
+     camera_manager.async_discover) that decides which camera extends which
+     room''s occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has
+     been on the reload-suppress allowlist since 2026-08-15, so editing the
+     indoor-camera list applies in-place WITHOUT rebuilding that map — the new
+     camera never extends its room''s occupancy (and a removed one keeps
+     extending) until Home Assistant restarts, while the log says the save
+     applied. This is a real pre-existing leak on a live occupancy decision
+     path (coordinator.py:3670), found by the Tier-3 adversarial review of the
+     reload-comprehensive cycle. The two NEW camera keys this cycle considered
+     (perimeter/egress cameras) were correctly kept OFF the allowlist for the
+     same reason, so this card is strictly the pre-existing camera_person
+     key.
+     Solution: give the camera-list keys a real discharge — re-run
+     async_discover with the fresh merged lists on a camera-list signal so the
+     map rebuilds in-place — OR remove CONF_CAMERA_PERSON_ENTITIES from the
+     allowlist so its edits reload (safe, reverts an outage-avoidance). The
+     config-subentries migration (Tier-3 D3.a) fixes it structurally.'
+  approval: unreviewed
+  tags: [no-fabrication-verify, tier-2db]
+  origin:
+    date: '2026-09-07'
+    gist: Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
+  why: 'A suppressed reload that leaves an occupancy-decision map stale is a
+    silent correctness regression; it predates the current cycle but the cycle''s
+    review surfaced it and it should not ride indefinitely.'
+  refs:
+  - docs/reviews/code-review/reload_comprehensive_tier1_2.md
+  - docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
+  next: 'Decide discharge-vs-deallowlist-vs-subentries; measure how often camera lists actually change before sizing.'
+- id: KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1
+  title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
+  thread: diagnostics
+  status: investigating
+  created: '2026-09-06 18:35'
+  updated: '2026-09-06 18:35'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead)
+     keeps turning off by itself a few minutes after it is turned on, even though
+     the operator set the Kitchen room to no-automation and forced-vacant. The
+     worry was that URA is doing it. It is NOT: URA''s own activity log has zero
+     entries for this light, the room automation master switch is off (which
+     correctly disables both URA actuation paths), and the reconciler has not run
+     (reconciles_today=0). The turn-offs are Home Assistant light.turn_off SERVICE
+     calls with no user and no parent context (not a person, not a HA automation/
+     script, not Adaptive Lighting which manages no lights, not Alexa/Google which
+     are not exposed). That signature = an external bridge or another integration.
+     Solution: identify the external caller (leading suspect: an iOS HomeKit Home
+     automation commanding via the active HomeKit bridge, which appears in HA as
+     exactly this orphan-context service call). Confirm by checking the Home app /
+     briefly debug-logging the bridge on the next fire, then remove/redirect it.'
+  approval: unreviewed
+  tags: [no-fabrication-verify, falsify-first]
+  origin:
+    date: '2026-09-06'
+    gist: operator — kitchen overhead turning off; kitchen has no automation and is forced vacant; trace it
+  why: 'A managed light turning off unexpectedly reads as a URA regression; proving
+    it is external prevents chasing a phantom URA bug and points at the real owner.'
+  forensic_evidence:
+  - 'ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.'
+  - 'switch.kitchen_automation=off (gates coordinator.py:4852 handler + reconciler Guard2 :496); switch.kitchen_override_vacant=on (occupancy_source=override).'
+  - 'recorder: off-transitions have call_service events, context has no user_id + no parent_id; only co-context entity is sensor.lights_on_count (passive).'
+  - 'exposure: conversation=true, cloud.alexa=false, cloud.google_assistant=false; HomeKit bridge active (150-device-limit warnings).'
+  next: 'Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown, enable debug logging on homekit/service-call origin and read the next fire to name the caller.'
+  refs: []
+- id: PYTEST-SUITE-CONST-STUB-ISOLATION-1
+  title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
+  thread: quality
+  status: inbox
+  created: '2026-09-06 18:10'
+  updated: '2026-09-06 18:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: running the whole test suite in one pytest process fails to even
+     collect — some tests import a stubbed/fake const module that stays in
+     sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS,
+     CONF_FAN_MANUAL_ON_HOLD_S) gets ImportError ''unknown location'' and the run
+     aborts. Every affected file PASSES when run on its own, so the code is fine;
+     the fragility is test isolation. It undermines the deploy zero-bugs gate and
+     any baseline name-diff that assumes a clean single-process run.
+     Solution: find the test(s) that replace custom_components.universal_room_
+     automation.const in sys.modules and make them restore/monkeypatch-scope it
+     (autouse fixture or importlib reload teardown), so a single-process full-suite
+     run collects cleanly.'
+  approval: unreviewed
+  tags: [test-authority, no-fabrication-verify]
+  origin:
+    date: '2026-09-06'
+    gist: discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
+  why: 'A green-in-isolation suite that cannot run as one process hides real
+    regressions behind an import abort and forces per-file runs; the deploy gate
+    and validator name-diff both assume a clean single-process suite.'
+  next: 'grep tests for sys.modules[...const...]= / fake const stubs; identify the poisoning test(s); scope the stub with an autouse restore fixture; confirm full-suite collects.'
+  refs: []
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
   thread: energy
@@ -9148,7 +9251,7 @@ cards:
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
   status: shipped_organic
-  shipped_version: v5.77.0
+  shipped_version: v5.99.0
   approval: explicit
   approved_by: operator
   approved_on: 2026-08-07
