@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T18:08:18-05:00_ - _Data commit: `94c9619f58f8`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-06T22:29:16-05:00_ - _Data commit: `810be0418b89`_ - _last_reconciled: 2026-09-06_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-09-06T18:08:18-05:00_ - _Data commit: `94c9619f58f8`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 28 |
+| 📥 Inbox | 29 |
 | 🔬 Investigating | 10 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 10 |
@@ -23,8 +23,19 @@ _Generated: 2026-09-06T18:08:18-05:00_ - _Data commit: `94c9619f58f8`_ - _last_r
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (28)
+## 📥 Inbox (29)
 _raw capture_
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
+thread: **quality** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-07 00:30 · initial_
+- **Problem / Solution:**
+  - Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover) that decides which camera extends which room's occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has been on the reload-s...
+- **Origin:** 2026-09-07 - Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
+- **Why:** A suppressed reload that leaves an occupancy-decision map stale is a silent correctness regression; it predates the current cycle but the cycle's review surfaced it and it should not ride indefinitely.
+- **Next:** Decide discharge-vs-deallowlist-vs-subentries; measure how often camera lists actually change before sizing.
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
 
 ### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
 thread: **quality** - status: **inbox** - approval: **unreviewed**

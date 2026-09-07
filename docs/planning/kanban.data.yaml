@@ -26,6 +26,44 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: INTEGRATION-CAMERA-DISCOVER-STALE-1
+  title: Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
+  thread: quality
+  status: inbox
+  created: '2026-09-07 00:30'
+  updated: '2026-09-07 00:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the integration keeps a camera→area map (built once at setup by
+     camera_manager.async_discover) that decides which camera extends which
+     room''s occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has
+     been on the reload-suppress allowlist since 2026-08-15, so editing the
+     indoor-camera list applies in-place WITHOUT rebuilding that map — the new
+     camera never extends its room''s occupancy (and a removed one keeps
+     extending) until Home Assistant restarts, while the log says the save
+     applied. This is a real pre-existing leak on a live occupancy decision
+     path (coordinator.py:3670), found by the Tier-3 adversarial review of the
+     reload-comprehensive cycle. The two NEW camera keys this cycle considered
+     (perimeter/egress cameras) were correctly kept OFF the allowlist for the
+     same reason, so this card is strictly the pre-existing camera_person
+     key.
+     Solution: give the camera-list keys a real discharge — re-run
+     async_discover with the fresh merged lists on a camera-list signal so the
+     map rebuilds in-place — OR remove CONF_CAMERA_PERSON_ENTITIES from the
+     allowlist so its edits reload (safe, reverts an outage-avoidance). The
+     config-subentries migration (Tier-3 D3.a) fixes it structurally.'
+  approval: unreviewed
+  tags: [no-fabrication-verify, tier-2db]
+  origin:
+    date: '2026-09-07'
+    gist: Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
+  why: 'A suppressed reload that leaves an occupancy-decision map stale is a
+    silent correctness regression; it predates the current cycle but the cycle''s
+    review surfaced it and it should not ride indefinitely.'
+  refs:
+  - docs/reviews/code-review/reload_comprehensive_tier1_2.md
+  - docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
+  next: 'Decide discharge-vs-deallowlist-vs-subentries; measure how often camera lists actually change before sizing.'
 - id: KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1
   title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
   thread: diagnostics
