@@ -6914,6 +6914,23 @@ class EnergyCoordinator(BaseCoordinator):
                     pass
             if kind is None:
                 return  # not a charger — skip
+            # H1 fix: edge-cache keyed by (target, action). Off-peak
+            # ensure-on re-issues switch.turn_on idempotently every
+            # decision tick (Bug Class #43); without a per-actuation
+            # dedupe here the applier would emit ~190 rows/night for
+            # 2 chargers, re-tripping the v4.7.33 write-flood class.
+            # Cache the last-emitted action per target; log ONLY on
+            # transition. `power` fluctuates each tick and is
+            # DELIBERATELY excluded from the cache key so it never
+            # defeats the dedupe (it lives in the description only).
+            cache = getattr(self, "_charger_actuation_log_state", None)
+            if cache is None:
+                cache = {}
+                self._charger_actuation_log_state = cache
+            prev = cache.get(target)
+            if prev == service:
+                return  # unchanged — suppress
+            cache[target] = service
             # Collect pause-owner memberships (best-effort).
             owners = []
             try:

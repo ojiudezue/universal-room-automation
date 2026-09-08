@@ -933,15 +933,23 @@ class EVChargerController:
                 "EV: proactive off-peak turn-on for %s (onset permits)",
                 evse_id,
             )
-        _release_reason = (
-            "bypass_onset" if bypass_onset
-            else ("must_start_by" if 'must_start_by_reached' in dir() and locals().get('must_start_by_reached')
-                  else "onset_permits")
-        )
-        _maybe_log_onset_edge(
-            self, self.hass, evse_id, "ev", "ensure_on",
-            "permit", _release_reason, onset_str, now,
-        )
+        # H2 fix: suppress ensure_on permit-edge log when bypass_onset=True.
+        # Bypass callers (drain-release, force-charge, excess-solar) carry
+        # no onset-gate information here (reason would literally be
+        # "bypass_onset") AND those callers already emit their OWN drain_
+        # release edge row. Logging both flips the (entity_id, "ensure_on")
+        # cache back-and-forth every tick when a gated tick and a bypass
+        # tick interleave — 2-3 rows/tick forever. Suppress here.
+        if not bypass_onset:
+            _release_reason = (
+                "must_start_by"
+                if locals().get('must_start_by_reached')
+                else "onset_permits"
+            )
+            _maybe_log_onset_edge(
+                self, self.hass, evse_id, "ev", "ensure_on",
+                "permit", _release_reason, onset_str, now,
+            )
         return [{
             "service": "switch.turn_on",
             "target": switch_entity,
@@ -3512,15 +3520,20 @@ class SmartPlugController:
                 "(onset permits)",
                 entity_id,
             )
-        _release_reason = (
-            "bypass_onset" if bypass_onset
-            else ("must_start_by" if locals().get('must_start_by_reached')
-                  else "onset_permits")
-        )
-        _maybe_log_onset_edge(
-            self, self.hass, entity_id, "plug", "ensure_on",
-            "permit", _release_reason, onset_str, now,
-        )
+        # H2 fix (mirror of EV funnel): suppress ensure_on permit-edge
+        # log when bypass_onset=True to avoid every-tick cache thrash
+        # against interleaved gated calls. Drain-release / force-charge
+        # already emit their own edge row.
+        if not bypass_onset:
+            _release_reason = (
+                "must_start_by"
+                if locals().get('must_start_by_reached')
+                else "onset_permits"
+            )
+            _maybe_log_onset_edge(
+                self, self.hass, entity_id, "plug", "ensure_on",
+                "permit", _release_reason, onset_str, now,
+            )
         return [{
             "service": "switch.turn_on",
             "target": switch_entity,
