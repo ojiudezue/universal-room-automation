@@ -117,6 +117,33 @@ art: a **PARKED D6 "dead/stuck mmwave in stuck-signal watchdog"** inside
 plus two dated BACKLOG items (`B-2026-08-04-1` state/class-awareness, `B-2026-08-04-2` fleet rot).
 Sweeping only the board would have re-planned parked work as novel.
 
+## The third rule: finish the job — don't leave siblings carded (operator-coined 2026-09-08)
+
+Decomposing one related body of work into pieces (tiers, deliverables, a cluster of
+cards in a single arc) is a **commitment to finish the whole set**, not a menu to
+pick one or two from. Shipping part of an arc and leaving the sibling pieces sitting
+as open cards is the failure mode — the operator looks at the feature and *"doesn't
+see the work,"* because the visible half wasn't built.
+
+- **Capture-first still holds** — this rule is NOT "stop carding." Cards are the
+  working mechanism. The failure is **carding-instead-of-finishing**: parking
+  sibling work of an *active* arc instead of driving it to shipped.
+- **Drive the whole decomposed set to done.** If you split a job into D1..Dn, ship
+  D1..Dn — not D1 with D2..Dn left on the board.
+- **The one legitimate stop:** a *real divergence* — the remaining pieces are
+  genuinely a different objective / code area / risk-owner. Then **ask permission**
+  to stop and re-sequence; do not silently leave them. A different tier of the SAME
+  problem is not a divergence.
+- Origin: the integration-arrangement arc shipped only the reload *suppression*
+  (#3 of 4 device-rep problems) and left the Rooms-node tree (#1) and menu cleanup
+  (#4) drawn-but-unbuilt. Operator: *"We keep making more work and not doing it...
+  do all the pieces instead of doing one or two and leaving the rest on the board."*
+
+Sister doctrine: **Soak Exit** (CLAUDE.md — `shipped_organic` is not a parking lot)
+is the disposition analogue for work that already shipped; this rule is the
+build-side analogue for work that was decomposed but only partly built. See memory
+`feedback_finish_the_job_all_pieces`.
+
 ## Columns
 
 `📥 Inbox` (raw capture) · `🔬 Investigating` (we do not yet know what is true; measuring) ·
