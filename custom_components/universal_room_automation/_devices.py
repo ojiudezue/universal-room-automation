@@ -149,6 +149,22 @@ _STATIC_CHILD_IDS: Final[frozenset[str]] = frozenset(
     ident for (_dom, ident) in PARENT_MAP.keys()
 )
 
+# D3 CRIT fix (2026-09-08, Reviewer A1/A2/B1): grouping-node exemption.
+# A grouping node (currently: `rooms`) is INTEGRATION-owned, carries zero
+# entities, and looks EXACTLY like a v5.94.0 shell to two predicates:
+#   1) `async_cleanup_parent_entry_shells` — deletes 0-entity sole-parent-
+#      owned devices whose id is in `_STATIC_CHILD_IDS`. Deleting the
+#      Rooms node orphans all ~40 rooms on every CM setup/reload.
+#   2) `_is_empty_parent_shell` inside `async_stamp_via_device_tree` —
+#      excludes 0-entity sole-parent-owned devices from the parent index,
+#      so the Rooms node is never a valid parent (rooms never nest) and
+#      never itself stamped (rooms -> Rooms -> integration collapses; the
+#      residual counter never reaches 0 so D1's re-arm reset never runs).
+# The cleanup rationale "removal is durable — nothing recreates them" is
+# FALSE for a grouping node (it IS recreated at every integration entry
+# setup), so exempt grouping nodes explicitly from BOTH predicates.
+_GROUPING_NODE_IDS: Final[frozenset[str]] = frozenset({"rooms"})
+
 
 def _resolve_parent_identifier(
     identifier: tuple[str, str],
@@ -192,6 +208,13 @@ async def async_cleanup_parent_entry_shells(
     device when its last entity migrates to a DIFFERENT config entry).
     The parent entry no longer forwards any coordinator platform, so
     removing these shells is DURABLE — nothing recreates them.
+
+    D3 CRIT fix (2026-09-08): grouping nodes in `_GROUPING_NODE_IDS`
+    (e.g. `rooms`) are the EXCEPTION to the "nothing recreates them"
+    rationale — they ARE recreated at every integration entry setup and
+    are load-bearing parents for downstream URA devices. They are
+    exempted below (before guard 1) so a CM reload never orphans the
+    room subtree.
 
     Predicate — ALL THREE must hold to remove:
       1. device carries a URA identifier `(DOMAIN, ident)` with `ident`
@@ -253,6 +276,14 @@ async def async_cleanup_parent_entry_shells(
                 ura_ident = identifier[1]
                 break
         if ura_ident is None:
+            continue
+        # D3 CRIT fix (2026-09-08, Reviewer A1/B1): grouping nodes
+        # (e.g. `rooms`) look identical to a shell (entity-less +
+        # sole-owned by the parent entry) but MUST NOT be removed —
+        # they are recreated at every integration entry setup and are
+        # load-bearing parents for dozens of downstream URA devices
+        # (deleting Rooms orphans all ~40 rooms on every CM reload).
+        if ura_ident in _GROUPING_NODE_IDS:
             continue
         # SAFETY guard 1 — sole-parent-owner (exact set equality). A
         # membership check could match a dual-owned real device and
@@ -431,10 +462,27 @@ async def async_stamp_via_device_tree(hass: HomeAssistant) -> int:
         _ent_reg = None
 
     def _is_empty_parent_shell(_device) -> bool:
-        """Empty (0 entities) AND sole-owned by parent entry."""
+        """Empty (0 entities) AND sole-owned by parent entry.
+
+        D3 CRIT fix (2026-09-08, Reviewer A2): grouping nodes
+        (`_GROUPING_NODE_IDS`) are entity-less and sole-owned by the
+        integration entry BY DESIGN — they are load-bearing parents,
+        not removable shells. Exempt them so the stamper accepts them
+        as valid parents (rooms -> Rooms) and stamps them under their
+        own parent (Rooms -> integration); otherwise the Rooms device
+        drops out of `ura_index`, rooms never nest, and the residual
+        counter never reaches 0 (blocks D1's re-arm reset).
+        """
         if _parent_entry_id is None or _ent_reg is None:
             return False
         try:
+            for _identifier in getattr(_device, "identifiers", ()):
+                if (
+                    len(_identifier) >= 2
+                    and _identifier[0] == DOMAIN
+                    and _identifier[1] in _GROUPING_NODE_IDS
+                ):
+                    return False
             if getattr(_device, "config_entries", None) != {_parent_entry_id}:
                 return False
             from homeassistant.helpers import entity_registry as _er2

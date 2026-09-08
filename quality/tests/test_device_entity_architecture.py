@@ -1882,3 +1882,114 @@ def test_d4_cm_menu_blank_rows_labeled():
             assert key in steps and steps[key].get("title"), (
                 f"D4: {fname} missing step title for '{key}'"
             )
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-08 D3 CRIT fix (Reviewer A1/A2/B1) - grouping-node exemption
+# behavioral tests. Drive the exemption predicates end-to-end via
+# async_cleanup_parent_entry_shells and async_stamp_via_device_tree with
+# parent-entry + entity-registry wiring in place (unlike source-substring
+# tests which cannot observe the predicates firing).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_d3_crit_rooms_survives_shell_cleanup(monkeypatch):
+    """D3 CRIT-1 (A1/B1): 0-entity integration-owned (DOMAIN,'rooms')
+    device MUST survive async_cleanup_parent_entry_shells - deleting it
+    orphans all ~40 rooms on every CM setup/reload.
+
+    MUTATION DRILL: remove the `if ura_ident in _GROUPING_NODE_IDS: continue`
+    exemption in async_cleanup_parent_entry_shells -> RED.
+    """
+    d = _import_devices()
+    DOMAIN = "universal_room_automation"
+    parent = "INTEGRATION_ENTRY"
+    cm = "CM_ENTRY"
+
+    rooms = _FakeDevice2(
+        "dev_rooms",
+        {(DOMAIN, "rooms")},
+        config_entries={parent},
+    )
+    shell = _FakeDevice2(
+        "dev_shell_cm",
+        {(DOMAIN, "coordinator_manager")},
+        config_entries={parent},
+    )
+    fake_reg = _FakeDevReg2([rooms, shell])
+
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+    _install_ent_reg(
+        monkeypatch,
+        _FakeEntReg({"dev_rooms": [], "dev_shell_cm": []}),
+    )
+
+    hass = MagicMock()
+    removed = await d.async_cleanup_parent_entry_shells(hass, parent, cm)
+
+    assert "dev_rooms" in fake_reg.devices, (
+        "D3 CRIT-1: Rooms grouping node was removed by shell cleanup - "
+        "the _GROUPING_NODE_IDS exemption did not fire. Rooms orphaned."
+    )
+    assert "dev_shell_cm" not in fake_reg.devices, (
+        f"D3 CRIT-1 sanity: real CM shell was NOT removed (removed={removed})."
+    )
+
+
+@pytest.mark.asyncio
+async def test_d3_crit_stamper_uses_rooms_as_parent(monkeypatch):
+    """D3 CRIT-2 (A2): with Rooms device present (0 entities,
+    integration-owned) the stamper must (a) nest a room under Rooms and
+    (b) stamp Rooms itself under integration.
+
+    MUTATION DRILL: remove the _GROUPING_NODE_IDS exemption in
+    _is_empty_parent_shell -> RED.
+    """
+    d = _import_devices()
+    DOMAIN = "universal_room_automation"
+    parent = "INTEGRATION_ENTRY"
+
+    integration = _FakeDevice2(
+        "dev_int",
+        {(DOMAIN, "integration")},
+        config_entries={parent},
+    )
+    rooms = _FakeDevice2(
+        "dev_rooms",
+        {(DOMAIN, "rooms")},
+        config_entries={parent},
+    )
+    room1 = _FakeDevice2(
+        "dev_room1",
+        {(DOMAIN, "01HXX_room_entry_uuid")},
+        config_entries={"ROOM_ENTRY_1"},
+    )
+
+    fake_reg = _FakeDevReg2([integration, rooms, room1])
+    from homeassistant.helpers import device_registry as dr
+    monkeypatch.setattr(dr, "async_get", lambda hass: fake_reg)
+
+    _install_ent_reg(
+        monkeypatch,
+        _FakeEntReg({
+            "dev_int": ["e_agg"],
+            "dev_rooms": [],
+            "dev_room1": ["e_r1"],
+        }),
+    )
+
+    hass = _fake_hass_with_parent_entry(parent)
+    await d.async_stamp_via_device_tree(hass)
+
+    assert fake_reg.devices["dev_room1"].via_device_id == "dev_rooms", (
+        "D3 CRIT-2 (a): room did not nest under Rooms - stamper treated "
+        "Rooms as a shell and refused it as a parent. Got "
+        f"via_device_id={fake_reg.devices['dev_room1'].via_device_id!r}."
+    )
+    assert fake_reg.devices["dev_rooms"].via_device_id == "dev_int", (
+        "D3 CRIT-2 (b): Rooms grouping node was not stamped under the "
+        "integration root - excluded from ura_index by the shell predicate. "
+        "Residual counter would never reach 0; D1 re-arm reset never fires."
+    )
