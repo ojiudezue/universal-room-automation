@@ -2633,13 +2633,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE_MANAGER:
-            # v3.6.0: Zone Manager options menu
-            return self.async_show_menu(
-                step_id="init",
-                menu_options=[
-                    "manage_zones",
-                ],
-            )
+            # v3.6.0: Zone Manager options.
+            # UX polish (CM-ZONE-MENU-POLISH-1): the ZM options entry had a
+            # one-item init menu ("Manage Zones") that felt non-standard
+            # compared to House / CM / Room which show a categorized menu
+            # directly. Skip the trivial single-option wrapper and go
+            # straight into the zone picker. The two-step select-a-zone →
+            # per-zone submenu shape remains because a ZM entry manages N
+            # zones — no single flat menu can represent N zones without
+            # duplication. Per-zone submenu is `zone_config_menu`.
+            return await self.async_step_manage_zones()
         elif entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
             # v3.6.0-c2.1: Coordinator Manager options menu
             # v3.6.0-c2.4: coordinator_toggles moved to switch entities

@@ -532,12 +532,12 @@
       },
       "manage_zones": {
         "title": "🗂️ Manage Zones",
-        "description": "Select a zone to configure its settings.",
+        "description": "Pick a zone to configure. The next step shows the standard categorized submenu (rooms, media, HVAC, energy, primary persons, cameras, dynamic preset, remove).",
         "data": {
-          "zone_entry": "Zone"
+          "zone_name": "Zone"
         },
         "data_description": {
-          "zone_entry": "Select a zone to configure"
+          "zone_name": "Zones sharing a thermostat are marked '(shared thermostat)'. HVAC changes to any such zone automatically mirror to the sibling(s) — the picker shows RAW house zones, not the merged HVAC label."
         }
       },
       "zone_config_menu": {
@@ -1431,11 +1431,59 @@
       },
       "coordinator_notifications_volume": {
         "title": "🔕 Notification Volume & Noise Reduction",
-        "description": "Rung-2 controls (NM Cycle A-2) that reduce alert noise without changing severity semantics: tripped-breaker windowing, lock unavailability dedup, humidity ladder thresholds, CO2/TVOC ceilings, safety-discovery blocklist, and the optimizer HIGH-severity allowlist. Fields left at defaults do not persist — future retunes reach this deployment."
+        "description": "Rung-2 controls (NM Cycle A-2) that reduce alert noise without changing severity semantics: tripped-breaker windowing, lock unavailability dedup, humidity ladder thresholds, CO2/TVOC ceilings, safety-discovery blocklist, and the optimizer HIGH-severity allowlist. Fields left at defaults do not persist — future retunes reach this deployment.",
+        "data": {
+          "nm_a1_tripped_breaker_zero_window_s": "Tripped-Breaker Zero-Window (seconds)",
+          "nm_a1_tripped_breaker_route_nm": "Route Tripped-Breaker Alerts to NM",
+          "nm_a3_lock_unavailable_dedup_s": "Lock Unavailability Dedup Window (seconds)",
+          "nm_a4_humidity_log_only_pct": "Humidity Log-Only Ceiling (%)",
+          "nm_a4_humidity_medium_pct": "Humidity Medium Threshold (%)",
+          "nm_a4_humidity_high_pct": "Humidity High Threshold (%)",
+          "nm_a4_humidity_swing_delta_pct": "Humidity Swing Delta (%)",
+          "nm_a4_humidity_swing_min_abs_pct": "Humidity Swing Minimum Absolute (%)",
+          "nm_a5_co2_log_only_ppm": "CO2 Log-Only Ceiling (ppm)",
+          "nm_a5_tvoc_absolute_high_ppb": "TVOC Absolute-High Threshold (ppb)",
+          "nm_a5_tvoc_sustained_s": "TVOC Sustained Duration (seconds)",
+          "nm_a5_safety_discovery_blocklist": "Safety Discovery Blocklist",
+          "nm_a2_optimizer_high_allowlist_dimensions": "Optimizer HIGH-Severity Allowlist",
+          "stuck_signal_nm_enabled": "Stuck-Signal Watchdog NM Alerts",
+          "stuck_sensor_exclusion_enabled": "Exclude Stuck (Dutycycle) Sensors"
+        },
+        "data_description": {
+          "nm_a1_tripped_breaker_zero_window_s": "Wait this many seconds of consecutive zero-power reads before treating a breaker as tripped. Prevents momentary meter dropouts from being alerted. Range 0-7200s. Set 0 to disable windowing.",
+          "nm_a1_tripped_breaker_route_nm": "When on, tripped-breaker events raise a notification. When off, they are still detected/logged but do not page.",
+          "nm_a3_lock_unavailable_dedup_s": "Suppress duplicate 'lock unavailable' notifications for this many seconds after the first. Range 0-604800s (7 days). Set 0 to disable dedup.",
+          "nm_a4_humidity_log_only_pct": "Below this humidity (%), events are logged only — never notified. Must satisfy log-only <= medium <= high (monotonic ladder).",
+          "nm_a4_humidity_medium_pct": "At or above this humidity (%), events route as MEDIUM severity. Must be >= log-only and <= high.",
+          "nm_a4_humidity_high_pct": "At or above this humidity (%), events route as HIGH severity. Must be >= medium.",
+          "nm_a4_humidity_swing_delta_pct": "Minimum percentage-point change from prior reading to consider a swing significant. Range 0-100%.",
+          "nm_a4_humidity_swing_min_abs_pct": "Only consider swings when absolute humidity is at or above this level (%). Damps false swings at very dry readings.",
+          "nm_a5_co2_log_only_ppm": "Below this CO2 concentration (ppm), events are logged only. Range 0-10000ppm.",
+          "nm_a5_tvoc_absolute_high_ppb": "TVOC (ppb) at or above this triggers HIGH severity when sustained. Range 0-100000ppb.",
+          "nm_a5_tvoc_sustained_s": "TVOC must stay above the high threshold this many seconds before escalating. Range 0-86400s.",
+          "nm_a5_safety_discovery_blocklist": "Entities to exclude from safety auto-discovery (accepts sensor and binary_sensor). Use for known-noisy or non-safety devices.",
+          "nm_a2_optimizer_high_allowlist_dimensions": "Optimizer dimensions permitted to raise HIGH-severity alerts. Empty (default) means no dimension escalates to HIGH.",
+          "stuck_signal_nm_enabled": "When on, the stuck-signal watchdog emits notifications for signals that stop updating. Detection continues either way — only the notification is toggled.",
+          "stuck_sensor_exclusion_enabled": "When on, stuck sensors are excluded from dutycycle computation (STUCK-SENSOR-1 D1 rung-2 kill switch)."
+        }
       },
       "coordinator_notifications_routing": {
         "title": "📮 Per-Person Routing & Hazard Overrides",
-        "description": "NM Cycle C-2: per-person channel routing matrix, hazard override channels, DND-bypass, mute-default duration, and additive-only life-safety hazard extras."
+        "description": "NM Cycle C-2: per-person channel routing matrix, hazard override channels, DND-bypass, mute-default duration, and additive-only life-safety hazard extras. Structured (dict/list) fields accept the shape documented below — the router consumes them directly.",
+        "data": {
+          "nm_person_routing_matrix": "Per-Person Routing Matrix",
+          "nm_person_hazard_overrides": "Per-Person Hazard Overrides",
+          "nm_person_dnd_bypass_severities": "Per-Person DND-Bypass Severities",
+          "nm_mute_default_duration_minutes": "Default Mute Duration (minutes)",
+          "nm_extra_life_safety_hazards": "Additional Life-Safety Hazards"
+        },
+        "data_description": {
+          "nm_person_routing_matrix": "Structured mapping: {person_id: {SEVERITY: {channel: true/false}}}. SEVERITY is one of LOW, MEDIUM, HIGH, CRITICAL. Channels are canonical NM channels (e.g. mobile_app, bluebubbles). Persons/severities/channels are re-cased on save.",
+          "nm_person_hazard_overrides": "Structured mapping: {person_id: {hazard_type: {SEVERITY: {channel: true/false}}}}. Overrides the base matrix for a specific hazard (smoke, co, water_leak, etc.).",
+          "nm_person_dnd_bypass_severities": "Structured mapping: {person_id: [SEVERITY, ...]}. Severities in the list bypass Do-Not-Disturb for that person.",
+          "nm_mute_default_duration_minutes": "Default duration a mute button silences NM if the operator does not choose a length. Range 0-1440 minutes.",
+          "nm_extra_life_safety_hazards": "Additional hazard types (beyond the built-in rung-1 set) to treat as life-safety. Purely additive — cannot remove built-ins. Leave empty for defaults."
+        }
       },
       "signal_responses": {
         "title": "Signal Responses",
