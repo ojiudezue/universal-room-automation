@@ -395,6 +395,9 @@ async def test_d_nest_stamper_covers_all_static_identities(monkeypatch):
         _FakeDevice("dev_mf", {("universal_room_automation", "music_following_coordinator")}),
         _FakeDevice("dev_nm", {("universal_room_automation", "notification_manager")}),
         _FakeDevice("dev_zone1", {("universal_room_automation", "zone_1")}),
+        # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): Rooms grouping
+        # node — room devices now nest House -> Rooms -> Room.
+        _FakeDevice("dev_rooms", {("universal_room_automation", "rooms")}),
         _FakeDevice("dev_room1", {("universal_room_automation", "some_entry_id_abc")}),
     ]
     fake_reg = _FakeDevReg(devices)
@@ -418,7 +421,8 @@ async def test_d_nest_stamper_covers_all_static_identities(monkeypatch):
         "dev_mf": "dev_cm",
         "dev_nm": "dev_cm",
         "dev_zone1": "dev_zm",
-        "dev_room1": "dev_int",
+        "dev_rooms": "dev_int",
+        "dev_room1": "dev_rooms",
     }
     for dev_id, parent_id in expected_parents.items():
         assert fake_reg.devices[dev_id].via_device_id == parent_id, (
@@ -1729,3 +1733,152 @@ def test_v5_94_1_b1_schedule_hoisted_out_of_stamp_try_except():
         "try/except as async_stamp_via_device_tree — a stamp raise would "
         "skip sweep scheduling"
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-08 arrangement cycle — D1/D2/D3/D4 mutation-anchored tests
+# ---------------------------------------------------------------------------
+
+
+def test_d1_sweep_count_resets_on_success_branch():
+    """D1 (DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1): the at-start sweep's
+    residual==0 branch must reset `_device_tree_sweep_count = 0` so late-
+    appearing devices can re-arm the sweep. Without the reset, once the
+    3-schedule cap is hit the machinery goes dark for the rest of the session.
+
+    MUTATION DRILL: remove the `= 0` reset line in the success branch of
+    `_sweep()` in _devices.py — this test goes RED.
+    """
+    src = _read("_devices.py")
+    # Anchor the success branch (residual==0 => "all URA devices parented" INFO).
+    marker = src.find("all URA devices parented")
+    assert marker > 0, "success-branch INFO log missing"
+    # Look BEFORE the log call for the reset assignment (within the else block).
+    window = src[max(0, marker - 800): marker]
+    assert '_device_tree_sweep_count"] = 0' in window, (
+        "D1: success branch does not reset _device_tree_sweep_count — "
+        "sweep will remain latched at the cap and never re-arm for "
+        "late-appearing devices"
+    )
+
+
+def test_d2_init_orphan_cleanup_no_two_unpack():
+    """D2 (DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1): __init__.py identifier
+    iteration must NOT use `for dom, ident in device.identifiers:` — bond
+    / homekit register 3-element identifiers and the 2-unpack raises
+    ValueError, aborting the loop (v5.94.3 bug pattern).
+
+    MUTATION DRILL: revert either site to `for ident_domain, identifier in
+    device.identifiers:` — this test goes RED.
+    """
+    src = _read("__init__.py")
+    # Both known offending patterns must be absent from __init__.py entirely.
+    assert "for ident_domain, identifier in device.identifiers" not in src, (
+        "D2: 2-tuple unpack of device.identifiers still present in __init__.py "
+        "— 3-tuple identifiers (bond, homekit) will raise ValueError and "
+        "abort the enclosing cleanup loop"
+    )
+    # And the defensive pattern must be present (both sites converted).
+    # We look for at least two occurrences of the len>=2 guard in the file.
+    count = src.count("if len(ident_tuple) < 2:")
+    assert count >= 2, (
+        f"D2: expected >=2 defensive len>=2 guards in __init__.py, got {count}"
+    )
+
+
+def test_d3_parent_map_has_rooms_node():
+    """D3 (URA-INTEGRATION-ARRANGEMENT-1): PARENT_MAP must route the new
+    Rooms grouping node under the INTEGRATION root.
+
+    MUTATION DRILL: remove `(DOMAIN, "rooms"): (DOMAIN, "integration")` from
+    PARENT_MAP — this test goes RED.
+    """
+    d = _import_devices()
+    DOMAIN = "universal_room_automation"
+    assert (DOMAIN, "rooms") in d.PARENT_MAP, (
+        "D3: (DOMAIN,'rooms') not in PARENT_MAP — the Rooms node will have "
+        "no via_device_id and will hang orphaned in the registry"
+    )
+    assert d.PARENT_MAP[(DOMAIN, "rooms")] == (DOMAIN, "integration"), (
+        "D3: Rooms grouping node parented to something other than integration"
+    )
+
+
+def test_d3_room_fallthrough_resolves_to_rooms():
+    """D3 (URA-INTEGRATION-ARRANGEMENT-1): a room-entry device (entry_id
+    identifier — the only URA identifiers that reach the fall-through)
+    must resolve to (DOMAIN, "rooms"), not (DOMAIN, "integration").
+
+    MUTATION DRILL: change the fall-through return in
+    `_resolve_parent_identifier` back to `(DOMAIN, "integration")` —
+    this test goes RED.
+    """
+    d = _import_devices()
+    DOMAIN = "universal_room_automation"
+    # Simulate a room device identifier (looks like a config-entry uuid).
+    parent = d._resolve_parent_identifier((DOMAIN, "01HXX_room_entry_uuid"))
+    assert parent == (DOMAIN, "rooms"), (
+        f"D3: room fall-through resolved to {parent!r} instead of "
+        "(DOMAIN,'rooms') — rooms will not nest under the new Rooms node"
+    )
+
+
+def test_d3_rooms_device_created_integration_owned():
+    """D3: the Rooms grouping device is created at INTEGRATION entry setup,
+    owned by the INTEGRATION entry (not a room entry, not the CM entry).
+
+    MUTATION DRILL: remove the `dev_reg.async_get_or_create(... "rooms" ...)`
+    block from the ENTRY_TYPE_INTEGRATION branch of async_setup_entry —
+    this test goes RED.
+    """
+    src = _read("__init__.py")
+    int_idx = src.find("if entry_type == ENTRY_TYPE_INTEGRATION:")
+    assert int_idx > 0, "INTEGRATION branch not found"
+    # Bound the search to the integration setup block (before next major branch).
+    end_marker = src.find("if entry_type == ENTRY_TYPE_ZONE_MANAGER", int_idx)
+    if end_marker < 0:
+        end_marker = int_idx + 30000
+    window = src[int_idx:end_marker]
+    # Look for the Rooms device create — must be under INTEGRATION entry.
+    assert 'identifiers={(DOMAIN, "rooms")}' in window, (
+        "D3: Rooms grouping device is not registered inside the INTEGRATION "
+        "entry setup block"
+    )
+    assert "config_entry_id=entry.entry_id" in window, (
+        "D3: Rooms device create window missing config_entry_id ownership"
+    )
+
+
+def test_d3_rooms_in_device_names_and_models():
+    """D3: DEVICE_NAMES + DEVICE_MODELS carry the 'rooms' identity so tests
+    and log strings can round-trip the canonical name/model."""
+    d = _import_devices()
+    assert "rooms" in d.DEVICE_NAMES, "D3: DEVICE_NAMES missing 'rooms'"
+    assert "rooms" in d.DEVICE_MODELS, "D3: DEVICE_MODELS missing 'rooms'"
+
+
+def test_d4_cm_menu_blank_rows_labeled():
+    """D4 (CM-CONFIG-FLOW-UX-1): the two previously-blank rows in the CM
+    Coordinator Manager options menu ("coordinator_notifications_volume"
+    and "coordinator_notifications_routing") must carry a human label in
+    both strings.json and translations/en.json.
+
+    MUTATION DRILL: delete either label from strings.json — this test
+    goes RED.
+    """
+    import json
+    for fname in ("strings.json", "translations/en.json"):
+        payload = json.loads((PKG_ROOT / fname).read_text())
+        labels = payload["options"]["step"]["init"]["menu_options"]
+        for key in ("coordinator_notifications_volume",
+                    "coordinator_notifications_routing"):
+            assert key in labels and labels[key].strip(), (
+                f"D4: {fname} missing menu_options label for '{key}'"
+            )
+        # And each step must have a title so the sub-editor page isn't blank.
+        steps = payload["options"]["step"]
+        for key in ("coordinator_notifications_volume",
+                    "coordinator_notifications_routing"):
+            assert key in steps and steps[key].get("title"), (
+                f"D4: {fname} missing step title for '{key}'"
+            )

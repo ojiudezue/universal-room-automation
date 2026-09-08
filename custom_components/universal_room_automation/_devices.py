@@ -35,6 +35,10 @@ URA_DEVICE_TREE_STAMPING_ENABLED: Final = True
 # Kept as data so tests can diff without importing the helpers.
 DEVICE_NAMES: Final[dict[str, str]] = {
     "integration": "Universal Room Automation",
+    # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): pure grouping node
+    # so per-room devices nest House -> Rooms -> Room instead of hanging
+    # flat off the House. INTEGRATION-owned; no entities, no options.
+    "rooms": "URA: Rooms",
     "coordinator_manager": "URA: Coordinator Manager",
     "zone_manager": "URA: Zone Manager",
     "safety_coordinator": "URA: Safety Coordinator",
@@ -48,6 +52,8 @@ DEVICE_NAMES: Final[dict[str, str]] = {
 }
 DEVICE_MODELS: Final[dict[str, str]] = {
     "integration": "Whole House",
+    # D3 (URA-INTEGRATION-ARRANGEMENT-1): sibling to CM/ZM.
+    "rooms": "Rooms",
     "coordinator_manager": "Coordinator Manager",
     "zone_manager": "Zone Manager",
     "safety_coordinator": "Safety Coordinator",
@@ -124,6 +130,11 @@ def _coordinator_device_info(coordinator_id: str) -> DeviceInfo:
 PARENT_MAP: Final[dict[tuple[str, str], tuple[str, str]]] = {
     (DOMAIN, "coordinator_manager"): (DOMAIN, "integration"),
     (DOMAIN, "zone_manager"): (DOMAIN, "integration"),
+    # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): the Rooms
+    # grouping node hangs directly off the House, matching how CM/ZM
+    # already do. Its children (per-room devices) resolve to it via
+    # the room-fall-through in _resolve_parent_identifier below.
+    (DOMAIN, "rooms"): (DOMAIN, "integration"),
     (DOMAIN, "safety_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "security_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "presence_coordinator"): (DOMAIN, "coordinator_manager"),
@@ -155,7 +166,16 @@ def _resolve_parent_identifier(
     if ident.startswith("zone_") and ident != "zone_manager":
         return (DOMAIN, "zone_manager")
     if ident not in _STATIC_CHILD_IDS:
-        return (DOMAIN, "integration")
+        # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): room devices
+        # use entry_id as their identifier — the only URA identifiers
+        # that reach this fall-through. Route them under the new
+        # Rooms grouping node so the tree looks
+        #   House -> Rooms -> Room
+        # symmetric with House -> CM/ZM -> Coord/Zone. Pure via_device
+        # (display-nesting) change; rooms KEEP their own config entries.
+        # HA 2026.9: rely on the imperative sweep
+        # (async_stamp_via_device_tree) — no declarative via_device.
+        return (DOMAIN, "rooms")
     return None
 
 
@@ -584,9 +604,22 @@ def async_schedule_device_tree_sweep(hass: HomeAssistant) -> None:
                         exc_info=True,
                     )
         else:
+            # D1 (DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, 2026-09-08):
+            # residual == 0 => the tree is fully parented for the devices
+            # currently registered. Reset the schedule counter so a
+            # LATER-appearing device (e.g. a room added post-boot, a slow
+            # config-entry setup, a per-entry reload that re-creates a
+            # device) can re-arm the sweep instead of being stranded
+            # unparented until the next full HA restart. The prior
+            # 3-schedule-per-boot cap was a lifetime latch: once the
+            # cap was reached the D-NEST machinery went dark for the
+            # rest of the session, so any device that landed after the
+            # third at-start sweep never received a via_device_id.
+            domain_data["_device_tree_sweep_count"] = 0
             _LOGGER.info(
                 "D-NEST at-start sweep: all URA devices parented; stamped %d "
-                "devices this sweep.", updates,
+                "devices this sweep. Sweep-schedule counter reset (re-armable).",
+                updates,
             )
 
     try:
