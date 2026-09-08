@@ -53,7 +53,8 @@ cards:
     gist: 'operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions'
   why: 'Unexpected cover actuation is unnerving and a trust issue; and a possible
     regression from recent work must be proven or refuted, not assumed.'
-  next: 'recorder: media-room cover open events + call_service context (user/parent); URA cover-automation config for media room (solar-gain/schedule/house-state); rule external vs URA.'
+  status_note_2026_09_08: 'IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) when not_night and not projector_on -> cover.open_cover. last_triggered 17:06 matched the open times. git diff v5.98.0..HEAD confirmed zero room/cover actuation logic changed in URA. Kitchen lights sibling = external caller. Neither is URA device work moving room code.'
+  next: 'Operator decision: adjust/disable automation.media_room_control_v1 if the daytime-occupancy blind-open is unwanted (their automation, their call). Optional: check URA Media Room room-entry does not ALSO drive these covers (conflict) via binary_sensor.*_automation_conflict.'
   refs: ['git diff v5.98.0..HEAD (no room/cover logic changed)', 'KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)']
 - id: CM-CONFIG-FLOW-UX-SELECTORS-1
   title: 'CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors'
