@@ -26,6 +26,35 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: CM-CONFIG-FLOW-UX-SELECTORS-1
+  title: 'CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors'
+  thread: config
+  status: inbox
+  created: '2026-09-08 17:10'
+  updated: '2026-09-08 17:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the two Coordinator-Manager options sub-editors that were previously
+     BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the
+     FIELDS inside them are still crude raw-number / YAML-ish inputs without proper
+     HA selectors, help text, or validation — easy to misconfigure. Solution:
+     upgrade each field in async_step_coordinator_notifications_volume
+     (config_flow.py:6752) and _routing (:7123) to typed HA selectors (number/
+     select/entity/boolean) with help text — WITHOUT breaking the option round-trip
+     or RestoreEntity (the schema-shape change is the risk; test each field
+     persists + re-seeds).'
+  approval: implied
+  approved_by: 'operator 2026-09-08 (ship blank-rows now, selector polish as follow-up — finish-the-job risk-divergence)'
+  tags: [config-flow, no-fabrication-verify]
+  origin:
+    date: '2026-09-08'
+    gist: 'device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)'
+  why: 'The reported bug (blank rows) is fixed; the selector rework touches schema
+    round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own
+    scoped cycle rather than riding the device-registry ship.'
+  sibling_of: CM-CONFIG-FLOW-UX-1
+  next: 'Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.'
+  refs: ['config_flow.py:6752 / :7123', 'CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)']
 - id: ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1
   title: 'A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation'
   thread: energy

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T16:22:28-05:00_ - _Data commit: `9f4ea1e349b5`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T16:30:11-05:00_ - _Data commit: `a6f1ccc0d42c`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-09-08T16:22:28-05:00_ - _Data commit: `9f4ea1e349b5`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
+| 📥 Inbox | 31 |
 | 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 14 |
 | 📝 Planned | 10 |
@@ -23,8 +23,19 @@ _Generated: 2026-09-08T16:22:28-05:00_ - _Data commit: `9f4ea1e349b5`_ - _last_r
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (31)
 _raw capture_
+
+### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
+thread: **config** - status: **inbox** - approval: **implied**
+_created 2026-09-08 17:10 · initial_
+- **Problem / Solution:**
+  - Problem: the two Coordinator-Manager options sub-editors that were previously BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the FIELDS inside them are still crude raw-number / YAML-ish inputs without proper HA sel...
+- **Origin:** 2026-09-08 - device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)
+- **Why:** The reported bug (blank rows) is fixed; the selector rework touches schema round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own scoped cycle rather than riding the device-registry ship.
+- **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
+- **Tags:** config-flow, no-fabrication-verify
+- **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
 thread: **energy** - status: **inbox** - approval: **unreviewed**
