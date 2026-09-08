@@ -503,6 +503,8 @@
           "coordinator_notifications_persons": "👤 Notification Persons",
           "coordinator_notifications_quiet": "🌙 Quiet Hours",
           "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
+          "coordinator_notifications_volume": "🔕 Notification Volume & Noise Reduction",
+          "coordinator_notifications_routing": "📮 Per-Person Routing & Hazard Overrides",
           "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
           "coordinator_optimization": "🤖 Optimizer",
           "signal_responses": "📶 Signal Responses",
@@ -1426,6 +1428,14 @@
           "safety_coordinator_enabled": "Monitor environmental hazards (smoke, CO, water leaks, temperature extremes, humidity) and trigger emergency responses.",
           "security_coordinator_enabled": "Manage armed states, entry monitoring, lock control, and security camera triggers."
         }
+      },
+      "coordinator_notifications_volume": {
+        "title": "🔕 Notification Volume & Noise Reduction",
+        "description": "Rung-2 controls (NM Cycle A-2) that reduce alert noise without changing severity semantics: tripped-breaker windowing, lock unavailability dedup, humidity ladder thresholds, CO2/TVOC ceilings, safety-discovery blocklist, and the optimizer HIGH-severity allowlist. Fields left at defaults do not persist — future retunes reach this deployment."
+      },
+      "coordinator_notifications_routing": {
+        "title": "📮 Per-Person Routing & Hazard Overrides",
+        "description": "NM Cycle C-2: per-person channel routing matrix, hazard override channels, DND-bypass, mute-default duration, and additive-only life-safety hazard extras."
       },
       "signal_responses": {
         "title": "Signal Responses",

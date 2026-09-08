@@ -44,15 +44,27 @@ graph TD
     subgraph zones["zones — owner: ZM entry"]
       Z1[Master Suite]; Z2[Entertainment]; Z3[Back Hallway]; Z4[Upstairs]; Z5[Outside]
     end
+    ROOMS["URA: Rooms<br/>owner: INTEGRATION entry<br/>(grouping node — 0 entities, load-bearing)"]
     subgraph rooms["~40 rooms — each its OWN entry"]
       R1[Kitchen]; R2[Master Bedroom]; R3["… (closets, hallways, etc.)"]
     end
     WH --> CM
     WH --> ZM
-    WH --> rooms
+    WH --> ROOMS
     CM --> coords
     ZM --> zones
+    ROOMS --> rooms
 ```
+
+**Rooms grouping node (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08):** the
+`(DOMAIN,"rooms")` device is a pure grouping node — INTEGRATION-owned, zero
+entities, no options flow, no reload boundary of its own. Its sole purpose
+is display symmetry: rooms nest `House → Rooms → Room` the same way
+coordinators/zones nest via CM/ZM. Being entity-less + parent-owned it
+looks *exactly* like a v5.94.1 shell to the cleanup + stamper predicates,
+so it is exempted explicitly via `_GROUPING_NODE_IDS` in `_devices.py`
+(see §4 INV-NEST / Shell-cleanup guard). This is the ONE class of URA
+device that is entity-less by design and MUST NOT be removed.
 
 ASCII (the same tree):
 
@@ -69,7 +81,8 @@ Universal Room Automation (Whole House)        [INTEGRATION entry · root, via=N
 │    └─ URA: Notification Manager              [CM entry]
 ├─ URA: Zone Manager                           [ZM entry]
 │    └─ Zone: <name> × N                        [ZM entry]
-└─ <Room> × ~40                                 [each its OWN ROOM entry]
+└─ URA: Rooms                                   [INTEGRATION entry · grouping node · 0 entities]
+     └─ <Room> × ~40                             [each its OWN ROOM entry]
 ```
 
 **Key consequence:** a coordinator device is *owned* by the CM entry (§1) **and** *nested under*
@@ -103,8 +116,16 @@ the reload boundary; `via_device_id` sets only the visual tree.
 - **INV-DEFRAG:** every coordinator entity is owned by the CM entry only; no coordinator entity is
   split across two entries; `entity_id`/`unique_id` are stable (no `_2` mints); no orphaned devices.
 - **INV-NEST:** every coordinator device `via_device_id → CM → Whole House`; zones → ZM → Whole
-  House; rooms → Whole House; the root (Whole House) has `via_device_id=None`; **zero declarative
-  `via_device`.**
+  House; **rooms → Rooms → Whole House** (updated 2026-09-08 by URA-INTEGRATION-ARRANGEMENT-1 —
+  the intermediate `Rooms` grouping node is INTEGRATION-owned and load-bearing); the root
+  (Whole House) has `via_device_id=None`; **zero declarative `via_device`.**
+- **Grouping-node exemption (`_GROUPING_NODE_IDS`):** a URA identifier enrolled here (currently
+  `{"rooms"}`) is a *parent-owned entity-less node that is NOT a shell*. Both the shell-cleanup
+  predicate (`async_cleanup_parent_entry_shells`) and the empty-parent-shell filter inside the
+  D-NEST stamper (`_is_empty_parent_shell`) MUST skip these ids, otherwise (a) the grouping node
+  is deleted on every CM setup/reload and its children (rooms) are orphaned, and (b) the stamper
+  refuses the node as a valid parent so children never nest under it and the node itself never
+  gets stamped (residual counter never reaches 0, breaking D1's re-arm reset).
 - **Shell-cleanup guard (v5.94.1):** an empty duplicate coordinator device is removed **only** when
   it has 0 entities **AND** `config_entries == {parent_entry_id}` (sole parent-owner) **AND** it is
   not CM-owned — iterate `values()`, remove by `device.id`, never by identifier lookup. This makes
