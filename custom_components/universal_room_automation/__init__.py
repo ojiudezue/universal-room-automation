@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.99.1
+# Universal Room Automation vv5.100.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1640,6 +1640,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Integration entry - store reference and set up aggregation sensors
         _LOGGER.info("Setting up Universal Room Automation integration entry")
         hass.data[DOMAIN]["integration"] = entry
+
+        # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): register the
+        # Rooms grouping device under the INTEGRATION entry so the ~40
+        # room devices can nest House -> Rooms -> Room instead of hanging
+        # flat off the House. Pure display-nesting node — no entities,
+        # no options flow. Ownership: INTEGRATION entry (matches CM/ZM
+        # which are owned by their own manager entries; Rooms has no
+        # manager entry so it stays owned by the integration).
+        # Imperative via_device stamping (HA 2026.9-safe) is done by the
+        # existing D-NEST sweep in _devices.py; the room fall-through in
+        # _resolve_parent_identifier will now route each room here.
+        try:
+            from homeassistant.helpers import device_registry as dr
+            from ._devices import DEVICE_NAMES, DEVICE_MODELS
+            _dev_reg = dr.async_get(hass)
+            _dev_reg.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers={(DOMAIN, "rooms")},
+                name=DEVICE_NAMES["rooms"],
+                manufacturer="Universal Room Automation",
+                model=DEVICE_MODELS["rooms"],
+                sw_version=VERSION,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "D-NEST: Rooms grouping device create raised (non-fatal); "
+                "rooms will remain nested directly under the House until the "
+                "next successful create.",
+                exc_info=True,
+            )
         
         # Bug Class #46 note: the following async_update_entry calls are SAFE because
         # they execute BEFORE entry.add_update_listener(_async_update_listener) is
@@ -1675,7 +1705,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         active_zone_names.add(zn.lower())
 
             for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-                for ident_domain, identifier in device.identifiers:
+                # D2 (DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, 2026-09-08):
+                # iterate WITHOUT tuple-unpacking. Other integrations
+                # (e.g. `bond` = (domain, hubid, deviceid); `homekit`
+                # bridges) register 3-element identifiers, and
+                # `for (dom, ident) in ...` raises
+                # ValueError("too many values to unpack") on the FIRST
+                # such non-URA device — aborting the loop before it
+                # reaches any URA device (v5.94.3 bug pattern; see
+                # _devices.py:227-234 defensive pattern).
+                for ident_tuple in device.identifiers:
+                    if len(ident_tuple) < 2:
+                        continue
+                    ident_domain = ident_tuple[0]
+                    identifier = ident_tuple[1]
                     if ident_domain == DOMAIN and identifier.startswith("zone_"):
                         zone_name_from_id = identifier[5:]
                         if zone_name_from_id.lower() not in active_zone_names:
@@ -4200,7 +4243,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             merged_zm = {**entry.data, **entry.options}
             raw_zone_ids = {f"zone_{zn}" for zn in merged_zm.get("zones", {})}
             for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
-                for ident_domain, identifier in device.identifiers:
+                # D2 (DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, 2026-09-08):
+                # iterate WITHOUT tuple-unpacking — 3-tuple identifiers
+                # (bond/homekit) raise ValueError and abort the whole
+                # cleanup (mirrors _devices.py:227-234 pattern).
+                for ident_tuple in device.identifiers:
+                    if len(ident_tuple) < 2:
+                        continue
+                    ident_domain = ident_tuple[0]
+                    identifier = ident_tuple[1]
                     if (
                         ident_domain == DOMAIN
                         and identifier.startswith("zone_")

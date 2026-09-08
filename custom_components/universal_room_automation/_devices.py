@@ -35,6 +35,10 @@ URA_DEVICE_TREE_STAMPING_ENABLED: Final = True
 # Kept as data so tests can diff without importing the helpers.
 DEVICE_NAMES: Final[dict[str, str]] = {
     "integration": "Universal Room Automation",
+    # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): pure grouping node
+    # so per-room devices nest House -> Rooms -> Room instead of hanging
+    # flat off the House. INTEGRATION-owned; no entities, no options.
+    "rooms": "URA: Rooms",
     "coordinator_manager": "URA: Coordinator Manager",
     "zone_manager": "URA: Zone Manager",
     "safety_coordinator": "URA: Safety Coordinator",
@@ -48,6 +52,8 @@ DEVICE_NAMES: Final[dict[str, str]] = {
 }
 DEVICE_MODELS: Final[dict[str, str]] = {
     "integration": "Whole House",
+    # D3 (URA-INTEGRATION-ARRANGEMENT-1): sibling to CM/ZM.
+    "rooms": "Rooms",
     "coordinator_manager": "Coordinator Manager",
     "zone_manager": "Zone Manager",
     "safety_coordinator": "Safety Coordinator",
@@ -124,6 +130,11 @@ def _coordinator_device_info(coordinator_id: str) -> DeviceInfo:
 PARENT_MAP: Final[dict[tuple[str, str], tuple[str, str]]] = {
     (DOMAIN, "coordinator_manager"): (DOMAIN, "integration"),
     (DOMAIN, "zone_manager"): (DOMAIN, "integration"),
+    # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): the Rooms
+    # grouping node hangs directly off the House, matching how CM/ZM
+    # already do. Its children (per-room devices) resolve to it via
+    # the room-fall-through in _resolve_parent_identifier below.
+    (DOMAIN, "rooms"): (DOMAIN, "integration"),
     (DOMAIN, "safety_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "security_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "presence_coordinator"): (DOMAIN, "coordinator_manager"),
@@ -137,6 +148,22 @@ PARENT_MAP: Final[dict[tuple[str, str], tuple[str, str]]] = {
 _STATIC_CHILD_IDS: Final[frozenset[str]] = frozenset(
     ident for (_dom, ident) in PARENT_MAP.keys()
 )
+
+# D3 CRIT fix (2026-09-08, Reviewer A1/A2/B1): grouping-node exemption.
+# A grouping node (currently: `rooms`) is INTEGRATION-owned, carries zero
+# entities, and looks EXACTLY like a v5.94.0 shell to two predicates:
+#   1) `async_cleanup_parent_entry_shells` — deletes 0-entity sole-parent-
+#      owned devices whose id is in `_STATIC_CHILD_IDS`. Deleting the
+#      Rooms node orphans all ~40 rooms on every CM setup/reload.
+#   2) `_is_empty_parent_shell` inside `async_stamp_via_device_tree` —
+#      excludes 0-entity sole-parent-owned devices from the parent index,
+#      so the Rooms node is never a valid parent (rooms never nest) and
+#      never itself stamped (rooms -> Rooms -> integration collapses; the
+#      residual counter never reaches 0 so D1's re-arm reset never runs).
+# The cleanup rationale "removal is durable — nothing recreates them" is
+# FALSE for a grouping node (it IS recreated at every integration entry
+# setup), so exempt grouping nodes explicitly from BOTH predicates.
+_GROUPING_NODE_IDS: Final[frozenset[str]] = frozenset({"rooms"})
 
 
 def _resolve_parent_identifier(
@@ -155,7 +182,16 @@ def _resolve_parent_identifier(
     if ident.startswith("zone_") and ident != "zone_manager":
         return (DOMAIN, "zone_manager")
     if ident not in _STATIC_CHILD_IDS:
-        return (DOMAIN, "integration")
+        # D3 (URA-INTEGRATION-ARRANGEMENT-1, 2026-09-08): room devices
+        # use entry_id as their identifier — the only URA identifiers
+        # that reach this fall-through. Route them under the new
+        # Rooms grouping node so the tree looks
+        #   House -> Rooms -> Room
+        # symmetric with House -> CM/ZM -> Coord/Zone. Pure via_device
+        # (display-nesting) change; rooms KEEP their own config entries.
+        # HA 2026.9: rely on the imperative sweep
+        # (async_stamp_via_device_tree) — no declarative via_device.
+        return (DOMAIN, "rooms")
     return None
 
 
@@ -172,6 +208,13 @@ async def async_cleanup_parent_entry_shells(
     device when its last entity migrates to a DIFFERENT config entry).
     The parent entry no longer forwards any coordinator platform, so
     removing these shells is DURABLE — nothing recreates them.
+
+    D3 CRIT fix (2026-09-08): grouping nodes in `_GROUPING_NODE_IDS`
+    (e.g. `rooms`) are the EXCEPTION to the "nothing recreates them"
+    rationale — they ARE recreated at every integration entry setup and
+    are load-bearing parents for downstream URA devices. They are
+    exempted below (before guard 1) so a CM reload never orphans the
+    room subtree.
 
     Predicate — ALL THREE must hold to remove:
       1. device carries a URA identifier `(DOMAIN, ident)` with `ident`
@@ -233,6 +276,14 @@ async def async_cleanup_parent_entry_shells(
                 ura_ident = identifier[1]
                 break
         if ura_ident is None:
+            continue
+        # D3 CRIT fix (2026-09-08, Reviewer A1/B1): grouping nodes
+        # (e.g. `rooms`) look identical to a shell (entity-less +
+        # sole-owned by the parent entry) but MUST NOT be removed —
+        # they are recreated at every integration entry setup and are
+        # load-bearing parents for dozens of downstream URA devices
+        # (deleting Rooms orphans all ~40 rooms on every CM reload).
+        if ura_ident in _GROUPING_NODE_IDS:
             continue
         # SAFETY guard 1 — sole-parent-owner (exact set equality). A
         # membership check could match a dual-owned real device and
@@ -411,10 +462,27 @@ async def async_stamp_via_device_tree(hass: HomeAssistant) -> int:
         _ent_reg = None
 
     def _is_empty_parent_shell(_device) -> bool:
-        """Empty (0 entities) AND sole-owned by parent entry."""
+        """Empty (0 entities) AND sole-owned by parent entry.
+
+        D3 CRIT fix (2026-09-08, Reviewer A2): grouping nodes
+        (`_GROUPING_NODE_IDS`) are entity-less and sole-owned by the
+        integration entry BY DESIGN — they are load-bearing parents,
+        not removable shells. Exempt them so the stamper accepts them
+        as valid parents (rooms -> Rooms) and stamps them under their
+        own parent (Rooms -> integration); otherwise the Rooms device
+        drops out of `ura_index`, rooms never nest, and the residual
+        counter never reaches 0 (blocks D1's re-arm reset).
+        """
         if _parent_entry_id is None or _ent_reg is None:
             return False
         try:
+            for _identifier in getattr(_device, "identifiers", ()):
+                if (
+                    len(_identifier) >= 2
+                    and _identifier[0] == DOMAIN
+                    and _identifier[1] in _GROUPING_NODE_IDS
+                ):
+                    return False
             if getattr(_device, "config_entries", None) != {_parent_entry_id}:
                 return False
             from homeassistant.helpers import entity_registry as _er2
@@ -584,9 +652,22 @@ def async_schedule_device_tree_sweep(hass: HomeAssistant) -> None:
                         exc_info=True,
                     )
         else:
+            # D1 (DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, 2026-09-08):
+            # residual == 0 => the tree is fully parented for the devices
+            # currently registered. Reset the schedule counter so a
+            # LATER-appearing device (e.g. a room added post-boot, a slow
+            # config-entry setup, a per-entry reload that re-creates a
+            # device) can re-arm the sweep instead of being stranded
+            # unparented until the next full HA restart. The prior
+            # 3-schedule-per-boot cap was a lifetime latch: once the
+            # cap was reached the D-NEST machinery went dark for the
+            # rest of the session, so any device that landed after the
+            # third at-start sweep never received a via_device_id.
+            domain_data["_device_tree_sweep_count"] = 0
             _LOGGER.info(
                 "D-NEST at-start sweep: all URA devices parented; stamped %d "
-                "devices this sweep.", updates,
+                "devices this sweep. Sweep-schedule counter reset (re-armable).",
+                updates,
             )
 
     try:

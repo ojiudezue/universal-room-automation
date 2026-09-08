@@ -26,6 +26,60 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: CM-CONFIG-FLOW-UX-SELECTORS-1
+  title: 'CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors'
+  thread: config
+  status: inbox
+  created: '2026-09-08 17:10'
+  updated: '2026-09-08 17:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the two Coordinator-Manager options sub-editors that were previously
+     BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the
+     FIELDS inside them are still crude raw-number / YAML-ish inputs without proper
+     HA selectors, help text, or validation — easy to misconfigure. Solution:
+     upgrade each field in async_step_coordinator_notifications_volume
+     (config_flow.py:6752) and _routing (:7123) to typed HA selectors (number/
+     select/entity/boolean) with help text — WITHOUT breaking the option round-trip
+     or RestoreEntity (the schema-shape change is the risk; test each field
+     persists + re-seeds).'
+  approval: implied
+  approved_by: 'operator 2026-09-08 (ship blank-rows now, selector polish as follow-up — finish-the-job risk-divergence)'
+  tags: [config-flow, no-fabrication-verify]
+  origin:
+    date: '2026-09-08'
+    gist: 'device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)'
+  why: 'The reported bug (blank rows) is fixed; the selector rework touches schema
+    round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own
+    scoped cycle rather than riding the device-registry ship.'
+  sibling_of: CM-CONFIG-FLOW-UX-1
+  next: 'Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.'
+  refs: ['config_flow.py:6752 / :7123', 'CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)']
+- id: ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1
+  title: 'A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation'
+  thread: energy
+  status: inbox
+  created: '2026-09-08 16:35'
+  updated: '2026-09-08 16:35'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: something subscribed to the ura_energy_entities_update signal throws on
+     every energy refresh — HA logs Exception in _refresh when dispatching
+     ura_energy_entities_update with empty args (), ~65 times over 5 hours, steady.
+     It predates v5.99.1 (first_seen 11:19, before the deploy) so it is not from the
+     onset-logging cycle, but it is a real repeating error that pollutes the log and
+     may mean an energy entity is not updating. Solution: find the listener that
+     raises (grep async_dispatcher_connect for the signal + the _refresh callback),
+     wrap/fix the failing update, and confirm the dispatch stops erroring.'
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  origin:
+    date: '2026-09-08'
+    gist: 'surfaced during v5.99.1 post-restart error scan; pre-existing repeating energy dispatch exception'
+  why: 'A listener raising on every energy refresh is a silent health issue — an
+    energy entity may be stale, and 65 errors/5h buries real signal in the log.'
+  next: 'grep async_dispatcher_connect/dispatcher_send for ura_energy_entities_update; find the raising _refresh callback; fix + confirm the exception clears.'
+  refs: ['docs/readmes/README_v5.99.1.md (validation error-scan)']
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
   thread: energy
@@ -573,7 +627,8 @@ cards:
 - id: CM-CONFIG-FLOW-UX-1
   title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
   thread: device-tree
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-06 16:10
   updated: 2026-09-06 16:10
   refinement_status: initial
@@ -642,7 +697,8 @@ cards:
 - id: URA-INTEGRATION-ARRANGEMENT-1
   title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
   thread: device-tree
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-06 17:30
   updated: 2026-09-06 18:30
   refinement_status: initial
@@ -691,7 +747,8 @@ cards:
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
   refinement_status: initial
@@ -722,7 +779,8 @@ cards:
 - id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
   title: Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
   thread: device-tree
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
   refinement_status: initial

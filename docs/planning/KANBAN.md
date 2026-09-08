@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T15:59:18-05:00_ - _Data commit: `607a96ad9e66`_ - _last_reconciled: 2026-09-07_
+_Generated: 2026-09-08T16:30:11-05:00_ - _Data commit: `a6f1ccc0d42c`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,20 +11,42 @@ _Generated: 2026-09-08T15:59:18-05:00_ - _Data commit: `607a96ad9e66`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 31 |
 | 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 14 |
-| 📝 Planned | 11 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 68 |
+| 🚀 Shipped (organic open) | 69 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (31)
 _raw capture_
+
+### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
+thread: **config** - status: **inbox** - approval: **implied**
+_created 2026-09-08 17:10 · initial_
+- **Problem / Solution:**
+  - Problem: the two Coordinator-Manager options sub-editors that were previously BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the FIELDS inside them are still crude raw-number / YAML-ish inputs without proper HA sel...
+- **Origin:** 2026-09-08 - device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)
+- **Why:** The reported bug (blank rows) is fixed; the selector rework touches schema round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own scoped cycle rather than riding the device-registry ship.
+- **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
+- **Tags:** config-flow, no-fabrication-verify
+- **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
+
+### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
+thread: **energy** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-08 16:35 · initial_
+- **Problem / Solution:**
+  - Problem: something subscribed to the ura_energy_entities_update signal throws on every energy refresh — HA logs Exception in _refresh when dispatching ura_energy_entities_update with empty args (), ~65 times over 5 hours, steady. It pred...
+- **Origin:** 2026-09-08 - surfaced during v5.99.1 post-restart error scan; pre-existing repeating energy dispatch exception
+- **Why:** A listener raising on every energy refresh is a silent health issue — an energy entity may be stale, and 65 errors/5h buries real signal in the log.
+- **Next:** grep async_dispatcher_connect/dispatcher_send for ura_energy_entities_update; find the raising _refresh callback; fix + confirm the exception clears.
+- **Tags:** no-fabrication-verify
+- **Refs:** docs/readmes/README_v5.99.1.md (validation error-scan)
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
 thread: **quality** - status: **inbox** - approval: **unreviewed**
@@ -661,19 +683,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (11)
+## 📝 Planned (10)
 _has plan / acceptance_
-
-### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
-thread: **energy** - status: **planned** - approval: **explicit**
-_created 2026-09-08 00:10 · initial_
-- **Problem / Solution:**
-  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
-- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
-- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
-- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
-- **Tags:** tier-2db, observability
-- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
 
 ### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
 thread: **device-tree** - status: **planned** - approval: **explicit**
@@ -861,8 +872,19 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (68)
+## 🚀 Shipped (organic open) (69)
 _live, awaiting proof_
+
+### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
+thread: **energy** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-08 00:10 · initial_
+- **Problem / Solution:**
+  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
+- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
+- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
+- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
+- **Tags:** tier-2db, observability
+- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
 thread: **platform** - status: **shipped_organic** - approval: **explicit**

@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "102",
+  "author": "ojiudezue",
+  "session_id": "claude_20260908_215247_ship_v5_100_0",
+  "timestamp": "2026-09-08T21:52:47Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.0 shipped: Device arrangement: Rooms grouping node (House -> Rooms -> Room) + sweep-counter re-arm + tuple-unpack safety + CM menu blank-rows labeled",
+  "summary": "Device arrangement: Rooms grouping node (House -> Rooms -> Room) + sweep-counter re-arm + tuple-unpack safety + CM menu blank-rows labeled",
+  "why": "Operator looked at the integration arrangement and saw only the reload suppression shipped \u2014 the visual-tree reorg (#1) and menu cleanup (#4) were drawn/carded but not built (the finish-the-job miss). This ships them: the Rooms grouping node makes the device tree symmetric (House->Rooms->Room like House->Coordinators->Coordinator), plus the two carded device-tree prereqs (sweep re-arm, tuple-unpack). Built as pure via_device + one node (no ownership migration, no integration reload) to stay off the v5.94.x device-registry hazard and the reload-outage path. The Tier-2DB review battery caught 2 CRITICALs the build missed: the entity-less integration-owned Rooms node matched BOTH the shell-cleanup deletion predicate (would orphan all 40 rooms every boot) and the stamper's empty-shell parent-exclusion (inert node) \u2014 fixed with a shared _GROUPING_NODE_IDS exemption, real-registry mutation-anchored tests, orchestrator re-verified the room-orphaning drill. D4 selector polish carded (CM-CONFIG-FLOW-UX-SELECTORS-1) as a risk-divergent follow-up (RestoreEntity). Verified 5.100 is HACS-safe before choosing the version.",
+  "implications": "Shipped URA-INTEGRATION-ARRANGEMENT-1, DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, CM-CONFIG-FLOW-UX-1 at v5.100.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.0.md (Live criteria).",
+  "revisit_trigger": "After restart + CM reload, device (universal_room_automation,rooms) 'URA: Rooms' EXISTS in the registry (not deleted by shell-cleanup) AND rooms' via_device_id -> Rooms -> integration (House->Rooms->Room), no orphaned rooms, no INV-4 sweep WARN; query device registry at disposition",
+  "refs": {
+    "cards": [
+      "URA-INTEGRATION-ARRANGEMENT-1",
+      "DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1",
+      "DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1",
+      "CM-CONFIG-FLOW-UX-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.0.md"
+    ],
+    "release_notes": "D3 adds an INTEGRATION-owned Rooms grouping device so rooms nest House->Rooms->Room (was flat off House), via imperative via_device D-NEST sweep \u2014 pure display-nesting, no ownership migration, no integration reload. D1 re-arms the parent-link sweep (resets on residual==0) so late rooms nest. D2 makes two device.identifiers loops 3-tuple-safe. D4 labels the 2 blank CM options rows (translation-only). First 5.100 release \u2014 HACS awesomeversion sorts it fine (same lib as HA CalVer 2024.10>2024.9); 6.0.0 stays for the identity milestone."
+  }
+}
