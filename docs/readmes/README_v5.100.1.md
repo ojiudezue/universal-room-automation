@@ -35,4 +35,12 @@ help text) — a lossy per-key selector was deliberately not forced.
   (set → persist → re-read) unchanged (in-suite: 1003 pass, name-diff 0; the 5 suite-ordering
   flakes pass in isolation).
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-08 (post-restart, v5.100.1 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 clean boot | **PASS** | URA loaded (`persons_in_house`=2); config valid; **zero URA ERRORs** in the post-boot error_log scan. |
+| L4 no regression | **PASS** | Zone-rename + notification round-trip tests pass in isolation; suite 1003 pass, name-diff 0 (5 pre-existing cross-pollination flakes). |
+| L2/L3 UI (help text + zone picker) | **operator visual** | Translation-only rendering; verify in the UI (help text under the two CM notification steps; zone flow opens on the picker). |
+
+**Rollback not needed.** Translation + one routing line; no schema/persistence change.

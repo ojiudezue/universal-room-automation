@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T17:52:55-05:00_ - _Data commit: `4e718dee6db1`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T17:54:26-05:00_ - _Data commit: `4184d4e107ce`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -369,7 +369,8 @@ _created 2026-09-08 17:30 · initial_
 - **Next:** Operator decision: adjust/disable automation.media_room_control_v1 if the daytime-occupancy blind-open is unwanted (their automation, their call). Optional: check URA Media Room room-entry does not ALSO drive these covers (conflict) via ...
 - **Tags:** no-fabrication-verify, falsify-first
 - **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `overlap_finding_2026_09_08`: DUAL OWNERSHIP (the actionable root): URA Media room ALSO drives these covers + the fan — binary_sensor.media_room_occupied control_covers=[cover.media_center/left/right], control_fans=[fan.media_room_ceiling_fan] — the SAME devices medi...
   - `status_note_2026_09_08`: IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) w...
 
 ### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
