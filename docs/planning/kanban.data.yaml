@@ -52,7 +52,7 @@ cards:
   tags: [tier-2db, no-fabrication-verify, falsify-first]
   origin:
     date: '2026-09-07'
-    gist: operator — is the charge onset working? set to 1am. then: how about the L2 plugs? then: maybe onset ignores low-kW L2 (refuted)
+    gist: 'operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)'
   why: 'A charge-onset that does not defer overnight charging drains the house
     battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly
     cost and the exact thing the feature exists to prevent.'
