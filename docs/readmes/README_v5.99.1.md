@@ -37,4 +37,13 @@ autonomous charger vs an ungated path).
   names why it wasn't deferred → resolves `EVSE-CHARGE-ONSET-NOT-HELD-1`.
 - **Live:** no DB write-flood / write-queue watchdog after deploy (the v4.7.33 regression class).
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-08 (post-restart, v5.99.1 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Clean boot / config valid | **PASS** | URA loaded (`persons_in_house`=2); `ha_check_config` valid, errors=[]. |
+| No new error from the energy changes | **PASS** | error_log scan: the only repeating energy ERROR (`Exception … dispatching 'ura_energy_entities_update'`, 65×) **first_seen 11:19 — before the ~16:2x v5.99.1 restart → pre-existing**, not introduced here. Carded separately. |
+| No write-flood from the new logging | **PASS** | The four new action types (`onset_hold/onset_release/charger_on/charger_off`) = **0 rows** post-boot (chargers idle + pre-17:00, nothing to log). The 25-min total (~1851) is normal all-coordinator boot/steady volume (transit-anomaly, shadow-cycle, room occupancy, notifications…) — **none of it my new rows**. |
+| Logging active + bounded | **Deferred-organic** | No charger actuation / onset-gate transition since boot (idle, pre-window), so no edge rows yet — expected. Discriminator (card `--revisit`): after one overnight window, a BOUNDED single-digit-per-charger set of onset/charger rows appears (not ~190/night), and the next in-window charge carries an `onset_hold/release` reason. Edge-trigger + control-path-byte-identity proven in-suite + orchestrator mutation-verify (H1 neuter → per-tick flood test RED). |
+
+**Rollback not needed.** The bounded-rows + reason-on-next-charge check is a one-shot DB query at disposition (no soak). This instrumentation unblocks `EVSE-CHARGE-ONSET-NOT-HELD-1`.

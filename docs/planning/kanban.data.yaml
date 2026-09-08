@@ -26,6 +26,31 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1
+  title: 'A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation'
+  thread: energy
+  status: inbox
+  created: '2026-09-08 16:35'
+  updated: '2026-09-08 16:35'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: something subscribed to the ura_energy_entities_update signal throws on
+     every energy refresh — HA logs Exception in _refresh when dispatching
+     ura_energy_entities_update with empty args (), ~65 times over 5 hours, steady.
+     It predates v5.99.1 (first_seen 11:19, before the deploy) so it is not from the
+     onset-logging cycle, but it is a real repeating error that pollutes the log and
+     may mean an energy entity is not updating. Solution: find the listener that
+     raises (grep async_dispatcher_connect for the signal + the _refresh callback),
+     wrap/fix the failing update, and confirm the dispatch stops erroring.'
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  origin:
+    date: '2026-09-08'
+    gist: 'surfaced during v5.99.1 post-restart error scan; pre-existing repeating energy dispatch exception'
+  why: 'A listener raising on every energy refresh is a silent health issue — an
+    energy entity may be stale, and 65 errors/5h buries real signal in the log.'
+  next: 'grep async_dispatcher_connect/dispatcher_send for ura_energy_entities_update; find the raising _refresh callback; fix + confirm the exception clears.'
+  refs: ['docs/readmes/README_v5.99.1.md (validation error-scan)']
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
   thread: energy
