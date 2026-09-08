@@ -58,7 +58,8 @@ cards:
 - id: CM-CONFIG-FLOW-UX-SELECTORS-1
   title: 'CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors'
   thread: config
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.100.1
   created: '2026-09-08 17:10'
   updated: '2026-09-08 17:10'
   refinement_status: initial
@@ -657,7 +658,7 @@ cards:
   title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
   thread: device-tree
   status: shipped_organic
-  shipped_version: v5.100.0
+  shipped_version: v5.100.1
   created: 2026-09-06 16:10
   updated: 2026-09-06 16:10
   refinement_status: initial
