@@ -173,6 +173,81 @@ def _evaluate_onset_gate(
         must_start_by_reached = now >= ms_instant
     return onset_permits, must_start_by_reached
 
+
+
+# ---------------------------------------------------------------------------
+# ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1 (diagnostic telemetry)
+# Edge-triggered activity-log helpers. Diagnostics ONLY — must never raise
+# into the control path (full try/except) and must never flood the write
+# queue (per-charger last-state cache; log ONLY on transition).
+# ---------------------------------------------------------------------------
+def _pool_activity_log(hass, action: str, description: str, entity_id: str) -> None:
+    """Fire-and-forget activity-log row. Never raises."""
+    try:
+        from ..const import DOMAIN as _DOMAIN_LOCAL
+        activity_logger = hass.data.get(_DOMAIN_LOCAL, {}).get("activity_logger")
+        if not activity_logger:
+            return
+        hass.async_create_task(
+            activity_logger.log(
+                coordinator="energy_pool",
+                action=action,
+                description=description,
+                room=None,
+                entity_id=entity_id,
+            )
+        )
+    except Exception:  # noqa: BLE001 — telemetry must never break control
+        _LOGGER.debug("energy_pool activity_logger.log failed", exc_info=True)
+
+
+def _maybe_log_onset_edge(
+    controller,
+    hass,
+    entity_id: str,
+    kind: str,           # "ev" | "plug"
+    leg: str,            # "ensure_on" | "drain_release"
+    new_state: str,      # "hold" | "permit"
+    reason: str,
+    onset_str: str | None,
+    now,
+) -> None:
+    """Edge-triggered onset gate telemetry. One row per state transition
+    per (entity_id, leg) — NOT per tick. Cache lives on the controller
+    (`_onset_log_state`) so restart clears it (first tick after restart
+    logs the current state, which is desired — post-restart diagnosis)."""
+    try:
+        cache = getattr(controller, "_onset_log_state", None)
+        if cache is None:
+            cache = {}
+            controller._onset_log_state = cache
+        key = (entity_id, leg)
+        prev = cache.get(key)
+        if prev == new_state:
+            return
+        cache[key] = new_state
+        remaining = ""
+        try:
+            if now is not None and onset_str:
+                parsed = _parse_hhmm(onset_str)
+                if parsed is not None:
+                    from .energy_drain_precedence import next_occurrence_of_hhmm
+                    oh, om = parsed
+                    inst = next_occurrence_of_hhmm(now, oh, om)
+                    mins = int((inst - now).total_seconds() // 60)
+                    remaining = f", remaining_to_onset={mins}m"
+        except Exception:
+            pass
+        action = "onset_hold" if new_state == "hold" else "onset_release"
+        desc = (
+            f"kind={kind} leg={leg} onset={onset_str}{remaining} "
+            f"reason={reason}"
+        )
+        _pool_activity_log(hass, action, desc, entity_id)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("onset edge log failed", exc_info=True)
+
+
 # Pool speed settings (GPM)
 POOL_NORMAL_SPEED = 75
 POOL_REDUCED_SPEED = 30
@@ -845,6 +920,10 @@ class EVChargerController:
                         "onset %s",
                         evse_id, onset_str,
                     )
+                _maybe_log_onset_edge(
+                    self, self.hass, evse_id, "ev", "ensure_on",
+                    "hold", "gate_refused", onset_str, now,
+                )
                 return []
         _od = getattr(self, "_onset_deferred", None)
         if _od is not None:
@@ -854,6 +933,15 @@ class EVChargerController:
                 "EV: proactive off-peak turn-on for %s (onset permits)",
                 evse_id,
             )
+        _release_reason = (
+            "bypass_onset" if bypass_onset
+            else ("must_start_by" if 'must_start_by_reached' in dir() and locals().get('must_start_by_reached')
+                  else "onset_permits")
+        )
+        _maybe_log_onset_edge(
+            self, self.hass, evse_id, "ev", "ensure_on",
+            "permit", _release_reason, onset_str, now,
+        )
         return [{
             "service": "switch.turn_on",
             "target": switch_entity,
@@ -2364,6 +2452,21 @@ class EVChargerController:
                     if not hasattr(self, "_onset_deferred"):
                         self._onset_deferred = set()
                     self._onset_deferred.add(evse_id)
+                    _maybe_log_onset_edge(
+                        self, self.hass, evse_id, "ev", "drain_release",
+                        "hold", "gate_refused",
+                        self._ev_charge_onset_time, _now_local,
+                    )
+                elif overnight_release or daytime_release:
+                    _rel = ("must_start_by" if must_start_by_reached
+                            else ("dp_forcing" if dp_forcing
+                                  else ("onset_permits" if onset_permits
+                                        else "soc_recovered")))
+                    _maybe_log_onset_edge(
+                        self, self.hass, evse_id, "ev", "drain_release",
+                        "permit", _rel,
+                        self._ev_charge_onset_time, _now_local,
+                    )
                 if daytime_release or overnight_release:
                     if not state["is_on"]:
                         # Don't resume if another pause reason is active.
@@ -3395,6 +3498,10 @@ class SmartPlugController:
                         "until onset %s",
                         entity_id, onset_str,
                     )
+                _maybe_log_onset_edge(
+                    self, self.hass, entity_id, "plug", "ensure_on",
+                    "hold", "gate_refused", onset_str, now,
+                )
                 return []
         _od = getattr(self, "_onset_deferred", None)
         if _od is not None:
@@ -3405,6 +3512,15 @@ class SmartPlugController:
                 "(onset permits)",
                 entity_id,
             )
+        _release_reason = (
+            "bypass_onset" if bypass_onset
+            else ("must_start_by" if locals().get('must_start_by_reached')
+                  else "onset_permits")
+        )
+        _maybe_log_onset_edge(
+            self, self.hass, entity_id, "plug", "ensure_on",
+            "permit", _release_reason, onset_str, now,
+        )
         return [{
             "service": "switch.turn_on",
             "target": switch_entity,
@@ -3902,6 +4018,21 @@ class SmartPlugController:
                     if not hasattr(self, "_onset_deferred"):
                         self._onset_deferred = set()
                     self._onset_deferred.add(entity_id)
+                    _maybe_log_onset_edge(
+                        self, self.hass, entity_id, "plug", "drain_release",
+                        "hold", "gate_refused",
+                        self._ev_charge_onset_time, _now_local,
+                    )
+                elif overnight_release or daytime_release:
+                    _rel = ("must_start_by" if must_start_by_reached
+                            else ("dp_forcing" if dp_forcing
+                                  else ("onset_permits" if onset_permits
+                                        else "soc_recovered")))
+                    _maybe_log_onset_edge(
+                        self, self.hass, entity_id, "plug", "drain_release",
+                        "permit", _rel,
+                        self._ev_charge_onset_time, _now_local,
+                    )
                 if daytime_release or overnight_release:
                     # Don't resume if TOU pause or fill-priority is active.
                     # v4.7.6 fix-up A-H2 mirror: release drain claim only.
