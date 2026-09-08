@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T16:30:11-05:00_ - _Data commit: `a6f1ccc0d42c`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T16:52:47-05:00_ - _Data commit: `e3007d4504ce`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,12 +12,12 @@ _Generated: 2026-09-08T16:30:11-05:00_ - _Data commit: `a6f1ccc0d42c`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 31 |
-| 🔬 Investigating | 11 |
-| 🧭 Pre-planning | 14 |
-| 📝 Planned | 10 |
+| 🔬 Investigating | 12 |
+| 🧭 Pre-planning | 13 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 69 |
+| 🚀 Shipped (organic open) | 73 |
 | ⏸️ Waiting on operator | 8 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
@@ -367,8 +367,19 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (11)
+## 🔬 Investigating (12)
 _measuring; truth not yet known_
+
+### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
+thread: **diagnostics** - status: **investigating** - approval: **implied**
+_created 2026-09-08 17:30 · initial_
+- **Problem / Solution:**
+  - Problem: the media room blinds (covers) have started opening by themselves, which has not happened before. The operator connects this with the kitchen overhead lights turning off on motion and worries the recent device-tree / reload-supp...
+- **Origin:** 2026-09-08 - operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions
+- **Why:** Unexpected cover actuation is unnerving and a trust issue; and a possible regression from recent work must be proven or refuted, not assumed.
+- **Next:** recorder: media-room cover open events + call_service context (user/parent); URA cover-automation config for media room (solar-gain/schedule/house-state); rule external vs URA.
+- **Tags:** no-fabrication-verify, falsify-first
+- **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
 
 ### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
 thread: **energy** - status: **investigating** - approval: **implied**
@@ -513,23 +524,8 @@ _created 2026-08-25 22:20 · initial_
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (13)
 _idea being decomposed_
-
-### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
-thread: **device-tree** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
-- **Problem / Solution:**
-  - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
-- **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
-- **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
-- **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
-- **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
-- **Refs:** docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard (+1 more)
-- **Forensic keys (3):**
-  - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
-  - `target_operator_representation`: House
-  - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -683,46 +679,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (10)
+## 📝 Planned (7)
 _has plan / acceptance_
-
-### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
-thread: **device-tree** - status: **planned** - approval: **explicit**
-_created 2026-09-06 16:10 · initial_
-- **Problem / Solution:**
-  - Problem: the URA Coordinator Manager (CM) config-entry "Configure Settings" menu (Options flow) has TWO BLANK category rows — bare ">" arrows with no label between Notifications and Signal Responses (operator screenshot) — i.e. menu opti...
-- **Origin:** 2026-09-06 - operator screenshots of CM Options flow during the entity-reorg discussion
-- **Why:** The CM config surface is the operator-facing control panel; blank rows are a bug (dead/mislabeled step) and the crude editors invite mis-configuration of safety/notification knobs. Fits the integration-arrangement (step 5) scope since it...
-- **Next:** Step-5 (integration arrangement): identify the 2 blank options-flow categories (missing label/handler) in config_flow.py/options_flow.py; fix or remove; add friendly labels+help+selectors to the nm_*/a* sub-editors. Institutional-context...
-- **Tags:** config-flow, ux, device-tree, integration-arrangement, found-during-review
-- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
-- **Parsimony:** [BUILD] CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk
-- **Refs:** config_flow.py / options_flow.py (CM options steps); operator screenshots 2026-09-06; project_sequence_wishes_2026_09_05 (step 5)
-
-### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
-thread: **device-tree** - status: **planned** - approval: **unreviewed**
-_created 2026-09-05 17:05 · initial_
-- **Problem / Solution:**
-  - Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is incremented but NEVER reset (_devices.py:519). On...
-- **Origin:** 2026-09-05 - device-linker audit vs this-session bug classes (operator "improve URA overall")
-- **Why:** Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree, restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.
-- **Next:** Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.
-- **Tags:** device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify
-- **Parsimony:** [BUILD] sweep counter is a lifetime latch -> late devices unparented until restart
-- **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
-
-### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
-thread: **device-tree** - status: **planned** - approval: **unreviewed**
-_created 2026-09-05 17:05 · initial_
-- **Problem / Solution:**
-  - Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack) — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here they iterate only devices attached to...
-- **Origin:** 2026-09-05 - device-linker audit — residual Class-2 sites
-- **Why:** Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.
-- **Next:** Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.
-- **Tags:** device-tree, defensive-consistency
-- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
-- **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
-- **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 
 ### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -872,7 +830,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (69)
+## 🚀 Shipped (organic open) (73)
 _live, awaiting proof_
 
 ### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
@@ -941,6 +899,59 @@ _created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
 - **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
 - **Forensic keys (1):**
   - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+
+### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
+thread: **device-tree** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-06 16:10 · initial_
+- **Problem / Solution:**
+  - Problem: the URA Coordinator Manager (CM) config-entry "Configure Settings" menu (Options flow) has TWO BLANK category rows — bare ">" arrows with no label between Notifications and Signal Responses (operator screenshot) — i.e. menu opti...
+- **Origin:** 2026-09-06 - operator screenshots of CM Options flow during the entity-reorg discussion
+- **Why:** The CM config surface is the operator-facing control panel; blank rows are a bug (dead/mislabeled step) and the crude editors invite mis-configuration of safety/notification knobs. Fits the integration-arrangement (step 5) scope since it...
+- **Next:** Step-5 (integration arrangement): identify the 2 blank options-flow categories (missing label/handler) in config_flow.py/options_flow.py; fix or remove; add friendly labels+help+selectors to the nm_*/a* sub-editors. Institutional-context...
+- **Tags:** config-flow, ux, device-tree, integration-arrangement, found-during-review
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk
+- **Refs:** config_flow.py / options_flow.py (CM options steps); operator screenshots 2026-09-06; project_sequence_wishes_2026_09_05 (step 5)
+
+### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
+thread: **device-tree** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
+- **Problem / Solution:**
+  - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
+- **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
+- **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
+- **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
+- **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
+- **Refs:** docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard (+1 more)
+- **Forensic keys (3):**
+  - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
+  - `target_operator_representation`: House
+  - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+
+### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
+thread: **device-tree** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is incremented but NEVER reset (_devices.py:519). On...
+- **Origin:** 2026-09-05 - device-linker audit vs this-session bug classes (operator "improve URA overall")
+- **Why:** Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree, restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.
+- **Next:** Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.
+- **Tags:** device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify
+- **Parsimony:** [BUILD] sweep counter is a lifetime latch -> late devices unparented until restart
+- **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
+
+### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
+thread: **device-tree** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack) — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here they iterate only devices attached to...
+- **Origin:** 2026-09-05 - device-linker audit — residual Class-2 sites
+- **Why:** Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.
+- **Next:** Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.
+- **Tags:** device-tree, defensive-consistency
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
+- **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 
 ### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
 thread: **identity** - status: **shipped_organic** - approval: **explicit**

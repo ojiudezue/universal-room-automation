@@ -47,4 +47,16 @@ re-ran the room-orphaning drill independently.
 - **L4 (menu):** the CM "Configure Settings" menu shows the two rows labeled (not blank).
 - **L5 (5.100 line):** HACS installed v5.100.0 correctly (proves the version-sort is fine).
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-08 (post-restart, v5.100.0 live)
+
+| Criterion | Result | Evidence (live in-memory device registry via ha_get_device) |
+|---|---|---|
+| L1 restart / version | **PASS** | URA loaded; all devices `sw_version=v5.100.0`; `ha_check_config` valid. |
+| **L2 Rooms node SURVIVES (the fixed CRITICAL)** | **PASS** | `URA: Rooms` device present (`a748da02…`, model "Rooms"), `via_device_id → Whole House` (`61e84be…`) — NOT deleted by shell-cleanup on boot+CM setup. The `_GROUPING_NODE_IDS` exemption holds live. |
+| **L3 nesting House→Rooms→Room** | **PASS** | Every room device (Study A, Kitchen, Garage A, … ~40) has `via_device_id = a748da02…` (the Rooms node). Coordinators→CM, Zones→ZM, CM/ZM→House unchanged. **Zero orphaned rooms.** |
+| L4 CM menu labeled | **PASS (translation-only)** | The two previously-blank rows carry labels + step titles/descriptions; translation-only so option round-trip + RestoreEntity byte-identical (in-suite verified). |
+| L5 5.100 line HACS-safe | **PASS** | HACS recognized + installed v5.100.0; releases list sorts v5.100.0 above v5.99.1 (correct integer-semver). Version concern closed in production. |
+
+**Note (process):** the on-disk `core.device_registry` lagged (debounced) at validation time and initially showed no Rooms device; the authoritative **in-memory** registry (ha_get_device) confirmed the full House→Rooms→Room topology. Read the live registry, not the disk file, for post-boot device-tree checks.
+
+**Rollback not needed** — all criteria PASS.

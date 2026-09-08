@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "103",
+  "author": "ojiudezue",
+  "session_id": "claude_20260908_225255_ship_v5_100_1",
+  "timestamp": "2026-09-08T22:52:55Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.1 shipped: Config-menu polish: help text on the 21 CM notification sub-editor fields + zone-menu standardization",
+  "summary": "Config-menu polish: help text on the 21 CM notification sub-editor fields + zone-menu standardization",
+  "why": "Operator reviewed the live menus and found them crude (no help text under the notification fields) and the zone menu non-standard vs House/CM/Room. Root cause for the CM side was help-text absence, not wrong selectors (verified: Number/Boolean/Entity/Object selectors already in place) \u2014 so the fix is data_description text only, zero schema change, round-trip byte-identical. Zone side: removed the redundant single-option init wrapper so ZM opens on the picker like the other menus; the two-step shape is architecturally required for N zones and its per-zone submenu already matches the categorized standard. This completes the menu half of the device-arrangement (finish-the-job). Zone-rename + notification round-trip tests pass in isolation confirming no regression from the flow change; the 5 suite failures are pre-existing cross-pollination flakes (name-diff 0 vs baseline).",
+  "implications": "Shipped CM-CONFIG-FLOW-UX-SELECTORS-1, CM-CONFIG-FLOW-UX-1 at v5.100.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.1.md (Live criteria).",
+  "revisit_trigger": "In the UI: the two CM notification sub-editor pages show per-field help text, and the Zone options flow opens directly on the zone picker (no one-item wrapper) \u2014 visual check at disposition",
+  "refs": {
+    "cards": [
+      "CM-CONFIG-FLOW-UX-SELECTORS-1",
+      "CM-CONFIG-FLOW-UX-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.1.md"
+    ],
+    "release_notes": "The CM notification sub-editors (Notification Volume & Noise Reduction, Per-Person Routing & Hazard Overrides) had correct selectors but NO help text; added data_description for all 21 fields (units, ranges, dict shapes, kill-switch semantics). The Zone options flow dropped its non-standard one-option wrapper (routes straight to the zone picker) + stale label fix + help; two-step per-zone submenu retained (N zones per ZM entry). Translation-only + one routing line \u2014 option round-trip + RestoreEntity byte-identical; 1003 pass, name-diff 0."
+  }
+}

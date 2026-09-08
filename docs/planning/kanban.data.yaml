@@ -26,10 +26,40 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1
+  title: 'Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior'
+  thread: diagnostics
+  status: investigating
+  created: '2026-09-08 17:30'
+  updated: '2026-09-08 17:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the media room blinds (covers) have started opening by themselves,
+     which has not happened before. The operator connects this with the kitchen
+     overhead lights turning off on motion and worries the recent device-tree /
+     reload-suppression / observability work has moved functionality around in the
+     room code. Solution: (1) evidence check DONE — git diff v5.98.0..HEAD shows
+     NO room light/cover actuation logic changed (coordinator.py + person_
+     coordinator.py are version-header-only; the only blind match is the EVSE
+     _paused_by_blind_window term). (2) Trace what actually opens the media room
+     cover (recorder + call-service context, like the kitchen trace): URA cover
+     automation (solar-gain / schedule / house-state) vs external (Tuya/HomeKit/
+     PowerView app). Name the actor before concluding.'
+  approval: implied
+  approved_by: 'operator 2026-09-08 (Audit) — deal with menus first, this in parallel'
+  tags: [no-fabrication-verify, falsify-first]
+  origin:
+    date: '2026-09-08'
+    gist: 'operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions'
+  why: 'Unexpected cover actuation is unnerving and a trust issue; and a possible
+    regression from recent work must be proven or refuted, not assumed.'
+  next: 'recorder: media-room cover open events + call_service context (user/parent); URA cover-automation config for media room (solar-gain/schedule/house-state); rule external vs URA.'
+  refs: ['git diff v5.98.0..HEAD (no room/cover logic changed)', 'KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)']
 - id: CM-CONFIG-FLOW-UX-SELECTORS-1
   title: 'CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors'
   thread: config
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.100.1
   created: '2026-09-08 17:10'
   updated: '2026-09-08 17:10'
   refinement_status: initial
@@ -628,7 +658,7 @@ cards:
   title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
   thread: device-tree
   status: shipped_organic
-  shipped_version: v5.100.0
+  shipped_version: v5.100.1
   created: 2026-09-06 16:10
   updated: 2026-09-06 16:10
   refinement_status: initial
