@@ -627,7 +627,8 @@ cards:
 - id: CM-CONFIG-FLOW-UX-1
   title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
   thread: device-tree
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-06 16:10
   updated: 2026-09-06 16:10
   refinement_status: initial
@@ -696,7 +697,8 @@ cards:
 - id: URA-INTEGRATION-ARRANGEMENT-1
   title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
   thread: device-tree
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-06 17:30
   updated: 2026-09-06 18:30
   refinement_status: initial
@@ -745,7 +747,8 @@ cards:
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
   refinement_status: initial
@@ -776,7 +779,8 @@ cards:
 - id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
   title: Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
   thread: device-tree
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
   refinement_status: initial
