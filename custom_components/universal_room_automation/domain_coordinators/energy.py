@@ -6859,8 +6859,117 @@ class EnergyCoordinator(BaseCoordinator):
 
             await self.hass.services.async_call(domain, svc, svc_data, blocking=True)
             _LOGGER.info("Energy: executed %s on %s", service, target)
+            # ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1: log charger
+            # actuations to ura_activity_log so onset-hold/release rows
+            # can be correlated with the applied turn_on/off. Diagnostic
+            # ONLY — wrapped so it can never poison the control path.
+            self._log_charger_actuation(service, target, action_spec)
         except Exception:
             _LOGGER.exception("Energy: failed to execute %s on %s", service, target)
+
+    def _log_charger_actuation(
+        self, service: str, target: str, action_spec: dict[str, Any]
+    ) -> None:
+        """Diagnostic: activity-log a charger switch.turn_on/off.
+
+        Filtered to switch domain and charger-target entities (EV switch
+        field or plug entity_id). Best-effort — never raises."""
+        try:
+            if service not in ("switch.turn_on", "switch.turn_off"):
+                return
+            if not target:
+                return
+            kind = None
+            charger_id = None
+            power = None
+            try:
+                ev = self._ev
+                for eid, cfg in getattr(ev, "_evse", {}).items():
+                    if cfg.get("switch") == target:
+                        kind = "ev"
+                        charger_id = eid
+                        pw_ent = cfg.get("power")
+                        if pw_ent:
+                            st = self.hass.states.get(pw_ent)
+                            if st and st.state not in ("unknown", "unavailable", None):
+                                try: power = float(st.state)
+                                except (TypeError, ValueError): pass
+                        break
+            except Exception:
+                pass
+            if kind is None:
+                try:
+                    plugs = getattr(self._smart_plugs, "_plugs", []) or []
+                    if target in plugs:
+                        kind = "plug"
+                        charger_id = target
+                        cfg = getattr(self._smart_plugs, "_plug_config", {}).get(target, {})
+                        pw_ent = cfg.get("power")
+                        if pw_ent:
+                            st = self.hass.states.get(pw_ent)
+                            if st and st.state not in ("unknown", "unavailable", None):
+                                try: power = float(st.state)
+                                except (TypeError, ValueError): pass
+                except Exception:
+                    pass
+            if kind is None:
+                return  # not a charger — skip
+            # H1 fix: edge-cache keyed by (target, action). Off-peak
+            # ensure-on re-issues switch.turn_on idempotently every
+            # decision tick (Bug Class #43); without a per-actuation
+            # dedupe here the applier would emit ~190 rows/night for
+            # 2 chargers, re-tripping the v4.7.33 write-flood class.
+            # Cache the last-emitted action per target; log ONLY on
+            # transition. `power` fluctuates each tick and is
+            # DELIBERATELY excluded from the cache key so it never
+            # defeats the dedupe (it lives in the description only).
+            cache = getattr(self, "_charger_actuation_log_state", None)
+            if cache is None:
+                cache = {}
+                self._charger_actuation_log_state = cache
+            prev = cache.get(target)
+            if prev == service:
+                return  # unchanged — suppress
+            cache[target] = service
+            # Collect pause-owner memberships (best-effort).
+            owners = []
+            try:
+                ctrl = self._ev if kind == "ev" else self._smart_plugs
+                for attr in (
+                    "_paused_by_us", "_paused_by_battery_drain",
+                    "_paused_by_grid_cap", "_paused_by_fill_priority",
+                    "_paused_by_arbitrage", "_paused_by_dp",
+                    "_paused_by_blind_window", "_paused_by_load_shed",
+                ):
+                    coll = getattr(ctrl, attr, None)
+                    if coll and (charger_id in coll):
+                        owners.append(attr.replace("_paused_by_", ""))
+            except Exception:
+                pass
+            action = "charger_on" if service == "switch.turn_on" else "charger_off"
+            pw_str = f"{power:.0f}W" if isinstance(power, (int, float)) else "unknown"
+            owners_str = ",".join(owners) if owners else "none"
+            desc = (
+                f"kind={kind} charger={charger_id} power={pw_str} "
+                f"pause_owners={owners_str}"
+            )
+            try:
+                activity_logger = self.hass.data.get(_DOMAIN, {}).get("activity_logger")
+                if not activity_logger:
+                    return
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="energy_pool",
+                        action=action,
+                        description=desc,
+                        room=None,
+                        entity_id=target,
+                    )
+                )
+            except Exception:
+                _LOGGER.debug("charger actuation log dispatch failed", exc_info=True)
+        except Exception:  # noqa: BLE001 — telemetry must never break control
+            _LOGGER.debug("_log_charger_actuation failed", exc_info=True)
 
     def _get_active_weather_entity(self) -> str | None:
         """Return the active weather entity ID.
