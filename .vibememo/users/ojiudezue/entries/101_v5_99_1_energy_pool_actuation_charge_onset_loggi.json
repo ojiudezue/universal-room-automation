@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "101",
+  "author": "ojiudezue",
+  "session_id": "claude_20260908_212228_ship_v5_99_1",
+  "timestamp": "2026-09-08T21:22:28Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.99.1 shipped: Energy-pool actuation + charge-onset logging to ura_activity_log (observability; edge-triggered, flood-bounded)",
+  "summary": "Energy-pool actuation + charge-onset logging to ura_activity_log (observability; edge-triggered, flood-bounded)",
+  "why": "Charge-onset failed to hold either charger on 2026-09-06 (L2 at 11.6kW from 21:02 drained the house battery 46->9%), but the diagnosis was undecidable because the pool controllers log no actuations anywhere durable and core logs rotated. This instruments the audit trail so the next in-window charge names its exact source (real onset gate gap vs external/autonomous charger vs an ungated URA path). Built edge-triggered from the start given this repo's DB-write-flood rollback history (v4.7.33); the focused review caught TWO residual per-tick flood paths (the Bug-Class-#43 idempotent ensure-on re-issue logging every 5-min tick ~190 rows/night, and a bypass-vs-gated cache thrash producing 2-3 rows/tick), both fixed with (target,action) and bypass-suppressed edge caches and mutation-verified RED-on-neuter by both the builder and the orchestrator. Control path proven byte-identical. No new knobs.",
+  "implications": "Shipped ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1 at v5.99.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.99.1.md (Live criteria).",
+  "revisit_trigger": "After one overnight window, ura_activity_log has a BOUNDED (single-digit/charger/night) set of onset_hold/onset_release/charger_on/charger_off rows \u2014 NOT ~190/night \u2014 and the next in-window charge carries an onset_hold/release reason; query the table at disposition, no soak",
+  "refs": {
+    "cards": [
+      "ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.99.1.md"
+    ],
+    "release_notes": "The energy-pool controllers (EVSE + L1 plug) previously wrote nothing to ura_activity_log, so charger actuations + onset-gate decisions could not be audited after logs rotate \u2014 which stalled the onset-not-holding diagnosis. Adds edge-triggered onset_hold/onset_release at all 4 gate sites + charger_on/off at the applier, with charger id, power, leg, and the onset verdict/reason. Control path byte-identical (telemetry try/except-wrapped, no new await). Prerequisite for diagnosing EVSE-CHARGE-ONSET-NOT-HELD-1."
+  }
+}

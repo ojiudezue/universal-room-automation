@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-07'
+  last_reconciled: '2026-09-08'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -67,7 +67,8 @@ cards:
 - id: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
   title: Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
   thread: energy
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.99.1
   created: '2026-09-08 00:10'
   updated: '2026-09-08 00:10'
   refinement_status: initial
