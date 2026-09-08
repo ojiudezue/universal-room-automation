@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-06T22:29:16-05:00_ - _Data commit: `810be0418b89`_ - _last_reconciled: 2026-09-06_
+_Generated: 2026-09-08T15:59:18-05:00_ - _Data commit: `607a96ad9e66`_ - _last_reconciled: 2026-09-07_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,9 +12,9 @@ _Generated: 2026-09-06T22:29:16-05:00_ - _Data commit: `810be0418b89`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 29 |
-| 🔬 Investigating | 10 |
+| 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 14 |
-| 📝 Planned | 10 |
+| 📝 Planned | 11 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 68 |
@@ -345,8 +345,21 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (10)
+## 🔬 Investigating (11)
 _measuring; truth not yet known_
+
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
+thread: **energy** - status: **investigating** - approval: **implied**
+_created 2026-09-08 00:10 · refined_
+- **Problem / Solution:**
+  - Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer EV charging to off-peak 1am), but last night both chargers ran INSIDE the 17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and drained...
+- **Origin:** 2026-09-07 - operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)
+- **Why:** A charge-onset that does not defer overnight charging drains the house battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly cost and the exact thing the feature exists to prevent.
+- **Next:** After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.
+- **Tags:** tier-2db, no-fabrication-verify, falsify-first
+- **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
+- **Forensic keys (1):**
+  - `forensic_evidence`: sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).
 
 ### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
 thread: **diagnostics** - status: **investigating** - approval: **unreviewed**
@@ -648,8 +661,19 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (10)
+## 📝 Planned (11)
 _has plan / acceptance_
+
+### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
+thread: **energy** - status: **planned** - approval: **explicit**
+_created 2026-09-08 00:10 · initial_
+- **Problem / Solution:**
+  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
+- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
+- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
+- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
+- **Tags:** tier-2db, observability
+- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
 
 ### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
 thread: **device-tree** - status: **planned** - approval: **explicit**

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-07'
+  last_reconciled: '2026-09-08'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -26,6 +26,76 @@ meta:
     (queue AFTER cycle-2 merge to avoid worktree-base conflicts). (3) THEN memory epic finish-out: MEMORY-WRITERS-1.
     Parallelize read-only/docs work; serialize code work behind the cycle-2 merge.'
 cards:
+- id: EVSE-CHARGE-ONSET-NOT-HELD-1
+  title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
+  thread: energy
+  status: investigating
+  created: '2026-09-08 00:10'
+  updated: '2026-09-08 00:10'
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer
+     EV charging to off-peak 1am), but last night both chargers ran INSIDE the
+     17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and
+     drained the house battery from 46% to 9%; the L1 Moes plug also toggled on at
+     21:00/21:05/22:09. The onset hold diagnostics never engaged. The operator''s
+     low-kW-below-threshold theory is REFUTED for the L2 (11.6kW >> the 100W
+     detection threshold). Solar was 0 (night), must-start-by (03:00) not reached,
+     L1 has no DP — so no onset escape-hatch explains it.
+     Solution: determine per charger whether URA actually has PAUSE AUTHORITY (then
+     it is a real onset gate gap to fix) or the charger/car started charging
+     autonomously outside URA control (then onset cannot hold it; needs pause
+     authority or a charger/car-side schedule). Blocked on the observability gap
+     below — instrument first, then diagnose one night, then fix the named path.'
+  approval: implied
+  approved_by: 'operator 2026-09-08 (Yes I do) — card + build the instrumentation'
+  tags: [tier-2db, no-fabrication-verify, falsify-first]
+  origin:
+    date: '2026-09-07'
+    gist: 'operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)'
+  why: 'A charge-onset that does not defer overnight charging drains the house
+    battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly
+    cost and the exact thing the feature exists to prevent.'
+  forensic_evidence:
+  - 'sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).'
+  - 'sensor.envoy_482543015950_battery 46% @20:30 -> 10% @22:04 -> 9% @22:25.'
+  - 'onset entities: overnight switch ON, time 01:00; deferred=off, gate_open=on, l1_over_hold=0 all night.'
+  - 'EVSE_CHARGING_POWER_THRESHOLD=100W (energy_const.py:891) — L2 at 11.6kW clears it.'
+  depends_on: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
+  next: 'After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.'
+  refs: [project_charge_onset_correct_site, docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md]
+- id: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
+  title: Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.99.1
+  created: '2026-09-08 00:10'
+  updated: '2026-09-08 00:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the room coordinator logs its light/fan actuations to ura_activity_log,
+     but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING
+     there — so when a charger turns on/off there is no durable record of WHICH URA
+     leg did it, the power reading, or the onset-gate verdict. This made the
+     charge-onset diagnosis (EVSE-CHARGE-ONSET-NOT-HELD-1) undecidable after the
+     fact once core logs rotated.
+     Solution: add activity_logger.log calls at each pool actuation (pause /
+     ensure-on / drain-release / release_all_*) recording coordinator=energy-pool,
+     the charger id, power, the pause-owner/leg, and the onset gate decision
+     (onset_permits / must_start_by / dp_forcing). One instrumented night then
+     names the exact source of any in-window turn-on.'
+  approval: explicit
+  approved_by: 'operator 2026-09-08 (Yes I do) — build this as the next task'
+  tags: [tier-2db, observability]
+  origin:
+    date: '2026-09-08'
+    gist: onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
+  why: 'Without an audit trail of charger actuations + gate decisions, every future
+    charger question is undiagnosable after log rotation — this is the prerequisite
+    that makes the onset gap (and any charger behavior) provable.'
+  blocks: EVSE-CHARGE-ONSET-NOT-HELD-1
+  next: 'Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.'
+  refs: [docs/reviews/code-review/reload_comprehensive_tier1_2.md]
 - id: INTEGRATION-CAMERA-DISCOVER-STALE-1
   title: Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
   thread: quality

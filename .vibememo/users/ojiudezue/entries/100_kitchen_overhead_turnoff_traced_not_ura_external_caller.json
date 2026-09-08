@@ -1,0 +1,20 @@
+{
+ "format_version": "2.1",
+ "entry_id": "100",
+ "author": "ojiudezue",
+ "session_id": "claude_20260907_investigation_kitchen_overhead",
+ "timestamp": "2026-09-07T00:20:00Z",
+ "type": "investigation",
+ "weight": "significant",
+ "title": "Kitchen overhead light turning off by itself is NOT URA — external orphan-context light.turn_off caller",
+ "summary": "The Kitchen room's overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead) turns off by itself a few minutes after each on. Operator suspected URA. Traced conclusively: it is NOT URA. The turn-offs are HA light.turn_off SERVICE calls with no user_id and no parent_id (recorder context), from an integration HA does not attribute. All in-HA suspects were eliminated with evidence.",
+ "why": "URA is exonerated by its OWN activity log: ura_activity_log has ZERO Kitchen-light rows (it logs light_turn_off for every other room); switch.kitchen_automation=off correctly gates both URA actuation paths (coordinator.py:4852 handler + actuator_reconciler Guard-2); reconciles_today=0; switch.kitchen_override_vacant=on only sets occupancy STATE, it does not actuate. Recorder proof: the off-transitions carry a call_service event but context has no user_id (rules out a person) and no parent_id (rules out a HA automation/script). Eliminated with cites: Adaptive Lighting (lights:[] — manages nothing), Magic Areas (only Study A + AV Closet), Animated Scenes (switch off; controls the 4 RGBW Jullison lights, not the Tapo overhead), RoomMind (climate-only), HomeKit (overhead not exposed to either bridge), Alexa/Google (not exposed), Tapo app (operator checked, nothing configured). Remaining: an unattributed integration service call — leading suspect an iOS/app-side automation via a bridge. Naming it requires a live debug trap on the next fire (deferred by operator).",
+ "implications": "Do NOT re-investigate this as a URA regression. Carded KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (investigating). The definitive next step is a one-shot debug trap to name the external caller on its next by-itself turn-off; deferred per operator 'ignore 1 for now'. Also surfaced the general lesson that ura_activity_log is the authoritative oracle for 'did URA actuate this'.",
+ "revisit_trigger": "Operator wants the external caller named, OR the overhead turn-offs stop/change (indicating the external source was removed).",
+ "refs": [
+  "docs/planning/kanban.data.yaml (KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1)",
+  "coordinator.py:4852 (automation-enabled gate)",
+  "coordinator.py:3670 (camera occupancy override)",
+  "ura_activity_log (URA actuation oracle)"
+ ]
+}

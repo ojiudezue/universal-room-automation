@@ -60,4 +60,22 @@ redeploy). No DB/schema change in this cycle, so rollback is clean.
 - **L4 (no outage):** no supervisor watchdog restart and no >200ms loop stall around
   the L2 save.
 
-_Validated <date> — filled in post-restart below._
+## Validated 2026-09-07 (post-restart, HA core-2026.9.1, v5.99.0 live)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| L1 — restart resilience | **PASS** | URA loaded post-restart (`sensor.universal_room_automation_persons_in_house`=2); `ha_check_config` → valid, errors=[]; allowlist active (16 members, confirmed on master via AST). |
+| L1 — no runtime errors | **PASS** | `error_log` structured scan, 6h window: exactly ONE URA ERROR — "DB write failed: shutdown timeout" at 12:40:33, a **shutdown-time transient** during the deploy restart (count 1, before boot at 12:43:51). **Zero** runtime errors post-boot. |
+| **L2 — the invariant (discriminating)** | **PASS** | Toggled `switch.ura_name_people_at_doors` (writes allowlisted `CONF_EGRESS_IDENTITY_ENABLED`) OFF@12:45:12 then ON@12:46:11. Reload-canary `switch.universal_room_automation_domain_coordinators` `last_changed` **held at boot 12:43:51 across BOTH toggles** → the parent integration did NOT reload. Discriminator: a reload tears down + re-adds every URA entity, resetting the canary to ~now; it did not move. Switch restored to original ON state (net-zero). |
+| L3 — no over-reach | **PASS (in-suite)** | `test_perimeter_camera_list_change_falls_through_to_reload` + `test_egress_perimeter_keys_not_in_allowlist_v1`: a non-allowlisted/structural key still reloads. Live: organic (a real camera/sensor edit still reloads). |
+| L4 — no outage | **PASS** | No supervisor watchdog restart (HA continuously up since the 12:43 boot; no second restart); no stall observed around the L2 toggles. |
+
+**Boot transient dismissed:** the 12:40:33 "DB write failed: shutdown timeout" is the write-queue draining during the deploy restart, not a runtime defect.
+
+**Why L2 is the load-bearing check:** it directly exercises the falsifiable
+invariant — an allowlisted-key save causes zero `async_reload`/zero unload — via
+a switch that writes a real allowlisted option, with the canary entity as the
+reload witness. Confirmed.
+
+**Rollback not needed** — all criteria passed. `rollback-pre-reload-comprehensive`
+(v5.98.0) remains available.
