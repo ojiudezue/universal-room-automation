@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "106",
+  "author": "ojiudezue",
+  "session_id": "claude_20260909_012506_ship_v5_100_4",
+  "timestamp": "2026-09-09T01:25:06Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.4 shipped: Zone picker is a one-tap async_show_menu (was SelectSelector form + Submit)",
+  "summary": "Zone picker is a one-tap async_show_menu (was SelectSelector form + Submit)",
+  "why": "Operator, viewing the live Manage Zones screen, asked why it is a select+Submit rather than a menu, and directed adding a real menu to the current cycle. HA config-flow menus route to static async_step_<key> handlers with no shared handler (verified in data_entry_flow.py), which is why the dynamic zone list had always used a SelectSelector form; the one-tap menu therefore required a dynamic-dispatch __getattr__ shim (strict prefix, raises AttributeError otherwise so hasattr/lazily-set attrs are preserved). Verified behaviorally in the real config_flow module under stubs (renders menu with inline labels, dispatches zpick_0 to zone_config_menu, stale key falls back). The only offline-unverifiable item is HA frontend rendering dict values as labels vs translation keys \u2014 checked at live L3, cosmetic + reversible.",
+  "implications": "Shipped MENU-ZONE-PICKER-1 at v5.100.4; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.4.md (Live criteria).",
+  "revisit_trigger": "ZM->Configure->Manage Zones shows a one-tap menu whose rows read zone NAMES (e.g. 'Back Hallway', 'Entertainment (shared thermostat)') not 'zpick_0'; tapping a zone opens its submenu with no Submit",
+  "refs": {
+    "cards": [
+      "MENU-ZONE-PICKER-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.4.md"
+    ],
+    "release_notes": "MENU-ZONE-PICKER-1: async_step_manage_zones renders a true one-tap menu instead of a LIST SelectSelector form. HA routes menu selections to async_step_<key> with no shared handler, and the zone list is dynamic, so each zone gets a zpick_<i> key dispatched via a strict-prefix OptionsFlow.__getattr__ shim -> sets _selected_zone_name from _zone_menu_map -> async_step_zone_config_menu. Raw-zone D2/D3 contract unchanged; shared-thermostat suffix + guidance preserved. Behavioral test proves render+dispatch+stale-key fallback."
+  }
+}

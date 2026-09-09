@@ -1179,7 +1179,8 @@ cards:
   title: Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list)
     to async_show_menu for chooser consistency
   thread: platform
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.100.4
   created: 2026-09-03 18:05
   updated: 2026-09-03 18:05
   refinement_status: refined
@@ -13951,6 +13952,20 @@ cards:
   refs:
   - custom_components/universal_room_automation/domain_coordinators/energy_pool.py (drain-target-reached :622-651; EVSE determine_actions :849)
   - memory project_ev_drain_precedence_cycle (adjacent must-start-by machinery)
+- id: D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1
+  title: 'Pre-existing test failure: binary_sensor.py calls iter_canonical_hvac_zones outside the D3 allowlist'
+  thread: quality
+  status: inbox
+  created: '2026-09-08 20:30'
+  updated: '2026-09-08 20:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: test_v475_d3_canonical_callers_all_in_allowlist FAILS on clean develop — binary_sensor.py references iter_canonical_hvac_zones but is not in the D3 runtime allowlist. Discovered incidentally during the menu-picker cycle (NOT caused by it; confirmed via git stash). Solution: verify whether the binary_sensor.py caller is a legit runtime path (add to allowlist) or should read raw zones from entry.options; then green the test.'
+  approval: unreviewed
+  why: 'A red guard test on develop erodes the name-diff baseline and hides real regressions.'
+  next: 'Read the binary_sensor.py iter_canonical_hvac_zones call site; classify runtime-vs-should-read-raw; fix allowlist or refactor.'
+  refs:
+  - quality/tests/test_v475_d3_canonical_runtime_only.py:129
 
 parked:
 - title: Pre-roll frame buffer
