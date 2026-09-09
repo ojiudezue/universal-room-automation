@@ -461,6 +461,11 @@ def _validate_climate_fans_form(user_input: dict) -> str | None:
 # separator (Bug Class #47 sub-class). Reject at config-flow validate time.
 _ZONE_NAME_PLUS_SEPARATOR_RE = re.compile(r"\s\+\s")
 
+# MENU-ZONE-PICKER-1 (v5.100.4): menu-option key prefix for the dynamic
+# zone picker. HA routes a menu selection to async_step_<key>; zone keys are
+# dynamic, so they carry this prefix and are dispatched via OptionsFlow.__getattr__.
+_ZONE_PICK_PREFIX = "zpick_"
+
 
 # =============================================================================
 # v4.7.5 — Option C auto-mirror: per-step MIRROR_KEYS_*
@@ -2325,6 +2330,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
         self._config_entry = config_entry
+
+    def __getattr__(self, name: str):
+        """Dynamic dispatch for the one-tap zone-picker menu (MENU-ZONE-PICKER-1).
+
+        HA routes a config-flow menu selection to ``async_step_<next_step_id>``.
+        The zone list is DYNAMIC, so each zone's menu key carries
+        ``_ZONE_PICK_PREFIX`` and is resolved here to the shared
+        ``async_step_zone_config_menu`` target. Strict prefix match only —
+        every other missing attribute raises AttributeError so normal
+        attribute lookup / getattr-with-default / hasattr behavior (e.g.
+        the lazily-set ``_selected_zone_name``) is preserved. __getattr__ is
+        only invoked when normal lookup fails, so it never shadows real
+        methods or attributes.
+        """
+        if name.startswith("async_step_" + _ZONE_PICK_PREFIX):
+            key = name[len("async_step_"):]
+
+            async def _zone_pick_handler(user_input=None, _key=key):
+                zone_name = getattr(self, "_zone_menu_map", {}).get(_key)
+                if not zone_name:
+                    # Stale/unknown key (e.g. zones changed mid-flow) -> re-render.
+                    return await self.async_step_manage_zones()
+                self._selected_zone_name = zone_name
+                return await self.async_step_zone_config_menu()
+
+            return _zone_pick_handler
+        raise AttributeError(name)
         self._selected_zone_entry_id = None  # v3.3.3: Track zone selected from integration menu
         self._pending_delete_rule_id = None  # v3.12.0 M3: AI rule deletion tracking
 
@@ -7877,8 +7909,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         Accessible from Zone Manager options menu.
 
-        v4.7.5 D1+D2: Renders as a vertical menu (SelectSelectorMode.LIST) of
-        RAW house zones from `entry.options["zones"]`. The canonical thermostat-
+        v5.100.4 (MENU-ZONE-PICKER-1): renders a TRUE one-tap menu via
+        `async_show_menu` (dynamic per-zone options dispatched through
+        `__getattr__`), replacing the SelectSelectorMode.LIST form + Submit.
+        Still reads RAW house zones from `entry.options["zones"]`. The canonical thermostat-
         keyed merge in `iter_canonical_hvac_zones` is a runtime-only concern for
         the HVAC coordinator — the picker MUST NEVER display the merged
         "Entertainment + Master Suite" label. See PLANNING_v4.7.5 §D2/D3 and
@@ -7888,16 +7922,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         suffix as a quick-glance cue; the full sibling list + thermostat entity
         renders on `zone_config_menu` (D4 banner).
         """
-        errors = {}
-
-        if user_input is not None:
-            selected_zone = user_input.get("zone_name")
-            if selected_zone:
-                self._selected_zone_name = selected_zone
-                return await self.async_step_zone_config_menu()
-            else:
-                errors["base"] = "no_zone_selected"
-
         # v4.7.5 D2 lock-in: read RAW house zones. Do NOT import or call
         # iter_canonical_hvac_zones from this method. See AST regression
         # test test_v475_d2_picker_does_not_call_iter_canonical.
@@ -7922,33 +7946,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if _t:
                 thermostat_to_count[_t] = thermostat_to_count.get(_t, 0) + 1
 
-        zone_options = []
-        for zone_name, zone_cfg in zones_data.items():
+        # MENU-ZONE-PICKER-1 (v5.100.4): render a TRUE one-tap menu
+        # (async_show_menu) instead of a SelectSelector LIST form + Submit.
+        # HA routes a menu selection to async_step_<key>; the zone list is
+        # dynamic, so each zone gets a stable prefixed key dispatched via
+        # OptionsFlow.__getattr__. dict menu_options => {key: inline label}
+        # (shared-thermostat suffix preserved). Empty -> abort as before.
+        menu_options: dict[str, str] = {}
+        self._zone_menu_map: dict[str, str] = {}
+        for _i, (zone_name, zone_cfg) in enumerate(zones_data.items()):
             label = zone_name.title()
             _t = zone_cfg.get(CONF_ZONE_THERMOSTAT)
             if _t and thermostat_to_count.get(_t, 0) >= 2:
                 label = f"{label} (shared thermostat)"
-            zone_options.append({"label": label, "value": zone_name})
+            key = f"{_ZONE_PICK_PREFIX}{_i}"
+            menu_options[key] = label
+            self._zone_menu_map[key] = zone_name
 
-        if not zone_options:
+        if not menu_options:
             return self.async_abort(reason="no_zones_configured")
 
-        # v4.7.5 D1: list-mode renders a vertical menu instead of a dropdown.
-        # SelectSelectorMode is a StrEnum with exactly two members (LIST,
-        # DROPDOWN); verified against HA core helpers.selector source.
-        data_schema = vol.Schema({
-            vol.Required("zone_name"): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=zone_options,
-                    mode=selector.SelectSelectorMode.LIST,
-                )
-            ),
-        })
-
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="manage_zones",
-            data_schema=data_schema,
-            errors=errors,
+            menu_options=menu_options,
         )
 
     def _render_shared_thermostat_banner(self, zone_name: str | None) -> str:

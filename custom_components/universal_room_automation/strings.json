@@ -532,7 +532,7 @@
       },
       "manage_zones": {
         "title": "🗂️ Manage Zones",
-        "description": "Pick a zone to configure. The next step shows the standard categorized submenu (rooms, media, HVAC, energy, primary persons, cameras, dynamic preset, remove).",
+        "description": "Tap a zone to configure it — the next step opens the standard categorized submenu (rooms, media, HVAC, energy, primary persons, cameras, dynamic preset, remove). Zones sharing a thermostat are marked '(shared thermostat)'; HVAC changes mirror to the sibling(s). The picker shows RAW house zones, not the merged HVAC label.",
         "data": {
           "zone_name": "Zone"
         },
