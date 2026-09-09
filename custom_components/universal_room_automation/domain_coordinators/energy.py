@@ -1133,9 +1133,9 @@ class EnergyCoordinator(BaseCoordinator):
         # restore if the timer-based retry chain was exhausted before this
         # point.  Mirrors SIGNAL_NM_READY / SIGNAL_BAYESIAN_READY pattern.
         try:
-            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from homeassistant.helpers.dispatcher import dispatcher_send
             from .signals import SIGNAL_ENERGY_COORDINATOR_READY
-            async_dispatcher_send(self.hass, SIGNAL_ENERGY_COORDINATOR_READY)
+            dispatcher_send(self.hass, SIGNAL_ENERGY_COORDINATOR_READY)
             _LOGGER.debug("SIGNAL_ENERGY_COORDINATOR_READY dispatched")
         except Exception:
             _LOGGER.debug(
@@ -6548,7 +6548,7 @@ class EnergyCoordinator(BaseCoordinator):
                 )
 
             # Notify energy sensors to refresh
-            from homeassistant.helpers.dispatcher import async_dispatcher_send as _send
+            from homeassistant.helpers.dispatcher import dispatcher_send as _send
             from .signals import SIGNAL_ENERGY_ENTITIES_UPDATE
             _send(self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE)
 

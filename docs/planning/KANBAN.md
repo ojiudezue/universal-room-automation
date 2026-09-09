@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T16:52:47-05:00_ - _Data commit: `e3007d4504ce`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T17:58:58-05:00_ - _Data commit: `67071ef0c10f`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,31 +11,20 @@ _Generated: 2026-09-08T16:52:47-05:00_ - _Data commit: `e3007d4504ce`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 31 |
-| 🔬 Investigating | 12 |
+| 📥 Inbox | 30 |
+| 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 73 |
-| ⏸️ Waiting on operator | 8 |
+| 🚀 Shipped (organic open) | 74 |
+| ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
 
-## 📥 Inbox (31)
+## 📥 Inbox (30)
 _raw capture_
-
-### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
-thread: **config** - status: **inbox** - approval: **implied**
-_created 2026-09-08 17:10 · initial_
-- **Problem / Solution:**
-  - Problem: the two Coordinator-Manager options sub-editors that were previously BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the FIELDS inside them are still crude raw-number / YAML-ish inputs without proper HA sel...
-- **Origin:** 2026-09-08 - device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)
-- **Why:** The reported bug (blank rows) is fixed; the selector rework touches schema round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own scoped cycle rather than riding the device-registry ship.
-- **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
-- **Tags:** config-flow, no-fabrication-verify
-- **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
 thread: **energy** - status: **inbox** - approval: **unreviewed**
@@ -367,19 +356,8 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (12)
+## 🔬 Investigating (11)
 _measuring; truth not yet known_
-
-### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
-thread: **diagnostics** - status: **investigating** - approval: **implied**
-_created 2026-09-08 17:30 · initial_
-- **Problem / Solution:**
-  - Problem: the media room blinds (covers) have started opening by themselves, which has not happened before. The operator connects this with the kitchen overhead lights turning off on motion and worries the recent device-tree / reload-supp...
-- **Origin:** 2026-09-08 - operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions
-- **Why:** Unexpected cover actuation is unnerving and a trust issue; and a possible regression from recent work must be proven or refuted, not assumed.
-- **Next:** recorder: media-room cover open events + call_service context (user/parent); URA cover-automation config for media room (solar-gain/schedule/house-state); rule external vs URA.
-- **Tags:** no-fabrication-verify, falsify-first
-- **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
 
 ### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
 thread: **energy** - status: **investigating** - approval: **implied**
@@ -830,8 +808,19 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (73)
+## 🚀 Shipped (organic open) (74)
 _live, awaiting proof_
+
+### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
+thread: **config** - status: **shipped_organic** - approval: **implied**
+_created 2026-09-08 17:10 · initial_
+- **Problem / Solution:**
+  - Problem: the two Coordinator-Manager options sub-editors that were previously BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the FIELDS inside them are still crude raw-number / YAML-ish inputs without proper HA sel...
+- **Origin:** 2026-09-08 - device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)
+- **Why:** The reported bug (blank rows) is fixed; the selector rework touches schema round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own scoped cycle rather than riding the device-registry ship.
+- **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
+- **Tags:** config-flow, no-fabrication-verify
+- **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
 
 ### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
@@ -1963,8 +1952,22 @@ _created 2026-08-29 20:30 · initial_
 - **Forensic keys (1):**
   - `priority`: high
 
-## ⏸️ Waiting on operator (8)
+## ⏸️ Waiting on operator (9)
 _needs a human call_
+
+### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
+thread: **diagnostics** - status: **waiting_operator** - approval: **implied**
+_created 2026-09-08 17:30 · updated 2026-09-08 18:10 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the media room blinds (covers) have started opening by themselves, which has not happened before. The operator connects this with the kitchen overhead lights turning off on motion and worries the recent device-tree / reload-supp...
+- **Origin:** 2026-09-08 - operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions
+- **Why:** Unexpected cover actuation is unnerving and a trust issue; and a possible regression from recent work must be proven or refuted, not assumed.
+- **Next:** OPERATOR DECISION (pick ONE owner for cover.media_left/center/right + fan.media_room_ceiling_fan): (A) remove those covers+fan from the URA Media room config (options flow) so automation.media_room_control_v1 owns them; or (B) strip the ...
+- **Tags:** no-fabrication-verify, falsify-first
+- **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
+- **Forensic keys (2):**
+  - `overlap_finding_2026_09_08`: DUAL OWNERSHIP (the actionable root): URA Media room ALSO drives these covers + the fan — binary_sensor.media_room_occupied control_covers=[cover.media_center/left/right], control_fans=[fan.media_room_ceiling_fan] — the SAME devices medi...
+  - `status_note_2026_09_08`: IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) w...
 
 ### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
