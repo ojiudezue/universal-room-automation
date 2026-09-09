@@ -92,7 +92,8 @@ cards:
 - id: ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1
   title: 'A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation'
   thread: energy
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.100.2
   created: '2026-09-08 16:35'
   updated: '2026-09-08 16:35'
   refinement_status: initial
@@ -1177,10 +1178,10 @@ cards:
   title: Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list)
     to async_show_menu for chooser consistency
   thread: platform
-  status: planned
+  status: in_progress
   created: 2026-09-03 18:05
   updated: 2026-09-03 18:05
-  refinement_status: initial
+  refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-03 ("We should use menus. I think standard.") — scoped out of the reorg by orchestrator adjudication #19 as a Tier-2 fast-follow'
   tags: [ux-consistency, tier-2, no-fabrication-verify]
@@ -1204,6 +1205,8 @@ cards:
   parked_alts: []
   knobs: []
   parsimony: {problem: 'zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out', verdict: BUILD}
+  refinement:
+  - 'Operator (2026-09-08, looking at live Manage-Zones screenshot): "why not a regular menu vs a select button + submit? add to current cycle" -> confirmed convert to async_show_menu (one tap navigates, no Submit). VERIFIED HA contract (data_entry_flow.py): menu selection dispatches to async_step_<next_step_id>, no shared handler -> dynamic N-zone list needs a strict-prefix __getattr__ dispatch shim (async_step_zone__<slug> -> set _selected_zone_name + async_step_zone_config_menu). Tier 2 (flow routing). Bundle into the menu-cleanup line, ship after the dispatch-error hotfix.'
   next: 'Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built
     menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).'
   refs: ['config_flow.py:7900 (manage_zones)', 'config_flow.py:11246 (ai_rule_list)',

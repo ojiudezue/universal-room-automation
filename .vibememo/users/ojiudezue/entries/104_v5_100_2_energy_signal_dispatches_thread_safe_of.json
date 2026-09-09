@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "104",
+  "author": "ojiudezue",
+  "session_id": "claude_20260909_004325_ship_v5_100_2",
+  "timestamp": "2026-09-09T00:43:25Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.2 shipped: Energy-signal dispatches thread-safe (off-loop async_write_ha_state)",
+  "summary": "Energy-signal dispatches thread-safe (off-loop async_write_ha_state)",
+  "why": "Live HA logged a hard RuntimeError every ~5-min energy cycle (46x/5h) plus 3x at EC-ready: async_write_ha_state called off the event loop. Root-caused from the live traceback (raising callbacks time.py:186 and switch.py:1221, with run_callback_threadsafe frames proving off-loop execution) and the HA source contract (async_dispatcher_send is loop-only via verify_event_loop_thread; dispatcher_send marshals to the loop via call_soon_threadsafe). No other URA loop-only call in the same cycle body errors, so only the dispatched entity writes trip the guard. Fixed the class at the sender for all subscribers at once rather than patching each callback. Control path untouched; display refresh defers one loop tick (harmless).",
+  "implications": "Shipped ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1 at v5.100.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.2.md (Live criteria).",
+  "revisit_trigger": "error_log has ZERO 'async_write_ha_state from a thread other than the event loop' entries citing time.py or switch.py in the hour after restart (pre-fix: ~12/hr steady)",
+  "refs": {
+    "cards": [
+      "ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.2.md"
+    ],
+    "release_notes": "Swap loop-only async_dispatcher_send -> threadsafe dispatcher_send at the 3 energy-signal sender sites (energy.py coordinator_ready + per-cycle entities_update, __init__ DP-enable entities_update). HA 2026.x escalated off-loop async_write_ha_state to a hard RuntimeError; the connected entity callbacks (time.py _refresh, switch.py _handle_ec_ready, number/sensor/binary_sensor/button) all write ha state, so the off-loop dispatch spammed ~46x/5h+3x. Control path byte-identical; mutation-anchored import-free test."
+  }
+}
