@@ -12,13 +12,13 @@ _Generated: 2026-09-08T17:58:58-05:00_ - _Data commit: `67071ef0c10f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 30 |
-| 🔬 Investigating | 12 |
+| 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 74 |
-| ⏸️ Waiting on operator | 8 |
+| ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 59 |
@@ -356,22 +356,8 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (12)
+## 🔬 Investigating (11)
 _measuring; truth not yet known_
-
-### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
-thread: **diagnostics** - status: **investigating** - approval: **implied**
-_created 2026-09-08 17:30 · initial_
-- **Problem / Solution:**
-  - Problem: the media room blinds (covers) have started opening by themselves, which has not happened before. The operator connects this with the kitchen overhead lights turning off on motion and worries the recent device-tree / reload-supp...
-- **Origin:** 2026-09-08 - operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions
-- **Why:** Unexpected cover actuation is unnerving and a trust issue; and a possible regression from recent work must be proven or refuted, not assumed.
-- **Next:** Operator decision: adjust/disable automation.media_room_control_v1 if the daytime-occupancy blind-open is unwanted (their automation, their call). Optional: check URA Media Room room-entry does not ALSO drive these covers (conflict) via ...
-- **Tags:** no-fabrication-verify, falsify-first
-- **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
-- **Forensic keys (2):**
-  - `overlap_finding_2026_09_08`: DUAL OWNERSHIP (the actionable root): URA Media room ALSO drives these covers + the fan — binary_sensor.media_room_occupied control_covers=[cover.media_center/left/right], control_fans=[fan.media_room_ceiling_fan] — the SAME devices medi...
-  - `status_note_2026_09_08`: IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) w...
 
 ### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
 thread: **energy** - status: **investigating** - approval: **implied**
@@ -1966,8 +1952,22 @@ _created 2026-08-29 20:30 · initial_
 - **Forensic keys (1):**
   - `priority`: high
 
-## ⏸️ Waiting on operator (8)
+## ⏸️ Waiting on operator (9)
 _needs a human call_
+
+### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
+thread: **diagnostics** - status: **waiting_operator** - approval: **implied**
+_created 2026-09-08 17:30 · updated 2026-09-08 18:10 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the media room blinds (covers) have started opening by themselves, which has not happened before. The operator connects this with the kitchen overhead lights turning off on motion and worries the recent device-tree / reload-supp...
+- **Origin:** 2026-09-08 - operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions
+- **Why:** Unexpected cover actuation is unnerving and a trust issue; and a possible regression from recent work must be proven or refuted, not assumed.
+- **Next:** OPERATOR DECISION (pick ONE owner for cover.media_left/center/right + fan.media_room_ceiling_fan): (A) remove those covers+fan from the URA Media room config (options flow) so automation.media_room_control_v1 owns them; or (B) strip the ...
+- **Tags:** no-fabrication-verify, falsify-first
+- **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
+- **Forensic keys (2):**
+  - `overlap_finding_2026_09_08`: DUAL OWNERSHIP (the actionable root): URA Media room ALSO drives these covers + the fan — binary_sensor.media_room_occupied control_covers=[cover.media_center/left/right], control_fans=[fan.media_room_ceiling_fan] — the SAME devices medi...
+  - `status_note_2026_09_08`: IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) w...
 
 ### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
