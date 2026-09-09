@@ -93,7 +93,7 @@ cards:
   title: 'A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation'
   thread: energy
   status: shipped_organic
-  shipped_version: v5.100.2
+  shipped_version: v5.100.3
   created: '2026-09-08 16:35'
   updated: '2026-09-08 16:35'
   refinement_status: initial
