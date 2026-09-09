@@ -343,43 +343,33 @@ def test_v475_d5_select_mode_set_difference_logic():
     )
 
 
-def test_v475_d5_mutation_actually_catches_missing_mode_at_runtime():
-    """Strengthened mutation proof (post-review A-M6).
+def test_v475_d5_zone_pick_getattr_dispatches_to_zone_config_menu():
+    """MENU-ZONE-PICKER-1 (v5.100.4) end-to-end __getattr__ dispatch proof.
 
-    The set-difference check above is necessary but not sufficient — D5's
-    whole point is to catch RUNTIME AttributeError on `selector.X.Y` that
-    source-grep can't see. Here we stub `SelectSelectorMode` WITHOUT `LIST`
-    (the D1 picker mode) and call `async_step_manage_zones` — the schema
-    build references `selector.SelectSelectorMode.LIST` and should raise
-    AttributeError. Without this raise, D5 would not have caught v4.7.4.2.
+    Replaces the obsolete SelectSelectorMode.LIST mutation test (the picker no
+    longer builds a form). Renders the menu, then invokes the dispatched step
+    for the first zone key and asserts __getattr__ (a) set _selected_zone_name
+    to the mapped RAW zone name and (b) routed to async_step_zone_config_menu.
+    A stale/unknown key falls back to re-rendering manage_zones.
     """
-    # Stub the SelectSelectorMode without LIST (DROPDOWN only)
-    cf = _load_config_flow({"DROPDOWN"}, _DEFAULT_TEXT_TYPES)
+    cf = _load_config_flow(_DEFAULT_SELECT_MODES, _DEFAULT_TEXT_TYPES)
     OptionsFlow = cf.UniversalRoomAutomationOptionsFlow
 
     class _Entry:
         data = {"entry_type": "zone_manager"}
         options = {"zones": {"Office": {"zone_thermostat": "climate.office"}}}
 
-    # v4.7.5 post-review (B-M4): trip-wire records hass.async_create_task so
-    # the runtime smoke step also catches a future regression that schedules
-    # background work from a form-render path.
     class _Hass:
         class config_entries:
             @staticmethod
             def async_entries(_d):
                 return [_Entry()]
 
-        def __init__(self):
-            self.created_tasks: list = []
-
         def async_create_task(self, coro, *args, **kwargs):
             try:
                 coro.close()
             except AttributeError:
                 pass
-            name = kwargs.get("name") if kwargs else None
-            self.created_tasks.append(name if name is not None else "<unnamed>")
             return None
 
     flow = OptionsFlow.__new__(OptionsFlow)
@@ -388,20 +378,37 @@ def test_v475_d5_mutation_actually_catches_missing_mode_at_runtime():
     flow._selected_zone_name = None
     flow._selected_zone_entry_id = None
 
-    with pytest.raises(AttributeError) as excinfo:
-        _run_coro_isolated(
-            flow.async_step_manage_zones(user_input=None)
-        )
+    # Stub the downstream target so we can assert routing without its full deps.
+    _routed = {"hit": False}
 
-    # The AttributeError MUST mention LIST — otherwise we hit a different
-    # AttributeError and the mutation didn't actually exercise the right path.
-    assert "LIST" in str(excinfo.value), (
-        "v4.7.5 D5 mutation (post-review A-M6): the AttributeError did not "
-        "mention 'LIST'. Either the picker stopped using "
-        "SelectSelectorMode.LIST (then update D1) OR a different code path "
-        "raised first (test fixture drift). Without this raise, D5 would "
-        f"not have caught the v4.7.4.2 class of bug. Got: {excinfo.value!r}"
+    async def _fake_zone_config_menu(*_a, **_k):
+        _routed["hit"] = True
+        return {"type": "menu", "step_id": "zone_config_menu"}
+
+    flow.async_step_zone_config_menu = _fake_zone_config_menu
+
+    # Render the menu to populate _zone_menu_map.
+    result = _run_coro_isolated(flow.async_step_manage_zones(user_input=None))
+    first_key = next(iter(result["menu_options"]))
+
+    # Invoke the dispatched step (what HA does on menu selection).
+    handler = getattr(flow, "async_step_" + first_key)
+    routed_result = _run_coro_isolated(handler(user_input={"next_step_id": first_key}))
+    assert _routed["hit"], "zone-pick must route to async_step_zone_config_menu"
+    assert routed_result["step_id"] == "zone_config_menu"
+    assert flow._selected_zone_name == "Office", (
+        f"__getattr__ must set _selected_zone_name to the RAW mapped zone, got "
+        f"{flow._selected_zone_name!r}"
     )
+
+    # Stale/unknown key -> safe fallback to re-render manage_zones (not a crash).
+    flow._selected_zone_name = None
+    stale = getattr(flow, "async_step_" + cf._ZONE_PICK_PREFIX + "999")
+    fallback = _run_coro_isolated(stale())
+    assert fallback["type"] == "menu" and fallback["step_id"] == "manage_zones", (
+        "an unknown zone key must fall back to re-rendering the picker menu"
+    )
+    assert flow._selected_zone_name is None
 
 
 # =============================================================================
@@ -474,12 +481,33 @@ def test_v475_d5_manage_zones_step_instantiates_without_attr_error():
     result = _run_coro_isolated(
         flow.async_step_manage_zones(user_input=None)
     )
-    # The stubbed async_show_form returns a dict {"type": "form", ...}
-    assert result["type"] == "form", (
-        f"v4.7.5 D5: async_step_manage_zones returned {result!r}; expected "
-        "a stubbed async_show_form payload. Indicates the method bailed out "
-        "or raised before reaching show_form."
+    # MENU-ZONE-PICKER-1 (v5.100.4): the picker now renders a one-tap menu.
+    assert result["type"] == "menu", (
+        f"v5.100.4: async_step_manage_zones returned {result!r}; expected a "
+        "stubbed async_show_menu payload. Indicates the method bailed out or "
+        "reverted to a form."
     )
+    # Dynamic per-zone options keyed by the dispatch prefix.
+    opts = result["menu_options"]
+    assert opts and all(k.startswith(cf._ZONE_PICK_PREFIX) for k in opts), (
+        f"menu_options must be prefixed zone keys, got {opts!r}"
+    )
+    assert list(opts.values()) == ["Office"], (
+        f"label must be the raw zone title inline, got {list(opts.values())!r}"
+    )
+    # __getattr__ dispatch shim: a zone key resolves to a callable; an
+    # unrelated missing attribute still raises AttributeError; a lazily-set
+    # attribute is unaffected.
+    first_key = next(iter(opts))
+    assert callable(getattr(flow, "async_step_" + first_key)), \
+        "__getattr__ must resolve async_step_<zone key> to a handler"
+    try:
+        getattr(flow, "async_step_not_a_zone_key_xyz")
+        raise AssertionError("__getattr__ must raise AttributeError for non-zone names")
+    except AttributeError:
+        pass
+    assert getattr(flow, "_selected_zone_name", "SENTINEL") is None, \
+        "__getattr__ must not shadow a normally-set attribute"
     # v4.7.5 post-review (B-M4): rendering the picker form is a synchronous
     # read-only path. A future regression that schedules background work
     # during render (e.g., dispatcher refresh, async reload) is forbidden.

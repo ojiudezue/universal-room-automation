@@ -51,4 +51,12 @@ per fixed target) plus the retained sender assertions. Mutation-anchored: droppi
   v5.100.2: the pre-fix build logged one pair per 5-min cycle (19:50:46, 19:55:46, …).
 - **L3:** `sensor.ura_battery_strategy` + the onset-time entity still update.
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-08 (post-restart, v5.100.3 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 clean boot / version | **PASS** | `const.py` = v5.100.3; `ha_check_config` valid (errors=[]). |
+| **L2 thread error eliminated (the fix)** | **PASS** | Energy decision cycle RAN on v5.100.3 (`decision_log` newest 2026-09-09T01:07:42Z = 20:07 CDT), and **zero** `async_write_ha_state from a thread` entries after boot — newest occurrence is 20:00:46 CDT, the pre-restart v5.100.2 instance's last cycle. Under the broken build there would be one time.py/switch.py pair per 5-min cycle (20:05, 20:10). None. |
+| L3 subscribers still update | **PASS** | Energy cycles producing `decision_log` rows post-boot; battery-strategy path live. |
+
+**Rollback not needed.** The `@callback` fix resolves the off-loop executor-punt; v5.100.2's threadsafe senders retained as belt-and-suspenders.

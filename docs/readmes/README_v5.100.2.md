@@ -54,4 +54,11 @@ falsifiable invariant is "these sites use the threadsafe API".
 - **L3:** `sensor.ura_battery_strategy` and the onset-time entity still update (dispatch still
   reaches subscribers, just on-loop).
 
-_Validated <date> — filled in post-restart._
+## Superseded by v5.100.3 (2026-09-08)
+
+**This fix was necessary-but-INSUFFICIENT.** Live post-restart logs showed the RuntimeError kept
+firing at the 5-min energy-cycle cadence (20:00:46 etc.) from the same `time.py:186` / `switch.py:1221`
+sites. Root-cause re-diagnosis: HA's dispatcher runs a **non-`@callback`** sync target in the
+executor thread regardless of sender — so the load-bearing fix is `@callback` on the two undecorated
+targets (see `README_v5.100.3.md`). The threadsafe `dispatcher_send` senders shipped here were kept
+as belt-and-suspenders.
