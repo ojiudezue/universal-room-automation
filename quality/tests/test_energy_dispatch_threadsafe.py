@@ -52,3 +52,37 @@ def test_dp_enable_entities_update_dispatch_threadsafe_in_init():
     assert "dispatcher_send(hass, SIGNAL_ENERGY_ENTITIES_UPDATE)" in src
     assert "async_dispatcher_send(hass, SIGNAL_ENERGY_ENTITIES_UPDATE)" not in src, \
         "DP-enable EC refresh dispatch must use threadsafe dispatcher_send"
+
+
+# --- The ACTUAL fix (v5.100.3): the executor-punt of non-@callback targets ---
+# HA's dispatcher (helpers/dispatcher.py) runs a connected target via
+# get_hassjob_callable_job_type: a @callback target runs directly on the loop;
+# a PLAIN sync function is HassJobType.Executor and is run via
+# hass.async_run_hass_job -> the EXECUTOR THREAD (off the event loop). The two
+# targets that logged the RuntimeError (time.py _refresh, switch.py
+# _handle_ec_ready override) were plain functions -> executor -> off-loop
+# async_write_ha_state. v5.100.2's threadsafe-sender swap was necessary-but-
+# insufficient; the load-bearing fix is decorating these targets @callback so
+# HA runs them on the loop. Mutation anchor: drop either @callback -> RED.
+
+def test_time_refresh_is_callback_decorated():
+    src = _read("time.py")
+    # the _refresh closure connected to SIGNAL_ENERGY_ENTITIES_UPDATE
+    assert "def _refresh(*_args) -> None:" in src
+    idx = src.index("def _refresh(*_args) -> None:")
+    preceding = src[:idx].rstrip().splitlines()[-1]
+    assert preceding.strip() == "@callback", \
+        "time.py _refresh must be @callback (else HA executor-punts it off-loop)"
+
+
+def test_switch_handle_ec_ready_override_is_callback_decorated():
+    src = _read("switch.py")
+    # the override that calls super()._handle_ec_ready() (the one that logged the error)
+    marker = "super()._handle_ec_ready()"
+    assert marker in src
+    idx = src.index(marker)
+    block = src[:idx]
+    def_idx = block.rindex("def _handle_ec_ready")
+    preceding = block[:def_idx].rstrip().splitlines()[-1]
+    assert preceding.strip() == "@callback", \
+        "switch.py _handle_ec_ready override must be @callback (else HA executor-punts it off-loop)"
