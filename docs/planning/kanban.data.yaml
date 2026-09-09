@@ -727,6 +727,7 @@ cards:
   knobs:
   - 'SOLAR_CAPTURE_FACTOR (module const, energy_battery.py:260, currently 0.5) — raising it credits more solar; reviewed-rung (fitted safety bias).'
   parsimony: {problem: 'attain grid-charges early then exports solar it could have used', verdict: INVESTIGATE}
+  operator_refine_2026_09_09: 'Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decision FOR THE SPECIFIC TOU SEASON — is the season-specific forecast/threshold right? (3) Consider making it ADAPTIVE — a feedback loop trained on our own historical data (we literally have it / can capture it) so attain aggression self-tunes per season instead of a static threshold. Gate every change on the measured 2-week $ number (measure-before-build).'
   next: 'MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release on solar ramp) and/or modulate grid to the solar shortfall. Tier-3 per the energy campaign.'
   refs: ['docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check)', 'energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
 
@@ -13022,6 +13023,7 @@ cards:
     SOC). Highest-value = primary SOC (frozen SOC re-stamps LKG, poisons battery strategy). Consolidating avoids
     the exact duplication the operator flagged.'
   constraints: ['Energy trust path -> Tier 2-DB. A shared helper touching 4+ decision reads is regression-prone.']
+  operator_refine_2026_09_09: 'Operator Q: is the staleness sensor separate, or does it change state in place? And if separate, does it consolidate the 3 or hold per-read states in details? Proposed answer (confirm in plan): TWO layers. (1) DECISION layer = a shared helper (_state_age_s) applied INLINE at each read site — a frozen-valid read is treated as stale IN PLACE (hold/fall-back exactly like unavailable), no new sensor needed for the decision. (2) OBSERVABILITY = ONE consolidated diagnostic sensor (e.g. sensor.ura_energy_stale_reads) whose STATE is a count/worst, with PER-READ states in ATTRIBUTES (net_power/battery_power/primary_soc/solar: fresh|stale + age_s). So: separate sensor for visibility that consolidates all reads with per-read detail in attributes; the reads themselves are corrected in place.'
   next: 'Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness
     helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.'
   refs: ['Envoy no-dup audit 2026-08-31', 'energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975']
@@ -13112,6 +13114,7 @@ cards:
     problem: Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with
       no guard.
     verdict: BUILD
+  operator_refine_2026_09_09: 'Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the specific inversion and refuses the save (operator must fix), SINCE these are operator-set knobs. PLUS a runtime guard because several thresholds are live Number entities that can invert without a config-flow save: on a detected inverted ladder at decision time, fall back to a safe conservative ordering AND raise an anomaly->NM so the bad state is visible, not silent. Action = reject-at-save + runtime-safe-fallback+alert.'
   next: Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs
     to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches
     a shared validator consumed across EC).
