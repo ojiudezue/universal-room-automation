@@ -92,10 +92,10 @@ cards:
 - id: ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1
   title: 'A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation'
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.3
   created: '2026-09-08 16:35'
-  updated: '2026-09-08 16:35'
+  updated: '2026-09-08 20:12'
   refinement_status: initial
   problem_solution:
   - 'Problem: something subscribed to the ura_energy_entities_update signal throws on
@@ -113,6 +113,7 @@ cards:
     gist: 'surfaced during v5.99.1 post-restart error scan; pre-existing repeating energy dispatch exception'
   why: 'A listener raising on every energy refresh is a silent health issue — an
     energy entity may be stale, and 65 errors/5h buries real signal in the log.'
+  disposition: 'DONE 2026-09-08: v5.100.2 threadsafe-sender fix was INSUFFICIENT (falsified live); real root = HA executor-punts non-@callback dispatcher targets. v5.100.3 decorated time._refresh + switch.py:1393 _handle_ec_ready @callback. L2 PASS: energy cycle ran 20:07 CDT, ZERO thread errors post-boot (newest 20:00:46 = pre-restart instance).'
   next: 'grep async_dispatcher_connect/dispatcher_send for ura_energy_entities_update; find the raising _refresh callback; fix + confirm the exception clears.'
   refs: ['docs/readmes/README_v5.99.1.md (validation error-scan)']
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1

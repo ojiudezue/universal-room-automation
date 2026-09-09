@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T17:58:58-05:00_ - _Data commit: `67071ef0c10f`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T20:02:35-05:00_ - _Data commit: `7e11e5167556`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,31 +11,20 @@ _Generated: 2026-09-08T17:58:58-05:00_ - _Data commit: `67071ef0c10f`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
+| 📥 Inbox | 29 |
 | 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 13 |
-| 📝 Planned | 7 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 6 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 74 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
-| ✅ Done | 59 |
+| ✅ Done | 60 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (29)
 _raw capture_
-
-### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
-thread: **energy** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-08 16:35 · initial_
-- **Problem / Solution:**
-  - Problem: something subscribed to the ura_energy_entities_update signal throws on every energy refresh — HA logs Exception in _refresh when dispatching ura_energy_entities_update with empty args (), ~65 times over 5 hours, steady. It pred...
-- **Origin:** 2026-09-08 - surfaced during v5.99.1 post-restart error scan; pre-existing repeating energy dispatch exception
-- **Why:** A listener raising on every energy refresh is a silent health issue — an energy entity may be stale, and 65 errors/5h buries real signal in the log.
-- **Next:** grep async_dispatcher_connect/dispatcher_send for ura_energy_entities_update; find the raising _refresh callback; fix + confirm the exception clears.
-- **Tags:** no-fabrication-verify
-- **Refs:** docs/readmes/README_v5.99.1.md (validation error-scan)
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
 thread: **quality** - status: **inbox** - approval: **unreviewed**
@@ -657,21 +646,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (7)
+## 📝 Planned (6)
 _has plan / acceptance_
-
-### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
-thread: **platform** - status: **planned** - approval: **explicit**
-_created 2026-09-03 18:05 · initial_
-- **Problem / Solution:**
-  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
-- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
-- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
-- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
-- **Tags:** ux-consistency, tier-2, no-fabrication-verify
-- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
-- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
-- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
 thread: **energy** - status: **planned** - approval: **implied**
@@ -778,10 +754,21 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_created 2026-09-03 18:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
+- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
+- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
+- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
+- **Tags:** ux-consistency, tier-2, no-fabrication-verify
+- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
+- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ## 🔍 Review (1)
 _under review_
@@ -2406,8 +2393,21 @@ _created 2026-08-29 13:20 · initial_
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
 
-## ✅ Done (59)
+## ✅ Done (60)
 _closed, evidence in refs_
+
+### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-09-08 16:35 · updated 2026-09-08 20:12 · initial_
+- **Problem / Solution:**
+  - Problem: something subscribed to the ura_energy_entities_update signal throws on every energy refresh — HA logs Exception in _refresh when dispatching ura_energy_entities_update with empty args (), ~65 times over 5 hours, steady. It pred...
+- **Origin:** 2026-09-08 - surfaced during v5.99.1 post-restart error scan; pre-existing repeating energy dispatch exception
+- **Why:** A listener raising on every energy refresh is a silent health issue — an energy entity may be stale, and 65 errors/5h buries real signal in the log.
+- **Next:** grep async_dispatcher_connect/dispatcher_send for ura_energy_entities_update; find the raising _refresh callback; fix + confirm the exception clears.
+- **Tags:** no-fabrication-verify
+- **Refs:** docs/readmes/README_v5.99.1.md (validation error-scan)
+- **Forensic keys (1):**
+  - `disposition`: DONE 2026-09-08: v5.100.2 threadsafe-sender fix was INSUFFICIENT (falsified live); real root = HA executor-punts non-@callback dispatcher targets. v5.100.3 decorated time._refresh + switch.py:1393 _handle_ec_ready @callback. L2 PASS: ene...
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
 thread: **energy** - status: **done** - approval: **implied**
