@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.100.2
+# Universal Room Automation vv5.100.3
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -1390,6 +1390,7 @@ class ECEVChargeOnsetEnabledSwitch(_ECEVChargeOnsetEnabledBase):
         super()._retry_restore(_now)
         self._sync_after_restore()
 
+    @callback
     def _handle_ec_ready(self) -> None:  # noqa: D401
         super()._handle_ec_ready()
         self._sync_after_restore()

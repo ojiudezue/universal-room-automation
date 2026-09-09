@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "105",
+  "author": "ojiudezue",
+  "session_id": "claude_20260909_010235_ship_v5_100_3",
+  "timestamp": "2026-09-09T01:02:35Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.3 shipped: Energy-signal callbacks @callback (real off-loop fix; v5.100.2 was insufficient)",
+  "summary": "Energy-signal callbacks @callback (real off-loop fix; v5.100.2 was insufficient)",
+  "why": "v5.100.2 shipped an INSUFFICIENT fix (threadsafe sender) \u2014 live log falsified it: the RuntimeError kept firing post-restart at the 5-min cycle cadence (19:50:46, 19:55:46) from the same time.py:186 / switch.py:1221 sites. Re-diagnosed against HA source: the dispatcher classifies a non-@callback sync target as HassJobType.Executor and runs it off the loop via async_run_hass_job, regardless of sender thread \u2014 so the load-bearing fix is @callback on the two undecorated targets (time.py _refresh closure and the switch.py:1393 _handle_ec_ready override that calls a @callback super but is itself connected+classified). Verified every other subscriber already @callback; orchestrator audited all subscribers of both signals across 6 platform files. Kept dispatcher_send as belt-and-suspenders. Control path byte-identical.",
+  "implications": "Shipped ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1 at v5.100.3; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.3.md (Live criteria).",
+  "revisit_trigger": "error_log has ZERO 'async_write_ha_state from a thread' entries citing time.py or switch.py in the 10 min after restart (pre-fix: one pair per 5-min energy cycle)",
+  "refs": {
+    "cards": [
+      "ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.3.md"
+    ],
+    "release_notes": "Decorate the two undecorated dispatcher targets @callback: time.py _refresh + switch.py:1393 _handle_ec_ready override. HA runs a non-@callback sync dispatcher target in the executor thread (HassJobType.Executor via async_run_hass_job), so these ran off-loop and tripped async_write_ha_state's thread guard every 5-min energy cycle. v5.100.2's threadsafe-sender swap was necessary-but-insufficient (kept). All other energy-signal subscribers were already @callback; these two were the only executor-punt sites. Mutation-anchored test."
+  }
+}

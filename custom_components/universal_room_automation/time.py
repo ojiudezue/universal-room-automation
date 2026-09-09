@@ -32,7 +32,7 @@ import logging
 
 from homeassistant.components.time import TimeEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -179,6 +179,7 @@ class EVChargeOnsetTimeEntity(TimeEntity):
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
 
+            @callback
             def _refresh(*_args) -> None:
                 opts = self._entry.options or {}
                 raw = opts.get(CONF_ENERGY_EVSE_CHARGE_ONSET_TIME)
