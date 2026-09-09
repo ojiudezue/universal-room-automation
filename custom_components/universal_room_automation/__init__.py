@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.100.1
+# Universal Room Automation vv5.100.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -7209,12 +7209,12 @@ def _apply_in_place(
             if key == _CONF_ENERGY_DP_ENABLE:
                 try:
                     from homeassistant.helpers.dispatcher import (
-                        async_dispatcher_send,
+                        dispatcher_send,
                     )
                     from .domain_coordinators.signals import (
                         SIGNAL_ENERGY_ENTITIES_UPDATE,
                     )
-                    async_dispatcher_send(hass, SIGNAL_ENERGY_ENTITIES_UPDATE)
+                    dispatcher_send(hass, SIGNAL_ENERGY_ENTITIES_UPDATE)
                 except Exception:  # noqa: BLE001 — best-effort push
                     _LOGGER.debug(
                         "EC entity refresh dispatch failed", exc_info=True,
