@@ -2,28 +2,34 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T20:02:35-05:00_ - _Data commit: `7e11e5167556`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T23:22:25-05:00_ - _Data commit: `8de4812f8019`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.100.5.md (2026-09-09) is newer than last_reconciled (2026-09-08)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 11 |
-| 🧭 Pre-planning | 13 |
+| 🧭 Pre-planning | 14 |
 | 📝 Planned | 6 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 74 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 2 |
+| 🚀 Shipped (organic open) | 75 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 26 |
+| 🅿️ Parked | 27 |
 | ✅ Done | 60 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -345,6 +351,15 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
+### `D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1` - Pre-existing test failure: binary_sensor.py calls iter_canonical_hvac_zones outside the D3 allowlist
+thread: **quality** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-08 20:30 · initial_
+- **Problem / Solution:**
+  - Problem: test_v475_d3_canonical_callers_all_in_allowlist FAILS on clean develop — binary_sensor.py references iter_canonical_hvac_zones but is not in the D3 runtime allowlist. Discovered incidentally during the menu-picker cycle (NOT cau...
+- **Why:** A red guard test on develop erodes the name-diff baseline and hides real regressions.
+- **Next:** Read the binary_sensor.py iter_canonical_hvac_zones call site; classify runtime-vs-should-read-raw; fix allowlist or refactor.
+- **Refs:** quality/tests/test_v475_d3_canonical_runtime_only.py:129
+
 ## 🔬 Investigating (11)
 _measuring; truth not yet known_
 
@@ -482,7 +497,7 @@ _created 2026-08-21 11:40 · initial_
 
 ### `HVAC-GOVERNED-RESTORE-FAIL-TAIL-1` - ~4% of governed-write restores genuinely fail (immediate=0 AND delayed=0) — a small real tail behind HVAC-GOVERNED-EXCURSION-1
 thread: **hvac** - status: **investigating** - approval: **implied**
-_created 2026-08-25 22:20 · initial_
+_created 2026-08-25 22:20 · refined_
 - **Problem / Solution:**
   - Problem: after HVAC-GOVERNED-EXCURSION-1 validated, 4 of ~103 restores show BOTH the instantaneous and delayed restore failing (restore_ok_immediate=0 AND restore_ok=0) — a genuine ~4% restore-failure tail, distinct from the 24 benign de...
 - **Origin:** 2026-08-25 - surfaced disposing HVAC-GOVERNED-EXCURSION-1 via live DB cross-tab
@@ -490,8 +505,11 @@ _created 2026-08-25 22:20 · initial_
 - **Next:** SELECT the 4 immediate0/delayed0 rows with full context from ac_ramp_events; classify the failure mode; guard or accept.
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
+- **Forensic keys (2):**
+  - `investigation_2026_09_08`: CONFIRMED (5 rows now: 4x 08-21 + new zone_3 08-26). Root = Carrier thermostat UNAVAILABLE/UNREADABLE at restore-settle: successful restores (385) all read back a settled preset+mode; the 5 failures do NOT (08-26 explicit mode_settled=un...
+  - `consolidated_note_2026_09_09`: Root (Carrier unreadable-at-settle) is a symptom of Carrier cloud staleness — the RESPONSE (detect+reload) now lives in CARRIER-STALE-POLL-REFRESH-1 (consolidated home). This card keeps the FINDING + the cheap trip-wire option; the reloa...
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (14)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -525,7 +543,7 @@ _created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
 - **Tags:** third-party-defect, operator-requested, probe-pending
 - **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
 - **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
-- **Forensic keys (10):**
+- **Forensic keys (11):**
   - `REMEDIATION_RUN_2026_08_24`: Operator granted permission for the full remediation sequence incl the reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py, pid 29697, 6h window, exits on first confirmed episode); th...
   - `PROBE_C_RESULT_2026_08_24_CONFIRMED`: The detached blind-episode detector FIRED and exited on the first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle, blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20....
   - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
@@ -535,6 +553,7 @@ _created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
   - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
   - `PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23`: Card said "detector running" -- it was NOT. The 08-22 15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not survive the session. So it expired ~15:57 on 08-22 having produced NO recorded...
   - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
+  - `dedupe_2026_09_09`: CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase...
   - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
 
 ### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break)
@@ -646,6 +665,17 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
+### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
+thread: **dashboarding** - status: **pre_planning** - approval: **implied**
+_created 2026-09-09 09:10 · initial_
+- **Problem / Solution:**
+  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
+- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
+- **Next:** VERIFY (ha-dashboard skill): read the live v8 + v6 Lovelace configs from HA storage; find the authoritative room list (config entries ENTRY_TYPE_ROOM / a rooms sensor); pick the auto-gen strategy (auto-entities/custom template vs a regen...
+- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
+- **Forensic keys (1):**
+  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
+
 ## 📝 Planned (6)
 _has plan / acceptance_
 
@@ -754,23 +784,12 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
-thread: **platform** - status: **in_progress** - approval: **explicit**
-_created 2026-09-03 18:05 · refined ×1_
-- **Problem / Solution:**
-  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
-- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
-- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
-- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
-- **Tags:** ux-consistency, tier-2, no-fabrication-verify
-- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
-- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
-- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+_(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
@@ -795,7 +814,18 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (74)
+### `DELETE-REACT-DASHBOARDS-1` - Stop registering the dead React dashboards to the sidebar (phase 1, reversible) — code deleted in phase 2
+thread: **maintenance** - status: **review** - approval: **explicit**
+_created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the base build still ships React/WebSocket dashboards (repo dirs dashboard/, dashboard-v3/, and the served custom_components/universal_room_automation/frontend/ + frontend-v3/) that never worked and are dead weight. URA moved to...
+- **Why:** Dead code that never worked bloats the repo/build and confuses the dashboard story.
+- **Next:** SHIPPING v5.100.5: removed __init__.py:4131-4214 panel+static-path registration for both frontend/ and frontend-v3/; flipped 5 setup-symmetry tests to guard NON-registration. Dirs + deploy.sh frontend line retained (phase 2). Live: panel...
+- **Refs:** custom_components/universal_room_automation/__init__.py:4131 (panel_custom + StaticPathConfig frontend); custom_components/universal_room_automation/__init__.py:4183 (frontend-v3)
+- **Forensic keys (1):**
+  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
+
+## 🚀 Shipped (organic open) (75)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -1013,6 +1043,19 @@ _created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
 - **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
+
+### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
+thread: **platform** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-03 18:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
+- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
+- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
+- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
+- **Tags:** ux-consistency, tier-2, no-fabrication-verify
+- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
+- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
@@ -2042,7 +2085,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (26)
+## 🅿️ Parked (27)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -2392,6 +2435,19 @@ _created 2026-08-29 13:20 · initial_
   - `links`: parent: EGRESS-IDENTITY-JOIN-GAP-1
   - `research_2026_08_28`: Feasibility research is DONE and verified against HA developer docs + the uiprotect library — the add-on route is viable. Phased plan: D0 = one-shot API probe (does a local user token list named smart-detection events?), Phase 1 = REST p...
   - `blocked_on_2026_08_29`: BLOCKED on operator provisioning: (a) a LOCAL UniFi Protect user (username + password) — SSO will not work; (b) confirmation of which NVR host + port the add-on should target (192.168.15.173 is reachable; the previously supplied api-key ...
+
+### `DELETE-REACT-DASHBOARDS-CODE-2` - Delete the dead React dashboard CODE (dirs + deploy.sh ship) — warm/maintenance, after phase-1 unregister soaks
+thread: **maintenance** - status: **parked** - approval: **implied**
+_created 2026-09-09 09:35 · initial_
+- **Problem / Solution:**
+  - Problem: after phase 1 stops registering the React dashboards (DELETE-REACT-DASHBOARDS-1), the code still sits in the repo/build: dirs dashboard/ (1.6M), dashboard-v3/ (312M/15k files), custom_components/universal_room_automation/fronten...
+- **Why:** Dead code bloats the repo/build; deleting is irreversible so it waits behind the reversible unregister.
+- **Next:** When triggered: git rm the 4 dirs; drop deploy.sh frontend/ line; py_compile + setup smoke + suite; ship.
+- **Refs:** DELETE-REACT-DASHBOARDS-1; scripts/deploy.sh:198 (ships frontend/)
+- **Forensic keys (3):**
+  - `parked`: True
+  - `revisit_trigger`: Phase-1 unregister (v5.100.5) has shipped and lived with zero need to restore the React sidebar panels -> delete dashboard/, dashboard-v3/, frontend/, frontend-v3/ + remove deploy.sh:198 frontend line.
+  - `sweep_verdict`: NEW — phase 2 of DELETE-REACT-DASHBOARDS-1 (same sweep).
 
 ## ✅ Done (60)
 _closed, evidence in refs_

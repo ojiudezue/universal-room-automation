@@ -45,4 +45,12 @@ list is **dynamic**. So a true menu needs a dispatch shim.
   show, HA's frontend treats dict values as translation keys — fall back to per-key translated
   labels. (Backend payload confirmed inline in-suite.)
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-08 (post-restart, v5.100.4 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 clean boot / version | **PASS** | `const.py` = v5.100.4; `ha_check_config` valid (errors=[]); URA setup_complete 18.3s. |
+| L2 one-tap menu | **operator-visual** | Config-flow UI not observable via API. In-suite: `async_step_manage_zones` returns a `menu` payload and dispatch routes correctly. |
+| L3 labels show zone names not keys | **operator-visual (the one offline-unverifiable item)** | Backend payload carries inline labels (`{'zpick_0':'Office'}`) — confirmed in-suite. Whether HA's frontend renders dict values as labels vs translation keys must be eyeballed. If keys show, fall back to translated labels. |
+
+**Please confirm L2/L3 in the UI:** ZM → Configure → Manage Zones.

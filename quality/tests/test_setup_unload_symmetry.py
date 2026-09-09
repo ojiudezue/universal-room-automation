@@ -163,61 +163,40 @@ class TestServicesUnregisteredOnUnload:
             )
 
 
-class TestPanelsTornDownOnUnload:
-    """Every URA panel registered via `panel_custom.async_register_panel`
-    has a paired `frontend.async_remove_panel` teardown.
-
-    The two panel paths are `"ura-dashboard"` (v3.9.4) and
-    `"ura-dashboard-v3"` (v3.12.0).
+class TestReactDashboardPanelsNotRegistered:
+    """v5.100.5 (DELETE-REACT-DASHBOARDS-1 phase 1): the dead React/WebSocket
+    dashboards are NO LONGER registered as sidebar panels or served as static
+    paths (reversible first step before the code is deleted). These guards flip
+    the old "panel has a paired remove" assertions into "the panel must not come
+    back" — reintroducing the registration is now the regression.
     """
 
-    def test_v39_panel_has_paired_remove(self, init_src):
-        # Registration side: the panel is registered with
-        # frontend_url_path="ura-dashboard" (possibly via an intermediate
-        # local variable, so we match the literal anywhere in the file).
-        assert '"ura-dashboard"' in init_src, (
-            "v3.9.4 panel registration missing (literal \"ura-dashboard\"); "
-            "test fixture stale."
+    def test_react_panels_not_registered(self, init_src):
+        assert '"ura-dashboard"' not in init_src, (
+            "React dashboard panel 'ura-dashboard' was re-registered — it must "
+            "stay unregistered (DELETE-REACT-DASHBOARDS-1)."
         )
-        # Teardown side: lambda calls frontend.async_remove_panel.
-        assert "async_remove_panel(" in init_src, (
-            "setup/unload symmetry: no async_remove_panel call found in "
-            "__init__.py — panel teardown is missing entirely."
+        assert '"ura-dashboard-v3"' not in init_src, (
+            "React dashboard panel 'ura-dashboard-v3' was re-registered — it "
+            "must stay unregistered (DELETE-REACT-DASHBOARDS-1)."
         )
-        assert "async_on_unload" in init_src, (
-            "setup/unload symmetry: v3.9.4 panel teardown not wired via "
-            "entry.async_on_unload(lambda: frontend.async_remove_panel(...))."
-        )
-
-    def test_v3_dashboard_panel_has_paired_remove(self, init_src):
-        # Registration side (literal anywhere in file; may be via local var).
-        assert '"ura-dashboard-v3"' in init_src, (
-            "v3.12.0 panel registration missing (literal "
-            "\"ura-dashboard-v3\"); test fixture stale."
+        assert "async_register_panel" not in init_src, (
+            "panel_custom.async_register_panel reappeared in __init__ — the "
+            "React dashboard panels must stay unregistered."
         )
 
 
-class TestStaticPathsGapDocumented:
-    """HA's `async_register_static_paths` exposes no public removal API
-    (verified against `homeassistant/components/http/__init__.py:512-543`
-    via the GitHub `home-assistant/core` repo). Routes added live for the
-    process lifetime; on entry reload aiohttp detects the duplicate and
-    raises (caught by the surrounding `except`). This test pins the gap
-    documentation so a future reviewer who notices "static paths have no
-    teardown" can see WHY without digging.
-    """
+class TestReactStaticPathsNotRegistered:
+    """v5.100.5: the React dashboards no longer register static paths, so the
+    old "no public removal API" teardown-gap documentation is moot. Guard that
+    the frontend static-path registration does not reappear (it would re-serve
+    dead code and reintroduce the unremovable-route gap)."""
 
-    def test_static_path_gap_is_documented_in_source(self, init_src):
-        # Look for the deliberate comment block introduced by the
-        # setup/unload symmetry hotfix that names the gap.
-        assert (
-            "async_register_static_paths" in init_src
-            and "NO public removal API" in init_src
-        ), (
-            "setup/unload symmetry: the HA-core static-path teardown gap "
-            "must remain explicitly documented in __init__.py (search for "
-            "'no public removal API') so reviewers don't expect a paired "
-            "teardown that HA doesn't support."
+    def test_frontend_static_paths_not_registered(self, init_src):
+        assert "async_register_static_paths" not in init_src, (
+            "async_register_static_paths reappeared in __init__ — the React "
+            "dashboard static paths must stay unregistered "
+            "(DELETE-REACT-DASHBOARDS-1)."
         )
 
 
@@ -435,18 +414,17 @@ class TestCitedSetupSitesStillResolve:
                 "different setup branch."
             )
 
-    def test_panel_register_calls_present(self, init_src):
-        assert init_src.count("panel_custom.async_register_panel(") >= 2, (
-            "setup/unload symmetry: fewer than two "
-            "`panel_custom.async_register_panel(` calls found in "
-            "__init__.py. The two URA panels (ura-dashboard and "
-            "ura-dashboard-v3) are the surface under test."
+    def test_react_panel_register_calls_absent(self, init_src):
+        # v5.100.5 (DELETE-REACT-DASHBOARDS-1 phase 1): the two React dashboard
+        # panels are no longer registered. Reintroducing them is the regression.
+        assert "panel_custom.async_register_panel(" not in init_src, (
+            "panel_custom.async_register_panel reappeared — the React dashboard "
+            "panels must stay unregistered (DELETE-REACT-DASHBOARDS-1)."
         )
 
-    def test_static_path_register_calls_present(self, init_src):
-        assert init_src.count("hass.http.async_register_static_paths(") >= 2, (
-            "setup/unload symmetry: fewer than two "
-            "`hass.http.async_register_static_paths(` calls found — the "
-            "HA-core gap that the static-path gap-documentation test "
-            "guards depends on these being present."
+    def test_react_static_path_register_calls_absent(self, init_src):
+        assert "hass.http.async_register_static_paths(" not in init_src, (
+            "hass.http.async_register_static_paths reappeared — the React "
+            "dashboard static paths must stay unregistered "
+            "(DELETE-REACT-DASHBOARDS-1)."
         )

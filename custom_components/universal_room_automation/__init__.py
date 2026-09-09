@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.100.4
+# Universal Room Automation vv5.100.5
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -4128,90 +4128,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.2.5: Add update listener to reload entry when options change
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-        # v3.9.4: Register URA Dashboard panel (panel_custom with auth passthrough)
-        import os
-        frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
-        if os.path.isdir(frontend_path):
-            try:
-                from homeassistant.components.http import StaticPathConfig
-                panel_url = f"/{DOMAIN}_panel"
-                await hass.http.async_register_static_paths(
-                    [StaticPathConfig(panel_url, frontend_path, False)]
-                )
-                # setup/unload symmetry: HA's `async_register_static_paths`
-                # adds aiohttp routes directly to `app.router` (see
-                # homeassistant/components/http/__init__.py:512-543) and
-                # exposes NO public removal API in current HA versions.
-                # Routes live for the process lifetime; on entry reload
-                # the duplicate registration may raise depending on
-                # aiohttp version (caught by the surrounding except —
-                # B-LOW-3 (Review B, 2026-06-03): the raise behavior
-                # was not verified against aiohttp source, so the
-                # except is defensive rather than guaranteed).
-                # Not a leak we can patch from URA's side. Documenting
-                # the gap so reviewers don't expect a paired teardown.
-                from homeassistant.components import panel_custom
-                from homeassistant.components import frontend as _ha_frontend
-                _panel_path = "ura-dashboard"
-                await panel_custom.async_register_panel(
-                    hass,
-                    webcomponent_name="ura-dashboard-panel",
-                    frontend_url_path=_panel_path,
-                    sidebar_title="URA",
-                    sidebar_icon="mdi:home-automation",
-                    module_url=f"{panel_url}/ura-panel.js",
-                    embed_iframe=False,
-                    require_admin=False,
-                    config={},
-                )
-                # setup/unload symmetry: pair the panel registration
-                # with a teardown via `frontend.async_remove_panel`.
-                # Verified at homeassistant/components/frontend/__init__.py:394
-                # (signature: async_remove_panel(hass, frontend_url_path,
-                # *, warn_if_unknown=True)). Without this, every reload
-                # leaves a ghost sidebar entry that fails when clicked.
-                entry.async_on_unload(
-                    lambda _p=_panel_path: _ha_frontend.async_remove_panel(
-                        hass, _p, warn_if_unknown=False,
-                    )
-                )
-                _LOGGER.info("URA Dashboard panel registered at /ura-dashboard")
-            except Exception as exc:
-                _LOGGER.warning("Failed to register URA Dashboard panel: %s", exc)
-
-        # v3.12.0: Register URA Dashboard v3 panel (separate sidebar entry)
-        frontend_v3_path = os.path.join(os.path.dirname(__file__), "frontend-v3")
-        if os.path.isdir(frontend_v3_path):
-            try:
-                from homeassistant.components.http import StaticPathConfig
-                panel_v3_url = f"/{DOMAIN}_panel_v3"
-                await hass.http.async_register_static_paths(
-                    [StaticPathConfig(panel_v3_url, frontend_v3_path, False)]
-                )
-                # See note above re. static-path teardown gap (no HA API).
-                from homeassistant.components import panel_custom
-                from homeassistant.components import frontend as _ha_frontend
-                _panel_v3_path = "ura-dashboard-v3"
-                await panel_custom.async_register_panel(
-                    hass,
-                    webcomponent_name="ura-dashboard-panel-v3",
-                    frontend_url_path=_panel_v3_path,
-                    sidebar_title="URA Dashboard",
-                    sidebar_icon="mdi:view-dashboard",
-                    module_url=f"{panel_v3_url}/ura-panel-v3.js",
-                    embed_iframe=False,
-                    require_admin=False,
-                    config={},
-                )
-                # setup/unload symmetry: paired teardown for the v3 panel.
-                entry.async_on_unload(
-                    lambda _p=_panel_v3_path: _ha_frontend.async_remove_panel(
-                        hass, _p, warn_if_unknown=False,
-                    )
-                )
-                _LOGGER.info("URA Dashboard v3 panel registered at /ura-dashboard-v3")
-            except Exception as exc:
-                _LOGGER.warning("Failed to register URA Dashboard v3 panel: %s", exc)
+        # v5.100.5 (DELETE-REACT-DASHBOARDS-1, phase 1 — reversible):
+        # The React/WebSocket dashboards (frontend/ + frontend-v3/) are dead
+        # (superseded by the URA v8 Lovelace dashboard; the PWA is off-repo).
+        # We NO LONGER register them as sidebar panels or serve their static
+        # paths — a small, reversible first step before the code is deleted.
+        # Retained on disk pending DELETE-REACT-DASHBOARDS-1 phase 2.
 
         _LOGGER.info("Integration entry setup complete with aggregation sensors")
         return True
