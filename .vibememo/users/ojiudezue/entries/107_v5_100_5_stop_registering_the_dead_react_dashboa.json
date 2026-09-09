@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "107",
+  "author": "ojiudezue",
+  "session_id": "claude_20260909_230838_ship_v5_100_5",
+  "timestamp": "2026-09-09T23:08:38Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.5 shipped: Stop registering the dead React dashboards to the sidebar (reversible phase 1)",
+  "summary": "Stop registering the dead React dashboards to the sidebar (reversible phase 1)",
+  "why": "Operator directed deleting the dead React/WebSocket dashboards (never worked; URA moved to v8 Lovelace; PWA is a separate off-repo commercialization project). On reflection the operator asked for the SMALLER reversible change first: stop auto-deploying them to the sidebar, then delete the code later. Verified the cascade (deletion is not a plain rm): __init__ registers both panels + static paths with paired teardowns (4131-4214), deploy.sh:198 ships frontend/, and 5 setup-symmetry tests assert the registration. Phase 1 removes only the registration (reversible) and flips the tests to guard non-registration; phase 2 (irreversible code deletion) is parked behind a soak trigger. Grounded in the documented pivot HA-panel->PWA (BACKLOG.md:710) + the React dashboard's never-worked history (DASHBOARD_BACKLOG.md: hakit iframe #304).",
+  "implications": "Shipped DELETE-REACT-DASHBOARDS-1 at v5.100.5; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.5.md (Live criteria).",
+  "revisit_trigger": "HA sidebar no longer shows the two URA React panels (URA / URA Dashboard) after restart; integration setup completes with no 'Failed to register URA Dashboard panel' warnings; URA v8 Lovelace unaffected",
+  "refs": {
+    "cards": [
+      "DELETE-REACT-DASHBOARDS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.5.md"
+    ],
+    "release_notes": "Remove the __init__ panel + static-path registration for both frontend/ (ura-dashboard) and frontend-v3/ (ura-dashboard-v3) React dashboards - they never worked and are superseded by URA v8 Lovelace (PWA is off-repo). Reversible: code retained on disk, only the sidebar registration removed. 5 setup/unload-symmetry tests flipped from panel-registered-and-paired to panels-NOT-registered guards. Phase 2 (delete dirs + deploy.sh frontend line) parked as DELETE-REACT-DASHBOARDS-CODE-2."
+  }
+}

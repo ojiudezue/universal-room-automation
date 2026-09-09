@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-08'
+  last_reconciled: '2026-09-09'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -13972,7 +13972,8 @@ cards:
 - id: DELETE-REACT-DASHBOARDS-1
   title: 'Stop registering the dead React dashboards to the sidebar (phase 1, reversible) — code deleted in phase 2'
   thread: maintenance
-  status: review
+  status: shipped_organic
+  shipped_version: v5.100.5
   created: '2026-09-09 09:10'
   updated: '2026-09-09 09:35'
   refinement_status: refined
