@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T20:02:35-05:00_ - _Data commit: `7e11e5167556`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-08T20:25:06-05:00_ - _Data commit: `57cff557d429`_ - _last_reconciled: 2026-09-08_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-08T20:02:35-05:00_ - _Data commit: `7e11e5167556`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 29 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 6 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 74 |
+| 🚀 Shipped (organic open) | 75 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 26 |
 | ✅ Done | 60 |
 
-## 📥 Inbox (29)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -344,6 +344,15 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build (name gate; must never downgrade an ALERT)
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
+
+### `D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1` - Pre-existing test failure: binary_sensor.py calls iter_canonical_hvac_zones outside the D3 allowlist
+thread: **quality** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-08 20:30 · initial_
+- **Problem / Solution:**
+  - Problem: test_v475_d3_canonical_callers_all_in_allowlist FAILS on clean develop — binary_sensor.py references iter_canonical_hvac_zones but is not in the D3 runtime allowlist. Discovered incidentally during the menu-picker cycle (NOT cau...
+- **Why:** A red guard test on develop erodes the name-diff baseline and hides real regressions.
+- **Next:** Read the binary_sensor.py iter_canonical_hvac_zones call site; classify runtime-vs-should-read-raw; fix allowlist or refactor.
+- **Refs:** quality/tests/test_v475_d3_canonical_runtime_only.py:129
 
 ## 🔬 Investigating (11)
 _measuring; truth not yet known_
@@ -754,21 +763,10 @@ _created 2026-08-26 09:45 · initial_
 - **Tags:** measure-before-build, numbers-get-knobs
 - **Refs:** docs/planning/AUDIT_fan_signature_separability_probe.md (§d GO/NO-GO); presence_fan_recheck.py; fan_recheck_state table; SENSOR-FANINDEP-1 (refuted frame)
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
-thread: **platform** - status: **in_progress** - approval: **explicit**
-_created 2026-09-03 18:05 · refined ×1_
-- **Problem / Solution:**
-  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
-- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
-- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
-- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
-- **Tags:** ux-consistency, tier-2, no-fabrication-verify
-- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
-- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
-- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+_(none)_
 
 ## 🔍 Review (1)
 _under review_
@@ -795,7 +793,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (74)
+## 🚀 Shipped (organic open) (75)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -1013,6 +1011,19 @@ _created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
 - **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
+
+### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
+thread: **platform** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-03 18:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
+- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
+- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
+- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
+- **Tags:** ux-consistency, tier-2, no-fabrication-verify
+- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
+- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
