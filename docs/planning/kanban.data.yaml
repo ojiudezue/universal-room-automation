@@ -13565,7 +13565,7 @@ cards:
   status: investigating
   created: 2026-08-25 22:20
   updated: 2026-08-25 22:20
-  refinement_status: initial
+  refinement_status: refined
   approval: implied
   tags:
   - measure-before-build
@@ -13579,6 +13579,7 @@ cards:
     gist: surfaced disposing HVAC-GOVERNED-EXCURSION-1 via live DB cross-tab
   why: A restore that fails on both signals strands the zone off-preset — the exact harm the primitive
     exists to prevent, just rarer.
+  investigation_2026_09_08: 'CONFIRMED (5 rows now: 4x 08-21 + new zone_3 08-26). Root = Carrier thermostat UNAVAILABLE/UNREADABLE at restore-settle: successful restores (385) all read back a settled preset+mode; the 5 failures do NOT (08-26 explicit mode_settled=unavailable; the four 08-21 have empty settle read-back). Empty preset_before/mode_before is UNIVERSAL (all 385 successes too) so NOT the signature - that hypothesis was falsified. Matches known Carrier cloud staleness/flap (CARRIER-STALE-POLL-REFRESH-1, ARRESTER-CLOUDFLAP-FALSEPOS-1) = DEVICE/CLOUD transient, not a URA logic bug. Rate ~1% (5/469 restore-tracked). No restore-retry exists; zone keeps being managed by subsequent 5-min cycles (not frozen). Recommendation: ACCEPT root (cannot restore a dead device) + cheap DISCHARGE first - a trip-wire anomaly on (restore_ok_immediate=0 AND restore_ok=0) wired to NM so genuine stranding is VISIBLE (currently silent). PARK the retry-on-recovery machinery (new bg task/supersession/restart-safety = risky ingredients) behind the evidence trigger: only build it if the trip-wire shows a zone actually stuck off-preset for >1 cycle.'
   next: SELECT the 4 immediate0/delayed0 rows with full context from ac_ramp_events; classify the failure
     mode; guard or accept.
   refs:

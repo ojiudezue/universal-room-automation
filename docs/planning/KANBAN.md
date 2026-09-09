@@ -491,7 +491,7 @@ _created 2026-08-21 11:40 · initial_
 
 ### `HVAC-GOVERNED-RESTORE-FAIL-TAIL-1` - ~4% of governed-write restores genuinely fail (immediate=0 AND delayed=0) — a small real tail behind HVAC-GOVERNED-EXCURSION-1
 thread: **hvac** - status: **investigating** - approval: **implied**
-_created 2026-08-25 22:20 · initial_
+_created 2026-08-25 22:20 · refined_
 - **Problem / Solution:**
   - Problem: after HVAC-GOVERNED-EXCURSION-1 validated, 4 of ~103 restores show BOTH the instantaneous and delayed restore failing (restore_ok_immediate=0 AND restore_ok=0) — a genuine ~4% restore-failure tail, distinct from the 24 benign de...
 - **Origin:** 2026-08-25 - surfaced disposing HVAC-GOVERNED-EXCURSION-1 via live DB cross-tab
@@ -499,6 +499,8 @@ _created 2026-08-25 22:20 · initial_
 - **Next:** SELECT the 4 immediate0/delayed0 rows with full context from ac_ramp_events; classify the failure mode; guard or accept.
 - **Tags:** measure-before-build
 - **Refs:** HVAC-GOVERNED-EXCURSION-1; ac_ramp_events
+- **Forensic keys (1):**
+  - `investigation_2026_09_08`: CONFIRMED (5 rows now: 4x 08-21 + new zone_3 08-26). Root = Carrier thermostat UNAVAILABLE/UNREADABLE at restore-settle: successful restores (385) all read back a settled preset+mode; the 5 failures do NOT (08-26 explicit mode_settled=un...
 
 ## 🧭 Pre-planning (13)
 _idea being decomposed_
