@@ -14052,7 +14052,8 @@ cards:
 - id: D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1
   title: 'Pre-existing test failure: binary_sensor.py calls iter_canonical_hvac_zones outside the D3 allowlist'
   thread: quality
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE: shipped v5.100.8; test_v475_d3_canonical_runtime_only green (runtime-legit iter_canonical_hvac_zones caller allowlisted, guard teeth verified pre-deploy). No live ambiguity.'
   shipped_version: v5.100.8
   created: '2026-09-08 20:30'
   updated: '2026-09-08 20:30'
@@ -14136,7 +14137,8 @@ cards:
 - id: ROOM-ZONE-FIELD-NO-SYNC-1
   title: 'Room Setup "Zone" field does not add the room to that zone — new rooms must be manually added in the Zone dialog'
   thread: config
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE — v5.100.8 LIVE-VALIDATED. ZM zones[z].zone_rooms populated with room ENTRY_IDs (not names): Back Hallway 15 / Master Suite 9 / Upstairs 14 / Entertainment 2 / Outside 1 = exactly 41, matching all 41 rooms with a CONF_ZONE, each in exactly one zone. (My initial soak-sweep probe FALSE-ALARMED twice by checking room NAMES against a UUID list + wrong top-level key; config_entries mtime 6min fresh, not stale.) Boot-reconcile _sync_room_zone_to_zm backfills correctly. README v5.100.8 validation satisfied by this check.'
   shipped_version: v5.100.8
   created: '2026-09-09 19:00'
   updated: '2026-09-09 19:00'

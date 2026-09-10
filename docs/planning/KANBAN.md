@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T00:46:39-05:00_ - _Data commit: `c69ddf633d3d`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T00:51:43-05:00_ - _Data commit: `1dae6a0269c8`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,11 +17,11 @@ _Generated: 2026-09-10T00:46:39-05:00_ - _Data commit: `c69ddf633d3d`_ - _last_r
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 71 |
+| 🚀 Shipped (organic open) | 69 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 29 |
-| ✅ Done | 72 |
+| ✅ Done | 74 |
 
 ## 📥 Inbox (28)
 _raw capture_
@@ -745,7 +745,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (71)
+## 🚀 Shipped (organic open) (69)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -1826,15 +1826,6 @@ _created 2026-08-29 20:30 · initial_
 - **Forensic keys (1):**
   - `priority`: high
 
-### `D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1` - Pre-existing test failure: binary_sensor.py calls iter_canonical_hvac_zones outside the D3 allowlist
-thread: **quality** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-09-08 20:30 · initial_
-- **Problem / Solution:**
-  - Problem: test_v475_d3_canonical_callers_all_in_allowlist FAILS on clean develop — binary_sensor.py references iter_canonical_hvac_zones but is not in the D3 runtime allowlist. Discovered incidentally during the menu-picker cycle (NOT cau...
-- **Why:** A red guard test on develop erodes the name-diff baseline and hides real regressions.
-- **Next:** Read the binary_sensor.py iter_canonical_hvac_zones call site; classify runtime-vs-should-read-raw; fix allowlist or refactor.
-- **Refs:** quality/tests/test_v475_d3_canonical_runtime_only.py:129
-
 ### `DELETE-REACT-DASHBOARDS-1` - Stop registering the dead React dashboards to the sidebar (phase 1, reversible) — code deleted in phase 2
 thread: **maintenance** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
@@ -1845,18 +1836,6 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
 - **Refs:** custom_components/universal_room_automation/__init__.py:4131 (panel_custom + StaticPathConfig frontend); custom_components/universal_room_automation/__init__.py:4183 (frontend-v3)
 - **Forensic keys (1):**
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
-
-### `ROOM-ZONE-FIELD-NO-SYNC-1` - Room Setup "Zone" field does not add the room to that zone — new rooms must be manually added in the Zone dialog
-thread: **config** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-09 19:00 · initial_
-- **Problem / Solution:**
-  - Problem: when you set a room's Zone in Room Setup (e.g. Guest Bedroom 2 -> "Upstairs"), the room is NOT added to that zone's member list — you have to open the Zone Configuration dialog and add it by hand. Operator hit this on newly-crea...
-- **Why:** Two independent stores for the same fact (room.CONF_ZONE vs zone.CONF_ZONE_ROOMS) drift; the operator expects the room Zone field to be authoritative but it is inert for membership.
-- **Next:** FOLLOW-UP after current work set. Decide authority: (A) room.CONF_ZONE is authoritative -> on room save, upsert into the zone CONF_ZONE_ROOMS + remove from prior zone (+ backfill existing drift); or (B) make room setup write directly to ...
-- **Refs:** config_flow.py:900 (room save CONF_ZONE); config_flow.py:915/:980 (zone CONF_ZONE_ROOMS); {'config_flow.py:486 (design note': 'zone_rooms is per-house-zone)'}
-- **Forensic keys (2):**
-  - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
-  - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
 
 ## ⏸️ Waiting on operator (9)
 _needs a human call_
@@ -2363,7 +2342,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (72)
+## ✅ Done (74)
 _closed, evidence in refs_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -3295,6 +3274,17 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:40 · refined_
   - `forensic_fix`: energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class, ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max the decision + the c...
   - `DEDUPE_2026_08_25`: DUPLICATE of PLANNING_offpeak_drain_target_day_staleness.md D3/H-1, which already routes _next_action_estimate through _drain_target_for and has test_next_action_estimate_uses_shared_helper(). Not a new fix — folded into the midnight cyc...
 
+### `D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1` - Pre-existing test failure: binary_sensor.py calls iter_canonical_hvac_zones outside the D3 allowlist
+thread: **quality** - status: **done** - approval: **unreviewed**
+_created 2026-09-08 20:30 · initial_
+- **Problem / Solution:**
+  - Problem: test_v475_d3_canonical_callers_all_in_allowlist FAILS on clean develop — binary_sensor.py references iter_canonical_hvac_zones but is not in the D3 runtime allowlist. Discovered incidentally during the menu-picker cycle (NOT cau...
+- **Why:** A red guard test on develop erodes the name-diff baseline and hides real regressions.
+- **Next:** Read the binary_sensor.py iter_canonical_hvac_zones call site; classify runtime-vs-should-read-raw; fix allowlist or refactor.
+- **Refs:** quality/tests/test_v475_d3_canonical_runtime_only.py:129
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE: shipped v5.100.8; test_v475_d3_canonical_runtime_only green (runtime-legit iter_canonical_hvac_zones caller allowlisted, guard teeth verified pre-deploy). No live ambiguity.
+
 ### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
 thread: **dashboarding** - status: **done** - approval: **implied**
 _created 2026-09-09 09:10 · updated 2026-09-09 23:45 · initial_
@@ -3311,6 +3301,19 @@ _created 2026-09-09 09:10 · updated 2026-09-09 23:45 · initial_
   - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
   - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
   - `operator_confirmed`: Operator 2026-09-09: Lovelace is fine. 42 rooms zone-grouped, generator shipped. DONE.
+
+### `ROOM-ZONE-FIELD-NO-SYNC-1` - Room Setup "Zone" field does not add the room to that zone — new rooms must be manually added in the Zone dialog
+thread: **config** - status: **done** - approval: **implied**
+_created 2026-09-09 19:00 · initial_
+- **Problem / Solution:**
+  - Problem: when you set a room's Zone in Room Setup (e.g. Guest Bedroom 2 -> "Upstairs"), the room is NOT added to that zone's member list — you have to open the Zone Configuration dialog and add it by hand. Operator hit this on newly-crea...
+- **Why:** Two independent stores for the same fact (room.CONF_ZONE vs zone.CONF_ZONE_ROOMS) drift; the operator expects the room Zone field to be authoritative but it is inert for membership.
+- **Next:** FOLLOW-UP after current work set. Decide authority: (A) room.CONF_ZONE is authoritative -> on room save, upsert into the zone CONF_ZONE_ROOMS + remove from prior zone (+ backfill existing drift); or (B) make room setup write directly to ...
+- **Refs:** config_flow.py:900 (room save CONF_ZONE); config_flow.py:915/:980 (zone CONF_ZONE_ROOMS); {'config_flow.py:486 (design note': 'zone_rooms is per-house-zone)'}
+- **Forensic keys (3):**
+  - `disposition_2026_09_10`: DONE — v5.100.8 LIVE-VALIDATED. ZM zones[z].zone_rooms populated with room ENTRY_IDs (not names): Back Hallway 15 / Master Suite 9 / Upstairs 14 / Entertainment 2 / Outside 1 = exactly 41, matching all 41 rooms with a CONF_ZONE, each in ...
+  - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
+  - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
 
 ### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
 thread: **dashboarding** - status: **done** - approval: **unreviewed**
