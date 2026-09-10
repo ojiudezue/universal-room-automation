@@ -738,13 +738,15 @@ cards:
   overlay_architecture_2026_09_09: 'OPERATOR REFINEMENT (de-risks the whole thing): do the shortfall sizing as a THIN OVERLAY that does NOT modify the core attain machinery. Attain keeps emitting reserve=80 + CFG exactly as today (so discharge floor stays 80 -> NO morning drain = dissolves P1; and its SOC-keyed latch/phase-exit logic is UNCHANGED = dissolves P2). The overlay only CAPS how much grid is pulled by setting the Enphase battery_schedule_limit = clamp(peak_buffer_target - credited_solar_before_boundary, safety_floor, peak_buffer_target); solar tops the rest to 80. grid_target = that clamp (my earlier articulation, which the operator confirmed as the starting point). CONTINGENT on the running verification (does schedule_limit cap grid-charge while reserve holds the floor + backend honors it). If yes: this avoids touching energy_battery.py attain internals almost entirely -> much lower Tier risk. Plan-review findings still relevant to the OVERLAY: P3 rate-feasibility over-credit guard, P6 quantization/ratchet on schedule_limit writes, P8 attribute/reason honesty, P10 probe sets the sizing credit factor.'
   decision_2026_09_09_final: 'VERIFIED schedule-limit NOT supported on this site (dead). Operator chose CFG ON/OFF MODULATION: reserve stays at peak_buffer_target (floor, P1 safe), turn charge_from_grid OFF when forecast solar can finish to target by boundary (rate-feasibility guarded), back ON if solar disappoints; SOC climbs via solar so latch exit unchanged (P2 safe). TARGET-GENERIC: peak_buffer_target is a config VARIABLE (works at 60/80/any pack size) — never hardcode 80, always read self._peak_buffer_target. Next: plan-review the revised approach (Tier-3), then operator checkpoint, then build.'
   target_latch_2026_09_09: 'CONSTRAINT (operator): snapshot peak_buffer_target at morning attain-START, hold immutable intra-day (ignore live config changes mid-ramp), adopt a change the NEXT day. CFG-modulation reads the snapshot, not live config -> no intra-day target seam.'
-  next: 'Plan-review the CFG-modulation approach (2 framing-disjoint: completeness + adversarial), fold findings, operator checkpoint, then Tier-3 build.'
+  plan_review_adversarial_2026_09_09: 'PLAN-FIX-REQUIRED. CFG-modulation collides with 3 attain mechanisms built on attain=>CFG-ON: P1 CRIT M5 drift policy (energy_battery.py:4712-4735) treats our commanded CFG-OFF as operator-override -> attain self-aborts + chunk-locks (re-opens v5.3.8). P2 CRIT reboot adoption keyed on cfg==ON (:4330) -> deliberate-OFF un-adoptable. P3 CRIT (GATE) physical assumption unverified: does solar charge SOC ABOVE the reserve setpoint while CFG off? If NO, SOC stalls at reserve = worse than today. P4-P8: hysteresis/dwell/ratchet + 35min actuation lag unspecified; snapshot must replace ALL 44 peak_buffer_target reads not just one (split-brain); boot-race seam; CHARGE-with-CFG-false is a new state (reason string lies, chunk_completed); T-15 handoff cannot be the recovery deadline (add actuation lag). Plan needs mandatory sections + combinatorial acceptance. GATE: run the P3 recorder probe FIRST; cycle is dead if P3 fails.'
+  plan_review_completeness_2026_09_09: 'PLAN-FIX-REQUIRED + a decisive discovery. C-8 (CRITICAL): the plan REBUILDS existing logic — _classify_attain_rung rung_0 (energy_battery.py:2795-2960) ALREADY implements wait-for-solar (solar-alone projects SOC>=target+hysteresis -> do not pull grid) WITH symmetric no-flap hysteresis, a COUNTERFACTUAL exit (solves the self-referential-rate trap), solar-bounded extrapolation, latches. rung_0 gates the ARBITRAGE branch, but the ATTAIN branch runs anyway as the realized-divergence SAFETY NET (:3172-3173) — so the waste is the attain safety-net OVERRIDING rung_0. The real minimal lever is that override, not new CFG machinery. C-4 (CRITICAL): the ~35-min CFG actuation lag (:261-263) makes tick-level on/off modulation physically INFEASIBLE (5-min cadence, 15-min handoff < 35-min lag -> cannot come back on in time). Plus C-2/P3 (physical assumption unverified, no in-repo codicil), C-5/P1 (M5 drift self-abort re-opens v5.3.8), C-6 (reboot adoption), C-7 (44-read split-brain). VERDICT: CFG-modulation is NOT viable as scoped (actuation-lag-infeasible + drift self-abort + rebuilds rung_0).'
+  next: 'RECOMMEND to operator: do NOT build CFG-modulation (C-4 actuation lag makes it infeasible; C-5 re-opens v5.3.8; C-8 duplicates rung_0). The real lead is C-8: rung_0 already knows solar suffices, but the attain safety-net overrides it. Minimal read-only investigation = why/when the attain safety-net overrides a confident rung_0, gated on the P3 probe (does solar charge above reserve setpoint). If P3 fails OR the override is load-bearing -> PARK. Await operator direction.'
   refs: ['docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check)', 'energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
 
 - id: URA-INTEGRATION-ARRANGEMENT-1
   title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
   thread: device-tree
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.0
   created: 2026-09-06 17:30
   updated: 2026-09-06 18:30
@@ -787,6 +789,7 @@ cards:
   - 'operator laid out the target tree + 4 problems 2026-09-06; iterating to clarity before planning (the Rooms parent node is the biggest new element).'
   knobs: []
   parsimony: {problem: 'device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu', verdict: BUILD}
+  sweep_2026_09_09: 'DONE (umbrella) — Rooms-node House>Rooms>Room arrangement shipped+validated v5.100.0 (L2/L3 PASS). The reload-outage root (integration entry overloaded) is the SEPARATE Tier-3 subentries migration tracked as CONFIG-SUBENTRIES-MIGRATION-1 (parked, operator-gated). Umbrella closed; residual carded.'
   next: 'DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall = singleton-teardown-under-live-children + 80-entity re-add + secondary child exception-storm (NOT a 40-child cascade — folklore corrected). Option B (hand off the House device) MOVES the cheap part, does NOT fix (cost is the singleton bootstrap). Fix path: extend Option A allowlist (camera/census/perimeter family, cheap) NOW; the structural fix = decouple config-surface from singleton bootstrap (C/D, Tier-3) is GATED on a live stall-attribution probe first (measure-before-build: 80-entity re-add vs singleton rebuild vs child-storm — fix differs per cause). Then plan the via_device Rooms re-nest (clean) + sweep-counter fix (load-bearing for it) + menu harmonization.'
   child_cards: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, CM-CONFIG-FLOW-UX-1]
   refs: ['docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', '_devices.py', 'config_flow.py/options_flow.py', 'memory parent_entry_reload_watchdog_hazard', 'memory reload_suppression_cycle']
@@ -794,7 +797,7 @@ cards:
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
@@ -821,6 +824,7 @@ cards:
   parked_alts: []
   knobs: []
   parsimony: {problem: 'sweep counter is a lifetime latch -> late devices unparented until restart', verdict: BUILD}
+  sweep_2026_09_09: 'DONE — shipped v5.100.0, sweep re-arm validated in README_v5.100.0 L3 (no permanent INV-4 trip-wire; rooms nested).'
   next: 'Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.'
   refs: ['_devices.py:509-519 (schedule cap)', '_devices.py:586-590 (success branch)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', 'card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)']
 - id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
@@ -6593,7 +6597,7 @@ cards:
 - id: KHOST-2
   title: Operator disposition buttons + drag-between-states on the hosted board
   thread: tooling
-  status: shipped_organic
+  status: parked
   shipped_note: 'Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site;
     queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API
     round-trip. Organic proof: first real operator disposition flowing through to kanban.data.yaml.'
@@ -6607,6 +6611,7 @@ cards:
     at session start (agent-in-loop, no unattended repo writer).'
   constraints: LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source
     of truth stays kanban.data.yaml; the queue is pending-intent, not state.
+  sweep_2026_09_09: 'RE-LANED out of shipped_organic (was never shipped — un-watchable). Parked: needs the webhost micro-API + board JS build; no URA HA oracle. Revive when board JS is deployed.'
   next: 'UN-WATCHABLE (not shipped): Build the webhost micro-API + JS drag/button interactions. No URA
     HA oracle for this feature. Recover as shipped when board JS is deployed.'
   shipped_version: board-tooling-not-yet-shipped
@@ -9265,7 +9270,7 @@ cards:
 - id: TRANSIT-1
   title: Interior traversal — Protect-sourced checkpoints via resolver
   thread: presence
-  status: shipped_organic
+  status: planned
   batch: resolver-correctness
   seq: 3
   approval: explicit
@@ -9357,6 +9362,7 @@ cards:
     verdict: BUILD
     note: Protect-sourced resolver inventory fixes all 5 + prevents recurrence - the area work was the
       prerequisite
+  sweep_2026_09_09: 'RE-LANED out of shipped_organic (not shipped — it is a BUILD task: resolver enumerates Protect checkpoint cameras by area, transit consumes that). Moved to planned.'
   next: build - resolver enumerates checkpoint cameras from Protect, attributes each by area, transit
     consumes that instead of camera_person_entities
   refs:
@@ -13015,7 +13021,8 @@ cards:
 - id: FROZEN-POWER-READ-STALENESS-CLASS-1
   title: 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.100.7
   created: 2026-08-31 20:45
   updated: 2026-08-31 20:45
   refinement_status: initial
@@ -13093,7 +13100,8 @@ cards:
   title: No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity
     and oscillate EV pause/resume; the parked fix's trigger has now fired
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.100.7
   created: 2026-08-24 16:45
   updated: 2026-08-24 16:45
   refinement_status: initial
@@ -13188,7 +13196,7 @@ cards:
   title: 'Enrich v6+v8 dashboards: Solar-Aware EV panel + v8 House Census (counts + per-person path &
     predicted next room)'
   thread: dashboarding
-  status: shipped_organic
+  status: done
   created: 2026-08-24 17:10
   updated: 2026-08-24 17:10
   refinement_status: initial
@@ -13212,6 +13220,7 @@ cards:
   constraints:
   - Applied via ha_config_set_dashboard python_transform, NOT a .storage hand-edit.
   - Markdown cards carry explicit entity_id watch-lists (Jinja-variable entities are not auto-detected).
+  sweep_2026_09_09: 'DONE (primary: v6+v8 solar-aware EV + census cards shipped). Residual (add solar_follow_* attrs) DEPENDS on EVSE-SOLAR-FOLLOW-AMPS-1 shipping — tracked there, not a soak of this card. met-with-residual close.'
   next: When EVSE-SOLAR-FOLLOW-AMPS-1 ships, add its amp-modulation attributes (solar_follow_surplus_kw,
     solar_follow_state, solar_follow_original_amps, solar_follow_blind_since) to the Solar-Aware EV card.
   links:

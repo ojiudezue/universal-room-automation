@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T20:53:55-05:00_ - _Data commit: `d490f8121af7`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T23:08:07-05:00_ - _Data commit: `4fefe75a2346`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,11 +17,11 @@ _Generated: 2026-09-09T20:53:55-05:00_ - _Data commit: `d490f8121af7`_ - _last_r
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 3 |
-| 🚀 Shipped (organic open) | 77 |
+| 🚀 Shipped (organic open) | 73 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 28 |
-| ✅ Done | 60 |
+| 🅿️ Parked | 29 |
+| ✅ Done | 63 |
 
 ## 📥 Inbox (32)
 _raw capture_
@@ -412,11 +412,11 @@ _created 2026-09-06 18:00 · initial_
   - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
 - **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
 - **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
-- **Next:** Plan-review the CFG-modulation approach (2 framing-disjoint: completeness + adversarial), fold findings, operator checkpoint, then Tier-3 build.
+- **Next:** RECOMMEND to operator: do NOT build CFG-modulation (C-4 actuation lag makes it infeasible; C-5 re-opens v5.3.8; C-8 duplicates rung_0). The real lead is C-8: rung_0 already knows solar suffices, but the attain safety-net overrides it. Mi...
 - **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
 - **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
 - **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
-- **Forensic keys (11):**
+- **Forensic keys (13):**
   - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
   - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
   - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
@@ -428,6 +428,8 @@ _created 2026-09-06 18:00 · initial_
   - `overlay_architecture_2026_09_09`: OPERATOR REFINEMENT (de-risks the whole thing): do the shortfall sizing as a THIN OVERLAY that does NOT modify the core attain machinery. Attain keeps emitting reserve=80 + CFG exactly as today (so discharge floor stays 80 -> NO morning ...
   - `decision_2026_09_09_final`: VERIFIED schedule-limit NOT supported on this site (dead). Operator chose CFG ON/OFF MODULATION: reserve stays at peak_buffer_target (floor, P1 safe), turn charge_from_grid OFF when forecast solar can finish to target by boundary (rate-f...
   - `target_latch_2026_09_09`: CONSTRAINT (operator): snapshot peak_buffer_target at morning attain-START, hold immutable intra-day (ignore live config changes mid-ramp), adopt a change the NEXT day. CFG-modulation reads the snapshot, not live config -> no intra-day t...
+  - `plan_review_adversarial_2026_09_09`: PLAN-FIX-REQUIRED. CFG-modulation collides with 3 attain mechanisms built on attain=>CFG-ON: P1 CRIT M5 drift policy (energy_battery.py:4712-4735) treats our commanded CFG-OFF as operator-override -> attain self-aborts + chunk-locks (re-...
+  - `plan_review_completeness_2026_09_09`: PLAN-FIX-REQUIRED + a decisive discovery. C-8 (CRITICAL): the plan REBUILDS existing logic — _classify_attain_rung rung_0 (energy_battery.py:2795-2960) ALREADY implements wait-for-solar (solar-alone projects SOC>=target+hysteresis -> do ...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -663,28 +665,6 @@ _refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `CARRIER-STALE-POLL-REFRESH-1` - ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
-thread: **hvac** - status: **planned** - approval: **unreviewed**
-_created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
-- **Next:** Probe C RELAUNCHED 2026-08-23 (6h horizon, file-backed, fires on first episode). On fire, run update_entity then re-read, then reload then re-read, live while the episode is open. Then choose among (a) periodic update_entity if it works;...
-- **Tags:** third-party-defect, operator-requested, probe-pending
-- **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
-- **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
-- **Forensic keys (13):**
-  - `REMEDIATION_RUN_2026_08_24`: Operator granted permission for the full remediation sequence incl the reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py, pid 29697, 6h window, exits on first confirmed episode); th...
-  - `PROBE_C_RESULT_2026_08_24_CONFIRMED`: The detached blind-episode detector FIRED and exited on the first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle, blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20....
-  - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
-  - `THE_DEFECT_MEASURED`: ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an independent implementation: 12.2% / 7.1% / 12.9% of high-draw time ...
-  - `WHY_update_entity_IS_UNLIKELY_TO_WORK`: The mechanism EXISTS — ha_carrier entities are CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() -> coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and DEFAULT_UPDATE_...
-  - `PROBE_C_STILL_WORTH_RUNNING`: A blind-episode detector is running (polls all three zones every 40s, requires 3 consecutive blind reads). When it fires: capture state, call homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE ep...
-  - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
-  - `PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23`: Card said "detector running" -- it was NOT. The 08-22 15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not survive the session. So it expired ~15:57 on 08-22 having produced NO recorded...
-  - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
-  - `dedupe_2026_09_09`: CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase...
-  - `plan_doc`: docs/planning/PLANNING_carrier_stale_reload.md (ura-planner 2026-09-09) — Tier 2-DB; D0 probe recommended; 3 open operator questions
-  - `resolutions_2026_09_09`: Operator resolved plan questions: skip D0 probe (enough probing, reload known to work); SPAN kW verified present; per-entry lock; reloads/day=4 (hitting cap => trip-wire escalates, not a 5th reload); observability = diagnostic freshness ...
-  - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
-
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-08-18 10:05_
@@ -697,6 +677,25 @@ _updated 2026-08-18 10:05_
 - **Forensic keys (2):**
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `TRANSIT-1` - Interior traversal — Protect-sourced checkpoints via resolver
+thread: **presence** - status: **planned** - approval: **explicit**
+_updated 2026-08-23 14:30 · refined ×2_
+- **Origin:** 2026-08-07 - we built exterior tracking inspired by interior census/known-persons traversal - find it; can resolver improve it
+- **Why:** transit_validator checkpoints fire from ~one integration; multi-engine legs = denser/earlier checkpoints = more path_confirmed
+- **Next:** build - resolver enumerates checkpoint cameras from Protect, attributes each by area, transit consumes that instead of camera_person_entities
+- **Tags:** institutional-context, tier-2db, hand-build-fixture, numbers-get-knobs
+- **Parsimony:** [BUILD] 4 of 5 traversal checkpoints produce no usable room signal; hand-list drifts
+- **Refs:** transit_validator.py; config_flow.py async_step_camera_census
+- **Forensic keys (8):**
+  - `plan`: docs/planning/PLANNING_transit_protect_sourced_checkpoints.md
+  - `progress`: 2026-08-07: INTERIM - all 5 checkpoints now wired in camera_person_entities (operator added upstairs_hall + stairs_top via Camera Census UI; count 9->11; both area-map correctly). NOTE stairs uses Frigate F2 entity (stairs_top_2) not Pro...
+  - `review_findings`: A-CRIT-1 (Review A): Protect-sourced entities are subscribed + sightings recorded, but validate_transition filters via _get_shared_space_cameras() = hand-list ONLY -> the superset coverage is recorded then DISCARDED at the decision point...
+  - `findings`: OPERATOR: it's 5 cameras. By the real bar (produces a room-attributed signal transit can use) only garage_hallway works. master_hallway + entry(foyer) are in camera_person_entities but have NO fused sensor; upstairs_hallway + stairs aren...
+  - `sweep_2026_09_09`: RE-LANED out of shipped_organic (not shipped — it is a BUILD task: resolver enumerates Protect checkpoint cameras by area, transit consumes that). Moved to planned.
+  - `organic_open`: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated inflation vs prior day
+  - `followups`: expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build scoped it out)
+  - `organic_evidence`: 2026-08-23 watch-pass: build not shipped (next says "build - resolver enumerates checkpoint cameras"). shipped_version recovered as not-shipped. UN-WATCHABLE.
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed
 thread: **quality** - status: **planned** - approval: **explicit**
@@ -840,7 +839,7 @@ _created 2026-08-24 16:45 · initial_
   - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
   - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
 
-## 🚀 Shipped (organic open) (77)
+## 🚀 Shipped (organic open) (73)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -933,33 +932,6 @@ _created 2026-09-06 16:10 · initial_
 - **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
 - **Parsimony:** [BUILD] CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk
 - **Refs:** config_flow.py / options_flow.py (CM options steps); operator screenshots 2026-09-06; project_sequence_wishes_2026_09_05 (step 5)
-
-### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
-thread: **device-tree** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
-- **Problem / Solution:**
-  - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
-- **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
-- **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
-- **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
-- **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
-- **Refs:** docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard (+1 more)
-- **Forensic keys (3):**
-  - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
-  - `target_operator_representation`: House
-  - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
-
-### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
-thread: **device-tree** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-09-05 17:05 · initial_
-- **Problem / Solution:**
-  - Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is incremented but NEVER reset (_devices.py:519). On...
-- **Origin:** 2026-09-05 - device-linker audit vs this-session bug classes (operator "improve URA overall")
-- **Why:** Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree, restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.
-- **Next:** Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.
-- **Tags:** device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify
-- **Parsimony:** [BUILD] sweep counter is a lifetime latch -> late devices unparented until restart
-- **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
 
 ### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
 thread: **device-tree** - status: **shipped_organic** - approval: **unreviewed**
@@ -1344,6 +1316,28 @@ _updated 2026-08-20 20:30_
   - `why_it_matters`: NOT just log spam — that was my first read and it was wrong. This is silent coverage loss on the entry path that matters most. Two of five egress cameras resolve to nothing, so Garage A and Garage B feed ZERO person-detection binary sens...
   - `DECISION_2026_08_20_RIDE_NEXT_DEPLOY`: OPERATOR: "Egress cameras. Ride the next deploy." ACCEPTED, and it is the right call for a reason I got wrong first time. I had recommended fixing it tonight via the options flow as a no-deploy change. THAT ADVICE WAS UNSAFE AND IS WITHD...
 
+### `CARRIER-STALE-POLL-REFRESH-1` - ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
+thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
+- **Next:** Probe C RELAUNCHED 2026-08-23 (6h horizon, file-backed, fires on first episode). On fire, run update_entity then re-read, then reload then re-read, live while the episode is open. Then choose among (a) periodic update_entity if it works;...
+- **Tags:** third-party-defect, operator-requested, probe-pending
+- **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
+- **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
+- **Forensic keys (13):**
+  - `REMEDIATION_RUN_2026_08_24`: Operator granted permission for the full remediation sequence incl the reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py, pid 29697, 6h window, exits on first confirmed episode); th...
+  - `PROBE_C_RESULT_2026_08_24_CONFIRMED`: The detached blind-episode detector FIRED and exited on the first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle, blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20....
+  - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
+  - `THE_DEFECT_MEASURED`: ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an independent implementation: 12.2% / 7.1% / 12.9% of high-draw time ...
+  - `WHY_update_entity_IS_UNLIKELY_TO_WORK`: The mechanism EXISTS — ha_carrier entities are CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() -> coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and DEFAULT_UPDATE_...
+  - `PROBE_C_STILL_WORTH_RUNNING`: A blind-episode detector is running (polls all three zones every 40s, requires 3 consecutive blind reads). When it fires: capture state, call homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE ep...
+  - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
+  - `PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23`: Card said "detector running" -- it was NOT. The 08-22 15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not survive the session. So it expired ~15:57 on 08-22 having produced NO recorded...
+  - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
+  - `dedupe_2026_09_09`: CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase...
+  - `plan_doc`: docs/planning/PLANNING_carrier_stale_reload.md (ura-planner 2026-09-09) — Tier 2-DB; D0 probe recommended; 3 open operator questions
+  - `resolutions_2026_09_09`: Operator resolved plan questions: skip D0 probe (enough probing, reload known to work); SPAN kW verified present; per-entry lock; reloads/day=4 (hitting cap => trip-wire escalates, not a 5th reload); observability = diagnostic freshness ...
+  - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+
 ### `RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1` - Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a power-based feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW.
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-22 14:05 · updated 2026-08-23 14:30 · initial_
@@ -1460,16 +1454,6 @@ _created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
 - **Forensic keys (2):**
   - `audit_result`: AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms: Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1), Garage Hallway, Master Bedroom. 15 rooms dual-list (ri...
   - `operator_intent_question`: Design intent for the under-cabinet night light: (A) off on VACANCY like a dim regular light, or (B) stay on through the night and off at WAKE/dark->bright? Determines which off-trigger to add. NEEDS OPERATOR.
-
-### `KHOST-2` - Operator disposition buttons + drag-between-states on the hosted board
-thread: **tooling** - status: **shipped_organic** - approval: **approved**
-_updated 2026-08-23 14:30_
-- **Origin:** 2026-08-11 - operator: "We have to add operator disposition buttons so the operator can communicate through the board. drag btw states | done | deferred | declined"
-- **Why:** Board is currently read-only reflection; operator decisions still have to travel through chat. Dispositions through the board close the loop: tap/drag → queued → agent applies to kanban.data.yaml at session start (agent-in-loop, no unatt...
-- **Next:** UN-WATCHABLE (not shipped): Build the webhost micro-API + JS drag/button interactions. No URA HA oracle for this feature. Recover as shipped when board JS is deployed.
-- **Forensic keys (2):**
-  - `shipped_note`: Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator dispo...
-  - `organic_evidence`: 2026-08-23 watch-pass: disposition buttons + drag-between-states JS micro-API not yet shipped (next field says "Build: webhost micro-API"). shipped_version recovered as board-tooling-not-yet-shipped. No HA oracle. UN-WATCHABLE until buil...
 
 ### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
 thread: **notifications** - status: **shipped_organic** - approval: **approved**
@@ -1674,24 +1658,6 @@ thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
   - `rulings`: Option C surfacing (= A enhanced)
   - `plan_state`: rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); buil...
 
-### `TRANSIT-1` - Interior traversal — Protect-sourced checkpoints via resolver
-thread: **presence** - status: **shipped_organic** - approval: **explicit**
-_updated 2026-08-23 14:30 · refined ×2_
-- **Origin:** 2026-08-07 - we built exterior tracking inspired by interior census/known-persons traversal - find it; can resolver improve it
-- **Why:** transit_validator checkpoints fire from ~one integration; multi-engine legs = denser/earlier checkpoints = more path_confirmed
-- **Next:** build - resolver enumerates checkpoint cameras from Protect, attributes each by area, transit consumes that instead of camera_person_entities
-- **Tags:** institutional-context, tier-2db, hand-build-fixture, numbers-get-knobs
-- **Parsimony:** [BUILD] 4 of 5 traversal checkpoints produce no usable room signal; hand-list drifts
-- **Refs:** transit_validator.py; config_flow.py async_step_camera_census
-- **Forensic keys (7):**
-  - `plan`: docs/planning/PLANNING_transit_protect_sourced_checkpoints.md
-  - `progress`: 2026-08-07: INTERIM - all 5 checkpoints now wired in camera_person_entities (operator added upstairs_hall + stairs_top via Camera Census UI; count 9->11; both area-map correctly). NOTE stairs uses Frigate F2 entity (stairs_top_2) not Pro...
-  - `review_findings`: A-CRIT-1 (Review A): Protect-sourced entities are subscribed + sightings recorded, but validate_transition filters via _get_shared_space_cameras() = hand-list ONLY -> the superset coverage is recorded then DISCARDED at the decision point...
-  - `findings`: OPERATOR: it's 5 cameras. By the real bar (produces a room-attributed signal transit can use) only garage_hallway works. master_hallway + entry(foyer) are in camera_person_entities but have NO fused sensor; upstairs_hallway + stairs aren...
-  - `organic_open`: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated inflation vs prior day
-  - `followups`: expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build scoped it out)
-  - `organic_evidence`: 2026-08-23 watch-pass: build not shipped (next says "build - resolver enumerates checkpoint cameras"). shipped_version recovered as not-shipped. UN-WATCHABLE.
-
 ### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
 thread: **lifecycle** - status: **shipped_organic** - approval: **explicit**
 - **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
@@ -1863,19 +1829,6 @@ _created 2026-08-24 16:45 · initial_
   - `links`: sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
   - `BUILT_2026_08_25`: BUILT on branch feature/dp-verypoor-drain-validator @ 87e047ac (off develop). Surgical: energy.py 1-line (add very_poor to the accepted-qualities set at set_offpeak_drain) + 75-line test test_dp_verypoor_drain_validator.py. Reported 114 ...
   - `RIDE_ALONG_2026_08_26`: Operator confirmed it must not drop. RIDING the ARBITRAGE-GATE-D2-OFFBYONE-1 ship (same energy.py surface) — merges + deploys together. Re-verify clean merge + tests at deploy.
-
-### `DASH-SOLAR-EV-CENSUS-1` - Enrich v6+v8 dashboards: Solar-Aware EV panel + v8 House Census (counts + per-person path & predicted next room)
-thread: **dashboarding** - status: **shipped_organic** - approval: **explicit**
-_created 2026-08-24 17:10 · initial_
-- **Problem / Solution:**
-  - Problem: the EV panels on the v6 and v8 dashboards did not show the solar-aware charging picture (is there surplus, is the car charging on it, what will the battery drain to, when does fill- priority release), and the v8 People tab had n...
-- **Origin:** 2026-08-24 - operator push to enrich EVSE panels (v6+v8) and add census to v8
-- **Why:** Surfaces already-shipped solar-aware + census producers the dashboards were not consuming.
-- **Next:** When EVSE-SOLAR-FOLLOW-AMPS-1 ships, add its amp-modulation attributes (solar_follow_surplus_kw, solar_follow_state, solar_follow_original_amps, solar_follow_blind_since) to the Solar-Aware EV card.
-- **Tags:** no-fabrication-verify
-- **Refs:** docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md; docs/dashboards/ura_v8_energy_ev_detail_card.md
-- **Forensic keys (1):**
-  - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
 
 ### `DRAIN-TARGET-DAY-STALENESS-1` - Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
@@ -2127,7 +2080,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (28)
+## 🅿️ Parked (29)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -2266,6 +2219,17 @@ _updated 2026-08-20 18:10 · refined_
   - `my_process_failure`: I proposed three mechanisms in sequence from snapshots — "URA says home, device says away", then "the 120-min cap fired", then "it is coast" — and each fit the instant I was looking at and died on the next fact. The history query I ran F...
   - `DEDUPE_2026_08_09`: Four-surface sweep: P1P3 is the PARENT (closed, spawned this). STUCK-SENSOR-1 is a different flap (mmWave sensor stuck, not HVAC preset) — no merge. ARREST-SUNSET-1 shipped and is about override sunset, not oscillation. OVERRIDE-NOTIFY-1...
   - `toggle_retirement_2026_08_14`: Operator renamed the kill-switch -> "Coast Preset Preservation" (rides v5.75.0) and adjudicated it TEMPORARY CONTAINMENT, not a policy knob (nobody legitimately prefers the lying preset; the 2F offset Number is the real knob). RETIRE the...
+
+### `KHOST-2` - Operator disposition buttons + drag-between-states on the hosted board
+thread: **tooling** - status: **parked** - approval: **approved**
+_updated 2026-08-23 14:30_
+- **Origin:** 2026-08-11 - operator: "We have to add operator disposition buttons so the operator can communicate through the board. drag btw states | done | deferred | declined"
+- **Why:** Board is currently read-only reflection; operator decisions still have to travel through chat. Dispositions through the board close the loop: tap/drag → queued → agent applies to kanban.data.yaml at session start (agent-in-loop, no unatt...
+- **Next:** UN-WATCHABLE (not shipped): Build the webhost micro-API + JS drag/button interactions. No URA HA oracle for this feature. Recover as shipped when board JS is deployed.
+- **Forensic keys (3):**
+  - `shipped_note`: Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site; queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API round-trip. Organic proof: first real operator dispo...
+  - `sweep_2026_09_09`: RE-LANED out of shipped_organic (was never shipped — un-watchable). Parked: needs the webhost micro-API + board JS build; no URA HA oracle. Revive when board JS is deployed.
+  - `organic_evidence`: 2026-08-23 watch-pass: disposition buttons + drag-between-states JS micro-API not yet shipped (next field says "Build: webhost micro-API"). shipped_version recovered as board-tooling-not-yet-shipped. No HA oracle. UN-WATCHABLE until buil...
 
 ### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor)
 thread: **perimeter** - status: **parked** - approval: **explicit**
@@ -2504,7 +2468,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (60)
+## ✅ Done (63)
 _closed, evidence in refs_
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
@@ -2533,6 +2497,36 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
+thread: **device-tree** - status: **done** - approval: **explicit**
+_created 2026-09-06 17:30 · updated 2026-09-06 18:30 · initial_
+- **Problem / Solution:**
+  - Problem (4 top-of-mind, operator 2026-09-06): (1) OPERATOR REPRESENTATION — the HA device tree the user sees is wrong: Room devices fall directly out of the House device and look independent, whereas Zones and Coordinators each have a pa...
+- **Why:** The device tree is the operator-facing structure; rooms looking independent (no Rooms parent) is confusing, and the reload-cascade perf issue can take the house down. Step 5 of the registered sequence.
+- **Next:** DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall ...
+- **Tags:** device-tree, registry, config-flow, performance, integration-arrangement, umbrella
+- **Parsimony:** [BUILD] device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu
+- **Refs:** docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; _devices.py; config_flow.py/options_flow.py; memory parent_entry_reload_watchdog_hazard (+1 more)
+- **Forensic keys (4):**
+  - `house_node_decision`: operator 2026-09-06: House stays the ROOT node UNCHANGED (keeps its ~80 aggregation entities on it); do NOT hand off its entities or replace it. Only NEW node is Rooms (INTEGRATION-owned, via_device->House). Re-nest room devices via_devi...
+  - `target_operator_representation`: House
+  - `sweep_2026_09_09`: DONE (umbrella) — Rooms-node House>Rooms>Room arrangement shipped+validated v5.100.0 (L2/L3 PASS). The reload-outage root (integration entry overloaded) is the SEPARATE Tier-3 subentries migration tracked as CONFIG-SUBENTRIES-MIGRATION-1...
+  - `child_cards`: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+
+### `DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1` - The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
+thread: **device-tree** - status: **done** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: URA nests each device under its parent (the visual device tree) partly via a scheduled cover-all sweep. That sweep is capped at 3 arm-attempts per HA session by a counter that is incremented but NEVER reset (_devices.py:519). On...
+- **Origin:** 2026-09-05 - device-linker audit vs this-session bug classes (operator "improve URA overall")
+- **Why:** Same latent class as the bootcache fix; ~2-line robust fix. Low-med severity (cosmetic tree, restart-heals) so not urgent, but it is exactly the class the operator asked to sweep for.
+- **Next:** Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.
+- **Tags:** device-tree, boot-race, same-class-as-bootcache, no-fabrication-verify
+- **Parsimony:** [BUILD] sweep counter is a lifetime latch -> late devices unparented until restart
+- **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
+- **Forensic keys (1):**
+  - `sweep_2026_09_09`: DONE — shipped v5.100.0, sweep re-arm validated in README_v5.100.0 L3 (no permanent INV-4 trip-wire; rooms nested).
 
 ### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
 thread: **platform** - status: **done** - approval: **explicit**
@@ -3262,6 +3256,20 @@ _created 2026-08-20 14:15 · initial_
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board, BACKLOG.md, planning docs, CLAUDE.md. This is the ACTUATOR-side twin of the known documented gap in CLAUDE.md's troubleshooting section: "sensor.<room>_unavailable_entities only tracks INPUT sensors, not actuators, so a dead...
   - `TRIAGED_BENIGN_2026_08_20`: CLOSED — NOT A PROBLEM. Operator scoped this "fix Zone 2 telemetry IF a problem"; triage says it is not. MY ERROR: I read `last_changed` as a freshness signal. It is not — it only moves when the STATE STRING changes. All THREE climate en...
   - `DURABLE_LESSON`: last_changed is NOT a liveness oracle for climate entities — last_reported / last_updated is. If an actuator stuck-poll trip-wire is ever built, it must key on last_reported AGE, not on attribute churn. Recording this so the same misread...
+
+### `DASH-SOLAR-EV-CENSUS-1` - Enrich v6+v8 dashboards: Solar-Aware EV panel + v8 House Census (counts + per-person path & predicted next room)
+thread: **dashboarding** - status: **done** - approval: **explicit**
+_created 2026-08-24 17:10 · initial_
+- **Problem / Solution:**
+  - Problem: the EV panels on the v6 and v8 dashboards did not show the solar-aware charging picture (is there surplus, is the car charging on it, what will the battery drain to, when does fill- priority release), and the v8 People tab had n...
+- **Origin:** 2026-08-24 - operator push to enrich EVSE panels (v6+v8) and add census to v8
+- **Why:** Surfaces already-shipped solar-aware + census producers the dashboards were not consuming.
+- **Next:** When EVSE-SOLAR-FOLLOW-AMPS-1 ships, add its amp-modulation attributes (solar_follow_surplus_kw, solar_follow_state, solar_follow_original_amps, solar_follow_blind_since) to the Solar-Aware EV card.
+- **Tags:** no-fabrication-verify
+- **Refs:** docs/dashboards/ura_v6_v8_solar_aware_ev_and_census_cards.md; docs/dashboards/ura_v8_energy_ev_detail_card.md
+- **Forensic keys (2):**
+  - `sweep_2026_09_09`: DONE (primary: v6+v8 solar-aware EV + census cards shipped). Residual (add solar_follow_* attrs) DEPENDS on EVSE-SOLAR-FOLLOW-AMPS-1 shipping — tracked there, not a soak of this card. met-with-residual close.
+  - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
 
 ### `NEXT-ACTION-ESTIMATE-NAIVE-TARGET-1` - Battery strategy next_action_estimate reports naive single-day drain target (10) while the real composed floor is 15
 thread: **energy** - status: **done** - approval: **implied**

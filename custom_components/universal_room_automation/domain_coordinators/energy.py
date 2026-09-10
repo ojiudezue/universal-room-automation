@@ -9155,18 +9155,145 @@ class EnergyCoordinator(BaseCoordinator):
     def _check_threshold_ladder(self) -> None:
         """v4.3.0 D3 / v4.5.0 D2: log a WARNING when the ladder is violated.
 
-        v4.5.0: arbitrage_trigger is removed from the gate (forecast-class
-        only); validator skips trigger checks when None.
+        EC-SOC-LADDER-XVALIDATE-1 (runtime guard):
+          - config-flow save-time validation blocks operator-set inversions,
+            but several thresholds are live Number entities that can invert
+            WITHOUT a config-flow save. Detect those inversions at decision
+            time and emit an anomaly (rate-limited) so the state is visible
+            in NM instead of only in the logs. Ships alongside a
+            :meth:`safely_ordered_ladder` accessor that consumers can adopt
+            to clamp to a safe conservative ordering.
         """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
         from .energy_const import validate_threshold_ladder
-        warning = validate_threshold_ladder(
+        # Pull the live threshold values from the runtime attrs (the same
+        # instance state the decision paths read on each tick).
+        fill_priority = getattr(self, "_fill_priority_soc", None)
+        excess_solar = getattr(self, "_excess_solar_soc", None)
+        ev_drain = getattr(self, "_ev_battery_drain_soc", None)
+        inclement_floor = None
+        try:
+            _inc = self._battery._inclement_config()  # noqa: SLF001
+            inclement_floor = int(_inc.get("partial_hold_reserve_floor"))
+        except Exception:  # noqa: BLE001
+            inclement_floor = None
+        result = validate_threshold_ladder(
             self._battery.reserve_soc,
             self._battery._drain_targets,
             arbitrage_trigger=None,
             peak_buffer_target=self._battery._peak_buffer_target,
+            fill_priority_soc=fill_priority,
+            excess_solar_soc=excess_solar,
+            ev_battery_drain_soc=ev_drain,
+            inclement_partial_hold_reserve_floor=inclement_floor,
         )
-        if warning:
-            _LOGGER.warning("Threshold ladder violated: %s", warning)
+        if result is None:
+            return
+        code, message = result
+        _LOGGER.warning("Threshold ladder violated: %s", message)
+        # Rate-limit anomaly emissions to once per code per hour (mirrors
+        # the divergence emitter pattern in energy_battery.py:1036).
+        now = dt_util.utcnow()
+        emits = getattr(self, "_ladder_anomaly_last", None)
+        if emits is None:
+            emits = {}
+            self._ladder_anomaly_last = emits
+        last = emits.get(code)
+        if last is not None and (now - last) < timedelta(hours=1):
+            return
+        try:
+            from ..const import DOMAIN
+            from .anomaly_event import (
+                AnomalyEvent, AnomalySeverity, AnomalyType, build_context_json,
+            )
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None:
+                # B4 fix-up: DO NOT stamp the 1h rate-limit window when we
+                # could not actually emit (boot-time: DB not yet in hass.data).
+                # Stamping here would swallow the first real violation
+                # silently for an hour.
+                return
+            # Stamp only after we know we're about to emit.
+            emits[code] = now
+            payload = build_context_json(
+                source_signal="threshold_ladder_check",
+                extra={
+                    "code": code,
+                    "message": message,
+                    "reserve_soc": self._battery.reserve_soc,
+                    "fill_priority_soc": fill_priority,
+                    "excess_solar_soc": excess_solar,
+                    "ev_battery_drain_soc": ev_drain,
+                    "inclement_partial_hold_reserve_floor": inclement_floor,
+                    "drain_targets": dict(self._battery._drain_targets),
+                    "peak_buffer_target": self._battery._peak_buffer_target,
+                },
+            )
+            evt = AnomalyEvent(
+                coordinator="energy",
+                type="threshold_ladder_violation",
+                severity=AnomalySeverity.WARNING,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
+                detected_at=now.isoformat(),
+                payload=payload,
+            )
+            _task = self.hass.async_create_task(db.save_anomaly_event(evt))
+
+            def _discard(t: Any) -> None:  # noqa: E306
+                try:
+                    exc = t.exception()
+                    if exc is not None:
+                        _LOGGER.debug(
+                            "ladder anomaly save failed: %s", exc,
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+            _task.add_done_callback(_discard)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("ladder anomaly emit failed (swallowed)", exc_info=True)
+
+    def safely_ordered_ladder(self) -> dict[str, int | None]:
+        """Return a partial safe-ordered view of the SOC ladder.
+
+        SCOPE (A-MED-3/B3 fix-up): this accessor clamps ONLY the two
+        cross-field pairs listed below. It does NOT enforce the drain
+        ladder monotonic invariant, the peak_buffer_target > top-drain
+        invariant, or the inclement-partial-hold floor invariant. There
+        is currently NO consumer of this method; it exists as scaffolding
+        for a future "read the ladder pre-clamped" pattern. When adopting
+        it, ensure the missing invariants are added here first (Bug Class
+        #53 — "computed but not consumed" is only OK while there IS no
+        consumer).
+
+        Clamps applied:
+          * ``ev_battery_drain_soc`` raised UP to ``reserve_soc`` when below
+          * ``fill_priority_soc`` clamped DOWN to ``excess_solar_soc`` when
+            above (so the fill band still ends where excess-solar begins)
+
+        Bare, unclamped attrs remain the source of truth for display.
+        """
+        reserve = int(getattr(self._battery, "reserve_soc", 0) or 0)
+        fill_priority = getattr(self, "_fill_priority_soc", None)
+        excess_solar = getattr(self, "_excess_solar_soc", None)
+        ev_drain = getattr(self, "_ev_battery_drain_soc", None)
+        # ev_drain cannot go below reserve.
+        if ev_drain is not None and int(ev_drain) < reserve:
+            ev_drain = reserve
+        # fill_priority cannot exceed excess_solar (clamp fill_priority
+        # DOWN so the fill band still ends where excess-solar begins).
+        if (
+            fill_priority is not None
+            and excess_solar is not None
+            and int(fill_priority) > int(excess_solar)
+        ):
+            fill_priority = int(excess_solar)
+        return {
+            "reserve_soc": reserve,
+            "fill_priority_soc": fill_priority,
+            "excess_solar_soc": excess_solar,
+            "ev_battery_drain_soc": ev_drain,
+        }
 
     def set_offpeak_drain(self, quality: str, value: int) -> None:
         """Update a single off-peak drain target at runtime."""
@@ -9345,6 +9472,8 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._ev_battery_drain_soc = int(value)
         _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
+        # EC-SOC-LADDER-XVALIDATE-1: re-check after live slider write.
+        self._check_threshold_ladder()
 
     @property
     def fill_priority_soc(self) -> int:
@@ -9362,6 +9491,8 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._fill_priority_soc = int(value)
         _LOGGER.info("EV fill-priority SOC threshold set to %d%%", int(value))
+        # EC-SOC-LADDER-XVALIDATE-1: re-check after live slider write.
+        self._check_threshold_ladder()
 
     @property
     def excess_solar_soc(self) -> int:
@@ -9382,6 +9513,8 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._excess_solar_soc = int(value)
         _LOGGER.info("EV excess-solar SOC threshold set to %d%%", int(value))
+        # EC-SOC-LADDER-XVALIDATE-1: re-check after live slider write.
+        self._check_threshold_ladder()
 
     # ------------------------------------------------------------------
     # EVSE Drain-Precedence setters (Session B1) — knob entity → coord
