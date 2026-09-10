@@ -2,34 +2,28 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-08T23:22:25-05:00_ - _Data commit: `8de4812f8019`_ - _last_reconciled: 2026-09-08_
+_Generated: 2026-09-09T20:53:55-05:00_ - _Data commit: `d490f8121af7`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.100.5.md (2026-09-09) is newer than last_reconciled (2026-09-08)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 30 |
+| 📥 Inbox | 32 |
 | 🔬 Investigating | 11 |
-| 🧭 Pre-planning | 14 |
-| 📝 Planned | 6 |
+| 🧭 Pre-planning | 10 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 2 |
-| 🚀 Shipped (organic open) | 75 |
+| 🔍 Review | 3 |
+| 🚀 Shipped (organic open) | 77 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 27 |
+| 🅿️ Parked | 28 |
 | ✅ Done | 60 |
 
-## 📥 Inbox (30)
+## 📥 Inbox (32)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -360,6 +354,29 @@ _created 2026-09-08 20:30 · initial_
 - **Next:** Read the binary_sensor.py iter_canonical_hvac_zones call site; classify runtime-vs-should-read-raw; fix allowlist or refactor.
 - **Refs:** quality/tests/test_v475_d3_canonical_runtime_only.py:129
 
+### `ROOM-ZONE-FIELD-NO-SYNC-1` - Room Setup "Zone" field does not add the room to that zone — new rooms must be manually added in the Zone dialog
+thread: **config** - status: **inbox** - approval: **implied**
+_created 2026-09-09 19:00 · initial_
+- **Problem / Solution:**
+  - Problem: when you set a room's Zone in Room Setup (e.g. Guest Bedroom 2 -> "Upstairs"), the room is NOT added to that zone's member list — you have to open the Zone Configuration dialog and add it by hand. Operator hit this on newly-crea...
+- **Why:** Two independent stores for the same fact (room.CONF_ZONE vs zone.CONF_ZONE_ROOMS) drift; the operator expects the room Zone field to be authoritative but it is inert for membership.
+- **Next:** FOLLOW-UP after current work set. Decide authority: (A) room.CONF_ZONE is authoritative -> on room save, upsert into the zone CONF_ZONE_ROOMS + remove from prior zone (+ backfill existing drift); or (B) make room setup write directly to ...
+- **Refs:** config_flow.py:900 (room save CONF_ZONE); config_flow.py:915/:980 (zone CONF_ZONE_ROOMS); {'config_flow.py:486 (design note': 'zone_rooms is per-house-zone)'}
+- **Forensic keys (2):**
+  - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
+  - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
+
+### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
+thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-09 21:55 · initial_
+- **Problem / Solution:**
+  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
+- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
+- **Next:** Extend scripts/gen_room_dashboard.py (or a one-shot pass) to registry-filter the existing bespoke card entities; low-risk, reversible via .storage backup.
+- **Refs:** scripts/gen_room_dashboard.py
+- **Forensic keys (1):**
+  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
+
 ## 🔬 Investigating (11)
 _measuring; truth not yet known_
 
@@ -395,10 +412,22 @@ _created 2026-09-06 18:00 · initial_
   - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
 - **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
 - **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
-- **Next:** MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release...
+- **Next:** Plan-review the CFG-modulation approach (2 framing-disjoint: completeness + adversarial), fold findings, operator checkpoint, then Tier-3 build.
 - **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
 - **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
 - **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
+- **Forensic keys (11):**
+  - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
+  - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
+  - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
+  - `probe_v2_result_2026_09_09`: CORRECTED SOC-trajectory probe (14d). Operator RIGHT on the headline: import 1450 kWh vs export 118 kWh = 12.3x, so NO export-credit wash (v1 refuted). BUT the counterfactual shows on 11/13 days midday solar excess ALONE would NOT have r...
+  - `root_mechanism_2026_09_09`: ROOT FOUND (code diagnosis) — it is a TWEAK, not new machinery, exactly as the operator hoped. The attain grid-charge is a FLAT-TARGET charge, not a shortfall-sized one: both CHARGE paths command grid to a flat peak_buffer_target=80% (en...
+  - `plan_doc`: docs/planning/PLANNING_attain_shortfall_sizing.md — Tier-3; TWO framing-disjoint plan reviews IN PROGRESS before build (operator: attain is delicate, only make it better, do not screw it up).
+  - `parked_decision_2026_09_09`: PARKED (operator 2026-09-09). Both framing-disjoint PLAN reviews returned PLAN-FIX-REQUIRED with CRITICALs that kill the shortfall-sizing tweak: P1 = reserve_level is a DISCHARGE FLOOR not just a charge target (same Enphase number, Bug C...
+  - `correction_2026_09_09`: OPERATOR CORRECTED my two wrong conclusions (un-parked). (1) DO NOT PARK — the goal is to make the RAMP-TO-TARGET more PRECISE (charge exactly the grid needed, let solar cover the rest); the target level (peak_buffer_target=80) stays fix...
+  - `overlay_architecture_2026_09_09`: OPERATOR REFINEMENT (de-risks the whole thing): do the shortfall sizing as a THIN OVERLAY that does NOT modify the core attain machinery. Attain keeps emitting reserve=80 + CFG exactly as today (so discharge floor stays 80 -> NO morning ...
+  - `decision_2026_09_09_final`: VERIFIED schedule-limit NOT supported on this site (dead). Operator chose CFG ON/OFF MODULATION: reserve stays at peak_buffer_target (floor, P1 safe), turn charge_from_grid OFF when forecast solar can finish to target by boundary (rate-f...
+  - `target_latch_2026_09_09`: CONSTRAINT (operator): snapshot peak_buffer_target at morning attain-START, hold immutable intra-day (ignore live config changes mid-ramp), adopt a change the NEXT day. CFG-modulation reads the snapshot, not live config -> no intra-day t...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -509,7 +538,7 @@ _created 2026-08-25 22:20 · refined_
   - `investigation_2026_09_08`: CONFIRMED (5 rows now: 4x 08-21 + new zone_3 08-26). Root = Carrier thermostat UNAVAILABLE/UNREADABLE at restore-settle: successful restores (385) all read back a settled preset+mode; the 5 failures do NOT (08-26 explicit mode_settled=un...
   - `consolidated_note_2026_09_09`: Root (Carrier unreadable-at-settle) is a symptom of Carrier cloud staleness — the RESPONSE (detect+reload) now lives in CARRIER-STALE-POLL-REFRESH-1 (consolidated home). This card keeps the FINDING + the cheap trip-wire option; the reloa...
 
-## 🧭 Pre-planning (14)
+## 🧭 Pre-planning (10)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -535,26 +564,6 @@ _updated 2026-08-20 22:45_
   - `ARRESTER_IS_UNAUDITABLE_2026_08_21`: THE LEDGER I PROMISED DOES NOT EXIST — answering the open question is blocked, not pending. Pulled the DB directly on the HA host over ssh (the Samba mount cannot open it: WAL). Findings: (a) The HVAC coordinator's ENTIRE action vocabula...
   - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
   - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
-
-### `CARRIER-STALE-POLL-REFRESH-1` - ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
-thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
-- **Next:** Probe C RELAUNCHED 2026-08-23 (6h horizon, file-backed, fires on first episode). On fire, run update_entity then re-read, then reload then re-read, live while the episode is open. Then choose among (a) periodic update_entity if it works;...
-- **Tags:** third-party-defect, operator-requested, probe-pending
-- **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
-- **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
-- **Forensic keys (11):**
-  - `REMEDIATION_RUN_2026_08_24`: Operator granted permission for the full remediation sequence incl the reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py, pid 29697, 6h window, exits on first confirmed episode); th...
-  - `PROBE_C_RESULT_2026_08_24_CONFIRMED`: The detached blind-episode detector FIRED and exited on the first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle, blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20....
-  - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
-  - `THE_DEFECT_MEASURED`: ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an independent implementation: 12.2% / 7.1% / 12.9% of high-draw time ...
-  - `WHY_update_entity_IS_UNLIKELY_TO_WORK`: The mechanism EXISTS — ha_carrier entities are CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() -> coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and DEFAULT_UPDATE_...
-  - `PROBE_C_STILL_WORTH_RUNNING`: A blind-episode detector is running (polls all three zones every 40s, requires 3 consecutive blind reads). When it fires: capture state, call homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE ep...
-  - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
-  - `PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23`: Card said "detector running" -- it was NOT. The 08-22 15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not survive the session. So it expired ~15:57 on 08-22 having produced NO recorded...
-  - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
-  - `dedupe_2026_09_09`: CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase...
-  - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
 
 ### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -626,31 +635,6 @@ _created 2026-08-20 15:10 · initial_
   - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
   - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
-### `FROZEN-POWER-READ-STALENESS-CLASS-1` - 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
-thread: **energy** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-31 20:45 · initial_
-- **Problem / Solution:**
-  - Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions: net grid power, battery power, and ...
-- **Origin:** 2026-08-31 - Envoy no-duplication audit — adjacencies section
-- **Why:** The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary SOC). Highest-value = primary...
-- **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
-- **Tags:** no-fabrication-verify, tier-2db
-- **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
-
-### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired
-thread: **energy** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-24 16:45 · initial_
-- **Problem / Solution:**
-  - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
-- **Origin:** 2026-08-24 - handoff live-fault
-- **Why:** This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3)...
-- **Next:** Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches a shared validator consumed across EC).
-- **Tags:** institutional-context, numbers-get-knobs
-- **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
-- **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (1):**
-  - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
-
 ### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-08-24 16:45 · initial_
@@ -665,18 +649,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
-thread: **dashboarding** - status: **pre_planning** - approval: **implied**
-_created 2026-09-09 09:10 · initial_
-- **Problem / Solution:**
-  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
-- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
-- **Next:** VERIFY (ha-dashboard skill): read the live v8 + v6 Lovelace configs from HA storage; find the authoritative room list (config entries ENTRY_TYPE_ROOM / a rooms sensor); pick the auto-gen strategy (auto-entities/custom template vs a regen...
-- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
-- **Forensic keys (1):**
-  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
-
-## 📝 Planned (6)
+## 📝 Planned (7)
 _has plan / acceptance_
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
@@ -689,6 +662,28 @@ _refined ×3_
 - **Forensic keys (2):**
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
+
+### `CARRIER-STALE-POLL-REFRESH-1` - ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
+thread: **hvac** - status: **planned** - approval: **unreviewed**
+_created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
+- **Next:** Probe C RELAUNCHED 2026-08-23 (6h horizon, file-backed, fires on first episode). On fire, run update_entity then re-read, then reload then re-read, live while the episode is open. Then choose among (a) periodic update_entity if it works;...
+- **Tags:** third-party-defect, operator-requested, probe-pending
+- **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
+- **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
+- **Forensic keys (13):**
+  - `REMEDIATION_RUN_2026_08_24`: Operator granted permission for the full remediation sequence incl the reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py, pid 29697, 6h window, exits on first confirmed episode); th...
+  - `PROBE_C_RESULT_2026_08_24_CONFIRMED`: The detached blind-episode detector FIRED and exited on the first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle, blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20....
+  - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
+  - `THE_DEFECT_MEASURED`: ha_carrier reports a CONFIDENT WRONG `hvac_action: idle` while the compressor draws kilowatts. Measured over 7.4 days, duration-weighted, orchestrator-reproduced with an independent implementation: 12.2% / 7.1% / 12.9% of high-draw time ...
+  - `WHY_update_entity_IS_UNLIKELY_TO_WORK`: The mechanism EXISTS — ha_carrier entities are CoordinatorEntity (carrier_entity.py:17), so update_entity -> async_update() -> coordinator.async_request_refresh(). BUT that is THE SAME FETCH PATH as the periodic poll, and DEFAULT_UPDATE_...
+  - `PROBE_C_STILL_WORTH_RUNNING`: A blind-episode detector is running (polls all three zones every 40s, requires 3 consecutive blind reads). When it fires: capture state, call homeassistant.update_entity, re-read; if unchanged, reload the config entry and re-read. ONE ep...
+  - `SCOPE_NOTE_WHY_IT_IS_SEPARABLE`: The pipeline-hardening cycle does NOT need this. Its Gate-4 fix routes detection through SPAN power draw via _read_kwh_rate, which is independent of anything ha_carrier reports. That independence is a stated non-goal in that plan and is ...
+  - `PROBE_C_WAS_NOT_ACTUALLY_RUNNING_2026_08_23`: Card said "detector running" -- it was NOT. The 08-22 15:02 run was single-shot with a 3300s (55-min) deadline and printed to a background stdout that did not survive the session. So it expired ~15:57 on 08-22 having produced NO recorded...
+  - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
+  - `dedupe_2026_09_09`: CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase...
+  - `plan_doc`: docs/planning/PLANNING_carrier_stale_reload.md (ura-planner 2026-09-09) — Tier 2-DB; D0 probe recommended; 3 open operator questions
+  - `resolutions_2026_09_09`: Operator resolved plan questions: skip D0 probe (enough probing, reload known to work); SPAN kW verified present; per-entry lock; reloads/day=4 (hitting cap => trip-wire escalates, not a 5th reload); observability = diagnostic freshness ...
+  - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
@@ -789,7 +784,7 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
@@ -814,18 +809,38 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-### `DELETE-REACT-DASHBOARDS-1` - Stop registering the dead React dashboards to the sidebar (phase 1, reversible) — code deleted in phase 2
-thread: **maintenance** - status: **review** - approval: **explicit**
-_created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
+### `FROZEN-POWER-READ-STALENESS-CLASS-1` - 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
+thread: **energy** - status: **review** - approval: **unreviewed**
+_created 2026-08-31 20:45 · initial_
 - **Problem / Solution:**
-  - Problem: the base build still ships React/WebSocket dashboards (repo dirs dashboard/, dashboard-v3/, and the served custom_components/universal_room_automation/frontend/ + frontend-v3/) that never worked and are dead weight. URA moved to...
-- **Why:** Dead code that never worked bloats the repo/build and confuses the dashboard story.
-- **Next:** SHIPPING v5.100.5: removed __init__.py:4131-4214 panel+static-path registration for both frontend/ and frontend-v3/; flipped 5 setup-symmetry tests to guard NON-registration. Dirs + deploy.sh frontend line retained (phase 2). Live: panel...
-- **Refs:** custom_components/universal_room_automation/__init__.py:4131 (panel_custom + StaticPathConfig frontend); custom_components/universal_room_automation/__init__.py:4183 (frontend-v3)
-- **Forensic keys (1):**
-  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
+  - Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions: net grid power, battery power, and ...
+- **Origin:** 2026-08-31 - Envoy no-duplication audit — adjacencies section
+- **Why:** The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary SOC). Highest-value = primary...
+- **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
+- **Forensic keys (3):**
+  - `operator_refine_2026_09_09`: Operator Q: is the staleness sensor separate, or does it change state in place? And if separate, does it consolidate the 3 or hold per-read states in details? Proposed answer (confirm in plan): TWO layers. (1) DECISION layer = a shared h...
+  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness. Reused existing _read_fresh_float helper + DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S=300 (kill-switch at 0). Gated the PRIMARY SOC reads (soc_envelope + envoy_available). *** OPERATOR DECISION FLAG...
+  - `med2_resolved_2026_09_09`: OPERATOR: respect the prior Tier-3 decision — do NOT gate net_power/battery_power (we did not do the work to overturn it). Build is COMPLETE as-is (primary SOC gated only). Proceed to Tier-3 reviews.
 
-## 🚀 Shipped (organic open) (75)
+### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired
+thread: **energy** - status: **review** - approval: **unreviewed**
+_created 2026-08-24 16:45 · initial_
+- **Problem / Solution:**
+  - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
+- **Origin:** 2026-08-24 - handoff live-fault
+- **Why:** This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3)...
+- **Next:** Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches a shared validator consumed across EC).
+- **Tags:** institutional-context, numbers-get-knobs
+- **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
+- **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
+- **Forensic keys (3):**
+  - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
+  - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
+  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
+
+## 🚀 Shipped (organic open) (77)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -1982,6 +1997,33 @@ _created 2026-08-29 20:30 · initial_
 - **Forensic keys (1):**
   - `priority`: high
 
+### `DELETE-REACT-DASHBOARDS-1` - Stop registering the dead React dashboards to the sidebar (phase 1, reversible) — code deleted in phase 2
+thread: **maintenance** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the base build still ships React/WebSocket dashboards (repo dirs dashboard/, dashboard-v3/, and the served custom_components/universal_room_automation/frontend/ + frontend-v3/) that never worked and are dead weight. URA moved to...
+- **Why:** Dead code that never worked bloats the repo/build and confuses the dashboard story.
+- **Next:** SHIPPING v5.100.5: removed __init__.py:4131-4214 panel+static-path registration for both frontend/ and frontend-v3/; flipped 5 setup-symmetry tests to guard NON-registration. Dirs + deploy.sh frontend line retained (phase 2). Live: panel...
+- **Refs:** custom_components/universal_room_automation/__init__.py:4131 (panel_custom + StaticPathConfig frontend); custom_components/universal_room_automation/__init__.py:4183 (frontend-v3)
+- **Forensic keys (1):**
+  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
+
+### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
+thread: **dashboarding** - status: **shipped_organic** - approval: **implied**
+_created 2026-09-09 09:10 · updated 2026-09-09 21:55 · initial_
+- **Problem / Solution:**
+  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
+- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
+- **Next:** DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the...
+- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
+- **Forensic keys (6):**
+  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
+  - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
+  - `aesthetics_finding_2026_09_09`: Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room ca...
+  - `patch_shipped_2026_09_09`: PATCH DONE (config-driven, per operator: each room config is self-contained).
+  - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
+  - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
+
 ## ⏸️ Waiting on operator (9)
 _needs a human call_
 
@@ -2085,7 +2127,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (27)
+## 🅿️ Parked (28)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -2448,6 +2490,19 @@ _created 2026-09-09 09:35 · initial_
   - `parked`: True
   - `revisit_trigger`: Phase-1 unregister (v5.100.5) has shipped and lived with zero need to restore the React sidebar panels -> delete dashboard/, dashboard-v3/, frontend/, frontend-v3/ + remove deploy.sh:198 frontend line.
   - `sweep_verdict`: NEW — phase 2 of DELETE-REACT-DASHBOARDS-1 (same sweep).
+
+### `LOVELACE-DECLUTTER-MIGRATION-1` - Migrate URA v6/v8 room cards to a decluttering-card template + per-room variable map (keeps aesthetics, makes room-add near-one-line)
+thread: **dashboarding** - status: **parked** - approval: **implied**
+_created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
+- **Problem / Solution:**
+  - Problem: room cards are hand-authored + bespoke per room (38 distinct structures), so adding a room means hand-building a full card and the dashboard drifts (LOVELACE-AUTO-ROOM-DASHBOARD-1 patches the current drift but does not stop it)....
+- **Why:** Stops dashboard-vs-registry drift at the source while keeping the rich per-room UX.
+- **Next:** Design: (1) count real card archetypes (my 38-distinct was inflated by entity suffixes — determine the true structural bucket count); (2) build the decluttering template(s); (3) per-room var map source; (4) migrate v8 then v6; reversible...
+- **Refs:** LOVELACE-AUTO-ROOM-DASHBOARD-1; decluttering-card (installed HACS resource)
+- **Forensic keys (3):**
+  - `sweep_verdict`: 'NEW — the strategic half of LOVELACE-AUTO-ROOM-DASHBOARD-1 (which is the immediate patch).'
+  - `parked`: True
+  - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
 ## ✅ Done (60)
 _closed, evidence in refs_

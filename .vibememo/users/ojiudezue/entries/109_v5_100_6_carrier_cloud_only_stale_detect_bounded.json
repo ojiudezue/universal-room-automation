@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "109",
+  "author": "ojiudezue",
+  "session_id": "claude_20260910_035744_ship_v5_100_6",
+  "timestamp": "2026-09-10T03:57:44Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.6 shipped: Carrier cloud-only stale-detect + bounded ha_carrier reload (Tier 2-DB)",
+  "summary": "Carrier cloud-only stale-detect + bounded ha_carrier reload (Tier 2-DB)",
+  "why": "Carrier is cloud-only and periodically goes stale (reports idle while the compressor draws kW; restores no-op; only a config-entry reload refreshes it, operator-observed). This adds automatic detect->bounded reload, modeled on the Envoy staleness machinery but simpler (no local/cloud reconciliation). 3 framing-disjoint Tier-2-DB reviews found 1 CRITICAL (reload mid-restore strands an in-flight AC-ramp nudge/excursion + deletes its recovery record) + 6 HIGH (D3 trip-wire broken 4 ways: tick-vs-time grace, grace<cooldown dead config, permanent latch on non-qualifying zones; kWh-unit reload-storm; TWO hollow test anchors incl. the never-reload-URA-parent safety guard; blind D4 query; silent-stranding hole). All fixed in a fix-up round (23 mutation-anchored tests). Orchestrator INDEPENDENTLY re-mutated the two safety-critical sites (parent-reload guard + in-flight fence) and confirmed RED-on-neuter, restored, 23/23 green. Subsumes the HVAC-GOVERNED-RESTORE-FAIL-TAIL-1 response. Never touches the URA parent entry (watchdog hazard).",
+  "implications": "Shipped CARRIER-STALE-POLL-REFRESH-1 at v5.100.6; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.6.md (Live criteria).",
+  "revisit_trigger": "After a real stale episode: exactly one 'reload ha_carrier' logbook entry targeting the ha_carrier entry (never URA), sensor.<zone>.last_reported advances post-reload, at most 4/day; OR the age-only carrier_stale NM fires when uncorroborated. sensor.ura_hvac_carrier_freshness populates per-zone ages.",
+  "refs": {
+    "cards": [
+      "CARRIER-STALE-POLL-REFRESH-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.6.md"
+    ],
+    "release_notes": "Detect Carrier (ha_carrier) staleness (last_reported age >15min, optional SPAN-kW blind-corroboration with strict unit refusal) and issue a bounded reload of the ha_carrier config entry ONLY (cooldown 30min, max 4/day, kill-switch, per-entry lock, single-entry resolution, SAFETY-abort if resolved entry is URA's own, in-flight fence skipping reload during an AC-ramp nudge/excursion restore). Time-based post-reload trip-wire + age-only staleness NM. Diagnostic sensor.ura_hvac_carrier_freshness. Modeled on Envoy machinery, simpler (cloud-only, no reconciliation). 3 framing-disjoint reviews + fix-up + orchestrator mutation-verify; 23 mutation-anchored tests."
+  }
+}

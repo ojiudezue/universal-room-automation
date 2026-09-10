@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.100.5
+# Universal Room Automation vv5.100.6
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -334,6 +334,8 @@ async def async_setup_entry(
             HVACThermostatBorrowsSensor(hass, entry),
             HVACAnomalySensor(hass, entry),
             HVACComplianceSensor(hass, entry),
+            # CARRIER-STALE-POLL-REFRESH-1 (2026-09-09) diagnostic
+            HVACCarrierFreshnessSensor(hass, entry),
             HVACOverrideFrequencySensor(hass, entry),
             HVACPreCoolLikelihoodSensor(hass, entry),
             HVACComfortRiskSensor(hass, entry),
@@ -11945,6 +11947,90 @@ class HVACAnomalySensor(AggregationEntity, SensorEntity):
         if hvac.anomaly_detector is None:
             return {}
         return hvac.anomaly_detector.get_status_summary()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class HVACCarrierFreshnessSensor(AggregationEntity, SensorEntity):
+    """CARRIER-STALE-POLL-REFRESH-1 diagnostic sensor.
+
+    Entity: sensor.ura_hvac_carrier_freshness
+    Device: URA: HVAC Coordinator
+    State: worst-zone Carrier last_reported age in seconds (None if unknown)
+    Attributes: per-zone {age_s, stale, corroborated, span_kw, ...},
+                reloads_today, last_reload_at_utc, suppressed_for_day.
+
+    Diagnostic-only — no trust consumer reads this value.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cloud-refresh-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "s"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_carrier_freshness"
+        self._attr_name = "HVAC Carrier Freshness"
+        self._attr_device_info = _hvac_device_info()
+
+    def _hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self):
+        hvac = self._hvac()
+        if hvac is None:
+            return None
+        age = getattr(hvac, "_carrier_worst_age_s", None)
+        if age is None:
+            return None
+        try:
+            return round(float(age), 1)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        hvac = self._hvac()
+        if hvac is None:
+            return {}
+        snapshot = dict(getattr(hvac, "_carrier_freshness_snapshot", {}) or {})
+        last_reload = getattr(hvac, "_last_carrier_reload_at", None)
+        try:
+            last_reload_iso = last_reload.isoformat() if last_reload else None
+        except Exception:  # noqa: BLE001
+            last_reload_iso = None
+        counter = getattr(hvac, "_carrier_reloads_today", None)
+        return {
+            "zones": snapshot,
+            "stale_zone_count": int(
+                getattr(hvac, "_carrier_stale_zone_count", 0) or 0
+            ),
+            "reloads_today": int(counter.value) if counter is not None else 0,
+            "last_reload_at_utc": last_reload_iso,
+            "suppressed_for_day": bool(
+                getattr(hvac, "_carrier_reload_suppressed_today", False)
+            ),
+            "post_reload_stale_ticks": int(
+                getattr(hvac, "_carrier_stale_ticks_since_reload", 0) or 0
+            ),
+        }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

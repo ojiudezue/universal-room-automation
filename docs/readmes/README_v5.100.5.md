@@ -33,4 +33,12 @@ line from `deploy.sh:198`. Irreversible — waits behind this reversible step
 - **L3 (reversible/no-harm):** no `Failed to register URA Dashboard panel` warnings (the code path
   is gone), and integration setup completes.
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-09 (post-restart, v5.100.5 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 clean boot / version | **PASS** | `const.py` = v5.100.5; `ha_check_config` valid (errors=[]); URA setup_complete 159s. |
+| L2 React panels gone from sidebar | **operator-visual** | The registration code path is removed (can't be observed via API). Confirm "URA" + "URA Dashboard" are absent from the HA sidebar. |
+| L3 no register-failure / no-harm | **PASS (by construction)** | The `panel_custom.async_register_panel` / `async_register_static_paths` code is gone, so no `Failed to register URA Dashboard panel` path exists; setup completed. |
+
+**Reversible:** code retained on disk; phase 2 (`DELETE-REACT-DASHBOARDS-CODE-2`) deletes it once this soaks.

@@ -5073,6 +5073,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_HVAC_AC_NIGHT_START_HHMM,
             CONF_HVAC_AC_NIGHT_END_HHMM,
             DEFAULT_HVAC_AC_NIGHT_END_HHMM,
+            # CARRIER-STALE-POLL-REFRESH-1 (2026-09-09): options-flow
+            # boolean for blind-corroboration. Rung-2 (per-deployment
+            # policy toggle). Module-const knobs (max-age, cooldown,
+            # max/day, grace-ticks, kill-switch-via-cooldown=0) live in
+            # hvac_const.py and require a code change to tune.
+            CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
+            DEFAULT_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
         )
         from .const import (  # noqa: PLC0415
             CONF_SLEEP_FAN_ON_TEMP_F,
@@ -5423,6 +5430,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HVAC_ARRESTER_ENABLED,
                 default=self._get_current(CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED),
+            ): selector.BooleanSelector(),
+            # CARRIER-STALE-POLL-REFRESH-1 (2026-09-09) options-flow toggle.
+            # True (default) = age-stale + SPAN blind-corroboration required
+            # to trigger a bounded ha_carrier reload (avoids reloading a
+            # legitimately quiet-idle zone). False = age alone qualifies.
+            # Kill-switch for the whole feature lives on the cooldown module
+            # constant (CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S == 0 disables).
+            vol.Optional(
+                CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
+                default=self._get_current(
+                    CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
+                    DEFAULT_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
+                ),
             ): selector.BooleanSelector(),
             # Arrester Operator-Immunity (2026-08-06). Persons whose
             # manual thermostat holds are IMMUNE to arrester compromise/
