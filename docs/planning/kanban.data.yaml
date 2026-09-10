@@ -4372,7 +4372,7 @@ cards:
   title: ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic
     refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
   thread: hvac
-  status: pre_planning
+  status: planned
   created: 2026-08-22 15:30
   updated: 2026-08-24 16:45
   refinement_status: refined
@@ -4463,6 +4463,7 @@ cards:
     if that happens. TRADE-OFF, because it is detached nothing notifies me when it fires, so this must
     be POLLED, cat /tmp/carrier_blind_watch.out. Committed copy at scripts/probes/carrier_blind_episode_detector.py.
   dedupe_2026_09_09: 'CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase staleness machinery but MUCH simpler — Carrier is cloud-only so there is NO local-vs-cloud reconciliation (that Enphase dual-source complexity does not apply); detection + a bounded guarded RELOAD of the ha_carrier config entry only (never the URA parent — watchdog hazard). SIBLINGS (same root = Carrier cloud staleness/flap, different symptom): HVAC-GOVERNED-RESTORE-FAIL-TAIL-1 (restores fail when thermostat unreadable at settle — the reload response would recover these), ARRESTER-CLOUDFLAP-FALSEPOS-1 (cloud timeout books phantom override), HVAC-STALE-ACTUATOR-FRESHNESS-1 (DONE-benign — freshness DETECTION was scoped but NOT built; still a gap this card can own). Superseded/absorbed the minted CARRIER-RESILIENCE-DETECT-RELOAD-1 (deleted).'
+  plan_doc: 'docs/planning/PLANNING_carrier_stale_reload.md (ura-planner 2026-09-09) — Tier 2-DB; D0 probe recommended; 3 open operator questions'
   next: Probe C RELAUNCHED 2026-08-23 (6h horizon, file-backed, fires on first episode). On fire, run
     update_entity then re-read, then reload then re-read, live while the episode is open. Then choose
     among (a) periodic update_entity if it works; (b) periodic reload with the blast-radius cost explicitly
