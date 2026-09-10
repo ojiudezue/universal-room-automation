@@ -2993,7 +2993,8 @@ cards:
   - custom_components/universal_room_automation/memory_writers.py:186
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
-  status: shipped_organic
+  status: waiting_me
+  relane_2026_09_10: 'Not a soak -> WAITING_ME. Duplicate-vs-complementary consultation running; I owe the operator the report, then operator go, then build.'
   shipped_version: v5.81.0
   approval: explicit
   created: 2026-08-18 00:55
@@ -7205,7 +7206,8 @@ cards:
   title: 'Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face
     resolution (exterior dashboard wiring is a minor bonus)'
   thread: presence
-  status: shipped_organic
+  status: pre_planning
+  relane_2026_09_10: 'Not a soak -> PRE-PLANNING. Rescoped by operator 2026-08-17 to DECAY + SUFFIX FIX (dedup dropped, probe ~0). Plan: decay/self-refresh separation targeting the 74.5% camera_unrecognized elevated time.'
   shipped_version: v5.80.0
   approval: implied
   approved_by: 'operator 2026-08-16 ("Census and guest are diff states... Census decay is also not the
@@ -7657,7 +7659,8 @@ cards:
   title: Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists,
     is enabled, cancels nothing
   thread: presence
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING. Suite NAME-diff at tip was blocked by the (now-cleared) concurrent-pytest deadlock; re-run the framings against the repaired oracle.'
   shipped_version: v5.79.0
   approval: implied
   origin:
@@ -8322,7 +8325,8 @@ cards:
   title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator
     empties; NO existing card fixes it
   thread: presence
-  status: shipped_organic
+  status: parked
+  relane_2026_09_10: 'Not a soak -> PARKED (gated). Blocked on ZONE-TIER-DIVERGE-1 trace (same code region). Then consumer-enumerate tracking_status -> Tier-2-DB decomposition.'
   shipped_version: v5.78.0
   approval: approved_after_investigation
   origin:
@@ -8362,7 +8366,8 @@ cards:
   title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop;
     both away paths structurally blocked
   thread: presence
-  status: shipped_organic
+  status: waiting_operator
+  relane_2026_09_10: 'Not a soak -> WAITING_OPERATOR. You pick; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if it recurs.'
   approval: unreviewed
   origin:
     date: '2026-08-13'
@@ -8399,7 +8404,8 @@ cards:
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown
     blocks the hop where classification forms
   thread: perimeter
-  status: shipped_organic
+  status: pre_planning
+  relane_2026_09_10: 'Not a soak -> PRE-PLANNING. Future build (ura-planner -> plan review -> build).'
   shipped_version: v5.76.0
   approval: unreviewed
   origin:
@@ -8438,7 +8444,8 @@ cards:
   title: Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only
     evidence (face_recognized_count)
   thread: presence
-  status: shipped_organic
+  status: parked
+  relane_2026_09_10: 'Not a soak -> PARKED (gated). Build on feature/path-alpha AFTER its D1-D9 land; covered by the same 3 framing-disjoint reviews + one deploy.'
   shipped_version: v5.78.0
   approval: implied
   approved_by: operator 2026-08-16 ("Gap A error is big and we have not offered a solution"; "Gap A should
@@ -8506,7 +8513,8 @@ cards:
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor
     filter (B1, latent)
   thread: presence
-  status: shipped_organic
+  status: waiting_operator
+  relane_2026_09_10: 'Not a soak -> WAITING_OPERATOR. Await your answer on the 50-episode guest-FP pattern; then fold A1+B1 into the next presence hotfix batch.'
   shipped_version: v5.78.0
   approval: unreviewed
   origin:
