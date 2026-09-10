@@ -119,9 +119,9 @@ cards:
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
   thread: energy
-  status: investigating
+  status: done
   created: '2026-09-08 00:10'
-  updated: '2026-09-08 00:10'
+  updated: '2026-09-10 00:20'
   refinement_status: refined
   problem_solution:
   - 'Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer
@@ -152,15 +152,16 @@ cards:
   - 'onset entities: overnight switch ON, time 01:00; deferred=off, gate_open=on, l1_over_hold=0 all night.'
   - 'EVSE_CHARGING_POWER_THRESHOLD=100W (energy_const.py:891) — L2 at 11.6kW clears it.'
   depends_on: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
+  disposition_2026_09_10: 'DONE — 2-day disposition: the onset gate IS holding. Rows: onset_hold reason=gate_refused fires at ~21:00 CDT (the exact window the L2 previously charged un-held) then onset_release reason=onset_permits at the 01:00 onset; charger_off carries pause_owners=us (URA holding). The v5.99.1 logging named the behavior and it is now observably correct (held-before-onset, released-at-onset); original didnot-hold NOT reproduced over 2 days. Resolved.'
   next: 'After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.'
   refs: [project_charge_onset_correct_site, docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md]
 - id: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
   title: Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.99.1
   created: '2026-09-08 00:10'
-  updated: '2026-09-08 00:10'
+  updated: '2026-09-10 00:20'
   refinement_status: initial
   problem_solution:
   - 'Problem: the room coordinator logs its light/fan actuations to ura_activity_log,
@@ -184,6 +185,7 @@ cards:
     charger question is undiagnosable after log rotation — this is the prerequisite
     that makes the onset gap (and any charger behavior) provable.'
   blocks: EVSE-CHARGE-ONSET-NOT-HELD-1
+  disposition_2026_09_10: 'DONE — 2-day disposition query: bounded edge logging confirmed (4 onset_hold/4 onset_release/12 charger_on/10 charger_off = single-digit/day, NOT the v4.7.33 flood). Discriminator met.'
   next: 'Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.'
   refs: [docs/reviews/code-review/reload_comprehensive_tier1_2.md]
 - id: INTEGRATION-CAMERA-DISCOVER-STALE-1

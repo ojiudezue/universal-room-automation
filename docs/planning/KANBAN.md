@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T23:42:44-05:00_ - _Data commit: `f191c52a8411`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T23:46:47-05:00_ - _Data commit: `ebaa283fa060`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,16 +12,16 @@ _Generated: 2026-09-09T23:42:44-05:00_ - _Data commit: `f191c52a8411`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 31 |
-| 🔬 Investigating | 10 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 74 |
+| 🚀 Shipped (organic open) | 73 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 29 |
-| ✅ Done | 66 |
+| ✅ Done | 68 |
 
 ## 📥 Inbox (31)
 _raw capture_
@@ -365,21 +365,8 @@ _created 2026-09-09 21:55 · initial_
 - **Forensic keys (1):**
   - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
 
-## 🔬 Investigating (10)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
-
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
-thread: **energy** - status: **investigating** - approval: **implied**
-_created 2026-09-08 00:10 · refined_
-- **Problem / Solution:**
-  - Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer EV charging to off-peak 1am), but last night both chargers ran INSIDE the 17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and drained...
-- **Origin:** 2026-09-07 - operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)
-- **Why:** A charge-onset that does not defer overnight charging drains the house battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly cost and the exact thing the feature exists to prevent.
-- **Next:** After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.
-- **Tags:** tier-2db, no-fabrication-verify, falsify-first
-- **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
-- **Forensic keys (1):**
-  - `forensic_evidence`: sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).
 
 ### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
 thread: **diagnostics** - status: **investigating** - approval: **unreviewed**
@@ -770,7 +757,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (74)
+## 🚀 Shipped (organic open) (73)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -783,17 +770,6 @@ _created 2026-09-08 17:10 · initial_
 - **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
 - **Tags:** config-flow, no-fabrication-verify
 - **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
-
-### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
-thread: **energy** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-08 00:10 · initial_
-- **Problem / Solution:**
-  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
-- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
-- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
-- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
-- **Tags:** tier-2db, observability
-- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
@@ -2414,7 +2390,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (66)
+## ✅ Done (68)
 _closed, evidence in refs_
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
@@ -2429,6 +2405,33 @@ _created 2026-09-08 16:35 · updated 2026-09-08 20:12 · initial_
 - **Refs:** docs/readmes/README_v5.99.1.md (validation error-scan)
 - **Forensic keys (1):**
   - `disposition`: DONE 2026-09-08: v5.100.2 threadsafe-sender fix was INSUFFICIENT (falsified live); real root = HA executor-punts non-@callback dispatcher targets. v5.100.3 decorated time._refresh + switch.py:1393 _handle_ec_ready @callback. L2 PASS: ene...
+
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
+thread: **energy** - status: **done** - approval: **implied**
+_created 2026-09-08 00:10 · updated 2026-09-10 00:20 · refined_
+- **Problem / Solution:**
+  - Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer EV charging to off-peak 1am), but last night both chargers ran INSIDE the 17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and drained...
+- **Origin:** 2026-09-07 - operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)
+- **Why:** A charge-onset that does not defer overnight charging drains the house battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly cost and the exact thing the feature exists to prevent.
+- **Next:** After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.
+- **Tags:** tier-2db, no-fabrication-verify, falsify-first
+- **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
+- **Forensic keys (2):**
+  - `forensic_evidence`: sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).
+  - `disposition_2026_09_10`: DONE — 2-day disposition: the onset gate IS holding. Rows: onset_hold reason=gate_refused fires at ~21:00 CDT (the exact window the L2 previously charged un-held) then onset_release reason=onset_permits at the 01:00 onset; charger_off ca...
+
+### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
+thread: **energy** - status: **done** - approval: **explicit**
+_created 2026-09-08 00:10 · updated 2026-09-10 00:20 · initial_
+- **Problem / Solution:**
+  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
+- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
+- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
+- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
+- **Tags:** tier-2db, observability
+- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE — 2-day disposition query: bounded edge logging confirmed (4 onset_hold/4 onset_release/12 charger_on/10 charger_off = single-digit/day, NOT the v4.7.33 flood). Discriminator met.
 
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
 thread: **energy** - status: **done** - approval: **implied**
