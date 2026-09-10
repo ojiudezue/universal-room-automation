@@ -1054,7 +1054,14 @@
           }
         },
         "error": {
-          "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold."
+          "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
+          "drain_excellent_below_reserve": "Off-peak drain target for EXCELLENT solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
+          "drain_very_poor_below_reserve": "Off-peak drain target for VERY POOR solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
+          "drain_ladder_not_monotonic": "Off-peak drain targets must be non-decreasing: excellent ≤ good ≤ moderate ≤ poor ≤ very_poor (worse forecast → more protective floor).",
+          "peak_buffer_target_at_or_below_drain_poor": "Peak Buffer Target must be strictly above the highest drain target (poor / very_poor) — otherwise the drain path would immediately re-drain after arbitrage CHARGE completes.",
+          "fill_priority_above_excess_solar": "EV Fill-Priority SOC must be ≤ Excess-Solar SOC. Inverting these two knobs flips the EV pause/resume band polarity and oscillates.",
+          "ev_drain_below_reserve": "EV Battery-Drain Pause SOC must be ≥ Enphase Reserve SOC. The EV drain-pause floor cannot sit below the safety reserve.",
+          "inclement_partial_hold_below_reserve": "Inclement Partial-Hold Reserve Floor must be ≥ Enphase Reserve SOC (in the Inclement Advanced section) — a floor below the base reserve is Enphase-clamped and the operator's intent silently collapses."
         }
       },
       "coordinator_hvac": {

@@ -2377,8 +2377,18 @@ class BatteryStrategy:
         )
 
         # If primary is live, envelope is unnecessary noise.
+        # FROZEN-POWER-READ-STALENESS-CLASS-1: use the fresh-read variant
+        # (same DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S the resolver at
+        # :890 honors) so a FROZEN-VALID primary (state numeric, stamp
+        # older than the max age) does NOT falsely suppress envelope
+        # engagement. Bug Class #7 (stale data source).
         try:
-            primary = self._get_state_float(self._get_entity("battery_soc"))
+            from .energy_const import DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S
+            primary = self._read_fresh_float(
+                self._get_entity("battery_soc"),
+                DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
+                stamp="last_reported",
+            )
         except Exception:  # noqa: BLE001
             primary = None
         if primary is not None:
@@ -2599,7 +2609,16 @@ class BatteryStrategy:
         belt-and-braces LOCAL check that never inherits the cloud-first
         redirection.
         """
-        primary_soc = self._get_state_float(self._get_entity("battery_soc"))
+        # FROZEN-POWER-READ-STALENESS-CLASS-1: envoy_available must not
+        # be positive on a frozen-valid SOC (state numeric, stamp older
+        # than the max age). Same fresh-read gate as the resolver + the
+        # envelope path. Bug Class #7 (stale data source).
+        from .energy_const import DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S
+        primary_soc = self._read_fresh_float(
+            self._get_entity("battery_soc"),
+            DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
+            stamp="last_reported",
+        )
         local_storage_mode = self._get_state_str(
             self._get_entity(
                 "storage_mode", DEFAULT_STORAGE_MODE_ENTITY, role="read",
@@ -6214,12 +6233,15 @@ class BatteryStrategy:
         """
         from .energy_const import validate_threshold_ladder
         from homeassistant.util import dt as dt_util
-        warning = validate_threshold_ladder(
+        _v = validate_threshold_ladder(
             self.reserve_soc,
             self._drain_targets,
             arbitrage_trigger=None,  # v4.5.0: trigger removed (forecast-class gate)
             peak_buffer_target=self._peak_buffer_target,
         )
+        # EC-SOC-LADDER-XVALIDATE-1: validator now returns (code, message)
+        # or None. Existing consumers just want the human-readable message.
+        warning = _v[1] if _v is not None else None
         soc = self.battery_soc
         # v5.20.0 D2 — evaluate READ-side observability once per
         # `get_status` render (fix-up B-HIGH-1: this method is called by
