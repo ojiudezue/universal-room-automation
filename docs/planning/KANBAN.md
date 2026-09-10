@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T03:03:23-05:00_ - _Data commit: `5c98a29c5212`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T03:04:24-05:00_ - _Data commit: `1f97fb5ae772`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,16 +12,16 @@ _Generated: 2026-09-10T03:03:23-05:00_ - _Data commit: `5c98a29c5212`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 28 |
-| 🔬 Investigating | 19 |
-| 🧭 Pre-planning | 20 |
-| 📝 Planned | 18 |
+| 🔬 Investigating | 23 |
+| 🧭 Pre-planning | 21 |
+| 📝 Planned | 24 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 15 |
-| ⏸️ Waiting on operator | 18 |
+| 🚀 Shipped (organic open) | 0 |
+| ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🅿️ Parked | 38 |
-| ✅ Done | 79 |
+| 🅿️ Parked | 40 |
+| ✅ Done | 80 |
 
 ## 📥 Inbox (28)
 _raw capture_
@@ -333,7 +333,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (19)
+## 🔬 Investigating (23)
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
@@ -367,6 +367,22 @@ _created 2026-09-06 18:35 · initial_
 - **Tags:** no-fabrication-verify, falsify-first
 - **Forensic keys (1):**
   - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
+
+### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
+thread: **identity** - status: **investigating** - approval: **explicit**
+_created 2026-09-03 15:10 · initial_
+- **Problem / Solution:**
+  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
+- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
+- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
+- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
+- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
+- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
+- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
+- **Forensic keys (3):**
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING (measure). Probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge. Per memory, D1 bridge buildable now.
+  - `live_correction_2026_09_06`: SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is top-level name on frigate/tracked_object_update where type==face and camera matches the cam, NOT sub_label on frigate/events (sub_label is Frig...
+  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -577,6 +593,32 @@ thread: **perimeter** - status: **investigating** - approval: **unreviewed**
 - **Forensic keys (1):**
   - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification; then decide whether circling should escape pure clock-time gating.
 
+### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
+thread: **security** - status: **investigating**
+_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316 (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census _resolve_face_entity_id / the identity union), not directly off the egress person_id crossing event. Keep it graceful-anonymous and >=0.75 to name. Measure real production rate first (§5.5 gate).'}
+- **Forensic keys (6):**
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING (measure-before-build). Probe the REAL egress identity rate against the GARAGE + family-room entry path (not front door) + Protect named face via webhook.
+  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build
+  - `sequence`: 1
+  - `confidence_gate`: >=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).
+  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Consume identity gracefully (name when kno...
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id
+thread: **notifications** - status: **investigating**
+_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
+- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known). No trust surface. Sequence-first alongside PERIMETER-ALERT-NAME-PERSON-1.'}
+- **Forensic keys (6):**
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING (measure-before-build). Same egress-identity-rate probe (garage + family-room path) as PERIMETER-ALERT-NAME-PERSON; sibling.
+  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
+  - `sequence`: 1
+  - `confidence_gate`: None gating the FIRE (graceful-anonymous — notify on every crossing, name when known), though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or actuate, so no safety gate applies.
+  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
 thread: **presence** - status: **investigating** - approval: **operator_directed**
 _created 2026-08-21 18:00 · initial_
@@ -648,8 +690,39 @@ _created 2026-08-25 22:20 · refined_
   - `investigation_2026_09_08`: CONFIRMED (5 rows now: 4x 08-21 + new zone_3 08-26). Root = Carrier thermostat UNAVAILABLE/UNREADABLE at restore-settle: successful restores (385) all read back a settled preset+mode; the 5 failures do NOT (08-26 explicit mode_settled=un...
   - `consolidated_note_2026_09_09`: Root (Carrier unreadable-at-settle) is a symptom of Carrier cloud staleness — the RESPONSE (detect+reload) now lives in CARRIER-STALE-POLL-REFRESH-1 (consolidated home). This card keeps the FINDING + the cheap trip-wire option; the reloa...
 
-## 🧭 Pre-planning (20)
+### `HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1` - HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone preconditioning
+thread: **hvac** - status: **investigating**
+_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
+- **Problem / Solution:**
+  - Problem: when a camera recognizes a face at a door/interior cam, presence fires SIGNAL_PERSON_ARRIVING with source="camera_face" (presence.py:4702) — a strong "someone just arrived" cue HVAC could use to start preconditioning a zone soon...
+- **Why:** This is INDEPENDENT of the egress-identity producer (arrival side, not the egress crossing join) — the signal already exists and already fires; HVAC just does not subscribe to that source. The cheapest, highest-signal identity/presence w...
+- **Next:** Confirm the HVAC arrival source filter at hvac.py:529/977 and the SIGNAL_PERSON_ARRIVING emit at presence.py:4702; scope whether camera_face should be gated (e.g. only for interior/near-door cams) or admitted unconditionally. Tier 1 if a...
+- **Refs:** presence.py:4702 (SIGNAL_PERSON_ARRIVING source="camera_face"); hvac.py:529,977 (arrival source filter defaults [geofence,ble]); AUDIT_census_identity_supersession_and_consumers.md (adjacency sweep)
+- **Forensic keys (5):**
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Confirm HVAC arrival source filter (hvac.py:529/977) + SIGNAL_PERSON_ARRIVING emit (presence.py:4702); scope whether camera_face should be gated.
+  - `tier`: 1-2
+  - `threshold_status`: PROVISIONAL — no confidence gate today (arrival signal, not egress producer); operator to confirm before build
+  - `sequence`: 1
+  - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
+
+## 🧭 Pre-planning (21)
 _idea being decomposed_
+
+### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
+thread: **identity** - status: **pre_planning** - approval: **explicit**
+_created 2026-09-06 15:45 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
+- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
+- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
+- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
+- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
+- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
+- **Forensic keys (2):**
+  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. Plan (prior-art: reuse EgressDirectionTracker row + v5.96.1 backfill; relax abstain-on-multiple, per-row claim, keep flap/sentinel/veto) -> plan-review.
+  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -933,8 +1006,71 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
   - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
   - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
 
-## 📝 Planned (18)
+## 📝 Planned (24)
 _has plan / acceptance_
+
+### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
+  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
+- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
+- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
+- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
+- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
+- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
+- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+- **Forensic keys (2):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED (Tier-2 fast-follow). Gate _face_producer_health_resolved on resolved is not None (self-healing retry) + mutation-anchored test (frigate_status_2 appears AFTER first resolve).
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+
+### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
+thread: **identity** - status: **planned** - approval: **explicit**
+_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
+- **Problem / Solution:**
+  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
+- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
+- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
+- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
+- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
+- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
+- **Forensic keys (2):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED. Re-architect (operator 2026-09-05): key legs off device_tracker not person.<slug>. Prior-art scan found the producer exists -> source-swap + small helper.
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+
+### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
+thread: **identity** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
+- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
+- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
+- **Tags:** identity, display, should-be-consuming, ble-mopup
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
+- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
+- **Forensic keys (1):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED (BLE mop-up). Emit a lightweight signal on backfill (or re-read on census tick) so the exit-list sensor reflects the named person_id.
+
+### `EGRESS-SENSOR-READER-TZ-OVERCOUNT-1` - persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
+thread: **identity** - status: **planned** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
+- **Problem / Solution:**
+  - Problem: sensor.py:4447 and :4559 compute today_start = dt_util.now().replace(hour=0,...) (LOCAL midnight) then string-compare its isoformat against the person_entry_exit_events.timestamp column, which is naive-UTC (datetime.utcnow().iso...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-2 (diff-blind
+- **Why:** Real over-count on a user-facing count; cheap fix; same tz-convention discipline as the DAO the cycle got right.
+- **Next:** BLE mop-up: convert the day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 and :4559; test across a restart at UTC-5.
+- **Tags:** identity, timezone, pre-existing, ble-mopup, no-fabrication-verify
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
+- **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
+- **Forensic keys (1):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED (BLE mop-up). Convert day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 + :4559; test across a UTC-5 restart.
 
 ### `EVSE-SOLAR-IDLE-DERESERVE-1` - A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
 thread: **energy** - status: **planned** - approval: **approved**
@@ -1067,6 +1203,21 @@ _updated 2026-08-23 14:30 · refined ×2_
   - `organic_open`: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated inflation vs prior day
   - `followups`: expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build scoped it out)
   - `organic_evidence`: 2026-08-23 watch-pass: build not shipped (next says "build - resolver enumerates checkpoint cameras"). shipped_version recovered as not-shipped. UN-WATCHABLE.
+
+### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
+thread: **lifecycle** - status: **planned** - approval: **explicit**
+- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
+- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
+- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
+- **Tags:** tier-2db, no-fabrication-verify
+- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
+- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
+- **Forensic keys (5):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED. Build: INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle+presence). NOTE: related to URA-CONFIG-ENTRY-RELOAD-STORM-1 (the CM reloads-5x/night bug) — check if this build r...
+  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
+  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
+  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
+  - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed
 thread: **quality** - status: **planned** - approval: **explicit**
@@ -1214,6 +1365,20 @@ _created 2026-08-26 09:45 · initial_
 - **Forensic keys (1):**
   - `relane_2026_09_10`: Not a soak -> PLANNED. Add the 5th OffPeakDrain CONF+Number+dispatch+setup-loop+allowlist, mirroring the 4 existing sliders. Tier 2 (config round-trip).
 
+### `EGRESS-IDENTITY-DASHBOARD-TILE-1` - Surface the egress observability attrs as a "who entered today, named" dashboard tile
+thread: **dashboarding** - status: **planned**
+_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
+- **Why:** Small display win and the natural home for validating the producer's live yield (L2/L3). No trust surface — pure observability. Tier 1 dashboard-only.
+- **Next:** Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + the D3 attach/ambiguity-rate signals. HA dashboard leg first; PWA leg per the dashboarding workstream.
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals — but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered today, named" view. Solution: build a small dashboard tile that surfaces the named-entries list + the attach/ambiguity rates, so identity production is visible at a glance.
+- **Refs:** sensor.py:4260 (egress_face_ids_active, egress_identities_stamped); AUDIT_census_identity_supersession_and_consumers.md §3 G5
+- **Forensic keys (5):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED. Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + D3 attach/ambiguity signals. HA leg first, then PWA.
+  - `tier`: 1
+  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
+  - `sequence`: 1
+  - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
+
 ### `DELETE-REACT-DASHBOARDS-1` - Stop registering the dead React dashboards to the sidebar (phase 1, reversible) — code deleted in phase 2
 thread: **maintenance** - status: **planned** - approval: **explicit**
 _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
@@ -1256,217 +1421,12 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (15)
+## 🚀 Shipped (organic open) (0)
 _live, awaiting proof_
 
-### `IDENTITY-FUSION-PRODUCER-1` - Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-05 00:40 · refined_
-- **Problem / Solution:**
-  - Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras, ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition the PRIMARY named...
-- **Origin:** 2026-09-05 - 6.0.0 identity arc
-- **Why:** Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe is the operator #1 concern. Extend the resolver, do not rebuild.
-- **Next:** Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons: D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.
-- **Tags:** tier-2db, identity, fail-safe
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
-- **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
+_(none)_
 
-### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
-- **Problem / Solution:**
-  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
-  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
-- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
-- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
-- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
-- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
-- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
-- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
-- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
-- **Forensic keys (1):**
-  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
-
-### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
-- **Problem / Solution:**
-  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
-- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
-- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
-- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
-- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
-- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
-- **Forensic keys (1):**
-  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
-
-### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-05 17:35 · initial_
-- **Problem / Solution:**
-  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
-- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
-- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
-- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
-- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
-- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
-- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
-- **Forensic keys (1):**
-  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
-
-### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
-thread: **identity** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-09-05 22:20 · initial_
-- **Problem / Solution:**
-  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
-- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
-- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
-- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
-- **Tags:** identity, display, should-be-consuming, ble-mopup
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
-- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
-
-### `EGRESS-SENSOR-READER-TZ-OVERCOUNT-1` - persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
-thread: **identity** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-09-05 22:20 · initial_
-- **Problem / Solution:**
-  - Problem: sensor.py:4447 and :4559 compute today_start = dt_util.now().replace(hour=0,...) (LOCAL midnight) then string-compare its isoformat against the person_entry_exit_events.timestamp column, which is naive-UTC (datetime.utcnow().iso...
-- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-2 (diff-blind
-- **Why:** Real over-count on a user-facing count; cheap fix; same tz-convention discipline as the DAO the cycle got right.
-- **Next:** BLE mop-up: convert the day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 and :4559; test across a restart at UTC-5.
-- **Tags:** identity, timezone, pre-existing, ble-mopup, no-fabrication-verify
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] today-count window uses local midnight against a naive-UTC column -> ~5h overcount
-- **Refs:** sensor.py:4447; sensor.py:4559; database.py:3919 (naive-UTC column)
-
-### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-06 15:45 · initial_
-- **Problem / Solution:**
-  - Problem: v5.96.1 exit backfill abstains (leaves person_id NULL) whenever >1 person departs in the window, to avoid a wrong-name swap. But that over-abstains: BLE already knows WHO left with certainty — each resident carries their OWN blu...
-- **Origin:** 2026-09-06 - operator pushed back on the abstain-on-co-departure trade
-- **Why:** The shipped conservative floor drops the COMMON case (family leaving together). Each tracker is a certain per-person identity, so naming both has zero wrong-WHO risk; only the row-binding is best-effort, and set-correctness is what depar...
-- **Next:** Plan (prior-art scan: reuse EgressDirectionTracker row + the v5.96.1 backfill machinery; relax abstain-on-multiple, add per-row claim, keep flap/sentinel/veto) -> plan-review -> Tier-2 build (3 framing-disjoint: correctness / lifecycle /...
-- **Tags:** identity, producer, exit, tier-2, accuracy-upgrade, no-fabrication-verify
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] co-departure leaves both exits unnamed though BLE identifies each departer certainly
-- **Refs:** transit_validator.py EgressDirectionTracker (direction+confidence, person_id None); camera_census.py _backfill_exit_identity (v5.96.1 abstain gates to relax); PLANNING_egress_exit_identity_backfill_2026_09.md; reviews A-3/D-HIGH (swap concern the SET-correct model resolves)
-- **Forensic keys (1):**
-  - `spawned_from`: EGRESS-EXIT-IDENTITY-BACKFILL-1
-
-### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
-thread: **identity** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-03 15:10 · initial_
-- **Problem / Solution:**
-  - Problem: the egress-identity producer is built, wired, and enabled, but it names almost nobody — 1 of 7253 door crossings all-time (~0%) carry a person_id. The reason is NOT enrollment (Frigate recognizes all 4 residents across cameras) ...
-- **Origin:** 2026-09-03 - live investigation refuted the enrollment/bridge framing; found 23 face entities unavailable + frigate disconnected as the real gate
-- **Why:** Live 2026-09-03: protect_list_known_faces + Protect smart-detections show face-rec UP (Ziri 80%, Oji 85% today); person_entry_exit_events = 1/7253 person_id all-time; all 23 sensor.*_last_recognized_face_2 = unavailable; frigate_status_2...
-- **Next:** Investigate (measure): with Frigate confirmed up, probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge automation; then decide template/MQTT sensor drop-in vs extend...
-- **Tags:** measure-before-build, no-fabrication-verify, identity, tier-2
-- **Blocks:** EGRESS-IDENTITY-JOIN-GAP-1
-- **Refs:** transit_validator.py:1133/1447; camera_census.py:2699 _resolve_face_legs; docs/planning/PLANNING_egress_identity_producer.md; live investigation 2026-09-03; reference_frigate1_retired_2suffix_permanent; FRIGATE-LEG-NAMING-1
-- **Forensic keys (2):**
-  - `live_correction_2026_09_06`: SOURCE-READ PROBE (frigate integration on HA host) corrects the field/topic. The face name is top-level name on frigate/tracked_object_update where type==face and camera matches the cam, NOT sub_label on frigate/events (sub_label is Frig...
-  - `live_correction_2026_09_04`: GROUND-TRUTH PROBE (ssh ha, 2026-09-04) REFUTES this card's stated reason. The premise "all 23 sensor.*_last_recognized_face_2 unavailable + frigate_status_2 disconnected" is STALE — Frigate face is LIVE and NAMING residents right now: 1...
-
-### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
-thread: **platform** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
-- **Problem / Solution:**
-  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
-- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
-- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
-- **Next:** Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).
-- **Tags:** ux-consistency, no-fabrication-verify
-- **Sibling of:** DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1
-- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
-- **Forensic keys (1):**
-  - `spawned_from`: DEVICE-ENTITY-REORG-1
-
-### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
-thread: **platform** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-03 16:50 · refined_
-- **Problem / Solution:**
-  - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
-- **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
-- **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
-- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
-- **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
-- **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
-- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
-- **Forensic keys (1):**
-  - `spawns`: SCALE-LEAN-ROOM-PROFILE-1
-
-### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
-thread: **lifecycle** - status: **shipped_organic** - approval: **explicit**
-- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
-- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
-- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
-- **Tags:** tier-2db, no-fabrication-verify
-- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
-- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
-- **Forensic keys (4):**
-  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
-  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
-  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
-  - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).
-
-### `PERIMETER-ALERT-NAME-PERSON-1` - Perimeter alerts should NAME the person (consume egress/face identity)
-thread: **security** - status: **shipped_organic**
-_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
-- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): the producer is now BUILT (feature/egress-identity-producer, v5.91.4 pending deploy). Wire-in site is perimeter_alert.py:1316 (the "Person Detected" message builder). NOTE the geometry: the PERIMETER camera is an EXTERIOR-DETECTION source, NOT the egress-crossing camera — so this joins to identity via the FACE RESOLVER (census _resolve_face_entity_id / the identity union), not directly off the egress person_id crossing event. Keep it graceful-anonymous and >=0.75 to name. Measure real production rate first (§5.5 gate).'}
-- **Forensic keys (5):**
-  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.75 confidence gate before build
-  - `sequence`: 1
-  - `confidence_gate`: >=0.75 to name the person in the alert; graceful-anonymous below. Annotate/de-escalate only — a low-confidence name must never suppress or downgrade a real perimeter alert (§5.5 doctrine).
-  - `problem`: perimeter_alert.py:1316 still emits anonymous "Person Detected" even when identity is known — the exact known-vs-unknown discriminator this arc built. Highest signal-to-noise payoff of the gaps. Consume identity gracefully (name when kno...
-  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id
-thread: **notifications** - status: **shipped_organic**
-_created 2026-08-18 09:45 · updated 2026-08-29 13:20 · initial_
-- **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). LOWEST-RISK of the consumer gaps — the person_id is already on the ura_person_egress_event bus. Wire-in site is transit_validator.py:1279 (the egress event where person_id is resolved/emitted); hang an arrival/departure notification off it, graceful-anonymous ("someone" when NULL, the name when known). No trust surface. Sequence-first alongside PERIMETER-ALERT-NAME-PERSON-1.'}
-- **Forensic keys (5):**
-  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
-  - `sequence`: 1
-  - `confidence_gate`: None gating the FIRE (graceful-anonymous — notify on every crossing, name when known), though naming the person reads best at >=0.75. Lowest-risk consumer: a notification cannot escalate or actuate, so no safety gate applies.
-  - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
-  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `HVAC-CAMERA-FACE-ARRIVAL-SOURCE-1` - HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone preconditioning
-thread: **hvac** - status: **shipped_organic**
-_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Problem / Solution:**
-  - Problem: when a camera recognizes a face at a door/interior cam, presence fires SIGNAL_PERSON_ARRIVING with source="camera_face" (presence.py:4702) — a strong "someone just arrived" cue HVAC could use to start preconditioning a zone soon...
-- **Why:** This is INDEPENDENT of the egress-identity producer (arrival side, not the egress crossing join) — the signal already exists and already fires; HVAC just does not subscribe to that source. The cheapest, highest-signal identity/presence w...
-- **Next:** Confirm the HVAC arrival source filter at hvac.py:529/977 and the SIGNAL_PERSON_ARRIVING emit at presence.py:4702; scope whether camera_face should be gated (e.g. only for interior/near-door cams) or admitted unconditionally. Tier 1 if a...
-- **Refs:** presence.py:4702 (SIGNAL_PERSON_ARRIVING source="camera_face"); hvac.py:529,977 (arrival source filter defaults [geofence,ble]); AUDIT_census_identity_supersession_and_consumers.md (adjacency sweep)
-- **Forensic keys (4):**
-  - `tier`: 1-2
-  - `threshold_status`: PROVISIONAL — no confidence gate today (arrival signal, not egress producer); operator to confirm before build
-  - `sequence`: 1
-  - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
-
-### `EGRESS-IDENTITY-DASHBOARD-TILE-1` - Surface the egress observability attrs as a "who entered today, named" dashboard tile
-thread: **dashboarding** - status: **shipped_organic**
-_created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
-- **Why:** Small display win and the natural home for validating the producer's live yield (L2/L3). No trust surface — pure observability. Tier 1 dashboard-only.
-- **Next:** Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + the D3 attach/ambiguity-rate signals. HA dashboard leg first; PWA leg per the dashboarding workstream.
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  problem_solution': None}, Problem: the egress observability attrs already exist — egress_face_ids_active + egress_identities_stamped on the persons_entered_today sensor (sensor.py:4260), plus the D3 attach-rate / ambiguity-rate signals — but nothing surfaces them. Live validation has to read them by hand and the operator has no "who entered today, named" view. Solution: build a small dashboard tile that surfaces the named-entries list + the attach/ambiguity rates, so identity production is visible at a glance.
-- **Refs:** sensor.py:4260 (egress_face_ids_active, egress_identities_stamped); AUDIT_census_identity_supersession_and_consumers.md §3 G5
-- **Forensic keys (4):**
-  - `tier`: 1
-  - `threshold_status`: PROVISIONAL — no confidence gate today (display/notify class); operator to confirm no gate before build
-  - `sequence`: 1
-  - `confidence_gate`: None — display class. Show name-or-"unidentified"; never a trust decision. Per §5.5 display consumers carry no confidence threshold.
-
-## ⏸️ Waiting on operator (18)
+## ⏸️ Waiting on operator (19)
 _needs a human call_
 
 ### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
@@ -1482,6 +1442,21 @@ _created 2026-09-08 17:30 · updated 2026-09-08 18:10 · refined ×1_
 - **Forensic keys (2):**
   - `overlap_finding_2026_09_08`: DUAL OWNERSHIP (the actionable root): URA Media room ALSO drives these covers + the fan — binary_sensor.media_room_occupied control_covers=[cover.media_center/left/right], control_fans=[fan.media_room_ceiling_fan] — the SAME devices medi...
   - `status_note_2026_09_08`: IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) w...
+
+### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
+thread: **platform** - status: **waiting_operator** - approval: **explicit**
+_created 2026-09-03 16:50 · refined_
+- **Problem / Solution:**
+  - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
+- **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
+- **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
+- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
+- **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
+- **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
+- **Forensic keys (2):**
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. Tier-3 C+D reviews pending the operator adjudication set closing; state the falsifiable invariant, then operator checkpoint.
+  - `spawns`: SCALE-LEAN-ROOM-PROFILE-1
 
 ### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
@@ -1741,7 +1716,7 @@ _created 2026-08-18 00:55 · updated 2026-08-18 02:25 · initial_
   - `d2_gate_2026_08_18`: D2 (Protect corroboration) gate: NO cron (operator: "don't cron, just fire it yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload verbatim; the HA RECORDER durably retains that event+payload ...
   - `l1_validated_2026_08_18`: SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active + egress_identities_stamped live on persons_enter...
 
-## 🅿️ Parked (38)
+## 🅿️ Parked (40)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -1781,6 +1756,37 @@ _created 2026-09-05 00:30 · updated 2026-09-05 09:40 · refined_
 - **Forensic keys (2):**
   - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   - `revival_trigger`: Observed flapping-frozen face misattribution in production data AFTER D1 makes face flow. Until then: phantom — do not build.
+
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
+thread: **identity** - status: **parked** - approval: **explicit**
+_created 2026-09-05 17:35 · initial_
+- **Problem / Solution:**
+  - Problem: when a resident walks OUT, the door camera records the crossing immediately, but the phone BLE tracker does not flip to not_home until ~6 minutes later (measured D0: median +369s, never within ~280s of the crossing) because Berm...
+- **Origin:** 2026-09-05 - D0 lag measurement split entry (clean) from exit (edge arrives ~6 min late)
+- **Why:** Exit naming cannot use the +45s resolve (the disambiguating not_home edge has not fired). Backfill is the correct fix per operator: timeliness (row exists now) + accuracy (name attached when known). Entry v1 ships without it; exit is a d...
+- **Next:** After entry-only v1 ships + validates: Tier-3 build — INSERT exit row null immediately; on a resident not_home edge within BLE_EGRESS_EXIT_BACKFILL_WINDOW_S of an unnamed exit crossing, UPDATE person_id; mutation-anchored test replaying ...
+- **Tags:** identity, producer, tier-3, backfill, no-fabrication-verify
+- **Sibling of:** EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1, FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] exit crossings never named because the BLE not_home edge arrives ~6 min after the +45s resolve
+- **Refs:** database.py:3915 (INSERT — needs an UPDATE sibling); transit_validator.py:1688 (resolver); D0 probe (exit median +369s, p90 612s); PLANNING_ble_crossing_device_tracker_rearch_2026_09.md (rev5 entry-only + this exit split)
+- **Forensic keys (2):**
+  - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
+  - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
+
+### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage
+thread: **platform** - status: **parked** - approval: **explicit**
+_created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
+- **Problem / Solution:**
+  - Problem: the config/options flows are inconsistent in how the operator picks WHAT to configure — Zones use a dropdown/select, the Coordinator Manager uses a menu — and icon-in-menu-label usage is uneven. Solution: standardize on MENUS (a...
+- **Origin:** 2026-09-03 - operator menu-consistency directive during the device/entity reorg
+- **Why:** Operator: menus are the standard; dropdown-to-pick (Zones) is the odd one out. Audit in flight to map every chooser (menu vs dropdown) + icon usage + size the standardization.
+- **Next:** Icon fold-in committed on the reorg branch; closes when the reorg ships. Zone-picker→menu conversion is tracked separately as MENU-ZONE-PICKER-1 (Tier-2 fast-follow).
+- **Tags:** ux-consistency, no-fabrication-verify
+- **Sibling of:** DEVICE-ENTITY-REORG-1, MENU-ZONE-PICKER-1
+- **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+- **Forensic keys (2):**
+  - `relane_2026_09_10`: Not a soak -> PARKED. Icon fold-in committed on the reorg branch; revival trigger = DEVICE-ENTITY-REORG ships.
+  - `spawned_from`: DEVICE-ENTITY-REORG-1
 
 ### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones)
 thread: **platform** - status: **parked** - approval: **unreviewed**
@@ -2281,7 +2287,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (79)
+## ✅ Done (80)
 _closed, evidence in refs_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -2350,6 +2356,20 @@ _created 2026-09-03 10:30 · initial_
 - **Forensic keys (2):**
   - `disposition_2026_09_10`: DONE — shipped v5.92.3 (deletions-only via_device fix). VERIFIED live: coordinator entities repopulated (queried 118 ura_*_coordinator_* entities live this session during the reload investigation). The 2026.9 breakage is resolved.
   - `disposition_2026_09_03`: DONE — outage RESOLVED by v5.92.3. Live post-restart: house_state=home_day, ev_charging_status=charging (both were unavailable, now fresh 10:39:49); CM entry loaded; zero new "Error adding entity None" post-restart. Discriminator met at ...
+
+### `IDENTITY-FUSION-PRODUCER-1` - Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
+thread: **identity** - status: **done** - approval: **explicit**
+_created 2026-09-05 00:40 · refined_
+- **Problem / Solution:**
+  - Problem: egress person_id attach was ~0% (1/7265) because face is intermittent and fires at interior cameras, ~never within the door-crossing window. Solution: make the always-on BLE person.<slug> home<->away transition the PRIMARY named...
+- **Origin:** 2026-09-05 - 6.0.0 identity arc
+- **Why:** Face-first was built on a refuted premise; BLE transitions are the reliable named crossing edge. Fail-safe is the operator #1 concern. Extend the resolver, do not rebuild.
+- **Next:** Ship v5.95.0 -> live fail-safe drill (Frigate up) + attach-rate validation -> README write-back. Follow-ons: D1 real-time MQTT face bridge (after Frigate restart), IDENTITY-FLAPPING-FACE-VETO-1 (residual), the 6.0.0 consumers.
+- **Tags:** tier-2db, identity, fail-safe
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE — producer SHIPPED v5.95.0 (BLE-primary egress person_id + face corroboration). Feature delivered; the low egress attach-rate residual is a matcher/bridge gap tracked by the egress-arc cards (FRIGATE-SUBLABEL-FACE-BRIDGE, EGRESS-BLE...
 
 ### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
 thread: **device-tree** - status: **done** - approval: **explicit**

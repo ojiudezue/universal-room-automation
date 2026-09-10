@@ -538,7 +538,8 @@ cards:
 - id: IDENTITY-FUSION-PRODUCER-1
   title: Identity fusion producer — BLE-primary egress person_id + face corroboration + producer-outage fail-safe (D2/D3/D4)
   thread: identity
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE — producer SHIPPED v5.95.0 (BLE-primary egress person_id + face corroboration). Feature delivered; the low egress attach-rate residual is a matcher/bridge gap tracked by the egress-arc cards (FRIGATE-SUBLABEL-FACE-BRIDGE, EGRESS-BLE-PROVENANCE), not this producer card.'
   shipped_version: v5.95.0
   created: 2026-09-05 00:40
   updated: 2026-09-05 00:40
@@ -599,7 +600,8 @@ cards:
 - id: IDENTITY-FACE-HEALTH-BOOTCACHE-1
   title: Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
   thread: identity
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED (Tier-2 fast-follow). Gate _face_producer_health_resolved on resolved is not None (self-healing retry) + mutation-anchored test (frigate_status_2 appears AFTER first resolve).'
   shipped_version: v5.95.1
   created: 2026-09-05 08:20
   updated: 2026-09-05 09:05
@@ -643,7 +645,8 @@ cards:
 - id: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
   title: The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
   thread: identity
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED. Re-architect (operator 2026-09-05): key legs off device_tracker not person.<slug>. Prior-art scan found the producer exists -> source-swap + small helper.'
   shipped_version: v5.96.0
   created: 2026-09-05 10:10
   updated: 2026-09-05 11:15
@@ -922,7 +925,8 @@ cards:
 - id: EGRESS-EXIT-IDENTITY-BACKFILL-1
   title: Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
   thread: identity
-  status: shipped_organic
+  status: parked
+  relane_2026_09_10: 'Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.'
   shipped_version: v5.96.1
   created: 2026-09-05 17:35
   updated: 2026-09-05 17:35
@@ -963,7 +967,8 @@ cards:
 - id: EGRESS-EXIT-DISPLAY-REREAD-1
   title: Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
   thread: identity
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED (BLE mop-up). Emit a lightweight signal on backfill (or re-read on census tick) so the exit-list sensor reflects the named person_id.'
   shipped_version: v5.96.2
   created: 2026-09-05 22:20
   updated: 2026-09-05 22:20
@@ -989,7 +994,8 @@ cards:
 - id: EGRESS-SENSOR-READER-TZ-OVERCOUNT-1
   title: persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
   thread: identity
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED (BLE mop-up). Convert day-boundary to the column convention (naive-UTC of local-midnight) at sensor.py:4447 + :4559; test across a UTC-5 restart.'
   shipped_version: v5.96.2
   created: 2026-09-05 22:20
   updated: 2026-09-05 22:20
@@ -1046,7 +1052,8 @@ cards:
 - id: EGRESS-EXIT-COMULTI-DEPART-1
   title: Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
   thread: identity
-  status: shipped_organic
+  status: pre_planning
+  relane_2026_09_10: 'Not a soak -> PRE-PLANNING. Plan (prior-art: reuse EgressDirectionTracker row + v5.96.1 backfill; relax abstain-on-multiple, per-row claim, keep flap/sentinel/veto) -> plan-review.'
   shipped_version: v5.97.1
   created: 2026-09-06 15:45
   updated: 2026-09-06 15:45
@@ -1090,7 +1097,8 @@ cards:
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real
     gate for the whole egress-identity (6.0.0) arc
   thread: identity
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING (measure). Probe frigate/events MQTT for person sub_labels (names + per-camera coverage + latency) via the existing frigate_mqtt bridge. Per memory, D1 bridge buildable now.'
   shipped_version: v5.97.0
   created: 2026-09-03 15:10
   live_correction_2026_09_06: >-
@@ -1186,7 +1194,8 @@ cards:
   title: Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize
     on menus + consistent icon-in-label usage
   thread: platform
-  status: shipped_organic
+  status: parked
+  relane_2026_09_10: 'Not a soak -> PARKED. Icon fold-in committed on the reorg branch; revival trigger = DEVICE-ENTITY-REORG ships.'
   shipped_version: v5.94.0
   created: 2026-09-03 17:10
   updated: 2026-09-03 18:05
@@ -1301,7 +1310,8 @@ cards:
   title: Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale /
     helper-consolidation / per-item-reload follow-ups
   thread: platform
-  status: shipped_organic
+  status: waiting_operator
+  relane_2026_09_10: 'Not a soak -> WAITING_OPERATOR. Tier-3 C+D reviews pending the operator adjudication set closing; state the falsifiable invariant, then operator checkpoint.'
   shipped_version: v5.94.0
   created: 2026-09-03 16:50
   updated: 2026-09-03 16:50
@@ -9540,7 +9550,8 @@ cards:
 - id: RELOAD-WATCHDOG-HAZARD
   title: URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
   thread: lifecycle
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED. Build: INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle+presence). NOTE: related to URA-CONFIG-ENTRY-RELOAD-STORM-1 (the CM reloads-5x/night bug) — check if this build removes a reload trigger.'
   shipped_version: v5.99.0
   approval: explicit
   approved_by: operator
@@ -10204,7 +10215,8 @@ cards:
     by finding there was nothing to delete — and by catching that "dead" was being conflated with "deletable".'
 - id: PERIMETER-ALERT-NAME-PERSON-1
   title: Perimeter alerts should NAME the person (consume egress/face identity)
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING (measure-before-build). Probe the REAL egress identity rate against the GARAGE + family-room entry path (not front door) + Protect named face via webhook.'
   shipped_version: v5.98.0
   thread: security
   created: 2026-08-18 09:45
@@ -10276,7 +10288,8 @@ cards:
     do NOT re-recommend it off the 7%.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING (measure-before-build). Same egress-identity-rate probe (garage + family-room path) as PERIMETER-ALERT-NAME-PERSON; sibling.'
   shipped_version: v5.98.0
   thread: notifications
   created: 2026-08-18 09:45
@@ -13861,7 +13874,8 @@ cards:
   title: HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone
     preconditioning
   thread: hvac
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING. Confirm HVAC arrival source filter (hvac.py:529/977) + SIGNAL_PERSON_ARRIVING emit (presence.py:4702); scope whether camera_face should be gated.'
   shipped_version: v5.98.0
   tier: 1-2
   created: '2026-08-28 12:00'
@@ -13970,7 +13984,8 @@ cards:
 - id: EGRESS-IDENTITY-DASHBOARD-TILE-1
   title: Surface the egress observability attrs as a "who entered today, named" dashboard tile
   thread: dashboarding
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED. Build the tile against sensor.py:4260 attrs (egress_face_ids_active, egress_identities_stamped) + D3 attach/ambiguity signals. HA leg first, then PWA.'
   shipped_version: v5.98.0
   tier: 1
   created: '2026-08-28 12:00'
