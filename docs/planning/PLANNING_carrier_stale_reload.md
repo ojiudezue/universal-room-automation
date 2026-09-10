@@ -72,3 +72,22 @@ _Full grounding (file:line REUSE/NEW, prior-art scan) in the ura-planner investi
 energy.py:842/2939, energy_write_verify.py:219, energy_const.py:1606, energy_pool.py:1203,
 hvac_const.py:560-600, database.py:1720-1756, PLANNING_ac_ramp_pipeline_hardening.md:664,
 PLANNING_reconcile_on_return.md:924._
+
+## Operator resolutions (2026-09-09) — plan now READY to build
+- **Q1 (D0 probe): SKIP.** Enough probing — Probe C confirmed the defect and the operator has
+  empirically established a reload refreshes it. Ship reload-first (mechanistic argument holds).
+- **Q2 (SPAN zone kW): VERIFIED present**, not asked — `sensor.span_left_furnace_*`,
+  `span_panel_ac_2/ac_3` circuits exist; blind-corroboration viable. Pin the exact zone→circuit
+  map at build.
+- **Q3 (lock scope): per-entry** — there is no real tradeoff; a per-entry asyncio.Lock preventing
+  overlapping reloads is sufficient. (Dropped as a decision.)
+- **Reloads/day (operator asked "how many"): default 4.** A healthy day is 0; hitting 4 means the
+  reload is NOT holding → that is itself the signal, so the D3 trip-wire escalates (NM high,
+  suppress further reloads for the day) rather than reloading a 5th time. Config-flow tunable
+  (module const `CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY=4`, kill-switch via cooldown=0).
+- **Observability/control design (operator asked):** automatic + invisible in normal operation.
+  CONTROL = config-flow options (max-age, cooldown, max/day, corroboration toggle, kill-switch).
+  OBSERVABILITY = (1) diagnostic `sensor.ura_hvac_carrier_freshness` (state = worst-zone age or
+  stale-count; attributes = per-zone last_reported age + stale flag), (2) reload events written to
+  `ura_activity_log`, (3) NM info on each reload / NM high on reload-ineffective. So: silent when
+  healthy, but a sensor + activity trail + alerts when it acts.

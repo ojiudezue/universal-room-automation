@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T19:25:14-05:00_ - _Data commit: `78e00ad03fac`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T19:54:19-05:00_ - _Data commit: `58082071e6ec`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -663,7 +663,7 @@ _created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
 - **Tags:** third-party-defect, operator-requested, probe-pending
 - **Parsimony:** [INVESTIGATE] a third-party integration reports stale HVAC state for up to 1.8h; only a reload clears it
 - **Refs:** /config/custom_components/ha_carrier/climate.py:190-195; /config/custom_components/ha_carrier/const.py:46; carrier_entity.py:17
-- **Forensic keys (12):**
+- **Forensic keys (13):**
   - `REMEDIATION_RUN_2026_08_24`: Operator granted permission for the full remediation sequence incl the reload leg. Design: detached script does READ-ONLY detection on the HA host (/tmp/carrier_blind_watch2.py, pid 29697, 6h window, exits on first confirmed episode); th...
   - `PROBE_C_RESULT_2026_08_24_CONFIRMED`: The detached blind-episode detector FIRED and exited on the first confirmed episode: zone_2 (climate.up_hallway_zone_2) reporting hvac_action=idle, blower_rpm=0 while drawing 2710.7 W, temp 80F against target 76F, at 2026-08-23T21:24:20....
   - `OPERATOR_REQUEST`: Operator 2026-08-22: "I just found that reloading the carrier integration made it show reality. Not required for nudging but definitely probably required for hvac ops. Else we will lose responsiveness. Thinking of adding a periodic integ...
@@ -675,6 +675,7 @@ _created 2026-08-22 15:30 · updated 2026-08-24 16:45 · refined_
   - `PROBE_C_RELOCATED_TO_HA_HOST_2026_08_23`: Second launch was KILLED before firing (no output). Root cause of the fragility, the probe was tethered to my session, so anything that reaps my background processes also reaps the probe. Relocated to run DETACHED ON THE HA HOST itself, ...
   - `dedupe_2026_09_09`: CONSOLIDATED (operator 2026-09-09: do not mint new carrier cards — we have considered carrier failures before). This is the home for Carrier cloud-only resilience. Folded in the resilience framing: model the RESPONSE on the Envoy/Enphase...
   - `plan_doc`: docs/planning/PLANNING_carrier_stale_reload.md (ura-planner 2026-09-09) — Tier 2-DB; D0 probe recommended; 3 open operator questions
+  - `resolutions_2026_09_09`: Operator resolved plan questions: skip D0 probe (enough probing, reload known to work); SPAN kW verified present; per-entry lock; reloads/day=4 (hitting cap => trip-wire escalates, not a 5th reload); observability = diagnostic freshness ...
   - `links`: related: RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
