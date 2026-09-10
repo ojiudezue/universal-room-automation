@@ -1,3 +1,37 @@
+# PLANNING — ATTAIN precise ramp via CFG on/off modulation (target-generic)
+
+**SUPERSEDES the shortfall-sizing/schedule-limit approach.** Read-only verification (2026-09-09) found
+the Enphase charge-to-limit-separate-from-reserve is NOT supported on this site (charge_from_grid_schedule
+unsupported; only force-CFG on/off, no target-SoC limit; URA actuates the LOCAL Envoy which has no limit
+concept). So sizing via schedule_limit is dead here. Operator-chosen approach instead:
+
+## Approach: modulate CFG on/off (reserve untouched)
+Keep attain emitting reserve = `peak_buffer_target` (the DISCHARGE FLOOR stays at target -> no morning
+drain, P1 safe). SOC still climbs to target via solar even with grid off (self-consumption charging is
+always allowed) so the SOC-keyed latch/exit is unchanged (P2 safe). The ONLY new behavior: turn
+`charge_from_grid` OFF once forecasted solar can finish the ramp to `peak_buffer_target` by the boundary,
+and back ON if solar disappoints. Uses only the CFG switch URA already controls (local Envoy).
+
+**TARGET-GENERIC (operator 2026-09-09):** `peak_buffer_target` is a CONFIG VARIABLE, not the literal 80.
+The whole design must work identically at 60%, 80%, or any value / any pack size (e.g. 160 kWh @ 60%).
+Never hard-code 80; everything reads `self._peak_buffer_target`.
+
+## CFG-off condition (target-generic)
+Turn CFG OFF when `credited_solar_before_boundary >= (peak_buffer_target - current_soc)` with a safety
+margin; else CFG ON. Self-correcting each tick as the window shrinks (credited_solar falls -> CFG back on
+in time). The over-credit guard (plan-review P3) is rate-feasibility: only stay OFF if solar can still
+reach target within `[now, boundary - ATTAIN_PEAK_HANDOFF_LEAD_MIN]` at the observed charge rate.
+
+## Falsifiable invariant
+reserve_level emitted by attain is ALWAYS `peak_buffer_target` (never lowered) on every CHARGE/HOLD tick;
+CFG is only turned OFF when solar can provably reach `peak_buffer_target` by the handoff at the observed
+rate; a solar disappointment re-enables CFG with enough time to recover. allow_discharge/WAIT paths
+byte-identical.
+
+---
+
+## (superseded) shortfall-sizing notes below — retained for history
+
 # PLANNING — ATTAIN shortfall-sizing (size grid charge to forecasted shortfall, not flat target)
 
 Card: `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1`. Tier: 2-DB minimum, likely **Tier-3** (energy strategy,

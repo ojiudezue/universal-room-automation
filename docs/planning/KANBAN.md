@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T20:44:43-05:00_ - _Data commit: `ca890fcffb16`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T20:50:16-05:00_ - _Data commit: `66c92c134bfd`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -412,11 +412,11 @@ _created 2026-09-06 18:00 · initial_
   - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
 - **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
 - **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
-- **Next:** VERIFY (read-only) the enphase_ev schedule mechanism semantics BEFORE re-planning: does setting battery_schedule_limit + charge_from_grid_schedule charge grid ONLY up to the limit while battery_reserve independently holds the discharge f...
+- **Next:** Plan-review the CFG-modulation approach (2 framing-disjoint: completeness + adversarial), fold findings, operator checkpoint, then Tier-3 build.
 - **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
 - **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
 - **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
   - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
   - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
@@ -426,6 +426,7 @@ _created 2026-09-06 18:00 · initial_
   - `parked_decision_2026_09_09`: PARKED (operator 2026-09-09). Both framing-disjoint PLAN reviews returned PLAN-FIX-REQUIRED with CRITICALs that kill the shortfall-sizing tweak: P1 = reserve_level is a DISCHARGE FLOOR not just a charge target (same Enphase number, Bug C...
   - `correction_2026_09_09`: OPERATOR CORRECTED my two wrong conclusions (un-parked). (1) DO NOT PARK — the goal is to make the RAMP-TO-TARGET more PRECISE (charge exactly the grid needed, let solar cover the rest); the target level (peak_buffer_target=80) stays fix...
   - `overlay_architecture_2026_09_09`: OPERATOR REFINEMENT (de-risks the whole thing): do the shortfall sizing as a THIN OVERLAY that does NOT modify the core attain machinery. Attain keeps emitting reserve=80 + CFG exactly as today (so discharge floor stays 80 -> NO morning ...
+  - `decision_2026_09_09_final`: VERIFIED schedule-limit NOT supported on this site (dead). Operator chose CFG ON/OFF MODULATION: reserve stays at peak_buffer_target (floor, P1 safe), turn charge_from_grid OFF when forecast solar can finish to target by boundary (rate-f...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -817,9 +818,10 @@ _created 2026-08-31 20:45 · initial_
 - **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `operator_refine_2026_09_09`: Operator Q: is the staleness sensor separate, or does it change state in place? And if separate, does it consolidate the 3 or hold per-read states in details? Proposed answer (confirm in plan): TWO layers. (1) DECISION layer = a shared h...
   - `build_2026_09_09`: BUILT on feature/energy-validate-staleness. Reused existing _read_fresh_float helper + DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S=300 (kill-switch at 0). Gated the PRIMARY SOC reads (soc_envelope + envoy_available). *** OPERATOR DECISION FLAG...
+  - `med2_resolved_2026_09_09`: OPERATOR: respect the prior Tier-3 decision — do NOT gate net_power/battery_power (we did not do the work to overturn it). Build is COMPLETE as-is (primary SOC gated only). Proceed to Tier-3 reviews.
 
 ### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired
 thread: **energy** - status: **review** - approval: **unreviewed**
