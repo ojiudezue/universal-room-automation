@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T03:05:39-05:00_ - _Data commit: `ec49dd62dfb6`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T15:15:22-05:00_ - _Data commit: `f47b481aa4b1`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,14 +14,14 @@ _Generated: 2026-09-10T03:05:39-05:00_ - _Data commit: `ec49dd62dfb6`_ - _last_r
 | 📥 Inbox | 28 |
 | 🔬 Investigating | 22 |
 | 🧭 Pre-planning | 21 |
-| 📝 Planned | 24 |
+| 📝 Planned | 23 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 40 |
-| ✅ Done | 81 |
+| ✅ Done | 82 |
 
 ## 📥 Inbox (28)
 _raw capture_
@@ -346,9 +346,10 @@ _created 2026-09-10 00:50 · initial_
 - **Next:** Investigate the reload TRIGGER: ha_get_logs core around one blip (e.g. 04:01 UTC) for "reload"/"Unloading"/"Setting up universal_room_automation"; grep the codebase for self-issued homeassistant.reload_config_entry / async_reload / async...
 - **Tags:** energy, reload, watchdog-hazard, no-fabrication-verify, falsify-first
 - **Refs:** docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md; project_cm_reload_suppression_cycle_stack; feedback_parent_entry_reload_watchdog_hazard
-- **Forensic keys (8):**
+- **Forensic keys (9):**
   - `forensic_evidence`: ALL 5 blips verified as full reloads (not extrapolated from one): URA entities unavailable = 118 (23:12) / 118 (01:15) / 155 (01:27) / 118 (04:01) / 118 (04:19).
   - `mechanism_confirmed_2026_09_10`: Reload is issued by _async_update_listener (__init__.py:7280) -> it diffs old vs new entry.options; if changed_keys is NOT a subset of INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS it schedules hass.config_entries.async_reload (__init__.py:75...
+  - `parent_reload_confirmed_2026_09_10`: SCOPE CORRECTED: this is the INTEGRATION PARENT-entry reload, NOT CM-only. At 04:01 both 118 coordinator entities AND 80 room-tier entities (binary_sensor.<room>_occupied, ura_notification_manager_*, etc.) blipped unavailable = ~198 tota...
   - `scope_2026_09_10`: CM entry ONLY (not whole URA / not room entries). All 118 blipped entities are ura_*_coordinator_* (energy/hvac/presence coordinators) which are CM-hosted; room entities did not blip.
   - `writer_hunt_2026_09_10`: EXHAUSTIVE static search did NOT find the trigger. RULED OUT: (a) Number/Select/Switch value-change persistence (no recorder value change before any reload); (b) ALL direct async_update_entry(options) writers -- number.py:584, __init__.p...
   - `capture_enabled_2026_09_10`: DEBUG CAPTURE LIVE (operator go). logger.set_level homeassistant.config_entries=debug + custom_components.universal_room_automation=debug set on the running instance ~05:2x UTC 09-10 (persists across config-entry reloads; resets only on ...
@@ -992,7 +993,7 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
   - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
   - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
 
-## 📝 Planned (24)
+## 📝 Planned (23)
 _has plan / acceptance_
 
 ### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
@@ -1189,21 +1190,6 @@ _updated 2026-08-23 14:30 · refined ×2_
   - `organic_open`: one logical sighting per real crossing (F2 dedup, despite Protect+Frigate legs) + no path_validated inflation vs prior day
   - `followups`: expose checkpoint_cameras_by_area on a diagnostic sensor (validation needed log-level surgery - build scoped it out)
   - `organic_evidence`: 2026-08-23 watch-pass: build not shipped (next says "build - resolver enumerates checkpoint cameras"). shipped_version recovered as not-shipped. UN-WATCHABLE.
-
-### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
-thread: **lifecycle** - status: **planned** - approval: **explicit**
-- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
-- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
-- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
-- **Tags:** tier-2db, no-fabrication-verify
-- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
-- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
-- **Forensic keys (5):**
-  - `relane_2026_09_10`: Not a soak -> PLANNED. Build: INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle+presence). NOTE: related to URA-CONFIG-ENTRY-RELOAD-STORM-1 (the CM reloads-5x/night bug) — check if this build r...
-  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
-  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
-  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
-  - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).
 
 ### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed
 thread: **quality** - status: **planned** - approval: **explicit**
@@ -2273,7 +2259,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (81)
+## ✅ Done (82)
 _closed, evidence in refs_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -3105,6 +3091,22 @@ thread: **security** - status: **done** - approval: **blocked**
   - `direction_2026_08_14`: Operator agreed: exterior alerts today have ZERO member recognition (verified — perimeter_alert consults no face data). v1 direction = ANNOTATE not suppress ("Person detected — likely Oji") — preserves alert, kills operator cost; per-per...
   - `operator_answers_2026_08_14`: P1 privacy: LOCAL SOURCES ONLY (Frigate-2 + UniFi Protect face; llmvision EXCLUDED from identity — no household reference photos leave LAN). D3: FOLD IN NOW (stranger-alert / unknown-face leg builds in the same cycle as member-annotation...
   - `disposition_applied_2026_08_14`: OPERATOR DECLINED via board button 2026-08-13T03:20 (queue apply was MISSED for ~1 day — session-start disposition check skipped across overnight passes; corrected now). Reconciled NOT relitigated: declined AS A STANDALONE card; its scop...
+
+### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
+thread: **lifecycle** - status: **done** - approval: **explicit**
+- **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
+- **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
+- **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
+- **Tags:** tier-2db, no-fabrication-verify
+- **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
+- **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
+- **Forensic keys (6):**
+  - `supersession_2026_09_10`: shipped_version v5.99.0 is REAL (this card is DONE for its scoped trigger: camera-key OPTIONS-SAVE parent reload suppressed + SIGNAL_CAMERA_LIST_CHANGED re-subscribe). My pass-9 relane to planned was wrong. BUT the parent-reload hazard i...
+  - `relane_2026_09_10`: Not a soak -> PLANNED. Build: INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle+presence). NOTE: related to URA-CONFIG-ENTRY-RELOAD-STORM-1 (the CM reloads-5x/night bug) — check if this build r...
+  - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
+  - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
+  - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
+  - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).
 
 ### `KHOST-1` - Homelab-hosted board, generated from data
 thread: **dashboarding** - status: **done** - approval: **explicit**
