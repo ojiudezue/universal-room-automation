@@ -1,0 +1,52 @@
+# PLANNING — ATTAIN shortfall-sizing (size grid charge to forecasted shortfall, not flat target)
+
+Card: `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1`. Tier: 2-DB minimum, likely **Tier-3** (energy strategy,
+threads reserve through CHARGE emission sites). **Plan-review required before build** (this doc).
+
+## Problem (measured + code-diagnosed)
+14-day probe: import 12.3× export (no export wash); solar-recoverable waste = 29–56% of morning
+grid-charge = **~$140–270/yr** (off-peak $0.086, so small). ROOT (code): the attain path
+grid-charges to a **flat `peak_buffer_target` (80%)**; the solar forecast is used ONLY as an on/off
+gate, never to SIZE the charge — so it pulls grid for the full soc→80 span incl. the slice solar
+would deliver before the 14:00 boundary. Compounded by a flat `SOLAR_CAPTURE_FACTOR=0.5`
+(energy_battery.py:260) halving the forecast in the gate.
+
+## Fix (tweak — all ingredients exist)
+On the CHARGE emission branches, replace the flat `peak_buffer_target` reserve target with:
+`sized_reserve = clamp(peak_buffer_target - credited_solar_before_boundary, safety_floor, peak_buffer_target)`
+using the already-computed `_expected_solar_surplus_pct(now, mins_to_boundary)`. Self-correcting:
+as the boundary nears the capturable window shrinks → credited_solar falls → sized_reserve rises
+back toward 80%, so a solar disappointment is still covered by grid on later ticks. Keep the GATE's
+0.5 pessimism (deciding whether to charge stays conservative); add a SEPARATE, less-pessimistic
+**sizing** credit factor for the shortfall calc.
+
+## Falsifiable invariant
+On any CHARGE emission, the emitted `reserve_level` (grid target) is NEVER above
+`peak_buffer_target - credited_solar_before_boundary` and NEVER below `safety_floor`
+(= max(reserve_soc, inclement floor)). The `allow_discharge` / no-op paths are byte-identical.
+
+## Emission sites (HYPOTHESIS from diagnosis — plan-review MUST re-enumerate independently)
+- `energy_battery.py:3420-3441` — arbitrage CHARGE (`reserve_level=_floor_reserve(peak_buffer_target,...)`)
+- `energy_battery.py:4148-4164` — attain CHARGE (same shape)
+- (invariants-campaign Phase 1a found ~17 `reserve_level=` sites — reviewer re-greps to confirm no OTHER charge-to-target site needs the same sizing.)
+
+## Knobs (Numbers-Get-Knobs)
+- `SOLAR_CAPTURE_FACTOR=0.5` (existing, gate) — UNCHANGED (gate stays pessimistic).
+- NEW `CHARGE_SOLAR_SIZING_FACTOR` (module const, energy_battery.py, review-gated — safety-adjacent;
+  sizing too generously risks a missed buffer). Default TBD; optionally set by a 14-day
+  Solcast-morning-forecast-vs-actual-captured probe (measure-before-build) before finalizing.
+- `safety_floor` clamp: max(reserve_soc, active inclement floor) — reuse `_floor_reserve`.
+
+## Non-goals
+No new state machine; no blanket aggression cut (probe: solar couldn't refill on 11/13 days —
+blanket restraint forces evening PEAK import at 2.4×, erasing savings). Keep the realized-divergence
+detector (v5.3.8) as the safety net. Do NOT lower the gate's 0.5.
+
+## Interactions to protect (for plan review + build)
+attain latch integrity (I-5 from the invariants campaign); inclement `_floor_reserve` (must still
+raise, never be lowered by sizing); no-flap hysteresis on the reserve; the two-charge-site
+consistency; day/TOU boundary; the realized-divergence detector's assumptions.
+
+## Review tier
+Tier-3 (4 framing-disjoint per ura-change-control), operator checkpoint before deploy. Use the
+`ura-energy-invariants-campaign` discipline (Phase 1 grep enumeration, Phase 4 per-site mutation).
