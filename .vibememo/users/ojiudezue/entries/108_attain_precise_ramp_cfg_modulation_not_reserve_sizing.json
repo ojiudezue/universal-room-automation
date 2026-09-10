@@ -1,0 +1,20 @@
+{
+ "format_version": "2.1",
+ "entry_id": "108",
+ "author": "ojiudezue",
+ "session_id": "claude_20260909_attain_precise_ramp",
+ "timestamp": "2026-09-09T23:45:00Z",
+ "type": "decision",
+ "weight": "critical",
+ "title": "Attain over-charge fix = CFG on/off modulation (target-generic, per-day-latched), NOT reserve-sizing and NOT the Enphase schedule-limit",
+ "summary": "Attain grid-charges the battery to peak_buffer_target every morning even on high-solar days, wasting a measured ~$140-270/yr (solar-recoverable grid-charge; import 12.3x export in summer, so no NEM export wash). Root: attain uses the solar forecast only as an on/off GATE, never to SIZE the charge (it pulls grid to a flat target; energy_battery.py:3420-3441 arbitrage, :4148-4164 attain). Two naive fixes were killed by review; the chosen fix is a thin CFG-modulation overlay that leaves core attain untouched.",
+ "why": "Naive fix #1 (size reserve_level to target-credited_solar) was killed by an adversarial PLAN review, CRITICAL: reserve_level IS the DISCHARGE FLOOR, not just a charge target (same Enphase number) - lowering it opens the battery to drain to morning house loads (would make attain WORSE), and the phase/latch exits key on soc>=peak_buffer_target so a sized target means SOC never reaches target and the latch never exits. Naive fix #2 (Enphase CFG schedule-limit = a real charge-to-limit separate from the reserve floor) was killed by a read-only capability probe: the limit-bearing day-schedule is UNSUPPORTED on this site (charge_from_grid_schedule_supported=false, cfg count=0, battery_cfg_schedule_limit=null); only force-CFG on/off (no limit) is available, and URA actuates the LOCAL enphase_envoy which has no limit concept at all. The surviving approach (operator-chosen): keep attain emitting reserve=peak_buffer_target (floor held -> no drain), and only MODULATE charge_from_grid off/on: turn CFG OFF once forecast solar can finish the ramp to target by the boundary (rate-feasibility guarded), back ON if solar disappoints. SOC still climbs to target via solar (self-consumption charging always allowed) so the SOC-keyed latch exit is unchanged. This uses only the CFG switch URA already controls and does not touch core attain state.",
+ "implications": "Build spec (Tier-3, plan-review-then-operator-checkpoint before build): (1) TARGET-GENERIC - peak_buffer_target is a config VARIABLE, never hardcode 80; must work at 60% or any pack size. (2) PER-DAY LATCH - snapshot peak_buffer_target at morning attain-start, hold immutable intra-day (ignore live config changes mid-ramp), adopt changes next day; no mid-ramp target seam. (3) Rate-feasibility over-credit guard (plan-review P3), quantization/ratchet on the CFG toggle to avoid flap (P6), reason-string/attribute honesty (P8). Do NOT lower reserve_level (P1 = battery drain). Do NOT rely on schedule_limit (unsupported here). peak_buffer_target itself is a near-static fact - tune by hand if ever changed, no adaptive machinery. Plan: docs/planning/PLANNING_attain_shortfall_sizing.md (revised to CFG-modulation).",
+ "revisit_trigger": "Attain CFG-modulation build ships and is validated; OR Enphase firmware/site later exposes a real charge-to-limit (re-evaluate the cleaner schedule path); OR the ~$140-270/yr estimate proves materially off after a live season.",
+ "refs": [
+  "docs/planning/PLANNING_attain_shortfall_sizing.md",
+  "docs/planning/kanban.data.yaml (ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1)",
+  "energy_battery.py:3420-3441 (arbitrage CHARGE), :4148-4164 (attain CHARGE), :260 SOLAR_CAPTURE_FACTOR",
+  "energy_const.py:236,238 (URA actuates local enphase_envoy reserve+CFG)"
+ ]
+}
