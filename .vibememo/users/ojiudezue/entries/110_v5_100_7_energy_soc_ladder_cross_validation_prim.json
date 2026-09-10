@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "110",
+  "author": "ojiudezue",
+  "session_id": "claude_20260910_041733_ship_v5_100_7",
+  "timestamp": "2026-09-10T04:17:33Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.7 shipped: Energy SOC-ladder cross-validation + primary-SOC staleness gate (Tier-3)",
+  "summary": "Energy SOC-ladder cross-validation + primary-SOC staleness gate (Tier-3)",
+  "why": "Two energy correctness guardrails the operator greenlit. Ladder: several operator-set SOC thresholds had NO ordering check; an inversion (e.g. fill_priority>excess_solar) flips a band and oscillates EV pause/resume. Staleness: the same frozen-valid hazard the solar freeze exposed existed on the primary SOC reads (only unknown/unavailable was rejected). 3 Tier-3 reviews found the very_poor bucket excluded (A-HIGH-1), the runtime wire-in untested for the 4th cycle running (C-HIGH-1), the save-gate untested (C-HIGH-2) + missing translations; fix-up closed all with 30 mutation-anchored tests. Orchestrator independently re-mutated the two load-bearing sites (drop runtime kwargs -> 5 RED; neuter very_poor -> 3 RED), restored, 30/30 green. MED-2 respected per operator: do not gate net_power/battery_power (prior Tier-3 decision not overturned).",
+  "implications": "Shipped EC-SOC-LADDER-XVALIDATE-1, FROZEN-POWER-READ-STALENESS-CLASS-1 at v5.100.7; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.7.md (Live criteria).",
+  "revisit_trigger": "Config-flow: submitting fill_priority>excess_solar in the Energy step is rejected with a readable slider error; a live-slider inversion emits one threshold_ladder_violation anomaly; a frozen primary-SOC entity engages the envelope / reports envoy_available False (same as unavailable).",
+  "refs": {
+    "cards": [
+      "EC-SOC-LADDER-XVALIDATE-1",
+      "FROZEN-POWER-READ-STALENESS-CLASS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.7.md"
+    ],
+    "release_notes": "Cross-validate the operator SOC threshold ladder (reserve/5 drain buckets incl very_poor/peak_buffer/fill_priority/excess_solar/ev_drain/inclement) at config-flow save time (reject inverted with translated error) AND at runtime (rate-limited threshold_ladder_violation anomaly on live-slider inversion). Gate primary battery-SOC reads (soc_envelope, envoy_available) against frozen-valid staleness via _read_fresh_float (300s, kill-switch 0). net_power/battery_power deliberately NOT gated (MED-2, respect prior Tier-3 decision). 3 framing-disjoint reviews + fix-up + orchestrator mutation-verify; 30 mutation-anchored tests."
+  }
+}

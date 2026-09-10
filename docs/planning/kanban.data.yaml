@@ -13021,7 +13021,8 @@ cards:
 - id: FROZEN-POWER-READ-STALENESS-CLASS-1
   title: 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.100.7
   created: 2026-08-31 20:45
   updated: 2026-08-31 20:45
   refinement_status: initial
@@ -13099,7 +13100,8 @@ cards:
   title: No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity
     and oscillate EV pause/resume; the parked fix's trigger has now fired
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.100.7
   created: 2026-08-24 16:45
   updated: 2026-08-24 16:45
   refinement_status: initial
