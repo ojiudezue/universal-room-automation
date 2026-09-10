@@ -540,6 +540,44 @@ class HVACCoordinator(BaseCoordinator):
             reason="display counter; pre-arrival dispatch is signal-driven",
         )
 
+        # CARRIER-STALE-POLL-REFRESH-1 (2026-09-09). Bounded reload of the
+        # ha_carrier config entry when it goes stale. See hvac_const.py for
+        # the knob ladder + kill-switch (cooldown=0). Per-entry asyncio.Lock
+        # prevents overlapping reload attempts; DailyCounter caps the per-day
+        # count; RAM stamp tracks cooldown. Restart: RESET WITH REASON —
+        # cooldown is a debounce not a safety; the day-cap is a safety cap
+        # not a budget, and a boot immediately after >=4 reloads still
+        # surfaces via NM on the next stale episode.
+        self._carrier_reload_lock = asyncio.Lock()
+        self._last_carrier_reload_at: Any = None  # UTC datetime or None
+        self._carrier_reloads_today = _DailyCounter(
+            name="hvac.carrier_reloads_today",
+            persist=False,
+            reason=(
+                "reload count is a safety cap (max/day), not a budget; "
+                "on restart the next stale episode re-triggers evaluation "
+                "and D3 NM will fire if reload is ineffective"
+            ),
+        )
+        # Once True for the current local day, no more Carrier reloads fire
+        # (D3 trip-wire fired). Reset on daily rollover.
+        self._carrier_reload_suppressed_today: bool = False
+        self._carrier_reload_suppress_date: str = ""
+        # Consecutive stale ticks observed AFTER the most recent reload.
+        self._carrier_stale_ticks_since_reload: int = 0
+        # Snapshot consumed by HVACCarrierFreshnessSensor (per-zone).
+        self._carrier_freshness_snapshot: dict[str, dict[str, Any]] = {}
+        self._carrier_worst_age_s: float | None = None
+        self._carrier_stale_zone_count: int = 0
+        # Options-flow blind-corroboration toggle (True = require SPAN
+        # blind-corroboration for age-stale reload; False = age-only).
+        from .hvac_const import (
+            DEFAULT_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
+        )
+        self._carrier_require_blind_corroboration_default = (
+            DEFAULT_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION
+        )
+
         # v3.19.0: Camera zone map (diagnostic)
         self._camera_zone_map: dict[str, str] = {}
 
@@ -1423,6 +1461,17 @@ class HVACCoordinator(BaseCoordinator):
             # internal UTC clock.
             self._vacancy_sweeps_today.rollover_if_needed()
             self._pre_arrival_triggers_today.rollover_if_needed()
+            # CARRIER-STALE-POLL-REFRESH-1: roll day-scoped safety cap +
+            # release the D3 suppress-for-day flag on the local-day hinge.
+            self._carrier_reloads_today.rollover_if_needed()
+            if self._carrier_reload_suppress_date != today:
+                if self._carrier_reload_suppressed_today:
+                    _LOGGER.info(
+                        "Carrier reload suppression released at daily rollover "
+                        "(previous day cap or reload-ineffective D3 cleared)"
+                    )
+                self._carrier_reload_suppressed_today = False
+                self._carrier_reload_suppress_date = today
             # HVAC-ANOMALY-BLIND-1 D2: emit per-zone short_cycle_rate
             # observation for the completed LOCAL day, then reset the
             # counter. Placed BESIDE the vacancy/pre-arrival rollovers
@@ -1439,6 +1488,17 @@ class HVACCoordinator(BaseCoordinator):
         # Update zone states
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
+
+        # CARRIER-STALE-POLL-REFRESH-1 D1: per-tick Carrier freshness check.
+        # Wire-in anchor: deleting this call OR neutering
+        # `_reload_ha_carrier_entry` must fail
+        # quality/tests/test_carrier_freshness.py::test_stale_and_corroborated_triggers_reload.
+        try:
+            await self._check_carrier_freshness()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "Carrier freshness check failed (non-fatal)", exc_info=True,
+            )
 
         # feature/freeze-floor (D-HIGH-1): re-derive the freeze-active latch
         # ONCE per decision cycle, UNCONDITIONALLY — before any setpoint
@@ -4414,3 +4474,437 @@ class HVACCoordinator(BaseCoordinator):
                 _LOGGER.warning("HVAC: Could not save anomaly baselines: %s", e)
 
         _LOGGER.info("HVAC Coordinator: teardown complete")
+
+    # ------------------------------------------------------------------
+    # CARRIER-STALE-POLL-REFRESH-1 — D1 detection + D2 bounded reload + D3
+    # trip-wire. Modeled shape-only after energy.py:_track_envoy_availability
+    # and energy_write_verify.is_reserve_verifiable. NEVER reloads the URA
+    # parent entry (feedback: parent_reload_watchdog).
+    # ------------------------------------------------------------------
+    def _carrier_require_blind_corroboration(self) -> bool:
+        """Read the options-flow blind-corroboration toggle live."""
+        from .hvac_const import (
+            CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION,
+        )
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            for ce in entries:
+                opts = getattr(ce, "options", None) or {}
+                if CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION in opts:
+                    return bool(
+                        opts[CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION]
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Carrier corroboration toggle read failed; using default",
+                exc_info=True,
+            )
+        return self._carrier_require_blind_corroboration_default
+
+    def _carrier_zone_span_kw(self, zone: Any) -> float | None:
+        """Return the SPAN kW for this zone's mapped AC load sensor (or None)."""
+        entity_id = getattr(zone, "ac_load_sensor", "") or ""
+        if not entity_id:
+            return None
+        try:
+            st = self.hass.states.get(entity_id)
+            if st is None or st.state in ("unknown", "unavailable", None, ""):
+                return None
+            val = float(st.state)
+            unit = (st.attributes.get("unit_of_measurement") or "").strip()
+            if unit.lower() == "w":
+                val = val / 1000.0
+            return val
+        except (ValueError, TypeError):
+            return None
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _check_carrier_freshness(self) -> None:
+        """D1: detect stale Carrier climate entities; hand off to D2/D3 reload."""
+        from .hvac_const import (
+            CONF_HVAC_CARRIER_STALE_MAX_AGE_S,
+            DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S,
+            CARRIER_BLIND_CORROBORATION_KW_THRESHOLD,
+        )
+        max_age_s = float(DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S)
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            for ce in entries:
+                opts = getattr(ce, "options", None) or {}
+                if CONF_HVAC_CARRIER_STALE_MAX_AGE_S in opts:
+                    max_age_s = float(opts[CONF_HVAC_CARRIER_STALE_MAX_AGE_S])
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
+        require_corroboration = self._carrier_require_blind_corroboration()
+        now_utc = dt_util.utcnow()
+
+        snapshot: dict[str, dict[str, Any]] = {}
+        worst_age: float | None = None
+        stale_count = 0
+        any_reload_qualifier = False
+        qualifiers_by_zone: list[str] = []
+
+        try:
+            zones = list(self._zone_manager.zones.items())
+        except Exception:  # noqa: BLE001
+            zones = []
+
+        for zone_id, zone in zones:
+            climate = getattr(zone, "climate_entity", "") or ""
+            row: dict[str, Any] = {
+                "climate_entity": climate,
+                "age_s": None,
+                "stale": False,
+                "corroborated": False,
+                "span_kw": None,
+                "ac_load_sensor": getattr(zone, "ac_load_sensor", "") or "",
+            }
+            if not climate:
+                snapshot[zone_id] = row
+                continue
+            try:
+                st = self.hass.states.get(climate)
+            except Exception:  # noqa: BLE001
+                st = None
+            if st is None or st.state in ("unavailable", "unknown"):
+                snapshot[zone_id] = row
+                continue
+            try:
+                last_reported = getattr(st, "last_reported", None)
+                if last_reported is None:
+                    snapshot[zone_id] = row
+                    continue
+                age = (now_utc - last_reported).total_seconds()
+            except Exception:  # noqa: BLE001
+                snapshot[zone_id] = row
+                continue
+            row["age_s"] = age
+            if worst_age is None or age > worst_age:
+                worst_age = age
+            if age <= max_age_s:
+                snapshot[zone_id] = row
+                continue
+            row["stale"] = True
+            stale_count += 1
+
+            # Corroboration path
+            span_kw = self._carrier_zone_span_kw(zone)
+            row["span_kw"] = span_kw
+            hvac_action = (st.attributes.get("hvac_action") or "").lower()
+            blind_evidence = (
+                hvac_action == "idle"
+                and span_kw is not None
+                and span_kw > CARRIER_BLIND_CORROBORATION_KW_THRESHOLD
+            )
+            row["corroborated"] = blind_evidence
+
+            if require_corroboration:
+                # Skip corroboration ONLY when zone has no SPAN sensor
+                # (graceful degrade — age-only for that zone).
+                if row["ac_load_sensor"] == "":
+                    _LOGGER.debug(
+                        "Carrier stale zone %s has no SPAN load sensor; "
+                        "falling back to age-only qualifier",
+                        zone_id,
+                    )
+                    any_reload_qualifier = True
+                    qualifiers_by_zone.append(zone_id)
+                elif blind_evidence:
+                    any_reload_qualifier = True
+                    qualifiers_by_zone.append(zone_id)
+                # else: quiet-idle — do NOT reload
+            else:
+                any_reload_qualifier = True
+                qualifiers_by_zone.append(zone_id)
+
+            snapshot[zone_id] = row
+
+        self._carrier_freshness_snapshot = snapshot
+        self._carrier_worst_age_s = worst_age
+        self._carrier_stale_zone_count = stale_count
+
+        # D3 post-reload grace tick accounting: if we ran a reload recently,
+        # count consecutive stale ticks. Fresh tick clears the counter.
+        if self._last_carrier_reload_at is not None:
+            if stale_count > 0:
+                self._carrier_stale_ticks_since_reload += 1
+            else:
+                self._carrier_stale_ticks_since_reload = 0
+
+        if any_reload_qualifier:
+            await self._reload_ha_carrier_entry(qualifiers_by_zone)
+
+        # D3 trip-wire: post-reload consecutive stale ticks exceeded
+        from .hvac_const import (
+            CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS,
+            DEFAULT_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS,
+        )
+        grace_ticks = DEFAULT_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS
+        try:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                opts = getattr(ce, "options", None) or {}
+                if CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS in opts:
+                    grace_ticks = int(
+                        opts[CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS]
+                    )
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
+        if (
+            self._last_carrier_reload_at is not None
+            and self._carrier_stale_ticks_since_reload >= grace_ticks
+            and not self._carrier_reload_suppressed_today
+        ):
+            await self._trip_wire_carrier_reload_ineffective(
+                reason=(
+                    f"still stale after {self._carrier_stale_ticks_since_reload} "
+                    f"consecutive post-reload ticks (grace={grace_ticks})"
+                ),
+            )
+
+    async def _reload_ha_carrier_entry(self, qualifier_zones: list[str]) -> None:
+        """D2: bounded reload of the single ha_carrier config entry.
+
+        Guards (first-fail short-circuits):
+          - kill-switch (cooldown_s == 0)
+          - suppress-for-day (D3 already fired)
+          - per-day cap
+          - cooldown since last reload
+          - per-entry asyncio.Lock (prevents overlap)
+          - single-entry resolution (0 or 2+ -> NM + no reload)
+
+        NEVER reloads the URA parent entry (safety-critical invariant).
+        """
+        from .hvac_const import (
+            CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S,
+            DEFAULT_HVAC_CARRIER_RELOAD_COOLDOWN_S,
+            CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY,
+            DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY,
+            CARRIER_INTEGRATION_DOMAIN,
+        )
+
+        cooldown_s = DEFAULT_HVAC_CARRIER_RELOAD_COOLDOWN_S
+        max_per_day = DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY
+        try:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                opts = getattr(ce, "options", None) or {}
+                if CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S in opts:
+                    cooldown_s = int(
+                        opts[CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S]
+                    )
+                if CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY in opts:
+                    max_per_day = int(
+                        opts[CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY]
+                    )
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Kill-switch: cooldown 0 disables reload entirely
+        if cooldown_s <= 0:
+            _LOGGER.debug(
+                "Carrier reload skipped: kill-switch active (cooldown_s=0)"
+            )
+            return
+        # D3 suppress
+        if self._carrier_reload_suppressed_today:
+            _LOGGER.debug(
+                "Carrier reload suppressed for the day (D3 trip-wire fired)"
+            )
+            return
+        # Per-day cap
+        if self._carrier_reloads_today.value >= max_per_day:
+            _LOGGER.info(
+                "Carrier reload cap hit (%d/day); suppressing for the day",
+                max_per_day,
+            )
+            await self._trip_wire_carrier_reload_ineffective(
+                reason=f"per-day cap reached ({max_per_day})",
+            )
+            return
+        # Cooldown
+        now_utc = dt_util.utcnow()
+        if self._last_carrier_reload_at is not None:
+            elapsed = (now_utc - self._last_carrier_reload_at).total_seconds()
+            if elapsed < cooldown_s:
+                _LOGGER.debug(
+                    "Carrier reload skipped: cooldown %ds remaining "
+                    "(cooldown=%ds, elapsed=%ds)",
+                    int(cooldown_s - elapsed), cooldown_s, int(elapsed),
+                )
+                return
+        if self._carrier_reload_lock.locked():
+            _LOGGER.debug("Carrier reload skipped: another reload in flight")
+            return
+
+        async with self._carrier_reload_lock:
+            # Resolve the single ha_carrier entry
+            try:
+                carrier_entries = self.hass.config_entries.async_entries(
+                    CARRIER_INTEGRATION_DOMAIN
+                )
+            except Exception:  # noqa: BLE001
+                carrier_entries = []
+            if len(carrier_entries) != 1:
+                _LOGGER.warning(
+                    "Carrier reload skipped: found %d ha_carrier entries "
+                    "(expected exactly 1); NM alerting operator",
+                    len(carrier_entries),
+                )
+                await self._nm_carrier_reload_note(
+                    severity_low=False,
+                    title="Carrier reload skipped - ambiguous entry",
+                    message=(
+                        f"Found {len(carrier_entries)} ha_carrier config "
+                        f"entries; refusing to reload. Expected exactly 1."
+                    ),
+                    hazard_type="carrier_reload_ambiguous",
+                )
+                return
+
+            entry = carrier_entries[0]
+            # SAFETY INVARIANT: never reload URA parent
+            if getattr(entry, "domain", "") == DOMAIN:
+                _LOGGER.error(
+                    "Carrier reload aborted: resolved entry belongs to URA "
+                    "domain (%s); refusing per parent_reload_watchdog rule",
+                    DOMAIN,
+                )
+                return
+
+            _LOGGER.info(
+                "Carrier reload: qualifier_zones=%s cooldown=%ds count_today=%d",
+                qualifier_zones,
+                cooldown_s,
+                self._carrier_reloads_today.value,
+            )
+            try:
+                await self.hass.services.async_call(
+                    "homeassistant",
+                    "reload_config_entry",
+                    {"entry_id": entry.entry_id},
+                    blocking=False,
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Carrier reload service call failed: %s", e, exc_info=True,
+                )
+                return
+
+            self._last_carrier_reload_at = dt_util.utcnow()
+            self._carrier_reloads_today.increment()
+            self._carrier_stale_ticks_since_reload = 0
+
+            # Diagnostic row into ura_activity_log (reuse existing DAO)
+            try:
+                activity_logger = self.hass.data.get(DOMAIN, {}).get(
+                    "activity_logger"
+                )
+                if activity_logger:
+                    self.hass.async_create_task(
+                        activity_logger.log(
+                            coordinator="hvac",
+                            action="carrier_reload",
+                            description=(
+                                f"Reloaded ha_carrier entry "
+                                f"(qualifier_zones={qualifier_zones}, "
+                                f"count_today={self._carrier_reloads_today.value})"
+                            ),
+                            importance="notable",
+                            details={
+                                "entry_id": entry.entry_id,
+                                "qualifier_zones": qualifier_zones,
+                                "count_today": self._carrier_reloads_today.value,
+                            },
+                        )
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Carrier reload activity_logger write failed", exc_info=True,
+                )
+
+            await self._nm_carrier_reload_note(
+                severity_low=True,
+                title="Carrier stale - reload issued",
+                message=(
+                    f"ha_carrier reloaded to clear stale climate state "
+                    f"(zones={qualifier_zones}, count_today="
+                    f"{self._carrier_reloads_today.value}/{max_per_day})."
+                ),
+                hazard_type="carrier_stale_reload",
+            )
+
+    async def _trip_wire_carrier_reload_ineffective(self, *, reason: str) -> None:
+        """D3: reload was ineffective (or cap hit). Suppress + NM high."""
+        if self._carrier_reload_suppressed_today:
+            return
+        self._carrier_reload_suppressed_today = True
+        try:
+            self._carrier_reload_suppress_date = (
+                dt_util.now().date().isoformat()
+            )
+        except Exception:  # noqa: BLE001
+            self._carrier_reload_suppress_date = ""
+        _LOGGER.warning(
+            "Carrier reload ineffective: %s; suppressing further reloads "
+            "for the rest of the day",
+            reason,
+        )
+        try:
+            activity_logger = self.hass.data.get(DOMAIN, {}).get(
+                "activity_logger"
+            )
+            if activity_logger:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="hvac",
+                        action="carrier_reload_ineffective",
+                        description=(
+                            f"Carrier reload trip-wire fired: {reason}"
+                        ),
+                        importance="critical",
+                        details={"reason": reason},
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Carrier trip-wire activity_logger write failed", exc_info=True,
+            )
+        await self._nm_carrier_reload_note(
+            severity_low=False,
+            title="Carrier reload ineffective",
+            message=(
+                f"Carrier reload trip-wire fired ({reason}). Further "
+                f"reloads suppressed until the next local day. Manual "
+                f"investigation recommended."
+            ),
+            hazard_type="carrier_reload_ineffective",
+        )
+
+    async def _nm_carrier_reload_note(
+        self,
+        *,
+        severity_low: bool,
+        title: str,
+        message: str,
+        hazard_type: str,
+    ) -> None:
+        """Fire an NM alert for carrier-reload lifecycle events."""
+        try:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity
+            sev = Severity.LOW if severity_low else Severity.HIGH
+            await nm.async_notify(
+                coordinator_id="hvac",
+                severity=sev,
+                title=title,
+                message=message,
+                hazard_type=hazard_type,
+            )
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug("Carrier reload NM note failed: %s", e)

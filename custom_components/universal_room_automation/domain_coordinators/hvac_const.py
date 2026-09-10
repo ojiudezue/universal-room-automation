@@ -1105,3 +1105,66 @@ EGRESS_STATES: Final = (
 # NM event-type strings (LOW severity; once-per-day per zone per event).
 EGRESS_NM_EVENT_PAUSED: Final = "egress_paused"
 EGRESS_NM_EVENT_RESUMED: Final = "egress_resumed"
+
+
+# --------------------------------------------------------------------------
+# CARRIER-STALE-POLL-REFRESH-1 (2026-09-09)
+# --------------------------------------------------------------------------
+# Bounded, cooldown-guarded reload of the `ha_carrier` config entry when
+# its climate entity reports `hvac_action=idle` while SPAN blind-corroborates
+# the compressor is drawing kW (or age-only when no SPAN sensor is mapped).
+#
+# Modeled shape-only after energy.py:_track_envoy_availability and
+# energy_write_verify.is_reserve_verifiable (freshness bound with kill-switch).
+# NEVER used to reload the URA parent entry (feedback: parent_reload_watchdog).
+
+# Rung-1 (module const). Age (seconds) since climate entity `last_reported`
+# beyond which the Carrier state is considered stale. `last_reported` (NOT
+# last_changed) per HVAC-STALE-ACTUATOR-FRESHNESS-1 durable lesson: an
+# integration that keeps re-writing the SAME value updates last_reported
+# but leaves last_changed frozen. 900s = 15 min; Carrier's measured refresh
+# is 42-79 s p50 / 167-323 s p90 (hvac_const AC_NUDGE_RESTORE_SETTLE_DELAY_S
+# note), so 15 min is comfortably outside the healthy envelope.
+CONF_HVAC_CARRIER_STALE_MAX_AGE_S: Final = "hvac_carrier_stale_max_age_s"
+DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S: Final = 900
+
+# Rung-2 (options bool). When True, an age-stale zone additionally requires
+# blind-corroboration (climate hvac_action==idle while SPAN circuit kW is
+# above a small threshold) before reload is considered. Prevents reloading
+# a legitimately quiet-idle zone whose thermostat simply has not changed
+# state in 15 min. False = age alone triggers reload consideration.
+CONF_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION: Final = (
+    "hvac_carrier_stale_require_blind_corroboration"
+)
+DEFAULT_HVAC_CARRIER_STALE_REQUIRE_BLIND_CORROBORATION: Final = True
+
+# Rung-1 (module const, kill switch). Minimum seconds between two Carrier
+# entry reloads. 0 = FEATURE DISABLED (kill switch). Mirrors the
+# CONF_RESERVE_VERIFIABLE_MAX_AGE_S=0 kill-switch convention in
+# energy_const.py.
+CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S: Final = "hvac_carrier_reload_cooldown_s"
+DEFAULT_HVAC_CARRIER_RELOAD_COOLDOWN_S: Final = 1800  # 30 min
+
+# Rung-1 (module const, safety cap). Max reloads per local day. 4 is a
+# healthy=0, degraded=1-3, self-repair-not-holding=4 shape. Hitting the cap
+# fires D3 (NM high + suppress-for-day); does NOT auto-issue a 5th reload.
+CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY: Final = "hvac_carrier_reload_max_per_day"
+DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY: Final = 4
+
+# Rung-1 (module const). After a reload, a stale-freshness check runs on
+# each of the next N decision ticks (~5 min each). N consecutive stale
+# ticks after a reload → reload was ineffective → D3 (NM high + suppress
+# for the rest of the day).
+CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS: Final = (
+    "hvac_carrier_post_reload_grace_ticks"
+)
+DEFAULT_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS: Final = 2
+
+# Blind-corroboration SPAN kW threshold: hvac_action==idle while the mapped
+# SPAN circuit reads above this many kW is treated as evidence of a stale
+# Carrier read (the compressor is drawing but the cloud claims idle).
+CARRIER_BLIND_CORROBORATION_KW_THRESHOLD: Final = 0.3  # kW
+
+# ha_carrier config-entry domain (as registered by the ha_carrier custom
+# integration; the ONLY entry URA is permitted to reload for this feature).
+CARRIER_INTEGRATION_DOMAIN: Final = "ha_carrier"
