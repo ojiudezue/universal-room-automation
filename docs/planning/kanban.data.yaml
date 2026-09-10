@@ -4200,7 +4200,8 @@ cards:
   title: Two of five egress cameras are configured under dead Frigate-1 names — Garage A and Garage B
     contribute nothing to egress detection, on the house's primary entry path
   thread: camera
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED. (1) IMMEDIATE config: repoint dead egress_cameras entries (no deploy). (2) Tier-2 code question separated. Verify whether (1) was applied; if so residual is the code question only.'
   shipped_version: v5.86.0
   updated: 2026-08-20 20:30
   approval: needs_operator
@@ -4571,7 +4572,8 @@ cards:
   title: 'Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a power-based
     feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW.'
   thread: hvac
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING. Needs the sizing probe: per zone, share of time-above-threshold vetoed by hvac_action != cooling, and the subset also at/below setpoint (the costly modulation subset).'
   shipped_version: v5.89.0
   created: 2026-08-22 14:05
   updated: 2026-08-23 14:30
@@ -5453,7 +5455,8 @@ cards:
   title: URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no
     shared standard, and at least three detectors that can never reach their own threshold
   thread: platform
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED. BUILD: declaration tag + CI check FIRST (stops recurrence + forces declaration), then F1/F2, then arrest wiring.'
   shipped_version: v5.87.0
   updated: 2026-08-21 10:05
   approval: needs_operator
@@ -5617,7 +5620,8 @@ cards:
   title: The 14 HVAC tunable Numbers display the operator's value but the coordinator runs the DEFAULT
     until someone touches the knob — a nudge after a restart used 300s, not the configured 120s
   thread: hvac
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED (operator-approved fix-in-cycle). (a) SEED RUNTIME FROM OPTIONS AT SETUP for all 14 factory tunables at the factory/CM-setup level (not 14 hand seeds); (b) the paired deliverable.'
   shipped_version: v5.87.0
   updated: 2026-08-21 12:30
   approval: explicit
@@ -9786,7 +9790,8 @@ cards:
     Revisit trigger: PWA M2 complete AND commercialization install-gate met.'
 - id: EGRESS-IDENTITY-CONTROL-OBS-1
   title: Egress person-detection — enable/disable + observability (parsimony)
-  status: shipped_organic
+  status: parked
+  relane_2026_09_10: 'Not a soak -> PARKED (folded). enable gate + observability attrs + kill-switch-inert test folded into the egress D1 Tier-2-DB fix-up/re-review. Revival: verify at egress-identity-arc close.'
   thread: presence
   created: 2026-08-18 02:20
   updated: 2026-08-23 14:30
@@ -10092,7 +10097,8 @@ cards:
     Keep as the concrete pollution instance; the broader re-arch owns the fix.
 - id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
   title: Promote 3 Camera-Census feature toggles to device switches
-  status: shipped_organic
+  status: pre_planning
+  relane_2026_09_10: 'Not a soak -> PRE-PLANNING. Tier-2 plan: 3 SwitchEntity + persistence + options reconciliation, consumed by presence/transit/census. Plan review then build.'
   thread: presence
   created: 2026-08-18 03:10
   updated: 2026-08-23 14:30
@@ -10340,7 +10346,8 @@ cards:
     face-resolver card shipped_organic". README_v5.82.1 live-validation table confirms L1. H1 confirmed.'
 - id: GUEST-COUNT-DEDUP-MIGRATE-1
   title: ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
-  status: shipped_organic
+  status: pre_planning
+  relane_2026_09_10: 'Not a soak -> PRE-PLANNING. Verify ZoneGuestCountSensor live-status, then migrate _get_guest_count (+binary_sensor.py:1584) to the deduped unidentified_count. Producer/consumer check first.'
   thread: presence
   created: 2026-08-18 11:00
   updated: 2026-08-23 14:30
@@ -10722,7 +10729,8 @@ cards:
     new mechanism (fan-running sustained-shake demotion), NOT a fix to the transition gate.'
 - id: FAN-RECHECK-D2-DEADLOCK-1
   title: Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm)
-  status: shipped_organic
+  status: parked
+  relane_2026_09_10: 'Not a soak-in-organic -> PARKED with trigger. Discriminator = observe O1(eval_count++)/O3(ARMED)/O4(real vacate) on the NEXT organic fan-ghost episode. Revival trigger: a fan-ghost episode occurs (watch sensor.<room>_fan recheck). Per no-soak, this is a trip-wire, not a calendar soak.'
   thread: presence
   created: 2026-08-19 05:15
   updated: 2026-08-23 14:30
@@ -11614,7 +11622,8 @@ cards:
   title: AC hard reset never restores a preset — the plan specified a one-liner, it was dropped without
     accounting, and it is the last path that can still strand a zone in manual
   thread: hvac
-  status: shipped_organic
+  status: investigating
+  relane_2026_09_10: 'Not a soak -> INVESTIGATING (trigger FIRED). Was blocked on v5.89.0 escalation mechanic not deployed; v5.89.0 is now live (we are at v5.100.8) so field evidence should exist. One-shot: query whether the AC-reset preset assert fired correctly post-v5.89.0.'
   shipped_version: v5.88.1
   created: 2026-08-22 02:10
   updated: 2026-08-23 14:30
@@ -12959,7 +12968,8 @@ cards:
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log
     floods
   thread: platform
-  status: shipped_organic
+  status: planned
+  relane_2026_09_10: 'Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.87.0
   created: 2026-08-20 14:15
   updated: 2026-08-23 15:45
