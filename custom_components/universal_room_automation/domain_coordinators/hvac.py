@@ -569,6 +569,12 @@ class HVACCoordinator(BaseCoordinator):
         self._carrier_freshness_snapshot: dict[str, dict[str, Any]] = {}
         self._carrier_worst_age_s: float | None = None
         self._carrier_stale_zone_count: int = 0
+        # C-HIGH-4 fix-up (2026-09-09): age-only stranded-stale NM. Fires
+        # once per local day when a Carrier zone is genuinely stale but
+        # cannot be corroborated / reloaded (e.g. SPAN dead OR reload
+        # in-flight-fenced OR trip-wire suppressed). Ensures a stale
+        # Carrier is ALWAYS surfaced even outside the reload path.
+        self._carrier_stale_nm_date: str = ""
         # Options-flow blind-corroboration toggle (True = require SPAN
         # blind-corroboration for age-stale reload; False = age-only).
         from .hvac_const import (
@@ -1490,9 +1496,12 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_manager.update_room_conditions()
 
         # CARRIER-STALE-POLL-REFRESH-1 D1: per-tick Carrier freshness check.
-        # Wire-in anchor: deleting this call OR neutering
-        # `_reload_ha_carrier_entry` must fail
-        # quality/tests/test_carrier_freshness.py::test_stale_and_corroborated_triggers_reload.
+        # Wire-in anchors (fix-up round 2026-09-09, C-HIGH-2):
+        #   - test_wire_in_call_site_present_in_run_decision_cycle
+        #     (AST assertion) fails if THIS call is deleted from
+        #     `_run_decision_cycle`.
+        #   - test_stale_and_corroborated_triggers_reload fails if
+        #     `_reload_ha_carrier_entry` is neutered.
         try:
             await self._check_carrier_freshness()
         except Exception:  # noqa: BLE001
@@ -4502,7 +4511,17 @@ class HVACCoordinator(BaseCoordinator):
         return self._carrier_require_blind_corroboration_default
 
     def _carrier_zone_span_kw(self, zone: Any) -> float | None:
-        """Return the SPAN kW for this zone's mapped AC load sensor (or None)."""
+        """Return the SPAN kW for this zone's mapped AC load sensor (or None).
+
+        Fix-up round A2 (2026-09-09): REFUSE non-kW/W units. A cumulative
+        `kWh` SPAN sensor reads as a huge number and produced permanent
+        false corroboration -> healthy-entry reload every idle window
+        (reload-storm class). Mirrors the unit-refusal prior art at
+        hvac_override.py:1204-1207 (kwh/wh rejected as not-instant-kW)
+        and sensor.py:12695-12702 (unknown unit refused). Blank unit is
+        treated as unknown and refused too — the operator's real SPAN
+        sensors carry `kW`.
+        """
         entity_id = getattr(zone, "ac_load_sensor", "") or ""
         if not entity_id:
             return None
@@ -4511,14 +4530,65 @@ class HVACCoordinator(BaseCoordinator):
             if st is None or st.state in ("unknown", "unavailable", None, ""):
                 return None
             val = float(st.state)
-            unit = (st.attributes.get("unit_of_measurement") or "").strip()
-            if unit.lower() == "w":
-                val = val / 1000.0
-            return val
+            unit_raw = st.attributes.get("unit_of_measurement") or ""
+            unit = unit_raw.strip().lower()
+            if unit in ("kwh", "wh", "watt hour", "watt-hour"):
+                return None
+            if unit in ("w", "watt", "watts"):
+                return val / 1000.0
+            if unit in ("kw", "kilowatt", "kilowatts"):
+                return val
+            return None
         except (ValueError, TypeError):
             return None
         except Exception:  # noqa: BLE001
             return None
+
+    def _carrier_in_flight_ops_pending(self) -> str | None:
+        """C-CRITICAL-1 fix-up (2026-09-09): return a reason string if any
+        in-flight HVAC operation would be stranded by a reload, else None.
+
+        A reload rebuilds the ha_carrier client — any setpoint/preset write
+        already dispatched to the (now-absent) climate entity no-ops, AND
+        the recovery record (in-flight nudge / ac_reset / excursion) is
+        cleared — leaving the thermostat physically bumped while URA DB
+        says "restored". A stale >=15 min zone can wait one 5-min tick.
+
+        Predicates use the REAL prior art:
+          - OverrideArrester._nudge_in_flight (hvac_override.py:323/3457)
+          - OverrideArrester.has_active_ac_reset (hvac_override.py:1902)
+          - hvac_excursion._rows (hvac_excursion.py:201) — active tokens
+        """
+        try:
+            arr = getattr(self, "_override_arrester", None)
+            if arr is not None:
+                nif = getattr(arr, "_nudge_in_flight", None)
+                if nif:
+                    return f"nudge in flight ({len(nif)} zone(s))"
+                try:
+                    zones = list(self._zone_manager.zones.keys())
+                except Exception:  # noqa: BLE001
+                    zones = []
+                for zid in zones:
+                    try:
+                        if arr.has_active_ac_reset(zid):
+                            return f"ac_reset in flight (zone={zid})"
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Carrier in-flight fence: arrester read failed", exc_info=True,
+            )
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            rows = getattr(_ex_mod, "_rows", None) or {}
+            if rows:
+                return f"excursion in flight ({len(rows)} row(s))"
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Carrier in-flight fence: excursion read failed", exc_info=True,
+            )
+        return None
 
     async def _check_carrier_freshness(self) -> None:
         """D1: detect stale Carrier climate entities; hand off to D2/D3 reload."""
@@ -4552,15 +4622,24 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             zones = []
 
+        # A8 fix-up (2026-09-09): reuse _state_age_s semantics
+        # (last_updated fallback, naive-tz refusal -> None).
+        try:
+            from .energy_battery import _state_age_s
+        except Exception:  # noqa: BLE001
+            _state_age_s = None
+
         for zone_id, zone in zones:
             climate = getattr(zone, "climate_entity", "") or ""
             row: dict[str, Any] = {
                 "climate_entity": climate,
+                "state": None,
                 "age_s": None,
                 "stale": False,
                 "corroborated": False,
                 "span_kw": None,
                 "ac_load_sensor": getattr(zone, "ac_load_sensor", "") or "",
+                "span_unreadable": False,  # A5 fix-up diagnostic
             }
             if not climate:
                 snapshot[zone_id] = row
@@ -4569,18 +4648,34 @@ class HVACCoordinator(BaseCoordinator):
                 st = self.hass.states.get(climate)
             except Exception:  # noqa: BLE001
                 st = None
-            if st is None or st.state in ("unavailable", "unknown"):
+            # A4 fix-up (2026-09-09): surface unavailable zones in the
+            # diagnostic snapshot rather than dropping them silently.
+            if st is None:
+                row["state"] = "missing"
                 snapshot[zone_id] = row
                 continue
-            try:
-                last_reported = getattr(st, "last_reported", None)
-                if last_reported is None:
+            row["state"] = st.state
+            if st.state in ("unavailable", "unknown"):
+                snapshot[zone_id] = row
+                continue
+            age = None
+            if _state_age_s is not None:
+                try:
+                    age = _state_age_s(st, stamp="last_reported")
+                except Exception:  # noqa: BLE001
+                    age = None
+            if age is None:
+                try:
+                    last_reported = getattr(st, "last_reported", None)
+                    if last_reported is None or getattr(
+                        last_reported, "tzinfo", None,
+                    ) is None:
+                        snapshot[zone_id] = row
+                        continue
+                    age = (now_utc - last_reported).total_seconds()
+                except Exception:  # noqa: BLE001
                     snapshot[zone_id] = row
                     continue
-                age = (now_utc - last_reported).total_seconds()
-            except Exception:  # noqa: BLE001
-                snapshot[zone_id] = row
-                continue
             row["age_s"] = age
             if worst_age is None or age > worst_age:
                 worst_age = age
@@ -4593,6 +4688,11 @@ class HVACCoordinator(BaseCoordinator):
             # Corroboration path
             span_kw = self._carrier_zone_span_kw(zone)
             row["span_kw"] = span_kw
+            # A5 fix-up (2026-09-09): distinguishable diagnostic when a
+            # configured SPAN sensor is unreadable (unknown unit / dead /
+            # non-numeric). Previously degraded silently to age-only.
+            if row["ac_load_sensor"] and span_kw is None:
+                row["span_unreadable"] = True
             hvac_action = (st.attributes.get("hvac_action") or "").lower()
             blind_evidence = (
                 hvac_action == "idle"
@@ -4626,45 +4726,93 @@ class HVACCoordinator(BaseCoordinator):
         self._carrier_worst_age_s = worst_age
         self._carrier_stale_zone_count = stale_count
 
-        # D3 post-reload grace tick accounting: if we ran a reload recently,
-        # count consecutive stale ticks. Fresh tick clears the counter.
-        if self._last_carrier_reload_at is not None:
-            if stale_count > 0:
-                self._carrier_stale_ticks_since_reload += 1
-            else:
-                self._carrier_stale_ticks_since_reload = 0
-
-        if any_reload_qualifier:
-            await self._reload_ha_carrier_entry(qualifiers_by_zone)
-
-        # D3 trip-wire: post-reload consecutive stale ticks exceeded
+        # D3 fix-up round (2026-09-09, B-HIGH-1/2/3, C-MED-1): TIME-based
+        # settle window; counter scoped to QUALIFYING staleness inside the
+        # window (never counts quiet-idle). Grace window >= cooldown so a
+        # second reload is structurally reachable before the trip-wire.
         from .hvac_const import (
-            CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS,
-            DEFAULT_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS,
+            CONF_HVAC_CARRIER_POST_RELOAD_SETTLE_S,
+            DEFAULT_HVAC_CARRIER_POST_RELOAD_SETTLE_S,
         )
-        grace_ticks = DEFAULT_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS
+        settle_s = float(DEFAULT_HVAC_CARRIER_POST_RELOAD_SETTLE_S)
         try:
             for ce in self.hass.config_entries.async_entries(DOMAIN):
                 opts = getattr(ce, "options", None) or {}
-                if CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS in opts:
-                    grace_ticks = int(
-                        opts[CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS]
+                if CONF_HVAC_CARRIER_POST_RELOAD_SETTLE_S in opts:
+                    settle_s = float(
+                        opts[CONF_HVAC_CARRIER_POST_RELOAD_SETTLE_S]
                     )
                     break
         except Exception:  # noqa: BLE001
             pass
 
+        if self._last_carrier_reload_at is not None:
+            since_reload = (
+                now_utc - self._last_carrier_reload_at
+            ).total_seconds()
+            if since_reload > 2.0 * settle_s:
+                # Window elapsed -> clear (was a permanent latch previously).
+                self._carrier_stale_ticks_since_reload = 0
+            elif qualifiers_by_zone:
+                self._carrier_stale_ticks_since_reload += 1
+            else:
+                self._carrier_stale_ticks_since_reload = 0
+
+        # C-CRITICAL-1 fix-up: in-flight fence BEFORE the reload call.
+        in_flight_reason = self._carrier_in_flight_ops_pending()
+        if any_reload_qualifier and in_flight_reason is not None:
+            _LOGGER.info(
+                "Carrier reload deferred: %s — waiting one tick",
+                in_flight_reason,
+            )
+            if self._last_carrier_reload_at is not None:
+                self._carrier_stale_ticks_since_reload = max(
+                    0, self._carrier_stale_ticks_since_reload - 1,
+                )
+        elif any_reload_qualifier:
+            await self._reload_ha_carrier_entry(qualifiers_by_zone)
+
+        # D3 trip-wire (redesigned): TIME-based settle threshold.
         if (
             self._last_carrier_reload_at is not None
-            and self._carrier_stale_ticks_since_reload >= grace_ticks
             and not self._carrier_reload_suppressed_today
+            and qualifiers_by_zone
         ):
-            await self._trip_wire_carrier_reload_ineffective(
-                reason=(
-                    f"still stale after {self._carrier_stale_ticks_since_reload} "
-                    f"consecutive post-reload ticks (grace={grace_ticks})"
-                ),
-            )
+            since_reload = (
+                now_utc - self._last_carrier_reload_at
+            ).total_seconds()
+            if since_reload >= settle_s:
+                await self._trip_wire_carrier_reload_ineffective(
+                    reason=(
+                        f"still qualifying-stale {int(since_reload)}s after "
+                        f"reload (settle={int(settle_s)}s, "
+                        f"qualifying_zones={qualifiers_by_zone})"
+                    ),
+                )
+
+        # C-HIGH-4 fix-up: stranded-stale age-only NM (once/day),
+        # INDEPENDENT of the reload path. Surfaces genuinely stale
+        # Carrier zones that can't be reloaded/corroborated.
+        if stale_count > 0:
+            try:
+                today_iso = dt_util.now().date().isoformat()
+            except Exception:  # noqa: BLE001
+                today_iso = ""
+            if today_iso and today_iso != self._carrier_stale_nm_date:
+                self._carrier_stale_nm_date = today_iso
+                stale_zones = [
+                    zid for zid, r in snapshot.items() if r.get("stale")
+                ]
+                await self._nm_carrier_reload_note(
+                    severity_low=True,
+                    title="Carrier climate stale (age-only)",
+                    message=(
+                        f"{stale_count} zone(s) stale: {stale_zones}. "
+                        f"worst_age_s={int(worst_age or 0)}. NM fires "
+                        f"once per local day independent of reload path."
+                    ),
+                    hazard_type="carrier_stale_age_only",
+                )
 
     async def _reload_ha_carrier_entry(self, qualifier_zones: list[str]) -> None:
         """D2: bounded reload of the single ha_carrier config entry.
@@ -4689,17 +4837,24 @@ class HVACCoordinator(BaseCoordinator):
 
         cooldown_s = DEFAULT_HVAC_CARRIER_RELOAD_COOLDOWN_S
         max_per_day = DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY
+        # B-LOW-3 fix-up (2026-09-09): consistent first-wins semantics
+        # with sibling readers (break after we resolve options).
         try:
             for ce in self.hass.config_entries.async_entries(DOMAIN):
                 opts = getattr(ce, "options", None) or {}
+                found = False
                 if CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S in opts:
                     cooldown_s = int(
                         opts[CONF_HVAC_CARRIER_RELOAD_COOLDOWN_S]
                     )
+                    found = True
                 if CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY in opts:
                     max_per_day = int(
                         opts[CONF_HVAC_CARRIER_RELOAD_MAX_PER_DAY]
                     )
+                    found = True
+                if found:
+                    break
         except Exception:  # noqa: BLE001
             pass
 

@@ -1155,15 +1155,31 @@ DEFAULT_HVAC_CARRIER_RELOAD_MAX_PER_DAY: Final = 4
 # each of the next N decision ticks (~5 min each). N consecutive stale
 # ticks after a reload → reload was ineffective → D3 (NM high + suppress
 # for the rest of the day).
+#
+# Fix-up round 2026-09-09 (C-MED-1 / B-HIGH-1..3): the grace threshold is
+# now TIME-based (see POST_RELOAD_SETTLE_S). The tick counter is retained
+# for observability only and is scoped to the post-reload settle window
+# AND to qualifying staleness (never counts quiet-idle zones).
 CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS: Final = (
     "hvac_carrier_post_reload_grace_ticks"
 )
 DEFAULT_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS: Final = 2
 
-# Blind-corroboration SPAN kW threshold: hvac_action==idle while the mapped
-# SPAN circuit reads above this many kW is treated as evidence of a stale
-# Carrier read (the compressor is drawing but the cloud claims idle).
-CARRIER_BLIND_CORROBORATION_KW_THRESHOLD: Final = 0.3  # kW
+# TIME-based post-reload settle window. Trip-wire fires only after this
+# many seconds have elapsed since the reload AND a qualifying stale zone
+# is still present. Default matches cooldown so a second reload cannot be
+# structurally blocked before the trip-wire is reachable (review B-HIGH-2).
+CONF_HVAC_CARRIER_POST_RELOAD_SETTLE_S: Final = (
+    "hvac_carrier_post_reload_settle_s"
+)
+DEFAULT_HVAC_CARRIER_POST_RELOAD_SETTLE_S: Final = 1800  # 30 min = cooldown
+
+# Blind-corroboration SPAN kW threshold. Reuse AC_ACTIVELY_COOLING_KW_MIN
+# (0.5 kW) — the same threshold the arrester uses to declare "AC is
+# actively cooling" (hvac_override.py:1210). Distinct constants at
+# different values inside the same blower-only band were incoherent
+# (review A3).
+CARRIER_BLIND_CORROBORATION_KW_THRESHOLD: Final = AC_ACTIVELY_COOLING_KW_MIN
 
 # ha_carrier config-entry domain (as registered by the ha_carrier custom
 # integration; the ONLY entry URA is permitted to reload for this feature).

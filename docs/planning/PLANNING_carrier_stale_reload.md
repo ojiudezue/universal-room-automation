@@ -39,9 +39,24 @@ In no other condition is any reload issued. NEVER the URA parent entry.
 - **D3 — discharge/trip-wire:** if still stale 2 ticks after a reload → NM high
   (carrier_reload_ineffective), suppress further reloads for the day, diagnostic row. (No-soak:
   observable failure wired to NM.)
-- **D4 — subsume restore-fail tail:** DB join of `ac_ramp_events`(immediate=0 AND delayed=0)
-  against reload windows; if the ~4% tail sits in reload-adjacency → resolve
-  HVAC-GOVERNED-RESTORE-FAIL-TAIL-1 as subsumed (card residual).
+- **D4 — subsume restore-fail tail:** DB join of restore-fail rows against reload windows;
+  if the ~4% tail sits in reload-adjacency → resolve HVAC-GOVERNED-RESTORE-FAIL-TAIL-1 as
+  subsumed (card residual).
+
+  **Fix-up 2026-09-09 (C-HIGH-1):** the query MUST include the reload-induced
+  restore-failure shape, not just `immediate=0 AND delayed=0`. Reload-induced
+  restore failures land as `restore_ok IS NULL AND settled_reason='entity_missing_at_settle'`
+  (the ha_carrier entity is absent while reload is in flight). Correct D4 query:
+  ```sql
+  SELECT ... FROM ac_ramp_events
+   WHERE (immediate = 0 AND delayed = 0)
+      OR (restore_ok IS NULL
+          AND settled_reason = 'entity_missing_at_settle')
+  ```
+  Split the window analysis into **pre-reload** vs **reload-adjacent**
+  (within `settle_s` after last_reload_at) buckets. **DO NOT** auto-resolve
+  HVAC-GOVERNED-RESTORE-FAIL-TAIL-1 based on the `immediate=0/delayed=0`
+  form alone — that shape is structurally blind to self-inflicted cases.
 
 ## Knob ladder (Numbers-Get-Knobs)
 | Knob | Default | Rung |

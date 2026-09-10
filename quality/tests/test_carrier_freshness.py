@@ -253,8 +253,11 @@ from types import SimpleNamespace  # noqa: E402
 # Fakes
 # ---------------------------------------------------------------------------
 
-def _make_state(state_val, last_reported, hvac_action=None):
-    attrs = {}
+def _make_state(state_val, last_reported, hvac_action=None, unit="kW"):
+    # Fix-up round 2026-09-09 (A2): SPAN sensors carry `kW` by default so
+    # the unit-refusal branch in `_carrier_zone_span_kw` accepts them.
+    # Blank/unknown units are now refused (see test_blank_unit_refused_*).
+    attrs = {"unit_of_measurement": unit} if unit else {}
     if hvac_action is not None:
         attrs["hvac_action"] = hvac_action
     return SimpleNamespace(
@@ -338,12 +341,22 @@ def _make_fake_hvac(hass, zones):
         _carrier_worst_age_s=None,
         _carrier_stale_zone_count=0,
         _carrier_require_blind_corroboration_default=True,
+        _carrier_stale_nm_date="",
+        # Fix-up round 2026-09-09: in-flight-fence dependencies. The fake
+        # arrester exposes the two predicates the fence reads
+        # (`_nudge_in_flight` set + `has_active_ac_reset(zone_id)`); tests
+        # can mutate the set / return value to simulate in-flight ops.
+        _override_arrester=SimpleNamespace(
+            _nudge_in_flight=set(),
+            has_active_ac_reset=lambda zid: False,
+        ),
     )
     for name in (
         "_check_carrier_freshness",
         "_reload_ha_carrier_entry",
         "_carrier_require_blind_corroboration",
         "_carrier_zone_span_kw",
+        "_carrier_in_flight_ops_pending",
         "_trip_wire_carrier_reload_ineffective",
         "_nm_carrier_reload_note",
     ):
@@ -574,6 +587,326 @@ async def test_zone_without_span_falls_back_to_age_only_when_required():
     hvac = _make_fake_hvac(hass, [("z1", zone)])
     await hvac._check_carrier_freshness()
     assert len(hass.service_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Fix-up round 2026-09-09 — mutation-anchored tests for review findings
+# ---------------------------------------------------------------------------
+
+def _stale_hass_and_zone(load="sensor.z1_kw", span_kw="1.8"):
+    now = _now_utc()
+    st = _make_state(
+        "cool",
+        now - timedelta(seconds=DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S + 60),
+        hvac_action="idle",
+    )
+    states = {"climate.z1": st}
+    if load:
+        states[load] = _make_state(span_kw, now)
+    return states
+
+
+@pytest.mark.asyncio
+async def test_in_flight_nudge_defers_reload_c_critical_1():
+    """C-CRITICAL-1: a nudge in flight must FENCE the reload — the
+    thermostat is mid-restore and a reload would strand it.
+
+    RED-on-neuter: replace `_carrier_in_flight_ops_pending` with a
+    stub returning None (bypass the fence) and this test fails —
+    service_calls becomes length 1 with a reload dispatched despite
+    the in-flight nudge.
+    """
+    hass = _make_hass(states_by_entity=_stale_hass_and_zone())
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    hvac._override_arrester._nudge_in_flight = {"z1"}
+    await hvac._check_carrier_freshness()
+    assert hass.service_calls == []  # deferred, no reload
+
+
+@pytest.mark.asyncio
+async def test_in_flight_ac_reset_defers_reload_c_critical_1():
+    hass = _make_hass(states_by_entity=_stale_hass_and_zone())
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    hvac._override_arrester.has_active_ac_reset = lambda zid: True
+    await hvac._check_carrier_freshness()
+    assert hass.service_calls == []
+
+
+@pytest.mark.asyncio
+async def test_in_flight_excursion_defers_reload_c_critical_1():
+    from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
+        hvac_excursion as _ex_mod,
+    )
+    hass = _make_hass(states_by_entity=_stale_hass_and_zone())
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    saved = dict(getattr(_ex_mod, "_rows", {}) or {})
+    try:
+        _ex_mod._rows = {"tok_1": MagicMock()}
+        await hvac._check_carrier_freshness()
+        assert hass.service_calls == []
+    finally:
+        _ex_mod._rows = saved
+
+
+@pytest.mark.asyncio
+async def test_in_flight_clears_then_reload_fires():
+    """Fence releases once in-flight ops clear — reload fires next tick."""
+    hass = _make_hass(states_by_entity=_stale_hass_and_zone())
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    hvac._override_arrester._nudge_in_flight = {"z1"}
+    await hvac._check_carrier_freshness()
+    assert hass.service_calls == []
+    hvac._override_arrester._nudge_in_flight = set()
+    await hvac._check_carrier_freshness()
+    assert len(hass.service_calls) == 1
+    assert hass.service_calls[0]["service"] == "reload_config_entry"
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-3: URA parent domain safety guard
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_ura_domain_entry_never_reloaded_c_high_3():
+    """SAFETY INVARIANT: if a resolved 'ha_carrier' entry_id somehow points
+    at a URA-domain entry, refuse to reload it — parent-reload-watchdog rule.
+
+    RED-on-neuter: comment out the `entry.domain == DOMAIN` guard in
+    `_reload_ha_carrier_entry` and this test fails (a reload would be
+    dispatched against the URA parent entry_id).
+    """
+    ura_masquerading = SimpleNamespace(
+        domain="universal_room_automation",
+        entry_id="ura_parent",
+    )
+    hass = _make_hass(
+        states_by_entity=_stale_hass_and_zone(),
+        carrier_entries=[ura_masquerading],
+    )
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    await hvac._check_carrier_freshness()
+    assert hass.service_calls == []
+
+
+# ---------------------------------------------------------------------------
+# A2: kWh unit reload-storm — cumulative-energy SPAN sensor must not
+# produce false corroboration.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_kwh_span_unit_refused_a2():
+    """A2 fix-up: a SPAN sensor reporting kWh (cumulative) MUST NOT
+    corroborate; require_corroboration=True + no other qualifier → no reload.
+
+    RED-on-neuter: remove the `unit in ("kwh", ...)` refusal branch in
+    `_carrier_zone_span_kw` and this test fails (huge kWh cumulative
+    value produces a false blind_evidence → reload dispatched).
+    """
+    now = _now_utc()
+    st = _make_state(
+        "cool",
+        now - timedelta(seconds=DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S + 60),
+        hvac_action="idle",
+    )
+    span_state = SimpleNamespace(
+        state="4823.5",  # huge cumulative reading
+        last_reported=now,
+        attributes={"unit_of_measurement": "kWh"},
+    )
+    hass = _make_hass(states_by_entity={
+        "climate.z1": st,
+        "sensor.z1_kw": span_state,
+    })
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    await hvac._check_carrier_freshness()
+    # kWh unit refused -> span_kw=None -> no blind_evidence ->
+    # quiet-idle branch -> NO reload
+    assert hass.service_calls == []
+    row = hvac._carrier_freshness_snapshot["z1"]
+    assert row["span_kw"] is None
+    assert row["span_unreadable"] is True  # A5 diagnostic
+
+
+@pytest.mark.asyncio
+async def test_blank_unit_refused_not_assumed_kw_a2():
+    """Blank unit is refused (unknown), not silently assumed kW."""
+    now = _now_utc()
+    st = _make_state(
+        "cool",
+        now - timedelta(seconds=DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S + 60),
+        hvac_action="idle",
+    )
+    span_state = SimpleNamespace(
+        state="1.8", last_reported=now,
+        attributes={"unit_of_measurement": ""},
+    )
+    hass = _make_hass(states_by_entity={
+        "climate.z1": st,
+        "sensor.z1_kw": span_state,
+    })
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    await hvac._check_carrier_freshness()
+    assert hass.service_calls == []
+
+
+@pytest.mark.asyncio
+async def test_kw_unit_accepted_reloads():
+    """Regression: unit explicitly 'kW' still corroborates and triggers reload."""
+    now = _now_utc()
+    st = _make_state(
+        "cool",
+        now - timedelta(seconds=DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S + 60),
+        hvac_action="idle",
+    )
+    span_state = SimpleNamespace(
+        state="1.8", last_reported=now,
+        attributes={"unit_of_measurement": "kW"},
+    )
+    hass = _make_hass(states_by_entity={
+        "climate.z1": st,
+        "sensor.z1_kw": span_state,
+    })
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    await hvac._check_carrier_freshness()
+    assert len(hass.service_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-4: stranded-stale age-only NM (INDEPENDENT of reload path)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_age_only_nm_fires_when_reload_impossible_c_high_4():
+    """C-HIGH-4: genuinely stale but cannot reload (ambiguous 0 carrier
+    entries) — age-only NM MUST fire, once/day.
+
+    RED-on-neuter: delete the C-HIGH-4 age-only NM block in
+    `_check_carrier_freshness` and this test fails (nm calls == 0).
+    """
+    hass = _make_hass(
+        states_by_entity=_stale_hass_and_zone(),
+        carrier_entries=[],
+    )
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    nm_calls: list[dict] = []
+
+    async def _nm(coordinator_id, severity, title, message, hazard_type):
+        nm_calls.append({"hazard_type": hazard_type, "title": title})
+
+    hass.data["universal_room_automation"]["notification_manager"] = (
+        SimpleNamespace(async_notify=_nm)
+    )
+    await hvac._check_carrier_freshness()
+    assert hass.service_calls == []  # no reload possible
+    assert any(c["hazard_type"] == "carrier_stale_age_only" for c in nm_calls)
+
+    # Second tick same day — should NOT fire again (once/day guard)
+    nm_calls.clear()
+    await hvac._check_carrier_freshness()
+    assert all(
+        c["hazard_type"] != "carrier_stale_age_only" for c in nm_calls
+    )
+
+
+# ---------------------------------------------------------------------------
+# D3 redesign — TIME-based trip-wire (B-HIGH-1/2/3, C-MED-1)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_trip_wire_requires_settle_time_elapsed_b_high_2():
+    """Trip-wire must NOT fire immediately after reload — needs settle_s.
+
+    RED-on-neuter: replace the `since_reload >= settle_s` guard with
+    `True` (fire regardless of time) and this test fails (suppressed
+    latches on the same tick as the reload).
+    """
+    now = _now_utc()
+    st = _make_state(
+        "cool",
+        now - timedelta(seconds=DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S + 60),
+        hvac_action="idle",
+    )
+    hass = _make_hass(states_by_entity={
+        "climate.z1": st,
+        "sensor.z1_kw": _make_state("1.8", now),
+    })
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    await hvac._check_carrier_freshness()
+    assert len(hass.service_calls) == 1
+    # Immediately re-check (before settle_s elapsed) — trip-wire
+    # must NOT have fired yet
+    assert hvac._carrier_reload_suppressed_today is False
+
+
+@pytest.mark.asyncio
+async def test_counter_scoped_to_qualifying_stale_b_high_3():
+    """Stale-tick counter must NOT advance on quiet-idle (non-qualifying) stale.
+
+    RED-on-neuter: change the counter-increment guard from
+    `qualifiers_by_zone` to `stale_count > 0` (the old bug) and this
+    test fails (counter latches on quiet-idle after a reload).
+    """
+    now = _now_utc()
+    # First: qualifying-stale zone fires a reload
+    st_hot = _make_state(
+        "cool",
+        now - timedelta(seconds=DEFAULT_HVAC_CARRIER_STALE_MAX_AGE_S + 60),
+        hvac_action="idle",
+    )
+    hass = _make_hass(states_by_entity={
+        "climate.z1": st_hot,
+        "sensor.z1_kw": _make_state("1.8", now),
+    })
+    hvac = _make_fake_hvac(hass, [("z1", _make_zone())])
+    await hvac._check_carrier_freshness()
+    assert hvac._last_carrier_reload_at is not None
+    # Now flip to quiet-idle stale (kW=0) — counter must NOT advance
+    hass.states.get = lambda eid: {
+        "climate.z1": st_hot,
+        "sensor.z1_kw": _make_state("0.01", now),
+    }.get(eid)
+    await hvac._check_carrier_freshness()
+    assert hvac._carrier_stale_ticks_since_reload == 0
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-2: wire-in AST anchor — the call site inside _run_decision_cycle
+# ---------------------------------------------------------------------------
+
+def test_wire_in_call_site_present_in_run_decision_cycle_c_high_2():
+    """AST anchor: `_check_carrier_freshness` MUST be awaited from within
+    `HVACCoordinator._run_decision_cycle`. A source grep is not enough —
+    the review flagged the prior anchor as hollow because it never drove
+    the enclosing method.
+
+    RED-on-neuter: delete the `await self._check_carrier_freshness()`
+    line from `_run_decision_cycle` and this test fails.
+    """
+    import ast
+    import inspect
+    src = inspect.getsource(hvac_mod.HVACCoordinator._run_decision_cycle)
+    # dedent for ast parsing (method source is indented)
+    import textwrap
+    tree = ast.parse(textwrap.dedent(src))
+    found = False
+    for node in ast.walk(tree):
+        # await self._check_carrier_freshness()
+        if isinstance(node, ast.Await):
+            call = node.value
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "_check_carrier_freshness"
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "self"
+            ):
+                found = True
+                break
+    assert found, (
+        "`await self._check_carrier_freshness()` not found in "
+        "`_run_decision_cycle` — wire-in was removed. See "
+        "hvac.py wire-in anchor comment."
+    )
 
 
 # ---------------------------------------------------------------------------
