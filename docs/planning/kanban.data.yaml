@@ -697,7 +697,7 @@ cards:
 - id: ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1
   title: Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
   thread: energy
-  status: investigating
+  status: parked
   created: 2026-09-06 18:00
   updated: 2026-09-06 18:00
   refinement_status: initial
@@ -728,7 +728,9 @@ cards:
   - 'SOLAR_CAPTURE_FACTOR (module const, energy_battery.py:260, currently 0.5) — raising it credits more solar; reviewed-rung (fitted safety bias).'
   parsimony: {problem: 'attain grid-charges early then exports solar it could have used', verdict: INVESTIGATE}
   operator_refine_2026_09_09: 'Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decision FOR THE SPECIFIC TOU SEASON — is the season-specific forecast/threshold right? (3) Consider making it ADAPTIVE — a feedback loop trained on our own historical data (we literally have it / can capture it) so attain aggression self-tunes per season instead of a static threshold. Gate every change on the measured 2-week $ number (measure-before-build).'
-  next: 'MEASURE FIRST (probe): price the peak-import vs solar-export spread + the risk of not hitting 80% by 14:00 on the affected days, to decide if the early grid-charge is net-negative. Then, if warranted: re-evaluate attain per-tick (release on solar ramp) and/or modulate grid to the solar shortfall. Tier-3 per the energy campaign.'
+  probe_result_2026_09_09: 'MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning (all off-peak = rate FLOOR) and the displaced solar exports midday/peak at >= that rate, so loss sign is structurally non-positive. 14d: 98 kWh wasted (~7/day, fired 12/14 days), rate-arbitrage = +$7.62 GAIN, only ~$0.84 round-trip-efficiency cost (~$22/yr). The behavioral inefficiency is REAL + consistent but costs ~$0 here. It only becomes a loss under NEM-3/low export credit: ~$92/yr @ $0.05, ~$143/yr @ $0.03. VERDICT: PARK — do NOT build attain-restraint at this tariff. Biggest lever is the tariff, not code. Entities: sensor.enphase_cloud_hacs_site_grid_import/export/battery_charge/solar_production; rates sensor.iq_gateway_hacs_current_import/export_rate.'
+  revisit_trigger: 'Export credit drops below off-peak import rate (NEM-3 / contract change).'
+  next: 'PARKED. Revisit trigger: operator confirms export compensation moves to NEM-3/avoided-cost (export credit < off-peak import ~$0.086) -> then the ~$100-145/yr loss justifies attain-restraint (season prediction + adaptive feedback loop on historical data). Until then, no action.'
   refs: ['docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check)', 'energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5)', 'energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit', 'energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder', 'docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md', 'live 09-04/05/06 recorder episodes (spot-checked)', '.claude/skills/ura-energy-invariants-campaign']
 
 - id: URA-INTEGRATION-ARRANGEMENT-1
@@ -14022,7 +14024,7 @@ cards:
   thread: dashboarding
   status: pre_planning
   created: '2026-09-09 09:10'
-  updated: '2026-09-09 18:45'
+  updated: '2026-09-09 19:05'
   refinement_status: initial
   problem_solution:
   - 'Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a strategy so any room added in future appears automatically — e.g. an auto-generated room view/section driven by the URA room registry (config entries / a rooms sensor), via a templated/auto-entities approach or a generator that regenerates the room section from the live room list.'
@@ -14033,10 +14035,49 @@ cards:
   - 'Two dashboards to keep in sync: URA v8 and URA v6 (both live in HA storage).'
   sweep_verdict: 'NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.'
   investigation_2026_09_09: 'VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest Bedroom 2 Hallway, Up Guestbedroom Closet, Upstairs Hallway) + 4 STALE (media_room->media, upstairs_guest_bedroom->upstairs_guestroom, down_guest_bathroom, master_toilet_master_toilet — renamed/removed). ROOT: each room is a SEPARATE hand-authored auto-entities card with a HARDCODED per-room include list (binary_sensor.<slug>_occupied + _current_occupants + _energy_saving_active + _hvac_cooling) — auto-entities in name only, so a new room needs a new hand card. Per-room entity slug convention is CONSISTENT (good for auto-gen). Residence view is RICH/bespoke (44 button-card, 44 bubble-card, 132 tile, fan-speed/cover/light-brightness per room) — NO decluttering template today. auto-entities + layout-card + decluttering-card ARE installed (HACS). v6 (ura_v6) is masonry, separate structure, also drifted. STRATEGY OPTIONS: (1) decluttering-card template param by [[slug]]/[[name]] + a registry-driven slug list -> add a room = add one line (RECOMMENDED: preserves rich UX, shrinks the 412KB dash, near-auto); (2) a generator script that regenerates the room section from the 42-room registry (full auto, more machinery, writes .storage); (3) flat glob auto-entities (truly auto but loses per-room rich cards). Immediate low-risk fix: add 8 missing + repoint/ remove 4 stale by cloning the existing per-room block. .storage edit is DELICATE (412KB v8 + 110KB v6) — confirm approach + do via a backed-up scripted JSON edit or the lovelace WS API.'
-  next: 'VERIFY (ha-dashboard skill): read the live v8 + v6 Lovelace configs from HA storage; find the authoritative room list (config entries ENTRY_TYPE_ROOM / a rooms sensor); pick the auto-gen strategy (auto-entities/custom template vs a regenerate-on-room-add generator); add missing rooms now + wire the strategy.'
+  aesthetics_finding_2026_09_09: 'Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room cards are NOT uniform: 38 distinct bubble-card structures, each referencing that room''s OWN fan/cover/light entity_ids (not just the slug), because each was hand-tailored to the devices the room actually has. So there is no ONE zero-config template; keeping aesthetics via decluttering needs EITHER (a) one template + a small PER-ROOM variable block (its entities/which-controls) — add-room = one variable block, not zero; OR (b) a few archetype templates (full/lean/closet). Both keep the look; neither is fully automatic. VERDICT: PATCH NOW (operator fallback) — add the 8 missing + fix the 4 stale by cloning a same-archetype room card; CARD the decluttering migration (template + per-room var map) as a separate designed follow-up (LOVELACE-DECLUTTER-MIGRATION-1).'
+  next: 'PATCH: add 8 missing (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest Bedroom 2 Hallway, Up Guestbedroom Closet, Upstairs Hallway) + fix 4 stale (media_room->media, upstairs_guest_bedroom->upstairs_guestroom, down_guest_bathroom, master_toilet_master_toilet) in v8 AND v6, cloning a same-archetype room card. Delicate .storage edit (412KB v8 + 110KB v6) — back up first / consider lovelace WS API. Then card the decluttering migration.'
   refs:
   - docs/dashboards/ (card snippet docs)
   - .storage/lovelace.* (live dashboard configs)
+- id: ROOM-ZONE-FIELD-NO-SYNC-1
+  title: 'Room Setup "Zone" field does not add the room to that zone — new rooms must be manually added in the Zone dialog'
+  thread: config
+  status: inbox
+  created: '2026-09-09 19:00'
+  updated: '2026-09-09 19:00'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: when you set a room''s Zone in Room Setup (e.g. Guest Bedroom 2 -> "Upstairs"), the room is NOT added to that zone''s member list — you have to open the Zone Configuration dialog and add it by hand. Operator hit this on newly-created rooms. Solution: on room-setup save, propagate the room''s chosen Zone into that zone''s room-membership list automatically (and remove it from the previous zone on change), so the two stay in sync.'
+  approval: implied
+  approved_by: 'operator 2026-09-09 (small thing to card + follow up right after this set of work)'
+  sweep_verdict: "'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'"
+  why: 'Two independent stores for the same fact (room.CONF_ZONE vs zone.CONF_ZONE_ROOMS) drift; the operator expects the room Zone field to be authoritative but it is inert for membership.'
+  forensic: 'Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description); no ongoing propagation. Dual-source-of-truth.'
+  next: 'FOLLOW-UP after current work set. Decide authority: (A) room.CONF_ZONE is authoritative -> on room save, upsert into the zone CONF_ZONE_ROOMS + remove from prior zone (+ backfill existing drift); or (B) make room setup write directly to zone_rooms. Verify no double-source consumers. Tier 2 (config-flow + zone-manager cross-write).'
+  refs:
+  - config_flow.py:900 (room save CONF_ZONE)
+  - config_flow.py:915/:980 (zone CONF_ZONE_ROOMS)
+  - config_flow.py:486 (design note: zone_rooms is per-house-zone)
+- id: LOVELACE-DECLUTTER-MIGRATION-1
+  title: 'Migrate URA v6/v8 room cards to a decluttering-card template + per-room variable map (keeps aesthetics, makes room-add near-one-line)'
+  thread: dashboarding
+  status: parked
+  created: '2026-09-09 19:05'
+  updated: '2026-09-09 19:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: room cards are hand-authored + bespoke per room (38 distinct structures), so adding a room means hand-building a full card and the dashboard drifts (LOVELACE-AUTO-ROOM-DASHBOARD-1 patches the current drift but does not stop it). Solution: define a decluttering-card template that renders the SAME room card (aesthetics preserved) parameterized by a per-room variable block (slug/name + its fan/cover/light entity_ids + which controls to show); the Residence view becomes a list of template instances driven by the room registry. Add a room = one variable block. Optionally auto-derive the block from the room''s registered entities.'
+  approval: implied
+  approved_by: 'operator 2026-09-09 (decluttering preferred if aesthetics kept)'
+  sweep_verdict: "'NEW — the strategic half of LOVELACE-AUTO-ROOM-DASHBOARD-1 (which is the immediate patch).'"
+  why: 'Stops dashboard-vs-registry drift at the source while keeping the rich per-room UX.'
+  parked: true
+  revisit_trigger: 'After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).'
+  next: 'Design: (1) count real card archetypes (my 38-distinct was inflated by entity suffixes — determine the true structural bucket count); (2) build the decluttering template(s); (3) per-room var map source; (4) migrate v8 then v6; reversible via .storage backup.'
+  refs:
+  - LOVELACE-AUTO-ROOM-DASHBOARD-1
+  - decluttering-card (installed HACS resource)
 
 parked:
 - title: Pre-roll frame buffer
