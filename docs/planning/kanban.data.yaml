@@ -744,7 +744,7 @@ cards:
 - id: URA-INTEGRATION-ARRANGEMENT-1
   title: URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
   thread: device-tree
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.0
   created: 2026-09-06 17:30
   updated: 2026-09-06 18:30
@@ -787,6 +787,7 @@ cards:
   - 'operator laid out the target tree + 4 problems 2026-09-06; iterating to clarity before planning (the Rooms parent node is the biggest new element).'
   knobs: []
   parsimony: {problem: 'device tree misrepresents rooms + reload cascade risks outage + non-standard zone menu', verdict: BUILD}
+  sweep_2026_09_09: 'DONE (umbrella) — Rooms-node House>Rooms>Room arrangement shipped+validated v5.100.0 (L2/L3 PASS). The reload-outage root (integration entry overloaded) is the SEPARATE Tier-3 subentries migration tracked as CONFIG-SUBENTRIES-MIGRATION-1 (parked, operator-gated). Umbrella closed; residual carded.'
   next: 'DECISIONS taken 2026-09-06: Rooms-node owner = INTEGRATION-owned (confirmed). ROOT CAUSE of the reload outage found: INTEGRATION entry overloaded (singleton bootstrap + 80 aggregation entities + config surface on one reload unit); stall = singleton-teardown-under-live-children + 80-entity re-add + secondary child exception-storm (NOT a 40-child cascade — folklore corrected). Option B (hand off the House device) MOVES the cheap part, does NOT fix (cost is the singleton bootstrap). Fix path: extend Option A allowlist (camera/census/perimeter family, cheap) NOW; the structural fix = decouple config-surface from singleton bootstrap (C/D, Tier-3) is GATED on a live stall-attribution probe first (measure-before-build: 80-entity re-add vs singleton rebuild vs child-storm — fix differs per cause). Then plan the via_device Rooms re-nest (clean) + sweep-counter fix (load-bearing for it) + menu harmonization.'
   child_cards: [DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1, DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1, CM-CONFIG-FLOW-UX-1]
   refs: ['docs/planning/DEVICE_TREE_TARGET_arrangement_2026_09.md (target diagram + upgrade callout)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', '_devices.py', 'config_flow.py/options_flow.py', 'memory parent_entry_reload_watchdog_hazard', 'memory reload_suppression_cycle']
@@ -794,7 +795,7 @@ cards:
 - id: DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
   title: The device-tree parent-link sweep stops self-healing after 3 tries for the whole session (same bug class as the face-health boot cache)
   thread: device-tree
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
@@ -821,6 +822,7 @@ cards:
   parked_alts: []
   knobs: []
   parsimony: {problem: 'sweep counter is a lifetime latch -> late devices unparented until restart', verdict: BUILD}
+  sweep_2026_09_09: 'DONE — shipped v5.100.0, sweep re-arm validated in README_v5.100.0 L3 (no permanent INV-4 trip-wire; rooms nested).'
   next: 'Tier-2 fast-follow: reset _device_tree_sweep_count=0 on the residual==0 success branch (_devices.py:586-590); test that a 4th sweep re-arms after a successful one; verify against DEVICE_TREE INV-NEST.'
   refs: ['_devices.py:509-519 (schedule cap)', '_devices.py:586-590 (success branch)', 'docs/architecture/DEVICE_TREE.md', 'docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md', 'card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)']
 - id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
@@ -6593,7 +6595,7 @@ cards:
 - id: KHOST-2
   title: Operator disposition buttons + drag-between-states on the hosted board
   thread: tooling
-  status: shipped_organic
+  status: parked
   shipped_note: 'Live 2026-08-11: buttons (done/deferred/declined) + column drag on urakanban LAN site;
     queue → pending jsonl → agent session-start apply (operator authority). Orchestrator-verified API
     round-trip. Organic proof: first real operator disposition flowing through to kanban.data.yaml.'
@@ -6607,6 +6609,7 @@ cards:
     at session start (agent-in-loop, no unattended repo writer).'
   constraints: LAN-site only (Artifact CSP cannot POST). No auth on LAN site per operator choice. Source
     of truth stays kanban.data.yaml; the queue is pending-intent, not state.
+  sweep_2026_09_09: 'RE-LANED out of shipped_organic (was never shipped — un-watchable). Parked: needs the webhost micro-API + board JS build; no URA HA oracle. Revive when board JS is deployed.'
   next: 'UN-WATCHABLE (not shipped): Build the webhost micro-API + JS drag/button interactions. No URA
     HA oracle for this feature. Recover as shipped when board JS is deployed.'
   shipped_version: board-tooling-not-yet-shipped
@@ -9265,7 +9268,7 @@ cards:
 - id: TRANSIT-1
   title: Interior traversal — Protect-sourced checkpoints via resolver
   thread: presence
-  status: shipped_organic
+  status: planned
   batch: resolver-correctness
   seq: 3
   approval: explicit
@@ -9357,6 +9360,7 @@ cards:
     verdict: BUILD
     note: Protect-sourced resolver inventory fixes all 5 + prevents recurrence - the area work was the
       prerequisite
+  sweep_2026_09_09: 'RE-LANED out of shipped_organic (not shipped — it is a BUILD task: resolver enumerates Protect checkpoint cameras by area, transit consumes that). Moved to planned.'
   next: build - resolver enumerates checkpoint cameras from Protect, attributes each by area, transit
     consumes that instead of camera_person_entities
   refs:
@@ -13188,7 +13192,7 @@ cards:
   title: 'Enrich v6+v8 dashboards: Solar-Aware EV panel + v8 House Census (counts + per-person path &
     predicted next room)'
   thread: dashboarding
-  status: shipped_organic
+  status: done
   created: 2026-08-24 17:10
   updated: 2026-08-24 17:10
   refinement_status: initial
@@ -13212,6 +13216,7 @@ cards:
   constraints:
   - Applied via ha_config_set_dashboard python_transform, NOT a .storage hand-edit.
   - Markdown cards carry explicit entity_id watch-lists (Jinja-variable entities are not auto-detected).
+  sweep_2026_09_09: 'DONE (primary: v6+v8 solar-aware EV + census cards shipped). Residual (add solar_follow_* attrs) DEPENDS on EVSE-SOLAR-FOLLOW-AMPS-1 shipping — tracked there, not a soak of this card. met-with-residual close.'
   next: When EVSE-SOLAR-FOLLOW-AMPS-1 ships, add its amp-modulation attributes (solar_follow_surplus_kw,
     solar_follow_state, solar_follow_original_amps, solar_follow_blind_since) to the Solar-Aware EV card.
   links:
