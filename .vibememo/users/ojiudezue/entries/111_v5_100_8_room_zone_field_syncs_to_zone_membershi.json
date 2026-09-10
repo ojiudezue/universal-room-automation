@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "111",
+  "author": "ojiudezue",
+  "session_id": "claude_20260910_050430_ship_v5_100_8",
+  "timestamp": "2026-09-10T05:04:30Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.8 shipped: Room Zone field syncs to zone membership (+ D3 test fix)",
+  "summary": "Room Zone field syncs to zone membership (+ D3 test fix)",
+  "why": "Room Setup wrote room.CONF_ZONE but never added the room to zone.CONF_ZONE_ROOMS \u2014 the reverse direction (ZM->room) already existed but room->ZM was missing, so new rooms had to be hand-added in the Zone dialog and zoned rooms showed as Unzoned on dashboards. Chose room.CONF_ZONE authoritative + zone list as derived index over dual-write, so a boot reconcile heals drift. Idempotent + swallow-except so a sync hiccup never breaks the room save. Orchestrator independently mutation-verified the wire-in (neuter basic_setup call -> test_reconfigure_zone_change_propagates_to_zm RED, restored green). D3 test fix rides along.",
+  "implications": "Shipped ROOM-ZONE-FIELD-NO-SYNC-1, D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1 at v5.100.8; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.8.md (Live criteria).",
+  "revisit_trigger": "In .storage/core.config_entries, every ENTRY_TYPE_ROOM whose options.zone is set appears in exactly one ZONE_MANAGER entry's options.zone_rooms for that zone (no room in two zones, no zoned room missing from its list); check post-restart after any room's Zone is set/changed.",
+  "refs": {
+    "cards": [
+      "ROOM-ZONE-FIELD-NO-SYNC-1",
+      "D3-CANONICAL-ALLOWLIST-BINARYSENSOR-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.8.md"
+    ],
+    "release_notes": "Setting a room's Zone in Room Setup now adds/moves the room in the zone's membership list (idempotent, swallow-except, wired at basic_setup + boot reconcile); room.CONF_ZONE authoritative. D3 canonical-allowlist test fix rides along."
+  }
+}
