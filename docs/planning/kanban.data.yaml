@@ -62,7 +62,8 @@ cards:
 - id: CM-CONFIG-FLOW-UX-SELECTORS-1
   title: 'CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors'
   thread: config
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE 2026-09-10: shipped v5.100.1; README L2 PASS (help text on both CM notification sub-editors; widgets already correct). No residual.'
   shipped_version: v5.100.1
   created: '2026-09-08 17:10'
   updated: '2026-09-08 17:10'
@@ -721,7 +722,8 @@ cards:
 - id: CM-CONFIG-FLOW-UX-1
   title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
   thread: device-tree
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE 2026-09-10: shipped v5.100.0; README L4 PASS (2 blank CM rows now labeled; translation-only, option round-trip byte-identical). Selector polish split to CM-CONFIG-FLOW-UX-SELECTORS-1.'
   shipped_version: v5.100.1
   created: 2026-09-06 16:10
   updated: 2026-09-06 16:10
@@ -891,7 +893,8 @@ cards:
 - id: DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1
   title: Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
   thread: device-tree
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE 2026-09-10: shipped v5.100.0; README L3 (House->Rooms->Room nesting PASS) exercises the tuple-unpack path; 3-tuple-identifier test green. No residual.'
   shipped_version: v5.100.0
   created: 2026-09-05 17:05
   updated: 2026-09-05 17:05
@@ -1256,7 +1259,8 @@ cards:
   title: Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list)
     to async_show_menu for chooser consistency
   thread: platform
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE 2026-09-10: shipped; README v5.100.1 L3 PASS (zone options flow opens directly on the async_show_menu picker). No residual.'
   shipped_version: v5.100.4
   created: 2026-09-03 18:05
   updated: 2026-09-03 18:05
@@ -14171,7 +14175,8 @@ cards:
 - id: LOVELACE-V8-STALE-ENTITY-REFS-1
   title: 'v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)'
   thread: dashboarding
-  status: shipped_organic
+  status: done
+  disposition_2026_09_10: 'DONE 2026-09-10 (met-with-residual): 51 list-context dead refs stripped + applied post-v5.100.8 restart (live lovelace.ura_v8 entity-refs=0). Residual = 29 doubled-name/template-var artifacts, benign, owned by the decluttering migration.'
   created: '2026-09-09 21:55'
   updated: '2026-09-10 00:35'
   refinement_status: initial

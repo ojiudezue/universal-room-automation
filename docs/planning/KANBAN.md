@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T00:04:30-05:00_ - _Data commit: `f4f22a73e7bb`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T00:46:39-05:00_ - _Data commit: `c69ddf633d3d`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,11 +17,11 @@ _Generated: 2026-09-10T00:04:30-05:00_ - _Data commit: `f4f22a73e7bb`_ - _last_r
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 76 |
+| 🚀 Shipped (organic open) | 71 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🅿️ Parked | 29 |
-| ✅ Done | 67 |
+| ✅ Done | 72 |
 
 ## 📥 Inbox (28)
 _raw capture_
@@ -745,19 +745,8 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (76)
+## 🚀 Shipped (organic open) (71)
 _live, awaiting proof_
-
-### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
-thread: **config** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-08 17:10 · initial_
-- **Problem / Solution:**
-  - Problem: the two Coordinator-Manager options sub-editors that were previously BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the FIELDS inside them are still crude raw-number / YAML-ish inputs without proper HA sel...
-- **Origin:** 2026-09-08 - device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)
-- **Why:** The reported bug (blank rows) is fixed; the selector rework touches schema round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own scoped cycle rather than riding the device-registry ship.
-- **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
-- **Tags:** config-flow, no-fabrication-verify
-- **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
@@ -814,32 +803,6 @@ _created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
 - **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
 - **Forensic keys (1):**
   - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
-
-### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
-thread: **device-tree** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-06 16:10 · initial_
-- **Problem / Solution:**
-  - Problem: the URA Coordinator Manager (CM) config-entry "Configure Settings" menu (Options flow) has TWO BLANK category rows — bare ">" arrows with no label between Notifications and Signal Responses (operator screenshot) — i.e. menu opti...
-- **Origin:** 2026-09-06 - operator screenshots of CM Options flow during the entity-reorg discussion
-- **Why:** The CM config surface is the operator-facing control panel; blank rows are a bug (dead/mislabeled step) and the crude editors invite mis-configuration of safety/notification knobs. Fits the integration-arrangement (step 5) scope since it...
-- **Next:** Step-5 (integration arrangement): identify the 2 blank options-flow categories (missing label/handler) in config_flow.py/options_flow.py; fix or remove; add friendly labels+help+selectors to the nm_*/a* sub-editors. Institutional-context...
-- **Tags:** config-flow, ux, device-tree, integration-arrangement, found-during-review
-- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
-- **Parsimony:** [BUILD] CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk
-- **Refs:** config_flow.py / options_flow.py (CM options steps); operator screenshots 2026-09-06; project_sequence_wishes_2026_09_05 (step 5)
-
-### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
-thread: **device-tree** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-09-05 17:05 · initial_
-- **Problem / Solution:**
-  - Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack) — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here they iterate only devices attached to...
-- **Origin:** 2026-09-05 - device-linker audit — residual Class-2 sites
-- **Why:** Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.
-- **Next:** Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.
-- **Tags:** device-tree, defensive-consistency
-- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
-- **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
-- **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 
 ### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing)
 thread: **identity** - status: **shipped_organic** - approval: **explicit**
@@ -925,19 +888,6 @@ _created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
 - **Refs:** config_flow.py (flow choosers); docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
-
-### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
-thread: **platform** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-03 18:05 · refined ×1_
-- **Problem / Solution:**
-  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
-- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
-- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
-- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
-- **Tags:** ux-consistency, tier-2, no-fabrication-verify
-- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
-- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
-- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
@@ -1908,18 +1858,6 @@ _created 2026-09-09 19:00 · initial_
   - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
   - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
 
-### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
-thread: **dashboarding** - status: **shipped_organic** - approval: **unreviewed**
-_created 2026-09-09 21:55 · updated 2026-09-10 00:35 · initial_
-- **Problem / Solution:**
-  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
-- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
-- **Next:** DONE (safe bulk: 51 list-context dead refs stripped). Residual 27 co: template-var refs -> handled by the decluttering migration or a per-room co-repoint (benign meanwhile). Applied on next HA restart.
-- **Refs:** scripts/gen_room_dashboard.py
-- **Forensic keys (2):**
-  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
-  - `cleanup_2026_09_10`: Removed 51 dead entity refs from LIST/auto-entities-include context in v8 Residence (safe, silent-no-op includes; 0 were in scalar entity: fields). RESIDUAL: 27 dead refs remain, all sensor.<room>_current_occupants under a card-template ...
-
 ## ⏸️ Waiting on operator (9)
 _needs a human call_
 
@@ -2425,8 +2363,21 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (67)
+## ✅ Done (72)
 _closed, evidence in refs_
+
+### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
+thread: **config** - status: **done** - approval: **implied**
+_created 2026-09-08 17:10 · initial_
+- **Problem / Solution:**
+  - Problem: the two Coordinator-Manager options sub-editors that were previously BLANK rows now have friendly labels + titles (fixed in v5.100.0), but the FIELDS inside them are still crude raw-number / YAML-ish inputs without proper HA sel...
+- **Origin:** 2026-09-08 - device-arrangement D4 fixed the 2 blank CM menu rows; the crude field selectors inside were deferred (RestoreEntity risk)
+- **Why:** The reported bug (blank rows) is fixed; the selector rework touches schema round-trip + RestoreEntity, a distinct higher-risk sub-task warranting its own scoped cycle rather than riding the device-registry ship.
+- **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
+- **Tags:** config-flow, no-fabrication-verify
+- **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE 2026-09-10: shipped v5.100.1; README L2 PASS (help text on both CM notification sub-editors; widgets already correct). No residual.
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
 thread: **energy** - status: **done** - approval: **unreviewed**
@@ -2467,6 +2418,21 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
+thread: **device-tree** - status: **done** - approval: **explicit**
+_created 2026-09-06 16:10 · initial_
+- **Problem / Solution:**
+  - Problem: the URA Coordinator Manager (CM) config-entry "Configure Settings" menu (Options flow) has TWO BLANK category rows — bare ">" arrows with no label between Notifications and Signal Responses (operator screenshot) — i.e. menu opti...
+- **Origin:** 2026-09-06 - operator screenshots of CM Options flow during the entity-reorg discussion
+- **Why:** The CM config surface is the operator-facing control panel; blank rows are a bug (dead/mislabeled step) and the crude editors invite mis-configuration of safety/notification knobs. Fits the integration-arrangement (step 5) scope since it...
+- **Next:** Step-5 (integration arrangement): identify the 2 blank options-flow categories (missing label/handler) in config_flow.py/options_flow.py; fix or remove; add friendly labels+help+selectors to the nm_*/a* sub-editors. Institutional-context...
+- **Tags:** config-flow, ux, device-tree, integration-arrangement, found-during-review
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] CM options menu has 2 blank rows + crude raw-field/YAML editors -> misconfig risk
+- **Refs:** config_flow.py / options_flow.py (CM options steps); operator screenshots 2026-09-06; project_sequence_wishes_2026_09_05 (step 5)
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE 2026-09-10: shipped v5.100.0; README L4 PASS (2 blank CM rows now labeled; translation-only, option round-trip byte-identical). Selector polish split to CM-CONFIG-FLOW-UX-SELECTORS-1.
 
 ### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
 thread: **energy** - status: **done** - approval: **unreviewed**
@@ -2527,6 +2493,21 @@ _created 2026-09-05 17:05 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_09_09`: DONE — shipped v5.100.0, sweep re-arm validated in README_v5.100.0 L3 (no permanent INV-4 trip-wire; rooms nested).
 
+### `DEVICE-TREE-TUPLE-UNPACK-CONSISTENCY-1` - Two device-identifier loops still 2-unpack (the v5.94.3 3-tuple bug pattern) — narrowed scope makes them latent, not live
+thread: **device-tree** - status: **done** - approval: **unreviewed**
+_created 2026-09-05 17:05 · initial_
+- **Problem / Solution:**
+  - Problem: __init__.py:1650 and :4086 iterate device.identifiers as `for dom, ident in ...` (2-unpack) — the exact pattern that caused the v5.94.3 ValueError on 3-element bond/homekit identifiers. Here they iterate only devices attached to...
+- **Origin:** 2026-09-05 - device-linker audit — residual Class-2 sites
+- **Why:** Postmortem explicitly warns "never unpack identifiers as 2-tuple"; these two escaped the v5.94.3 sweep. Low, consistency.
+- **Next:** Fold into the DEVICE-TREE-SWEEP fix cycle (same file family): replace 2-unpack with len>=2 indexing; add a 3-tuple-identifier test.
+- **Tags:** device-tree, defensive-consistency
+- **Sibling of:** DEVICE-TREE-SWEEP-COUNTER-LIFETIME-LATCH-1
+- **Parsimony:** [BUILD] two 2-unpack sites can silently abort zone-orphan cleanup on a 3-tuple identifier
+- **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE 2026-09-10: shipped v5.100.0; README L3 (House->Rooms->Room nesting PASS) exercises the tuple-unpack path; 3-tuple-identifier test green. No residual.
+
 ### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
 thread: **energy** - status: **done** - approval: **unreviewed**
 _created 2026-09-06 15:20 · initial_
@@ -2555,6 +2536,21 @@ _created 2026-09-03 21:20 · initial_
 - **Refs:** __init__.py CM branch ~:4194-4267; _devices.py async_stamp_via_device_tree ~:162-185; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/readmes/README_v5.94.0.md
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
+
+### `MENU-ZONE-PICKER-1` - Zone instance-picker is a SelectSelector form, not a menu — convert manage_zones (and optionally ai_rule_list) to async_show_menu for chooser consistency
+thread: **platform** - status: **done** - approval: **explicit**
+_created 2026-09-03 18:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: to pick WHICH zone to configure, the options flow shows a dropdown/list form (a SelectSelector), while picking a coordinator is a plain menu — so the two "pick one of several" choosers do not match, and the operator flagged the ...
+- **Origin:** 2026-09-03 - menu-audit finding — the only two non-menu choosers are instance-pickers
+- **Why:** Menus are the URA standard; the zone/rule instance-pickers are the last forms. Split out of the Tier-3 device-tree reorg deliberately: it threads flow-logic contracts unrelated to the device tree, so folding it in would widen a device-cy...
+- **Next:** Tier-2 cycle: convert manage_zones (config_flow.py:7900-7913) to async_show_menu with dynamically-built menu_options; update the v4.7.5 guard test; decide whether to also convert ai_rule_list (:11246).
+- **Tags:** ux-consistency, tier-2, no-fabrication-verify
+- **Sibling of:** MENU-CONSISTENCY-1, CONFIG-SUBENTRIES-MIGRATION-1
+- **Parsimony:** [BUILD] zone/rule instance-pickers are forms while every other chooser is a menu — inconsistent UX the operator called out
+- **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE 2026-09-10: shipped; README v5.100.1 L3 PASS (zone options flow opens directly on the async_show_menu picker). No residual.
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**
@@ -3315,6 +3311,19 @@ _created 2026-09-09 09:10 · updated 2026-09-09 23:45 · initial_
   - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
   - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
   - `operator_confirmed`: Operator 2026-09-09: Lovelace is fine. 42 rooms zone-grouped, generator shipped. DONE.
+
+### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
+thread: **dashboarding** - status: **done** - approval: **unreviewed**
+_created 2026-09-09 21:55 · updated 2026-09-10 00:35 · initial_
+- **Problem / Solution:**
+  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
+- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
+- **Next:** DONE (safe bulk: 51 list-context dead refs stripped). Residual 27 co: template-var refs -> handled by the decluttering migration or a per-room co-repoint (benign meanwhile). Applied on next HA restart.
+- **Refs:** scripts/gen_room_dashboard.py
+- **Forensic keys (3):**
+  - `disposition_2026_09_10`: DONE 2026-09-10 (met-with-residual): 51 list-context dead refs stripped + applied post-v5.100.8 restart (live lovelace.ura_v8 entity-refs=0). Residual = 29 doubled-name/template-var artifacts, benign, owned by the decluttering migration.
+  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
+  - `cleanup_2026_09_10`: Removed 51 dead entity refs from LIST/auto-entities-include context in v8 Residence (safe, silent-no-op includes; 0 were in scalar entity: fields). RESIDUAL: 27 dead refs remain, all sensor.<room>_current_occupants under a card-template ...
 
 ## 🅿️ Parked ideas (top-level list)
 
