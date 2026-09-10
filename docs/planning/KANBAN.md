@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T18:08:38-05:00_ - _Data commit: `24a7b17a1b8b`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T18:55:53-05:00_ - _Data commit: `386b71c4f5de`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -666,14 +666,15 @@ _created 2026-08-24 16:45 · initial_
 
 ### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
 thread: **dashboarding** - status: **pre_planning** - approval: **implied**
-_created 2026-09-09 09:10 · initial_
+_created 2026-09-09 09:10 · updated 2026-09-09 18:45 · initial_
 - **Problem / Solution:**
   - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
 - **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
 - **Next:** VERIFY (ha-dashboard skill): read the live v8 + v6 Lovelace configs from HA storage; find the authoritative room list (config entries ENTRY_TYPE_ROOM / a rooms sensor); pick the auto-gen strategy (auto-entities/custom template vs a regen...
 - **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
+  - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
 
 ## 📝 Planned (6)
 _has plan / acceptance_

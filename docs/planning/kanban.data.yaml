@@ -14021,7 +14021,7 @@ cards:
   thread: dashboarding
   status: pre_planning
   created: '2026-09-09 09:10'
-  updated: '2026-09-09 09:10'
+  updated: '2026-09-09 18:45'
   refinement_status: initial
   problem_solution:
   - 'Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a strategy so any room added in future appears automatically — e.g. an auto-generated room view/section driven by the URA room registry (config entries / a rooms sensor), via a templated/auto-entities approach or a generator that regenerates the room section from the live room list.'
@@ -14031,6 +14031,7 @@ cards:
   constraints:
   - 'Two dashboards to keep in sync: URA v8 and URA v6 (both live in HA storage).'
   sweep_verdict: 'NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.'
+  investigation_2026_09_09: 'VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest Bedroom 2 Hallway, Up Guestbedroom Closet, Upstairs Hallway) + 4 STALE (media_room->media, upstairs_guest_bedroom->upstairs_guestroom, down_guest_bathroom, master_toilet_master_toilet — renamed/removed). ROOT: each room is a SEPARATE hand-authored auto-entities card with a HARDCODED per-room include list (binary_sensor.<slug>_occupied + _current_occupants + _energy_saving_active + _hvac_cooling) — auto-entities in name only, so a new room needs a new hand card. Per-room entity slug convention is CONSISTENT (good for auto-gen). Residence view is RICH/bespoke (44 button-card, 44 bubble-card, 132 tile, fan-speed/cover/light-brightness per room) — NO decluttering template today. auto-entities + layout-card + decluttering-card ARE installed (HACS). v6 (ura_v6) is masonry, separate structure, also drifted. STRATEGY OPTIONS: (1) decluttering-card template param by [[slug]]/[[name]] + a registry-driven slug list -> add a room = add one line (RECOMMENDED: preserves rich UX, shrinks the 412KB dash, near-auto); (2) a generator script that regenerates the room section from the 42-room registry (full auto, more machinery, writes .storage); (3) flat glob auto-entities (truly auto but loses per-room rich cards). Immediate low-risk fix: add 8 missing + repoint/ remove 4 stale by cloning the existing per-room block. .storage edit is DELICATE (412KB v8 + 110KB v6) — confirm approach + do via a backed-up scripted JSON edit or the lovelace WS API.'
   next: 'VERIFY (ha-dashboard skill): read the live v8 + v6 Lovelace configs from HA storage; find the authoritative room list (config entries ENTRY_TYPE_ROOM / a rooms sensor); pick the auto-gen strategy (auto-entities/custom template vs a regenerate-on-room-add generator); add missing rooms now + wire the strategy.'
   refs:
   - docs/dashboards/ (card snippet docs)
