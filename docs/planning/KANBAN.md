@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T23:25:31-05:00_ - _Data commit: `efa1bc7a456a`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T23:40:02-05:00_ - _Data commit: `f28192d1387c`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-09-09T23:25:31-05:00_ - _Data commit: `efa1bc7a456a`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 32 |
+| 📥 Inbox | 31 |
 | 🔬 Investigating | 10 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 7 |
@@ -21,9 +21,9 @@ _Generated: 2026-09-09T23:25:31-05:00_ - _Data commit: `efa1bc7a456a`_ - _last_r
 | ⏸️ Waiting on operator | 10 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 29 |
-| ✅ Done | 64 |
+| ✅ Done | 65 |
 
-## 📥 Inbox (32)
+## 📥 Inbox (31)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -70,18 +70,6 @@ _created 2026-09-05 16:40 · initial_
 - **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
 - **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
 - **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
-
-### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
-thread: **energy** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-06 15:20 · initial_
-- **Problem / Solution:**
-  - Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a warning to an ERROR with a full RuntimeError ...
-- **Origin:** 2026-09-06 - v5.97.0 post-restart error_log scan
-- **Why:** Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the signal fired from a worker?).
-- **Next:** Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.
-- **Tags:** energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation
-- **Parsimony:** [BUILD] EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash
-- **Refs:** switch.py:1195-1225 (EC deferred-restore callback); v5.97.0 post-restart error_log
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -2453,7 +2441,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (64)
+## ✅ Done (65)
 _closed, evidence in refs_
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
@@ -2512,6 +2500,20 @@ _created 2026-09-05 17:05 · initial_
 - **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
 - **Forensic keys (1):**
   - `sweep_2026_09_09`: DONE — shipped v5.100.0, sweep re-arm validated in README_v5.100.0 L3 (no permanent INV-4 trip-wire; rooms nested).
+
+### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-09-06 15:20 · initial_
+- **Problem / Solution:**
+  - Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a warning to an ERROR with a full RuntimeError ...
+- **Origin:** 2026-09-06 - v5.97.0 post-restart error_log scan
+- **Why:** Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the signal fired from a worker?).
+- **Next:** Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.
+- **Tags:** energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation
+- **Parsimony:** [BUILD] EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash
+- **Refs:** switch.py:1195-1225 (EC deferred-restore callback); v5.97.0 post-restart error_log
+- **Forensic keys (1):**
+  - `disposition_2026_09_09`: DONE — ALREADY FIXED by v5.100.3 (subsumed). Same root as ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1: HA executor-punts a non-@callback sync dispatcher target. The _handle_ec_ready OVERRIDE at switch.py:1393 lacked @callback, so the SIGNAL_...
 
 ### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
 thread: **platform** - status: **done** - approval: **explicit**
