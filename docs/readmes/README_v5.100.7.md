@@ -31,4 +31,11 @@ sites** — dropping the runtime kwargs → 5 wire-in tests RED; neutering the v
 - **L3 (runtime guard):** a live-slider inversion emits one `threshold_ladder_violation` anomaly (rate-limited).
 - **L4 (staleness):** a frozen primary-SOC entity is treated as stale (envelope engages / envoy_available False), same as unavailable.
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-09 (post-restart, v5.100.7 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 clean boot / config valid | **PASS** | `const.py`=v5.100.7; URA loaded; error_log ERROR-level scan for universal_room_automation = only 2 entries, both pre-boot shutdown transients (~20:12-20:14 companion-send/shutdown-timeout) — **none from the 23:19 v5.100.7 boot**. The save-time validator did not brick config load. |
+| L2 save gate / L3 runtime guard / L4 staleness | **in-suite + operator-visual** | 30 mutation-anchored tests incl. real config-flow submit (C-HIGH-2) + runtime wire-in (C-HIGH-1, orchestrator-verified 5 RED on kwarg-drop). L2 operator-verifiable in the Energy options step; L3 fires on a live-slider inversion; L4 on a frozen primary-SOC entity. |
+
+**Rollback not needed.** MED-2 respected (net_power/battery_power ungated per prior decision).
