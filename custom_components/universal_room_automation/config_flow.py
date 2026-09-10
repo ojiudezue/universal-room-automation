@@ -421,6 +421,120 @@ def _check_zone_confirm_name(typed: str | None, zone_name: str) -> bool:
 
 
 # =============================================================================
+# ROOM-ZONE-FIELD-NO-SYNC-1 — propagate room CONF_ZONE → ZM CONF_ZONE_ROOMS
+# =============================================================================
+def _sync_room_zone_to_zm(hass, room_entry, old_zone: str | None = None) -> bool:
+    """Reconcile a room's CONF_ZONE assignment into the Zone-Manager entry.
+
+    Authority: ``room.CONF_ZONE`` is the user-facing source of truth
+    (operator selects the zone from the room setup form). The per-zone
+    ``CONF_ZONE_ROOMS`` list stored on the Zone-Manager entry's
+    ``options["zones"][<zone_name>]`` dict is a DERIVED index consumed by
+    presence.py (:3044/:3081) and hvac_zones.py (:270/:373). Without this
+    propagation, saving a room's zone leaves the ZM index stale and the
+    room shows as unzoned on any zone-side enumeration.
+
+    Behavior (all idempotent — zero ``async_update_entry`` calls when the
+    ZM already reflects the room's assignment):
+      - room_entry_id UPSERTED into ``zones[new_zone][CONF_ZONE_ROOMS]``
+        when ``new_zone`` is a non-empty string that exists in ZM.
+      - room_entry_id REMOVED from ``zones[old_zone][CONF_ZONE_ROOMS]``
+        when ``old_zone`` is a non-empty string and differs from
+        ``new_zone`` (a zone change moves the room).
+      - room_entry_id REMOVED from EVERY OTHER zone's list (defensive
+        dedup — a room belongs to at most one zone by design; see the
+        design note at :486 "CONF_ZONE_ROOMS is per-house-zone by
+        design").
+      - Empty / None ``new_zone`` removes the room from every zone.
+
+    Returns True if a ZM write was issued, False on no-op / no ZM.
+
+    Note on reload storms: writes to the ZM entry fire the standard
+    update-listener → reload chain (identical risk profile to the
+    existing zone_rooms save path at :8189/:8214 which already
+    writes ZM options in the same shape). A single combined
+    async_update_entry per ZM entry is used, matching the prior-art
+    recipe.
+    """
+    try:
+        if room_entry is None:
+            return False
+        if room_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+            return False
+        room_id = room_entry.entry_id
+        new_zone_raw = (
+            room_entry.options.get(CONF_ZONE)
+            or room_entry.data.get(CONF_ZONE)
+            or ""
+        )
+        new_zone = new_zone_raw.strip() if isinstance(new_zone_raw, str) else ""
+        old_zone_norm = old_zone.strip() if isinstance(old_zone, str) else ""
+
+        # Find the ZM entry.
+        zm_entry = None
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                zm_entry = entry
+                break
+        if zm_entry is None:
+            return False
+
+        merged = {**zm_entry.data, **zm_entry.options}
+        zones = merged.get("zones", {}) or {}
+        # Deep-copy zone dicts + their CONF_ZONE_ROOMS lists so we mutate
+        # a new structure and can diff for idempotence.
+        new_zones: dict = {}
+        changed = False
+        for zn, zcfg in zones.items():
+            zcfg_copy = dict(zcfg or {})
+            rooms_list = list(zcfg_copy.get(CONF_ZONE_ROOMS, []) or [])
+            # Remove from any zone that is NOT the new_zone (handles
+            # old_zone removal + defensive dedup in a single sweep).
+            if zn != new_zone and room_id in rooms_list:
+                rooms_list = [r for r in rooms_list if r != room_id]
+                changed = True
+            # Upsert into new_zone.
+            if new_zone and zn == new_zone and room_id not in rooms_list:
+                rooms_list.append(room_id)
+                changed = True
+            zcfg_copy[CONF_ZONE_ROOMS] = rooms_list
+            new_zones[zn] = zcfg_copy
+
+        if not changed:
+            return False
+
+        # Guard: don't create a ZM zone that doesn't exist — if the
+        # operator picked a zone that isn't in the ZM (shouldn't happen
+        # via the dropdown, but possible via manual .storage edits), log
+        # and skip the upsert. The removal sweep above is still valid.
+        if new_zone and new_zone not in new_zones:
+            _LOGGER.warning(
+                "ROOM-ZONE-FIELD-NO-SYNC-1: room %s assigned to zone %r "
+                "which is not present in ZM entry — skipping upsert; "
+                "removal sweep still applied.",
+                room_id, new_zone,
+            )
+
+        hass.config_entries.async_update_entry(
+            zm_entry,
+            options={**zm_entry.options, "zones": new_zones},
+        )
+        _LOGGER.info(
+            "ROOM-ZONE-FIELD-NO-SYNC-1: synced room %s zone %r → %r into "
+            "ZM CONF_ZONE_ROOMS (old_zone=%r)",
+            room_id, old_zone_norm, new_zone, old_zone_norm,
+        )
+        return True
+    except Exception:  # noqa: BLE001 — never break room save / setup
+        _LOGGER.exception(
+            "ROOM-ZONE-FIELD-NO-SYNC-1: sync failed for room "
+            "entry_id=%s (swallowed)",
+            getattr(room_entry, "entry_id", None),
+        )
+        return False
+
+
+# =============================================================================
 # Bathroom-exhaust intelligence cycle — climate-fans form validation
 # =============================================================================
 def _validate_climate_fans_form(user_input: dict) -> str | None:
@@ -9456,6 +9570,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             try:
                 merged_options = {**self._config_entry.options, **user_input}
                 merged_data = dict(self._config_entry.data)
+                # ROOM-ZONE-FIELD-NO-SYNC-1: snapshot the pre-write zone
+                # BEFORE the update so _sync_room_zone_to_zm can remove the
+                # room from its PRIOR zone\'s CONF_ZONE_ROOMS list on a
+                # zone change. Reads the same options-first-then-data
+                # predicate used by every downstream consumer.
+                _pre_zone = (
+                    self._config_entry.options.get(CONF_ZONE)
+                    or self._config_entry.data.get(CONF_ZONE)
+                    or ""
+                )
                 # Write through the join-key fields §4.3 confirms have
                 # live cross-coordinator readers.
                 if CONF_ROOM_NAME in user_input:
@@ -9490,6 +9614,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "Room options saved (rename write-through): "
                     "entry_id=%s title=%s",
                     self._config_entry.entry_id, new_title,
+                )
+                # ROOM-ZONE-FIELD-NO-SYNC-1: propagate the room\'s CONF_ZONE
+                # into the ZM entry\'s CONF_ZONE_ROOMS index so zone-side
+                # consumers (presence.py:3044, hvac_zones.py:270) see the
+                # room\'s current membership. Idempotent no-op when the ZM
+                # already agrees. Also removes the room from its PRIOR
+                # zone\'s list on a zone change (using _pre_zone snapshot).
+                _sync_room_zone_to_zm(
+                    self.hass, self._config_entry, old_zone=_pre_zone,
                 )
                 return self.async_abort(reason="reconfigure_successful")
             except Exception:
