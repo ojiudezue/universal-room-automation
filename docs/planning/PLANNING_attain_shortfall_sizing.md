@@ -16,6 +16,12 @@ and back ON if solar disappoints. Uses only the CFG switch URA already controls 
 The whole design must work identically at 60%, 80%, or any value / any pack size (e.g. 160 kWh @ 60%).
 Never hard-code 80; everything reads `self._peak_buffer_target`.
 
+## Target latched per-day (operator 2026-09-09)
+`peak_buffer_target` is SNAPSHOTTED when the morning attain cycle starts and held IMMUTABLE for that day.
+The CFG-modulation reads the snapshot, NOT the live config — a mid-day config change does NOT adjust the
+in-progress ramp (no intra-day target seam). A changed target takes effect the NEXT morning. This is the
+temporal 'treat the target as a fact' rule and removes the mid-ramp target-change edge case entirely.
+
 ## CFG-off condition (target-generic)
 Turn CFG OFF when `credited_solar_before_boundary >= (peak_buffer_target - current_soc)` with a safety
 margin; else CFG ON. Self-correcting each tick as the window shrinks (credited_solar falls -> CFG back on
