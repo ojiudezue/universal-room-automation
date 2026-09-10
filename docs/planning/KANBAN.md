@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T23:17:33-05:00_ - _Data commit: `6e85d7a5f608`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T23:25:31-05:00_ - _Data commit: `efa1bc7a456a`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,11 +17,11 @@ _Generated: 2026-09-09T23:17:33-05:00_ - _Data commit: `6e85d7a5f608`_ - _last_r
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 75 |
+| 🚀 Shipped (organic open) | 74 |
 | ⏸️ Waiting on operator | 10 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 29 |
-| ✅ Done | 63 |
+| ✅ Done | 64 |
 
 ## 📥 Inbox (32)
 _raw capture_
@@ -782,7 +782,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (75)
+## 🚀 Shipped (organic open) (74)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -1935,22 +1935,6 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
 - **Forensic keys (1):**
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
 
-### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
-thread: **dashboarding** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-09 09:10 · updated 2026-09-09 21:55 · initial_
-- **Problem / Solution:**
-  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
-- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
-- **Next:** DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the...
-- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
-- **Forensic keys (6):**
-  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
-  - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
-  - `aesthetics_finding_2026_09_09`: Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room ca...
-  - `patch_shipped_2026_09_09`: PATCH DONE (config-driven, per operator: each room config is self-contained).
-  - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
-  - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
-
 ## ⏸️ Waiting on operator (10)
 _needs a human call_
 
@@ -2469,7 +2453,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (63)
+## ✅ Done (64)
 _closed, evidence in refs_
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
@@ -3286,6 +3270,23 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:40 · refined_
 - **Forensic keys (2):**
   - `forensic_fix`: energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class, ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max the decision + the c...
   - `DEDUPE_2026_08_25`: DUPLICATE of PLANNING_offpeak_drain_target_day_staleness.md D3/H-1, which already routes _next_action_estimate through _drain_target_for and has test_next_action_estimate_uses_shared_helper(). Not a new fix — folded into the midnight cyc...
+
+### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
+thread: **dashboarding** - status: **done** - approval: **implied**
+_created 2026-09-09 09:10 · updated 2026-09-09 23:45 · initial_
+- **Problem / Solution:**
+  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
+- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
+- **Next:** DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the...
+- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
+- **Forensic keys (7):**
+  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
+  - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
+  - `aesthetics_finding_2026_09_09`: Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room ca...
+  - `patch_shipped_2026_09_09`: PATCH DONE (config-driven, per operator: each room config is self-contained).
+  - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
+  - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
+  - `operator_confirmed`: Operator 2026-09-09: Lovelace is fine. 42 rooms zone-grouped, generator shipped. DONE.
 
 ## 🅿️ Parked ideas (top-level list)
 

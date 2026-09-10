@@ -14045,9 +14045,9 @@ cards:
 - id: LOVELACE-AUTO-ROOM-DASHBOARD-1
   title: 'URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically'
   thread: dashboarding
-  status: shipped_organic
+  status: done
   created: '2026-09-09 09:10'
-  updated: '2026-09-09 21:55'
+  updated: '2026-09-09 23:45'
   refinement_status: initial
   problem_solution:
   - 'Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a strategy so any room added in future appears automatically — e.g. an auto-generated room view/section driven by the URA room registry (config entries / a rooms sensor), via a templated/auto-entities approach or a generator that regenerates the room section from the live room list.'
@@ -14062,6 +14062,7 @@ cards:
   patch_shipped_2026_09_09: 'PATCH DONE (config-driven, per operator: each room config is self-contained).'
   patch_detail: 'Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen Pantry, Butler Pantry, Oji Vanity...). Cards built FROM the room CONFIG ENTRY (title + its real lights/climate/alert_lights) via the _occupied entity''s config_entry_id -> title link — NOT from entity slugs (which are mangled rename-artifacts, e.g. master_hallway_master_hallway; deriving names from slugs gave doubled garbage, caught + fixed). Written to .storage via the Samba mount (ssh .storage is root-only); backed up first; survived restart. This config-driven generator is the SEED of the auto-gen strategy (LOVELACE-DECLUTTER-MIGRATION-1).'
   generator_shipped_2026_09_09: 'SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet->Back Hallway, Master Toilet->Master Suite); Unzoned now only Garage B (zone=None); added 4 missing rooms as button+bubble (matched archetype), entities filtered to existing (fixes Entity-not-found). v6: preserved curated groupings byte-identical + added 6 zone sections covering 24 missing rooms. All 42 rooms represented once; non-room views byte-identical (verified). Applied to live + restart. Operator visual-confirm.'
+  operator_confirmed: 'Operator 2026-09-09: Lovelace is fine. 42 rooms zone-grouped, generator shipped. DONE.'
   next: 'DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the room registry so future rooms self-add.'
   refs:
   - docs/dashboards/ (card snippet docs)
