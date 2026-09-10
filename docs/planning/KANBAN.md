@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T03:04:24-05:00_ - _Data commit: `1f97fb5ae772`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T03:05:39-05:00_ - _Data commit: `ec49dd62dfb6`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-09-10T03:04:24-05:00_ - _Data commit: `1f97fb5ae772`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 28 |
-| 🔬 Investigating | 23 |
+| 🔬 Investigating | 22 |
 | 🧭 Pre-planning | 21 |
 | 📝 Planned | 24 |
 | 🔨 In progress | 0 |
@@ -21,7 +21,7 @@ _Generated: 2026-09-10T03:04:24-05:00_ - _Data commit: `1f97fb5ae772`_ - _last_r
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 40 |
-| ✅ Done | 80 |
+| ✅ Done | 81 |
 
 ## 📥 Inbox (28)
 _raw capture_
@@ -333,7 +333,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (23)
+## 🔬 Investigating (22)
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
@@ -397,20 +397,6 @@ _created 2026-09-03 16:40 · initial_
 - **Refs:** docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md; live Devices page 2026-09-03
 - **Forensic keys (1):**
   - `spawned_from`: DEVICE-ENTITY-REORG-1
-
-### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
-thread: **presence** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-01 00:40 · updated 2026-09-01 01:30 · initial_
-- **Problem / Solution:**
-  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
-- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
-- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
-- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
-- **Tags:** no-fabrication-verify
-- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
-- **Forensic keys (2):**
-  - `relane_2026_09_10`: Not a soak -> INVESTIGATING (real bug). All 38 automation_mode selects unavailable since 08-30 14:46. Investigate select platform setup + available/restore path; check what deployed around 08-30.
-  - `resolution_2026_09_01`: NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry...
 
 ### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety
 thread: **presence** - status: **investigating** - approval: **unreviewed**
@@ -2287,7 +2273,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (80)
+## ✅ Done (81)
 _closed, evidence in refs_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -2503,6 +2489,21 @@ _created 2026-09-03 18:05 · refined ×1_
 - **Refs:** config_flow.py:7900 (manage_zones); config_flow.py:11246 (ai_rule_list); quality/tests/... test_v475_d2_picker_does_not_call_iter_canonical; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md (adjudication #19)
 - **Forensic keys (1):**
   - `disposition_2026_09_10`: DONE 2026-09-10: shipped; README v5.100.1 L3 PASS (zone options flow opens directly on the async_show_menu picker). No residual.
+
+### `ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1` - All 38 per-room automation_mode selects read UNAVAILABLE house-wide (pre-existing >=1 day, not the v5.92.0 deploy)
+thread: **presence** - status: **done** - approval: **unreviewed**
+_created 2026-09-01 00:40 · updated 2026-09-01 01:30 · initial_
+- **Problem / Solution:**
+  - Problem: every room's Automation Mode control (select.<room>_automation_mode) reads unavailable across all 38 rooms, while sibling entities in the same rooms work. It is a core per-room control gone dead house-wide. Solution: find why th...
+- **Origin:** 2026-09-01 - URA-created output-entity unavailable/unknown audit — Group 1a
+- **Why:** CONFIRMED NOT a v5.92.0 regression: select.kitchen_automation_mode has been unavailable since 2026-08-30 14:46 (>1 day before the 08-31 20:25 deploy restart) and did not recover across it. Strongest finding of the URA-output audit; sibli...
+- **Next:** Investigate select platform setup + the automation_mode entity available/restore path; determine why all 38 are unavailable since 08-30 14:46. Was anything changed/deployed around then?
+- **Tags:** no-fabrication-verify
+- **Refs:** URA-output unavailable/unknown audit 2026-09-01; select.<room>_automation_mode x38
+- **Forensic keys (3):**
+  - `verify_2026_09_10`: CONFIRMED RESOLVED (operator was right; my pass-8 relane to investigating was a mis-read of the stale next: field over the resolution_2026_09_01). Live check: select.%_automation_mode orphans = 0 (the optional registry cleanup was done, ...
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING (real bug). All 38 automation_mode selects unavailable since 08-30 14:46. Investigate select platform setup + available/restore path; check what deployed around 08-30.
+  - `resolution_2026_09_01`: NOT A DEFECT — expected. AutomationModeSelect was deliberately DELETED 2026-07-26 (select.py:102-110): an inert knob with NO consumer; the real per-room enable control is switch.<room>_automation. Per Bug Class #46 (never delete registry...
 
 ### `PERSON-VISITS-WRITE-PAUSE-1` - person_visits writes appear to have paused ~5h while egress events keep flowing — latest entry_time lagged egress by ~5h at 2026-08-26 measurement; not yet diagnosed
 thread: **presence** - status: **done** - approval: **unreviewed**
