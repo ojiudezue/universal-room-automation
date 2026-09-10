@@ -14030,7 +14030,7 @@ cards:
   thread: dashboarding
   status: shipped_organic
   created: '2026-09-09 09:10'
-  updated: '2026-09-09 19:55'
+  updated: '2026-09-09 21:55'
   refinement_status: initial
   problem_solution:
   - 'Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a strategy so any room added in future appears automatically — e.g. an auto-generated room view/section driven by the URA room registry (config entries / a rooms sensor), via a templated/auto-entities approach or a generator that regenerates the room section from the live room list.'
@@ -14044,6 +14044,7 @@ cards:
   aesthetics_finding_2026_09_09: 'Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room cards are NOT uniform: 38 distinct bubble-card structures, each referencing that room''s OWN fan/cover/light entity_ids (not just the slug), because each was hand-tailored to the devices the room actually has. So there is no ONE zero-config template; keeping aesthetics via decluttering needs EITHER (a) one template + a small PER-ROOM variable block (its entities/which-controls) — add-room = one variable block, not zero; OR (b) a few archetype templates (full/lean/closet). Both keep the look; neither is fully automatic. VERDICT: PATCH NOW (operator fallback) — add the 8 missing + fix the 4 stale by cloning a same-archetype room card; CARD the decluttering migration (template + per-room var map) as a separate designed follow-up (LOVELACE-DECLUTTER-MIGRATION-1).'
   patch_shipped_2026_09_09: 'PATCH DONE (config-driven, per operator: each room config is self-contained).'
   patch_detail: 'Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen Pantry, Butler Pantry, Oji Vanity...). Cards built FROM the room CONFIG ENTRY (title + its real lights/climate/alert_lights) via the _occupied entity''s config_entry_id -> title link — NOT from entity slugs (which are mangled rename-artifacts, e.g. master_hallway_master_hallway; deriving names from slugs gave doubled garbage, caught + fixed). Written to .storage via the Samba mount (ssh .storage is root-only); backed up first; survived restart. This config-driven generator is the SEED of the auto-gen strategy (LOVELACE-DECLUTTER-MIGRATION-1).'
+  generator_shipped_2026_09_09: 'SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet->Back Hallway, Master Toilet->Master Suite); Unzoned now only Garage B (zone=None); added 4 missing rooms as button+bubble (matched archetype), entities filtered to existing (fixes Entity-not-found). v6: preserved curated groupings byte-identical + added 6 zone sections covering 24 missing rooms. All 42 rooms represented once; non-room views byte-identical (verified). Applied to live + restart. Operator visual-confirm.'
   next: 'DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the room registry so future rooms self-add.'
   refs:
   - docs/dashboards/ (card snippet docs)
@@ -14072,7 +14073,7 @@ cards:
   thread: dashboarding
   status: parked
   created: '2026-09-09 19:05'
-  updated: '2026-09-09 19:05'
+  updated: '2026-09-09 21:55'
   refinement_status: initial
   problem_solution:
   - 'Problem: room cards are hand-authored + bespoke per room (38 distinct structures), so adding a room means hand-building a full card and the dashboard drifts (LOVELACE-AUTO-ROOM-DASHBOARD-1 patches the current drift but does not stop it). Solution: define a decluttering-card template that renders the SAME room card (aesthetics preserved) parameterized by a per-room variable block (slug/name + its fan/cover/light entity_ids + which controls to show); the Residence view becomes a list of template instances driven by the room registry. Add a room = one variable block. Optionally auto-derive the block from the room''s registered entities.'
@@ -14086,6 +14087,20 @@ cards:
   refs:
   - LOVELACE-AUTO-ROOM-DASHBOARD-1
   - decluttering-card (installed HACS resource)
+- id: LOVELACE-V8-STALE-ENTITY-REFS-1
+  title: 'v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)'
+  thread: dashboarding
+  status: inbox
+  created: '2026-09-09 21:55'
+  updated: '2026-09-09 21:55'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pre-existing Entity-not-found, NOT introduced by the room-card generator (which entity-filters its own cards). Solution: run the same registry-filter over the existing bespoke cards (or migrate them through the generator), dropping dead refs.'
+  approval: unreviewed
+  sweep_verdict: "'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'"
+  why: 'Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.'
+  next: 'Extend scripts/gen_room_dashboard.py (or a one-shot pass) to registry-filter the existing bespoke card entities; low-risk, reversible via .storage backup.'
+  refs: [scripts/gen_room_dashboard.py]
 
 parked:
 - title: Pre-roll frame buffer

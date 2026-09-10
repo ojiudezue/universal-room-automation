@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T20:20:55-05:00_ - _Data commit: `7d57300b44ce`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T20:24:29-05:00_ - _Data commit: `3bdedf3a5305`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,7 +11,7 @@ _Generated: 2026-09-09T20:20:55-05:00_ - _Data commit: `7d57300b44ce`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 31 |
+| 📥 Inbox | 32 |
 | 🔬 Investigating | 10 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 8 |
@@ -23,7 +23,7 @@ _Generated: 2026-09-09T20:20:55-05:00_ - _Data commit: `7d57300b44ce`_ - _last_r
 | 🅿️ Parked | 28 |
 | ✅ Done | 60 |
 
-## 📥 Inbox (31)
+## 📥 Inbox (32)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -365,6 +365,17 @@ _created 2026-09-09 19:00 · initial_
 - **Forensic keys (2):**
   - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
   - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
+
+### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
+thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-09 21:55 · initial_
+- **Problem / Solution:**
+  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
+- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
+- **Next:** Extend scripts/gen_room_dashboard.py (or a one-shot pass) to registry-filter the existing bespoke card entities; low-risk, reversible via .storage backup.
+- **Refs:** scripts/gen_room_dashboard.py
+- **Forensic keys (1):**
+  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
 
 ## 🔬 Investigating (10)
 _measuring; truth not yet known_
@@ -1993,18 +2004,19 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
 
 ### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
 thread: **dashboarding** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-09 09:10 · updated 2026-09-09 19:55 · initial_
+_created 2026-09-09 09:10 · updated 2026-09-09 21:55 · initial_
 - **Problem / Solution:**
   - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
 - **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
 - **Next:** DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the...
 - **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
   - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
   - `aesthetics_finding_2026_09_09`: Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room ca...
   - `patch_shipped_2026_09_09`: PATCH DONE (config-driven, per operator: each room config is self-contained).
   - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
+  - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
 
 ## ⏸️ Waiting on operator (9)
 _needs a human call_
@@ -2475,7 +2487,7 @@ _created 2026-09-09 09:35 · initial_
 
 ### `LOVELACE-DECLUTTER-MIGRATION-1` - Migrate URA v6/v8 room cards to a decluttering-card template + per-room variable map (keeps aesthetics, makes room-add near-one-line)
 thread: **dashboarding** - status: **parked** - approval: **implied**
-_created 2026-09-09 19:05 · initial_
+_created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
 - **Problem / Solution:**
   - Problem: room cards are hand-authored + bespoke per room (38 distinct structures), so adding a room means hand-building a full card and the dashboard drifts (LOVELACE-AUTO-ROOM-DASHBOARD-1 patches the current drift but does not stop it)....
 - **Why:** Stops dashboard-vs-registry drift at the source while keeping the rich per-room UX.
