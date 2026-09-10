@@ -2804,7 +2804,8 @@ cards:
   - ZIRI-COLLEGE-PERSISTENT-AWAY-1
 - id: ZIRI-COLLEGE-PERSISTENT-AWAY-1
   thread: presence
-  status: inbox
+  status: investigating
+  applied_disposition_2026_09_10: 'Applied queued operator board-tap (investigate, tapped 2026-08-31): inbox -> investigating.'
   approval: unreviewed
   created: 2026-08-19 13:00
   updated: 2026-08-19 13:00

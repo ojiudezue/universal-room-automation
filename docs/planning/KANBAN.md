@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T15:15:22-05:00_ - _Data commit: `f47b481aa4b1`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T15:17:53-05:00_ - _Data commit: `cc8902407ca9`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,8 +11,8 @@ _Generated: 2026-09-10T15:15:22-05:00_ - _Data commit: `f47b481aa4b1`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 28 |
-| 🔬 Investigating | 22 |
+| 📥 Inbox | 27 |
+| 🔬 Investigating | 23 |
 | 🧭 Pre-planning | 21 |
 | 📝 Planned | 23 |
 | 🔨 In progress | 0 |
@@ -23,7 +23,7 @@ _Generated: 2026-09-10T15:15:22-05:00_ - _Data commit: `f47b481aa4b1`_ - _last_r
 | 🅿️ Parked | 40 |
 | ✅ Done | 82 |
 
-## 📥 Inbox (28)
+## 📥 Inbox (27)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -79,18 +79,6 @@ _created 2026-08-19 13:15_
 - **Why:** Directly ties to two operator rules: "suppression needs a discharge" (this event-driven accumulator has no discharge but a button) and README write-back (no README_v4.6.2 exists -> shipped without a validation ledger, so the false-positi...
 - **Next:** MARGINAL-BENEFIT DECOMPOSITION before any build. Candidate fixes ranked: (1) dedup/upsert the anomaly row (stop nightly re-INSERT) — kills the 331 accumulation, small; (2) re-baseline/adopt discharge so a sustained new-normal clears the ...
 - **Refs:** docs/planning/PLANNING_v4.6.1_anomaly_reconciliation_then_v4.6.2_routine_awareness.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/database.py; ZIRI-COLLEGE-PERSISTENT-AWAY-1
-
-### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
-> **⚡ OPERATOR: investigate — pending apply** (at 2026-08-31T23:42:35.547Z)
-thread: **presence** - status: **inbox** - approval: **unreviewed**
-_created 2026-08-19 13:00 · initial_
-- **Problem / Solution:**
-  - Context (operator 2026-08-19): Ziri has left for college and will become SPARSE — his tracker/BLE/face will legitimately be absent for long stretches. Implications to verify, not assume: (1) his stale/absent tracker must NOT generate ano...
-- **Why:** A resident transitioning to persistently-away is exactly the kind of routine change that can quietly poison presence heuristics (phantom guest, stale-tracker anomaly, wrong occupancy prior). Better to verify the seams now than debug a ph...
-- **Next:** Investigate/verify the three live seams, then report: (a) does a weeks-stale Ziri tracker trip any anomaly/NM path; (b) HIGHEST-VALUE — does a resident returning after weeks away briefly ARM GUEST before BLE/face re-recognizes him (guest...
-- **Refs:** docs/planning/KANBAN.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/bayesian_predictor.py
-- **Forensic keys (1):**
-  - `bayesian_finding_2026_08_19`: VERIFIED (Explore + live): URA HAS a real per-person routine-drift detector (RegimeDetector, JS-divergence, nightly, regime_detector.py). Ziri routine_status is currently `shifted` (146 unacked events) — it caught the PRE-DEPARTURE room-...
 
 ### `STEP-SHADOW-EVIDENCE-WATCH-1` - Check STEP shadow chatter evidence during nightly board maintenance (until 08-21 forcing gate)
 thread: **diagnostics** - status: **inbox** - approval: **unreviewed**
@@ -333,7 +321,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (22)
+## 🔬 Investigating (23)
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
@@ -447,6 +435,18 @@ _created 2026-08-26 11:00 · updated 2026-08-28 22:00 · refined ×1_
 - **Forensic keys (2):**
   - `VERIFIED_CAUSE_2026_08_26`: Confirmed the self-send mechanism from source: NM _send_imessage (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message} where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When th...
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
+
+### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-08-19 13:00 · initial_
+- **Problem / Solution:**
+  - Context (operator 2026-08-19): Ziri has left for college and will become SPARSE — his tracker/BLE/face will legitimately be absent for long stretches. Implications to verify, not assume: (1) his stale/absent tracker must NOT generate ano...
+- **Why:** A resident transitioning to persistently-away is exactly the kind of routine change that can quietly poison presence heuristics (phantom guest, stale-tracker anomaly, wrong occupancy prior). Better to verify the seams now than debug a ph...
+- **Next:** Investigate/verify the three live seams, then report: (a) does a weeks-stale Ziri tracker trip any anomaly/NM path; (b) HIGHEST-VALUE — does a resident returning after weeks away briefly ARM GUEST before BLE/face re-recognizes him (guest...
+- **Refs:** docs/planning/KANBAN.md; custom_components/universal_room_automation/domain_coordinators/regime_detector.py; custom_components/universal_room_automation/bayesian_predictor.py
+- **Forensic keys (2):**
+  - `applied_disposition_2026_09_10`: Applied queued operator board-tap (investigate, tapped 2026-08-31): inbox -> investigating.
+  - `bayesian_finding_2026_08_19`: VERIFIED (Explore + live): URA HAS a real per-person routine-drift detector (RegimeDetector, JS-divergence, nightly, regime_detector.py). Ziri routine_status is currently `shifted` (146 unacked events) — it caught the PRE-DEPARTURE room-...
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
 thread: **presence** - status: **investigating** - approval: **unreviewed**
