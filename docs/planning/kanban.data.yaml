@@ -119,9 +119,10 @@ cards:
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
   thread: energy
-  status: done
+  status: waiting_me
   created: '2026-09-08 00:10'
-  updated: '2026-09-10 00:20'
+  updated: '2026-09-10 00:55'
+  depends_on: URA-CONFIG-ENTRY-RELOAD-STORM-1
   refinement_status: refined
   problem_solution:
   - 'Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer
@@ -152,9 +153,64 @@ cards:
   - 'onset entities: overnight switch ON, time 01:00; deferred=off, gate_open=on, l1_over_hold=0 all night.'
   - 'EVSE_CHARGING_POWER_THRESHOLD=100W (energy_const.py:891) — L2 at 11.6kW clears it.'
   depends_on: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
-  disposition_2026_09_10: 'DONE — 2-day disposition: the onset gate IS holding. Rows: onset_hold reason=gate_refused fires at ~21:00 CDT (the exact window the L2 previously charged un-held) then onset_release reason=onset_permits at the 01:00 onset; charger_off carries pause_owners=us (URA holding). The v5.99.1 logging named the behavior and it is now observably correct (held-before-onset, released-at-onset); original didnot-hold NOT reproduced over 2 days. Resolved.'
-  next: 'After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.'
+  disposition_2026_09_10_RETRACTED: 'RETRACTED — the DONE disposition was based on ONE night (09-08->09: onset_release at 06:02 UTC = 01:02 CDT = AT onset, correct). It did not check the NEXT night. Operator suspicion ("it wasnt working, now it is? suspicious") was RIGHT.'
+  root_cause_confirmed_2026_09_10: 'ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to_onset=118m -- ~2h BEFORE onset; garage_a drew ~1.7kW 3 min later. PROOF anomalous: at both 21:00 (delta 3.98h) and 23:01 (delta 1.97h) the charger is INSIDE the 8h window, so _evaluate_onset_gate cannot return onset_permits=True in-window normally (energy_pool.py:155-158); onset_permits=True there is reachable ONLY via the early-outs (energy_pool.py:149-152): enabled=False / malformed onset / now=None. Onset+now both valid -> enabled=False. WHY enabled=False: the enable switch switch.ura_energy_coordinator_ev_charge_onset_overnight blipped unavailable->off->on at 04:01:22-47 (RestoreEntity unavailable->OFF poisoning, same class as the Envoy boot incident). A gate tick in the transient OFF read _ev_charge_onset_enabled=False -> feature-off baseline -> released the hold + cleared _onset_deferred. NOT presence (grep: zero presence/house_state coupling to the enable; the guest->away->arriving->home_night cascade was coincident churn). NOT an HA restart/deploy (last_boot=2026-06-07; non-URA entities did not blink). It was a FULL URA CONFIG-ENTRY RELOAD: 121 URA entities went unavailable at 04:01:22, and URA reloaded 5x that night (23:12, 01:15, 01:27, 04:01, 04:19 UTC). Battery 45->10% drain was NORMAL house load to reserve (operator confirmed, not the issue).'
+  fix_direction_2026_09_10: 'FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable state momentarily unavailable/restoring" (e.g. treat enable as sticky/hold-latched across a reload, or read the config seed not the RestoreEntity transient, or debounce enabled=False for >1 tick before releasing). Restart-resilient != reload-resilient. Discriminator: inject a single-tick enabled=False during an active hold in the 17:00-01:00 window -> onset_active stays on, no charger_on until onset. (2) the URA-reloads-5x/night root disease is carded separately (sibling URA-CONFIG-ENTRY-RELOAD-STORM-1) -- fixing that removes the trigger; fixing #1 makes the gate robust even if reloads persist. Do BOTH (defense in depth).'
+  next: 'Build the onset-gate reload-resilience fix (#1). Tier 2-DB min (energy strategy, regression-prone): trace _evaluate_onset_gate enabled-source + the switch RestoreEntity restore path; make a held charger survive a transient enabled=False. Coordinate with sibling reload-storm card.'
+  refinement:
+  - 'Orchestrator declared DONE ("gate is holding") -> operator: "it wasnt working now it is? Suspicious" -> re-queried and found the DONE was a single-night PASS; the next night released ~2h early. Never close a nightly-behavior card on one night.'
+  - 'Orchestrator first blamed the battery drain + EVSE -> operator: drain is NORMAL house load to reserve; the question is why not waiting till onset -> refocused on the onset RELEASE timing, found the 118m-early release + arrival-cascade confound.'
   refs: [project_charge_onset_correct_site, docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md]
+  sibling_of: URA-CONFIG-ENTRY-RELOAD-STORM-1
+- id: URA-CONFIG-ENTRY-RELOAD-STORM-1
+  title: The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
+  thread: energy
+  status: investigating
+  created: '2026-09-10 00:50'
+  updated: '2026-09-10 00:50'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the whole URA integration reloads itself several times a night with
+     nobody changing any settings. On the night of 09-09 it reloaded 5 times
+     (23:12, 01:15, 01:27, 04:01, 04:19 UTC), and each reload makes all ~121 URA
+     entities briefly go "unavailable" then come back. This is bad on its own (known
+     hazard: reloading the parent entry can stall the event loop and trip the
+     watchdog into a ~5-minute outage) AND it is the trigger that broke EV charge-
+     onset: during one reload the enable switch momentarily restored to "off", and
+     the charge-onset gate read that as "feature disabled" and let the chargers run
+     ~2h early. Solution: find WHAT is issuing the reload (a self-triggered
+     homeassistant.reload_config_entry, an options write that cascades a reload, a
+     device/entity-registry change, or a recovery-reload path) and stop the
+     unnecessary reloads; reloads should happen only on a real config change.'
+  approval: unreviewed
+  tags: [energy, reload, watchdog-hazard, no-fabrication-verify, falsify-first]
+  origin:
+    date: '2026-09-10'
+    gist: 'fell out of the onset early-release root-cause trace — operator asked "could it be a restart?"; it is a URA-internal config-entry reload happening 5x/night'
+  why: 'Repeated full-integration reloads risk the parent-reload->event-loop-stall->
+    watchdog ~5min outage (documented hazard), churn every coordinator, and (proven)
+    break the EV charge-onset hold via a RestoreEntity off-transient. No config is
+    changing, so these reloads are unexplained and almost certainly a bug.'
+  forensic_evidence:
+  - 'ALL 5 blips verified as full reloads (not extrapolated from one): URA entities unavailable = 118 (23:12) / 118 (01:15) / 155 (01:27) / 118 (04:01) / 118 (04:19).'
+  - 'switch.ura_energy_coordinator_ev_charge_onset_overnight unavailable->off->on at each.'
+  - 'last_boot=2026-06-07 + non-URA entities (envoy battery, span EVSE, sun) did NOT blip -> NOT an HA restart, URA-entry-scoped reload.'
+  - 'SPAN RULED OUT as trigger: 0 SPAN entities unavailable at 04:01 (the SpanPanelCoordinator._async_reload_task tasks in the boot log were from the ~00:09 UTC URA startup, unrelated).'
+  mechanism_confirmed_2026_09_10: 'Reload is issued by _async_update_listener (__init__.py:7280) -> it diffs old vs new entry.options; if changed_keys is NOT a subset of INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS it schedules hass.config_entries.async_reload (__init__.py:7538). So the storm = a periodic writer of a NON-allowlisted options key firing ~5x/night on the CM entry. Each write = full CM reload.'
+  scope_2026_09_10: 'CM entry ONLY (not whole URA / not room entries). All 118 blipped entities are ura_*_coordinator_* (energy/hvac/presence coordinators) which are CM-hosted; room entities did not blip.'
+  writer_hunt_2026_09_10: 'EXHAUSTIVE static search did NOT find the trigger. RULED OUT: (a) Number/Select/Switch value-change persistence (no recorder value change before any reload); (b) ALL direct async_update_entry(options) writers -- number.py:584, __init__.py:744/1405/1856/4279, select.py:367 are one-time idempotent migrations or operator-set; (c) _async_update_listener reload path (ZERO "scheduling reload" lines in core log -> NOT an options-write cascade); (d) SPAN reload (0 SPAN entities unavail); (e) HA restart (last_boot 06-07); (f) operator action; (g) HA automation/script (grep of /config: none call reload_config_entry); (h) the NEW Carrier stale-reload hvac.py:4942 (targets ha_carrier not CM, has URA-domain safety-abort, and DID NOT FIRE -- 0 carrier_reload activity rows, the blipping climate is a Mazda CX-90 asleep). CONFIRMED it IS a real config-entry reload (not a single-coordinator update failure): 118 entities across energy+hvac+presence coordinators go unavailable SIMULTANEOUSLY = full CM entry teardown. Trigger is event-driven + not statically obvious.'
+  capture_enabled_2026_09_10: 'DEBUG CAPTURE LIVE (operator go). logger.set_level homeassistant.config_entries=debug + custom_components.universal_room_automation=debug set on the running instance ~05:2x UTC 09-10 (persists across config-entry reloads; resets only on HA restart). REVIEW at next CM reload: ha_get_logs source=system_service slug=core, look for "Reloading"/"Unloading"/"Setting up" for the CM entry + the URA debug lines immediately preceding the unload (names the initiator). If config_entries debug does NOT reveal the caller, ESCALATE: temporary stack-trace breadcrumb at the top of async_unload_entry (guarded to entry_type==CM) -> deploy -> next reload prints the call stack.'
+  onset_fix_held_2026_09_10: 'ONSET reload-resilience fix (sibling EVSE-CHARGE-ONSET-NOT-HELD-1) HELD per operator: "how can you fix what you cannot root cause". Correct -- the enabled=False-during-transient-off mechanism is INFERRED not proven, and fixing before knowing the reload trigger risks a band-aid that masks the real cause. Root-cause the reload FIRST (debug capture), then fix at source; only add onset reload-resilience if it is still warranted after the real cause is known.'
+  next_2026_09_10: 'Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.'
+  allowlist_note_2026_09_10: 'INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.'
+  constraints:
+  - 'Do NOT blanket-suppress reloads that are legitimately needed (the reload-suppression allowlist exists for exactly this balance — see PLANNING_integration_reload_comprehensive_2026_09.md).'
+  next: 'Investigate the reload TRIGGER: ha_get_logs core around one blip (e.g. 04:01 UTC) for "reload"/"Unloading"/"Setting up universal_room_automation"; grep the codebase for self-issued homeassistant.reload_config_entry / async_reload / async_update_entry-on-options (number-persistence writes that cascade a reload are a prime suspect). Then eliminate the unnecessary reloads at source.'
+  refs:
+  - docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
+  - project_cm_reload_suppression_cycle_stack
+  - feedback_parent_entry_reload_watchdog_hazard
+  sibling_of: EVSE-CHARGE-ONSET-NOT-HELD-1
 - id: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
   title: Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
   thread: energy
