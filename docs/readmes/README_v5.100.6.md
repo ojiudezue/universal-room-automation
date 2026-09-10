@@ -46,4 +46,12 @@ neuter, restored, 23/23 green.
 - **L4 (in-flight safe):** no reload issued while an AC-ramp nudge/excursion restore is in flight.
 - **L5:** `sensor.ura_hvac_carrier_freshness` populates per-zone ages; a genuine stale episode produces either a reload (corroborated) or the age-only NM (uncorroborated).
 
-_Validated <date> — filled in post-restart._
+## Validated 2026-09-09 (post-restart, v5.100.6 live)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| L1 clean boot / version | **PASS** | `const.py`=v5.100.6; URA loaded; error_log shows only pre-existing WARNINGs (loader-not-tested, occupancy dedup, boot DB-slow, census/SPAN) — **no new ERRORs** from the Carrier cycle. |
+| L5 diagnostic sensor live | **PASS** | `sensor.ura_hvac_coordinator_hvac_carrier_freshness` = 36.7 (worst-zone last_reported age, seconds) — per-zone freshness snapshot populating. |
+| L2 never-parent / L3 bounded / L4 in-flight-safe | **organic** | Require a real Carrier stale episode. Disposition = one-shot query: exactly one 'reload ha_carrier' targeting the ha_carrier entry (never URA), ≤4/day, none while a nudge/excursion restore is in flight; OR the age-only NM when uncorroborated. Edge-triggered + orchestrator-mutation-verified in-suite. |
+
+**Rollback not needed.** Orchestrator independently re-mutated the two safety sites (parent-reload guard, in-flight fence) → RED-on-neuter, restored, 23/23 green.
