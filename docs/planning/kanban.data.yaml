@@ -4382,7 +4382,8 @@ cards:
   title: ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic
     refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.100.6
   created: 2026-08-22 15:30
   updated: 2026-08-24 16:45
   refinement_status: refined
