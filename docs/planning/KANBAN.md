@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T20:26:26-05:00_ - _Data commit: `22b47063d3e2`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T20:31:00-05:00_ - _Data commit: `e4904a0151bd`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -14,13 +14,13 @@ _Generated: 2026-09-09T20:26:26-05:00_ - _Data commit: `22b47063d3e2`_ - _last_r
 | 📥 Inbox | 32 |
 | 🔬 Investigating | 10 |
 | 🧭 Pre-planning | 10 |
-| 📝 Planned | 8 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 3 |
 | 🚀 Shipped (organic open) | 77 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🅿️ Parked | 28 |
+| 🅿️ Parked | 29 |
 | ✅ Done | 60 |
 
 ## 📥 Inbox (32)
@@ -625,28 +625,8 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
-
-### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-09-06 18:00 · initial_
-- **Problem / Solution:**
-  - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
-- **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
-- **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
-- **Next:** OPERATOR: root is flat-target charge (algo ignores forecast for SIZING) + a 0.5 forecast haircut — both tweaks. Recommend build the shortfall-sizing tweak (size grid to peak_buffer_target - credited_solar, clamped), Tier 2-DB/3, falsifia...
-- **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
-- **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
-- **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
-- **Forensic keys (7):**
-  - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
-  - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
-  - `revisit_trigger`: Export credit drops below off-peak import rate (NEM-3 / contract change).
-  - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
-  - `probe_v2_result_2026_09_09`: CORRECTED SOC-trajectory probe (14d). Operator RIGHT on the headline: import 1450 kWh vs export 118 kWh = 12.3x, so NO export-credit wash (v1 refuted). BUT the counterfactual shows on 11/13 days midday solar excess ALONE would NOT have r...
-  - `root_mechanism_2026_09_09`: ROOT FOUND (code diagnosis) — it is a TWEAK, not new machinery, exactly as the operator hoped. The attain grid-charge is a FLAT-TARGET charge, not a shortfall-sized one: both CHARGE paths command grid to a flat peak_buffer_target=80% (en...
-  - `plan_doc`: docs/planning/PLANNING_attain_shortfall_sizing.md — Tier-3; TWO framing-disjoint plan reviews IN PROGRESS before build (operator: attain is delicate, only make it better, do not screw it up).
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
 thread: **energy** - status: **planned** - approval: **implied**
@@ -2122,7 +2102,7 @@ _I owe something_
 
 _(none)_
 
-## 🅿️ Parked (28)
+## 🅿️ Parked (29)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -2162,6 +2142,27 @@ _created 2026-09-05 00:30 · updated 2026-09-05 09:40 · refined_
 - **Forensic keys (2):**
   - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   - `revival_trigger`: Observed flapping-frozen face misattribution in production data AFTER D1 makes face flow. Until then: phantom — do not build.
+
+### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
+thread: **energy** - status: **parked** - approval: **unreviewed**
+_created 2026-09-06 18:00 · initial_
+- **Problem / Solution:**
+  - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
+- **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
+- **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
+- **Next:** PARKED — no build. If cost-vs-buffer tradeoff ever wanted, hand-tune peak_buffer_target (config knob). Do NOT pursue shortfall-sizing (P1 drains battery) or the Enphase schedule split (operator: do not touch).
+- **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
+- **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
+- **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
+- **Forensic keys (8):**
+  - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
+  - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
+  - `revisit_trigger`: Export credit drops below off-peak import rate (NEM-3 / contract change).
+  - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
+  - `probe_v2_result_2026_09_09`: CORRECTED SOC-trajectory probe (14d). Operator RIGHT on the headline: import 1450 kWh vs export 118 kWh = 12.3x, so NO export-credit wash (v1 refuted). BUT the counterfactual shows on 11/13 days midday solar excess ALONE would NOT have r...
+  - `root_mechanism_2026_09_09`: ROOT FOUND (code diagnosis) — it is a TWEAK, not new machinery, exactly as the operator hoped. The attain grid-charge is a FLAT-TARGET charge, not a shortfall-sized one: both CHARGE paths command grid to a flat peak_buffer_target=80% (en...
+  - `plan_doc`: docs/planning/PLANNING_attain_shortfall_sizing.md — Tier-3; TWO framing-disjoint plan reviews IN PROGRESS before build (operator: attain is delicate, only make it better, do not screw it up).
+  - `parked_decision_2026_09_09`: PARKED (operator 2026-09-09). Both framing-disjoint PLAN reviews returned PLAN-FIX-REQUIRED with CRITICALs that kill the shortfall-sizing tweak: P1 = reserve_level is a DISCHARGE FLOOR not just a charge target (same Enphase number, Bug C...
 
 ### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones)
 thread: **platform** - status: **parked** - approval: **unreviewed**
