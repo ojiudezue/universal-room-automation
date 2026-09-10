@@ -1617,6 +1617,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _migrate_room_zone_name_writethrough(hass, entry)
     await _check_and_notify_room_name_desync(hass, entry)
 
+    # ROOM-ZONE-FIELD-NO-SYNC-1: reconcile per-room CONF_ZONE into the ZM
+    # entry\'s per-zone CONF_ZONE_ROOMS index. Covers the initial-create
+    # path (config-flow\'s async_step_notifications ends via
+    # async_create_entry with no post-hook site), plus any boot-time drift
+    # from prior versions. Idempotent no-op when already in sync. Early-
+    # returns on non-ROOM entry types.
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+        try:
+            from .config_flow import _sync_room_zone_to_zm  # noqa: PLC0415
+            _sync_room_zone_to_zm(hass, entry, old_zone=None)
+        except Exception:  # noqa: BLE001 — never break setup
+            _LOGGER.exception(
+                "ROOM-ZONE-FIELD-NO-SYNC-1 setup reconcile failed "
+                "(non-fatal) for entry_id=%s",
+                entry.entry_id,
+            )
+
     # Initialize hass.data[DOMAIN] if needed
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
