@@ -1153,7 +1153,12 @@ def validate_threshold_ladder(
     arbitrage_trigger: int | None = None,
     arbitrage_target: int = 80,
     peak_buffer_target: int | None = None,
-) -> str | None:
+    *,
+    fill_priority_soc: int | None = None,
+    excess_solar_soc: int | None = None,
+    ev_battery_drain_soc: int | None = None,
+    inclement_partial_hold_reserve_floor: int | None = None,
+) -> tuple[str, str] | None:
     """Validate the SOC threshold ladder for coherence.
 
     v4.5.0 D2: arbitrage_trigger is OPTIONAL — v4.5.0 removed the SOC
@@ -1162,8 +1167,23 @@ def validate_threshold_ladder(
     arbitrage_target as the buffer-ceiling check input; the latter is
     accepted for back-compat.
 
-    Returns None if valid, else a human-readable warning string suitable
-    for surfacing on a sensor attribute. Caller logs separately.
+    EC-SOC-LADDER-XVALIDATE-1: added cross-field checks (all optional,
+    skipped when None) for four additional SOC knobs whose independent-
+    slider design allows silent inversions that flip band polarity:
+      - ``fill_priority_soc`` ≤ ``excess_solar_soc``
+        (fill-priority band ends where excess-solar band begins;
+        inversion oscillates EV pause/resume)
+      - ``ev_battery_drain_soc`` ≥ ``reserve_soc``
+        (EV drain-pause cannot go below the safety reserve floor)
+      - ``inclement_partial_hold_reserve_floor`` ≥ ``reserve_soc``
+        (a partial-hold floor BELOW the base reserve is incoherent — the
+        raised floor is Enphase-clamped and the operator's intent silently
+        collapses)
+
+    Returns None if valid. Otherwise returns a ``(error_code, message)``
+    tuple: ``error_code`` is a stable snake_case identifier suitable for
+    a config-flow ``errors`` map key; ``message`` is human-readable and
+    suitable for logging / sensor attribute.
     """
     drain_excellent = int(drain_targets.get("excellent", 0))
     drain_good = int(drain_targets.get("good", 0))
@@ -1173,28 +1193,32 @@ def validate_threshold_ladder(
     # Drain ladder: monotonic non-decreasing, all above reserve_soc
     if drain_excellent < reserve_soc:
         return (
+            "drain_excellent_below_reserve",
             f"drain_excellent ({drain_excellent}) < reserve_soc "
-            f"({reserve_soc}) — value will be clamped by Enphase floor"
+            f"({reserve_soc}) — value will be clamped by Enphase floor",
         )
     if not (drain_excellent <= drain_good <= drain_moderate <= drain_poor):
         return (
+            "drain_ladder_not_monotonic",
             f"drain ladder not monotonic: "
             f"excellent={drain_excellent}, good={drain_good}, "
-            f"moderate={drain_moderate}, poor={drain_poor}"
+            f"moderate={drain_moderate}, poor={drain_poor}",
         )
 
     # v4.5.0: trigger checks are optional (kept for back-compat callers).
     if arbitrage_trigger is not None:
         if arbitrage_trigger <= reserve_soc:
             return (
+                "arbitrage_trigger_below_reserve",
                 f"arbitrage_trigger ({arbitrage_trigger}) ≤ reserve_soc "
-                f"({reserve_soc}) — arbitrage would never fire above safety floor"
+                f"({reserve_soc}) — arbitrage would never fire above safety floor",
             )
         if arbitrage_trigger >= drain_poor:
             return (
+                "arbitrage_trigger_at_or_above_drain_poor",
                 f"arbitrage_trigger ({arbitrage_trigger}) ≥ drain_poor "
                 f"({drain_poor}) — boundary collision causes drain↔arbitrage "
-                f"oscillation when tomorrow=poor"
+                f"oscillation when tomorrow=poor",
             )
 
     # Buffer ceiling (renamed from arbitrage_target in v4.5.0 D2).
@@ -1204,12 +1228,63 @@ def validate_threshold_ladder(
     )
     if buffer_ceiling <= drain_poor:
         return (
+            "peak_buffer_target_at_or_below_drain_poor",
             f"peak_buffer_target ({buffer_ceiling}) ≤ drain_poor "
             f"({drain_poor}) — drain path would immediately re-drain after "
-            f"arbitrage CHARGE completes"
+            f"arbitrage CHARGE completes",
+        )
+
+    # EC-SOC-LADDER-XVALIDATE-1 cross-field checks.
+    if (
+        fill_priority_soc is not None
+        and excess_solar_soc is not None
+        and int(fill_priority_soc) > int(excess_solar_soc)
+    ):
+        return (
+            "fill_priority_above_excess_solar",
+            f"fill_priority_soc ({fill_priority_soc}) > excess_solar_soc "
+            f"({excess_solar_soc}) — inverted band flips EV pause/resume "
+            f"polarity and oscillates",
+        )
+
+    if (
+        ev_battery_drain_soc is not None
+        and int(ev_battery_drain_soc) < int(reserve_soc)
+    ):
+        return (
+            "ev_drain_below_reserve",
+            f"ev_battery_drain_soc ({ev_battery_drain_soc}) < reserve_soc "
+            f"({reserve_soc}) — EV drain-pause floor below safety reserve",
+        )
+
+    if (
+        inclement_partial_hold_reserve_floor is not None
+        and int(inclement_partial_hold_reserve_floor) < int(reserve_soc)
+    ):
+        return (
+            "inclement_partial_hold_below_reserve",
+            f"inclement_partial_hold_reserve_floor "
+            f"({inclement_partial_hold_reserve_floor}) < reserve_soc "
+            f"({reserve_soc}) — partial-hold floor is Enphase-clamped up "
+            f"to reserve_soc, so the operator's intent silently collapses",
         )
 
     return None
+
+
+# Ordered SOC-ladder invariants documented for reviewers + the operator:
+#   1. reserve_soc <= drain_excellent <= drain_good <= drain_moderate <= drain_poor
+#   2. peak_buffer_target > drain_poor
+#   3. arbitrage_trigger (if set): reserve_soc < arbitrage_trigger < drain_poor
+#   4. fill_priority_soc <= excess_solar_soc
+#   5. ev_battery_drain_soc >= reserve_soc
+#   6. inclement_partial_hold_reserve_floor >= reserve_soc
+CANONICAL_SOC_LADDER_DOC: Final = (
+    "reserve_soc <= drain_excellent <= drain_good <= drain_moderate "
+    "<= drain_poor < peak_buffer_target; fill_priority_soc <= "
+    "excess_solar_soc; ev_battery_drain_soc >= reserve_soc; "
+    "inclement_partial_hold_reserve_floor >= reserve_soc"
+)
 
 
 def _entity_in_registry(hass, entity_id: str) -> bool:

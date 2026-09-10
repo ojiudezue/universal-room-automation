@@ -3926,6 +3926,112 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
                 errors.setdefault("base", "guard_kw_required_when_enabled")
 
+            # EC-SOC-LADDER-XVALIDATE-1 — cross-field SOC ladder check at
+            # save time. Reject an inverted ladder at the SOURCE with a
+            # field-scoped error naming the specific inversion. The set of
+            # thresholds the operator sets here (reserve, drain-*, fill-
+            # priority, excess-solar, EV-drain, inclement partial-hold)
+            # have independent sliders — inversions oscillate EV pause /
+            # resume and silently flip band polarity if not caught.
+            try:
+                from .domain_coordinators.energy_const import (
+                    validate_threshold_ladder,
+                    CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                    CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+                    CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+                    CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                    CONF_ENERGY_PEAK_BUFFER_TARGET,
+                    DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
+                    DEFAULT_OFFPEAK_DRAIN_GOOD,
+                    DEFAULT_OFFPEAK_DRAIN_MODERATE,
+                    DEFAULT_OFFPEAK_DRAIN_POOR,
+                    DEFAULT_PEAK_BUFFER_TARGET,
+                    DEFAULT_RESERVE_SOC as _DEF_RESERVE,
+                    DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD as _DEF_EXCESS,
+                    DEFAULT_FILL_PRIORITY_SOC as _DEF_FILL,
+                    DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD as _DEF_EV,
+                    DEFAULT_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR as _DEF_INC,
+                )
+                _merged = {**self._config_entry.options, **user_input}
+
+                def _mint(key, default):
+                    v = _merged.get(key, default)
+                    try:
+                        return int(v) if v is not None else int(default)
+                    except (TypeError, ValueError):
+                        return int(default)
+
+                _drain = {
+                    "excellent": _mint(
+                        CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                        DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
+                    ),
+                    "good": _mint(
+                        CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+                        DEFAULT_OFFPEAK_DRAIN_GOOD,
+                    ),
+                    "moderate": _mint(
+                        CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+                        DEFAULT_OFFPEAK_DRAIN_MODERATE,
+                    ),
+                    "poor": _mint(
+                        CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                        DEFAULT_OFFPEAK_DRAIN_POOR,
+                    ),
+                }
+                _ladder_result = validate_threshold_ladder(
+                    _mint(CONF_ENERGY_RESERVE_SOC, _DEF_RESERVE),
+                    _drain,
+                    arbitrage_trigger=None,
+                    peak_buffer_target=_mint(
+                        CONF_ENERGY_PEAK_BUFFER_TARGET,
+                        DEFAULT_PEAK_BUFFER_TARGET,
+                    ),
+                    fill_priority_soc=_mint(
+                        CONF_ENERGY_FILL_PRIORITY_SOC, _DEF_FILL,
+                    ),
+                    excess_solar_soc=_mint(
+                        CONF_ENERGY_EXCESS_SOLAR_SOC, _DEF_EXCESS,
+                    ),
+                    ev_battery_drain_soc=_mint(
+                        CONF_ENERGY_EV_BATTERY_DRAIN_SOC, _DEF_EV,
+                    ),
+                    inclement_partial_hold_reserve_floor=_mint(
+                        CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR, _DEF_INC,
+                    ),
+                )
+                if _ladder_result is not None:
+                    _code, _msg = _ladder_result
+                    # Map error to the most specific offending field so
+                    # HA renders the inline validation error on the right
+                    # slider. Fallback to `base` for a summary line.
+                    _field_map = {
+                        "drain_excellent_below_reserve":
+                            CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                        "drain_ladder_not_monotonic":
+                            CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                        "peak_buffer_target_at_or_below_drain_poor":
+                            CONF_ENERGY_PEAK_BUFFER_TARGET,
+                        "fill_priority_above_excess_solar":
+                            CONF_ENERGY_FILL_PRIORITY_SOC,
+                        "ev_drain_below_reserve":
+                            CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+                        "inclement_partial_hold_below_reserve":
+                            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+                    }
+                    _field = _field_map.get(_code)
+                    if _field:
+                        errors[_field] = _code
+                    errors.setdefault("base", _code)
+                    _LOGGER.warning(
+                        "EC ladder save rejected: %s (%s)", _code, _msg,
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "ladder validation raised (swallowed — save proceeds)",
+                    exc_info=True,
+                )
+
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
             if submitted_envoy:
                 # Build the same energy_entity_config the runtime sees:

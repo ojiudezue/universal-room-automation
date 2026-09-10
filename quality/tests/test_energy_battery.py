@@ -781,7 +781,7 @@ class TestArbitrage:
             arbitrage_target=80,
         )
         assert result is not None
-        assert "reserve_soc" in result
+        assert "reserve_soc" in result[1]
 
     def test_validate_threshold_ladder_warns_on_trigger_collision(self):
         """Trigger == drain_poor → oscillation warning."""
@@ -795,7 +795,7 @@ class TestArbitrage:
             arbitrage_target=80,
         )
         assert result is not None
-        assert "oscillation" in result
+        assert "oscillation" in result[1]
 
     def test_validate_threshold_ladder_warns_on_target_below_drain(self):
         """arbitrage_target ≤ drain_poor → immediate re-drain after charging."""
@@ -809,7 +809,7 @@ class TestArbitrage:
             arbitrage_target=25,  # < drain_poor=30
         )
         assert result is not None
-        assert "re-drain" in result
+        assert "re-drain" in result[1]
 
     def test_validate_threshold_ladder_warns_on_trigger_below_reserve(self):
         """trigger ≤ reserve_soc → arbitrage would fire below safety floor."""
@@ -823,7 +823,7 @@ class TestArbitrage:
             arbitrage_target=80,
         )
         assert result is not None
-        assert "safety floor" in result
+        assert "safety floor" in result[1]
 
     def test_validate_threshold_ladder_warns_on_non_monotonic_drain(self):
         """drain ladder must be monotonic non-decreasing."""
@@ -837,7 +837,7 @@ class TestArbitrage:
             arbitrage_target=80,
         )
         assert result is not None
-        assert "monotonic" in result
+        assert "monotonic" in result[1]
 
     # ── v4.3.0 D4: Arbitrage cycle math smoke ────────────────────────────
     def test_arbitrage_cycle_savings_math_summer_peak_displacement(self):
@@ -2163,7 +2163,7 @@ class TestThresholdLadderValidatorOptionalTrigger:
             peak_buffer_target=25,  # ≤ drain_poor
         )
         assert result is not None
-        assert "re-drain" in result or "drain_poor" in result
+        assert "re-drain" in result[1] or "drain_poor" in result
 
 
 # ── v4.5.0 D3: multi-day Solcast lookback ─────────────────────────────────
