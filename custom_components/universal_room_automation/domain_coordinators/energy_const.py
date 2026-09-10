@@ -1189,12 +1189,31 @@ def validate_threshold_ladder(
     drain_good = int(drain_targets.get("good", 0))
     drain_moderate = int(drain_targets.get("moderate", 0))
     drain_poor = int(drain_targets.get("poor", 0))
+    # OFFPEAK-DRAIN-VERYPOOR-SLIDER-1: 5th quality bucket. very_poor is the
+    # WORST forecast tier, so its drain target is the MOST PROTECTIVE — i.e.
+    # the HIGHEST SOC floor in the ladder (drain LESS when tomorrow looks
+    # even worse than "poor"). Default equals `poor` (30) which is a
+    # coincidental equality masking a real concept split (Bug Class #63);
+    # the validator MUST test the very_poor branch discriminatingly by
+    # driving it OFF the default.
+    _has_very_poor = "very_poor" in drain_targets
+    drain_very_poor = (
+        int(drain_targets.get("very_poor", drain_poor))
+        if _has_very_poor else drain_poor
+    )
 
-    # Drain ladder: monotonic non-decreasing, all above reserve_soc
+    # Drain ladder: monotonic non-decreasing, all above reserve_soc.
+    # Order: excellent <= good <= moderate <= poor <= very_poor.
     if drain_excellent < reserve_soc:
         return (
             "drain_excellent_below_reserve",
             f"drain_excellent ({drain_excellent}) < reserve_soc "
+            f"({reserve_soc}) — value will be clamped by Enphase floor",
+        )
+    if _has_very_poor and drain_very_poor < reserve_soc:
+        return (
+            "drain_very_poor_below_reserve",
+            f"drain_very_poor ({drain_very_poor}) < reserve_soc "
             f"({reserve_soc}) — value will be clamped by Enphase floor",
         )
     if not (drain_excellent <= drain_good <= drain_moderate <= drain_poor):
@@ -1203,6 +1222,13 @@ def validate_threshold_ladder(
             f"drain ladder not monotonic: "
             f"excellent={drain_excellent}, good={drain_good}, "
             f"moderate={drain_moderate}, poor={drain_poor}",
+        )
+    if _has_very_poor and drain_very_poor < drain_poor:
+        return (
+            "drain_ladder_not_monotonic",
+            f"drain ladder not monotonic: "
+            f"poor={drain_poor} > very_poor={drain_very_poor} "
+            f"(very_poor must be >= poor: worse forecast → more protective)",
         )
 
     # v4.5.0: trigger checks are optional (kept for back-compat callers).
@@ -1226,12 +1252,14 @@ def validate_threshold_ladder(
         peak_buffer_target if peak_buffer_target is not None
         else arbitrage_target
     )
-    if buffer_ceiling <= drain_poor:
+    _top_drain = max(drain_poor, drain_very_poor)
+    if buffer_ceiling <= _top_drain:
         return (
             "peak_buffer_target_at_or_below_drain_poor",
-            f"peak_buffer_target ({buffer_ceiling}) ≤ drain_poor "
-            f"({drain_poor}) — drain path would immediately re-drain after "
-            f"arbitrage CHARGE completes",
+            f"peak_buffer_target ({buffer_ceiling}) ≤ top-drain "
+            f"({_top_drain}, from poor={drain_poor}, "
+            f"very_poor={drain_very_poor}) — drain path would immediately "
+            f"re-drain after arbitrage CHARGE completes",
         )
 
     # EC-SOC-LADDER-XVALIDATE-1 cross-field checks.
@@ -1273,16 +1301,18 @@ def validate_threshold_ladder(
 
 
 # Ordered SOC-ladder invariants documented for reviewers + the operator:
-#   1. reserve_soc <= drain_excellent <= drain_good <= drain_moderate <= drain_poor
-#   2. peak_buffer_target > drain_poor
+#   1. reserve_soc <= drain_excellent <= drain_good <= drain_moderate
+#      <= drain_poor <= drain_very_poor
+#   2. peak_buffer_target > max(drain_poor, drain_very_poor)
 #   3. arbitrage_trigger (if set): reserve_soc < arbitrage_trigger < drain_poor
 #   4. fill_priority_soc <= excess_solar_soc
 #   5. ev_battery_drain_soc >= reserve_soc
 #   6. inclement_partial_hold_reserve_floor >= reserve_soc
 CANONICAL_SOC_LADDER_DOC: Final = (
     "reserve_soc <= drain_excellent <= drain_good <= drain_moderate "
-    "<= drain_poor < peak_buffer_target; fill_priority_soc <= "
-    "excess_solar_soc; ev_battery_drain_soc >= reserve_soc; "
+    "<= drain_poor <= drain_very_poor < peak_buffer_target; "
+    "fill_priority_soc <= excess_solar_soc; "
+    "ev_battery_drain_soc >= reserve_soc; "
     "inclement_partial_hold_reserve_floor >= reserve_soc"
 )
 

@@ -9202,7 +9202,6 @@ class EnergyCoordinator(BaseCoordinator):
         last = emits.get(code)
         if last is not None and (now - last) < timedelta(hours=1):
             return
-        emits[code] = now
         try:
             from ..const import DOMAIN
             from .anomaly_event import (
@@ -9210,7 +9209,13 @@ class EnergyCoordinator(BaseCoordinator):
             )
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is None:
+                # B4 fix-up: DO NOT stamp the 1h rate-limit window when we
+                # could not actually emit (boot-time: DB not yet in hass.data).
+                # Stamping here would swallow the first real violation
+                # silently for an hour.
                 return
+            # Stamp only after we know we're about to emit.
+            emits[code] = now
             payload = build_context_json(
                 source_signal="threshold_ladder_check",
                 extra={
@@ -9249,16 +9254,24 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("ladder anomaly emit failed (swallowed)", exc_info=True)
 
     def safely_ordered_ladder(self) -> dict[str, int | None]:
-        """Return the SOC ladder clamped to a safe conservative ordering.
+        """Return a partial safe-ordered view of the SOC ladder.
 
-        EC-SOC-LADDER-XVALIDATE-1: when the live thresholds invert (an
-        operator lands the fill-priority slider above excess-solar, or
-        pulls the EV-drain floor below the reserve, etc.), consumers can
-        call this accessor to read a version of the ladder that has been
-        clamped up/down to the nearest safe order — see the CANONICAL
-        SOC LADDER DOC in energy_const.py. Bare, unclamped attrs remain
-        the source of truth for display; only trust-decision paths should
-        adopt this accessor.
+        SCOPE (A-MED-3/B3 fix-up): this accessor clamps ONLY the two
+        cross-field pairs listed below. It does NOT enforce the drain
+        ladder monotonic invariant, the peak_buffer_target > top-drain
+        invariant, or the inclement-partial-hold floor invariant. There
+        is currently NO consumer of this method; it exists as scaffolding
+        for a future "read the ladder pre-clamped" pattern. When adopting
+        it, ensure the missing invariants are added here first (Bug Class
+        #53 — "computed but not consumed" is only OK while there IS no
+        consumer).
+
+        Clamps applied:
+          * ``ev_battery_drain_soc`` raised UP to ``reserve_soc`` when below
+          * ``fill_priority_soc`` clamped DOWN to ``excess_solar_soc`` when
+            above (so the fill band still ends where excess-solar begins)
+
+        Bare, unclamped attrs remain the source of truth for display.
         """
         reserve = int(getattr(self._battery, "reserve_soc", 0) or 0)
         fill_priority = getattr(self, "_fill_priority_soc", None)

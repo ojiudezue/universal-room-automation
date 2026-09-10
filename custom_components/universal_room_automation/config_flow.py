@@ -3940,11 +3940,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
                     CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
                     CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                    CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
                     CONF_ENERGY_PEAK_BUFFER_TARGET,
                     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
                     DEFAULT_OFFPEAK_DRAIN_GOOD,
                     DEFAULT_OFFPEAK_DRAIN_MODERATE,
                     DEFAULT_OFFPEAK_DRAIN_POOR,
+                    DEFAULT_OFFPEAK_DRAIN_VERY_POOR,
                     DEFAULT_PEAK_BUFFER_TARGET,
                     DEFAULT_RESERVE_SOC as _DEF_RESERVE,
                     DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD as _DEF_EXCESS,
@@ -3978,6 +3980,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         CONF_ENERGY_OFFPEAK_DRAIN_POOR,
                         DEFAULT_OFFPEAK_DRAIN_POOR,
                     ),
+                    # A-HIGH-1 fix-up: 5th quality bucket must participate
+                    # in save-time validation. Slider is a live Number
+                    # entity (set_offpeak_drain), but the config-flow field
+                    # exists too and can invert the ladder at save time.
+                    "very_poor": _mint(
+                        CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
+                        DEFAULT_OFFPEAK_DRAIN_VERY_POOR,
+                    ),
                 }
                 _ladder_result = validate_threshold_ladder(
                     _mint(CONF_ENERGY_RESERVE_SOC, _DEF_RESERVE),
@@ -4008,6 +4018,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     _field_map = {
                         "drain_excellent_below_reserve":
                             CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                        "drain_very_poor_below_reserve":
+                            CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR,
                         "drain_ladder_not_monotonic":
                             CONF_ENERGY_OFFPEAK_DRAIN_POOR,
                         "peak_buffer_target_at_or_below_drain_poor":
@@ -4016,8 +4028,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                             CONF_ENERGY_FILL_PRIORITY_SOC,
                         "ev_drain_below_reserve":
                             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
-                        "inclement_partial_hold_below_reserve":
-                            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+                        # B2 fix-up: inclement floor lives INSIDE the
+                        # collapsed INCLEMENT_ADVANCED_SECTION; HA does not
+                        # render an inline error on a nested field-key. Route
+                        # to `base` with the slider name in the message body
+                        # so the error is visible on the form.
                     }
                     _field = _field_map.get(_code)
                     if _field:
@@ -4027,8 +4042,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         "EC ladder save rejected: %s (%s)", _code, _msg,
                     )
             except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "ladder validation raised (swallowed — save proceeds)",
+                # A-MED-2 fix-up: elevated from debug→WARNING. The gate is
+                # save-BLOCKING; a silent swallow would make the whole
+                # protection inert on any unexpected raise with no visible
+                # signal. Preserve save-proceeds semantics (do not raise) but
+                # make the raise loud.
+                _LOGGER.warning(
+                    "EC ladder validation raised — save proceeds without "
+                    "cross-field check (investigate)",
                     exc_info=True,
                 )
 

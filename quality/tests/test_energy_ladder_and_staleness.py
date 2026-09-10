@@ -321,8 +321,12 @@ class TestFrozenPrimarySocEnvelope:
         bat._soc_lkg_at = dt_util.utcnow() - timedelta(seconds=60)
         return bat
 
-    def test_fresh_primary_suppresses_envelope(self):
-        """Sanity: a fresh primary SOC (age < max) → envelope returns None."""
+    def test_helper_fresh_primary_returns_value(self):
+        """C-LOW-2 fix-up: retitled — this is a HELPER-level sanity check
+        (_read_fresh_float returns the value for a fresh stamp), NOT proof
+        that the envelope SITE consumes the freshness gate. The site
+        wire-in is exercised by
+        test_frozen_primary_does_not_suppress_envelope_engagement."""
         bat = self._setup(age_s=10)
         # Envelope depends on other unwired methods on the real object —
         # we assert the fresh-read PATH inside soc_envelope succeeds by
@@ -337,7 +341,7 @@ class TestFrozenPrimarySocEnvelope:
         )
         assert val == 42.0
 
-    def test_frozen_primary_rejected_by_fresh_read(self):
+    def test_helper_frozen_primary_rejected_by_fresh_read(self):
         """Mutation anchor: if soc_envelope's primary read is reverted
         to raw `_get_state_float`, this test still passes — but the
         `test_frozen_primary_does_not_suppress_envelope_engagement`
@@ -374,8 +378,12 @@ class TestFrozenPrimarySocEnvelope:
             "engaged (site reverted to raw _get_state_float?)"
         )
 
-    def test_killswitch_max_age_zero_disables_gate(self):
-        """Kill-switch parity: max_age_s=0 → helper skips the age check."""
+    def test_helper_killswitch_max_age_zero_disables_gate(self):
+        """C-LOW-1 fix-up: retitled to make clear this is the HELPER-level
+        kill-switch parity, NOT proof that any specific D2 site respects
+        the kill-switch. Sites are exercised in the wire-in-anchor tests
+        (test_frozen_primary_does_not_suppress_envelope_engagement /
+        test_frozen_primary_reports_envoy_unavailable)."""
         bat = self._setup(age_s=99999)
         val = bat._read_fresh_float(
             "sensor.envoy_battery",
@@ -427,3 +435,296 @@ class TestFrozenPrimarySocEnvoyAvailable:
         bat = self._setup(age_s=5)
         result = bat.envoy_available  # @property
         assert result is True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# A-HIGH-1 fix-up — very_poor drain bucket participates in the validator
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestLadderVeryPoorBucket:
+    """OFFPEAK-DRAIN-VERYPOOR-SLIDER-1 is the 5th quality bucket. Its
+    default (30) equals `poor` (30) — a coincidental equality (Bug Class
+    #63). Drive it OFF the default to prove the validator branch is
+    actually exercised."""
+
+    def _base_with_vp(self, vp):
+        return dict(
+            reserve_soc=10,
+            drain_targets={
+                "excellent": 10, "good": 15, "moderate": 20,
+                "poor": 30, "very_poor": vp,
+            },
+            arbitrage_trigger=None,
+            peak_buffer_target=80,
+            fill_priority_soc=30,
+            excess_solar_soc=80,
+            ev_battery_drain_soc=20,
+            inclement_partial_hold_reserve_floor=30,
+        )
+
+    def test_very_poor_at_or_above_poor_accepted(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        assert validate_threshold_ladder(**self._base_with_vp(30)) is None
+        assert validate_threshold_ladder(**self._base_with_vp(50)) is None
+
+    def test_very_poor_below_poor_rejected_monotonic(self):
+        """Discriminating config: very_poor=25 < poor=30. Neutering the
+        very_poor branch of the monotonic check → this test FAILS."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(**self._base_with_vp(25))
+        assert result is not None
+        assert result[0] == "drain_ladder_not_monotonic"
+        assert "very_poor" in result[1]
+
+    def test_very_poor_below_reserve_rejected(self):
+        """very_poor=5 < reserve=10; drain ladder valid except very_poor."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        kw = self._base_with_vp(5)
+        kw["drain_targets"] = {
+            "excellent": 10, "good": 15, "moderate": 20,
+            "poor": 30, "very_poor": 5,
+        }
+        result = validate_threshold_ladder(**kw)
+        assert result is not None
+        assert result[0] == "drain_very_poor_below_reserve"
+
+    def test_peak_buffer_check_uses_top_drain_including_very_poor(self):
+        """peak_buffer=45 above poor(30) but below very_poor(50) → reject."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        kw = self._base_with_vp(50)
+        kw["peak_buffer_target"] = 45
+        result = validate_threshold_ladder(**kw)
+        assert result is not None
+        assert result[0] == "peak_buffer_target_at_or_below_drain_poor"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# C-HIGH-1 fix-up — runtime wire-in anchors for _check_threshold_ladder
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestCheckThresholdLadderRuntimeWireIn:
+    """Guards against the recurring failure: validator unit-tested but
+    the runtime call site drops kwargs, or the setter never re-invokes
+    the check. Anchors drive the REAL EnergyCoordinator methods."""
+
+    def _make_ec(self, *, fill_priority=90, excess_solar=80,
+                 ev_drain=20, reserve=10, inclement_floor=30):
+        import types
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        battery = types.SimpleNamespace(
+            reserve_soc=reserve,
+            _drain_targets={
+                "excellent": max(reserve, 10), "good": 15,
+                "moderate": 20, "poor": 30, "very_poor": 30,
+            },
+            _peak_buffer_target=80,
+            _inclement_config=lambda: {
+                "partial_hold_reserve_floor": inclement_floor,
+            },
+        )
+
+        class _Hass:
+            def __init__(_self):
+                _self.data = {}
+
+                class _S:
+                    def get(__self, _k):
+                        return None
+                _self.states = _S()
+
+            def async_create_task(_self, coro):
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+                task = types.SimpleNamespace()
+                task.add_done_callback = lambda _cb: None
+                return task
+
+        ec = EnergyCoordinator.__new__(EnergyCoordinator)
+        ec.hass = _Hass()
+        ec._battery = battery
+        ec._fill_priority_soc = fill_priority
+        ec._excess_solar_soc = excess_solar
+        ec._ev_battery_drain_soc = ev_drain
+        ec._ladder_anomaly_last = {}
+        # Provide DOMAIN db so emit path stamps the code.
+        ec.hass.data = {"universal_room_automation": {"database": types.SimpleNamespace(
+            save_anomaly_event=lambda evt: None,
+        )}}
+        return ec
+
+    def test_runtime_call_passes_fill_priority_and_excess_solar(self):
+        """WIRE-IN — dropping fill_priority_soc/excess_solar_soc kwargs
+        from the runtime call → this test FAILS (code not stamped)."""
+        ec = self._make_ec(
+            fill_priority=90, excess_solar=80,
+            ev_drain=30, reserve=10, inclement_floor=30,
+        )
+        ec._check_threshold_ladder()
+        assert "fill_priority_above_excess_solar" in ec._ladder_anomaly_last
+
+    def test_runtime_call_passes_ev_drain(self):
+        """WIRE-IN — ev_battery_drain_soc kwarg dropped → FAILS."""
+        ec = self._make_ec(
+            fill_priority=30, excess_solar=80,
+            ev_drain=5, reserve=15, inclement_floor=30,
+        )
+        ec._battery._drain_targets = {
+            "excellent": 15, "good": 20, "moderate": 25,
+            "poor": 30, "very_poor": 30,
+        }
+        ec._check_threshold_ladder()
+        assert "ev_drain_below_reserve" in ec._ladder_anomaly_last
+
+    def test_runtime_call_passes_inclement_floor(self):
+        """WIRE-IN — inclement_partial_hold_reserve_floor kwarg dropped
+        OR _inclement_config lookup removed → FAILS."""
+        ec = self._make_ec(
+            fill_priority=30, excess_solar=80,
+            ev_drain=30, reserve=15, inclement_floor=5,
+        )
+        ec._battery._drain_targets = {
+            "excellent": 15, "good": 20, "moderate": 25,
+            "poor": 30, "very_poor": 30,
+        }
+        ec._check_threshold_ladder()
+        assert "inclement_partial_hold_below_reserve" in ec._ladder_anomaly_last
+
+    def test_set_ev_battery_drain_soc_recheck_wired(self):
+        """WIRE-IN — setter must invoke _check_threshold_ladder. Neuter
+        the `self._check_threshold_ladder()` line in set_ev_battery_drain_soc
+        → this test FAILS."""
+        ec = self._make_ec(
+            fill_priority=30, excess_solar=80,
+            ev_drain=30, reserve=15, inclement_floor=30,
+        )
+        ec._battery._drain_targets = {
+            "excellent": 15, "good": 20, "moderate": 25,
+            "poor": 30, "very_poor": 30,
+        }
+        ec._ladder_anomaly_last = {}
+        ec.set_ev_battery_drain_soc(5)
+        assert "ev_drain_below_reserve" in ec._ladder_anomaly_last
+
+    def test_set_fill_priority_soc_recheck_wired(self):
+        """WIRE-IN — set_fill_priority_soc setter re-check anchor."""
+        ec = self._make_ec(
+            fill_priority=30, excess_solar=80,
+            ev_drain=30, reserve=15, inclement_floor=30,
+        )
+        ec._battery._drain_targets = {
+            "excellent": 15, "good": 20, "moderate": 25,
+            "poor": 30, "very_poor": 30,
+        }
+        ec._ladder_anomaly_last = {}
+        ec.set_fill_priority_soc(90)
+        assert "fill_priority_above_excess_solar" in ec._ladder_anomaly_last
+
+    def test_set_excess_solar_soc_recheck_wired(self):
+        """WIRE-IN — set_excess_solar_soc setter re-check anchor."""
+        ec = self._make_ec(
+            fill_priority=50, excess_solar=80,
+            ev_drain=30, reserve=15, inclement_floor=30,
+        )
+        ec._battery._drain_targets = {
+            "excellent": 15, "good": 20, "moderate": 25,
+            "poor": 30, "very_poor": 30,
+        }
+        ec._ladder_anomaly_last = {}
+        ec.set_excess_solar_soc(40)
+        assert "fill_priority_above_excess_solar" in ec._ladder_anomaly_last
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# C-HIGH-2 fix-up — config-flow save-time gate wire-in anchor
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestConfigFlowLadderSaveTimeGate:
+    """Neutering the `if _ladder_result is not None:` block at
+    config_flow.py:4005 → these tests FAIL (save proceeds instead of
+    returning a form with errors)."""
+
+    def _run(self, coro):
+        import asyncio
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    def test_inverted_fill_priority_returns_form_with_error(self):
+        """WIRE-IN — submit fill_priority(90) > excess_solar(80) via the
+        REAL options-flow step. Form + field-scoped + base error."""
+        import importlib
+        _baec = importlib.import_module("test_baec_config_flow_round_trip")
+        _cbcf = importlib.import_module("test_cycle_b_config_flow")
+        _make_options_flow = _cbcf._make_options_flow
+        _ha_mocks_injected = _baec._ha_mocks_injected
+        user_input = {
+            "energy_fill_priority_soc": 90,
+            "energy_excess_solar_soc": 80,
+        }
+        flow = _make_options_flow(options={})
+        # _FakeHass lacks .data; error-path falls through to show-form which
+        # reads self.hass.data.get(DOMAIN, ...) for weather-entity defaults.
+        flow.hass.data = {}
+        with _ha_mocks_injected():
+            result = self._run(
+                flow.async_step_coordinator_energy(user_input=user_input),
+            )
+        assert result["type"] == "form", (
+            f"expected form (validation blocked save); got {result}"
+        )
+        errors = result.get("errors") or {}
+        assert errors.get("energy_fill_priority_soc") ==             "fill_priority_above_excess_solar", errors
+        assert errors.get("base") == "fill_priority_above_excess_solar", errors
+
+    def test_inclement_below_reserve_routes_to_base(self):
+        """B2 fix-up — inclement error routes to `base` only (nested key
+        cannot render inline). Adding the inclement field back to the
+        `_field_map` → this test FAILS."""
+        import importlib
+        _baec = importlib.import_module("test_baec_config_flow_round_trip")
+        _cbcf = importlib.import_module("test_cycle_b_config_flow")
+        _make_options_flow = _cbcf._make_options_flow
+        _ha_mocks_injected = _baec._ha_mocks_injected
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_RESERVE_SOC,
+            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR,
+        )
+        user_input = {
+            CONF_ENERGY_RESERVE_SOC: 40,
+            CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR: 10,
+            "energy_offpeak_drain_excellent": 40,
+            "energy_offpeak_drain_good": 45,
+            "energy_offpeak_drain_moderate": 50,
+            "energy_offpeak_drain_poor": 55,
+            "energy_offpeak_drain_very_poor": 60,
+            "energy_peak_buffer_target": 80,
+            "energy_fill_priority_soc": 50,
+            "energy_excess_solar_soc": 60,
+            "energy_ev_battery_drain_soc": 50,
+        }
+        flow = _make_options_flow(options={})
+        # _FakeHass lacks .data; error-path falls through to show-form which
+        # reads self.hass.data.get(DOMAIN, ...) for weather-entity defaults.
+        flow.hass.data = {}
+        with _ha_mocks_injected():
+            result = self._run(
+                flow.async_step_coordinator_energy(user_input=user_input),
+            )
+        assert result["type"] == "form", result
+        errors = result.get("errors") or {}
+        assert errors.get("base") == "inclement_partial_hold_below_reserve"
+        assert CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR not in errors, errors
