@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T00:58:02-05:00_ - _Data commit: `ea86c20c2c3c`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-10T02:00:02-05:00_ - _Data commit: `abbe4d39b42d`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,15 +12,15 @@ _Generated: 2026-09-10T00:58:02-05:00_ - _Data commit: `ea86c20c2c3c`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 28 |
-| 🔬 Investigating | 11 |
-| 🧭 Pre-planning | 11 |
-| 📝 Planned | 8 |
+| 🔬 Investigating | 13 |
+| 🧭 Pre-planning | 12 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 61 |
-| ⏸️ Waiting on operator | 11 |
+| 🚀 Shipped (organic open) | 53 |
+| ⏸️ Waiting on operator | 13 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🅿️ Parked | 31 |
+| 🅿️ Parked | 33 |
 | ✅ Done | 75 |
 
 ## 📥 Inbox (28)
@@ -333,7 +333,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (11)
+## 🔬 Investigating (13)
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
@@ -450,6 +450,30 @@ _updated 2026-08-23 14:30_
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
   - `organic_evidence`: 2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm drop is recorded in planning doc...
 
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
+thread: **notifications** - status: **investigating** - approval: **approved**
+_updated 2026-08-23 14:50_
+- **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
+- **Why:** Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.
+- **Next:** MEASURE, do not fix — nothing is known to be broken. Determine whether iMessage re-pages actually carry the attachment: inspect an outbound BlueBubbles payload at re-page time (log the transport kwargs at debug on the next unack CRITICAL...
+- **Forensic keys (5):**
+  - `VIOLATION_RETRACTED_2026_08_23`: THE VIOLATION RECORDED EARLIER TODAY IS WITHDRAWN — it was not supported by evidence, and I relayed it to the operator as "live-broken shipped work, silent for nine days". That was wrong. WHAT THE README ACTUALLY SAYS: README_v5.73.1 L3 ...
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING (measure-not-fix). Determine whether iMessage re-pages carry the attachment: log outbound BlueBubbles transport kwargs at debug on the next unack CRITICAL. Nothing known broken.
+  - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
+  - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
+  - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
+
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0
+thread: **perimeter** - status: **investigating** - approval: **unreviewed**
+- **Origin:** 2026-08-08 - observed during v5.62.1 live validation
+- **Why:** Live track xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, classification=circling, 133s, alert_count=0 at 09:22 CDT. Track linking worked correctly (one track, not five alerts). But CIRCLING is...
+- **Next:** trace why alert_count=0 for a circling classification; decide whether circling should escape pure clock-time gating
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [BUILD] the most suspicious exterior behaviour may be silently unalerted outside night hours
+- **Refs:** exterior_track_linker.py classification; perimeter_alert.py alert-hours gating; CONSOL-1 contextual-severity ruling
+- **Forensic keys (1):**
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification; then decide whether circling should escape pure clock-time gating.
+
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase
 thread: **presence** - status: **investigating** - approval: **operator_directed**
 _created 2026-08-21 18:00 · initial_
@@ -507,7 +531,7 @@ _created 2026-08-25 22:20 · refined_
   - `investigation_2026_09_08`: CONFIRMED (5 rows now: 4x 08-21 + new zone_3 08-26). Root = Carrier thermostat UNAVAILABLE/UNREADABLE at restore-settle: successful restores (385) all read back a settled preset+mode; the 5 failures do NOT (08-26 explicit mode_settled=un...
   - `consolidated_note_2026_09_09`: Root (Carrier unreadable-at-settle) is a symptom of Carrier cloud staleness — the RESPONSE (detect+reload) now lives in CARRIER-STALE-POLL-REFRESH-1 (consolidated home). This card keeps the FINDING + the cheap trip-wire option; the reloa...
 
-## 🧭 Pre-planning (11)
+## 🧭 Pre-planning (12)
 _idea being decomposed_
 
 ### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications)
@@ -580,6 +604,19 @@ thread: **camera** - status: **pre_planning** - approval: **implied**
 - **Forensic keys (1):**
   - `fix`: re-run the sanity check from the READY handler AFTER the install attempt (and/or on a delayed post-boot check). Mutation drill: neuter the install -> the sanity WARNING must fire.
 
+### `CONSOL-1` - Perimeter consolidation cycle
+thread: **perimeter** - status: **pre_planning** - approval: **explicit**
+- **Origin:** 2026-08-07 - retire redundant manager surface; I need to weigh in — usability
+- **Why:** three parallel alerting stacks (URA NM, HA doorbell automation, zone_monitoring pagers) duplicate delivery
+- **Next:** fold SNAP-1 + TEST-1/2 in; Tier 2-DB
+- **Tags:** tier-2db, institutional-context, audit-first
+- **Parsimony:** [BUILD] 3 stacks page the same event with no shared cooldown/routing
+- **Refs:** PLANNING_perimeter_consolidation.md; AUDIT_ha_side_alerting_reconciliation.md
+- **Forensic keys (3):**
+  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. Future Tier-2-DB: fold SNAP-1 + TEST-1/2 in (NM channel consolidation).
+  - `rulings`: Option C surfacing (= A enhanced)
+  - `plan_state`: rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); buil...
+
 ### `TEST-1` - Boot-time shadow diff (legacy vs resolver leg set)
 thread: **resolver** - status: **pre_planning** - approval: **implied**
 - **Origin:** 2026-08-07 - we took hardened surface and gave it new methods; something is bound to fail
@@ -635,7 +672,7 @@ _created 2026-08-24 16:45 · initial_
 - **Forensic keys (1):**
   - `links`: related: HVAC-ANOMALY-BLIND-1
 
-## 📝 Planned (8)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate
@@ -661,6 +698,14 @@ _updated 2026-08-18 10:05_
 - **Forensic keys (2):**
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
+thread: **energy** - status: **planned** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.
+- **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
+- **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
+- **Forensic keys (1):**
+  - `relane_2026_09_10`: Not a soak -> PLANNED. Ready Tier-1 fix: log the eval-snapshot decision.reason (one line) + anchor test; fold into next deploy batch.
 
 ### `TRANSIT-1` - Interior traversal — Protect-sourced checkpoints via resolver
 thread: **presence** - status: **planned** - approval: **explicit**
@@ -804,7 +849,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (61)
+## 🚀 Shipped (organic open) (53)
 _live, awaiting proof_
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
@@ -1115,38 +1160,6 @@ _created 2026-08-18 00:55 · updated 2026-08-18 02:25 · initial_
   - `d2_gate_2026_08_18`: D2 (Protect corroboration) gate: NO cron (operator: "don't cron, just fire it yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload verbatim; the HA RECORDER durably retains that event+payload ...
   - `l1_validated_2026_08_18`: SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active + egress_identities_stamped live on persons_enter...
 
-### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
-thread: **presence** - status: **shipped_organic** - approval: **explicit**
-_updated 2026-08-18 16:10_
-- **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
-- **Why:** URA's duty-cycle detector DOES catch stuck sensors and logs: 'Sensor <x> duty-cycle stuck (on-ratio exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy'. It then KEEPS USING the stuck sensor for occupancy. Detection ...
-- **Next:** BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated, else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability map from AUDIT_mmwave_only_rooms_2026-07-31....
-- **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
-- **Depends on:** SENSOR-CAPABILITY-1
-- **Parsimony:** [BUILD] a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
-- **Forensic keys (21):**
-  - `my_miss`: I READ these exact warnings hours earlier and dismissed them as 'routine, not a crash' — I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its own defect and I skimmed it. Rule: a warning that...
-  - `gaps`: 1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.
-  - `fix`: 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in sleep/home_night; it does NOT hold wh...
-  - `CORRECTION`: 2026-08-09: my first version of this card was WRONG on three counts — I asserted mechanism from a LOG STRING instead of reading the code (operator: 'a log line does not reality make'). Corrected by verification: (1) it is NOT 'detection ...
-  - `verified_findings`: ROOM TIER: continuous rule excludes but keys off _sensor_on_since, which a FLAPPING sensor resets each off-tick -> flapping never accumulates -> never excluded (coordinator.py:1960-1967).
-  - `RETRACTION_2`: 2026-08-09 (second correction, operator challenge 'the stuck sensors are not correlated afaik'): I claimed the stuck sensors were a CORRELATED failure (same vendor/firmware/night) and built a 'falsified independence assumption' + 'closed...
-  - `solution`: DISCRIMINATOR IS CORROBORATION, NOT HOUSE STATE. House state fails exactly in the hard case (asleep during home_night). A sleeping person pins the mmWave AND a corroborator; a stuck mmWave pins only itself.
-  - `DEDUPE_2026_08_09`: Chatter/motion-chatter arrived as a candidate NEW card and was folded in here instead (adjacency check per kanban dedupe rule): same detector, same exclusion decision, same corroboration discriminator. No CHATTER-1 card exists or should.
-  - `third_class_chatter`: CLASS 3 = CHATTER (transition-rate). A sensor oscillating at ~50% duty is invisible to BOTH shipped rules: every off-tick resets P22 continuous-on, and the on-ratio never reaches D2 85%. Evidence: Garage B ratgdo 24h = 3,769 off / 3,765 ...
-  - `shipped_context`: D1-D4 ALL SHIPPED v5.35.0 (commit 0192ac2c3, 2026-07-28 23:18 CDT) + v5.35.1 hotfix + v5.35.2 observability. Do not re-scope them.
-  - `approach`: PATCH A CENTRAL METHOD, NOT A FIFTH DETECTOR (operator 2026-08-09: "should not do this in isolation or it should be a patch of a central class/method" + "do the right thing unified or not"). Generalise _detect_duty_cycle_stuck into a per...
-  - `FLEET_ROT_RETRACTION`: 2026-08-09 (third correction, operator challenge "I don't think a third of the fleet is bad"): I claimed a third of the corroborator fleet was dead, generalising B-2026-08-04-2' "5 of 13" — which is 5 of a 13-entry HAND-PICKED ADJACENCY ...
-  - `D0_AUDIT_DONE`: 2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = S...
-  - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
-  - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
-  - `amendment_approved_2026_08_13`: Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in fligh...
-  - `harness_landed_2026_08_13`: Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator si...
-  - `approved_2026_08_13`: OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is ...
-  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4...
-  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
-  - `program`: sensor-trust-exclusion
-
 ### `EGRESS-CAMERA-DEAD-CONFIG-1` - Two of five egress cameras are configured under dead Frigate-1 names — Garage A and Garage B contribute nothing to egress detection, on the house's primary entry path
 thread: **camera** - status: **shipped_organic** - approval: **needs_operator**
 _updated 2026-08-20 20:30_
@@ -1275,30 +1288,6 @@ _created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
   - `audit_result`: AUDIT_room_light_automation.md (2026-08-31). Blast radius = 5 night-ONLY rooms: Master Bathroom (founding), Study B, Kitchen (range light — see KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1), Garage Hallway, Master Bedroom. 15 rooms dual-list (ri...
   - `operator_intent_question`: Design intent for the under-cabinet night light: (A) off on VACANCY like a dim regular light, or (B) stay on through the night and off at WAKE/dark->bright? Determines which off-trigger to add. NEEDS OPERATOR.
 
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice
-thread: **notifications** - status: **shipped_organic** - approval: **approved**
-_updated 2026-08-23 14:50_
-- **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
-- **Why:** Unack-CRITICAL 5-min re-page loop resends text only; the original snapshot file persists at re-page time, so the omission is arbitrary. Operator ruling: if the alert deserves an image, every page of it does.
-- **Next:** MEASURE, do not fix — nothing is known to be broken. Determine whether iMessage re-pages actually carry the attachment: inspect an outbound BlueBubbles payload at re-page time (log the transport kwargs at debug on the next unack CRITICAL...
-- **Forensic keys (4):**
-  - `VIOLATION_RETRACTED_2026_08_23`: THE VIOLATION RECORDED EARLIER TODAY IS WITHDRAWN — it was not supported by evidence, and I relayed it to the operator as "live-broken shipped work, silent for nine days". That was wrong. WHAT THE README ACTUALLY SAYS: README_v5.73.1 L3 ...
-  - `scope`: ~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must red a test).
-  - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
-  - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
-
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
-thread: **notifications** - status: **shipped_organic** - approval: **operator_proposed**
-_updated 2026-08-23 14:30_
-- **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
-- **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
-- **Next:** Operator confirms the scoped shape (perimeter-only, duke Nh syntax, 3h cap) -> Tier 2 (NM routing = regression-prone).
-- **Forensic keys (4):**
-  - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
-  - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
-  - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
-  - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
-
 ### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus)
 thread: **presence** - status: **shipped_organic** - approval: **implied**
 _updated 2026-08-18 03:15_
@@ -1340,15 +1329,6 @@ thread: **presence** - status: **shipped_organic** - approval: **implied**
   - `fuller_pass_outcome_2026_08_17`: FULLER ADVERSARIAL PASS (operator ruling "Fuller pass") — THREE MORE framing-disjoint reviews, ALL THREE DO-NOT-SHIP. This pass is the only reason the cycle did not ship broken. D (adversarial completeness, 13ba10861) + E (lifecycle, dcf...
   - `guest_room_designation_correction_2026_08_17`: ORCHESTRATOR ERROR, CORRECTED BY OPERATOR. I reported "zero rooms designated is_guest_room=True" and concluded D2 would silently DISABLE guest mode. WRONG — I queried a plausible key name instead of the one the code reads. The real key i...
   - `empty_house_validation_window_2026_08_17`: OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening; operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0 as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident ...
-
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
-thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
-- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
-- **Next:** Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
-- **Forensic keys (2):**
-  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
-  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
 ### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it
 thread: **presence** - status: **shipped_organic** - approval: **approved_after_investigation**
@@ -1406,44 +1386,6 @@ thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
   - `folded_2026_08_16`: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
-
-### `DP-REASON-NULL-1` - DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
-thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
-- **Origin:** 2026-08-13 - Found by AUDIT_dp_live_behavior.md: _log_dp_eval_decision (energy.py:4002) reads getattr(carrier,"reason",None); field does not exist; real reasons live only in ~10-day recorder attrs.
-- **Why:** Durable decision ledger is the long-horizon audit trail; null reasons make future DP forensics depend on recorder retention.
-- **Next:** One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy batch (Tier 1).
-
-### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
-thread: **fans** - status: **shipped_organic** - approval: **unreviewed**
-_updated 2026-08-23 11:35_
-- **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
-- **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
-- **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
-- **Forensic keys (3):**
-  - `CORRECTION_2026_08_23_tier_warning_is_a_BOOT_RACE_not_a_mismatch`: THE INSTANCE BELOW IS WRONG AND THIS CORRECTS IT. I recorded that Living Room and Study A are "configured for HVAC-tier fan management but actually managed by the room tier", on the strength of a boot warning. That reading is REFUTED. TH...
-  - `INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback`: MEASURED FROM THE LIVE BOOT LOG after the v5.89.0 restart (2026-08-23). Two related observations on this card's own surface. (A) TIER-OWNERSHIP MISMATCH — URA emits this about ITSELF, so it is self-reported, not inferred: 11:11:59 WARNIN...
-  - `links`: related: FAN-MANUAL-1
-
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0
-thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
-- **Origin:** 2026-08-08 - observed during v5.62.1 live validation
-- **Why:** Live track xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, classification=circling, 133s, alert_count=0 at 09:22 CDT. Track linking worked correctly (one track, not five alerts). But CIRCLING is...
-- **Next:** trace why alert_count=0 for a circling classification; decide whether circling should escape pure clock-time gating
-- **Tags:** no-fabrication-verify
-- **Parsimony:** [BUILD] the most suspicious exterior behaviour may be silently unalerted outside night hours
-- **Refs:** exterior_track_linker.py classification; perimeter_alert.py alert-hours gating; CONSOL-1 contextual-severity ruling
-
-### `CONSOL-1` - Perimeter consolidation cycle
-thread: **perimeter** - status: **shipped_organic** - approval: **explicit**
-- **Origin:** 2026-08-07 - retire redundant manager surface; I need to weigh in — usability
-- **Why:** three parallel alerting stacks (URA NM, HA doorbell automation, zone_monitoring pagers) duplicate delivery
-- **Next:** fold SNAP-1 + TEST-1/2 in; Tier 2-DB
-- **Tags:** tier-2db, institutional-context, audit-first
-- **Parsimony:** [BUILD] 3 stacks page the same event with no shared cooldown/routing
-- **Refs:** PLANNING_perimeter_consolidation.md; AUDIT_ha_side_alerting_reconciliation.md
-- **Forensic keys (2):**
-  - `rulings`: Option C surfacing (= A enhanced)
-  - `plan_state`: rev-2 PLAN-READY (1 adversarial review: 3 CRIT + 4 HIGH fixed in-plan incl. No-Soak violation + G4/G6 misname + vehicle-window orphan). D0 probe: doorbell llmvision SILENTLY BROKEN since 02-13 (gpt-5-mini reasoning eats 300 tokens); buil...
 
 ### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
 thread: **lifecycle** - status: **shipped_organic** - approval: **explicit**
@@ -1737,7 +1679,7 @@ _created 2026-08-29 20:30 · initial_
 - **Forensic keys (1):**
   - `priority`: high
 
-## ⏸️ Waiting on operator (11)
+## ⏸️ Waiting on operator (13)
 _needs a human call_
 
 ### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
@@ -1828,6 +1770,19 @@ _created 2026-08-31 19:05 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** docs/planning/AUDIT_room_light_automation.md F4
 
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
+thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
+_updated 2026-08-23 14:30_
+- **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
+- **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
+- **Next:** Operator confirms the scoped shape (perimeter-only, duke Nh syntax, 3h cap) -> Tier 2 (NM routing = regression-prone).
+- **Forensic keys (5):**
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h cap) -> Tier-2 (NM routing = regression-prone).
+  - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
+  - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
+  - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
+  - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
+
 ### `ZIRI3-UNCONFIG-1` - RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 - **Origin:** 2026-08-15 - ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).
@@ -1836,6 +1791,16 @@ thread: **presence** - status: **waiting_operator** - approval: **explicit**
 - **Refs:** scratchpad ziri3_unconfig_after_flush.py
 - **Forensic keys (1):**
   - `reversal_2026_08_15`: Operator: device is still physically in the room — DO NOT unconfigure. Staged flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node does not resolve on network (ESP fully off-WiFi, not flap...
+
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
+- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
+- **Next:** Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
+- **Forensic keys (3):**
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick (a) do the Tier-2-DB rename-desync cycle now vs (b) after the sensor work; plan review first.
+  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
+  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
 thread: **memory** - status: **waiting_operator**
@@ -1904,7 +1869,7 @@ _created 2026-09-08 00:10 · updated 2026-09-10 00:55 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-## 🅿️ Parked (31)
+## 🅿️ Parked (33)
 _revisit-trigger set_
 
 ### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window
@@ -1984,6 +1949,39 @@ _created 2026-08-18 02:20 · initial_
 - **Why:** Fills the only actionable memory-coverage gap. But there is NO active problem needing it today, so its marginal benefit is low until an F2-shape divergence recurs.
 - **Next:** REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build the writer (plan is PLANNING_memory_writers.md).
 - **Refs:** docs/planning/PLANNING_memory_writers.md; custom_components/universal_room_automation/memory_writers.py:186
+
+### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
+thread: **presence** - status: **parked** - approval: **explicit**
+_updated 2026-08-18 16:10_
+- **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
+- **Why:** URA's duty-cycle detector DOES catch stuck sensors and logs: 'Sensor <x> duty-cycle stuck (on-ratio exceeded over rolling window) — NOTIFY-ONLY, not excluded from occupancy'. It then KEEPS USING the stuck sensor for occupancy. Detection ...
+- **Next:** BLOCKED on SENSOR-CAPABILITY-1 — do not scope exclusion until capability/role are separated, else the corroborator must be hardcoded as PIR (the defect). Then: per-room corroborator capability map from AUDIT_mmwave_only_rooms_2026-07-31....
+- **Tags:** tier-2db, no-fabrication-verify, context-wide-scoping
+- **Depends on:** SENSOR-CAPABILITY-1
+- **Parsimony:** [BUILD] a stuck sensor silently fabricates occupancy and drives fans/HVAC/lighting in empty rooms
+- **Forensic keys (22):**
+  - `relane_2026_09_10`: Not a soak -> PARKED (blocked). Depends on SENSOR-CAPABILITY-1 (capability/role separation) — scoping exclusion before that forces the corroborator hardcoded to PIR (the defect). Revival: SENSOR-CAPABILITY-1 ships.
+  - `my_miss`: I READ these exact warnings hours earlier and dismissed them as 'routine, not a crash' — I was scanning for crashes, so a WARNING that was not a crash read as noise. The message named its own defect and I skimmed it. Rule: a warning that...
+  - `gaps`: 1. NO CONSEQUENCE: stuck sensors are not excluded from the occupancy substrate.
+  - `fix`: 1. Graduate D2 to exclusion behind the house-state gate the code always planned ('exclusion graduates in a later cycle behind a house-state gate'). The sleeping-person objection holds for bedrooms in sleep/home_night; it does NOT hold wh...
+  - `CORRECTION`: 2026-08-09: my first version of this card was WRONG on three counts — I asserted mechanism from a LOG STRING instead of reading the code (operator: 'a log line does not reality make'). Corrected by verification: (1) it is NOT 'detection ...
+  - `verified_findings`: ROOM TIER: continuous rule excludes but keys off _sensor_on_since, which a FLAPPING sensor resets each off-tick -> flapping never accumulates -> never excluded (coordinator.py:1960-1967).
+  - `RETRACTION_2`: 2026-08-09 (second correction, operator challenge 'the stuck sensors are not correlated afaik'): I claimed the stuck sensors were a CORRELATED failure (same vendor/firmware/night) and built a 'falsified independence assumption' + 'closed...
+  - `solution`: DISCRIMINATOR IS CORROBORATION, NOT HOUSE STATE. House state fails exactly in the hard case (asleep during home_night). A sleeping person pins the mmWave AND a corroborator; a stuck mmWave pins only itself.
+  - `DEDUPE_2026_08_09`: Chatter/motion-chatter arrived as a candidate NEW card and was folded in here instead (adjacency check per kanban dedupe rule): same detector, same exclusion decision, same corroboration discriminator. No CHATTER-1 card exists or should.
+  - `third_class_chatter`: CLASS 3 = CHATTER (transition-rate). A sensor oscillating at ~50% duty is invisible to BOTH shipped rules: every off-tick resets P22 continuous-on, and the on-ratio never reaches D2 85%. Evidence: Garage B ratgdo 24h = 3,769 off / 3,765 ...
+  - `shipped_context`: D1-D4 ALL SHIPPED v5.35.0 (commit 0192ac2c3, 2026-07-28 23:18 CDT) + v5.35.1 hotfix + v5.35.2 observability. Do not re-scope them.
+  - `approach`: PATCH A CENTRAL METHOD, NOT A FIFTH DETECTOR (operator 2026-08-09: "should not do this in isolation or it should be a patch of a central class/method" + "do the right thing unified or not"). Generalise _detect_duty_cycle_stuck into a per...
+  - `FLEET_ROT_RETRACTION`: 2026-08-09 (third correction, operator challenge "I don't think a third of the fleet is bad"): I claimed a third of the corroborator fleet was dead, generalising B-2026-08-04-2' "5 of 13" — which is 5 of a 13-entry HAND-PICKED ADJACENCY ...
+  - `D0_AUDIT_DONE`: 2026-08-09: docs/planning/AUDIT_mmwave_only_rooms_2026-07-31.md written (was owed since 07-31 as D0 of the mmwave Tier-3 cycle and never done; cycle shipped without it). Key results: 5 MMWAVE_ONLY rooms + Master Bedroom MMWAVE_NO_PIR = S...
+  - `OPERATOR_DISPOSITIONS_2026_08_09`: ATHOM (Study A): CLOSED as a no-op. Operator: "Ignore athom now. It's a no op." URA already does not read it (options override every bucket); the ESPHome device entry stays. Do NOT re-raise, do NOT propose deleting the entry or cleaning ...
+  - `rejected`: PROPAGATE STUCK STATE TO ZONE/HOUSE — I recommended this and then withdrew it under challenge ('is this flow upwards useful?'). If the room tier excludes correctly the corrected occupancy propagates naturally and upper tiers are right fo...
+  - `amendment_approved_2026_08_13`: Operator approved the criterion-4 amendment (offline replay harness + hand-built supplement; runtime tap DROPPED — recorded in PLANNING_signal_trust_ledger_abstraction.md). Unblock path ACTIVE: build/ledger-golden-replay harness in fligh...
+  - `harness_landed_2026_08_13`: Replay harness MERGED (fe9bfc845): P22 (13/5) + D2 (56/3, boot-settle unmodelled -> discount vs audit 13) FILLED from replay. Remaining criterion-4 work before this cycle builds: hand-built supplements for P24/P18/D1/CHATTER (operator si...
+  - `approved_2026_08_13`: OPERATOR APPROVED (during AWAY-BLOCK-1 incident review: "Stuck sensor is approved"). Spec confirmed to operator: it ACTUATES (corroboration-gated exclusion at room tier), not notify-only. Taxonomy caution from the incident: fan-latch is ...
+  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: HIGH corroborator-window-subsumed -> 900s + still-person test; P22 restore-poisoning boot guard; fixture emit-only-when-True + replay pre-deploy gate; merged-accessor pin). Build in flight (worktree). Criterion-4...
+  - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
+  - `program`: sensor-trust-exclusion
 
 ### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
 thread: **hvac** - status: **parked** - approval: **needs_operator**
@@ -2140,6 +2138,18 @@ thread: **hvac** - status: **parked** - approval: **unreviewed**
   - `parked_2026_08_12`: OPERATOR: "Park #2 until another incident." Revisit trigger: next boot-coincident manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint walks within-manual, arrester overrides_today stays flat...
   - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
+
+### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock
+thread: **fans** - status: **parked** - approval: **unreviewed**
+_updated 2026-08-23 11:35_
+- **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
+- **Why:** State-in-one-place holds for RoomAutomation tier but HVAC-tier RoomFanState still carries its own hold fields; TOCTOU lock (INV-FLA-T) only covers W11/W12. Full oracle authority needs the remainder.
+- **Next:** After FAN-LAYER-1 increment ships + validates: plan review (Tier 2-DB), then RoomFanState conversion as its own cycle.
+- **Forensic keys (4):**
+  - `CORRECTION_2026_08_23_tier_warning_is_a_BOOT_RACE_not_a_mismatch`: THE INSTANCE BELOW IS WRONG AND THIS CORRECTS IT. I recorded that Living Room and Study A are "configured for HVAC-tier fan management but actually managed by the room tier", on the strength of a boot warning. That reading is REFUTED. TH...
+  - `INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback`: MEASURED FROM THE LIVE BOOT LOG after the v5.89.0 restart (2026-08-23). Two related observations on this card's own surface. (A) TIER-OWNERSHIP MISMATCH — URA emits this about ITSELF, so it is self-reported, not inferred: 11:11:59 WARNIN...
+  - `links`: related: FAN-MANUAL-1
+  - `relane_2026_09_10`: Not a soak -> PARKED. Deferred build (RoomFanState conversion as its own Tier-2-DB cycle). Revival trigger: FAN-LAYER-1 increment ships + validates.
 
 ### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate)
 thread: **perimeter** - status: **parked** - approval: **explicit**
