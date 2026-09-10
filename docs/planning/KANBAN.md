@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T23:46:47-05:00_ - _Data commit: `ebaa283fa060`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T23:52:07-05:00_ - _Data commit: `ff882f8c61e3`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-09T23:46:47-05:00_ - _Data commit: `ebaa283fa060`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 31 |
+| 📥 Inbox | 30 |
 | 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| 🚀 Shipped (organic open) | 73 |
+| 🚀 Shipped (organic open) | 74 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 29 |
 | ✅ Done | 68 |
 
-## 📥 Inbox (31)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -353,17 +353,6 @@ _created 2026-09-09 19:00 · initial_
 - **Forensic keys (2):**
   - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
   - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
-
-### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
-thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-09 21:55 · initial_
-- **Problem / Solution:**
-  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
-- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
-- **Next:** Extend scripts/gen_room_dashboard.py (or a one-shot pass) to registry-filter the existing bespoke card entities; low-risk, reversible via .storage backup.
-- **Refs:** scripts/gen_room_dashboard.py
-- **Forensic keys (1):**
-  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
 
 ## 🔬 Investigating (9)
 _measuring; truth not yet known_
@@ -757,7 +746,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-## 🚀 Shipped (organic open) (73)
+## 🚀 Shipped (organic open) (74)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -1898,6 +1887,18 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
 - **Refs:** custom_components/universal_room_automation/__init__.py:4131 (panel_custom + StaticPathConfig frontend); custom_components/universal_room_automation/__init__.py:4183 (frontend-v3)
 - **Forensic keys (1):**
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
+
+### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
+thread: **dashboarding** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-09 21:55 · updated 2026-09-10 00:35 · initial_
+- **Problem / Solution:**
+  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
+- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
+- **Next:** DONE (safe bulk: 51 list-context dead refs stripped). Residual 27 co: template-var refs -> handled by the decluttering migration or a per-room co-repoint (benign meanwhile). Applied on next HA restart.
+- **Refs:** scripts/gen_room_dashboard.py
+- **Forensic keys (2):**
+  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
+  - `cleanup_2026_09_10`: Removed 51 dead entity refs from LIST/auto-entities-include context in v8 Residence (safe, silent-no-op includes; 0 were in scalar entity: fields). RESIDUAL: 27 dead refs remain, all sensor.<room>_current_occupants under a card-template ...
 
 ## ⏸️ Waiting on operator (9)
 _needs a human call_

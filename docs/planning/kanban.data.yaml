@@ -14113,16 +14113,17 @@ cards:
 - id: LOVELACE-V8-STALE-ENTITY-REFS-1
   title: 'v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)'
   thread: dashboarding
-  status: inbox
+  status: shipped_organic
   created: '2026-09-09 21:55'
-  updated: '2026-09-09 21:55'
+  updated: '2026-09-10 00:35'
   refinement_status: initial
   problem_solution:
   - 'Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pre-existing Entity-not-found, NOT introduced by the room-card generator (which entity-filters its own cards). Solution: run the same registry-filter over the existing bespoke cards (or migrate them through the generator), dropping dead refs.'
   approval: unreviewed
   sweep_verdict: "'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'"
   why: 'Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.'
-  next: 'Extend scripts/gen_room_dashboard.py (or a one-shot pass) to registry-filter the existing bespoke card entities; low-risk, reversible via .storage backup.'
+  cleanup_2026_09_10: 'Removed 51 dead entity refs from LIST/auto-entities-include context in v8 Residence (safe, silent-no-op includes; 0 were in scalar entity: fields). RESIDUAL: 27 dead refs remain, all sensor.<room>_current_occupants under a card-template VARIABLE key co: (siblings color/temp/co) — these are template vars, not entity lists; blind removal breaks the template substitution, and repointing needs the right per-room occupant entity. They render benign-unavailable (not a hard Entity-not-found). Applies on next restart (written to mount). Residual best fixed by LOVELACE-DECLUTTER-MIGRATION-1 (rebuilds these cards) or a per-room co-repoint.'
+  next: 'DONE (safe bulk: 51 list-context dead refs stripped). Residual 27 co: template-var refs -> handled by the decluttering migration or a per-room co-repoint (benign meanwhile). Applied on next HA restart.'
   refs: [scripts/gen_room_dashboard.py]
 
 parked:
