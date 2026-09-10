@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-09T23:08:07-05:00_ - _Data commit: `4fefe75a2346`_ - _last_reconciled: 2026-09-09_
+_Generated: 2026-09-09T23:52:07-05:00_ - _Data commit: `ff882f8c61e3`_ - _last_reconciled: 2026-09-09_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-09T23:08:07-05:00_ - _Data commit: `4fefe75a2346`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 32 |
-| 🔬 Investigating | 11 |
+| 📥 Inbox | 30 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 3 |
-| 🚀 Shipped (organic open) | 73 |
+| 🔍 Review | 1 |
+| 🚀 Shipped (organic open) | 74 |
 | ⏸️ Waiting on operator | 9 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🅿️ Parked | 29 |
-| ✅ Done | 63 |
+| ✅ Done | 68 |
 
-## 📥 Inbox (32)
+## 📥 Inbox (30)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -70,18 +70,6 @@ _created 2026-09-05 16:40 · initial_
 - **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
 - **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
 - **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
-
-### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
-thread: **energy** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-06 15:20 · initial_
-- **Problem / Solution:**
-  - Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a warning to an ERROR with a full RuntimeError ...
-- **Origin:** 2026-09-06 - v5.97.0 post-restart error_log scan
-- **Why:** Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the signal fired from a worker?).
-- **Next:** Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.
-- **Tags:** energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation
-- **Parsimony:** [BUILD] EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash
-- **Refs:** switch.py:1195-1225 (EC deferred-restore callback); v5.97.0 post-restart error_log
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -366,32 +354,8 @@ _created 2026-09-09 19:00 · initial_
   - `sweep_verdict`: 'NEW (adjacency sweep 2026-09-09): board has no zone-membership-sync card (CENSUS-ACCURACY-1 unrelated); BACKLOG/planning have no room->zone auto-add item. Confirmed in code.'
   - `forensic`: Room setup writes CONF_ZONE (config_flow.py:1038/:900); zone manager stores membership in CONF_ZONE_ROOMS (config_flow.py:980/:915). Only a ONE-TIME "Auto-migrated from room zone assignment" pass bridged them (see Zone dialog description...
 
-### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
-thread: **dashboarding** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-09 21:55 · initial_
-- **Problem / Solution:**
-  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
-- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
-- **Next:** Extend scripts/gen_room_dashboard.py (or a one-shot pass) to registry-filter the existing bespoke card entities; low-risk, reversible via .storage backup.
-- **Refs:** scripts/gen_room_dashboard.py
-- **Forensic keys (1):**
-  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
-
-## 🔬 Investigating (11)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
-
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
-thread: **energy** - status: **investigating** - approval: **implied**
-_created 2026-09-08 00:10 · refined_
-- **Problem / Solution:**
-  - Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer EV charging to off-peak 1am), but last night both chargers ran INSIDE the 17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and drained...
-- **Origin:** 2026-09-07 - operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)
-- **Why:** A charge-onset that does not defer overnight charging drains the house battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly cost and the exact thing the feature exists to prevent.
-- **Next:** After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.
-- **Tags:** tier-2db, no-fabrication-verify, falsify-first
-- **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
-- **Forensic keys (1):**
-  - `forensic_evidence`: sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).
 
 ### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
 thread: **diagnostics** - status: **investigating** - approval: **unreviewed**
@@ -404,32 +368,6 @@ _created 2026-09-06 18:35 · initial_
 - **Tags:** no-fabrication-verify, falsify-first
 - **Forensic keys (1):**
   - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
-
-### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
-thread: **energy** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-06 18:00 · initial_
-- **Problem / Solution:**
-  - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
-- **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
-- **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
-- **Next:** RECOMMEND to operator: do NOT build CFG-modulation (C-4 actuation lag makes it infeasible; C-5 re-opens v5.3.8; C-8 duplicates rung_0). The real lead is C-8: rung_0 already knows solar suffices, but the attain safety-net overrides it. Mi...
-- **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
-- **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
-- **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
-- **Forensic keys (13):**
-  - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
-  - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
-  - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
-  - `probe_v2_result_2026_09_09`: CORRECTED SOC-trajectory probe (14d). Operator RIGHT on the headline: import 1450 kWh vs export 118 kWh = 12.3x, so NO export-credit wash (v1 refuted). BUT the counterfactual shows on 11/13 days midday solar excess ALONE would NOT have r...
-  - `root_mechanism_2026_09_09`: ROOT FOUND (code diagnosis) — it is a TWEAK, not new machinery, exactly as the operator hoped. The attain grid-charge is a FLAT-TARGET charge, not a shortfall-sized one: both CHARGE paths command grid to a flat peak_buffer_target=80% (en...
-  - `plan_doc`: docs/planning/PLANNING_attain_shortfall_sizing.md — Tier-3; TWO framing-disjoint plan reviews IN PROGRESS before build (operator: attain is delicate, only make it better, do not screw it up).
-  - `parked_decision_2026_09_09`: PARKED (operator 2026-09-09). Both framing-disjoint PLAN reviews returned PLAN-FIX-REQUIRED with CRITICALs that kill the shortfall-sizing tweak: P1 = reserve_level is a DISCHARGE FLOOR not just a charge target (same Enphase number, Bug C...
-  - `correction_2026_09_09`: OPERATOR CORRECTED my two wrong conclusions (un-parked). (1) DO NOT PARK — the goal is to make the RAMP-TO-TARGET more PRECISE (charge exactly the grid needed, let solar cover the rest); the target level (peak_buffer_target=80) stays fix...
-  - `overlay_architecture_2026_09_09`: OPERATOR REFINEMENT (de-risks the whole thing): do the shortfall sizing as a THIN OVERLAY that does NOT modify the core attain machinery. Attain keeps emitting reserve=80 + CFG exactly as today (so discharge floor stays 80 -> NO morning ...
-  - `decision_2026_09_09_final`: VERIFIED schedule-limit NOT supported on this site (dead). Operator chose CFG ON/OFF MODULATION: reserve stays at peak_buffer_target (floor, P1 safe), turn charge_from_grid OFF when forecast solar can finish to target by boundary (rate-f...
-  - `target_latch_2026_09_09`: CONSTRAINT (operator): snapshot peak_buffer_target at morning attain-START, hold immutable intra-day (ignore live config changes mid-ramp), adopt a change the NEXT day. CFG-modulation reads the snapshot, not live config -> no intra-day t...
-  - `plan_review_adversarial_2026_09_09`: PLAN-FIX-REQUIRED. CFG-modulation collides with 3 attain mechanisms built on attain=>CFG-ON: P1 CRIT M5 drift policy (energy_battery.py:4712-4735) treats our commanded CFG-OFF as operator-override -> attain self-aborts + chunk-locks (re-...
-  - `plan_review_completeness_2026_09_09`: PLAN-FIX-REQUIRED + a decisive discovery. C-8 (CRITICAL): the plan REBUILDS existing logic — _classify_attain_rung rung_0 (energy_battery.py:2795-2960) ALREADY implements wait-for-solar (solar-alone projects SOC>=target+hysteresis -> do ...
 
 ### `SCALE-LEAN-ROOM-PROFILE-1` - Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -783,7 +721,7 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (3)
+## 🔍 Review (1)
 _under review_
 
 ### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model
@@ -808,38 +746,7 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
 
-### `FROZEN-POWER-READ-STALENESS-CLASS-1` - 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
-thread: **energy** - status: **review** - approval: **unreviewed**
-_created 2026-08-31 20:45 · initial_
-- **Problem / Solution:**
-  - Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions: net grid power, battery power, and ...
-- **Origin:** 2026-08-31 - Envoy no-duplication audit — adjacencies section
-- **Why:** The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary SOC). Highest-value = primary...
-- **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
-- **Tags:** no-fabrication-verify, tier-2db
-- **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
-- **Forensic keys (3):**
-  - `operator_refine_2026_09_09`: Operator Q: is the staleness sensor separate, or does it change state in place? And if separate, does it consolidate the 3 or hold per-read states in details? Proposed answer (confirm in plan): TWO layers. (1) DECISION layer = a shared h...
-  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness. Reused existing _read_fresh_float helper + DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S=300 (kill-switch at 0). Gated the PRIMARY SOC reads (soc_envelope + envoy_available). *** OPERATOR DECISION FLAG...
-  - `med2_resolved_2026_09_09`: OPERATOR: respect the prior Tier-3 decision — do NOT gate net_power/battery_power (we did not do the work to overturn it). Build is COMPLETE as-is (primary SOC gated only). Proceed to Tier-3 reviews.
-
-### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired
-thread: **energy** - status: **review** - approval: **unreviewed**
-_created 2026-08-24 16:45 · initial_
-- **Problem / Solution:**
-  - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
-- **Origin:** 2026-08-24 - handoff live-fault
-- **Why:** This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3)...
-- **Next:** Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches a shared validator consumed across EC).
-- **Tags:** institutional-context, numbers-get-knobs
-- **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
-- **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (3):**
-  - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
-  - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
-  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
-
-## 🚀 Shipped (organic open) (73)
+## 🚀 Shipped (organic open) (74)
 _live, awaiting proof_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -852,17 +759,6 @@ _created 2026-09-08 17:10 · initial_
 - **Next:** Per-field selector upgrade on the two handlers; round-trip + RestoreEntity test per field; read homeassistant_coding.
 - **Tags:** config-flow, no-fabrication-verify
 - **Refs:** config_flow.py:6752 / :7123; CM-CONFIG-FLOW-UX-1 (blank-rows half shipped v5.100.0)
-
-### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
-thread: **energy** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-08 00:10 · initial_
-- **Problem / Solution:**
-  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
-- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
-- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
-- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
-- **Tags:** tier-2db, observability
-- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
 thread: **platform** - status: **shipped_organic** - approval: **explicit**
@@ -1814,6 +1710,21 @@ _created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
   - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
   - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
 
+### `FROZEN-POWER-READ-STALENESS-CLASS-1` - 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-31 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions: net grid power, battery power, and ...
+- **Origin:** 2026-08-31 - Envoy no-duplication audit — adjacencies section
+- **Why:** The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary SOC). Highest-value = primary...
+- **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
+- **Forensic keys (3):**
+  - `operator_refine_2026_09_09`: Operator Q: is the staleness sensor separate, or does it change state in place? And if separate, does it consolidate the 3 or hold per-read states in details? Proposed answer (confirm in plan): TWO layers. (1) DECISION layer = a shared h...
+  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness. Reused existing _read_fresh_float helper + DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S=300 (kill-switch at 0). Gated the PRIMARY SOC reads (soc_envelope + envoy_available). *** OPERATOR DECISION FLAG...
+  - `med2_resolved_2026_09_09`: OPERATOR: respect the prior Tier-3 decision — do NOT gate net_power/battery_power (we did not do the work to overturn it). Build is COMPLETE as-is (primary SOC gated only). Proceed to Tier-3 reviews.
+
 ### `DP-VERYPOOR-DRAIN-VALIDATOR-1` - On a "very poor" solar-forecast night the EV drain target comes from a value NO slider can change — the live-update validator accepts only 4 of the 5 forecast qualities
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-08-24 16:45 · initial_
@@ -1829,6 +1740,22 @@ _created 2026-08-24 16:45 · initial_
   - `links`: sibling_of: EVSE-DRAIN-PRECEDENCE-KNOB-80-1
   - `BUILT_2026_08_25`: BUILT on branch feature/dp-verypoor-drain-validator @ 87e047ac (off develop). Surgical: energy.py 1-line (add very_poor to the accepted-qualities set at set_offpeak_drain) + 75-line test test_dp_verypoor_drain_validator.py. Reported 114 ...
   - `RIDE_ALONG_2026_08_26`: Operator confirmed it must not drop. RIDING the ARBITRAGE-GATE-D2-OFFBYONE-1 ship (same energy.py surface) — merges + deploys together. Re-verify clean merge + tests at deploy.
+
+### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-08-24 16:45 · initial_
+- **Problem / Solution:**
+  - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
+- **Origin:** 2026-08-24 - handoff live-fault
+- **Why:** This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3)...
+- **Next:** Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches a shared validator consumed across EC).
+- **Tags:** institutional-context, numbers-get-knobs
+- **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
+- **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
+- **Forensic keys (3):**
+  - `links`: related: EVSE-SOLAR-FOLLOW-AMPS-1
+  - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
+  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
 
 ### `DRAIN-TARGET-DAY-STALENESS-1` - Off-peak drain target reads CALENDAR-tomorrow (solcast_tomorrow) not the peak-anchored target day, so after local midnight in the cross-midnight off-peak window it forecasts a day too far
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
@@ -1961,21 +1888,17 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
 - **Forensic keys (1):**
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
 
-### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
-thread: **dashboarding** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-09 09:10 · updated 2026-09-09 21:55 · initial_
+### `LOVELACE-V8-STALE-ENTITY-REFS-1` - v8 Residence bespoke room cards reference ~51 non-existent entities (pre-existing Entity-not-found in old cards)
+thread: **dashboarding** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-09 21:55 · updated 2026-09-10 00:35 · initial_
 - **Problem / Solution:**
-  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
-- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
-- **Next:** DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the...
-- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
-- **Forensic keys (6):**
-  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
-  - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
-  - `aesthetics_finding_2026_09_09`: Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room ca...
-  - `patch_shipped_2026_09_09`: PATCH DONE (config-driven, per operator: each room config is self-contained).
-  - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
-  - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
+  - Problem: the OLD hand-authored v8 Residence room cards reference ~51 entities that do not exist in the registry (e.g. sensor.<room>_current_occupants, <room>_fan_should_run, <room>_energy_saving_active for rooms that never had them) — pr...
+- **Why:** Dead entity rows render as Entity-not-found clutter on otherwise-good room cards.
+- **Next:** DONE (safe bulk: 51 list-context dead refs stripped). Residual 27 co: template-var refs -> handled by the decluttering migration or a per-room co-repoint (benign meanwhile). Applied on next HA restart.
+- **Refs:** scripts/gen_room_dashboard.py
+- **Forensic keys (2):**
+  - `sweep_verdict`: 'NEW (2026-09-09): distinct from LOVELACE-AUTO-ROOM (that added missing rooms clean); this is dead refs in the PRE-EXISTING bespoke cards. Surfaced during generator validation.'
+  - `cleanup_2026_09_10`: Removed 51 dead entity refs from LIST/auto-entities-include context in v8 Residence (safe, silent-no-op includes; 0 were in scalar entity: fields). RESIDUAL: 27 dead refs remain, all sensor.<room>_current_occupants under a card-template ...
 
 ## ⏸️ Waiting on operator (9)
 _needs a human call_
@@ -2468,7 +2391,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (63)
+## ✅ Done (68)
 _closed, evidence in refs_
 
 ### `ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1` - A listener on the ura_energy_entities_update dispatch raises every refresh (65x/5h), logged as Exception in _refresh — pre-existing, surfaced during v5.99.1 validation
@@ -2484,6 +2407,33 @@ _created 2026-09-08 16:35 · updated 2026-09-08 20:12 · initial_
 - **Forensic keys (1):**
   - `disposition`: DONE 2026-09-08: v5.100.2 threadsafe-sender fix was INSUFFICIENT (falsified live); real root = HA executor-punts non-@callback dispatcher targets. v5.100.3 decorated time._refresh + switch.py:1393 _handle_ec_ready @callback. L2 PASS: ene...
 
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window
+thread: **energy** - status: **done** - approval: **implied**
+_created 2026-09-08 00:10 · updated 2026-09-10 00:20 · refined_
+- **Problem / Solution:**
+  - Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer EV charging to off-peak 1am), but last night both chargers ran INSIDE the 17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and drained...
+- **Origin:** 2026-09-07 - operator — is the charge onset working (set to 1am); then L2 plugs; then maybe onset ignores low-kW L2 (refuted)
+- **Why:** A charge-onset that does not defer overnight charging drains the house battery to 9% at 11.6kW instead of using 1am off-peak grid — a real nightly cost and the exact thing the feature exists to prevent.
+- **Next:** After the instrumentation lands, run one night; read per-charger pause/ensure-on + onset-gate verdict; fix the ungated path or establish pause authority.
+- **Tags:** tier-2db, no-fabrication-verify, falsify-first
+- **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
+- **Forensic keys (2):**
+  - `forensic_evidence`: sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).
+  - `disposition_2026_09_10`: DONE — 2-day disposition: the onset gate IS holding. Rows: onset_hold reason=gate_refused fires at ~21:00 CDT (the exact window the L2 previously charged un-held) then onset_release reason=onset_permits at the 01:00 onset; charger_off ca...
+
+### `ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1` - Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger pause/ensure-on decisions cannot be audited after the fact
+thread: **energy** - status: **done** - approval: **explicit**
+_created 2026-09-08 00:10 · updated 2026-09-10 00:20 · initial_
+- **Problem / Solution:**
+  - Problem: the room coordinator logs its light/fan actuations to ura_activity_log, but the EVChargerController / SmartPlugController (energy_pool.py) log NOTHING there — so when a charger turns on/off there is no durable record of WHICH UR...
+- **Origin:** 2026-09-08 - onset diagnosis blocked because pool controller does not log actuations; operator approved building the instrumentation
+- **Why:** Without an audit trail of charger actuations + gate decisions, every future charger question is undiagnosable after log rotation — this is the prerequisite that makes the onset gap (and any charger behavior) provable.
+- **Next:** Build: activity_logger.log at each energy_pool actuation site with leg+power+onset-verdict; mutation-anchored test that a neutered log call REDs.
+- **Tags:** tier-2db, observability
+- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md
+- **Forensic keys (1):**
+  - `disposition_2026_09_10`: DONE — 2-day disposition query: bounded edge logging confirmed (4 onset_hold/4 onset_release/12 charger_on/10 charger_off = single-digit/day, NOT the v4.7.33 flood). Discriminator met.
+
 ### `FORECAST-ACCURACY-UNKNOWN-MASK-1` - forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate (rolling accuracy <=0), masking a real signal
 thread: **energy** - status: **done** - approval: **implied**
 _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
@@ -2497,6 +2447,35 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `ATTAIN-SOLAR-AGGRESSION-INVESTIGATE-1` - Attain grid-charges early and exports solar later — investigate whether it should wait for solar (findings captured, not built)
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-09-06 18:00 · initial_
+- **Problem / Solution:**
+  - Problem: the peak-buffer ATTAIN path pulls from the grid to hit 80% SOC by the 14:00 mid-peak boundary even on high-solar-forecast days, then finishes ~1h early and EXPORTS the solar it could have used. Spot-checked live (09-05 13:25-13:...
+- **Origin:** 2026-09-06 - operator side-quest — is attain aggressive vs solar (investigation + answers only)
+- **Why:** Physically confirmed it grid-charges then exports solar; but the $ impact is unpriced. Do NOT change the battery strategy without the tariff-spread number — energy strategy is the #1 regression-prone surface (ura-energy-invariants-campai...
+- **Next:** CLOSED (accept the waste). Only remaining theoretical lever = grid-charge TIMING in the arbitrage path (separate Tier-3 cycle, not a const nudge) — revive only if a future tariff/usage change makes the ~$140-270/yr worth a delicate cycle.
+- **Tags:** energy, attain, arbitrage, solar, investigation, no-fabrication-verify, spot-checked
+- **Parsimony:** [INVESTIGATE] attain grid-charges early then exports solar it could have used
+- **Refs:** docs/planning/AUDIT_attain_solar_aggression_2026_09.md (full findings + spot-check); energy_battery.py:260 (SOLAR_CAPTURE_FACTOR=0.5); energy_battery.py:_should_attain_peak_buffer / _expected_solar_surplus_pct (~3731/3978) entry-only latch + solar credit; energy_battery.py:_classify_attain_rung (~2795) solar-attainability ladder; docs/planning/PLANNING_arbitrage_solar_attainability_ladder.md; live 09-04/05/06 recorder episodes (spot-checked) (+1 more)
+- **Forensic keys (16):**
+  - `operator_refine_2026_09_09`: Operator: (1) FINANCIAL IMPACT FIRST — calculate carefully over the LAST 2 WEEKS the $ lost to grid-charge-then-export-solar (should be easy; we have the recorder history). (2) Then check the PREDICTION LOGIC that drives the attain decis...
+  - `probe_result_2026_09_09`: MEASURE-BEFORE-BUILD RESULT (14d recorder probe): under the CURRENT tariff the attain grid-charge->export pattern is NOT losing money. NEM-2.0-style: export credit == import price at the same TOU tier; attain grid-charges in the morning ...
+  - `probe_v1_refuted_2026_09_09`: Operator REFUTED the v1 probe conclusion (do NOT trust the ~\$0 wash). v1 priced loss = min(morning_gridcharge, afternoon_EXPORT) x (import-export) — export-as-proxy is WRONG for summer: the house self-consumes ~95% of solar after batter...
+  - `probe_v2_result_2026_09_09`: CORRECTED SOC-trajectory probe (14d). Operator RIGHT on the headline: import 1450 kWh vs export 118 kWh = 12.3x, so NO export-credit wash (v1 refuted). BUT the counterfactual shows on 11/13 days midday solar excess ALONE would NOT have r...
+  - `root_mechanism_2026_09_09`: ROOT FOUND (code diagnosis) — it is a TWEAK, not new machinery, exactly as the operator hoped. The attain grid-charge is a FLAT-TARGET charge, not a shortfall-sized one: both CHARGE paths command grid to a flat peak_buffer_target=80% (en...
+  - `plan_doc`: docs/planning/PLANNING_attain_shortfall_sizing.md — Tier-3; TWO framing-disjoint plan reviews IN PROGRESS before build (operator: attain is delicate, only make it better, do not screw it up).
+  - `parked_decision_2026_09_09`: PARKED (operator 2026-09-09). Both framing-disjoint PLAN reviews returned PLAN-FIX-REQUIRED with CRITICALs that kill the shortfall-sizing tweak: P1 = reserve_level is a DISCHARGE FLOOR not just a charge target (same Enphase number, Bug C...
+  - `correction_2026_09_09`: OPERATOR CORRECTED my two wrong conclusions (un-parked). (1) DO NOT PARK — the goal is to make the RAMP-TO-TARGET more PRECISE (charge exactly the grid needed, let solar cover the rest); the target level (peak_buffer_target=80) stays fix...
+  - `overlay_architecture_2026_09_09`: OPERATOR REFINEMENT (de-risks the whole thing): do the shortfall sizing as a THIN OVERLAY that does NOT modify the core attain machinery. Attain keeps emitting reserve=80 + CFG exactly as today (so discharge floor stays 80 -> NO morning ...
+  - `decision_2026_09_09_final`: VERIFIED schedule-limit NOT supported on this site (dead). Operator chose CFG ON/OFF MODULATION: reserve stays at peak_buffer_target (floor, P1 safe), turn charge_from_grid OFF when forecast solar can finish to target by boundary (rate-f...
+  - `target_latch_2026_09_09`: CONSTRAINT (operator): snapshot peak_buffer_target at morning attain-START, hold immutable intra-day (ignore live config changes mid-ramp), adopt a change the NEXT day. CFG-modulation reads the snapshot, not live config -> no intra-day t...
+  - `plan_review_adversarial_2026_09_09`: PLAN-FIX-REQUIRED. CFG-modulation collides with 3 attain mechanisms built on attain=>CFG-ON: P1 CRIT M5 drift policy (energy_battery.py:4712-4735) treats our commanded CFG-OFF as operator-override -> attain self-aborts + chunk-locks (re-...
+  - `plan_review_completeness_2026_09_09`: PLAN-FIX-REQUIRED + a decisive discovery. C-8 (CRITICAL): the plan REBUILDS existing logic — _classify_attain_rung rung_0 (energy_battery.py:2795-2960) ALREADY implements wait-for-solar (solar-alone projects SOC>=target+hysteresis -> do ...
+  - `investigation_close_2026_09_09`: Q1 (physical gate) = YES: solar charges SOC ABOVE the reserve setpoint (reserve is a discharge floor, not a charge ceiling) — 102 five-min intervals of SOC rising above reserve on midday solar (recorder 09-01..09-09). Ramp physically via...
+  - `final_close_2026_09_10`: DONE — accept ~$140-270/yr; every lever decomposed + rejected on EVIDENCE. The SOLAR_CAPTURE_FACTOR nudge BACKFIRES: reading the consumer (energy_battery.py:2963/:2988) shows it is NOT a forecast-optimism discount but an anti-double-coun...
+  - `revisit_trigger`: A tariff/usage shift materially raising the waste above ~$140-270/yr, making a separate Tier-3 grid-charge-timing cycle worth its risk. Not the capture factor (that lever backfires).
 
 ### `URA-INTEGRATION-ARRANGEMENT-1` - URA device representation rework (umbrella) — House>Rooms>Room tree, registry, reload-cascade perf, menu harmonization
 thread: **device-tree** - status: **done** - approval: **explicit**
@@ -2527,6 +2506,20 @@ _created 2026-09-05 17:05 · initial_
 - **Refs:** _devices.py:509-519 (schedule cap); _devices.py:586-590 (success branch); docs/architecture/DEVICE_TREE.md; docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md; card IDENTITY-FACE-HEALTH-BOOTCACHE-1 (same class)
 - **Forensic keys (1):**
   - `sweep_2026_09_09`: DONE — shipped v5.100.0, sweep re-arm validated in README_v5.100.0 L3 (no permanent INV-4 trip-wire; rooms nested).
+
+### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
+thread: **energy** - status: **done** - approval: **unreviewed**
+_created 2026-09-06 15:20 · initial_
+- **Problem / Solution:**
+  - Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a warning to an ERROR with a full RuntimeError ...
+- **Origin:** 2026-09-06 - v5.97.0 post-restart error_log scan
+- **Why:** Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the signal fired from a worker?).
+- **Next:** Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.
+- **Tags:** energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation
+- **Parsimony:** [BUILD] EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash
+- **Refs:** switch.py:1195-1225 (EC deferred-restore callback); v5.97.0 post-restart error_log
+- **Forensic keys (1):**
+  - `disposition_2026_09_09`: DONE — ALREADY FIXED by v5.100.3 (subsumed). Same root as ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1: HA executor-punts a non-@callback sync dispatcher target. The _handle_ec_ready OVERRIDE at switch.py:1393 lacked @callback, so the SIGNAL_...
 
 ### `DEVICE-SHELL-CLEANUP-1` - v5.94.0 left 3 empty duplicate coordinator device records on the parent entry + a same-identifier nesting mis-wire — remove shells, fix the D-NEST sweep resolution
 thread: **platform** - status: **done** - approval: **explicit**
@@ -3285,6 +3278,23 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:40 · refined_
 - **Forensic keys (2):**
   - `forensic_fix`: energy_battery.py:5759 in _next_action_estimate: replace `drain = self._drain_targets.get(tomorrow_class, ...)` (naive single-day) with `drain = self.current_offpeak_drain_target()` (:1735, the composed multi-day-max the decision + the c...
   - `DEDUPE_2026_08_25`: DUPLICATE of PLANNING_offpeak_drain_target_day_staleness.md D3/H-1, which already routes _next_action_estimate through _drain_target_for and has test_next_action_estimate_uses_shared_helper(). Not a new fix — folded into the midnight cyc...
+
+### `LOVELACE-AUTO-ROOM-DASHBOARD-1` - URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards so any new room appears automatically
+thread: **dashboarding** - status: **done** - approval: **implied**
+_created 2026-09-09 09:10 · updated 2026-09-09 23:45 · initial_
+- **Problem / Solution:**
+  - Problem: rooms were added but the URA v8 and v6 Lovelace dashboards were hand-authored and do not show them — every new room requires a manual dashboard edit. Solution: (1) update v8 + v6 now to include the missing rooms; (2) adopt a str...
+- **Why:** Manual dashboard upkeep drifts from reality the moment a room is added; auto-generation keeps the dashboard truthful for free.
+- **Next:** DONE (patch). Operator visual-confirm the rooms show in v8 Residence + v6 Rooms. Rich per-room controls (bubble-card aesthetic) come via LOVELACE-DECLUTTER-MIGRATION-1, which will reuse this config-driven generator + auto-derive from the...
+- **Refs:** docs/dashboards/ (card snippet docs); .storage/lovelace.* (live dashboard configs)
+- **Forensic keys (7):**
+  - `sweep_verdict`: NEW (adjacency sweep 2026-09-09). DASH-SOLAR-EV-CENSUS-1 is card-specific v6+v8 enrichment (ADJACENT not duplicate); no auto-generate-room-cards item on board/BACKLOG/DASHBOARD_BACKLOG.
+  - `investigation_2026_09_09`: VERIFIED live (.storage). Registry has 42 rooms (ENTRY_TYPE_ROOM config entries). v8 (ura_v8, sections view Residence) covers 34 -> 8 MISSING (Media, Master Hallway, Upstairs Guestroom, Master Bath Toilet, Guest Bedroom 1 Bathroom, Guest...
+  - `aesthetics_finding_2026_09_09`: Operator: decluttering preferred BUT must keep the aesthetics — possible? ANSWER: decluttering-card substitutes variables into the SAME card structure, so the RENDERED card is pixel-identical — aesthetics ARE preservable. BUT the room ca...
+  - `patch_shipped_2026_09_09`: PATCH DONE (config-driven, per operator: each room config is self-contained).
+  - `patch_detail`: Added a Recently Added Rooms section to v8 Residence (4 rooms: Master Hallway, Upstairs Hallway, Guest Bedroom 2 Hallway, Up Guestbedroom Closet) and v6 Rooms view (13 rooms incl. Master Bedroom, Master Bathroom, Media, Laundry, Kitchen ...
+  - `generator_shipped_2026_09_09`: SHIPPED via scripts/gen_room_dashboard.py (re-runnable, config-driven, idempotent = the auto-add tool). v8: removed interim entities-cards; MOVED miscontained rooms out of Unzoned into their real zones (Butler Pantry/Laundry/Guest1Closet...
+  - `operator_confirmed`: Operator 2026-09-09: Lovelace is fine. 42 rooms zone-grouped, generator shipped. DONE.
 
 ## 🅿️ Parked ideas (top-level list)
 

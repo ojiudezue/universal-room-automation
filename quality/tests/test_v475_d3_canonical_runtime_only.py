@@ -112,6 +112,10 @@ def test_v475_d3_canonical_callers_all_in_allowlist():
         "button.py",                 # per-zone platform setup
         "number.py",                 # per-zone platform setup
         "sensor.py",                 # per-zone platform setup
+        # v4.7.8 D5: per-canonical-HVAC-zone egress-window-open rollup
+        # sensor is created per zone at CM binary_sensor setup — same
+        # per-zone platform-setup runtime pattern as sensor/button/number.
+        "binary_sensor.py",          # per-zone platform setup
         # v4.7.7 B3 / A4: CM-entry-setup entity_registry migration loops
         # iterate canonical zones to enumerate per-zone unique_ids for
         # DPM sensor device move + AC ramp sensor entity_id rename.
