@@ -13009,7 +13009,7 @@ cards:
 - id: FROZEN-POWER-READ-STALENESS-CLASS-1
   title: 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
   thread: energy
-  status: pre_planning
+  status: review
   created: 2026-08-31 20:45
   updated: 2026-08-31 20:45
   refinement_status: initial
@@ -13031,6 +13031,7 @@ cards:
     the exact duplication the operator flagged.'
   constraints: ['Energy trust path -> Tier 2-DB. A shared helper touching 4+ decision reads is regression-prone.']
   operator_refine_2026_09_09: 'Operator Q: is the staleness sensor separate, or does it change state in place? And if separate, does it consolidate the 3 or hold per-read states in details? Proposed answer (confirm in plan): TWO layers. (1) DECISION layer = a shared helper (_state_age_s) applied INLINE at each read site — a frozen-valid read is treated as stale IN PLACE (hold/fall-back exactly like unavailable), no new sensor needed for the decision. (2) OBSERVABILITY = ONE consolidated diagnostic sensor (e.g. sensor.ura_energy_stale_reads) whose STATE is a count/worst, with PER-READ states in ATTRIBUTES (net_power/battery_power/primary_soc/solar: fresh|stale + age_s). So: separate sensor for visibility that consolidates all reads with per-read detail in attributes; the reads themselves are corrected in place.'
+  build_2026_09_09: 'BUILT on feature/energy-validate-staleness. Reused existing _read_fresh_float helper + DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S=300 (kill-switch at 0). Gated the PRIMARY SOC reads (soc_envelope + envoy_available). *** OPERATOR DECISION FLAGGED (MED-2 conflict): the card targeted net_power + battery_power too, but a RECORDED Tier-3 MED-2 design decision (energy_const.py:339-345) says DEFAULT_NET_POWER_MAX_AGE_S must NOT be applied to the producer path used by arbitrage/breaker. Builder correctly did NOT gate net_power/battery_power and flagged it. So the frozen-valid hazard on those two remains, BY PRIOR DESIGN. Observability for all 4 sources already ships (sensor.py:13540-13680 EnvoyStatus._classify_sources). *** Awaiting Tier-3 reviews.'
   next: 'Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness
     helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.'
   refs: ['Envoy no-dup audit 2026-08-31', 'energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975']
@@ -13085,7 +13086,7 @@ cards:
   title: No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity
     and oscillate EV pause/resume; the parked fix's trigger has now fired
   thread: energy
-  status: pre_planning
+  status: review
   created: 2026-08-24 16:45
   updated: 2026-08-24 16:45
   refinement_status: initial
@@ -13122,6 +13123,7 @@ cards:
       no guard.
     verdict: BUILD
   operator_refine_2026_09_09: 'Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the specific inversion and refuses the save (operator must fix), SINCE these are operator-set knobs. PLUS a runtime guard because several thresholds are live Number entities that can invert without a config-flow save: on a detected inverted ladder at decision time, fall back to a safe conservative ordering AND raise an anomaly->NM so the bad state is visible, not silent. Action = reject-at-save + runtime-safe-fallback+alert.'
+  build_2026_09_09: 'BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() accessor. 6 canonical ladder rules derived + documented (CANONICAL_SOC_LADDER_DOC). 18 tests, 3 wire-in anchors mutation-verified. Note: safely_ordered_ladder() has no consumers switched onto it yet (follow-up); today the visible surface is the anomaly+warning. Awaiting Tier-3 reviews.'
   next: Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs
     to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches
     a shared validator consumed across EC).
