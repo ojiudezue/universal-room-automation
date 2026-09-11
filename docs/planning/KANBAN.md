@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T17:59:44-05:00_ - _Data commit: `1f0cbcc0e894`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T18:08:51-05:00_ - _Data commit: `4b27ee200f2c`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -31,12 +31,12 @@ _(none)_
 ## 🔬 Investigating (30)
 _measuring; truth not yet known_
 
-### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - Full-suite collection (now enabled) exposes a pre-existing monkeypatch-divergence failure in test_ble_hold_cap — _#1 · WSJF 8.5 · v5 tc8 u4 /e2 ⚠_
+### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **quality** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-11 18:20 · initial_
+_created 2026-09-11 18:20 · updated 2026-09-11 18:35 · refined_
 - **Problem / Solution:**
   - Problem: fixing const-stub isolation lets the full test suite collect for the first time, which now RUNS a previously-unreached test (test_ble_hold_cap::test_cap_seconds_helper_reads_room_type_from_dict_not_default) that FAILS: its monke...
-- **Next:** DECIDE the Fix-2 branch (narrow-preload vs fix-the-test); gates shipping PYTEST-CONST-STUB-ISOLATION green.
+- **Next:** CARD/PARK: order-dependent — passes alone + in the arbitrage pair, fails in some 4+-file orderings. Pre-existing (before Fix 2 it was masked by collection-abort). Fix belongs to the SUITE-ORDER-POLLUTION / TEST-STRATEGY-REARCH cluster (p...
 - **Tags:** tier-1
 - **Refs:** builder report v5.100.9 tier1-gate-and-knobs
 
@@ -1240,7 +1240,7 @@ _created 2026-08-26 03:10 · updated 2026-09-11 16:45 · refined_
 
 ### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **in_progress** - approval: **explicit**
-_created 2026-09-06 18:10 · updated 2026-09-11 18:20 · refined_
+_created 2026-09-06 18:10 · updated 2026-09-11 18:35 · refined_
 - **Problem / Solution:**
   - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
 - **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation

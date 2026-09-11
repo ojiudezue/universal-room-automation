@@ -496,7 +496,7 @@ cards:
   thread: quality
   status: in_progress
   created: 2026-09-06 18:10
-  updated: 2026-09-11 18:20
+  updated: 2026-09-11 18:35
   refinement_status: refined
   problem_solution:
   - 'Problem: running the whole test suite in one pytest process fails to even collect — some tests import
@@ -531,8 +531,7 @@ cards:
     context: Child of TEST-STRATEGY-REARCH-1. MEASURED residual of SUITE-HYGIENE-1 (done) whose fixture
       deliberately EXCLUDED the const namespace (conftest.py:27-33 net-zero) — not dup, not fresh; card
       (09-06) postdates the fixture.
-    blocked_by:
-    - BLE-HOLD-CAP-SUITE-POLLUTION-1
+    blocked_by: []
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL child of REARCH, measured residual of SUITE-HYGIENE-1. Promoted inbox
     -> pre_planning.'
@@ -15875,15 +15874,15 @@ cards:
     - KANBAN-WSJF-RENDERER-1
     context: The renderer + skill edits are the content this publishes; publish only once they settle.
 - id: BLE-HOLD-CAP-SUITE-POLLUTION-1
-  title: Full-suite collection (now enabled) exposes a pre-existing monkeypatch-divergence failure in
-    test_ble_hold_cap
+  title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
+    (passes alone/in pairs)
   thread: quality
   status: investigating
   created: 2026-09-11 18:20
-  updated: 2026-09-11 18:20
-  refinement_status: initial
+  updated: 2026-09-11 18:35
+  refinement_status: refined
   approval: unreviewed
-  live_broken: true
+  live_broken: false
   tags:
   - tier-1
   problem_solution:
@@ -15896,17 +15895,25 @@ cards:
     preload key (likely closes it, keeps the collection fix) OR (b) keep broad Fix-2 and fix the ble_hold_cap
     test monkeypatch to target the runtime-resolved const module. Discriminator between artifact-of-Fix-2
     vs genuine-latent-bug decides which.'
-  next: DECIDE the Fix-2 branch (narrow-preload vs fix-the-test); gates shipping PYTEST-CONST-STUB-ISOLATION
-    green.
+  next: 'CARD/PARK: order-dependent — passes alone + in the arbitrage pair, fails in some 4+-file orderings.
+    Pre-existing (before Fix 2 it was masked by collection-abort). Fix belongs to the SUITE-ORDER-POLLUTION
+    / TEST-STRATEGY-REARCH cluster (per-test const-stub save/restore or monkeypatch hardening), NOT a
+    v5.100.9 blocker.'
   links:
     related:
     - PYTEST-SUITE-CONST-STUB-ISOLATION-1
-    blocks:
-    - PYTEST-SUITE-CONST-STUB-ISOLATION-1
-    context: This failure is only visible because PYTEST-CONST-STUB-ISOLATION enabled full-suite collection;
-      it gates that card shipping green.
+    - SUITE-ORDER-POLLUTION-1
+    - TEST-STRATEGY-REARCH-1
+    context: Same class as SUITE-ORDER-POLLUTION-1 (order-dependent sys.modules pollution). Surfaced by
+      PYTEST-CONST-STUB-ISOLATION only because collection now succeeds; NOT introduced by it. The durable
+      fix is the TEST-STRATEGY-REARCH pollution work.
   refs:
   - builder report v5.100.9 tier1-gate-and-knobs
+  disposition:
+  - 'DIAGNOSED 2026-09-11: narrow Fix 2 did NOT close it (builder "likely" was wrong), but it is NOT a
+    Fix-2 artifact — passes alone AND in the arbitrage pair, fails only in some multi-file orderings =
+    pre-existing SUITE-ORDER-POLLUTION. Collection now clean (10376). Reclassified live_broken=false,
+    unblocked the const-stub card, linked to the order-pollution cluster.'
 - id: CHECKOUT-CONCURRENT-RESET-HAZARD-1
   title: Homelab board-refresh automation runs git reset --hard on develop, destroying concurrent uncommitted
     work (agent + builder)
