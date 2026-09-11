@@ -372,7 +372,7 @@ cards:
   thread: quality
   status: pre_planning
   created: 2026-09-07 00:30
-  updated: 2026-09-11 15:54
+  updated: 2026-09-11 16:12
   refinement_status: refined
   problem_solution:
   - 'Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover)
@@ -422,7 +422,20 @@ cards:
     keeps CONF_PERIMETER_CAMERAS/CONF_EGRESS_CAMERAS off the allowlist for this exact reason. Promoted
     inbox -> pre_planning; measure-first gate set. Not a dup of the reload-storm (opposite failure, same
     primitive) -> related link.'
-  parsimony: {}
+  - 'QUANTIFIED 2026-09-11 (live config read, mount /Users/okosisi/ha-config): camera_person_entities
+    is essentially ONE house-level list of 12 cameras (parent "Universal Room Automation" entry, options)
+    + a 1-camera Game Room override. NOT 40 per-room lists. Change frequency = RARE (only on a physical
+    camera install/remove, months apart) -> leak EXPOSURE is low. CRUCIAL CONSTRAINT: the 12-cam list
+    lives on the PARENT entry, so fix (b) "remove from allowlist so edits reload" would trigger the exact
+    parent-reload WATCHDOG HAZARD the allowlist exists to prevent -> (b) is OUT for this key. Fix must
+    be (a) real discharge or (c) structural subentries. Parsimony steer: SIMPLIFY/PARK — for a months-apart
+    event, document the "restart HA after adding/removing an interior camera" workaround rather than a
+    Tier-2DB build, UNLESS the structural subentries migration (Tier-3 D3.a) picks it up for free. Operator
+    decision: park w/ workaround, or fold into the subentries migration.'
+  parsimony:
+    problem: Adding/removing an interior camera does not update room occupancy until an HA restart (map
+      _cameras_by_area never rebuilds on the suppressed reload).
+    verdict: SIMPLIFY-OR-PARK
 - id: KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1
   title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context
     light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
@@ -575,7 +588,7 @@ cards:
   thread: platform
   status: waiting_operator
   created: 2026-09-01 17:40
-  updated: 2026-09-11 15:52
+  updated: 2026-09-11 16:12
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -611,6 +624,13 @@ cards:
     mount read this session. Moved inbox -> waiting_operator: part (a) fix mount paths in CLAUDE.md +
     skills is a low-risk doc edit but touches canonical policy (CLAUDE.md) so awaits operator go; part
     (b) the .vibememo/users/ojiudezue identity dir is NOT a path — scope separately, do not blind-replace.'
+  - 'MOUNT RE-CHECKED 2026-09-11: the mount WORKS once mounted at the correct path — remounted this session
+    at /Users/okosisi/ha-config (mount_smbfs //homeassistant@192.168.13.13/config), .HA_VERSION=2026.9.1,
+    .storage readable. Confirms the card: the DOC path /Users/ojiudezue is simply wrong on this machine
+    (user=okosisi); the real mountpoint is /Users/okosisi/ha-config. It just needs (1) docs corrected
+    and (2) a remount when down. Part-(a) doc fix (CLAUDE.md Data Source Verification + ~10 skill files:
+    ojiudezue->okosisi in MOUNT PATHS ONLY) is low-risk + reversible; awaiting operator go since it edits
+    canonical CLAUDE.md. Part-(b) .vibememo/users/ojiudezue identity dir stays out of scope (not a path).'
 - id: HA-2026-9-VIA-DEVICE-COMPAT-1
   title: HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a
     hard error; every coordinator entity failed to add (live outage)

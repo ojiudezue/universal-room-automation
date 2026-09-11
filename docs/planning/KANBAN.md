@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T15:52:43-05:00_ - _Data commit: `02b1429a75fd`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T15:53:52-05:00_ - _Data commit: `839f5b11829a`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -669,13 +669,14 @@ _idea being decomposed_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
 thread: **quality** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-09-07 00:30 · updated 2026-09-11 15:54 · refined_
+_created 2026-09-07 00:30 · updated 2026-09-11 16:12 · refined_
 - **Problem / Solution:**
   - Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover) that decides which camera extends which room's occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has been on the reload-s...
 - **Origin:** 2026-09-07 - Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
 - **Why:** A suppressed reload that leaves an occupancy-decision map stale is a silent correctness regression; it predates the current cycle but the cycle's review surfaced it and it should not ride indefinitely.
 - **Next:** MEASURE-FIRST (sizes the fix): how often does CONF_CAMERA_PERSON_ENTITIES actually change? (likely rare). Then pick fix: (a) wire a real discharge — re-run async_discover with merged lists on SIGNAL_URA_TRANSIT_CONFIG_CHANGED so _cameras...
 - **Tags:** no-fabrication-verify, tier-2db
+- **Parsimony:** [SIMPLIFY-OR-PARK] Adding/removing an interior camera does not update room occupancy until an HA restart (map _cameras_by_area never rebuilds on the suppressed reload).
 - **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
 - **Forensic keys (2):**
   - `links`: related: RELOAD-WATCHDOG-HAZARD
@@ -1357,7 +1358,7 @@ _created 2026-09-06 18:35 · updated 2026-09-11 15:52 · initial_
 
 ### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-01 17:40 · updated 2026-09-11 15:52 · initial_
+_created 2026-09-01 17:40 · updated 2026-09-11 16:12 · initial_
 - **Problem / Solution:**
   - Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that path does not exist on this machine (verified: ls -> No such file or directory); the live mount is /Users/okosisi/ha-config (.HA_VERSION...
 - **Origin:** 2026-09-01 - EC-1 plan-review side-finding — documented mount path does not exist
