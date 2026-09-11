@@ -54,6 +54,28 @@ Two observed failure modes this system exists to kill:
 - **Discoverability:** a one-line pointer in MEMORY.md so the board is found at session start
   even after compaction.
 
+## When to load this skill — invocation points (auto-load + explicit)
+
+This skill is meant to be **loaded at session start automatically** and re-entered at specific
+events, not left to memory. Two mechanisms guarantee the session-start load: a `SessionStart` hook
+in `.claude/settings.json` injects a load-reminder + disposition/stale check, and a CLAUDE.md
+session-start line names it. Load it (via the `Skill` tool) at **every** point below:
+
+| Invocation point | Why |
+|---|---|
+| **Session start** (auto — hook + CLAUDE.md) | Read the board, apply queued operator dispositions, run `kanban_render.py --check`, reconcile before reporting status. |
+| **Every operator push / new request** | Capture the card(s) the same turn, before acting (capture-first). |
+| **Any mid-turn discovery** (a bug/knob/constraint surfaced inside a tool result) | Card it before continuing — mid-turn finds are the most fragile. |
+| **Before writing a planning doc** | Harvest the relevant cards into the plan (the anti-entropy handoff). |
+| **Before dispatching a build** | Board maintenance — move the target card to In-progress, reconcile siblings. |
+| **Deploy / commit / README write-back** | Reconcile In-progress → Review → Shipped (release-coupled gate). |
+| **Turn end** (state changed) | Move cards, re-render, redeploy the Artifact. |
+| **Grooming / lull / overnight** | Sweep, dedupe, link, AND score (`rank:` inputs) — ranking is part of grooming. |
+| **Picking "what's next"** | The WSJF-ranked board is the source of the next task — drive from it, don't ask. |
+
+If the skill is already loaded this session, re-entry is cheap — follow it; do not re-ask whether
+to load it.
+
 ## The one rule: capture-first
 
 Every operator push AND every pre-planning idea the model generates lands in
@@ -781,18 +803,81 @@ only doing this organically. Every Pre-planning card shows its verdict before pr
 
 ## Ranking & sequencing — batch by affinity, order by dependency
 
-Cards are not a flat list. Rank/sequence by, in priority:
+Cards are not a flat list, and ranking is **computed, not eyeballed** — a deterministic score so
+the drive-loop picks the same "next" every time and the renderer can show it. The model is **WSJF**
+(Weighted Shortest Job First): cost-of-delay over job-size (operator-finalized 2026-09-11).
 
-1. **Dependency (hard order)** — X precedes Y when Y trusts X's output. Record as `blocks:`/`after:`.
-2. **Affinity / batch** — cards touching the same primitive, review cycle, or surface ship as one
-   `batch:` (one build, one Tier-2DB review, shared context) — not scattered across cycles.
-3. **Leverage** — foundational / shared-primitive work first; it de-risks everything downstream.
-4. **Unblocked-ness** — prefer `implied`/`explicit` cards with no pending decision; `blocked` waits.
-5. **Freshness / cost-of-delay** — a live-broken bug jumps the queue *unless* it folds into a
-   batched cycle (then it rides that cycle rather than spawning a one-off).
+### The WSJF score (renderer-computed, shown on every card)
 
-Record `batch:` (named group) and optional `seq:` (order within/among batches) on cards. Do not
-start a card whose `after:` dependency is unmet, or a `blocked` card, no matter how appealing.
+```
+WSJF = (value + time_criticality + unblock) / effort          # rounded to 1 decimal
+```
+
+| Factor | Range | Source |
+|---|---|---|
+| **value** | 1–10 | card field `rank.value` (default **5**) — user / $ / safety / correctness impact |
+| **time_criticality** | 1–10 | `rank.time_criticality` (default **3**); a `live_broken: true` card floors at **8** — how fast the cost of delay grows |
+| **unblock** | 1–10 | **computed** (see below) — never hand-stored, so it cannot drift |
+| **effort** | fib | `rank.effort` override, else from tier tag: T1=2, T2=5, T2-DB=8, T3=13, untiered=5 |
+
+**`unblock` is leverage, and leverage is more than links (operator-coined 2026-09-11).** A platform
+enabler that everything quietly stands on is a true unblock even when no card drew the edge. So:
+
+```
+unblock = min(10, max( 2 + 2×(#cards this blocks),  foundational ))
+```
+- link component `2 + 2×fanout` — from `links.blocks` plus the reverse of others' `blocked_by`/`after`.
+- `foundational` — `rank.foundational` (0–10) set on genuine platform pieces, OR a floor of **6** if
+  tagged `platform-enabler` / `shared-primitive`, else 0. The larger of the two wins.
+- **Standing foundational pieces that MUST carry `foundational`** (their leverage is otherwise
+  invisible): the camera/identity **resolver**, the **egress-identity producer**, the **census dedup**
+  producer, the **TOU / arbitrage resolver**, the **signal/dispatch bus**, the **reload-suppression
+  primitive**, the **test-strategy re-arch** (unblocks all test work). When you build a new primitive
+  many cards will consume, set its `foundational` the same turn.
+
+### Ordering — per-lane, at all times
+
+**Within EVERY lane, cards render first→last by WSJF descending** (ranks are *per-lane*, so each
+lane shows its own #1, #2, …). Ties break by: (1) **batch-affinity** with an `in_progress` card
+(ship the batch together), (2) **unblock** desc, (3) **oldest `updated`** (anti-starvation — a card
+never rots at the bottom forever). The one exception is `done`, which renders newest-first (WSJF is
+meaningless once shipped). Each card header shows `#<lane-rank> · WSJF X.X · (v… tc… u… / e…)` so the
+score is inspectable at a glance; a `⚠ default-scored` marker flags cards running on tier+link
+defaults so scoring effort lands where it matters.
+
+### Selection — display ranks per lane, the loop picks globally
+
+Display is per-lane; the **drive-loop picks the globally highest-WSJF card that passes the
+eligibility filter** — deps (`blocked_by`/`after`) all `done`, `approval != blocked`, and (Tier 3+)
+`approval == explicit`. That card is always some lane's #1, so the per-lane #1s are the candidate
+pool and the agent takes the best of them. Do not start a card whose `after:` is unmet or a
+`blocked` card, however high its raw score. Record `batch:` (named group) and optional `seq:` on
+cards; `rank:` holds `value` / `time_criticality` / `effort` / `foundational` (all optional — the
+board ranks on defaults until they are set).
+
+### Re-evaluate on every move — and score AS you groom (operator-coined 2026-09-11)
+
+Two things keep ranks honest:
+
+1. **Ranks recompute on every render.** WSJF is a pure function of the data, so re-running
+   `kanban_render.py` after any change re-orders every lane automatically — a card moved between
+   lanes lands at its correct per-lane rank with no manual renumbering. This is *why* the turn-end
+   / status-change render hook is load-bearing: a lane move without a re-render leaves the shown
+   order stale even though the data implies the new one. **Render after every status move.**
+2. **But the score INPUTS are not automatic — revisit them when the card materially changes.** A
+   lane move often changes what the card is worth or costs: promoting `investigating → planned`
+   sharpens `effort`; a measurement that lands changes `value`; a dependency clearing raises other
+   cards' `unblock`; a scope cut lowers `effort`. When you move or materially edit a card, re-check
+   its `rank:` inputs in the same edit, exactly as you re-check its `status` and `links` (the
+   "status must track reality" discipline, applied to score).
+
+**Ranking is a core part of grooming, not a separate chore.** Every groom pass — the inbox-hygiene
+sweep, the overnight reconcile, a disposition — **sets or refreshes the card's `rank:` inputs**
+(at minimum `value` and `effort`; `foundational` for platform pieces) alongside its verdict and
+links. A groomed board is not just correctly-laned and de-duped — it is *scored*, so the drive-loop
+can pick from it. An un-scored card after grooming is an unfinished groom, the same way an
+un-lane'd or un-swept card is. The `⚠ default-scored` marker is the tripwire: cards still wearing it
+after a groom are the ones the sweep skipped.
 
 ### 6. Concurrency — the depletion lever
 

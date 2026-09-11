@@ -90,6 +90,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json;print(json.dumps({'hookSpecificOutput':{'hookEventName':'SessionStart','additionalContext':'ura-kanban session start: LOAD the ura-kanban skill now. Then apply any queued operator dispositions (docs/planning/kanban.dispositions.pending.jsonl), run python3 scripts/kanban_render.py --check (exit 0=fresh, 2=stale, 3=unapplied dispositions) and reconcile BEFORE reporting status. The WSJF-ranked board is the source of what to work next; drive Tier<=2 autonomously after the parsimony/cost-benefit gate, pause for Tier 3+.'}}))\"",
+            "statusMessage": "ura-kanban session-start reminder"
+          }
+        ]
+      }
     ]
   }
 }

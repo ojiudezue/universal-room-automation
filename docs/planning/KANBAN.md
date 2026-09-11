@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T17:47:15-05:00_ - _Data commit: `760215cddf77`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T17:49:38-05:00_ - _Data commit: `32e5faf5d2c3`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,9 +13,9 @@ _Generated: 2026-09-11T17:47:15-05:00_ - _Data commit: `760215cddf77`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 29 |
-| 🧭 Pre-planning | 31 |
+| 🧭 Pre-planning | 32 |
 | 📝 Planned | 19 |
-| 🔨 In progress | 4 |
+| 🔨 In progress | 5 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 20 |
@@ -500,7 +500,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
 
-## 🧭 Pre-planning (31)
+## 🧭 Pre-planning (32)
 _idea being decomposed_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -928,6 +928,16 @@ _created 2026-08-28 12:00 · updated 2026-09-11 16:14 · refined_
   - `links`: related: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   - `disposition`: GROOM 2026-09-11: VERDICT REAL, ADJACENT near-twin (NOT duplicate) of PERIMETER-ALERT-NAME-PERSON-1 — different producer/coordinator/wire-in, deliberately ordered pair. Promoted inbox -> pre_planning, linked sibling_of + blocked_by egres...
 
+### `SKILL-PUBLISH-SYNC-AUTOKANBAN-1` - Sync settled ura-kanban edits -> published auto-kanban skill (+ README) in productmind-skills, generalized
+thread: **tooling** - status: **pre_planning** - approval: **explicit**
+_created 2026-09-11 16:55 · initial_
+- **Problem / Solution:**
+  - Problem: ura-kanban (URA-specific) is published generically as skills/auto-kanban in ~/Code/productmind-skills, and the recent edits (WSJF ranking, waiting_operator verb rule, drive-from-board autonomy ladder + ambiguous-gate escalation,...
+- **Next:** AFTER ura-kanban edits settle: diff ura-kanban vs skills/auto-kanban, port the new sections generalized, update README.md, commit to productmind-skills.
+- **Refs:** ~/Code/productmind-skills/skills/auto-kanban/SKILL.md; ~/Code/productmind-skills/README.md
+- **Forensic keys (1):**
+  - `links`: related: KANBAN-WSJF-RENDERER-1
+
 ## 📝 Planned (19)
 _has plan / acceptance_
 
@@ -1241,7 +1251,7 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
   - `relane_2026_09_10`: Not a soak -> PLANNED. Phase-1 (panel/static-path deregistration) shipped v5.100.5 + live-clean (panels gone from sidebar, setup symmetry tests green). Phase-2 = delete frontend/ + frontend-v3/ dirs + the deploy.sh frontend line; trigger...
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
 
-## 🔨 In progress (4)
+## 🔨 In progress (5)
 _being built_
 
 ### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
@@ -1294,6 +1304,15 @@ _created 2026-08-26 03:10 · updated 2026-09-11 16:45 · refined_
 - **Forensic keys (2):**
   - `links`: related: ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1
   - `disposition`: GROOM 2026-09-11: VERDICT REAL cosmetic Tier 1, two faces of one root w/ DEGENERATE-PAIR. Promoted inbox -> pre_planning.
+
+### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card
+thread: **tooling** - status: **in_progress** - approval: **explicit**
+_created 2026-09-11 16:55 · initial_
+- **Problem / Solution:**
+  - Problem: the board has no computable ranking, so an agent driving work autonomously cannot deterministically pick the next card, and lanes render in arbitrary order. Solution: implement WSJF = (value+time_criticality+unblock)/effort in s...
+- **Next:** DRIVE (approved): implement WSJF compute + per-lane sort + display in kanban_render.py; add rank: schema (value/time_criticality/effort/foundational) to a few cards to validate; verify --check still works. Then backfill rank inputs as gr...
+- **Tags:** numbers-get-knobs
+- **Refs:** .claude/skills/ura-kanban/SKILL.md (Ranking & sequencing — WSJF spec)
 
 ## 🔍 Review (1)
 _under review_

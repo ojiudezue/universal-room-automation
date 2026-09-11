@@ -15821,6 +15821,57 @@ cards:
     by the decluttering migration or a per-room co-repoint (benign meanwhile). Applied on next HA restart.'
   refs:
   - scripts/gen_room_dashboard.py
+- id: KANBAN-WSJF-RENDERER-1
+  title: Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every
+    card
+  thread: tooling
+  status: in_progress
+  created: 2026-09-11 16:55
+  updated: 2026-09-11 16:55
+  refinement_status: initial
+  approval: explicit
+  approved_by: operator 2026-09-11 ("sort by it and SHOW it")
+  problem_solution:
+  - 'Problem: the board has no computable ranking, so an agent driving work autonomously cannot deterministically
+    pick the next card, and lanes render in arbitrary order. Solution: implement WSJF = (value+time_criticality+unblock)/effort
+    in scripts/kanban_render.py — compute per card (unblock from links.blocks fan-out max foundational;
+    effort from tier; defaults when unscored), sort EVERY lane first->last by WSJF desc (ties: batch-affinity>unblock>oldest-updated;
+    done=newest-first), and show #lane-rank + WSJF + factor breakdown + a default-scored marker on each
+    card in KANBAN.md + HTML.'
+  next: 'DRIVE (approved): implement WSJF compute + per-lane sort + display in kanban_render.py; add rank:
+    schema (value/time_criticality/effort/foundational) to a few cards to validate; verify --check still
+    works. Then backfill rank inputs as grooming.'
+  refs:
+  - .claude/skills/ura-kanban/SKILL.md (Ranking & sequencing — WSJF spec)
+  tags:
+  - numbers-get-knobs
+- id: SKILL-PUBLISH-SYNC-AUTOKANBAN-1
+  title: Sync settled ura-kanban edits -> published auto-kanban skill (+ README) in productmind-skills,
+    generalized
+  thread: tooling
+  status: pre_planning
+  created: 2026-09-11 16:55
+  updated: 2026-09-11 16:55
+  refinement_status: initial
+  approval: explicit
+  approved_by: operator 2026-09-11 ("publish... or update it since thats where it IS published, including
+    its readme")
+  problem_solution:
+  - 'Problem: ura-kanban (URA-specific) is published generically as skills/auto-kanban in ~/Code/productmind-skills,
+    and the recent edits (WSJF ranking, waiting_operator verb rule, drive-from-board autonomy ladder +
+    ambiguous-gate escalation, rank-as-grooming, auto-load/invocation clarity) have not been ported. Solution:
+    once the ura-kanban edits SETTLE, port them into skills/auto-kanban product-neutral (strip URA coordinator/card
+    specifics) and update that repo README.md to describe the new ranking + autonomy flow; commit to productmind-skills
+    (GitHub + homelab Gitea per dual-commit rule).'
+  next: 'AFTER ura-kanban edits settle: diff ura-kanban vs skills/auto-kanban, port the new sections generalized,
+    update README.md, commit to productmind-skills.'
+  refs:
+  - ~/Code/productmind-skills/skills/auto-kanban/SKILL.md
+  - ~/Code/productmind-skills/README.md
+  links:
+    related:
+    - KANBAN-WSJF-RENDERER-1
+    context: The renderer + skill edits are the content this publishes; publish only once they settle.
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -1,5 +1,22 @@
 # URA Project Instructions
 
+## Session start — load the kanban, drive from it — MANDATORY
+
+At the **start of every session**, load the `ura-kanban` skill (via the `Skill` tool) before
+reporting status. A `SessionStart` hook also reminds you. Then: apply any queued operator
+dispositions (`docs/planning/kanban.dispositions.pending.jsonl`), run
+`python3 scripts/kanban_render.py --check` (exit 2 = stale, 3 = unapplied dispositions), and
+reconcile the board **before** reporting status.
+
+The board (`docs/planning/kanban.data.yaml`) is the **source of what to work next**, WSJF-ranked
+per lane. **Drive from it, don't pause for permission on ordinary work:** Tier ≤ 2 cards are driven
+autonomously after a parsimony / cost-benefit gate (BUILD/SIMPLIFY → go; PARK/DROP → park; ambiguous
+→ page the operator via NM + park `waiting_operator`); Tier 3+ pauses for operator approval. After a
+card ships or parks, pick the next eligible card and keep going — report at ships/batches/Tier-3
+gates, not after every card. The full protocol (capture-first, adjacency sweep, ranking, autonomy
+ladder) lives in the `ura-kanban` skill; re-enter it at every push, mid-turn discovery, build
+dispatch, and turn-end reconcile.
+
 ## Sibling project: Shipwatch
 
 Shipwatch (post-deploy acceptance-hypothesis watcher) lives as a
