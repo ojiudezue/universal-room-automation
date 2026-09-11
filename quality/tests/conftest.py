@@ -134,21 +134,18 @@ _REAL_LEAF_TARGETS = (
         "const.py",
         (
             "custom_components.universal_room_automation.const",
-            "universal_room_automation.const",
         ),
     ),
     (
         "domain_coordinators/signals.py",
         (
             "custom_components.universal_room_automation.domain_coordinators.signals",
-            "universal_room_automation.domain_coordinators.signals",
         ),
     ),
     (
         "domain_coordinators/hvac_const.py",
         (
             "custom_components.universal_room_automation.domain_coordinators.hvac_const",
-            "universal_room_automation.domain_coordinators.hvac_const",
         ),
     ),
 )
