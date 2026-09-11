@@ -498,9 +498,9 @@ cards:
   title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown
     location') while every file passes in isolation
   thread: quality
-  status: in_progress
+  status: review
   created: 2026-09-06 18:10
-  updated: 2026-09-11 18:35
+  updated: 2026-09-11 19:15
   refinement_status: refined
   problem_solution:
   - 'Problem: running the whole test suite in one pytest process fails to even collect — some tests import
@@ -532,15 +532,20 @@ cards:
     related:
     - SUITE-HYGIENE-1
     - SUITE-ORDER-POLLUTION-1
-    context: Child of TEST-STRATEGY-REARCH-1. MEASURED residual of SUITE-HYGIENE-1 (done) whose fixture
+    context: 'Child of TEST-STRATEGY-REARCH-1. MEASURED residual of SUITE-HYGIENE-1 (done) whose fixture
       deliberately EXCLUDED the const namespace (conftest.py:27-33 net-zero) — not dup, not fresh; card
-      (09-06) postdates the fixture.
-    blocked_by: []
+      (09-06) postdates the fixture. HELD: shipping this enables collection which exposes 87 pre-existing
+      order-pollution failures -> the full-suite gate goes RED. Cannot ship until SUITE-ORDER-POLLUTION/TEST-STRATEGY-REARCH
+      lands green.'
+    blocked_by:
+    - SUITE-ORDER-POLLUTION-1
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL child of REARCH, measured residual of SUITE-HYGIENE-1. Promoted inbox
     -> pre_planning.'
   - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — gate-protecting; scoped autouse
     teardown, test-infra only. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  - 'HELD from v5.100.9 2026-09-11: correct + collection works, but exposes 87 order-pollution reds ->
+    deploy gate DO-NOT-SHIP. Split from the batch; ships with/after the order-pollution fix.'
   approved_by: operator 2026-09-11 ("Approved. Drive till done.")
   parsimony:
     problem: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail
@@ -11226,7 +11231,7 @@ cards:
   status: pre_planning
   thread: platform
   created: 2026-08-18 03:00
-  updated: 2026-09-11 16:20
+  updated: 2026-09-11 19:15
   refinement_status: refined
   problem: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests)
     PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from
@@ -11242,6 +11247,15 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL child of REARCH; fixed UNLOAD-SYMMETRY mis-link. Promoted inbox ->
     pre_planning.'
+  - 'MEASURED 2026-09-11: enabling full-suite collection (via PYTEST-CONST-STUB-ISOLATION) EXPOSED 87
+    order-dependent failures across 7 files (test_v47x_weather_manager, test_v4_7_17_2_dpm_simplified_frame,
+    test_v4_7_18_dpm_drift_guard, test_v5110_optimizer_hardening, test_v570_fixup_wiring, test_v5_7_1_energy_precool,
+    test_zzz_v318_hvac_sensors) + ble_hold_cap. ALL pass in isolation -> pure pollution, pre-existing,
+    masked until now by the collection-abort. This sizes the TEST-STRATEGY-REARCH work: the suite cannot
+    run green in-process today.'
+  rank:
+    value: 8
+    effort: 8
 - id: CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1
   title: Promote 3 Camera-Census feature toggles to device switches
   status: pre_planning
@@ -12067,7 +12081,7 @@ cards:
   status: investigating
   thread: platform
   created: 2026-08-19 07:45
-  updated: 2026-09-11 16:20
+  updated: 2026-09-11 19:15
   refinement_status: refined
   problem: 'The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole.
     Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS
@@ -12108,6 +12122,13 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL parent. Promoted inbox -> investigating; added missing links to shipped/proposed
     solution cards.'
+  - 'SIZED 2026-09-11: the full suite has 87+ order-dependent pollution failures across 7+ files (measured
+    once collection was enabled). The suite has NEVER run green in-process; this is the concrete scope
+    of the re-arch.'
+  live_broken: true
+  rank:
+    value: 9
+    effort: 13
 - id: CHATTER-OBSERVE-CONTROL-D7-1
   SHADOW_RESULT_2026_08_22: 'Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a
     tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen

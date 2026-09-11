@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T18:50:13-05:00_ - _Data commit: `425ff1236ae6`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T18:53:40-05:00_ - _Data commit: `a1ada4b53ce5`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,8 +15,8 @@ _Generated: 2026-09-11T18:50:13-05:00_ - _Data commit: `425ff1236ae6`_ - _last_r
 | 🔬 Investigating | 29 |
 | 🧭 Pre-planning | 32 |
 | 📝 Planned | 19 |
-| 🔨 In progress | 5 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 4 |
+| 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -377,15 +377,7 @@ _created 2026-08-18 09:45 · updated 2026-09-11 16:16 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **investigating**
-_created 2026-08-19 07:45 · updated 2026-09-11 16:20 · refined_
-- **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
-- **Forensic keys (2):**
-  - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
-  - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
-
-### `OPTIMIZER-NOTIFY-FLOOD-DEDUP-1` - Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup / cooldown on the notification path spams the operator — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `OPTIMIZER-NOTIFY-FLOOD-DEDUP-1` - Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup / cooldown on the notification path spams the operator — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-28 22:00 · updated 2026-09-11 16:20 · refined_
 - **Problem / Solution:**
@@ -397,7 +389,7 @@ _created 2026-08-28 22:00 · updated 2026-09-11 16:20 · refined_
 - **Parsimony:** [BUILD] an optimizer finding fires N times in a row instead of once + a cooldown
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
 
-### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating** - approval: **implied**
 _updated 2026-09-11 18:50_
 - **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
@@ -416,7 +408,7 @@ _updated 2026-09-11 18:50_
   - `empty_house_validation_window_2026_08_17`: OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening; operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0 as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident ...
   - `needs_investigation`: True
 
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating** - approval: **unreviewed**
 _updated 2026-09-11 18:50_
 - **Origin:** 2026-08-08 - observed during v5.62.1 live validation
@@ -429,7 +421,7 @@ _updated 2026-09-11 18:50_
   - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification; then decide whether circling should escape pure clock-time gating.
   - `needs_investigation`: True
 
-### `ATTAIN-SEASONAL-BEHAVIOR-TRACE-1` - How does the arbitrage ATTAIN phase behave across shoulder + winter (low/moderate solar) seasons? — code trace question — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ATTAIN-SEASONAL-BEHAVIOR-TRACE-1` - How does the arbitrage ATTAIN phase behave across shoulder + winter (low/moderate solar) seasons? — code trace question — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **investigating** - approval: **unreviewed**
 _created 2026-09-11 19:05 · initial_
 - **Problem / Solution:**
@@ -437,6 +429,14 @@ _created 2026-09-11 19:05 · initial_
 - **Next:** ANSWER (operator question): trace attain phase seasonal behavior and report; then close.
 - **Tags:** no-fabrication-verify
 - **Refs:** memory project_attain_solar_aggression_investigation (CLOSED keep 0.5)
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#28 · WSJF 1.5 · v9 tc8 u2 /e13_
+thread: **platform** - status: **investigating**
+_created 2026-08-19 07:45 · updated 2026-09-11 19:15 · refined_
+- **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
+- **Forensic keys (2):**
+  - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
+  - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#29 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **investigating** - approval: **unreviewed**
@@ -795,26 +795,14 @@ _created 2026-08-18 02:30 · updated 2026-09-11 16:20 · refined_
 - **Forensic keys (1):**
   - `problem`: async_on_unload used in only 2 sites; untracked background tasks — both match known URA bug classes (reload-safety, task leak). One hardening cycle.
 
-### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **pre_planning**
-_created 2026-08-18 03:00 · updated 2026-09-11 16:20 · refined_
-- **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
-- **Forensic keys (6):**
-  - `INSTANCE_2026_08_26_WALLCLOCK_ALT_MECHANISM`: FOURTH sighting + a MECHANISM CORRECTION from the HVAC-excursion Tier-3 reviewer C. The SAME two test_evse_drain_precedence_session_b2c2_fixup.py tests (+ 4 in test_dp_drain_target_value_stamp.py) go RED near 02:00 LOCAL wall-clock and G...
-  - `INSTANCE_2026_08_22_EVSE_DP_CARRIER`: THIRD INSTANCE. Two tests in test_evse_drain_precedence_session_b2c2_fixup.py — test_transition_entry_pauses_actual_configured_evse_id and test_transition_entry_pauses_only_charging_evse_ids_multi_evse — FAIL in the full suite and PASS i...
-  - `INSTANCE_2026_08_21_GATE_BLOCKER_FIXED`: SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not jus...
-  - `INSTANCE_2026_08_21_EXCURSION_CYCLE`: CONCRETE MEASURED INSTANCE, found during the HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority). SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion test files produces...
-  - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
-  - `subsumed_note`: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation). Keep as the concrete pollution instance; the broader re-arch owns the fix.
-
-### `SHADOW-IMPORT-AUDIT-1` - Audit function-local const imports that shadow module-level names (v5.84.0 incident class) — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SHADOW-IMPORT-AUDIT-1` - Audit function-local const imports that shadow module-level names (v5.84.0 incident class) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **pre_planning**
 _created 2026-08-19 10:20 · updated 2026-09-11 16:20 · refined_
 - **Next:** Tier 1 audit: grep presence.py (~8 local imports) + repo for function-local const imports shadowing module-level names; optional F823/pylint CI rule. Runtime-only (py_compile misses it).
 - **Forensic keys (1):**
   - `problem`: v5.84.0 shipped an UnboundLocalError: a function-local `from ..const import CONF_ENTRY_TYPE` inside _run_inference shadowed the module-level import for the WHOLE function, and a moved reference accessed it unbound on the startup path. Th...
 
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-09-11 16:20 · refined_
 - **Problem / Solution:**
@@ -827,7 +815,7 @@ _created 2026-08-20 14:15 · updated 2026-09-11 16:20 · refined_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-26 03:10 · updated 2026-09-11 16:20 · refined_
 - **Problem / Solution:**
@@ -836,6 +824,18 @@ _created 2026-08-26 03:10 · updated 2026-09-11 16:20 · refined_
 - **Next:** Tier 2-DB (shared _resolve_target_day + gate:2761/:3187 + drain:5633). At ~00:05 today-unknown, _resolve_target_day returns (tmr_cls, offset 0) (energy_battery.py:2678-2701 — card ref :2536 STALE) -> classify_solar_day_n(1)=tomorrow agai...
 - **Tags:** no-fabrication-verify, producer-consumer
 - **Refs:** energy_battery.py:2536-2538 (_resolve_target_day today-unknown fallback); energy_battery.py:1765 (drain), :3017 (gate)
+
+### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene) — _#29 · WSJF 1.9 · v8 tc3 u4 /e8_
+thread: **platform** - status: **pre_planning**
+_created 2026-08-18 03:00 · updated 2026-09-11 19:15 · refined_
+- **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
+- **Forensic keys (6):**
+  - `INSTANCE_2026_08_26_WALLCLOCK_ALT_MECHANISM`: FOURTH sighting + a MECHANISM CORRECTION from the HVAC-excursion Tier-3 reviewer C. The SAME two test_evse_drain_precedence_session_b2c2_fixup.py tests (+ 4 in test_dp_drain_target_value_stamp.py) go RED near 02:00 LOCAL wall-clock and G...
+  - `INSTANCE_2026_08_22_EVSE_DP_CARRIER`: THIRD INSTANCE. Two tests in test_evse_drain_precedence_session_b2c2_fixup.py — test_transition_entry_pauses_actual_configured_evse_id and test_transition_entry_pauses_only_charging_evse_ids_multi_evse — FAIL in the full suite and PASS i...
+  - `INSTANCE_2026_08_21_GATE_BLOCKER_FIXED`: SECOND INSTANCE, MORE SEVERE THAN THE FIRST, AND FIXED THE SAME DAY. This one did not merely fail tests — it made the ENTIRE SUITE UNRUNNABLE ON DEVELOP, so the mandatory pre-deploy name-diff gate was unavailable for EVERY cycle, not jus...
+  - `INSTANCE_2026_08_21_EXCURSION_CYCLE`: CONCRETE MEASURED INSTANCE, found during the HVAC-GOVERNED-EXCURSION-1 Tier-3 review (Review C framing: test authority). SYMPTOM: collecting quality/tests/test_override_arrester_ttl_suppression.py BEFORE the excursion test files produces...
+  - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
+  - `subsumed_note`: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation). Keep as the concrete pollution instance; the broader re-arch owns the fix.
 
 ### `CONSOL-1` - Perimeter consolidation cycle — _#30 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **perimeter** - status: **pre_planning** - approval: **explicit**
@@ -1182,7 +1182,7 @@ _created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
   - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
   - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
 
-## 🔨 In progress (5)
+## 🔨 In progress (4)
 _being built_
 
 ### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1214,18 +1214,7 @@ _created 2026-08-26 03:10 · updated 2026-09-11 16:45 · refined_
 - **Parsimony:** [BUILD] The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes t
 - **Refs:** energy_battery.py:6119 (get_status d2_class)
 
-### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **quality** - status: **in_progress** - approval: **explicit**
-_created 2026-09-06 18:10 · updated 2026-09-11 18:35 · refined_
-- **Problem / Solution:**
-  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
-- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
-- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
-- **Next:** Quick Tier 1-2 gate-protector (ahead of the re-arch): scoped autouse restore/reload teardown for the const module a test stubs into sys.modules and never restores (aborts full-suite collection; green per-file).
-- **Tags:** test-authority, no-fabrication-verify
-- **Parsimony:** [BUILD] Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while ev
-
-### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **in_progress** - approval: **explicit**
 _created 2026-09-11 16:55 · initial_
 - **Problem / Solution:**
@@ -1234,10 +1223,21 @@ _created 2026-09-11 16:55 · initial_
 - **Tags:** numbers-get-knobs
 - **Refs:** .claude/skills/ura-kanban/SKILL.md (Ranking & sequencing — WSJF spec)
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
-### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **quality** - status: **review** - approval: **explicit**
+_created 2026-09-06 18:10 · updated 2026-09-11 19:15 · refined_
+- **Problem / Solution:**
+  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
+- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
+- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
+- **Next:** Quick Tier 1-2 gate-protector (ahead of the re-arch): scoped autouse restore/reload teardown for the const module a test stubs into sys.modules and never restores (aborts full-suite collection; green per-file).
+- **Tags:** test-authority, no-fabrication-verify
+- **Parsimony:** [BUILD] Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while ev
+
+### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **review**
 _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
