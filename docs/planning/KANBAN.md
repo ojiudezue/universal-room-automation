@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T15:48:47-05:00_ - _Data commit: `a1097a9a555b`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-11T15:52:43-05:00_ - _Data commit: `02b1429a75fd`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,9 +11,9 @@ _Generated: 2026-09-11T15:48:47-05:00_ - _Data commit: `a1097a9a555b`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 26 |
-| 🔬 Investigating | 22 |
-| 🧭 Pre-planning | 21 |
+| 📥 Inbox | 24 |
+| 🔬 Investigating | 23 |
+| 🧭 Pre-planning | 22 |
 | 📝 Planned | 19 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
@@ -23,19 +23,8 @@ _Generated: 2026-09-11T15:48:47-05:00_ - _Data commit: `a1097a9a555b`_ - _last_r
 | 🅿️ Parked | 40 |
 | ✅ Done | 86 |
 
-## 📥 Inbox (26)
+## 📥 Inbox (24)
 _raw capture_
-
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
-thread: **quality** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-07 00:30 · initial_
-- **Problem / Solution:**
-  - Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover) that decides which camera extends which room's occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has been on the reload-s...
-- **Origin:** 2026-09-07 - Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
-- **Why:** A suppressed reload that leaves an occupancy-decision map stale is a silent correctness regression; it predates the current cycle but the cycle's review surfaced it and it should not ride indefinitely.
-- **Next:** Decide discharge-vs-deallowlist-vs-subentries; measure how often camera lists actually change before sizing.
-- **Tags:** no-fabrication-verify, tier-2db
-- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
 
 ### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
 thread: **quality** - status: **inbox** - approval: **unreviewed**
@@ -46,19 +35,6 @@ _created 2026-09-06 18:10 · initial_
 - **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
 - **Next:** grep tests for sys.modules[...const...]= / fake const stubs; identify the poisoning test(s); scope the stub with an autouse restore fixture; confirm full-suite collects.
 - **Tags:** test-authority, no-fabrication-verify
-
-### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home
-thread: **identity** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-05 16:40 · initial_
-- **Problem / Solution:**
-  - Problem: the house reported GUEST mode earlier today when only Jaya (a resident) was physically home; it self-corrected to home_day at 21:30 CDT. GUEST mode changes automation behavior, so a false GUEST is a real nuisance. Solution: trac...
-- **Origin:** 2026-09-05 - operator asked "why does the house say guest when only Jaya is home"
-- **Why:** Known class (census over-count -> phantom unidentified -> GUEST). Likely an exterior camera person-detect or BLE area-bleed counted as an unidentified body, or the counted-bodies exceeding identified residents while identity was thin. Ne...
-- **Next:** Recorder trace: pull sensor.universal_room_automation_persons_in_house unidentified_count + camera_unrecognized + identified_count history around the guest-entry time today; identify the phantom contributor (exterior cam person-detect? B...
-- **Tags:** identity, presence, guest-false-positive, no-fabrication-verify
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
-- **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer)
 thread: **presence** - status: **inbox** - approval: **unreviewed**
@@ -310,12 +286,12 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (22)
+## 🔬 Investigating (23)
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
 thread: **energy** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-10 00:50 · initial_
+_created 2026-09-10 00:50 · updated 2026-09-11 15:54 · initial_
 - **Problem / Solution:**
   - Problem: the whole URA integration reloads itself several times a night with nobody changing any settings. On the night of 09-09 it reloaded 5 times (23:12, 01:15, 01:27, 04:01, 04:19 UTC), and each reload makes all ~121 URA entities bri...
 - **Origin:** 2026-09-10 - fell out of the onset early-release root-cause trace — operator asked "could it be a restart?"; it is a URA-internal config-entry reload happening 5x/night
@@ -323,7 +299,7 @@ _created 2026-09-10 00:50 · initial_
 - **Next:** Investigate the reload TRIGGER: ha_get_logs core around one blip (e.g. 04:01 UTC) for "reload"/"Unloading"/"Setting up universal_room_automation"; grep the codebase for self-issued homeassistant.reload_config_entry / async_reload / async...
 - **Tags:** energy, reload, watchdog-hazard, no-fabrication-verify, falsify-first
 - **Refs:** docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md; project_cm_reload_suppression_cycle_stack; feedback_parent_entry_reload_watchdog_hazard
-- **Forensic keys (9):**
+- **Forensic keys (10):**
   - `forensic_evidence`: ALL 5 blips verified as full reloads (not extrapolated from one): URA entities unavailable = 118 (23:12) / 118 (01:15) / 155 (01:27) / 118 (04:01) / 118 (04:19).
   - `mechanism_confirmed_2026_09_10`: Reload is issued by _async_update_listener (__init__.py:7280) -> it diffs old vs new entry.options; if changed_keys is NOT a subset of INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS it schedules hass.config_entries.async_reload (__init__.py:75...
   - `parent_reload_confirmed_2026_09_10`: SCOPE CORRECTED: this is the INTEGRATION PARENT-entry reload, NOT CM-only. At 04:01 both 118 coordinator entities AND 80 room-tier entities (binary_sensor.<room>_occupied, ura_notification_manager_*, etc.) blipped unavailable = ~198 tota...
@@ -333,6 +309,23 @@ _created 2026-09-10 00:50 · initial_
   - `onset_fix_held_2026_09_10`: ONSET reload-resilience fix (sibling EVSE-CHARGE-ONSET-NOT-HELD-1) HELD per operator: "how can you fix what you cannot root cause". Correct -- the enabled=False-during-transient-off mechanism is INFERRED not proven, and fixing before kno...
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
+  - `links`: related: INTEGRATION-CAMERA-DISCOVER-STALE-1
+
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home
+thread: **identity** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-05 16:40 · updated 2026-09-11 15:53 · refined_
+- **Problem / Solution:**
+  - Problem: the house reported GUEST mode earlier today when only Jaya (a resident) was physically home; it self-corrected to home_day at 21:30 CDT. GUEST mode changes automation behavior, so a false GUEST is a real nuisance. Solution: trac...
+- **Origin:** 2026-09-05 - operator asked "why does the house say guest when only Jaya is home"
+- **Why:** Known class (census over-count -> phantom unidentified -> GUEST). Likely an exterior camera person-detect or BLE area-bleed counted as an unidentified body, or the counted-bodies exceeding identified residents while identity was thin. Ne...
+- **Next:** MEASURE (joined with CENSUS-FACE-MISS-WATCH-1): recorder trace at the GUEST-flip instant — read camera_total (counted bodies) vs identified_count vs unidentified_count with only Jaya home. DISCRIMINATOR: unidentified-inflation (camera_to...
+- **Tags:** identity, presence, guest-false-positive, no-fabrication-verify
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [INVESTIGATE] house flips GUEST with a single resident home -> census over-count proposes a phantom body
+- **Refs:** domain_coordinators/house_state.py (GUEST state machine); camera_census.py:4266 (_get_wifi_guest_count — diagnostic only); camera_census.py:4530+ (census formula, wifi excluded); memory project_guest_mode_false_positive_backlog; memory project_presence_guest_latch_and_veto_gap
+- **Forensic keys (2):**
+  - `links`: related: CENSUS-FACE-MISS-WATCH-1
+  - `disposition`: INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, ADJACENT to CENSUS-FACE-MISS-WATCH-1. Not a duplicate — no card diagnoses the single-resident flip. Shipped fixes (lost-but-away trust, outdoor-zone census exclusion, v...
 
 ### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
 thread: **identity** - status: **investigating** - approval: **explicit**
@@ -427,16 +420,17 @@ _created 2026-08-19 13:00 · initial_
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy
 thread: **presence** - status: **investigating** - approval: **unreviewed**
-_created 2026-08-18 00:34 · updated 2026-08-29 13:20 · initial_
+_created 2026-08-18 00:34 · updated 2026-09-11 15:53 · initial_
 - **Problem / Solution:**
   - Problem: after the v5.80.0 D2 fresh-face fix, the census reports face_lookup_missing_count = 12 per tick even with the house EMPTY (no faces to look up). It fails CLOSED so the count stays correct (no wrong -1 credit), but 12 cameras' fa...
   - Solution: on occupancy (Wed), check WHICH cameras miss and why — is the face path probing cameras that have no face sensor (benign, make it not count them) or failing to resolve a face sensor that exists (a real resolution gap to fix)? D...
 - **Why:** The v5.80.0 fresh-face fix is supposed to REVIVE face dedup; a high miss rate could mean it only partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
 - **Next:** On occupancy: confirm the count DROPS when residents are recognized. If it stays high with recognized residents present, investigate resolution. Optional: split the counter (absent vs no-face-now).
 - **Refs:** docs/readmes/README_v5.80.0.md; reference_frigate1_retired_2suffix_permanent.md
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `disposition_2026_08_29`: operator sent to INVESTIGATE 2026-08-29 (board-button investigate applied from pending-disposition queue). Discriminator remains: on occupancy, confirm face_lookup_missing_count DROPS when residents are present + recognized; if it stays ...
   - `interpretation_2026_08_18`: EXPLAINED: face_lookup_missing_count increments when a camera's face sensor reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT only when the entity is absent. On an EMPTY house no camera ha...
+  - `links`: related: GUEST-FALSE-POSITIVE-JAYA-ONLY-1
 
 ### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
 thread: **presence** - status: **investigating** - approval: **unreviewed**
@@ -670,8 +664,22 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
 
-## 🧭 Pre-planning (21)
+## 🧭 Pre-planning (22)
 _idea being decomposed_
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
+thread: **quality** - status: **pre_planning** - approval: **unreviewed**
+_created 2026-09-07 00:30 · updated 2026-09-11 15:54 · refined_
+- **Problem / Solution:**
+  - Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover) that decides which camera extends which room's occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has been on the reload-s...
+- **Origin:** 2026-09-07 - Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
+- **Why:** A suppressed reload that leaves an occupancy-decision map stale is a silent correctness regression; it predates the current cycle but the cycle's review surfaced it and it should not ride indefinitely.
+- **Next:** MEASURE-FIRST (sizes the fix): how often does CONF_CAMERA_PERSON_ENTITIES actually change? (likely rare). Then pick fix: (a) wire a real discharge — re-run async_discover with merged lists on SIGNAL_URA_TRANSIT_CONFIG_CHANGED so _cameras...
+- **Tags:** no-fabrication-verify, tier-2db
+- **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
+- **Forensic keys (2):**
+  - `links`: related: RELOAD-WATCHDOG-HAZARD
+  - `disposition`: INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, mechanism CONFIRMED. CONF_CAMERA_PERSON_ENTITIES on the reload-suppress allowlist (__init__.py:6665) with no discharge that rebuilds CameraIntegrationManager._cameras_b...
 
 ### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
 thread: **identity** - status: **pre_planning** - approval: **explicit**
@@ -3103,19 +3111,21 @@ thread: **security** - status: **done** - approval: **blocked**
 
 ### `RELOAD-WATCHDOG-HAZARD` - URA parent-entry reload cascades → event-loop stall → watchdog (~5min outage)
 thread: **lifecycle** - status: **done** - approval: **explicit**
+_updated 2026-09-11 15:54_
 - **Origin:** 2026-08-07 - options-flow submit (camera_person_entities) reloaded the URA parent entry and blipped HA -> diagnose and fix this autonomously tonight
 - **Why:** routine options saves (Camera Census etc.) reload the integration/parent entry, which cascades to all ~40 room + coordinator entries synchronously, stalling the event loop until the supervisor watchdog restarts core (~5min outage). A con...
 - **Next:** (tonight) build - INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle + presence)
 - **Tags:** tier-2db, no-fabrication-verify
 - **Parsimony:** [BUILD] a routine config save causes a ~5min house outage
 - **Refs:** __init__.py:5984 _async_update_listener; OPTIONS_RELOAD_SUPPRESS_KEYS; transit_validator.py async_init; feedback_parent_entry_reload_watchdog_hazard memory
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `supersession_2026_09_10`: shipped_version v5.99.0 is REAL (this card is DONE for its scoped trigger: camera-key OPTIONS-SAVE parent reload suppressed + SIGNAL_CAMERA_LIST_CHANGED re-subscribe). My pass-9 relane to planned was wrong. BUT the parent-reload hazard i...
   - `relane_2026_09_10`: Not a soak -> PLANNED. Build: INTEGRATION suppress set + SIGNAL_CAMERA_LIST_CHANGED re-subscribe path; Tier 2-DB (lifecycle+presence). NOTE: related to URA-CONFIG-ENTRY-RELOAD-STORM-1 (the CM reloads-5x/night bug) — check if this build r...
   - `diagnosis`: CONFIRMED (2026-08-07): _async_update_listener (__init__.py:5984) - for the INTEGRATION entry, if changed_keys NOT subset of OPTIONS_RELOAD_SUPPRESS_KEYS -> hass.config_entries.async_reload(entry.entry_id). Reloading the INTEGRATION (par...
   - `fix`: Add Camera Census keys to an INTEGRATION-entry suppress set (mirror the CM/ROOM reload-suppression). Persistence already done by async_update_entry.
   - `planned_2026_08_15`: Overnight pass: PLANNING_reload_watchdog_hazard.md written+committed. Central finding: v4.7.26 suppress branch is gated entry_type==COORDINATOR_MANAGER (__init__.py:6431); camera keys migrated to the INTEGRATION entry in v3.4.5 have NO b...
   - `live_validation_2026_08_15`: v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload + dispatch).
+  - `links`: related: INTEGRATION-CAMERA-DISCOVER-STALE-1
 
 ### `KHOST-1` - Homelab-hosted board, generated from data
 thread: **dashboarding** - status: **done** - approval: **explicit**

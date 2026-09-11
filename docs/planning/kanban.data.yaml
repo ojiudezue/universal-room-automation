@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-10'
+  last_reconciled: '2026-09-11'
   history_file: docs/planning/kanban.history.yaml
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
@@ -235,7 +235,7 @@ cards:
   thread: energy
   status: investigating
   created: 2026-09-10 00:50
-  updated: 2026-09-10 00:50
+  updated: 2026-09-11 15:54
   refinement_status: initial
   problem_solution:
   - 'Problem: the whole URA integration reloads itself several times a night with nobody changing any
@@ -325,6 +325,9 @@ cards:
   - project_cm_reload_suppression_cycle_stack
   - feedback_parent_entry_reload_watchdog_hazard
   sibling_of: EVSE-CHARGE-ONSET-NOT-HELD-1
+  links:
+    related:
+    - INTEGRATION-CAMERA-DISCOVER-STALE-1
 - id: ENERGY-POOL-ACTUATION-NOT-IN-ACTIVITY-LOG-1
   title: Energy-pool controller (EVSE + L1 plug) actuations are not written to ura_activity_log, so charger
     pause/ensure-on decisions cannot be audited after the fact
@@ -367,10 +370,10 @@ cards:
   title: Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area
     map stale — new camera never extends room occupancy until restart
   thread: quality
-  status: inbox
+  status: pre_planning
   created: 2026-09-07 00:30
-  updated: 2026-09-07 00:30
-  refinement_status: initial
+  updated: 2026-09-11 15:54
+  refinement_status: refined
   problem_solution:
   - 'Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover)
     that decides which camera extends which room''s occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES
@@ -396,8 +399,30 @@ cards:
   refs:
   - docs/reviews/code-review/reload_comprehensive_tier1_2.md
   - docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
-  next: Decide discharge-vs-deallowlist-vs-subentries; measure how often camera lists actually change
-    before sizing.
+  next: 'MEASURE-FIRST (sizes the fix): how often does CONF_CAMERA_PERSON_ENTITIES actually change? (likely
+    rare). Then pick fix: (a) wire a real discharge — re-run async_discover with merged lists on SIGNAL_URA_TRANSIT_CONFIG_CHANGED
+    so _cameras_by_area rebuilds; (b) remove CONF_CAMERA_PERSON_ENTITIES from the allowlist so its edits
+    reload (safe revert of an outage-avoidance); (c) structural subentries migration. Parsimony verdict
+    required before build. Tier 2-DB (shared allowlist primitive).'
+  links:
+    related:
+    - RELOAD-WATCHDOG-HAZARD
+    - URA-CONFIG-ENTRY-RELOAD-STORM-1
+    context: 'Same reload-suppression allowlist primitive as URA-CONFIG-ENTRY-RELOAD-STORM-1 (opposite
+      failure: that one reloads too often; this one is correctly suppressed but leaves the camera->area
+      map stale) and RELOAD-WATCHDOG-HAZARD (done). Disjoint fixes; the Tier-3 config-subentries migration
+      would fix all three structurally.'
+  disposition:
+  - 'INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, mechanism CONFIRMED. CONF_CAMERA_PERSON_ENTITIES
+    on the reload-suppress allowlist (__init__.py:6665) with no discharge that rebuilds CameraIntegrationManager._cameras_by_area
+    (built async_discover __init__.py:2316-2319, consumed live coordinator.py:3670) -> added/removed interior
+    camera never updates room occupancy until HA restart. The _invalidate listener (camera_census.py:354-368)
+    only fires on registry events + only dirties the CameraResolver cache, NOT this map -> invalidation
+    path does NOT cover it. Self-corroborated by the code exclusion comment (__init__.py:6734-6740) that
+    keeps CONF_PERIMETER_CAMERAS/CONF_EGRESS_CAMERAS off the allowlist for this exact reason. Promoted
+    inbox -> pre_planning; measure-first gate set. Not a dup of the reload-storm (opposite failure, same
+    primitive) -> related link.'
+  parsimony: {}
 - id: KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1
   title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context
     light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
@@ -985,10 +1010,10 @@ cards:
 - id: GUEST-FALSE-POSITIVE-JAYA-ONLY-1
   title: House flips to GUEST when only a single resident (Jaya) is home
   thread: identity
-  status: inbox
+  status: investigating
   created: 2026-09-05 16:40
-  updated: 2026-09-05 16:40
-  refinement_status: initial
+  updated: 2026-09-11 15:53
+  refinement_status: refined
   approval: unreviewed
   tags:
   - identity
@@ -1015,10 +1040,11 @@ cards:
   parsimony:
     problem: house flips GUEST with a single resident home -> census over-count proposes a phantom body
     verdict: INVESTIGATE
-  next: 'Recorder trace: pull sensor.universal_room_automation_persons_in_house unidentified_count + camera_unrecognized
-    + identified_count history around the guest-entry time today; identify the phantom contributor (exterior
-    cam person-detect? BLE bleed? count>identified?). Then scope the fix. Sibling of the census/identity
-    guest-mode work.'
+  next: 'MEASURE (joined with CENSUS-FACE-MISS-WATCH-1): recorder trace at the GUEST-flip instant — read
+    camera_total (counted bodies) vs identified_count vs unidentified_count with only Jaya home. DISCRIMINATOR:
+    unidentified-inflation (camera_total>identified, ~1 body present) = interior-Frigate identification
+    DEFICIT (this card, camera_census.py:1594/2232); identified-inflation (Jaya counted twice) = the DISTINCT
+    known census DOUBLE-COUNT bug. The wrong term names the mechanism.'
   refs:
   - domain_coordinators/house_state.py (GUEST state machine)
   - camera_census.py:4266 (_get_wifi_guest_count — diagnostic only)
@@ -1027,6 +1053,18 @@ cards:
   - memory project_presence_guest_latch_and_veto_gap
   sibling_of:
   - FRIGATE-SUBLABEL-FACE-BRIDGE-1
+  links:
+    related:
+    - CENSUS-FACE-MISS-WATCH-1
+    context: CENSUS-FACE-MISS-WATCH-1 shares the discriminator — both resolve to the same interior-cam
+      face-resolution gap IF the WRONG term is unidentified_count (deficit); they diverge if identified_count
+      itself is inflated (the known census double-count bug).
+  disposition:
+  - 'INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, ADJACENT to CENSUS-FACE-MISS-WATCH-1.
+    Not a duplicate — no card diagnoses the single-resident flip. Shipped fixes (lost-but-away trust,
+    outdoor-zone census exclusion, v5.16.0 guest-latch/veto) fixed the LATCH + away-excluded path, NOT
+    the interior-Frigate identification deficit (BACKLOG.md:52 routed that to an unshipped per-room camera-identification-policy
+    cycle). Promoted inbox -> investigating; discriminator aligned with the census-face card.'
 - id: CM-CONFIG-FLOW-UX-1
   title: Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
   thread: device-tree
@@ -3883,7 +3921,7 @@ cards:
   status: investigating
   approval: unreviewed
   created: 2026-08-18 00:34
-  updated: 2026-08-29 13:20
+  updated: 2026-09-11 15:53
   disposition_2026_08_29: 'operator sent to INVESTIGATE 2026-08-29 (board-button investigate applied from
     pending-disposition queue). Discriminator remains: on occupancy, confirm face_lookup_missing_count
     DROPS when residents are present + recognized; if it stays high with recognized residents home, that
@@ -3916,6 +3954,11 @@ cards:
     while residents are home AND being face-recognized, THAT is a real resolution gap. Minor observability
     nit: the counter conflates "entity absent" with "no face now" — could split into two counters for
     a clean health signal. Downgraded from concern to expected-on-empty; re-check on occupancy.'
+  links:
+    related:
+    - GUEST-FALSE-POSITIVE-JAYA-ONLY-1
+    context: GUEST-FALSE-POSITIVE-JAYA-ONLY-1 is the guest-flip symptom of the same interior-cam face-miss
+      discriminator.
 - id: FRIGATE-LEG-NAMING-1
   thread: security
   status: inbox
@@ -10506,6 +10549,10 @@ cards:
     Tier 2-DB. Next: adversarial plan review, then daytime build (custom_components off-limits overnight).'
   live_validation_2026_08_15: 'v5.77.0 LIVE: L1 PASS; L4 organic (next integration-entry save proves zero-reload
     + dispatch).'
+  links:
+    related:
+    - INTEGRATION-CAMERA-DISCOVER-STALE-1
+  updated: 2026-09-11 15:54
 - id: KHOST-1
   title: Homelab-hosted board, generated from data
   thread: dashboarding
