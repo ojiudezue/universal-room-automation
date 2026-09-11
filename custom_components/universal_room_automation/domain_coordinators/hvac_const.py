@@ -5,7 +5,12 @@ v3.8.0-H1: Initial implementation.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Final
+
+# HVAC decision cycle quantum; rung-1 module const, cloud API call-rate
+# bound — change requires review.
+HVAC_DECISION_TICK: Final = timedelta(minutes=5)
 
 # ============================================================================
 # Coordinator identity

@@ -31,6 +31,7 @@ from homeassistant.util import dt as dt_util
 from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
+    HVAC_DECISION_TICK,
     COMFORT_OFFPHASE_OFFSET_F,
     COMFORT_SOC_FLOOR_PCT,
     COMFORT_GRACE_MIN,
@@ -1209,11 +1210,11 @@ class HVACCoordinator(BaseCoordinator):
         self._override_arrester.set_egress_manager(self._egress_manager)
         self._predictor.set_egress_manager(self._egress_manager)
 
-        # Start periodic decision cycle (every 5 minutes)
+        # Start periodic decision cycle (HVAC_DECISION_TICK; see hvac_const).
         self._decision_timer_unsub = async_track_time_interval(
             self.hass,
             self._async_decision_cycle,
-            timedelta(minutes=5),
+            HVAC_DECISION_TICK,
         )
 
         # Run initial cycle

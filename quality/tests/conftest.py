@@ -108,6 +108,116 @@ def _ura_sys_modules_snapshot(request):
         _restore_poison(baseline, label=f"runtime:{request.node.nodeid}")
 
 
+# =============================================================================
+# SUITE-HYGIENE-1b (2026-09-11): scoped restore for the REAL const module.
+# =============================================================================
+# Many test modules inject a fake
+# `custom_components.universal_room_automation.const` (or the bare
+# `universal_room_automation.const`) into sys.modules at module-import
+# (collection) time and never restore. Later modules that import real
+# names (e.g. BLE_HOLD_CAP_DURATIONS, BLE_CHAIN_HOLD_ENABLED) then
+# ImportError "unknown location" — aborting FULL-SUITE COLLECTION even
+# though every per-file run stays green.
+#
+# The main sysmodules-snapshot fixture above DELIBERATELY EXCLUDES the
+# custom_components.* / universal_room_automation.* namespaces (see its
+# comment: measured 7-fixed-vs-7-regressions on broad reinclusion, driven
+# by add-once/reuse-many HA stubs). This narrow fixture restores ONLY the
+# two `.const` keys to the REAL modules, captured at CONFTEST IMPORT
+# TIME (before any test module has a chance to poison them). Scope is a
+# single leaf module per key — cannot affect the shared HA-stub loaders
+# the exclusion protected.
+# =============================================================================
+# (relpath under custom_components/universal_room_automation/, sys.modules keys)
+_REAL_LEAF_TARGETS = (
+    (
+        "const.py",
+        (
+            "custom_components.universal_room_automation.const",
+            "universal_room_automation.const",
+        ),
+    ),
+    (
+        "domain_coordinators/signals.py",
+        (
+            "custom_components.universal_room_automation.domain_coordinators.signals",
+            "universal_room_automation.domain_coordinators.signals",
+        ),
+    ),
+    (
+        "domain_coordinators/hvac_const.py",
+        (
+            "custom_components.universal_room_automation.domain_coordinators.hvac_const",
+            "universal_room_automation.domain_coordinators.hvac_const",
+        ),
+    ),
+)
+_REAL_CONST_MODULES: dict = {}
+
+
+def _load_real_leaf_modules() -> None:
+    """Load a small set of dependency-free LEAF modules directly via
+    importlib WITHOUT invoking the parent package's __init__.py (which
+    imports Home Assistant and would fail outside a full HA env). These
+    leaves have zero external deps and carry constants (BLE_HOLD_CAP_*,
+    SIGNAL_HOUSE_STATE_CHANGED, HVAC_DECISION_TICK, ...) that later test
+    modules import BY NAME. Registering the real module under every
+    sys.modules key that test stubs alias to gives us an anchor to
+    restore against between collections."""
+    import importlib.util
+    from pathlib import Path as _P
+    root = (
+        _P(__file__).resolve().parent.parent.parent
+        / "custom_components" / "universal_room_automation"
+    )
+    for relpath, keys in _REAL_LEAF_TARGETS:
+        path = root / relpath
+        if not path.is_file():
+            continue
+        for key in keys:
+            try:
+                spec = importlib.util.spec_from_file_location(key, path)
+                if spec is None or spec.loader is None:
+                    continue
+                mod = importlib.util.module_from_spec(spec)
+                # Must be registered BEFORE exec_module so dataclass field
+                # resolution (typing._is_type -> sys.modules[cls.__module__])
+                # can see the module during class body execution.
+                sys.modules[key] = mod
+                spec.loader.exec_module(mod)  # type: ignore[union-attr]
+                _REAL_CONST_MODULES[key] = mod
+            except Exception:  # pragma: no cover — best-effort
+                continue
+
+
+_load_real_leaf_modules()
+
+
+def _restore_real_const_keys() -> None:
+    for key, real in _REAL_CONST_MODULES.items():
+        if real is None:
+            continue
+        if sys.modules.get(key) is not real:
+            sys.modules[key] = real
+
+
+def pytest_collectstart(collector):
+    """Before EACH collection unit, restore the real `.const` module refs
+    so a prior test module's collection-time stub cannot make a later
+    module's `from custom_components...const import X` ImportError with
+    'unknown location'. Narrow (two leaf keys only) — cannot disrupt
+    add-once/reuse-many HA stubs the main snapshot's exclusion protects."""
+    _restore_real_const_keys()
+
+
+# NOTE: intentionally NO module-scoped teardown fixture for const keys.
+# Restoring const at test-run boundaries would break the add-once/reuse-
+# many pattern (a test module that installs a const stub at its collection
+# then relies on that stub inside its test bodies must see it stably). The
+# only failure mode we need to solve is COLLECTION-time ImportError from a
+# real-const `from ... import X`, which the collectstart hook alone covers.
+
+
 # v4.6.3 D1: Register real-schema sqlite conftest as a pytest plugin.
 # pytest only auto-discovers conftest.py by name; conftest_db.py fixtures
 # (real_schema_db, real_schema_db_session) must be registered explicitly.
