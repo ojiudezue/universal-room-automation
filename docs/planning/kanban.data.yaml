@@ -494,9 +494,9 @@ cards:
   title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown
     location') while every file passes in isolation
   thread: quality
-  status: pre_planning
+  status: in_progress
   created: 2026-09-06 18:10
-  updated: 2026-09-11 16:20
+  updated: 2026-09-11 16:45
   refinement_status: refined
   problem_solution:
   - 'Problem: running the whole test suite in one pytest process fails to even collect — some tests import
@@ -507,7 +507,7 @@ cards:
     find the test(s) that replace custom_components.universal_room_ automation.const in sys.modules and
     make them restore/monkeypatch-scope it (autouse fixture or importlib reload teardown), so a single-process
     full-suite run collects cleanly.'
-  approval: unreviewed
+  approval: explicit
   tags:
   - test-authority
   - no-fabrication-verify
@@ -534,6 +534,14 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL child of REARCH, measured residual of SUITE-HYGIENE-1. Promoted inbox
     -> pre_planning.'
+  - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — gate-protecting; scoped autouse
+    teardown, test-infra only. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  approved_by: operator 2026-09-11 ("Approved. Drive till done.")
+  parsimony:
+    problem: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail
+      'unknown location') while ev
+    verdict: BUILD
+  batch: tier1-gate-and-knobs
 - id: FORECAST-ACCURACY-UNKNOWN-MASK-1
   title: forecast_accuracy sensor reads 'unknown' while it actually means the forecaster is BADLY inaccurate
     (rolling accuracy <=0), masking a real signal
@@ -6571,9 +6579,9 @@ cards:
   title: A test writes production source with only a `finally` to restore it — a hard kill leaves the
     repo mutated on disk, and the concurrency guard is exactly what delivers hard kills
   thread: platform
-  status: pre_planning
-  updated: 2026-09-11 16:20
-  approval: needs_operator
+  status: in_progress
+  updated: 2026-09-11 16:45
+  approval: explicit
   tags:
   - unrestored-drill
   - test-strategy
@@ -6611,6 +6619,14 @@ cards:
       to custom_components/ paths.
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1. Promoted inbox -> pre_planning.'
+  - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — gate-protecting; tmp-copy fix,
+    near-zero risk, no behavior change. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  approved_by: operator 2026-09-11 ("Approved. Drive till done.")
+  parsimony:
+    problem: A test writes production source with only a `finally` to restore it — a hard kill leaves
+      the repo mutated on disk, and t
+    verdict: BUILD
+  batch: tier1-gate-and-knobs
 - id: HVAC-TUNABLE-RUNTIME-NOT-SEEDED-1
   title: The 14 HVAC tunable Numbers display the operator's value but the coordinator runs the DEFAULT
     until someone touches the knob — a nudge after a restart used 300s, not the configured 120s
@@ -6752,9 +6768,9 @@ cards:
   title: HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3
     structurally inert and grace_constrained=5 the minimum expressible value
   thread: hvac
-  status: pre_planning
-  updated: 2026-09-11 16:20
-  approval: needs_operator
+  status: in_progress
+  updated: 2026-09-11 16:45
+  approval: explicit
   tags:
   - numbers-get-knobs
   - measure-before-build
@@ -6778,6 +6794,14 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL Tier 1, distinct shared-enabler. Promoted inbox -> pre_planning; knob
     named.'
+  - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — pure const extraction (no behavior
+    change), satisfies numbers-get-knobs. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  approved_by: operator 2026-09-11 ("Approved. Drive till done.")
+  parsimony:
+    problem: HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3
+      structurally inert and grac
+    verdict: BUILD
+  batch: tier1-gate-and-knobs
 - id: HVAC-PRESET-FLAP-1
   PRECONDITION_ASSUMPTION_REFUTED_2026_08_23: 'THIS CARD''S `next` SAYS: "v5.88.0 shipped the borrow restore
     so URA-induced manual is largely addressed". THAT IS NOW REFUTED BY MEASUREMENT. The borrow restores
@@ -14788,11 +14812,11 @@ cards:
   title: The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 —
     at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
   thread: energy
-  status: pre_planning
+  status: in_progress
   created: 2026-08-26 03:10
-  updated: 2026-09-11 16:20
+  updated: 2026-09-11 16:45
   refinement_status: refined
-  approval: unreviewed
+  approval: explicit
   tags:
   - no-fabrication-verify
   problem_solution:
@@ -14817,6 +14841,14 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL cosmetic Tier 1, two faces of one root w/ DEGENERATE-PAIR. Promoted
     inbox -> pre_planning.'
+  - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — additive display attr, no in-repo
+    consumer, no behavior change. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  approved_by: operator 2026-09-11 ("Approved. Drive till done.")
+  parsimony:
+    problem: The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2
+      — at offset 0 it publishes t
+    verdict: BUILD
+  batch: tier1-gate-and-knobs
 - id: ARBITRAGE-GATE-D2-OFFBYONE-1
   title: Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so
     at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing

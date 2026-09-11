@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T16:47:18-05:00_ - _Data commit: `7889178009e2`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T17:47:15-05:00_ - _Data commit: `760215cddf77`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,9 +13,9 @@ _Generated: 2026-09-11T16:47:18-05:00_ - _Data commit: `7889178009e2`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 29 |
-| 🧭 Pre-planning | 35 |
+| 🧭 Pre-planning | 31 |
 | 📝 Planned | 19 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 20 |
@@ -500,7 +500,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 1
   - `confidence_gate`: None — this is an ARRIVAL signal (SIGNAL_PERSON_ARRIVING), not the egress producer; it consumes a presence arrival event, no person_id trust threshold applies. Cheapest high-signal win.
 
-## 🧭 Pre-planning (35)
+## 🧭 Pre-planning (31)
 _idea being decomposed_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -517,19 +517,6 @@ _created 2026-09-07 00:30 · updated 2026-09-11 16:30 · refined_
 - **Forensic keys (2):**
   - `links`: related: CONFIG-SUBENTRIES-MIGRATION-1
   - `disposition`: INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, mechanism CONFIRMED. CONF_CAMERA_PERSON_ENTITIES on the reload-suppress allowlist (__init__.py:6665) with no discharge that rebuilds CameraIntegrationManager._cameras_b...
-
-### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
-thread: **quality** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-09-06 18:10 · updated 2026-09-11 16:20 · refined_
-- **Problem / Solution:**
-  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
-- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
-- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
-- **Next:** Quick Tier 1-2 gate-protector (ahead of the re-arch): scoped autouse restore/reload teardown for the const module a test stubs into sys.modules and never restores (aborts full-suite collection; green per-file).
-- **Tags:** test-authority, no-fabrication-verify
-- **Forensic keys (2):**
-  - `links`: parent: TEST-STRATEGY-REARCH-1
-  - `disposition`: GROOM 2026-09-11: VERDICT REAL child of REARCH, measured residual of SUITE-HYGIENE-1. Promoted inbox -> pre_planning.
 
 ### `EGRESS-EXIT-COMULTI-DEPART-1` - Name BOTH people when a couple leaves together — each BLE tracker already identifies its own person
 thread: **identity** - status: **pre_planning** - approval: **explicit**
@@ -571,27 +558,6 @@ _updated 2026-08-20 22:45_
   - `ARRESTER_IS_UNAUDITABLE_2026_08_21`: THE LEDGER I PROMISED DOES NOT EXIST — answering the open question is blocked, not pending. Pulled the DB directly on the HA host over ssh (the Samba mount cannot open it: WAL). Findings: (a) The HVAC coordinator's ENTIRE action vocabula...
   - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
   - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
-
-### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills
-thread: **platform** - status: **pre_planning** - approval: **needs_operator**
-_updated 2026-09-11 16:20 · refined_
-- **Origin:** 2026-08-21 - Surfaced by the D1 observability agent as an ancillary observation it was right to flag: "the test suite mutated custom_components/.../energy_pool_owners.py (prune_participant True->False) during runs — hollow-test / write-b...
-- **Next:** Tier 1: rewrite test_owner_registry_mutation_matrix.py:58 to mutate a tmp copy (option a), then audit the 20+ source-writing tests. Standalone (operator kept it cheap).
-- **Tags:** unrestored-drill, test-strategy
-- **Forensic keys (3):**
-  - `mechanism`: CONFIRMED. quality/tests/test_owner_registry_mutation_matrix.py writes PRODUCTION SOURCE — line 58 `path.write_text(mutated, encoding="utf-8")` against custom_components/universal_room_automation/... — and restores it in a `finally` at l...
-  - `links`: related: SUITE-ORDER-POLLUTION-1
-  - `disposition`: GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1. Promoted inbox -> pre_planning.
-
-### `HVAC-TICK-LITERAL-1` - HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grace_constrained=5 the minimum expressible value
-thread: **hvac** - status: **pre_planning** - approval: **needs_operator**
-_updated 2026-09-11 16:20 · refined_
-- **Origin:** 2026-08-20 - Surfaced while computing the optimal dwell/grace tuning the operator asked for. Every preset transition in 48h of live history lands on a 5-min boundary; the cause is async_track_time_interval(..., timedelta(minutes=5)) at h...
-- **Next:** Promote the inline timedelta(minutes=5) at hvac.py:1213-1216 to a named module constant HVAC_DECISION_TICK in hvac_const.py (rung 1). Land before any HVAC-PRESET-FLAP tuning (hvac_const.py:1163 CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS a...
-- **Tags:** numbers-get-knobs, measure-before-build
-- **Forensic keys (2):**
-  - `links`: related: HVAC-PRESET-FLAP-1
-  - `disposition`: GROOM 2026-09-11: VERDICT REAL Tier 1, distinct shared-enabler. Promoted inbox -> pre_planning; knob named.
 
 ### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
@@ -914,19 +880,6 @@ _created 2026-08-26 03:10 · updated 2026-09-11 16:20 · refined_
 - **Forensic keys (2):**
   - `links`: related: ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1
   - `disposition`: GROOM 2026-09-11: VERDICT REAL Tier 2-DB, live-confirmed. Not a dup of D2CLASS. Promoted inbox -> pre_planning; stale refs flagged.
-
-### `ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1` - The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
-thread: **energy** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-26 03:10 · updated 2026-09-11 16:20 · refined_
-- **Problem / Solution:**
-  - Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1, so at offset 0 the value is TOMORROW's class, not calendar day-after-tomorrow. No in-repo consumer reads it (display-only), but it is ope...
-- **Why:** Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
-- **Next:** Tier 1 additive: publish sibling d2_offset attr (computed at energy_battery.py:6291; card ref :6119 STALE) so d2_class self-describes. Precedent: target_day_source attr in same get_status dict. Ship with DEGENERATE-PAIR.
-- **Tags:** no-fabrication-verify
-- **Refs:** energy_battery.py:6119 (get_status d2_class)
-- **Forensic keys (2):**
-  - `links`: related: ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1
-  - `disposition`: GROOM 2026-09-11: VERDICT REAL cosmetic Tier 1, two faces of one root w/ DEGENERATE-PAIR. Promoted inbox -> pre_planning.
 
 ### `ARBITRAGE-GATE-D2-OFFBYONE-1` - Arbitrage gate pairs the peak-anchored target day with a HARDCODED classify_solar_day_n(2), so at offset 0 it forecasts today + D+2 and skips tomorrow — the same mis-pairing the drain path is fixing
 thread: **energy** - status: **pre_planning** - approval: **approved**
@@ -1288,10 +1241,59 @@ _created 2026-09-09 09:10 · updated 2026-09-09 09:35 · refined ×1_
   - `relane_2026_09_10`: Not a soak -> PLANNED. Phase-1 (panel/static-path deregistration) shipped v5.100.5 + live-clean (panels gone from sidebar, setup symmetry tests green). Phase-2 = delete frontend/ + frontend-v3/ dirs + the deploy.sh frontend line; trigger...
   - `sweep_verdict`: NEW (adjacency sweep 2026-09-09, run late). Swept: board (no React-deletion card), BACKLOG.md:710 (pivot HA React panel -> PWA v6.0+), DASHBOARD_BACKLOG.md (React history: hakit iframe #304, never-worked). Cleanup of a documented superse...
 
-## 🔨 In progress (0)
+## 🔨 In progress (4)
 _being built_
 
-_(none)_
+### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
+thread: **quality** - status: **in_progress** - approval: **explicit**
+_created 2026-09-06 18:10 · updated 2026-09-11 16:45 · refined_
+- **Problem / Solution:**
+  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
+- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
+- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
+- **Next:** Quick Tier 1-2 gate-protector (ahead of the re-arch): scoped autouse restore/reload teardown for the const module a test stubs into sys.modules and never restores (aborts full-suite collection; green per-file).
+- **Tags:** test-authority, no-fabrication-verify
+- **Parsimony:** [BUILD] Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while ev
+- **Forensic keys (2):**
+  - `links`: parent: TEST-STRATEGY-REARCH-1
+  - `disposition`: GROOM 2026-09-11: VERDICT REAL child of REARCH, measured residual of SUITE-HYGIENE-1. Promoted inbox -> pre_planning.
+
+### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills
+thread: **platform** - status: **in_progress** - approval: **explicit**
+_updated 2026-09-11 16:45 · refined_
+- **Origin:** 2026-08-21 - Surfaced by the D1 observability agent as an ancillary observation it was right to flag: "the test suite mutated custom_components/.../energy_pool_owners.py (prune_participant True->False) during runs — hollow-test / write-b...
+- **Next:** Tier 1: rewrite test_owner_registry_mutation_matrix.py:58 to mutate a tmp copy (option a), then audit the 20+ source-writing tests. Standalone (operator kept it cheap).
+- **Tags:** unrestored-drill, test-strategy
+- **Parsimony:** [BUILD] A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and t
+- **Forensic keys (3):**
+  - `mechanism`: CONFIRMED. quality/tests/test_owner_registry_mutation_matrix.py writes PRODUCTION SOURCE — line 58 `path.write_text(mutated, encoding="utf-8")` against custom_components/universal_room_automation/... — and restores it in a `finally` at l...
+  - `links`: related: SUITE-ORDER-POLLUTION-1
+  - `disposition`: GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1. Promoted inbox -> pre_planning.
+
+### `HVAC-TICK-LITERAL-1` - HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grace_constrained=5 the minimum expressible value
+thread: **hvac** - status: **in_progress** - approval: **explicit**
+_updated 2026-09-11 16:45 · refined_
+- **Origin:** 2026-08-20 - Surfaced while computing the optimal dwell/grace tuning the operator asked for. Every preset transition in 48h of live history lands on a 5-min boundary; the cause is async_track_time_interval(..., timedelta(minutes=5)) at h...
+- **Next:** Promote the inline timedelta(minutes=5) at hvac.py:1213-1216 to a named module constant HVAC_DECISION_TICK in hvac_const.py (rung 1). Land before any HVAC-PRESET-FLAP tuning (hvac_const.py:1163 CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS a...
+- **Tags:** numbers-get-knobs, measure-before-build
+- **Parsimony:** [BUILD] HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grac
+- **Forensic keys (2):**
+  - `links`: related: HVAC-PRESET-FLAP-1
+  - `disposition`: GROOM 2026-09-11: VERDICT REAL Tier 1, distinct shared-enabler. Promoted inbox -> pre_planning; knob named.
+
+### `ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1` - The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
+thread: **energy** - status: **in_progress** - approval: **explicit**
+_created 2026-08-26 03:10 · updated 2026-09-11 16:45 · refined_
+- **Problem / Solution:**
+  - Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1, so at offset 0 the value is TOMORROW's class, not calendar day-after-tomorrow. No in-repo consumer reads it (display-only), but it is ope...
+- **Why:** Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
+- **Next:** Tier 1 additive: publish sibling d2_offset attr (computed at energy_battery.py:6291; card ref :6119 STALE) so d2_class self-describes. Precedent: target_day_source attr in same get_status dict. Ship with DEGENERATE-PAIR.
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [BUILD] The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes t
+- **Refs:** energy_battery.py:6119 (get_status d2_class)
+- **Forensic keys (2):**
+  - `links`: related: ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1
+  - `disposition`: GROOM 2026-09-11: VERDICT REAL cosmetic Tier 1, two faces of one root w/ DEGENERATE-PAIR. Promoted inbox -> pre_planning.
 
 ## 🔍 Review (1)
 _under review_
