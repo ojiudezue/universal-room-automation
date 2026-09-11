@@ -496,7 +496,7 @@ cards:
   thread: quality
   status: in_progress
   created: 2026-09-06 18:10
-  updated: 2026-09-11 16:45
+  updated: 2026-09-11 18:20
   refinement_status: refined
   problem_solution:
   - 'Problem: running the whole test suite in one pytest process fails to even collect — some tests import
@@ -531,6 +531,8 @@ cards:
     context: Child of TEST-STRATEGY-REARCH-1. MEASURED residual of SUITE-HYGIENE-1 (done) whose fixture
       deliberately EXCLUDED the const namespace (conftest.py:27-33 net-zero) — not dup, not fresh; card
       (09-06) postdates the fixture.
+    blocked_by:
+    - BLE-HOLD-CAP-SUITE-POLLUTION-1
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL child of REARCH, measured residual of SUITE-HYGIENE-1. Promoted inbox
     -> pre_planning.'
@@ -15872,6 +15874,69 @@ cards:
     related:
     - KANBAN-WSJF-RENDERER-1
     context: The renderer + skill edits are the content this publishes; publish only once they settle.
+- id: BLE-HOLD-CAP-SUITE-POLLUTION-1
+  title: Full-suite collection (now enabled) exposes a pre-existing monkeypatch-divergence failure in
+    test_ble_hold_cap
+  thread: quality
+  status: investigating
+  created: 2026-09-11 18:20
+  updated: 2026-09-11 18:20
+  refinement_status: initial
+  approval: unreviewed
+  live_broken: true
+  tags:
+  - tier-1
+  problem_solution:
+  - 'Problem: fixing const-stub isolation lets the full test suite collect for the first time, which now
+    RUNS a previously-unreached test (test_ble_hold_cap::test_cap_seconds_helper_reads_room_type_from_dict_not_default)
+    that FAILS: its monkeypatch on BLE_HOLD_CAP_DURATIONS targets a const module reference that diverges
+    from the one the coordinator resolves at runtime (a two-module-registration mismatch, possibly from
+    preloading const under both custom_components.* and universal_room_automation.* sys.modules keys).
+    Passes in isolation. Solution: decide (a) narrow the conftest Fix-2 to drop the bare universal_room_automation.const
+    preload key (likely closes it, keeps the collection fix) OR (b) keep broad Fix-2 and fix the ble_hold_cap
+    test monkeypatch to target the runtime-resolved const module. Discriminator between artifact-of-Fix-2
+    vs genuine-latent-bug decides which.'
+  next: DECIDE the Fix-2 branch (narrow-preload vs fix-the-test); gates shipping PYTEST-CONST-STUB-ISOLATION
+    green.
+  links:
+    related:
+    - PYTEST-SUITE-CONST-STUB-ISOLATION-1
+    blocks:
+    - PYTEST-SUITE-CONST-STUB-ISOLATION-1
+    context: This failure is only visible because PYTEST-CONST-STUB-ISOLATION enabled full-suite collection;
+      it gates that card shipping green.
+  refs:
+  - builder report v5.100.9 tier1-gate-and-knobs
+- id: CHECKOUT-CONCURRENT-RESET-HAZARD-1
+  title: Homelab board-refresh automation runs git reset --hard on develop, destroying concurrent uncommitted
+    work (agent + builder)
+  thread: tooling
+  status: waiting_operator
+  created: 2026-09-11 18:20
+  updated: 2026-09-11 18:20
+  refinement_status: initial
+  approval: blocked
+  live_broken: true
+  tags:
+  - tier-1
+  rank:
+    value: 9
+    effort: 2
+  problem_solution:
+  - 'Problem: the homelab refresh_urakanban.sh cron pulls operator board taps and commits them to develop,
+    and its cycle includes git reset --hard on the shared develop checkout. When an agent or builder has
+    uncommitted work in that checkout, the reset --hard DESTROYS it (observed 2026-09-11: wiped the WSJF
+    renderer edits mid-session; the builder''s 4 fixes were transiently wiped and only survived because
+    the builder re-wrote after). This is the exact concurrent-writer hazard the ura-kanban worktree-isolation
+    rule exists for. Solution: operator PICK — (a) pause the board-refresh cron during active coding sessions,
+    or (b) the agent does all repo-writing work in a git worktree (.claude/worktrees/) isolated from the
+    cron''s checkout, or (c) make refresh_urakanban.sh stash/commit-safe (never reset --hard a dirty tree).'
+  next: 'PICK the isolation strategy: (a) pause the homelab board-refresh cron during sessions [recommended,
+    simplest], (b) agent works in a worktree, or (c) harden refresh_urakanban.sh to never reset --hard
+    a dirty tree.'
+  refs:
+  - 'reflog 2026-09-11: 4x reset:moving-to-HEAD from board-refresh'
+  - ~/Code/homelab-automation refresh_urakanban.sh
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
