@@ -163,7 +163,7 @@ ha_get_state entity_id=sensor.<room>_room_occupancy
 # EXPECT attribute: disable_camera_presence: true/false (verified sensor.py:2392)
 
 # DB — no new false-positive occupancy events from camera during test window
-sqlite3 /Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db \
+sqlite3 /Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db \
   "SELECT room_id, event_type, trigger_source, count(*) FROM occupancy_events
    WHERE timestamp > strftime('%s','now','-2 hours')
    GROUP BY room_id, event_type, trigger_source ORDER BY count(*) DESC;"

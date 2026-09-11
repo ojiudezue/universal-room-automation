@@ -90,9 +90,9 @@ When the operator says "we have X" — treat it as a verification task before re
 **Why this rule exists (2026-05-30 incident):** A 14-hour session shipped multiple cycles and during scoping the assistant repeatedly proposed new fields/sensors/helpers without verifying against prior art. The operator had to push back each time, surfacing existing infrastructure the assistant should have found (`CONF_SCANNER_AREAS` v3.2.4, `PersonPhoneLeftBehindSensor`, `_check_zone_occupancy_confidence`, `is_direct_ble_room`, tier-naming collision). Codifying the verification protocol made it durable across sessions.
 
 ## Data Source Verification — CRITICAL
-- **MCP `ura-sqlite`** reads the URA DB. Verify `--db-path` in `~/.claude.json` points to the **live** Samba-mounted path (`/Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db`), NOT a stale cache (`~/.cache/ura/`).
+- **MCP `ura-sqlite`** reads the URA DB. Verify `--db-path` in `~/.claude.json` points to the **live** Samba-mounted path (`/Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db`), NOT a stale cache (`~/.cache/ura/`).
 - Before acting on any "missing table" or schema diagnosis from MCP tools, cross-validate against the live HA instance (use `ha-mcp` or SSH).
-- If the Samba mount is stale or down, remount before querying: `mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/ojiudezue/ha-config`
+- If the Samba mount is stale or down, remount before querying: `mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/okosisi/ha-config`
 
 ## Troubleshooting — "room automation broke" / light didn't turn on or off
 

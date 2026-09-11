@@ -372,7 +372,7 @@ cards:
   thread: quality
   status: pre_planning
   created: 2026-09-07 00:30
-  updated: 2026-09-11 16:12
+  updated: 2026-09-11 16:30
   refinement_status: refined
   problem_solution:
   - 'Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover)
@@ -406,12 +406,16 @@ cards:
     required before build. Tier 2-DB (shared allowlist primitive).'
   links:
     related:
+    - CONFIG-SUBENTRIES-MIGRATION-1
     - RELOAD-WATCHDOG-HAZARD
     - URA-CONFIG-ENTRY-RELOAD-STORM-1
     context: 'Same reload-suppression allowlist primitive as URA-CONFIG-ENTRY-RELOAD-STORM-1 (opposite
       failure: that one reloads too often; this one is correctly suppressed but leaves the camera->area
       map stale) and RELOAD-WATCHDOG-HAZARD (done). Disjoint fixes; the Tier-3 config-subentries migration
-      would fix all three structurally.'
+      would fix all three structurally. CONFIG-SUBENTRIES-MIGRATION-1 (PARKED, not shipped — no subentries
+      code exists, hub DEVICE-ENTITY-REORG-1 still waiting_operator) is the structural fix that would
+      subsume this leak (per-camera subentry reloads in isolation, no parent cascade); if that migration
+      proceeds, fold this in rather than building a standalone discharge.'
   disposition:
   - 'INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, mechanism CONFIRMED. CONF_CAMERA_PERSON_ENTITIES
     on the reload-suppress allowlist (__init__.py:6665) with no discharge that rebuilds CameraIntegrationManager._cameras_by_area
@@ -432,6 +436,9 @@ cards:
     event, document the "restart HA after adding/removing an interior camera" workaround rather than a
     Tier-2DB build, UNLESS the structural subentries migration (Tier-3 D3.a) picks it up for free. Operator
     decision: park w/ workaround, or fold into the subentries migration.'
+  - 'LINK 2026-09-11: related CONFIG-SUBENTRIES-MIGRATION-1 (verified PARKED, not done — grep ConfigSubentry=0
+    in code, hub reorg waiting_operator). It is the structural home; the SIMPLIFY/PARK steer stands unless
+    that migration is greenlit.'
   parsimony:
     problem: Adding/removing an interior camera does not update room occupancy until an HA restart (map
       _cameras_by_area never rebuilds on the suppressed reload).
@@ -599,9 +606,9 @@ cards:
     vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user
     dir
   thread: platform
-  status: waiting_operator
+  status: done
   created: 2026-09-01 17:40
-  updated: 2026-09-11 16:12
+  updated: 2026-09-11 16:30
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -644,6 +651,13 @@ cards:
     and (2) a remount when down. Part-(a) doc fix (CLAUDE.md Data Source Verification + ~10 skill files:
     ojiudezue->okosisi in MOUNT PATHS ONLY) is low-risk + reversible; awaiting operator go since it edits
     canonical CLAUDE.md. Part-(b) .vibememo/users/ojiudezue identity dir stays out of scope (not a path).'
+  - 'FIXED 2026-09-11: part-(a) done — replaced all 18 stale /Users/ojiudezue/ha-config mount/DB/.storage
+    paths with /Users/okosisi/ha-config across CLAUDE.md + 6 skill files (ura-energy-invariants-campaign,
+    ura-config-and-flags, ura-diagnostics-and-tooling, ura-presence-reliability-campaign, ura-debugging-playbook,
+    ura-change-control). Verified 0 residual /Users/ojiudezue refs in docs. Checked ~/.claude.json: its
+    11 "ojiudezue" refs are githubRepoPaths keys (GitHub username), NOT filesystem paths — correct, untouched;
+    no stale db-path there. Part-(b) .vibememo/users/ojiudezue identity dir intentionally NOT renamed
+    (identity, not a path). CLOSED.'
 - id: HA-2026-9-VIA-DEVICE-COMPAT-1
   title: HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a
     hard error; every coordinator entity failed to add (live outage)
@@ -11057,7 +11071,7 @@ cards:
   status: parked
   thread: platform
   created: 2026-08-18 02:30
-  updated: 2026-08-18 02:30
+  updated: 2026-09-11 16:30
   refinement_status: initial
   problem: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology
     but the migration carries real risk for MEDIUM value.
@@ -11081,6 +11095,9 @@ cards:
   - AUDIT_roadmap_undone_worthwhile.md
   - docs/planning/PLANNING_device_entity_architecture_2026_9.md
   - DECISION_LOG_device_entity_cycle_2026_09_03.md
+  links:
+    related:
+    - INTEGRATION-CAMERA-DISCOVER-STALE-1
 - id: ENTITYDESC-RUNTIMEDATA-HYGIENE-1
   title: EntityDescription + runtime_data hygiene (opportunistic)
   status: parked

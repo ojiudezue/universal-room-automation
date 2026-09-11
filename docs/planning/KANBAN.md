@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T16:12:57-05:00_ - _Data commit: `3babe7a96cce`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T16:18:03-05:00_ - _Data commit: `0b8134c8121f`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -18,10 +18,10 @@ _Generated: 2026-09-11T16:12:57-05:00_ - _Data commit: `3babe7a96cce`_ - _last_r
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 0 |
-| ⏸️ Waiting on operator | 21 |
+| ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 41 |
-| ✅ Done | 90 |
+| ✅ Done | 91 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -505,7 +505,7 @@ _idea being decomposed_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
 thread: **quality** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-09-07 00:30 · updated 2026-09-11 16:12 · refined_
+_created 2026-09-07 00:30 · updated 2026-09-11 16:30 · refined_
 - **Problem / Solution:**
   - Problem: the integration keeps a camera→area map (built once at setup by camera_manager.async_discover) that decides which camera extends which room's occupancy. The camera-list option CONF_CAMERA_PERSON_ENTITIES has been on the reload-s...
 - **Origin:** 2026-09-07 - Tier-3 review D-HIGH-1 / A3 of the reload-comprehensive cycle — pre-existing camera-map staleness
@@ -515,7 +515,7 @@ _created 2026-09-07 00:30 · updated 2026-09-11 16:12 · refined_
 - **Parsimony:** [SIMPLIFY-OR-PARK] Adding/removing an interior camera does not update room occupancy until an HA restart (map _cameras_by_area never rebuilds on the suppressed reload).
 - **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
 - **Forensic keys (2):**
-  - `links`: related: RELOAD-WATCHDOG-HAZARD
+  - `links`: related: CONFIG-SUBENTRIES-MIGRATION-1
   - `disposition`: INVESTIGATED 2026-09-11 (lull groom, 4-surface sweep): VERDICT REAL, mechanism CONFIRMED. CONF_CAMERA_PERSON_ENTITIES on the reload-suppress allowlist (__init__.py:6665) with no discharge that rebuilds CameraIntegrationManager._cameras_b...
 
 ### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation
@@ -1323,7 +1323,7 @@ _live, awaiting proof_
 
 _(none)_
 
-## ⏸️ Waiting on operator (21)
+## ⏸️ Waiting on operator (20)
 _needs a human call_
 
 ### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
@@ -1352,19 +1352,6 @@ _created 2026-09-06 18:35 · updated 2026-09-11 15:52 · initial_
 - **Forensic keys (2):**
   - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
   - `disposition`: RECONCILE 2026-09-11: URA exonerated (activity log clean, master switch off, reconciler idle). Investigation EXIT = URA refuted as cause; the only remaining next step is an OPERATOR answer (does a HomeKit/iOS automation turn off the kitc...
-
-### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
-thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-01 17:40 · updated 2026-09-11 16:12 · initial_
-- **Problem / Solution:**
-  - Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that path does not exist on this machine (verified: ls -> No such file or directory); the live mount is /Users/okosisi/ha-config (.HA_VERSION...
-- **Origin:** 2026-09-01 - EC-1 plan-review side-finding — documented mount path does not exist
-- **Why:** Verified by ls: /Users/ojiudezue/ha-config/.HA_VERSION absent; /Users/okosisi/ha-config/.HA_VERSION present (8 bytes, mounted). git grep ojiudezue spans CLAUDE.md + .claude/skills/*/SKILL.md + .vibememo/.
-- **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
-- **Tags:** no-fabrication-verify
-- **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
-- **Forensic keys (1):**
-  - `disposition`: INVESTIGATED 2026-09-11 (lull groom): VERDICT REAL, doc/config-only. Verified live: /Users/ojiudezue does NOT exist on this machine (whoami=okosisi); the correct mountpoint is /Users/okosisi/ha-config (exists but currently UNMOUNTED — em...
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **waiting_operator** - approval: **explicit**
@@ -2053,14 +2040,15 @@ _created 2026-08-18 02:20 · updated 2026-08-23 14:30 · initial_
 
 ### `CONFIG-SUBENTRIES-MIGRATION-1` - Config subentries migration (flat 34-entry -> subentries)
 thread: **platform** - status: **parked**
-_created 2026-08-18 02:30 · initial_
+_created 2026-08-18 02:30 · updated 2026-09-11 16:30 · initial_
 - **Next:** Parked. Revive if the operator elevates per-zone/per-coordinator individual reload (see driver above) OR HA deprecates the flat pattern. Then: verify subentry-reload semantics vs per-entry split; probe first.
 - **Sibling of:** SCALE-LEAN-ROOM-PROFILE-1, DEVICE-ENTITY-REORG-1
 - **Refs:** AUDIT_roadmap_undone_worthwhile.md; docs/planning/PLANNING_device_entity_architecture_2026_9.md; DECISION_LOG_device_entity_cycle_2026_09_03.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `problem`: Still flat 34 config entries; 189 hass.data[DOMAIN] sites. HA subentries would clean topology but the migration carries real risk for MEDIUM value.
   - `parked_reason`: MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is needed anyway, or HA deprecates the flat pattern.
   - `per_item_reload_driver_2026_09_03`: NEW DRIVER (operator, via DEVICE-ENTITY-REORG-1): the operator wants per-ZONE and per-COORDINATOR individual reload. That is impossible today because all zones share one Zone Manager entry and all coordinators share one CM entry — reload...
+  - `links`: related: INTEGRATION-CAMERA-DISCOVER-STALE-1
 
 ### `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` - EntityDescription + runtime_data hygiene (opportunistic)
 thread: **platform** - status: **parked**
@@ -2224,7 +2212,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (90)
+## ✅ Done (91)
 _closed, evidence in refs_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -2279,6 +2267,19 @@ _created 2026-09-01 16:15 · updated 2026-09-01 18:10 · refined ×2_
 - **Forensic keys (2):**
   - `disposition_2026_09_01`: DONE — discriminator met live at deploy-time (not a soak). sensor.ura_energy_ coordinator_forecast_accuracy = 35.9 (numeric, was unknown) + status=stale + eval_age_days=2; adjustment_factor=1.3 unchanged (control path byte-identical); 0 ...
   - `build_review_2026_09_01`: Built (feature/forecast-accuracy-unmask @ 8db574674, 10 tests, :850-mutation→RED verified). Build-review B (control-path) = SHIP (byte-identity confirmed, energy.py not even in the diff). Build-review A (correctness) = FIX-REQUIRED, one ...
+
+### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
+thread: **platform** - status: **done** - approval: **unreviewed**
+_created 2026-09-01 17:40 · updated 2026-09-11 16:30 · initial_
+- **Problem / Solution:**
+  - Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that path does not exist on this machine (verified: ls -> No such file or directory); the live mount is /Users/okosisi/ha-config (.HA_VERSION...
+- **Origin:** 2026-09-01 - EC-1 plan-review side-finding — documented mount path does not exist
+- **Why:** Verified by ls: /Users/ojiudezue/ha-config/.HA_VERSION absent; /Users/okosisi/ha-config/.HA_VERSION present (8 bytes, mounted). git grep ojiudezue spans CLAUDE.md + .claude/skills/*/SKILL.md + .vibememo/.
+- **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
+- **Tags:** no-fabrication-verify
+- **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
+- **Forensic keys (1):**
+  - `disposition`: INVESTIGATED 2026-09-11 (lull groom): VERDICT REAL, doc/config-only. Verified live: /Users/ojiudezue does NOT exist on this machine (whoami=okosisi); the correct mountpoint is /Users/okosisi/ha-config (exists but currently UNMOUNTED — em...
 
 ### `HA-2026-9-VIA-DEVICE-COMPAT-1` - HA 2026.9 broke ALL coordinator entities — deprecated `via_device` DeviceInfo param is now a hard error; every coordinator entity failed to add (live outage)
 thread: **platform** - status: **done** - approval: **explicit**
