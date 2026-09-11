@@ -16027,9 +16027,9 @@ cards:
   title: How does the arbitrage ATTAIN phase behave across shoulder + winter (low/moderate solar) seasons?
     — code trace question
   thread: energy
-  status: investigating
+  status: done
   created: 2026-09-11 19:05
-  updated: 2026-09-11 19:05
+  updated: 2026-09-11 19:20
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -16043,6 +16043,50 @@ cards:
   next: 'ANSWER (operator question): trace attain phase seasonal behavior and report; then close.'
   refs:
   - memory project_attain_solar_aggression_investigation (CLOSED keep 0.5)
+  disposition:
+  - 'ANSWERED 2026-09-11 (code trace): ATTAIN is season-AGNOSTIC by construction — no month/season branch
+    on the charge decision. Reaches the FIXED peak_buffer_target via off-peak GRID in all seasons. Two
+    paths: (1) arbitrage CHARGE on month-relative poor/very_poor days (gate _gate_is_open :3178); (2)
+    attain safety-net on typical days (gate closed) — _should_attain_peak_buffer :3997/:4101 fires grid-charge
+    when projected = soc+rate*hrs+solar_surplus < target. Winter reaches target because the absolute Solcast
+    solar_surplus term (:3809, SOLAR_CAPTURE_FACTOR 0.5 :260) is small -> projected short -> grid charges.
+    Does NOT structurally under-charge. All winter charging on typical days depends on the attain net
+    functioning (arbitrage gate is closed).'
+- id: ATTAIN-UNBOUNDED-RATE-WINTER-MASK-1
+  title: Attain-entry projection uses UNBOUNDED rate extrapolation (unlike the rung ladder) — could mask
+    a real winter grid-charge across a long overnight boundary
+  thread: energy
+  status: investigating
+  created: 2026-09-11 19:20
+  updated: 2026-09-11 19:20
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  - tier-2
+  rank:
+    value: 6
+    effort: 5
+  problem_solution:
+  - 'Problem: the attain-entry projection extrapolates the observed net charge rate over the FULL minutes-to-boundary
+    with bound_to_solar_horizon=False (energy_battery.py:4074), whereas the arbitrage rung ladder deliberately
+    bounds its rate term to remaining solar hours (:2933-2954) to avoid runaway projections. In winter,
+    across a long (8h+) overnight off-peak boundary, a small POSITIVE overnight net rate (light loads/trickle)
+    extrapolated over full mins could push projected above target and SUPPRESS a legitimate grid-charge
+    that has no solar to actually deliver it. At night rate is usually negative so it rarely bites, but
+    it is the exact asymmetry the ladder bounding was added to fix, left unbounded on the attain path.
+    Solution: consider bounding the attain-entry rate extrapolation the same way, or cap the positive-rate
+    contribution overnight.'
+  next: 'MEASURE: over winter overnight boundaries, does the attain projection ever exceed target on a
+    small positive rate and suppress a needed charge? If yes, bound the rate term. Tier 2 (touches the
+    attain predicate). Discriminator vs the arbitrage path which is separately gated.'
+  links:
+    related:
+    - ATTAIN-SEASONAL-BEHAVIOR-TRACE-1
+    context: Latent hazard surfaced by the seasonal trace; the attain net is the sole winter backstop
+      on typical days, so a suppression here would silently under-charge.
+  refs:
+  - energy_battery.py:4074 (unbounded) vs :2933-2954 (ladder bounds)
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
