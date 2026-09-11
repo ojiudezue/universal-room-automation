@@ -15870,9 +15870,9 @@ cards:
   title: Sync settled ura-kanban edits -> published auto-kanban skill (+ README) in productmind-skills,
     generalized
   thread: tooling
-  status: pre_planning
+  status: done
   created: 2026-09-11 16:55
-  updated: 2026-09-11 16:55
+  updated: 2026-09-11 19:00
   refinement_status: initial
   approval: explicit
   approved_by: operator 2026-09-11 ("publish... or update it since thats where it IS published, including
@@ -15893,6 +15893,12 @@ cards:
     related:
     - KANBAN-WSJF-RENDERER-1
     context: The renderer + skill edits are the content this publishes; publish only once they settle.
+  disposition:
+  - 'SHIPPED 2026-09-11: ported WSJF ranking + drive-from-board autonomy + waiting-lane verb rule + auto-load/invocation
+    + builder-isolation into productmind-skills/skills/auto-kanban SKILL.md (+228) & README.md (+26),
+    generalized (no URA leakage; reviewed WSJF section for accuracy). Pushed to GitHub main 5ffddeb. Reflects
+    "every agent follows our lead". Residual: references/schema example not yet annotated with rank:/links:
+    (carded).'
 - id: BLE-HOLD-CAP-SUITE-POLLUTION-1
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)
@@ -15971,6 +15977,31 @@ cards:
     in the skill (Concurrency section): (1) commit/stash own work BEFORE dispatching any repo-writing
     agent — committed work survives reset --hard, uncommitted does not; (2) every repo-writing builder
     runs in its own worktree, even a single one. Cron confirmed directionally correct.'
+- id: AUTOKANBAN-SCHEMA-EXAMPLE-1
+  title: 'auto-kanban references/schema example lacks rank:/links: blocks now that the skill documents
+    them'
+  thread: tooling
+  status: pre_planning
+  created: 2026-09-11 19:00
+  updated: 2026-09-11 19:00
+  refinement_status: initial
+  approval: implied
+  tags:
+  - tier-1
+  rank:
+    value: 3
+    effort: 2
+  problem_solution:
+  - 'Problem: productmind-skills/skills/auto-kanban/references/schema/kanban.data.example.yaml does not
+    demonstrate the new rank: and links: card blocks the SKILL.md now documents. Solution: add annotated
+    rank:/links: examples to the schema file so implementers see the shape.'
+  next: 'Add rank:/links: annotated examples to auto-kanban references/schema/kanban.data.example.yaml;
+    commit+push productmind-skills.'
+  links:
+    related:
+    - SKILL-PUBLISH-SYNC-AUTOKANBAN-1
+    context: Deferred follow-up of the publish-sync — the example file was intentionally left untouched
+      to avoid scope creep.
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
