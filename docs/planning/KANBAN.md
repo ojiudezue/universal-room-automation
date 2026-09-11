@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-10T15:59:53-05:00_ - _Data commit: `300b6774e72c`_ - _last_reconciled: 2026-09-10_
+_Generated: 2026-09-11T15:48:47-05:00_ - _Data commit: `a1097a9a555b`_ - _last_reconciled: 2026-09-10_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -11,19 +11,19 @@ _Generated: 2026-09-10T15:59:53-05:00_ - _Data commit: `300b6774e72c`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 27 |
-| 🔬 Investigating | 23 |
+| 📥 Inbox | 26 |
+| 🔬 Investigating | 22 |
 | 🧭 Pre-planning | 21 |
 | 📝 Planned | 19 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 0 |
-| ⏸️ Waiting on operator | 19 |
+| ⏸️ Waiting on operator | 21 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 40 |
 | ✅ Done | 86 |
 
-## 📥 Inbox (27)
+## 📥 Inbox (26)
 _raw capture_
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart
@@ -46,17 +46,6 @@ _created 2026-09-06 18:10 · initial_
 - **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
 - **Next:** grep tests for sys.modules[...const...]= / fake const stubs; identify the poisoning test(s); scope the stub with an autouse restore fixture; confirm full-suite collects.
 - **Tags:** test-authority, no-fabrication-verify
-
-### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
-thread: **platform** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-01 17:40 · initial_
-- **Problem / Solution:**
-  - Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that path does not exist on this machine (verified: ls -> No such file or directory); the live mount is /Users/okosisi/ha-config (.HA_VERSION...
-- **Origin:** 2026-09-01 - EC-1 plan-review side-finding — documented mount path does not exist
-- **Why:** Verified by ls: /Users/ojiudezue/ha-config/.HA_VERSION absent; /Users/okosisi/ha-config/.HA_VERSION present (8 bytes, mounted). git grep ojiudezue spans CLAUDE.md + .claude/skills/*/SKILL.md + .vibememo/.
-- **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
-- **Tags:** no-fabrication-verify
-- **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
 
 ### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home
 thread: **identity** - status: **inbox** - approval: **unreviewed**
@@ -321,7 +310,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 2
   - `confidence_gate`: >=0.75 to NAME the person in the message. Naming is a notification-class effect, not a security trust decision — but a low-confidence name must NEVER downgrade an ALERT. De-escalate/annotate only; per the §5.5 safety doctrine identity ma...
 
-## 🔬 Investigating (23)
+## 🔬 Investigating (22)
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk)
@@ -344,18 +333,6 @@ _created 2026-09-10 00:50 · initial_
   - `onset_fix_held_2026_09_10`: ONSET reload-resilience fix (sibling EVSE-CHARGE-ONSET-NOT-HELD-1) HELD per operator: "how can you fix what you cannot root cause". Correct -- the enabled=False-during-transient-off mechanism is INFERRED not proven, and fixing before kno...
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
-
-### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
-thread: **diagnostics** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-06 18:35 · initial_
-- **Problem / Solution:**
-  - Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead) keeps turning off by itself a few minutes after it is turned on, even though the operator set the Kitchen room to no-automation and forced-vacant. The worry wa...
-- **Origin:** 2026-09-06 - operator — kitchen overhead turning off; kitchen has no automation and is forced vacant; trace it
-- **Why:** A managed light turning off unexpectedly reads as a URA regression; proving it is external prevents chasing a phantom URA bug and points at the real owner.
-- **Next:** Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown, enable debug logging on homekit/service-call origin and read the next fire to name the caller.
-- **Tags:** no-fabrication-verify, falsify-first
-- **Forensic keys (1):**
-  - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
 
 ### `FRIGATE-SUBLABEL-FACE-BRIDGE-1` - Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the real gate for the whole egress-identity (6.0.0) arc
 thread: **identity** - status: **investigating** - approval: **explicit**
@@ -1340,7 +1317,7 @@ _live, awaiting proof_
 
 _(none)_
 
-## ⏸️ Waiting on operator (19)
+## ⏸️ Waiting on operator (21)
 _needs a human call_
 
 ### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
@@ -1356,6 +1333,32 @@ _created 2026-09-08 17:30 · updated 2026-09-08 18:10 · refined ×1_
 - **Forensic keys (2):**
   - `overlap_finding_2026_09_08`: DUAL OWNERSHIP (the actionable root): URA Media room ALSO drives these covers + the fan — binary_sensor.media_room_occupied control_covers=[cover.media_center/left/right], control_fans=[fan.media_room_ceiling_fan] — the SAME devices medi...
   - `status_note_2026_09_08`: IDENTIFIED — NOT URA. cover.media_left/center/right are opened by the user HA automation automation.media_room_control_v1 (Media Room Light Control v1, UI id 1758508383666, mode restart) on its room_occupied trigger (mmwave presence>1) w...
+
+### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
+thread: **diagnostics** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-06 18:35 · updated 2026-09-11 15:52 · initial_
+- **Problem / Solution:**
+  - Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead) keeps turning off by itself a few minutes after it is turned on, even though the operator set the Kitchen room to no-automation and forced-vacant. The worry wa...
+- **Origin:** 2026-09-06 - operator — kitchen overhead turning off; kitchen has no automation and is forced vacant; trace it
+- **Why:** A managed light turning off unexpectedly reads as a URA regression; proving it is external prevents chasing a phantom URA bug and points at the real owner.
+- **Next:** Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown, enable debug logging on homekit/service-call origin and read the next fire to name the caller.
+- **Tags:** no-fabrication-verify, falsify-first
+- **Forensic keys (2):**
+  - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
+  - `disposition`: RECONCILE 2026-09-11: URA exonerated (activity log clean, master switch off, reconciler idle). Investigation EXIT = URA refuted as cause; the only remaining next step is an OPERATOR answer (does a HomeKit/iOS automation turn off the kitc...
+
+### `DOC-MOUNT-PATH-STALE-1` - CLAUDE.md + skills reference a Samba mount path that does not exist on this machine (/Users/ojiudezue vs the real /Users/okosisi) — a username migration left stale paths across docs + a vibememo user dir
+thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-01 17:40 · updated 2026-09-11 15:52 · initial_
+- **Problem / Solution:**
+  - Problem: instructions tell an agent the HA config is mounted at /Users/ojiudezue/ha-config, but that path does not exist on this machine (verified: ls -> No such file or directory); the live mount is /Users/okosisi/ha-config (.HA_VERSION...
+- **Origin:** 2026-09-01 - EC-1 plan-review side-finding — documented mount path does not exist
+- **Why:** Verified by ls: /Users/ojiudezue/ha-config/.HA_VERSION absent; /Users/okosisi/ha-config/.HA_VERSION present (8 bytes, mounted). git grep ojiudezue spans CLAUDE.md + .claude/skills/*/SKILL.md + .vibememo/.
+- **Next:** Operator decision: fix the mount PATHS (CLAUDE.md Data Source Verification + skills) to /Users/okosisi; handle the vibememo user-dir rename separately (or leave — it is an identity, not a path). Low urgency, real footgun.
+- **Tags:** no-fabrication-verify
+- **Refs:** CLAUDE.md Data Source Verification section; AUDIT/plan-review of EC-1 2026-09-01
+- **Forensic keys (1):**
+  - `disposition`: INVESTIGATED 2026-09-11 (lull groom): VERDICT REAL, doc/config-only. Verified live: /Users/ojiudezue does NOT exist on this machine (whoami=okosisi); the correct mountpoint is /Users/okosisi/ha-config (exists but currently UNMOUNTED — em...
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **waiting_operator** - approval: **explicit**
