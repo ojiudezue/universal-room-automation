@@ -719,6 +719,20 @@ for everything Tier 2 and below.**
    shared primitive, cross-coordinator state, rare-fire path), that is a signal to SIMPLIFY or to
    treat it as Tier 3 — not to barrel ahead because "it's only Tier 2."
 
+**When the gate FAILS or is AMBIGUOUS → page the operator, don't guess (operator-coined
+2026-09-11).** A clean BUILD/SIMPLIFY drives autonomously; a clean PARK/DROP parks with its
+revival trigger. But when the parsimony verdict is genuinely unclear, or the cost/benefit is a
+toss-up (the marginal benefit and the ingredient risk are close enough that either call is
+defensible), do NOT silently pick and do NOT stall the whole queue waiting: **page the operator
+via NM** (a real notification, so the ball reaches their phone) AND **park the card as
+`waiting_operator` with a crisp operator-verb `next`** (APPROVE / PICK A-or-B — state the exact
+decision and the options, per the waiting-lane verb rule above). Then **move on to the next
+eligible card** — one ambiguous card must not block the flow. The page + the parked card are
+redundant on purpose: the notification prompts, the board holds the decision durably so it is not
+lost if the notification is missed. This keeps autonomy honest — the agent drives what is clear
+and escalates what isn't, rather than either freezing on every judgement call or barrelling
+through one it shouldn't own.
+
 **Still always pause — the gate does not override these:** a review returns DO-NOT-SHIP; the work
 grows beyond the card's scope (re-scope with the operator, don't silently widen); anything
 destructive / outward-facing / published; the operator flagged it delicate; hostile timing
