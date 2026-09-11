@@ -32,7 +32,7 @@ cards:
   thread: diagnostics
   status: waiting_operator
   created: 2026-09-08 17:30
-  updated: 2026-09-08 18:10
+  updated: 2026-09-11 16:40
   refinement_status: refined
   problem_solution:
   - 'Problem: the media room blinds (covers) have started opening by themselves, which has not happened
@@ -70,10 +70,10 @@ cards:
   - 'Started as "is the device work moving room code" fear -> refuted (git diff clean); real root is a
     PRE-EXISTING dual-ownership: URA Media room AND automation.media_room_control_v1 both drive cover.media_*
     + fan.media_room_ceiling_fan. Investigation CONFIRMED -> promoted to a single-owner fix decision.'
-  next: 'OPERATOR DECISION (pick ONE owner for cover.media_left/center/right + fan.media_room_ceiling_fan):
-    (A) remove those covers+fan from the URA Media room config (options flow) so automation.media_room_control_v1
-    owns them; or (B) strip the cover/fan actions from automation.media_room_control_v1 so URA owns them.
-    Then verify binary_sensor.media_room_automation_conflict stays off and only one system actuates.'
+  next: 'PICK ONE owner for cover.media_left/center/right + fan.media_room_ceiling_fan: (A) URA drops
+    them from the Media room config so automation.media_room_control_v1 owns them, or (B) strip those
+    actions from the automation so URA owns them. -> I apply your pick + verify binary_sensor.media_room_automation_conflict
+    stays off.'
   refs:
   - git diff v5.98.0..HEAD (no room/cover logic changed)
   - KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
@@ -449,7 +449,7 @@ cards:
   thread: diagnostics
   status: waiting_operator
   created: 2026-09-06 18:35
-  updated: 2026-09-11 15:52
+  updated: 2026-09-11 16:40
   refinement_status: initial
   problem_solution:
   - 'Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead) keeps turning off by
@@ -481,8 +481,9 @@ cards:
     entity is sensor.lights_on_count (passive).'
   - 'exposure: conversation=true, cloud.alexa=false, cloud.google_assistant=false; HomeKit bridge active
     (150-device-limit warnings).'
-  next: Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown,
-    enable debug logging on homekit/service-call origin and read the next fire to name the caller.
+  next: 'ANSWER: do you have a HomeKit/iOS (or other app) automation that turns the kitchen overhead off?
+    YES -> name it, done. UNSURE -> I add service-call-origin debug logging and read the next fire. (URA
+    already ruled out.)'
   refs: []
   disposition:
   - 'RECONCILE 2026-09-11: URA exonerated (activity log clean, master switch off, reconciler idle). Investigation
@@ -2107,7 +2108,7 @@ cards:
     set closing; state the falsifiable invariant, then operator checkpoint.
   shipped_version: v5.94.0
   created: 2026-09-03 16:50
-  updated: 2026-09-03 16:50
+  updated: 2026-09-11 16:40
   refinement_status: refined
   approval: explicit
   approved_by: operator 2026-09-03 (drive to ship gate; Tier 3; operator holds ship decision)
@@ -2132,9 +2133,8 @@ cards:
   sibling_of:
   - HA-2026-9-VIA-DEVICE-COMPAT-1
   - CONFIG-SUBENTRIES-MIGRATION-1
-  next: 'Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator
-    adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy
-    → mondo review + live validation. Plan: PLANNING_device_entity_architecture_2026_9.md (Rev-2).'
+  next: DECIDE the pending device-adjudication set (the open reorg choices) AND give the Tier-3 ship-checkpoint
+    go. -> I run C+D reviews, state the invariant, deploy + validate.
   refs:
   - docs/planning/PLANNING_device_entity_architecture_2026_9.md
   - docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md
@@ -2232,7 +2232,7 @@ cards:
     clobber-free).'
   batch: With NIGHT-LIGHT-NO-OFF-PATH-1 (operator 2026-08-31) — same room-config/light surface.
   created: 2026-08-31 19:15
-  updated: 2026-09-01 00:40
+  updated: 2026-09-11 16:40
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -2250,8 +2250,8 @@ cards:
     Bedroom manual_switches fan.ceilingfan_fanimaton_rf304_25_masterbedroom -> fan.ceilingfan_fanimaton_rf_masterbedroom;
     Jaya Bedroom door_sensor binary_sensor.openclose_aquara_zigbee_jayabedroom_contact -> REMOVE (only
     _contact_2 exists and it is already the Jaya Bedroom window_sensor, so no distinct door contact).'
-  next: Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them
-    via ha_config). Low-risk config, no code, no review tier.
+  next: APPROVE me to apply the 4 config edits (repoint 3 dead entity refs, remove 1) via ha_config —
+    OR apply them yourself in options-flow. Low-risk config, no code/tier.
   refs:
   - room device audit 2026-08-31 (STALE CONFIG section)
 - id: WATERLEAK-TRIO-UNKNOWN-1
@@ -3845,7 +3845,7 @@ cards:
   status: waiting_operator
   approval: unreviewed
   created: 2026-08-18 02:45
-  updated: 2026-08-28 22:00
+  updated: 2026-09-11 16:40
   lane_note_2026_08_28: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged.
     What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12
     names as the next-MINOR-capability track. Hence waiting_operator.
@@ -3864,9 +3864,8 @@ cards:
   constraints:
   - Docs/planning only. The agentic-layer vision needs OPERATOR input on scope/priority before a plan
     — do not spec it unilaterally.
-  next: 'Operator: is the room-to-room agentic layer a near-term priority? If yes, scope a VISION/epic
-    doc on top of the hierarchical-memory foundation. Separately: refresh ROADMAP_v11 -> v12 to reflect
-    v4-v5 reality.'
+  next: 'ANSWER: is the room-to-room agentic layer a near-term priority? YES -> I scope a VISION/epic
+    doc. Either way -> I refresh ROADMAP_v11->v12 to reflect v4-v5 reality.'
   refs:
   - docs/ROADMAP_v11.md
   - docs/VISION_v7.md
@@ -4719,9 +4718,9 @@ cards:
   known_gap: The misfiled-hybrid collision WARN has no dedicated test asserting the emit path (it fired
     incidentally in a drill). Would need _LOGGER mocking or caplog scaffolding on the coordinator logger.
     Say the word and it gets one.
-  next: PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines). Tier
-    3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO — Tier 3
-    shared primitive, not implied-approval eligible.
+  next: 'APPROVE GO (or hold): the Tier-3 plan is written (PLANNING_sensor_capability_vs_role.md). Shared
+    primitive -> needs explicit go, not implied. -> I run the 4 framing-disjoint reviews + operator checkpoint
+    before deploy.'
   status_note: plan complete; build gated on operator go
   refinement:
   - 'CHALLENGE (planner, vs my card sketch): the sketch read as if capability might extend TIER1_KINDS
@@ -4770,7 +4769,7 @@ cards:
     land independently; stuck detector sequences after capability work. Do NOT build parallel exclusions.
     Members: SENSOR-HEALTH-SURFACING-1 (chatter), STUCK-SENSOR-1 (stuck/flapping mmWave), SENSOR-CAPABILITY-1
     (capability/role -> corroborator selection).'
-  updated: 2026-08-23 11:50
+  updated: 2026-09-11 16:40
   program: sensor-trust-exclusion
 - id: BOARD-CURRENCY-1
   title: Forcing-function ladder so the board (and vibememo) cannot lag shipped work
@@ -5099,23 +5098,8 @@ cards:
   - Space-constrained — operator explicitly delegated judgement on what to cut. Curate ruthlessly; completeness
     is not the goal.
   - Reuse existing EV/EVSE entities and precedence concepts; do not invent new sensors for the card.
-  next: 'REDESIGNED 2026-08-16 after operator verdict "design is poor — review the main sensors." Full
-    sensor discovery this time: ev_charging_status per-EVSE attrs (is_on/power/charging/ pause_reason_human
-    — power WORKS while the standalone ev_charge_rate_* sensors sit unknown), ev_charging_plan DP state
-    machine (must_start_by_dt, last_eval_snapshot), battery_strategy (next_decision_boundary, force-charge,
-    soc), L1-charger plug binary, resume-at-SOC number, current_energy_rate. New card: verdict header
-    w/ TOTAL live kW from status attrs; per-charger table (plug/state/kW) sourced from attrs not the dead
-    Emporia sensors; NEW anomaly line "plugged but not drawing" (would have surfaced the Garage-A overnight
-    no-charge incident); Plan line + must-start-by; battery-drain resume threshold when paused; Next TOU
-    boundary w/ expected EV action; grid ¢/kWh; force-charge 30-min tile added. Cut: raw Emporia/SPAN
-    entities (unavailable), eval snapshot internals, arbitrage/grid-cap lists when empty. Applied views[2].sections[8],
-    write_committed + post_write_verified, template eval-verified live. No vehicle-side integration exists
-    (BMW/Tesla sweep empty) — vehicle SOC/target impossible until one is added. AWAITING OPERATOR RE-REVIEW.
-    FIX 2026-08-16: operator flagged the constant Outlets 2.9 kW — it is a BY-DESIGN estimate (energy_pool
-    emits L1_ESTIMATED_POWER_W=1440 per on-socket with power_source "switch_status"; audit AUDIT_ev_sensor_surface.md
-    verdict 3), not a measurement. Card now renders any power_source=="switch_status" value as an estimate
-    ("~2.9 est" row, header "2.9 kW (~est)") so estimated never masquerades as measured; real per-plug
-    power arrives when the Emporia integration recovers + per-plug wiring ships. Re-applied + render-verified.'
+  next: RE-REVIEW the redesigned EV card spec (verdict header w/ live kW, per-charger table, plugged-but-not-drawing
+    anomaly, estimate labeling). APPROVE -> I build it into the v8 Energy tab.
   applied_render_2026_08_09: '## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW] [Garage
     B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h — 7 lines,
     zero None/unavailable/unknown, all four conditional lines correctly absent.'
@@ -5169,6 +5153,7 @@ cards:
   status_correction_2026_08_16: 'Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy
     tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I''ll review and we
     can refine").'
+  updated: 2026-09-11 16:40
 - id: EGRESS-CAMERA-DEAD-CONFIG-1
   title: Two of five egress cameras are configured under dead Frigate-1 names — Garage A and Garage B
     contribute nothing to egress detection, on the house's primary entry path
@@ -7452,7 +7437,7 @@ cards:
     shared-space same union. Tier 2-DB. Option B (stay-on-till-wake) needs a NEW sleep-end OFF handler
     (does not exist) = state-transition seam — parked behind an explicit operator trigger.'
   created: 2026-08-31 18:35
-  updated: 2026-08-31 19:05
+  updated: 2026-09-11 16:40
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -7486,8 +7471,9 @@ cards:
   - 'Design intent for the under-cabinet night light: (A) off on VACANCY like a dim regular light, or
     (B) stay on through the night and off at WAKE/dark->bright? Determines which off-trigger to add. NEEDS
     OPERATOR.'
-  next: Operator picks intent (A vs B). Then add the night_lights OFF path mirroring the CONF_LIGHTS exit
-    logic (+ reconciler parity), gated to preserve the sleep-dim behavior. Tier 2-DB. Queue behind charge-onset.
+  next: 'PICK intent: (A) URA turns the Master Bath night light OFF at exit like CONF_LIGHTS, or (B) leave
+    night_lights human/device-cleared. -> if A, I add the night_lights OFF path (Tier 2-DB, gated to preserve
+    sleep-dim), queued behind charge-onset.'
   refs:
   - automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment)
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
@@ -7530,7 +7516,7 @@ cards:
   thread: presence
   status: waiting_operator
   created: 2026-08-31 19:05
-  updated: 2026-08-31 19:05
+  updated: 2026-09-11 16:40
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -7546,11 +7532,8 @@ cards:
     gist: light automation audit F4
   why: AUDIT_room_light_automation.md F4. Surfaced now because the off-path fix changes how this entity
     behaves; better to correct the config before the fix ships than to drive the range light unexpectedly.
-  next: 'OPERATOR APPLYING the config edit (2026-09-11). Evidence delivered: 7-day history of switch.switch_tapo_wifi_kitchenrange
-    shows range-light behavior (short meal-time bursts, no overnight nightlight signature); recommended
-    repoint night_lights -> light.kitchen_led (real dimmable LED, better fit). Config-only, no code/review
-    tier. VERIFY after edit: night_lights field = light.kitchen_led; behaves as nightlight on next Kitchen
-    night entry.'
+  next: 'DO (you own it): repoint Kitchen night_lights from switch.switch_tapo_wifi_kitchenrange to light.kitchen_led
+    in options-flow. -> I verify it behaves as a nightlight on the next Kitchen night entry.'
   refs:
   - docs/planning/AUDIT_room_light_automation.md F4
 - id: FAN-MANUAL-1
@@ -7935,9 +7918,9 @@ cards:
     (cap), duration operator-chosen per use.'
   safety_note: Blanket-mute is a stopgap while classification precision improves (the operator-stated
     underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
-  next: Operator confirms the scoped shape (perimeter-only, duke Nh syntax, 3h cap) -> Tier 2 (NM routing
-    = regression-prone).
-  updated: 2026-08-23 14:30
+  next: 'CONFIRM the scoped shape: perimeter-only, "duke Nh" syntax, 3h cap. APPROVE -> Tier 2 build (NM
+    routing = regression-prone).'
+  updated: 2026-09-11 16:40
   organic_evidence:
   - '2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed.
     Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.'
@@ -8146,8 +8129,9 @@ cards:
   reversal_2026_08_15: 'Operator: device is still physically in the room — DO NOT unconfigure. Staged
     flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node
     does not resolve on network (ESP fully off-WiFi, not flapping). Config refs stay.'
-  next: 'OPERATOR: power-cycle the Ziri 3 node (unplug/replug). Then I verify: entities leave unavailable,
-    presence/lux flow, optimizer sensor_health finding clears next cycle.'
+  next: 'DO (physical): power-cycle the Ziri 3 node (unplug/replug). -> I verify entities leave unavailable,
+    presence/lux flow, optimizer sensor_health clears.'
+  updated: 2026-09-11 16:40
 - id: OPT-META-BOOT-TRANSIENT-1
   title: Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied
     by restart while open-count reads durable state
@@ -9375,10 +9359,13 @@ cards:
     — rec 1 hardware is operator-owned); (b) sequence the fix AFTER corroborators land. Then either way:
     Tier 2-DB cycle = options rename write-through to entry.data + one-shot sync migration + name-consistency
     invariant test.'
-  next: Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
+  next: 'PICK timing: (a) run the Tier-2-DB room-rename write-back cycle now, or (b) after the sensors
+    work lands. -> I plan-review then build. (Note: the write-through itself already shipped v5.75.0;
+    this is the further hardening cycle.)'
   build_dispatched_2026_08_13: 'Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog
     ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED
     live same evening (Upstairs zone occupied w/ real provenance).'
+  updated: 2026-09-11 16:40
 - id: PATH-ALPHA-DENOM-1
   title: Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator
     empties; NO existing card fixes it
@@ -9446,8 +9433,8 @@ cards:
     (3) TIER 2-DB: path-beta discounts zones held only by fan-interference-flagged mmwave-sole signals.
     (4) STUCK-SENSOR-1 (complete fix, still gated; rec 1 is prerequisite for this room anyway). (5) phone
     tracker liveness (device-side).'
-  next: Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only
-    if evidence recurs after 1+2.
+  next: 'APPROVE the recommended fix: 1+2 together (config turn + small loop-breaker for the fan->mmWave
+    self-sustain loop); option 3 only if it recurs after. -> I build. Or tell me to pick differently.'
   operator_dispositions_2026_08_13: 'Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed;
     operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors
     appear in room configs, silently verify D2 arms. Rec 2: PARKED (adversarial audit: sleep-kill blocker
@@ -9459,7 +9446,7 @@ cards:
     (census half) + Gap-B guard. This card holds the incident record; closes when those ship and a real
     all-away transition is observed.
   shipped_version: v5.78.0
-  updated: 2026-08-23 14:30
+  updated: 2026-09-11 16:40
 - id: CIRCLING-LABEL-1
   title: Circling loops page but are never LABELLED/escalated as circling (2-camera shape) — cooldown
     blocks the hop where classification forms
@@ -9589,7 +9576,9 @@ cards:
     ever attached to an outdoor-zone room.'
   operator_question: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests
     or a daytime FP flavor? If the latter, escalate per audit §3.
-  next: Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
+  next: ANSWER the 50-episode pattern question (does the guest-FP recur on that signature?). -> I fold
+    A1 (path-alpha classifier ~5 LoC) + B1 (camera-census outdoor filter) into the next presence hotfix
+    batch.
   folded_2026_08_16: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider).
     Building now.
   live_validation_2026_08_16: 'v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count
@@ -9599,6 +9588,7 @@ cards:
     on v5.77.0 the same morning — the bug was live right up to this deploy. L3 not verifiable with an
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
+  updated: 2026-09-11 16:40
 - id: DP-REASON-NULL-1
   title: DP durable ledger logs reason:null on all 4,181 rows — carrier has no .reason field
   thread: energy
@@ -10829,27 +10819,29 @@ cards:
   status: waiting_operator
   thread: memory
   created: 2026-08-18 02:00
-  updated: 2026-08-28 22:00
+  updated: 2026-09-11 16:40
   refinement_status: refined
   problem: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor).
     Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which
     memory layers/artifacts SURVIVE (durability/retention) vs are transient. Needs full context.
   origin: 2026-08-18 "outline a possible roadmap for memory. Critique it and the layout what survives.
     Full context"
-  next: Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+  next: REVIEW the delivered memory-epic roadmap doc. -> your read drives the roadmap rewrite / memory-epic
+    close-out.
   refs: docs/planning/PLANNING_memory_roadmap_and_critique.md
 - id: ROADMAP-UNDONE-REVIEW-1
   title: Review ROADMAP/VISION — surface undone-but-worthwhile
   status: waiting_operator
   thread: planning
   created: 2026-08-18 02:00
-  updated: 2026-08-28 22:00
+  updated: 2026-09-11 16:40
   refinement_status: refined
   problem: 'Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0
     while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that
     is still worthwhile — separating genuinely valuable undone work from obsolete/superseded items.'
   origin: 2026-08-18 "Review roadmap and surface what has not been done that is worthwhile"
-  next: Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+  next: REVIEW the delivered ROADMAP/VISION undone-but-worthwhile doc. -> your read drives the roadmap
+    rewrite / close-out.
   refs: docs/planning/AUDIT_roadmap_undone_worthwhile.md
 - id: IOS-APP-PLAN-CARD-1
   title: iOS app for HAOS+URA — gated design blueprint (tracked)
@@ -11435,7 +11427,7 @@ cards:
   status: waiting_operator
   thread: dashboarding
   created: 2026-08-18 10:20
-  updated: 2026-08-18 10:20
+  updated: 2026-09-11 16:40
   refinement_status: initial
   problem: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard,
     which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the
@@ -11445,9 +11437,9 @@ cards:
     full branch-behind-main gap
   constraints: Do NOT unilaterally merge 12 commits of PWA work to main + deploy — that is a PWA release
     with its own review/cadence.
-  next: 'OPERATOR: decide the PWA release — is census-p12 THE working branch to promote to main + deploy
-    (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard
-    D3 cards (v6/v8) ARE live; only the PWA leg is pending.'
+  next: 'DECIDE the PWA release: is census-p12 THE branch to promote to main + deploy (ura.phalanxmadrone.com)?
+    YES -> I run the PWA release with its own review. (HA dashboard D3 cards are already live; only the
+    PWA leg is pending.)'
   refs: ~/Code/ura-dashboard-pwa branch census-p12-exterior-dashboard; CENSUS-ACCURACY-1 D3
 - id: CENSUS-FACE-RESOLVER-MIGRATE-1
   title: Route presence face-confirmed-arrival through the _2-suffix resolver (bucket-2 wire)
@@ -12084,7 +12076,7 @@ cards:
   status: waiting_operator
   thread: diagnostics
   created: 2026-08-19 09:00
-  updated: 2026-08-19 10:55
+  updated: 2026-09-11 16:40
   refinement_status: refined
   program: sensor-trust-exclusion
   problem: 'STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its
@@ -12105,14 +12097,9 @@ cards:
     do NOT exclude the vote); number.ura_chatter_burst_k + number.ura_chatter_t_floor (house, CM entry,
     rung-3 live); per-room burst-count telemetry attrs on sensor.<room>_unavailable_entities; migrate
     the options-flow fields OUT of the notifications-volume step.
-  next: 'SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) ->
-    ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE
-    (operator): the 2-day clock STARTS AT SHADOW DEPLOY — MUST flip to ACTING within 2 days of that deploy,
-    or DECLARE MOOT (bazillion devices = trivial stat significance; if the burst distribution does not
-    cleanly separate healthy from chatter in 2 days it is moot). SCHEDULE the gate AT shadow-deploy time
-    (relative, not a fixed date now). The gate is a SESSION task (read shadow burst data from HA -> decide
-    -> flip switch.ura_chatter_quarantine), so the schedule fires a reminder to a session with HA access;
-    the durable record is THIS card + the STEP card.'
+  next: 'APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST
+    ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy
+    or declare moot).'
   refs: PLANNING_sensor_health_surfacing.md; switch.py:154 (census switches); number.py (CM Numbers);
     sensor.py:1677 (UnavailableEntitiesSensor); PROBE_mmwave_healthy_cadence.md (the distribution to surface)
   build_2026_08_19: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
@@ -14337,7 +14324,7 @@ cards:
     vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan->review->build.'
   shipped_version: v5.100.7
   created: 2026-08-31 20:45
-  updated: 2026-08-31 20:45
+  updated: 2026-09-11 16:40
   refinement_status: initial
   approval: unreviewed
   sibling_of: ENVOY-PRODUCTION-STALE-1
@@ -14381,8 +14368,9 @@ cards:
   med2_resolved_2026_09_09: 'OPERATOR: respect the prior Tier-3 decision — do NOT gate net_power/battery_power
     (we did not do the work to overturn it). Build is COMPLETE as-is (primary SOC gated only). Proceed
     to Tier-3 reviews.'
-  next: 'Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness
-    helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.'
+  next: 'PICK scope: (a) fix solar-only (narrow ENVOY-PRODUCTION-STALE-1), or (b) build the shared staleness
+    helper + apply to all 4 frozen reads (net_power, battery_power, PRIMARY battery_soc, solar) in one
+    cycle. -> I plan -> plan-review -> build.'
   refs:
   - Envoy no-dup audit 2026-08-31
   - energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
@@ -15149,7 +15137,7 @@ cards:
     studyb_zone_1 physical duct, or config drift? Then the comfort-check fix branches on the answer.'
   shipped_version: v5.91.4
   created: 2026-08-28 22:00
-  updated: 2026-08-28 22:00
+  updated: 2026-09-11 16:40
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -15180,10 +15168,9 @@ cards:
   - Do NOT delete the check without confirming with the operator that Master Bedroom on studyb_zone_1
     is intentional and not a real misconfig. The operator is the oracle on the physical HVAC->room mapping
     (memory reference_hvac_zone_tonnage doctrine).
-  next: 'Two-step. (1) Operator-verify: is Master Bedroom actually served by studyb_zone_1 physical duct,
-    or is it config drift? (2a) If BY DESIGN: change the comfort check to accept multiple rooms per HVAC
-    zone as legitimate (grep the optimizer comfort-check source for the emitter). (2b) If MISCONFIG: fix
-    the Master-Bedroom config and keep the check.'
+  next: 'VERIFY a fact only you know: is Master Bedroom actually served by the studyb_zone_1 physical
+    duct, or is that config drift? BY-DESIGN -> I make the comfort check accept multiple rooms per HVAC
+    zone. MISCONFIG -> I fix the Master Bedroom config.'
   refs:
   - memory project_house_zones_vs_hvac_zones
   - memory reference_hvac_zone_tonnage

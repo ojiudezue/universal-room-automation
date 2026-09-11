@@ -1327,13 +1327,14 @@ _(none)_
 _needs a human call_
 
 ### `MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1` - Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent device/reload work moved room-code behavior
+> **⚡ OPERATOR: declined — pending apply** (at 2026-09-11T22:44:34.098Z)
 thread: **diagnostics** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-08 17:30 · updated 2026-09-08 18:10 · refined ×1_
+_created 2026-09-08 17:30 · updated 2026-09-11 16:40 · refined ×1_
 - **Problem / Solution:**
   - Problem: the media room blinds (covers) have started opening by themselves, which has not happened before. The operator connects this with the kitchen overhead lights turning off on motion and worries the recent device-tree / reload-supp...
 - **Origin:** 2026-09-08 - operator side-quest — what is opening the media room blinds; worried device work is causing room-code regressions
 - **Why:** Unexpected cover actuation is unnerving and a trust issue; and a possible regression from recent work must be proven or refuted, not assumed.
-- **Next:** OPERATOR DECISION (pick ONE owner for cover.media_left/center/right + fan.media_room_ceiling_fan): (A) remove those covers+fan from the URA Media room config (options flow) so automation.media_room_control_v1 owns them; or (B) strip the ...
+- **Next:** PICK ONE owner for cover.media_left/center/right + fan.media_room_ceiling_fan: (A) URA drops them from the Media room config so automation.media_room_control_v1 owns them, or (B) strip those actions from the automation so URA owns them. ...
 - **Tags:** no-fabrication-verify, falsify-first
 - **Refs:** git diff v5.98.0..HEAD (no room/cover logic changed); KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 (sibling — external actor)
 - **Forensic keys (2):**
@@ -1342,12 +1343,12 @@ _created 2026-09-08 17:30 · updated 2026-09-08 18:10 · refined ×1_
 
 ### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
 thread: **diagnostics** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-06 18:35 · updated 2026-09-11 15:52 · initial_
+_created 2026-09-06 18:35 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: the kitchen overhead (light.dimmer_tapo_wifi_matter_kitchenoverhead) keeps turning off by itself a few minutes after it is turned on, even though the operator set the Kitchen room to no-automation and forced-vacant. The worry wa...
 - **Origin:** 2026-09-06 - operator — kitchen overhead turning off; kitchen has no automation and is forced vacant; trace it
 - **Why:** A managed light turning off unexpectedly reads as a URA regression; proving it is external prevents chasing a phantom URA bug and points at the real owner.
-- **Next:** Ask operator if a HomeKit/iOS (or other app) automation turns off the kitchen light; if unknown, enable debug logging on homekit/service-call origin and read the next fire to name the caller.
+- **Next:** ANSWER: do you have a HomeKit/iOS (or other app) automation that turns the kitchen overhead off? YES -> name it, done. UNSURE -> I add service-call-origin debug logging and read the next fire. (URA already ruled out.)
 - **Tags:** no-fabrication-verify, falsify-first
 - **Forensic keys (2):**
   - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
@@ -1355,12 +1356,12 @@ _created 2026-09-06 18:35 · updated 2026-09-11 15:52 · initial_
 
 ### `DEVICE-ENTITY-REORG-1` - Device/entity de-fragmentation + nesting reorg (HA 2026.9) — the hub cycle that spawned the scale / helper-consolidation / per-item-reload follow-ups
 thread: **platform** - status: **waiting_operator** - approval: **explicit**
-_created 2026-09-03 16:50 · refined_
+_created 2026-09-03 16:50 · updated 2026-09-11 16:40 · refined_
 - **Problem / Solution:**
   - Problem: HA 2026.9 forced stripping all via_device nesting (v5.92.3), leaving the device tree flat; the live registry then revealed coordinator devices SPLIT across the parent + CM config entries (orphan-on-delete) + a dead Music-Followi...
 - **Origin:** 2026-09-03 - 2026.9 via_device strip + operator dashboard review surfaced the split-ownership defect
 - **Why:** D0 probe: 17-entity migration set, all unique_id-SAFE. Validator CLEAN (0 new failures, 5 de-frag gates RED-on-neuter). See DECISION_LOG_device_entity_cycle_2026_09_03.md for every adjudication.
-- **Next:** Complete Tier-3: run C (test-authority) + D (adversarial-completeness) reviews once the operator adjudication set is closed; state the falsifiable invariant; then the operator ship checkpoint → deploy → mondo review + live validation. Pl...
+- **Next:** DECIDE the pending device-adjudication set (the open reorg choices) AND give the Tier-3 ship-checkpoint go. -> I run C+D reviews, state the invariant, deploy + validate.
 - **Tags:** tier-3, ha-2026.9-compat, no-fabrication-verify
 - **Sibling of:** HA-2026-9-VIA-DEVICE-COMPAT-1, CONFIG-SUBENTRIES-MIGRATION-1
 - **Refs:** docs/planning/PLANNING_device_entity_architecture_2026_9.md; docs/planning/DECISION_LOG_device_entity_cycle_2026_09_03.md; docs/planning/AUDIT_device_entity_split_ownership_2026_09_03.md
@@ -1370,12 +1371,12 @@ _created 2026-09-03 16:50 · refined_
 
 ### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-31 19:15 · updated 2026-09-01 00:40 · initial_
+_created 2026-08-31 19:15 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: four rooms point at entity IDs that HA no longer has (renamed/retired), so URA silently references dead handles. These are the only true URA-side items in the room-entity audit (everything else is offline hardware). Solution: re...
 - **Origin:** 2026-08-31 - room device unknown/unavailable audit — STALE section
 - **Why:** Live audit (ssh ha) found 4 config refs returning 404, each with a clean target: Kitchen room_media_player media_player.kitchen_2 -> kitchen_3; Upstairs Guestroom up_guest_room_2 -> up_guest_room_3; Master Bedroom manual_switches fan.cei...
-- **Next:** Operator applies the 4 config edits via options-flow (or approves the orchestrator doing them via ha_config). Low-risk config, no code, no review tier.
+- **Next:** APPROVE me to apply the 4 config edits (repoint 3 dead entity refs, remove 1) via ha_config — OR apply them yourself in options-flow. Low-risk config, no code/tier.
 - **Tags:** no-fabrication-verify
 - **Refs:** room device audit 2026-08-31 (STALE CONFIG section)
 - **Forensic keys (2):**
@@ -1384,11 +1385,11 @@ _created 2026-08-31 19:15 · updated 2026-09-01 00:40 · initial_
 
 ### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-18 02:45 · updated 2026-08-28 22:00 · initial_
+_created 2026-08-18 02:45 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: ROADMAP_v11.md (written at v3.22.0) says "Next: Bayesian Predictive Intelligence v4.0.0" but we are at v5.80.0 — ~2 major versions and dozens of cycles (energy arbitrage, guest/census, presence fusion) shipped WITHOUT updating t...
 - **Why:** A stale roadmap means new work is scoped without a current north star, and the operator vision (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
-- **Next:** Operator: is the room-to-room agentic layer a near-term priority? If yes, scope a VISION/epic doc on top of the hierarchical-memory foundation. Separately: refresh ROADMAP_v11 -> v12 to reflect v4-v5 reality.
+- **Next:** ANSWER: is the room-to-room agentic layer a near-term priority? YES -> I scope a VISION/epic doc. Either way -> I refresh ROADMAP_v11->v12 to reflect v4-v5 reality.
 - **Refs:** docs/ROADMAP_v11.md; docs/VISION_v7.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; MEMORY-PROGRAM-EPIC
 - **Forensic keys (2):**
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
@@ -1396,10 +1397,10 @@ _created 2026-08-18 02:45 · updated 2026-08-28 22:00 · initial_
 
 ### `SENSOR-CAPABILITY-1` - Separate sensor CAPABILITY (hardware kind) from analytic ROLE — kind is currently the config bucket
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
-_updated 2026-08-23 11:50 · refined ×3_
+_updated 2026-09-11 16:40 · refined ×3_
 - **Origin:** 2026-08-09 - operator ruling on whether bed presence moves bucket or code changes: "My instinct is code change so we don't have fixed config buckets. Sensor reality should not pin use and analysis reality in software. It should just tell...
 - **Why:** VERIFIED: occupancy_substrate.py:81 _KIND_TO_CONF maps kind 1:1 onto the three CONF lists, and const.py:342 TIER1_KINDS = ("motion","mmwave","occupancy"). URA has exactly three sensor kinds and they ARE the three config buckets, so the h...
-- **Next:** PLAN WRITTEN 2026-08-09 (docs/planning/PLANNING_sensor_capability_vs_role.md, 477 lines). Tier 3, four framing-disjoint reviews, operator checkpoint before deploy. AWAITING OPERATOR GO — Tier 3 shared primitive, not implied-approval elig...
+- **Next:** APPROVE GO (or hold): the Tier-3 plan is written (PLANNING_sensor_capability_vs_role.md). Shared primitive -> needs explicit go, not implied. -> I run the 4 framing-disjoint reviews + operator checkpoint before deploy.
 - **Tags:** tier-3, institutional-context, no-fabrication-verify, context-wide-scoping, numbers-get-knobs
 - **Blocks:** STUCK-SENSOR-1
 - **Sibling of:** SIGNAL-TRUST-LEDGER (build-gated)
@@ -1430,9 +1431,10 @@ _updated 2026-08-23 11:50 · refined ×3_
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
+_updated 2026-09-11 16:40_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
 - **Why:** EV charging is a first-class energy behaviour (drain precedence, must-start-by, TOU exposure) with no dedicated surface on the v8 energy tab.
-- **Next:** REDESIGNED 2026-08-16 after operator verdict "design is poor — review the main sensors." Full sensor discovery this time: ev_charging_status per-EVSE attrs (is_on/power/charging/ pause_reason_human — power WORKS while the standalone ev_c...
+- **Next:** RE-REVIEW the redesigned EV card spec (verdict header w/ live kW, per-charger table, plugged-but-not-drawing anomaly, estimate labeling). APPROVE -> I build it into the v8 Energy tab.
 - **Forensic keys (10):**
   - `applied_render_2026_08_09`: ## ⏸ Paused / TOU peak/mid-peak pause / [Garage A yes|Paused|0.0 kW] [Garage B —|Off|0.0 kW] [Outlets (2) —|TOU peak/mid-peak pause|—] / **Plan:** Hold Only · held 53h — 7 lines, zero None/unavailable/unknown, all four conditional lines ...
   - `fix_2026_08_09_held_label`: Operator: "What does held 53h mean?" — it was WRONG. Verified in source: since is stamped on every DP state transition (energy_drain_precedence.py:265) and HOLD_ONLY CLEARS hold_started_at as a "clean reversion" (:269-274); DPState docst...
@@ -1447,12 +1449,12 @@ thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 
 ### `NIGHT-LIGHT-NO-OFF-PATH-1` - A night_lights-only entity is never turned OFF by URA — the Master Bath under-cabinet light stays on 20-29h (all night AND day) until a human/device clears it
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
+_created 2026-08-31 18:35 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: the Master Bath under-cabinet light (a Sonoff switch configured as the room's night light only, not a regular light) turns ON when someone enters in the dark, then NEVER turns off — it stays lit for 20-29 hours straight, across ...
 - **Origin:** 2026-08-31 - operator report — Master Bath LED (the Sonoff under-cabinet night light) seems always on at night, and holds during days too
 - **Why:** ROOT-CAUSED (read-only probe 2026-08-31). switch.sonoff_1002197ef7_1 is in night_lights ONLY (not CONF_LIGHTS). URA ON-paths act on night_lights (_control_lights_entry -> _turn_on_night_lights, automation.py:991/1021/1133); all THREE OFF...
-- **Next:** Operator picks intent (A vs B). Then add the night_lights OFF path mirroring the CONF_LIGHTS exit logic (+ reconciler parity), gated to preserve the sleep-dim behavior. Tier 2-DB. Queue behind charge-onset.
+- **Next:** PICK intent: (A) URA turns the Master Bath night light OFF at exit like CONF_LIGHTS, or (B) leave night_lights human/device-cleared. -> if A, I add the night_lights OFF path (Tier 2-DB, gated to preserve sleep-dim), queued behind charge-...
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment); Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31 16:19
 - **Forensic keys (3):**
@@ -1462,21 +1464,21 @@ _created 2026-08-31 18:35 · updated 2026-08-31 19:05 · initial_
 
 ### `KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1` - Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely a config mistake
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-31 19:05 · initial_
+_created 2026-08-31 19:05 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: the Kitchen room lists its range-hood light (switch_tapo_wifi_kitchenrange) as the room night light. Once the night-light off-path fix lands, URA will start turning the RANGE light on at dark entry and off on vacancy as if it we...
 - **Origin:** 2026-08-31 - light automation audit F4
 - **Why:** AUDIT_room_light_automation.md F4. Surfaced now because the off-path fix changes how this entity behaves; better to correct the config before the fix ships than to drive the range light unexpectedly.
-- **Next:** OPERATOR APPLYING the config edit (2026-09-11). Evidence delivered: 7-day history of switch.switch_tapo_wifi_kitchenrange shows range-light behavior (short meal-time bursts, no overnight nightlight signature); recommended repoint night_l...
+- **Next:** DO (you own it): repoint Kitchen night_lights from switch.switch_tapo_wifi_kitchenrange to light.kitchen_led in options-flow. -> I verify it behaves as a nightlight on the next Kitchen night entry.
 - **Tags:** no-fabrication-verify
 - **Refs:** docs/planning/AUDIT_room_light_automation.md F4
 
 ### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
-_updated 2026-08-23 14:30_
+_updated 2026-09-11 16:40_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
 - **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
-- **Next:** Operator confirms the scoped shape (perimeter-only, duke Nh syntax, 3h cap) -> Tier 2 (NM routing = regression-prone).
+- **Next:** CONFIRM the scoped shape: perimeter-only, "duke Nh" syntax, 3h cap. APPROVE -> Tier 2 build (NM routing = regression-prone).
 - **Forensic keys (5):**
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h cap) -> Tier-2 (NM routing = regression-prone).
   - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
@@ -1486,18 +1488,20 @@ _updated 2026-08-23 14:30_
 
 ### `ZIRI3-UNCONFIG-1` - RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700 lux) — rides next deploy restart
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
+_updated 2026-09-11 16:40_
 - **Origin:** 2026-08-15 - ziri_3_presence stuck-unavailable finding in optimizer score-55 round; device physically dead (established 2026-08-05).
 - **Why:** Dead device dings sensor_health every cycle. Room keeps mmwave_zigbee_ziribedroom_presence for presence. Three refs removed: presence_sensors[ziri_3_presence], motion_sensors[ziri_3_moving_target], illuminance_sensor=ziri_3_veml7700 (set...
-- **Next:** OPERATOR: power-cycle the Ziri 3 node (unplug/replug). Then I verify: entities leave unavailable, presence/lux flow, optimizer sensor_health finding clears next cycle.
+- **Next:** DO (physical): power-cycle the Ziri 3 node (unplug/replug). -> I verify entities leave unavailable, presence/lux flow, optimizer sensor_health clears.
 - **Refs:** scratchpad ziri3_unconfig_after_flush.py
 - **Forensic keys (1):**
   - `reversal_2026_08_15`: Operator: device is still physically in the room — DO NOT unconfigure. Staged flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node does not resolve on network (ESP fully off-WiFi, not flap...
 
 ### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped)
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_updated 2026-09-11 16:40_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
 - **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
-- **Next:** Operator picks (a) now vs (b) after-sensors; then Tier 2-DB cycle (plan review first).
+- **Next:** PICK timing: (a) run the Tier-2-DB room-rename write-back cycle now, or (b) after the sensors work lands. -> I plan-review then build. (Note: the write-through itself already shipped v5.75.0; this is the further hardening cycle.)
 - **Forensic keys (3):**
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick (a) do the Tier-2-DB rename-desync cycle now vs (b) after the sensor work; plan review first.
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
@@ -1505,10 +1509,10 @@ thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 
 ### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_updated 2026-08-23 14:30_
+_updated 2026-09-11 16:40_
 - **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
 - **Why:** Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room's own tower fan (fan O...
-- **Next:** Operator picks; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if evidence recurs after 1+2.
+- **Next:** APPROVE the recommended fix: 1+2 together (config turn + small loop-breaker for the fan->mmWave self-sustain loop); option 3 only if it recurs after. -> I build. Or tell me to pick differently.
 - **Forensic keys (4):**
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if it recurs.
   - `operator_decision`: Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole prov...
@@ -1517,9 +1521,10 @@ _updated 2026-08-23 14:30_
 
 ### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent)
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_updated 2026-09-11 16:40_
 - **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
 - **Why:** A1: path-alpha excluded_persons/tracked_persons_count_trusted still exclude LOST-away persons (diagnostic clarity only — guest gate does not read them). B1: camera-census has no room->outdoor filter; safe today (Patio has no camera perso...
-- **Next:** Fold A1+B1 into the next presence hotfix batch; await operator answer on the 50-episode pattern.
+- **Next:** ANSWER the 50-episode pattern question (does the guest-FP recur on that signature?). -> I fold A1 (path-alpha classifier ~5 LoC) + B1 (camera-census outdoor filter) into the next presence hotfix batch.
 - **Forensic keys (4):**
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. Await your answer on the 50-episode guest-FP pattern; then fold A1+B1 into the next presence hotfix batch.
   - `operator_question`: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests or a daytime FP flavor? If the latter, escalate per audit §3.
@@ -1528,29 +1533,29 @@ thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives
 thread: **memory** - status: **waiting_operator**
-_created 2026-08-18 02:00 · updated 2026-08-28 22:00 · refined_
-- **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+_created 2026-08-18 02:00 · updated 2026-09-11 16:40 · refined_
+- **Next:** REVIEW the delivered memory-epic roadmap doc. -> your read drives the roadmap rewrite / memory-epic close-out.
 - **Forensic keys (1):**
   - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
 
 ### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile
 thread: **planning** - status: **waiting_operator**
-_created 2026-08-18 02:00 · updated 2026-08-28 22:00 · refined_
-- **Next:** Delivered — operator to review the doc; drives roadmap rewrite / memory epic close-out.
+_created 2026-08-18 02:00 · updated 2026-09-11 16:40 · refined_
+- **Next:** REVIEW the delivered ROADMAP/VISION undone-but-worthwhile doc. -> your read drives the roadmap rewrite / close-out.
 - **Forensic keys (1):**
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
 ### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped
 thread: **dashboarding** - status: **waiting_operator**
-_created 2026-08-18 10:20 · initial_
-- **Next:** OPERATOR: decide the PWA release — is census-p12 THE working branch to promote to main + deploy (ura.phalanxmadrone.com)? If yes, run the PWA release properly (its own review). The HA dashboard D3 cards (v6/v8) ARE live; only the PWA leg...
+_created 2026-08-18 10:20 · updated 2026-09-11 16:40 · initial_
+- **Next:** DECIDE the PWA release: is census-p12 THE branch to promote to main + deploy (ura.phalanxmadrone.com)? YES -> I run the PWA release with its own review. (HA dashboard D3 cards are already live; only the PWA leg is pending.)
 - **Forensic keys (1):**
   - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
 
 ### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)
 thread: **diagnostics** - status: **waiting_operator**
-_created 2026-08-19 09:00 · updated 2026-08-19 10:55 · refined_
-- **Next:** SHADOW-FIRST rollout: build D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) -> ship STEP shadow (detect+surface, no vote exclusion, enable defaults to shadow). HARD FORCING GATE (operator): the 2-day clock STARTS AT SHADO...
+_created 2026-08-19 09:00 · updated 2026-09-11 16:40 · refined_
+- **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
 - **Forensic keys (5):**
   - `SHADOW_RESULT_2026_08_22`: Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen the net, and it detected NOTHING across the house. Measurement on ...
   - `program`: sensor-trust-exclusion
@@ -1560,12 +1565,12 @@ _created 2026-08-19 09:00 · updated 2026-08-19 10:55 · refined_
 
 ### `FROZEN-POWER-READ-STALENESS-CLASS-1` - 3 more power reads trust a frozen-valid value (net_power, battery_power, PRIMARY battery_soc) — same class as the solar freeze
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-31 20:45 · initial_
+_created 2026-08-31 20:45 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: the same defect the solar freeze exposes (a sensor stuck at a valid number is trusted because only unknown/unavailable is rejected) exists on THREE more energy reads that drive real decisions: net grid power, battery power, and ...
 - **Origin:** 2026-08-31 - Envoy no-duplication audit — adjacencies section
 - **Why:** The no-dup audit for ENVOY-PRODUCTION-STALE-1 found no generic staleness helper and 3 sibling reads with the identical frozen-valid hazard (energy_battery.py:1628 net_power, :1546 battery_power, :785 primary SOC). Highest-value = primary...
-- **Next:** Operator decision: fix solar-only (narrow ENVOY-PRODUCTION-STALE-1) vs build the shared staleness helper + apply to all 4 frozen reads in one cycle. Then plan -> plan-review -> build.
+- **Next:** PICK scope: (a) fix solar-only (narrow ENVOY-PRODUCTION-STALE-1), or (b) build the shared staleness helper + apply to all 4 frozen reads (net_power, battery_power, PRIMARY battery_soc, solar) in one cycle. -> I plan -> plan-review -> build.
 - **Tags:** no-fabrication-verify, tier-2db
 - **Refs:** Envoy no-dup audit 2026-08-31; energy_battery.py:1572/1599/1628/1546/785; energy_const.py:318-326,974-975
 - **Forensic keys (4):**
@@ -1576,12 +1581,12 @@ _created 2026-08-31 20:45 · initial_
 
 ### `OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1` - Optimizer flags Study A + Study B + Master Bedroom on one thermostat zone as a comfort VIOLATION — but multiple house rooms on one HVAC zone is BY DESIGN
 thread: **optimization** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-28 22:00 · initial_
+_created 2026-08-28 22:00 · updated 2026-09-11 16:40 · initial_
 - **Problem / Solution:**
   - Problem: URA Optimizer — comfort emits a violation whenever >=2 house rooms share one thermostat zone, on the grounds that this "prevents independent zonal control." But per operator-owned architecture (memory project_house_zones_vs_hvac...
 - **Origin:** 2026-08-28 - operator screenshotted the alert: Multiple rooms assigned to same thermostat zone (studyb_zone_1 in Study A, Study B, Master Bedroom) prevents independent zonal control and violates comfort goal
 - **Why:** The check has been silently emitting a false-positive against intended architecture — any operator following the recommendation would go rip apart working zoning. This is a producer-side defect (the check itself), not a consumer-side not...
-- **Next:** Two-step. (1) Operator-verify: is Master Bedroom actually served by studyb_zone_1 physical duct, or is it config drift? (2a) If BY DESIGN: change the comfort check to accept multiple rooms per HVAC zone as legitimate (grep the optimizer ...
+- **Next:** VERIFY a fact only you know: is Master Bedroom actually served by the studyb_zone_1 physical duct, or is that config drift? BY-DESIGN -> I make the comfort check accept multiple rooms per HVAC zone. MISCONFIG -> I fix the Master Bedroom ...
 - **Tags:** operator-observed, live-instance, false-positive, architecture-doctrine
 - **Parsimony:** [INVESTIGATE] the optimizer emits a comfort violation for an intended architecture pattern
 - **Refs:** memory project_house_zones_vs_hvac_zones; memory reference_hvac_zone_tonnage; OPTIMIZER-NOTIFY-FLOOD-DEDUP-1
