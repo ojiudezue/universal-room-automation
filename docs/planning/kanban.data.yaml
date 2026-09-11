@@ -16002,6 +16002,26 @@ cards:
     - SKILL-PUBLISH-SYNC-AUTOKANBAN-1
     context: Deferred follow-up of the publish-sync — the example file was intentionally left untouched
       to avoid scope creep.
+- id: ATTAIN-SEASONAL-BEHAVIOR-TRACE-1
+  title: How does the arbitrage ATTAIN phase behave across shoulder + winter (low/moderate solar) seasons?
+    — code trace question
+  thread: energy
+  status: investigating
+  created: 2026-09-11 19:05
+  updated: 2026-09-11 19:05
+  refinement_status: initial
+  approval: unreviewed
+  tags:
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: operator asks how the battery ATTAIN machinery (charge-to-target for arbitrage) behaves
+    when solar is scarce (winter) or moderate (shoulder) vs the summer high-solar case it was tuned for.
+    Solution: trace ARBITRAGE_PHASE_ATTAIN / attain target / SOLAR_CAPTURE_FACTOR / grid-charge fallback
+    in energy_battery.py and answer whether attain still reaches target via off-peak grid when solar cannot
+    supply it.'
+  next: 'ANSWER (operator question): trace attain phase seasonal behavior and report; then close.'
+  refs:
+  - memory project_attain_solar_aggression_investigation (CLOSED keep 0.5)
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

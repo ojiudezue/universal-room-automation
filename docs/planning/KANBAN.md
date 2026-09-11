@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T18:48:33-05:00_ - _Data commit: `b23d673fa629`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T18:50:13-05:00_ - _Data commit: `425ff1236ae6`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -12,7 +12,7 @@ _Generated: 2026-09-11T18:48:33-05:00_ - _Data commit: `b23d673fa629`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 28 |
+| 🔬 Investigating | 29 |
 | 🧭 Pre-planning | 32 |
 | 📝 Planned | 19 |
 | 🔨 In progress | 5 |
@@ -28,7 +28,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (28)
+## 🔬 Investigating (29)
 _measuring; truth not yet known_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -429,7 +429,16 @@ _updated 2026-09-11 18:50_
   - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification; then decide whether circling should escape pure clock-time gating.
   - `needs_investigation`: True
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#28 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `ATTAIN-SEASONAL-BEHAVIOR-TRACE-1` - How does the arbitrage ATTAIN phase behave across shoulder + winter (low/moderate solar) seasons? — code trace question — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-11 19:05 · initial_
+- **Problem / Solution:**
+  - Problem: operator asks how the battery ATTAIN machinery (charge-to-target for arbitrage) behaves when solar is scarce (winter) or moderate (shoulder) vs the summer high-solar case it was tuned for. Solution: trace ARBITRAGE_PHASE_ATTAIN ...
+- **Next:** ANSWER (operator question): trace attain phase seasonal behavior and report; then close.
+- **Tags:** no-fabrication-verify
+- **Refs:** memory project_attain_solar_aggression_investigation (CLOSED keep 0.5)
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#29 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
 - **Problem / Solution:**
