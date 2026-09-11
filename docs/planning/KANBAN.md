@@ -14,14 +14,14 @@ _Generated: 2026-09-10T15:59:53-05:00_ - _Data commit: `300b6774e72c`_ - _last_r
 | 📥 Inbox | 27 |
 | 🔬 Investigating | 23 |
 | 🧭 Pre-planning | 21 |
-| 📝 Planned | 23 |
+| 📝 Planned | 19 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 40 |
-| ✅ Done | 82 |
+| ✅ Done | 86 |
 
 ## 📥 Inbox (27)
 _raw capture_
@@ -471,7 +471,8 @@ _updated 2026-08-23 14:30_
 - **Blocks:** SIGNAL-TRUST-LEDGER M4/M6 scoping
 - **Parsimony:** [BUILD] three shipped detectors do not detect; one cannot detect by construction
 - **Refs:** docs/planning/AUDIT_ledger_golden_fixture_yield.md (the probe + orchestrator escalation); custom_components/universal_room_automation/const.py:3099,3121
-- **Forensic keys (18):**
+- **Forensic keys (19):**
+  - `verified_2026_09_11`: D3 (frozen-tracker, the structurally-unreachable one) is RESOLVED BY REMOVAL — FROZEN_TRACKER_DAYS + the D3 detector were removed 2026-08-10 (const.py:3885-3953), matching the operator decision to drop D1/D3/P24 from the ledger set. Open...
   - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Operator DROPPED D1/D3/P24 from the ledger migration set (2026-08-09). Remaining OPEN sub-question the operator wanted answered: WHY D1 and P24 do not fire (correctly-inert vs broken). Measurement task.
   - `sharp_problem`: D3 cannot catch the incident it was built for. It exists because of the Ezinne 3-day frozen tracker; with HA restarting every ~2.5 h a 3-day freeze is invisible to a detector measuring uninterrupted in-memory last_updated age.
   - `root_cause_link`: Same defect STUCK-SENSOR-1 flagged and nobody pursued — "NO PERSISTENCE: any stuck-state tally resets on restart, and we restarted 7+ times today." The probe proves it is fatal for D3 rather than merely degrading.
@@ -993,56 +994,8 @@ _created 2026-08-25 21:30 · updated 2026-08-25 21:50 · refined_
   - `scope_refined_2026_08_25`: Key insight: this is a SURFACING problem, not new instrumentation — the authoritative data already exists (command_trail hold_owner/effective_desired/live_desire/cloud_oracle; the DP carrier state+drain_target_soc; solar_follow_* attrs)....
   - `adopted_2026_08_25`: ADOPTED by operator; rides WITH the sensor cosmetic fixes (the midnight drain-target cycle) asap. Folded into PLANNING_offpeak_drain_target_day_staleness.md as additive deliverables D6 (always-on DP decision attrs) + D7 (per-EVSE structu...
 
-## 📝 Planned (23)
+## 📝 Planned (19)
 _has plan / acceptance_
-
-### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
-- **Problem / Solution:**
-  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
-  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
-- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
-- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
-- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
-- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
-- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
-- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
-- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
-- **Forensic keys (2):**
-  - `relane_2026_09_10`: Not a soak -> PLANNED (Tier-2 fast-follow). Gate _face_producer_health_resolved on resolved is not None (self-healing retry) + mutation-anchored test (frigate_status_2 appears AFTER first resolve).
-  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
-
-### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
-thread: **identity** - status: **planned** - approval: **explicit**
-_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
-- **Problem / Solution:**
-  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
-- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
-- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
-- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
-- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
-- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
-- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
-- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
-- **Forensic keys (2):**
-  - `relane_2026_09_10`: Not a soak -> PLANNED. Re-architect (operator 2026-09-05): key legs off device_tracker not person.<slug>. Prior-art scan found the producer exists -> source-swap + small helper.
-  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
-
-### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
-thread: **identity** - status: **planned** - approval: **unreviewed**
-_created 2026-09-05 22:20 · initial_
-- **Problem / Solution:**
-  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
-- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
-- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
-- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
-- **Tags:** identity, display, should-be-consuming, ble-mopup
-- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
-- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
-- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
-- **Forensic keys (1):**
-  - `relane_2026_09_10`: Not a soak -> PLANNED (BLE mop-up). Emit a lightweight signal on backfill (or re-read on census tick) so the exit-list sensor reflects the named person_id.
 
 ### `EGRESS-SENSOR-READER-TZ-OVERCOUNT-1` - persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string compare)
 thread: **identity** - status: **planned** - approval: **unreviewed**
@@ -1108,25 +1061,14 @@ _refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `EGRESS-CAMERA-DEAD-CONFIG-1` - Two of five egress cameras are configured under dead Frigate-1 names — Garage A and Garage B contribute nothing to egress detection, on the house's primary entry path
-thread: **camera** - status: **planned** - approval: **needs_operator**
-_updated 2026-08-20 20:30_
-- **Origin:** 2026-08-20 - Surfaced from a log-flood triage, then escalated on inspection. The HA error log carries "Camera entity camera.garage_a not found in registry — skipping" and the same for garage_b, 1,015 times EACH in a five-hour window. Ope...
-- **Next:** Tier 1 config fix first, then a Tier 2 code question — deliberately separated so the live gap closes tonight without waiting on a build. (1) IMMEDIATE, no deploy: repoint egress_cameras entries camera.garage_a -> camera.garage_a_2 and ca...
-- **Tags:** frigate-leg-naming, cross-investigation-synthesis, measure-before-build
-- **Forensic keys (4):**
-  - `relane_2026_09_10`: Not a soak -> PLANNED. (1) IMMEDIATE config: repoint dead egress_cameras entries (no deploy). (2) Tier-2 code question separated. Verify whether (1) was applied; if so residual is the code question only.
-  - `evidence`: Read from the live mount .storage/core.config_entries, integration entry: egress_cameras = [camera.madrone_g6_entry, camera.doorbell_lite, camera.front_door_aerial, camera.garage_a, camera.garage_b]. Checked all 26 configured camera ids ...
-  - `why_it_matters`: NOT just log spam — that was my first read and it was wrong. This is silent coverage loss on the entry path that matters most. Two of five egress cameras resolve to nothing, so Garage A and Garage B feed ZERO person-detection binary sens...
-  - `DECISION_2026_08_20_RIDE_NEXT_DEPLOY`: OPERATOR: "Egress cameras. Ride the next deploy." ACCEPTED, and it is the right call for a reason I got wrong first time. I had recommended fixing it tonight via the options flow as a no-deploy change. THAT ADVICE WAS UNSAFE AND IS WITHD...
-
 ### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-08-21 10:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
 - **Next:** BUILD, not more analysis. Order within the cycle: the declaration tag + CI check FIRST (it is the thing that stops recurrence and it forces every subsequent edit to declare), then F1/F2, then the arrester trio, then DailyCounter. READ-ON...
 - **Tags:** measure-before-build, suppression-needs-discharge
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `verified_2026_09_11`: The read-only audit this card demanded IS done: docs/planning/AUDIT_restart_safety_classification.md (2026-08-21, 22 findings). Current delta vs that audit: F1 (safety.py) + F2 (manager.py) _baselines now PERSIST (save_baselines called a...
   - `relane_2026_09_10`: Not a soak -> PLANNED. BUILD: declaration tag + CI check FIRST (stops recurrence + forces declaration), then F1/F2, then arrest wiring.
   - `instances_found_without_looking`: All four surfaced incidentally in ONE session, which is the argument that this is systemic rather than a handful of bugs: (1) HVAC-ANOMALY-BLIND-1 — AnomalyDetector._baselines is an in-memory dict reset to {} every restart, so minimum_sa...
   - `what_is_already_right`: IMPORTANT — this is not a greenfield problem, and the fix should generalise the existing good work rather than replace it. URA already does restart-safety correctly in several places, each built after someone got burned: ac_reset_state p...
@@ -1529,7 +1471,7 @@ _created 2026-08-31 19:05 · initial_
   - Problem: the Kitchen room lists its range-hood light (switch_tapo_wifi_kitchenrange) as the room night light. Once the night-light off-path fix lands, URA will start turning the RANGE light on at dark entry and off on vacancy as if it we...
 - **Origin:** 2026-08-31 - light automation audit F4
 - **Why:** AUDIT_room_light_automation.md F4. Surfaced now because the off-path fix changes how this entity behaves; better to correct the config before the fix ships than to drive the range light unexpectedly.
-- **Next:** Operator: is switch_tapo_wifi_kitchenrange the intended Kitchen night light? If not, fix the room config.
+- **Next:** OPERATOR APPLYING the config edit (2026-09-11). Evidence delivered: 7-day history of switch.switch_tapo_wifi_kitchenrange shows range-light behavior (short meal-time bursts, no overnight nightlight signature); recommended repoint night_l...
 - **Tags:** no-fabrication-verify
 - **Refs:** docs/planning/AUDIT_room_light_automation.md F4
 
@@ -2259,7 +2201,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-## ✅ Done (82)
+## ✅ Done (86)
 _closed, evidence in refs_
 
 ### `CM-CONFIG-FLOW-UX-SELECTORS-1` - CM options sub-editors (notifications volume + routing) still use crude raw-field/YAML inputs — upgrade to friendly selectors
@@ -2342,6 +2284,41 @@ _created 2026-09-05 00:40 · refined_
 - **Refs:** docs/planning/PLANNING_identity_fusion_producer_2026_09.md; docs/readmes/README_v5.95.0.md
 - **Forensic keys (1):**
   - `disposition_2026_09_10`: DONE — producer SHIPPED v5.95.0 (BLE-primary egress person_id + face corroboration). Feature delivered; the low egress attach-rate residual is a matcher/bridge gap tracked by the egress-arc cards (FRIGATE-SUBLABEL-FACE-BRIDGE, EGRESS-BLE...
+
+### `IDENTITY-FACE-HEALTH-BOOTCACHE-1` - Fail-safe robustness — the face-producer health entity is cached None at boot when Frigate lags URA, leaving corroboration inert all session
+thread: **identity** - status: **done** - approval: **explicit**
+_created 2026-09-05 08:20 · updated 2026-09-05 09:05 · refined ×1_
+- **Problem / Solution:**
+  - Problem: the face-producer health gate resolves its Frigate status entity (sensor.frigate_status_2) via the entity registry ONCE and caches the result unconditionally (camera_census.py _resolve_face_producer_health_entity sets _face_prod...
+  - Secondary (fold in): the identified_persons `face_confirmed` attribute is a misnomer — it maps to face_persons = set(house + property identified_persons) (camera_census.py:1424), the union of ALL identified persons incl BLE, NOT face-pro...
+- **Origin:** 2026-09-05 - v5.95.0 live drill validation — health stayed frigate_status_missing_configured while Frigate ran
+- **Why:** Fail-safe direction (over-suppress, not unsafe) so not a ship blocker, but it makes the just-shipped face-corroboration feature inert under a common boot-ordering race; the fix is ~2 lines and self-healing.
+- **Next:** Tier-2 fast-follow: gate _face_producer_health_resolved on resolved is not None (self-healing retry); add a mutation-anchored test where frigate_status_2 appears AFTER the first census tick and the gate flips live on the next tick; renam...
+- **Tags:** identity, fail-safe, tier-2, no-fabrication-verify
+- **Sibling of:** IDENTITY-FUSION-PRODUCER-1, IDENTITY-FLAPPING-FACE-VETO-1
+- **Parsimony:** [BUILD] health gate caches None at boot -> face corroboration inert all session under a Frigate/URA boot race
+- **Refs:** camera_census.py:3555-3600 (_resolve_face_producer_health_entity cache); camera_census.py:3499-3556 (_is_face_producer_live); camera_census.py:1424 (face_persons/face_confirmed misnomer); docs/readmes/README_v5.95.0.md (Validated 2026-09-05 finding)
+- **Forensic keys (3):**
+  - `verified_2026_09_11`: DONE (primary). camera_census.py:3882 now gates the latch on `resolved is not None` (self-healing retry) — the exact fix in `next`. Residual: face corroboration is still inert live (face_recognized_persons=[]), but that is the upstream f...
+  - `relane_2026_09_10`: Not a soak -> PLANNED (Tier-2 fast-follow). Gate _face_producer_health_resolved on resolved is not None (self-healing retry) + mutation-anchored test (frigate_status_2 appears AFTER first resolve).
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
+
+### `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` - The v5.95.0 BLE crossing-namer attaches nobody because its provenance gate structurally drops every departure
+thread: **identity** - status: **done** - approval: **explicit**
+_created 2026-09-05 10:10 · updated 2026-09-05 11:15 · refined ×7_
+- **Problem / Solution:**
+  - Problem: v5.95.0 shipped BLE-primary egress naming, but person_id attaches on only 1 of 7,314 door crossings ever recorded (and that one was a face attach, not BLE) — the BLE namer is effectively inert despite ~202 resident phone home/aw...
+- **Origin:** 2026-09-05 - attach=0 root-cause investigation gating the D1 build
+- **Why:** This is THE root cause of why egress identity is unusable on the BLE leg — the mission-critical producer does not produce. Fixing it lights up naming NOW (202 transitions/14d waiting) and is independent of D1 (face). D1 face names will a...
+- **Next:** RE-ARCHITECT (operator 2026-09-05: device_tracker is more reliable than person.state; correctness over tokens). Stop keying legs off person.<slug> edges (a lossy HA aggregate of ALL the person's trackers, won by last_updated race — D-HIG...
+- **Tags:** identity, producer, tier-3, no-fabrication-verify, regression-from-review-fix
+- **Sibling of:** FRIGATE-SUBLABEL-FACE-BRIDGE-1
+- **Parsimony:** [BUILD] BLE crossing-namer drops all GPS-sourced departures -> attaches nobody
+- **Refs:** camera_census.py:3676 (_on_person_state_change); camera_census.py:~3721-3737 (_ble_source_is_admissible); transit_validator.py:1682-1690 (resolver call) + :1769 (crossing write); database.py:3903 (log_entry_exit_event); reference_egress_face_coverage_7pct_not_a_ceiling (definitive probe)
+- **Forensic keys (3):**
+  - `verified_2026_09_11`: DONE. Live counters prove the producer produces: ble_legs_attached_count=4, ble_exit_backfilled_count=4, and a real egress_identity_last_attach for oji_udezue via BLE (provenance=ble). The device_tracker re-architecture (camera_census.py...
+  - `relane_2026_09_10`: Not a soak -> PLANNED. Re-architect (operator 2026-09-05): key legs off device_tracker not person.<slug>. Prior-art scan found the producer exists -> source-swap + small helper.
+  - `spawned_from`: IDENTITY-FUSION-PRODUCER-1
 
 ### `CM-CONFIG-FLOW-UX-1` - Coordinator-Manager config menu has 2 blank category rows and crude, unfriendly sub-editors
 thread: **device-tree** - status: **done** - approval: **explicit**
@@ -2431,6 +2408,22 @@ _created 2026-09-05 17:05 · initial_
 - **Refs:** __init__.py:1650; __init__.py:4086; _devices.py:227-234 (the correct pattern); docs/reviews/DEVICE_ENTITY_DEFRAG_POSTMORTEM.md
 - **Forensic keys (1):**
   - `disposition_2026_09_10`: DONE 2026-09-10: shipped v5.100.0; README L3 (House->Rooms->Room nesting PASS) exercises the tuple-unpack path; 3-tuple-identifier test green. No residual.
+
+### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read)
+thread: **identity** - status: **done** - approval: **unreviewed**
+_created 2026-09-05 22:20 · initial_
+- **Problem / Solution:**
+  - Problem: v5.96.1 backfills an exit crossing's person_id ~10 min after the crossing, but the persons-exited display list (sensor.py ~4573) is populated with person_id-or-"unidentified" at bus-fire time and never re-reads the row, so a bac...
+- **Origin:** 2026-09-05 - v5.96.1 review D-LOW-3
+- **Why:** Should-be-consuming gap, not a correctness bug (DB is right). Low, but it makes the shipped exit naming invisible to the operator until restart.
+- **Next:** BLE mop-up: emit a lightweight signal on backfill (or re-read on the census tick) so the exit-list sensor reflects the named person_id.
+- **Tags:** identity, display, should-be-consuming, ble-mopup
+- **Sibling of:** EGRESS-EXIT-IDENTITY-BACKFILL-1
+- **Parsimony:** [BUILD] backfilled exit name never reaches the display until restart
+- **Refs:** sensor.py ~4573 (exit list build); camera_census.py _backfill_exit_identity; README_v5.96.1 (known scope)
+- **Forensic keys (2):**
+  - `verified_2026_09_11`: DONE. camera_census.py:4710 _handle_exit_backfilled re-reads today exits from DB on the backfill signal (subscription wired :4678-4687). The shipped exit naming now reflects backfilled person_id without a restart.
+  - `relane_2026_09_10`: Not a soak -> PLANNED (BLE mop-up). Emit a lightweight signal on backfill (or re-read on census tick) so the exit-list sensor reflects the named person_id.
 
 ### `EC-SUBSWITCH-ASYNC-WRITE-THREAD-1` - EC sub-switch deferred-restore calls async_write_ha_state off the event loop — HA now escalates to ERROR
 thread: **energy** - status: **done** - approval: **unreviewed**
@@ -2612,6 +2605,19 @@ _created 2026-08-09 00:00 · updated 2026-08-17 23:12 · refined_
   - `residual_fragility`: A card whose status: line is quoted (status: "planned") would not match the writer regex — the card is skipped with a WARN rather than silently mis-written. No such card exists today; worth a lint if quoting ever starts.
   - `meta_note`: The first card this gate marks shipped will most likely be itself.
   - `DEDUPE_2026_08_09`: Four-surface sweep run. Board: KHOST-1 adjacent (owns rung 3, the generator) — linked, not merged, because rung 1 lives in release machinery not the generator. TRANSIT-DIAG-1 matched on "diagnostic" only, unrelated. BACKLOG.md: no match....
+
+### `EGRESS-CAMERA-DEAD-CONFIG-1` - Two of five egress cameras are configured under dead Frigate-1 names — Garage A and Garage B contribute nothing to egress detection, on the house's primary entry path
+thread: **camera** - status: **done** - approval: **needs_operator**
+_updated 2026-08-20 20:30_
+- **Origin:** 2026-08-20 - Surfaced from a log-flood triage, then escalated on inspection. The HA error log carries "Camera entity camera.garage_a not found in registry — skipping" and the same for garage_b, 1,015 times EACH in a five-hour window. Ope...
+- **Next:** Tier 1 config fix first, then a Tier 2 code question — deliberately separated so the live gap closes tonight without waiting on a build. (1) IMMEDIATE, no deploy: repoint egress_cameras entries camera.garage_a -> camera.garage_a_2 and ca...
+- **Tags:** frigate-leg-naming, cross-investigation-synthesis, measure-before-build
+- **Forensic keys (5):**
+  - `verified_2026_09_11`: DONE. Live census sensor.universal_room_automation_persons_in_house reports unresolved_configured_cameras_count=0, []. Tier-2 code landed (warn-once camera_census.py:315, diagnostic snapshot get_unresolved_configured_cameras, no auto-sub...
+  - `relane_2026_09_10`: Not a soak -> PLANNED. (1) IMMEDIATE config: repoint dead egress_cameras entries (no deploy). (2) Tier-2 code question separated. Verify whether (1) was applied; if so residual is the code question only.
+  - `evidence`: Read from the live mount .storage/core.config_entries, integration entry: egress_cameras = [camera.madrone_g6_entry, camera.doorbell_lite, camera.front_door_aerial, camera.garage_a, camera.garage_b]. Checked all 26 configured camera ids ...
+  - `why_it_matters`: NOT just log spam — that was my first read and it was wrong. This is silent coverage loss on the entry path that matters most. Two of five egress cameras resolve to nothing, so Garage A and Garage B feed ZERO person-detection binary sens...
+  - `DECISION_2026_08_20_RIDE_NEXT_DEPLOY`: OPERATOR: "Egress cameras. Ride the next deploy." ACCEPTED, and it is the right call for a reason I got wrong first time. I had recommended fixing it tonight via the options flow as a no-deploy change. THAT ADVICE WAS UNSAFE AND IS WITHD...
 
 ### `SENSCAP-ORPHAN-1` - A room sensor can never be removed once capabilities are in play — the stale per-entity dropdown re-injects an orphan declaration and wedges the form permanently
 thread: **config** - status: **done** - approval: **explicit**
