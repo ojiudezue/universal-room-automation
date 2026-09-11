@@ -204,6 +204,22 @@ decisions/actions only the operator can take (physical fixes, go/no-go, design c
 Do not file my own debt under the operator's lane — that hides it and reads as if the ball is
 in their court when it is in mine.
 
+**The `next` verb must be the OPERATOR's action, not mine (operator-coined 2026-09-11).** A
+`waiting_operator` card exists because the ball is in the operator's court, so its `next` must
+open with the concrete thing *they* do — **APPROVE** (I've scoped it, need a go/no-go) · **PICK**
+(a design/scope choice between named options A/B) · **ANSWER** / **VERIFY** (a fact only they know
+— "is Master Bedroom on that duct?") · **DO** (a physical/external act — power-cycle the node,
+apply the options-flow edit) · **REVIEW** (read a delivered doc). Write it as
+`VERB: <the ask> -> <what I do on your answer>` so the operator sees their decision first and the
+downstream work second. A `next` that opens with *my* verb ("Add the OFF path…", "Run the
+reviews…", "Ask operator if…") is the drift this rule kills: it reads as a task parked on the
+operator when it is really my work waiting on their one input, and it hides what they are actually
+being asked for. The most common real action is APPROVE or PICK — if a card can't be reduced to
+one of the five verbs, question whether it belongs in this lane at all (it may be mislaned work I
+can drive under implied approval). Observed 2026-09-11: the whole lane (20 cards) had `next`
+fields describing agent work; normalized to operator-verb-led so the lane reads as a decision
+queue.
+
 ## Architecture — data vs representation (KHOST-1, SHIPPED)
 
 The board is **data**, not prose. The source of truth is `kanban.data.yaml`; every view — the
@@ -671,6 +687,51 @@ passed the parsimony test below. If any fails → `blocked`, surface it. **Alway
 never implied:** destructive actions, outward-facing/published changes, cost- or safety-impacting
 logic, Tier-3 shared-primitive work, anything the operator flagged delicate. This is the CLAUDE.md
 "reversible → proceed; destructive/scope-change → ask" rule, made per-card.
+
+### Drive from the board — flow over pausing (operator-coined 2026-09-11)
+
+*"We're pausing too much. Drive work fairly automatically from the kanban. All Tier 2 and below
+should be solved after a parsimony and cost/benefit check. Above may need operator approval. And
+Agent just finds the next task and keeps going."*
+
+The default posture is **motion, not permission-seeking.** A groomed board is a work queue; work
+it. The tier is the throttle, and the **parsimony + cost/benefit gate replaces operator approval
+for everything Tier 2 and below.**
+
+**The autonomy ladder (by tier):**
+- **Tier 1 and Tier 2 (incl. 2-DB) → DRIVE autonomously, no pause for a go.** Run the card's
+  parsimony + marginal-benefit/cost check FIRST (the gate below). If the verdict is BUILD or
+  SIMPLIFY, take it all the way — build → the tier's framing-disjoint reviews → orchestrator
+  independent verify → ship — without stopping to ask. Approval is *implied* by the tier + a
+  passing gate; do not re-request it. (This raises the older "ask for Tier-2+" default; the
+  operator elevated the bar deliberately. CLAUDE.md remains canonical on *how* each tier is
+  reviewed — the review protocols do not weaken, only the pause-to-ask does.)
+- **Tier 3+ (delicate shared-primitive / invariant-critical / cost-AND-safety) → PAUSE for
+  operator approval** before build and again at the pre-deploy checkpoint, per CLAUDE.md Tier 3.
+  These are the changes where one missed path loses money or safety; the human call stays.
+
+**The gate that earns the autonomy (run BEFORE building, every card):**
+1. **Parsimony** — is the problem sharp and real (one falsifiable sentence)? Does the simplest
+   version capture most of the benefit? Verdict BUILD / SIMPLIFY / PARK / DROP recorded on the
+   card. PARK/DROP means *don't build* — reaching that is a success, not a skipped step.
+2. **Cost/benefit** — does the marginal benefit pay for the ingredient risk + review cost? If a
+   Tier-2 change drags in a categorically risky ingredient (synthetic time, a new writer to a
+   shared primitive, cross-coordinator state, rare-fire path), that is a signal to SIMPLIFY or to
+   treat it as Tier 3 — not to barrel ahead because "it's only Tier 2."
+
+**Still always pause — the gate does not override these:** a review returns DO-NOT-SHIP; the work
+grows beyond the card's scope (re-scope with the operator, don't silently widen); anything
+destructive / outward-facing / published; the operator flagged it delicate; hostile timing
+(house occupied + risky live change). These are the CLAUDE.md always-explicit set; they are few
+and specific, not a general licence to stop.
+
+**Keep going — the loop.** When a card reaches done (or a clean park), **do not stop and report
+for instructions — pick the next one.** Rank per the Ranking & sequencing section (dependency →
+batch affinity → leverage → unblocked-ness → freshness), skip `blocked` / unmet-`after:` /
+Tier-3-awaiting-approval cards, and drive the next eligible card through the same gate. Fan out
+to the width you can actually verify (concurrency is a depletion lever), then continue. Report at
+natural checkpoints — a ship, a batch cleared, a Tier-3 gate, or a genuine question — not after
+every card. The board, not a chat prompt, is the source of "what's next."
 
 ## Quality-practice tags — the gates a card must pass
 
