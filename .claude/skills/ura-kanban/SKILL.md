@@ -908,6 +908,25 @@ now that this does not block.**"
 orchestrator freezes the main tree while builders run. Without it, concurrency converts throughput
 into merge damage.
 
+**A builder can `git reset --hard` the shared checkout — commit before you dispatch, isolate every
+builder (incident 2026-09-11).** The damage is not only merge conflicts: a dispatched builder doing
+routine git hygiene (`reset --hard` to a clean baseline, a stash, a `checkout -- .`) in the SHARED
+checkout **silently destroys the orchestrator's uncommitted edits and any other concurrent writer's
+work** — the `reset --hard` leaves no recoverable trace for uncommitted tracked files. On 2026-09-11
+a builder's reset wiped the orchestrator's in-flight renderer edits mid-session (recovered only
+because the code was still in context) and transiently clobbered the builder's own fixes. Two
+non-negotiable rules follow:
+1. **Commit (or stash) your own work BEFORE dispatching any repo-writing agent.** Never hold
+   uncommitted edits across a builder dispatch — a committed change survives a `reset --hard HEAD`;
+   an uncommitted one does not. The orchestrator's tree must be clean at dispatch time.
+2. **Every repo-writing builder runs in its own worktree** (`.claude/worktrees/<agent-id>`), never in
+   the orchestrator's checkout — even a single builder, even a "quick" one. "Only one builder, so no
+   collision" is the exact rationale that failed here: the collision was builder-vs-orchestrator, not
+   builder-vs-builder.
+This composes with the concurrent-cron reality: a homelab automation may also commit to `develop`
+(fast-forward only — that part is safe), so the ONLY reliable protection for in-flight work is to
+keep the orchestrator's own changes committed at every checkpoint and push builders into worktrees.
+
 **Verify the worktree's BASE, not just that it is isolated (added 2026-08-09).** A worktree can be
 isolated and still branch from a stale ref. Observed: a Tier-3 build came back green on
 `19 failed / 8125 passed` — but its base was **214 commits behind develop**, so it had validated

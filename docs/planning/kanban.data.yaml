@@ -15915,15 +15915,15 @@ cards:
     pre-existing SUITE-ORDER-POLLUTION. Collection now clean (10376). Reclassified live_broken=false,
     unblocked the const-stub card, linked to the order-pollution cluster.'
 - id: CHECKOUT-CONCURRENT-RESET-HAZARD-1
-  title: Homelab board-refresh automation runs git reset --hard on develop, destroying concurrent uncommitted
-    work (agent + builder)
+  title: A dispatched builder ran git reset --hard in the shared checkout, destroying concurrent uncommitted
+    work — RESOLVED via commit-before-dispatch + worktree isolation
   thread: tooling
-  status: waiting_operator
+  status: done
   created: 2026-09-11 18:20
-  updated: 2026-09-11 18:20
+  updated: 2026-09-11 18:45
   refinement_status: initial
-  approval: blocked
-  live_broken: true
+  approval: explicit
+  live_broken: false
   tags:
   - tier-1
   rank:
@@ -15944,6 +15944,13 @@ cards:
   refs:
   - 'reflog 2026-09-11: 4x reset:moving-to-HEAD from board-refresh'
   - ~/Code/homelab-automation refresh_urakanban.sh
+  disposition:
+  - 'RESOLVED 2026-09-11: CORRECTED root cause — NOT the cron. Inspected refresh_urakanban.sh: it does
+    ff-only merge + commits ONLY the pending-dispositions file, no reset --hard (leave it as-is). The
+    destructive reset came from the ura-builder agent running in the SHARED checkout. Process fix codified
+    in the skill (Concurrency section): (1) commit/stash own work BEFORE dispatching any repo-writing
+    agent — committed work survives reset --hard, uncommitted does not; (2) every repo-writing builder
+    runs in its own worktree, even a single one. Cron confirmed directionally correct.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
