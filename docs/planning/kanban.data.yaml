@@ -16115,10 +16115,11 @@ cards:
   title: 'auto-kanban references/schema example lacks rank:/links: blocks now that the skill documents
     them'
   thread: tooling
-  status: pre_planning
-  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: ~/Code/productmind-skills/.../kanban.data.example.yaml has zero rank:/links: keys. Tier-1 edit + push.'
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: ~/Code/productmind-skills/.../kanban.data.example.yaml had zero rank:/links: keys. Tier-1 edit + push.'
+  disposition_2026_09_12_built: 'SHIPPED 2026-09-12 (same turn): added rank: (WSJF value/time_criticality/effort/foundational) to EXPORT-1 + PERF-3, and links: (blocks/related/blocked_by + mandatory context) to EXPORT-1 + BACKUP-1 mirror, with the WSJF formula documented inline. YAML validated. Commit 1358fe3 pushed to productmind-skills origin/main.'
   created: 2026-09-11 19:00
-  updated: 2026-09-11 19:00
+  updated: 2026-09-12 10:15
   refinement_status: initial
   approval: implied
   tags:
