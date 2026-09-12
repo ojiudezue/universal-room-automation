@@ -838,7 +838,7 @@ must be interrogated is not a mechanism.**
 | **2b** | **HARD** | **Unapplied-disposition gate** — `kanban_render.py --check` returns **exit 3** (distinct from stale=2) when `kanban.dispositions.pending.jsonl` is non-empty, listing each unapplied `{card_id, action}`. The session-start check (rung 4) therefore *cannot pass* while an operator button-tap sits unapplied. Scoped to `--check` only: a plain render (the homelab site deploy) still writes the views with pending chips, so the operator's live board keeps showing the pending state. This is the forcing function behind Cadence step 1 — before it existed, the pull-hook queued dispositions but nothing forced the apply, and a `declined` sat unapplied ~1 day (2026-08-14 miss). Chip = banner (operator-ruled insufficient); exit-3 = mechanism. |
 | **3** | soft | Generator renders a loud **STALE banner** + warns on build when `meta.last_reconciled` is older than the newest git tag or `README_v*.md`. |
 | **4** | soft | Session-start check: run `python3 scripts/kanban_render.py --check` — exit 2 = stale (reconcile), **exit 3 = unapplied operator dispositions (apply the queue FIRST, per Cadence step 1)**. Non-zero of either kind blocks reporting status until cleared. |
-| **5** | soft | Recurring overnight agentic pass reconciles the board as its **first** action, before picking up `overnight-agentic` work. |
+| **5** | HARD once wired | Recurring overnight agentic pass (a `/schedule` cloud routine on a cron) reconciles the board as its **first** action, then drives the WSJF queue through the four-step gate per the **wired overnight-pass contract** below. Soft only while unwired — and "unwired" is itself a finding (2026-09-12: the investigations lane didn't drain because rung-5 was never scheduled). |
 
 **Soft rungs are backups, not substitutes.** They exist because the hard gate covers one transition;
 they must never be cited as reason to skip rung 1.
@@ -856,10 +856,39 @@ worse. Write after the push succeeds, warn loudly on failure, never exit non-zer
 ### Overnight / autonomous work needs a trigger, not an intention
 
 Same class of failure: *"build it tonight while I'm sleeping"* has no forcing function — the session
-ends and nothing wakes anything up (observed 2026-08-09, KHOST-1 missed). Work tagged
-`autonomy: overnight-agentic` must be bound to a **real recurring scheduled job**, whose first action
-is a board reconciliation. An overnight commitment with no scheduler is a promise, and promises are
-the thing this skill exists to replace.
+ends and nothing wakes anything up (observed 2026-08-09, KHOST-1 missed; re-confirmed 2026-09-12 —
+the investigations lane did not drain overnight because rung-5 was documented but never WIRED to a
+scheduler). Work tagged `autonomy: overnight-agentic` must be bound to a **real recurring scheduled
+job**, whose first action is a board reconciliation. An overnight commitment with no scheduler is a
+promise, and promises are the thing this skill exists to replace.
+
+#### The wired overnight-pass contract (operator-coined 2026-09-12)
+
+Create the recurring job via **`/schedule`** (a cloud routine on a cron) — NOT a loose "remember to."
+Its contract, in order, every run:
+
+1. **Reconcile first.** Load this skill, apply any queued operator dispositions
+   (`kanban.dispositions.pending.jsonl`, incl. `instruct`/`ack`), run `kanban_render.py --check`,
+   move disposed cards to their lanes, prune acked / >7-day `autonomy_feed` entries.
+2. **Verify-before-work, then drive the WSJF-ranked eligible queue through the FOUR-step gate**
+   (validity → prior-art → parsimony → cost/benefit). Prioritise `waiting_operator` grooming and the
+   `investigating` lane: for each investigation run its one-shot read-only measurement, then
+   escalate-or-build per the investigation clearance.
+3. **Bounded autonomy — the overnight pass is MORE conservative than an attended session:**
+   - Investigations + read-only probes: fully autonomous.
+   - Tier-1 / Tier-2 clean builds that pass the gate: build + review + validate **to `review`** —
+     but **do NOT deploy unattended** (a deploy restarts HA in an occupied, sleeping house = the
+     "hostile timing" always-pause case). Deploys wait for the operator. Leave shippable work in
+     `review` with the README/tests done.
+   - Tier-3, ambiguous-gate, destructive, or outward-facing: **do not act** — escalate to
+     `waiting_operator` with an operator-verb `next` AND page via NM.
+4. **Append an `autonomy_feed` entry for everything concluded** (built-to-review / parked / escalated
+   / measured), so the morning board-progress counter reflects the overnight run — the feed IS the
+   report. Respect a token budget; stop when the eligible queue is dry or the budget is hit; never
+   spiral.
+
+The board + feed is the durable report; no separate "what I did overnight" prose is required (the
+operator reads the counter + feed and acks/decides from there).
 
 ## Approval & autonomy — so the board is drivable, not just visible
 
