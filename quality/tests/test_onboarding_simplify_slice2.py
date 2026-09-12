@@ -51,6 +51,7 @@ CONF_SHARED_SPACE = _cf.CONF_SHARED_SPACE
 CONF_SHARED_SPACE_AUTO_OFF_HOUR = _cf.CONF_SHARED_SPACE_AUTO_OFF_HOUR
 CONF_SHARED_SPACE_WARNING = _cf.CONF_SHARED_SPACE_WARNING
 CONF_HUMIDITY_FAN_SPIKE_ENABLED = _cf.CONF_HUMIDITY_FAN_SPIKE_ENABLED
+CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED = _cf.CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED
 CONF_INTEGRATION_ENTRY_ID = _cf.CONF_INTEGRATION_ENTRY_ID
 ENTRY_TYPE_INTEGRATION = _cf.ENTRY_TYPE_INTEGRATION
 ENTRY_TYPE_ROOM = _cf.ENTRY_TYPE_ROOM
@@ -408,15 +409,28 @@ def test_all_deferred_fields_reachable_in_options():
         )
 
 
-def test_round_trip_existing_room_differential_parity():
-    """D7 INV-1 differential: the reshaped create path writes the SAME
-    effective post-create dict (data ∪ options) it would have on
-    develop, for every dropped essentials key. Since the dropped keys
-    are NOT on the essentials path anymore, their effective post-create
-    value on the cycle branch comes from consumer fallback / D2 seeding.
+def test_bathroom_create_path_writes_full_expected_key_set():
+    """T4 (Tier-3 fix-up) — INV-1 differential parity via reviewer-A
+    fallback: encode the EXPECTED post-create key-set for a bathroom
+    room shape and assert `data ∪ options` on the reshaped chain
+    contains every key with its expected value.
 
-    We assert the anchor row: bathroom -> CONF_HUMIDITY_FAN_SPIKE_ENABLED
-    is True (matches develop's effective post-create for a bathroom).
+    A true develop baseline is infeasible in the stub-env suite (develop
+    requires the full HA runtime for options-flow reload), so we encode
+    the pre-cycle expected keys explicitly. The set comes from:
+      (a) fields the essentials chain still writes (room_setup + room_class
+          + sensors_confirm + devices_confirm),
+      (b) auto-derived INV-3 keys (OCCUPANCY_TIMEOUT from ROOM_TYPE),
+      (c) ROOM_TYPE_FEATURE_DEFAULTS seed rows for bathroom (WET_ROOM,
+          HUMIDITY_FAN_SPIKE_ENABLED, HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED
+          — the P3 fix-up seed),
+      (d) create-entry framing keys (ENTRY_TYPE, INTEGRATION_ENTRY_ID).
+
+    The test MUST fail if any of these silently vanishes — the mutation
+    drill (drop the ROOM_TYPE_FEATURE_DEFAULTS seed loop in room_summary
+    or the OCCUPANCY_TIMEOUT auto-derive) makes it RED. Rename from
+    the earlier `test_round_trip_existing_room_differential_parity`
+    (which was NOT a true differential) to state what it checks.
     """
     _install_registries([
         _reg_entry("binary_sensor.mo", "binary_sensor", area_id="a1",
@@ -435,9 +449,41 @@ def test_round_trip_existing_room_differential_parity():
     }))
     _run(flow.async_step_devices_confirm(user_input={}))
     result = _run(flow.async_step_room_summary(user_input={}))
+    assert result["type"] == "create_entry"
     data = result["data"]
-    # D9 anchor row parity (cycle branch effective post-create):
-    assert data[CONF_HUMIDITY_FAN_SPIKE_ENABLED] is True
-    assert data[CONF_WET_ROOM] is True
-    # OCCUPANCY_TIMEOUT is preserved (auto-derived, INV-3).
-    assert CONF_OCCUPANCY_TIMEOUT in data
+    options = {}  # Options-flow reload path is not exercisable in stub-env.
+    effective = {**options, **data}
+
+    # Expected keys + expected values (bathroom shape). Values ANCHOR each
+    # site; a silent drop of any producer will fail on either presence or
+    # value.
+    expected = {
+        # (a) essentials write-through
+        CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+        CONF_ROOM_NAME: "Bath",
+        CONF_ROOM_TYPE: ROOM_TYPE_BATHROOM,
+        CONF_AREA_ID: "a1",
+        CONF_MOTION_SENSORS: ["binary_sensor.mo"],
+        # (b) INV-3 auto-derived
+        # value comparison guarded by presence-only — the map is stable
+        # across the cycle; presence is the discriminator.
+        CONF_OCCUPANCY_TIMEOUT: None,  # sentinel: check presence only
+        # (c) ROOM_TYPE_FEATURE_DEFAULTS seed rows
+        CONF_WET_ROOM: True,
+        CONF_HUMIDITY_FAN_SPIKE_ENABLED: True,
+        CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED: True,
+        # room_class writes GUEST_ROOM explicitly (False from user_input above)
+        CONF_ROOM_IS_GUEST_ROOM: False,
+    }
+
+    missing = [k for k in expected if k not in effective]
+    assert not missing, (
+        f"T4 INV-1: pre-cycle keys silently vanished from create path: {missing}"
+    )
+    for k, want in expected.items():
+        if want is None:
+            continue  # presence-only anchor
+        got = effective[k]
+        assert got == want, (
+            f"T4 INV-1: key {k} value drift — got {got!r}, expected {want!r}"
+        )

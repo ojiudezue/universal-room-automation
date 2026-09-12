@@ -473,6 +473,38 @@ def test_sensors_confirm_calls_ranker_and_uses_ranked_winner():
 
 
 # ===========================================================================
+# T2 — shared-actuator rung anchored via alphabetical inversion
+# ===========================================================================
+
+def test_ranker_shared_actuator_rung_beats_alphabetical_tiebreak():
+    """T2 (Tier-3 fix-up): dedicated shared-actuator anchor. Fixture:
+      - sensor.a_relay_temp   (device_id = actuator device; a_ sorts FIRST)
+      - sensor.z_dedicated_temp (device_id = separate; z_ sorts LATER)
+    The winner MUST be `sensor.z_dedicated_temp` — only the shared-actuator
+    rung (rung 2) demotes the relay-hosted sensor. If rung 2 is neutered
+    (`shared = 0` always), the eid tiebreak picks `sensor.a_relay_temp`
+    and the assertion fails.
+    """
+    entries = [
+        _reg_entry("sensor.a_relay_temp", "sensor", device_id="dev_actuator",
+                   area_id="a1", original_device_class="temperature"),
+        _reg_entry("sensor.z_dedicated_temp", "sensor", device_id="dev_sensor",
+                   area_id="a1", original_device_class="temperature"),
+    ]
+    _install_registries(entries)
+    flow = _make_config_flow()
+    winners = flow._rank_area_candidates(
+        [e.entity_id for e in entries],
+        actuator_device_ids={"dev_actuator"},
+        dedup=False,
+    )
+    assert winners[0] == "sensor.z_dedicated_temp", (
+        "T2: shared-actuator rung did not demote relay-hosted sensor; "
+        f"winner={winners[0]!r} (alphabetical tiebreak leaked)."
+    )
+
+
+# ===========================================================================
 # T5 — explicit-False-wins SOFT-seed guard at room_summary
 # ===========================================================================
 
