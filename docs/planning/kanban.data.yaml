@@ -16297,9 +16297,26 @@ cards:
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)
   thread: quality
-  status: investigating
+  status: pre_planning
   created: 2026-09-11 18:20
-  updated: 2026-09-12 09:10
+  updated: 2026-09-12 16:20
+  confirmed_2026_09_12: 'CONFIRMED (investigation exit) — mechanism PINNED by orchestrator. Default-ordering
+    collection ABORTS (2 errors: test_ble_hold_cap.py + test_ble_extend_not_create.py, ImportError
+    BLE_HOLD_CAP_DURATIONS "unknown location"). ROOT CAUSE: 40 test files register a const module into
+    sys.modules["custom_components.universal_room_automation.const"] AT MODULE SCOPE (import time), in TWO
+    patterns — ROBUST (importlib.util.module_from_spec + exec_module on the REAL const source = complete
+    const; e.g. test_arbitrage_gate_d2_offbyone:110-112, test_energy_battery:98-100) vs POISON (a bare
+    types.ModuleType helper = PARTIAL const missing BLE_HOLD_CAP_DURATIONS). A POISON installer collected
+    alphabetically before test_ble_* leaves a partial const resident, so the victims top-level import fails
+    at collection -> whole-suite ABORT (nothing runs end-to-end on default order). OUTRANKS the old
+    monkeypatch-target detail. ROBUST FIX (regression-prone shared test-infra -> Tier-2 test-only, 2
+    reviews): unify all 40 into ONE conftest helper that (a) builds a COMPLETE const by exec-ing the real
+    source and (b) installs/restores sys.modules fixture-scoped (no module-scope leak), then migrate the 40
+    files. MINIMAL UNBLOCK (optional quick win, ~2 files, low-risk Tier-1): make the two victim files
+    re-register the real const before their top-level import -> converts catastrophic collection-ABORT into
+    at-most 2 order-sensitive failures, restoring end-to-end runnability today. Folds into
+    TEST-STRATEGY-REARCH-1; highest-value item there (suite not running end-to-end on default order = a real
+    hole in the baseline-diff review discipline).'
   refinement_status: refined
   approval: unreviewed
   live_broken: true
@@ -16315,7 +16332,10 @@ cards:
     preload key (likely closes it, keeps the collection fix) OR (b) keep broad Fix-2 and fix the ble_hold_cap
     test monkeypatch to target the runtime-resolved const module. Discriminator between artifact-of-Fix-2
     vs genuine-latent-bug decides which.'
-  next: 'CARD/PARK: order-dependent — passes alone + in the arbitrage pair, fails in some 4+-file orderings.
+  next: 'PICK: (A) minimal-unblock now (~2 victim files, Tier-1 test-only, restores end-to-end collection
+    today) then full 40-file unification as a Tier-2 cycle; or (B) straight to the Tier-2 unification. I drive
+    whichever (test-only, no deploy). [superseded detail below]
+    CARD/PARK: order-dependent — passes alone + in the arbitrage pair, fails in some 4+-file orderings.
     Pre-existing (before Fix 2 it was masked by collection-abort). Fix belongs to the SUITE-ORDER-POLLUTION
     / TEST-STRATEGY-REARCH cluster (per-test const-stub save/restore or monkeypatch hardening), NOT a
     v5.100.9 blocker.'
