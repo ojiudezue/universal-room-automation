@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "113",
+  "author": "ojiudezue",
+  "session_id": "claude_20260912_000907_ship_v5_100_9",
+  "timestamp": "2026-09-12T00:09:07Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.100.9 shipped: Tier-1 gate-and-knobs: HVAC_DECISION_TICK const, arbitrage d2_offset attr, SIGKILL-safe mutation test",
+  "summary": "Tier-1 gate-and-knobs: HVAC_DECISION_TICK const, arbitrage d2_offset attr, SIGKILL-safe mutation test",
+  "why": "Operator said 'ship the clean' after the pre-deploy gate caught that Fix 2 (const-stub isolation), while correct, enables full-suite collection which then exposes 87 pre-existing order-dependent pollution failures that all pass in isolation. Rather than ship 87 reds or hold everything, we split the batch: the three code fixes are isolation-verified with zero runtime behavior change (a const rename, an additive display attribute, a test-only tmp-copy hardening), so they ship now; Fix 2 is held to ride the order-pollution re-architecture once the suite can run green.",
+  "implications": "Shipped HVAC-TICK-LITERAL-1, ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1, TEST-SOURCE-MUTATION-KILL-UNSAFE-1 at v5.100.9; card(s) sit shipped_organic pending validation. Acceptance in README_v5.100.9.md (Live criteria).",
+  "revisit_trigger": "sensor.ura_energy_coordinator_battery_strategy exposes attribute d2_offset (present, == d2 target offset) post-restart; HVAC decision timer still fires on 5-min cadence",
+  "refs": {
+    "cards": [
+      "HVAC-TICK-LITERAL-1",
+      "ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1",
+      "TEST-SOURCE-MUTATION-KILL-UNSAFE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.100.9.md"
+    ],
+    "release_notes": "Three independent Tier-1 fixes, no runtime behavior change. Const-stub isolation held (exposed 87 pre-existing order-pollution failures, all pass in isolation)."
+  }
+}

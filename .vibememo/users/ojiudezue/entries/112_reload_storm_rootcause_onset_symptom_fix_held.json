@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "112",
+  "author": "ojiudezue",
+  "session_id": "claude_20260910_reload_storm_investigation",
+  "timestamp": "2026-09-11T01:11:50Z",
+  "type": "reasoning",
+  "weight": "critical",
+  "title": "Reload storm root-caused: INTEGRATION parent entry reloads ~5x/night = same bug as RELOAD-WATCHDOG-HAZARD (v5.99.0 fix incomplete); onset early-release is a symptom; onset fix HELD",
+  "summary": "The EV charge-onset gate released chargers ~2h early one night. Traced NOT to the gate but to a full URA parent config-entry reload that transiently restores the onset enable switch to 'off', making the gate take its feature-off permit path. The parent reloads ~5x/night (evening/overnight local only, ~198-entity cascade). This is the SAME bug as RELOAD-WATCHDOG-HAZARD, whose v5.99.0 fix only closed the camera-key options-SAVE reload path; the storm persists via a different, still-unidentified trigger.",
+  "why": "Static analysis exhausted every candidate and none is the trigger: no 'scheduling reload' log (rules out the _async_update_listener options path); all direct async_update_entry(options) writers are one-time idempotent migrations; no recorder-visible Number/switch value change pre-reload; SPAN, HA restart (last_boot 06-07), operator action, and HA automations all ruled out; the camera-registry path correctly invalidates rather than reloads; Carrier reload targets ha_carrier only and did not fire. Confirmed it IS a real parent reload (not a single-coordinator failure) because 118 coordinator + 80 room-tier entities blip unavailable simultaneously. Operator ruling: do NOT build the onset reload-resilience fix yet ('how can you fix what you cannot root cause') — the enabled=False-during-transient mechanism is inferred not proven, and patching blind risks masking the real cause. Correct order: root-cause the reload trigger first (via live debug capture), then fix at source.",
+  "implications": "Onset reload-resilience fix HELD (EVSE-CHARGE-ONSET-NOT-HELD-1 -> waiting_me, depends_on URA-CONFIG-ENTRY-RELOAD-STORM-1). RELOAD-WATCHDOG-HAZARD marked done for its scoped v5.99.0 fix; the residual (the persisting parent-reload trigger) is carried by the storm card. Debug capture is ARMED on the live HA instance: logger.set_level homeassistant.config_entries=debug + custom_components.universal_room_automation=debug (set ~05:20 UTC 2026-09-10; survives config-entry reloads and a Mac reboot; resets only on an HA restart). Last night's early release was harmless (charger power=0W).",
+  "revisit_trigger": "After the next evening/overnight CM/parent reload (signature: switch.ura_energy_coordinator_ev_charge_onset_overnight goes 'unavailable', OR ~198 ura_* + room entities blip together), read ha_get_logs source=system_service slug=core around the reload for the Unloading/Setting-up lifecycle + the URA lines just before the unload = the initiator. If still opaque, add a temporary stack-trace breadcrumb at the top of async_unload_entry (guard to the integration/CM entry) and redeploy.",
+  "refs": {
+    "cards": [
+      "URA-CONFIG-ENTRY-RELOAD-STORM-1",
+      "EVSE-CHARGE-ONSET-NOT-HELD-1",
+      "RELOAD-WATCHDOG-HAZARD"
+    ],
+    "docs": [
+      "docs/planning/SESSION_HANDOFF_2026-09-10_reload_storm_and_organic_sweep.md"
+    ]
+  }
+}
