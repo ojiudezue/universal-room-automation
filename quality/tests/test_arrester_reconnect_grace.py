@@ -196,8 +196,11 @@ class _FakeClock:
 
 @pytest.fixture
 def fake_clock(monkeypatch):
-    clock = _FakeClock(datetime(2026, 9, 12, 12, 14, 15))
-    fake_dt = types.SimpleNamespace(now=clock.now)
+    clock = _FakeClock(datetime(2026, 9, 12, 12, 14, 15, tzinfo=timezone.utc))
+    # Patch both `now` (used by _is_genuine_manual) and `utcnow` (used by
+    # the reconnect stamp/age math after D2). Same underlying clock so
+    # advance() moves both.
+    fake_dt = types.SimpleNamespace(now=clock.now, utcnow=clock.now)
     monkeypatch.setattr(hvac_override, "dt_util", fake_dt)
     return clock
 
@@ -338,6 +341,56 @@ class TestReconnectGrace:
         assert _sum_overrides(arrester) >= 1, (
             "After the grace window, a genuine manual override MUST "
             "be counted."
+        )
+
+    def test_reconnect_inside_suppress_window_still_stamps(self, fake_clock):
+        """D1 leak-path repro (review 2026-09-12): a URA revert opens
+        `_suppressed_until` for SUPPRESS_TTL_SECONDS. A Carrier fault +
+        reconnect landing INSIDE that window would previously early-return
+        via `_is_genuine_manual` BEFORE the stamp block, leaving
+        `_last_reconnect_at` unset. Then ha_carrier's post-window
+        preset re-post (old_state=<normal>, new_state=manual) would be
+        genuine=True with an inert grace and book the phantom override.
+
+        Fix: reconnect stamping runs ABOVE `_is_genuine_manual`, so the
+        stamp fires unconditionally on every unavailable->available
+        transition. This test drives that exact sequence.
+        """
+        arrester = _make_arrester()
+
+        # 1. URA-initiated write opens the suppress window.
+        arrester.suppress(ENT_1, kind="preset")
+        assert ENT_1 in arrester._suppressed_until
+
+        # 2. Carrier cloud fault lands the reconnect INSIDE the window
+        #    (1s later, well under SUPPRESS_TTL_SECONDS=5).
+        fake_clock.advance(1.0)
+        arrester._handle_climate_change(_mk_event(
+            ENT_1,
+            _mk_state("unavailable", preset="unknown"),
+            _mk_state("heat_cool", preset="home"),
+        ))
+        # CORE ASSERT: stamp MUST be present, even though `_is_genuine_manual`
+        # would have suppressed everything downstream.
+        assert ENT_1 in arrester._last_reconnect_at, (
+            "Reconnect stamp MUST fire above _is_genuine_manual so the "
+            "grace-window is armed even when a URA suppress-TTL is open. "
+            "This is the D1 leak."
+        )
+
+        # 3. ha_carrier re-posts preset=manual within the grace window
+        #    (still under OVERRIDE_RECONNECT_GRACE_S). old_state is now
+        #    a NORMAL state ("heat_cool"), so without the stamp the
+        #    reconnect gate would not catch it — only the grace does.
+        fake_clock.advance(3.0)
+        arrester._handle_climate_change(_mk_event(
+            ENT_1,
+            _mk_state("heat_cool", preset="home"),
+            _mk_state("heat_cool", preset="manual", high=68.0, low=68.0),
+        ))
+        assert _sum_overrides(arrester) == 0, (
+            "The follow-up preset re-post within the reconnect grace "
+            "MUST NOT book an override. Got %d." % _sum_overrides(arrester)
         )
 
     def test_single_zone_human_override_still_counts(self, fake_clock):
