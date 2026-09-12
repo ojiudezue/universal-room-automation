@@ -4072,10 +4072,11 @@ cards:
     guest on exit. D2 Protect corroboration = session-pickup gate (recorder holds payload).'
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
-  status: investigating
+  status: done
+  updated: '2026-09-12 20:40'
+  verify_2026_09_12: 'WATCH DISCHARGED -> DONE (resolution-gap hypothesis DISCONFIRMED). MEASURED with 4 residents HOME (the test the card waited for): faces ALIVE + recognizing (identified_count=3/4, face_producer_health=live, interior face entities cycling Oji/Jaya/Ojini). face_lookup_missing_count stays ~11 NOT because of a resolution gap but because it increments per-camera whenever that cam reads no-face-NOW (camera_census.py:2502) and across ~24 cams only 1-2 see a given person at an instant -> ~11 legit no-face-now. Fails CLOSED, does NOT corrupt the census (identified correct). The prior faces-dead assumption was false. RESIDUAL (LOW, do-not-hold): if the miss-counter is ever touched, split it into entity-absent vs no-face-now so the health signal is clean.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
-  updated: 2026-09-12 11:15
   disposition_2026_09_12_sweep4: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: producer fail-closed (camera_census.py:2935/3168/3301 increments on unavailable/unknown/empty); ~12 on empty house is benign. Real-gap test needs residents home + recognized. Live watch; dispose on next occupancy via face_lookup_missing_count attribute read.'
   approval: unreviewed
   created: 2026-08-18 00:34
@@ -4171,12 +4172,13 @@ cards:
   title: Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked
     across NVRs
   thread: security
-  status: investigating
+  status: waiting_operator
+  updated: '2026-09-12 20:40'
+  verify_2026_09_12: 'INVESTIGATE-flagged -> MEASURE complete (Tier-3, do-NOT-build-B-alone CONFIRMED). notification_log hazard_type=exterior_person 30d: 4662 alerts/mo (~155/day!), CRITICAL 1824 / HIGH 2438. Single-vs-corroborated (different cam within +/-20s): ~86.8% SINGLE-source (CRIT 91.4%, HIGH 81.2%). BUT the split is a camera-COVERAGE artifact NOT a phantom signal: single-source concentrates in structurally-uncorroboratable cams — front_side_ptz 1065/1127 (94%), pool_equipment, back_yard, hot_tub (Frigate-2-only, no overlapping cam) — and front_side_ptz is the SAME cam that caught the operator REAL garage walk-in. A blanket demote-single->LOW would floor ~87% of alerts incl. genuine approach detections. So B-alone is UNSAFE (confirms the operator fence). Real levers: A (at-detection snapshot timing) + per-camera street-masking/detection-tuning + track-linker spatial confidence for single-NVR cams; cross-NVR demote only meaningful for the few multi-NVR-overlap cams. ASIDE: 155/day exterior_person + ~75 unacked CRITICAL re-pages (NM-REPAGE) = a real ALERT-FATIGUE surface worth its own look. NEXT -> operator: this stays measure-only/parked per the Tier-3 fence; the volume/fatigue finding may deserve a separate card.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
   approval: unreviewed
   created: 2026-08-17 23:58
-  updated: 2026-09-11 16:14
   refinement_status: refined
   problem_solution:
   - 'Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house
@@ -11591,9 +11593,10 @@ cards:
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
   status: investigating
+  updated: '2026-09-12 20:40'
+  verify_2026_09_12_perleg: 'OPERATOR-OWED PER-LEG REVERIFY DONE. MEASURED (person_entry_exit_events + live attrs): the producer WORKS now — 57 pid rows all since 2026-08-31, 14d yield 11.5%, live egress_identity_attach_rate_24h=25% and rising (the 0/7010 premise was stale). WHICH LEGS: Frigate _2 face legs ALIVE + naming (dense on INTERIOR cams family_room/master_hallway/staircase; SPARSE on egress/door cams, + CM-reload-storm unavailable blips). UniFi/Protect named-face leg NOT contributing (unifi_count=0, active_platforms=[frigate] only) = unwired. Matcher is NOT the bottleneck (ambiguity_rate=0, abstain_rate=0; join works across a 28s window). ROOT CAUSE of low yield = crossing-instant face SPARSITY (no co-temporal recognized face AT the crossing camera; recognition lives on interior cams the person has not reached) + the dormant Protect leg. LEVERS (gate the consumer build on producer coverage): (1) FRIGATE-SUBLABEL-FACE-BRIDGE-1 (bridge interior sub_label/face to the crossing) ; (2) NEW sub-deliverable: wire the UniFi/Protect named-face leg into the census/egress join. Consumer (guest-gate consuming door-identity) is buildable once yield rises; stays behind the bridge.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
-  updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'CONDITIONAL APPROVE (operator): "Approve but FIRST bring me reasons for low yield and reverify — which legs (Frigate or UniFi/Protect) are working and which are not." I OWE a per-leg egress-identity breakdown: of the 54/487 (11%) person_id attaches last 14d, split by source (Frigate face bridge vs UniFi/Protect named-face vs other), identify which producer legs are emitting person_id and which are dead, and WHY the yield is low. Re-measure, then report before any build.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure attach rate post-v5.97.0 before scoping.'
   measured_2026_09_12: 'PROBE (URA DB person_entry_exit_events, read-only via ssh): egress person_id
@@ -12330,9 +12333,10 @@ cards:
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   status: investigating
+  updated: '2026-09-12 20:40'
+  verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
-  updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (live_broken): 87+ order-dependent failures across 7+ files; suite has NEVER run green in-process (sized 2026-09-11). SUITE-HYGIENE-1 child shipped v5.72.0 but excluded const/custom_components namespaces (net-zero). Parent re-arch; clear the cheap Tier-1 children first.'
   thread: platform
   created: 2026-08-19 07:45

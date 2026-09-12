@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T11:55:15-05:00_ - _Data commit: `c2bc953d1f9c`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T11:56:24-05:00_ - _Data commit: `1f084e46b847`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -10,23 +10,23 @@ _Generated: 2026-09-12T11:55:15-05:00_ - _Data commit: `c2bc953d1f9c`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 10 |
+| 🔬 Investigating | 8 |
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 12 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
-| ⏸️ Waiting on operator | 18 |
+| ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 2 |
 | 🅿️ Parked | 47 |
-| ✅ Done | 142 |
+| ✅ Done | 143 |
 
 ## 📥 Inbox (0)
 _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (10)
+## 🔬 Investigating (8)
 _measuring; truth not yet known_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -52,40 +52,7 @@ _updated 2026-09-12 10:30_
   - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification; then decide whether circling should escape pure clock-time gating.
   - `needs_investigation`: False
 
-### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **investigating** - approval: **unreviewed**
-_created 2026-08-18 00:34 · updated 2026-09-12 11:15 · initial_
-- **Problem / Solution:**
-  - Problem: after the v5.80.0 D2 fresh-face fix, the census reports face_lookup_missing_count = 12 per tick even with the house EMPTY (no faces to look up). It fails CLOSED so the count stays correct (no wrong -1 credit), but 12 cameras' fa...
-  - Solution: on occupancy (Wed), check WHICH cameras miss and why — is the face path probing cameras that have no face sensor (benign, make it not count them) or failing to resolve a face sensor that exists (a real resolution gap to fix)? D...
-- **Why:** The v5.80.0 fresh-face fix is supposed to REVIVE face dedup; a high miss rate could mean it only partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
-- **Next:** On occupancy: confirm the count DROPS when residents are recognized. If it stays high with recognized residents present, investigate resolution. Optional: split the counter (absent vs no-face-now).
-- **Refs:** docs/readmes/README_v5.80.0.md; reference_frigate1_retired_2suffix_permanent.md
-- **Forensic keys (5):**
-  - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
-  - `needs_investigation`: True
-  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: producer fail-closed (camera_census.py:2935/3168/3301 increments on unavailable/unknown/empty); ~12 on empty house is benign. Real-gap test needs res...
-  - `disposition_2026_08_29`: operator sent to INVESTIGATE 2026-08-29 (board-button investigate applied from pending-disposition queue). Discriminator remains: on occupancy, confirm face_lookup_missing_count DROPS when residents are present + recognized; if it stays ...
-  - `interpretation_2026_08_18`: EXPLAINED: face_lookup_missing_count increments when a camera's face sensor reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT only when the entity is absent. On an EMPTY house no camera ha...
-
-### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **investigating**
-_created 2026-08-18 09:45 · updated 2026-09-12 17:00 · refined_
-- **Next:** PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook) — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
-- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location). A resident door-identified at >=0.9 should firm up the guest gate / cancel a nascent guest FP. Because a wrong suppress UNDER-secures, the gate is >=0.9 and suppress-only — identity may confirm a resident, never admit an unknown. Coverage-gated on measured post-deploy yield (§5.5).'}
-- **Forensic keys (10):**
-  - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
-  - `needs_investigation`: True
-  - `operator_decision_2026_09_12`: CONDITIONAL APPROVE (operator): "Approve but FIRST bring me reasons for low yield and reverify — which legs (Frigate or UniFi/Protect) are working and which are not." I OWE a per-leg egress-identity breakdown: of the 54/487 (11%) person_...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure a...
-  - `measured_2026_09_12`: PROBE (URA DB person_entry_exit_events, read-only via ssh): egress person_id attach is NON-ZERO and recently active, overturning the earlier "attach ~0" assumption — 54/487 (11%) in the last 14d; ALL 54 all-time filled events fall in tha...
-  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
-  - `sequence`: 2
-  - `confidence_gate`: >=0.9. Suppressing the guest gate on a WRONG identity UNDER-secures the house (a mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera corroboration, not a single leg. Suppress-only at >=0.9; never ...
-  - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
-  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-09-12 17:00 · refined_
 - **Problem / Solution:**
@@ -101,7 +68,7 @@ _created 2026-08-20 14:15 · updated 2026-09-12 17:00 · refined_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-### `CAMERA-STUCK-MASTER-HALLWAY-1` - master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CAMERA-STUCK-MASTER-HALLWAY-1` - master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating** - approval: **unreviewed**
 _created 2026-09-12 18:55 · initial_
 - **Problem / Solution:**
@@ -111,7 +78,7 @@ _created 2026-09-12 18:55 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** anomaly_log metric_name=camera_stuck
 
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **investigating** - approval: **explicit**
 _updated 2026-09-12 19:05_
 - **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
@@ -127,7 +94,7 @@ _updated 2026-09-12 19:05_
   - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
   - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
 
-### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **investigating** - approval: **explicit**
 _created 2026-09-05 16:40 · updated 2026-09-12 19:20 · refined_
 - **Problem / Solution:**
@@ -144,45 +111,35 @@ _created 2026-09-05 16:40 · updated 2026-09-12 19:20 · refined_
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with C...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#9 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **investigating**
+_created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
+- **Next:** PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook) — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
+- **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): producer now BUILT (v5.91.4 pending deploy). Wire-in target is _is_known_person_in_room at presence.py:4988 (today reads only BLE room-location). A resident door-identified at >=0.9 should firm up the guest gate / cancel a nascent guest FP. Because a wrong suppress UNDER-secures, the gate is >=0.9 and suppress-only — identity may confirm a resident, never admit an unknown. Coverage-gated on measured post-deploy yield (§5.5).'}
+- **Forensic keys (11):**
+  - `verify_2026_09_12_perleg`: OPERATOR-OWED PER-LEG REVERIFY DONE. MEASURED (person_entry_exit_events + live attrs): the producer WORKS now — 57 pid rows all since 2026-08-31, 14d yield 11.5%, live egress_identity_attach_rate_24h=25% and rising (the 0/7010 premise wa...
+  - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
+  - `needs_investigation`: True
+  - `operator_decision_2026_09_12`: CONDITIONAL APPROVE (operator): "Approve but FIRST bring me reasons for low yield and reverify — which legs (Frigate or UniFi/Protect) are working and which are not." I OWE a per-leg egress-identity breakdown: of the 54/487 (11%) person_...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure a...
+  - `measured_2026_09_12`: PROBE (URA DB person_entry_exit_events, read-only via ssh): egress person_id attach is NON-ZERO and recently active, overturning the earlier "attach ~0" assumption — 54/487 (11%) in the last 14d; ALL 54 all-time filled events fall in tha...
+  - `threshold_status`: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
+  - `sequence`: 2
+  - `confidence_gate`: >=0.9. Suppressing the guest gate on a WRONG identity UNDER-secures the house (a mis-named intruder read as a resident), so this needs the highest bar — genuine multi-camera corroboration, not a single leg. Suppress-only at >=0.9; never ...
+  - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
+  - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#8 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
-_created 2026-08-19 07:45 · updated 2026-09-12 11:00 · refined_
+_created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `verify_2026_09_12`: INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakag...
   - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
   - `needs_investigation`: True
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (live_broken): 87+ order-dependent failures across 7+ files; suite has NEVER run green in-process (sized 2026-09-11). SUITE-HYGIENE-1 child shipped v5.72.0 but excl...
   - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
-
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#10 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
-thread: **security** - status: **investigating** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
-- **Problem / Solution:**
-  - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
-  - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
-- **Why:** Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator just mandated for cycle-3 face ID: ne...
-- **Next:** MEASURE (hand-exam, do NOT build yet): for real fired perimeter alerts, trace detection->snapshot->alert lag and whether a co-watching NVR on the SAME camera or an adjacent EXTERIOR camera (EXTERIOR_ADJACENCY_GRAPH const.py:1773) corrobo...
-- **Tags:** tier-3
-- **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (17):**
-  - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
-  - `needs_investigation`: True
-  - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
-  - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
-  - `operator_reframe_2026_08_19`: LIVE EVENT confirms the snapshot-delay branch of the 08-17 operator_note. Operator walked IN via the garage, got a g5_bullet_person_detected alert @12:09:57 whose SNAPSHOT (frame-stamped 12:09:52, ~5s before the alert) showed an EMPTY dr...
-  - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
-  - `tier`: Tier 3 — narrow remit
-  - `db_verified_2026_08_17`: BY-HAND DB VERIFY (recorder, 2026-08-16 windows): BOTH alerts were DEFINITIVELY SINGLE-SOURCE. At 15:15:56 UTC ONLY binary_sensor.hot_tub_person_occupancy_2 fired — no other NVR. At 15:21:16 UTC ONLY front_side_ptz_person_occupancy_2 fir...
-  - `double_send_corrected_2026_08_17`: CORRECTION (operator): the "double-send" is NOT a URA dedup bug. BlueBubbles texts the operator through his OWN number, so each message shows once as SENT and once as RECEIVED on the same thread = own-number loopback. URA sends ONCE. Fix...
-  - `remit_2026_08_17`: OPERATOR SCOPE 2026-08-17: "Tier 3 work with a very narrow remit to make thrown away corroboration matter to notifications. And any dashboard work." So: (1) wire the existing _sensor_engine agreement telemetry (:537-538) into the severit...
-  - `corroboration_definition_correction_2026_08_17`: CORRECTION (operator caught orchestrator over-claim). The 08-17 "multi-camera corroboration" claim was WRONG: front_side_ptz (exterior) co-fired with master_hallway/upstairs_hall/staircase/garagehallway (INTERIOR) — but those interior ca...
-  - `dual_nvr_disagreement_proof_2026_08_17`: CORRECTION + STRONG PROOF (operator: "Nah Unifi and frigate 2"). hot_tub + front_side_ptz are DUAL-NVR, both legs LIVE: Protect (_person_detected, ~120-150 changes, last 02:50) + Frigate-2 (_person_occupancy_2, last 02:50). (Third leg _p...
-  - `agreement_rate_measured_2026_08_17`: QUANTIFIED (front_side_ptz, 5 days): Frigate-2 (_person_occupancy_2) = 479 on-events; Protect (_person_detected) = 51 on-events. Agreement: 35 of 51 Protect events (69%) have a Frigate-2 within 60s. But from Frigate-2's side, only ~35 of...
-  - `fleet_pattern_2026_08_18`: FLEET SAMPLE (13 dual-leg cameras, 5d, Frigate-2/Protect on-event ratio): front_side_ptz is an ISOLATED OUTLIER at 11.4x (455 vs 40). Every other dual-leg camera is 0.56x-3.4x, and MOST have Protect firing MORE than Frigate (garage_a 0.5...
-  - `fleet_correction_2026_08_18`: OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ cre...
-  - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
-  - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
 ## 🧭 Pre-planning (16)
 _idea being decomposed_
@@ -706,7 +663,7 @@ _updated 2026-09-12 12:40 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-## ⏸️ Waiting on operator (18)
+## ⏸️ Waiting on operator (19)
 _needs a human call — groomed first_
 
 ### `REMINDER-ACTIVATE-OVERNIGHT-PASS-1` - Activate the overnight-pass launchd job (operator one-time launchctl load) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -952,6 +909,36 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Refs:** docs/reviews/code-review/reload_comprehensive_tier1_2.md; docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#19 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+thread: **security** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
+- **Problem / Solution:**
+  - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
+  - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
+- **Why:** Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator just mandated for cycle-3 face ID: ne...
+- **Next:** MEASURE (hand-exam, do NOT build yet): for real fired perimeter alerts, trace detection->snapshot->alert lag and whether a co-watching NVR on the SAME camera or an adjacent EXTERIOR camera (EXTERIOR_ADJACENCY_GRAPH const.py:1773) corrobo...
+- **Tags:** tier-3
+- **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
+- **Forensic keys (18):**
+  - `verify_2026_09_12`: INVESTIGATE-flagged -> MEASURE complete (Tier-3, do-NOT-build-B-alone CONFIRMED). notification_log hazard_type=exterior_person 30d: 4662 alerts/mo (~155/day!), CRITICAL 1824 / HIGH 2438. Single-vs-corroborated (different cam within +/-20...
+  - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
+  - `needs_investigation`: True
+  - `operator_note`: Operator 2026-08-17: "either phantom detections or the snapshot was delayed. Are they properly cross correlated? I believe Camera <silver?> does this for free." (term "Camera silver" unclear — operator believes an NVR/product already doe...
+  - `evidence`: 4 iMessage screenshots (IMG_6989-6992, 2026-08-16 alerts). Sensors: binary_sensor.hot_tub_person_occupancy_2 + binary_sensor.front_side_ptz_person_occupancy_2 — note the _2 Frigate-2 migration suffix, same class as the census fix.
+  - `operator_reframe_2026_08_19`: LIVE EVENT confirms the snapshot-delay branch of the 08-17 operator_note. Operator walked IN via the garage, got a g5_bullet_person_detected alert @12:09:57 whose SNAPSHOT (frame-stamped 12:09:52, ~5s before the alert) showed an EMPTY dr...
+  - `code_verified_2026_08_17`: CODE CHECKED (perimeter_alert.py). FINDINGS: (1) Multi-leg logic (:449-558) is COVERAGE + DEDUP, not corroboration — it subscribes to every integration on a camera (Frigate base + _2 + Protect) and dedups them; legs are OR'd, so ANY sing...
+  - `tier`: Tier 3 — narrow remit
+  - `db_verified_2026_08_17`: BY-HAND DB VERIFY (recorder, 2026-08-16 windows): BOTH alerts were DEFINITIVELY SINGLE-SOURCE. At 15:15:56 UTC ONLY binary_sensor.hot_tub_person_occupancy_2 fired — no other NVR. At 15:21:16 UTC ONLY front_side_ptz_person_occupancy_2 fir...
+  - `double_send_corrected_2026_08_17`: CORRECTION (operator): the "double-send" is NOT a URA dedup bug. BlueBubbles texts the operator through his OWN number, so each message shows once as SENT and once as RECEIVED on the same thread = own-number loopback. URA sends ONCE. Fix...
+  - `remit_2026_08_17`: OPERATOR SCOPE 2026-08-17: "Tier 3 work with a very narrow remit to make thrown away corroboration matter to notifications. And any dashboard work." So: (1) wire the existing _sensor_engine agreement telemetry (:537-538) into the severit...
+  - `corroboration_definition_correction_2026_08_17`: CORRECTION (operator caught orchestrator over-claim). The 08-17 "multi-camera corroboration" claim was WRONG: front_side_ptz (exterior) co-fired with master_hallway/upstairs_hall/staircase/garagehallway (INTERIOR) — but those interior ca...
+  - `dual_nvr_disagreement_proof_2026_08_17`: CORRECTION + STRONG PROOF (operator: "Nah Unifi and frigate 2"). hot_tub + front_side_ptz are DUAL-NVR, both legs LIVE: Protect (_person_detected, ~120-150 changes, last 02:50) + Frigate-2 (_person_occupancy_2, last 02:50). (Third leg _p...
+  - `agreement_rate_measured_2026_08_17`: QUANTIFIED (front_side_ptz, 5 days): Frigate-2 (_person_occupancy_2) = 479 on-events; Protect (_person_detected) = 51 on-events. Agreement: 35 of 51 Protect events (69%) have a Frigate-2 within 60s. But from Frigate-2's side, only ~35 of...
+  - `fleet_pattern_2026_08_18`: FLEET SAMPLE (13 dual-leg cameras, 5d, Frigate-2/Protect on-event ratio): front_side_ptz is an ISOLATED OUTLIER at 11.4x (455 vs 40). Every other dual-leg camera is 0.56x-3.4x, and MOST have Protect firing MORE than Frigate (garage_a 0.5...
+  - `fleet_correction_2026_08_18`: OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ cre...
+  - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
+  - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
 ## ⏳ Waiting on me (Claude) (2)
 _I owe something_
@@ -1703,8 +1690,25 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (142)
+## ✅ Done (143)
 _closed, evidence in refs_
+
+### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **done** - approval: **unreviewed**
+_created 2026-08-18 00:34 · updated 2026-09-12 20:40 · initial_
+- **Problem / Solution:**
+  - Problem: after the v5.80.0 D2 fresh-face fix, the census reports face_lookup_missing_count = 12 per tick even with the house EMPTY (no faces to look up). It fails CLOSED so the count stays correct (no wrong -1 credit), but 12 cameras' fa...
+  - Solution: on occupancy (Wed), check WHICH cameras miss and why — is the face path probing cameras that have no face sensor (benign, make it not count them) or failing to resolve a face sensor that exists (a real resolution gap to fix)? D...
+- **Why:** The v5.80.0 fresh-face fix is supposed to REVIVE face dedup; a high miss rate could mean it only partially works. Not a correctness risk (fail-closed) but the fix's value depends on faces resolving.
+- **Next:** On occupancy: confirm the count DROPS when residents are recognized. If it stays high with recognized residents present, investigate resolution. Optional: split the counter (absent vs no-face-now).
+- **Refs:** docs/readmes/README_v5.80.0.md; reference_frigate1_retired_2suffix_permanent.md
+- **Forensic keys (6):**
+  - `verify_2026_09_12`: WATCH DISCHARGED -> DONE (resolution-gap hypothesis DISCONFIRMED). MEASURED with 4 residents HOME (the test the card waited for): faces ALIVE + recognizing (identified_count=3/4, face_producer_health=live, interior face entities cycling ...
+  - `disposition_2026_09_12b`: INVESTIGATE (operator board) — priority intake for the verify/measure sweep.
+  - `needs_investigation`: True
+  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: producer fail-closed (camera_census.py:2935/3168/3301 increments on unavailable/unknown/empty); ~12 on empty house is benign. Real-gap test needs res...
+  - `disposition_2026_08_29`: operator sent to INVESTIGATE 2026-08-29 (board-button investigate applied from pending-disposition queue). Discriminator remains: on occupancy, confirm face_lookup_missing_count DROPS when residents are present + recognized; if it stays ...
+  - `interpretation_2026_08_18`: EXPLAINED: face_lookup_missing_count increments when a camera's face sensor reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT only when the entity is absent. On an EMPTY house no camera ha...
 
 ### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done** - approval: **explicit**
