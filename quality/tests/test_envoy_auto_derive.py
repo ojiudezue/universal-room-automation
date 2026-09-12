@@ -107,6 +107,7 @@ if _existing_const is None:
         "custom_components.universal_room_automation.const"
     )
     sys.modules["custom_components.universal_room_automation.const"] = _ura_const
+    from _ura_const_support import ensure_ura_const as _ura_ensure_const; _ura_ensure_const()  # BLE-HOLD-CAP-SUITE-POLLUTION-1: upgrade partial const stub to complete
 else:
     _ura_const = _existing_const
 if not hasattr(_ura_const, "DOMAIN"):
