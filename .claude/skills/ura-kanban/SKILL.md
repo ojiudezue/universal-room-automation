@@ -629,6 +629,13 @@ failure — the board is where "is it actually done?" gets answered.
    - `approve` (inbox + pre-planning button, added 2026-08-15) → `approval: explicit` +
      `approved_by: 'operator <date> (board button)'`; inbox cards also move → pre_planning.
      Out-of-band approval carries the SAME authority as a chat "go" — do not re-ask.
+     **BUT an approve is NOT a bypass of verify-before-work (operator-coined 2026-09-12):** even an
+     approved card (board OR chat "go") first passes the validity/ground-truth gate — confirm the
+     premise is STILL real and not already-shipped/moot/stale BEFORE acting. If verification finds it
+     stale, record that on the card and re-surface rather than building the approved-but-dead thing;
+     then move the card to the lane the outcome implies. Approval authorises the work; it does not
+     exempt it from the check. (Many approved cards are investigations — "approve" means *go drive the
+     measurement*, and the measurement IS the verification.)
    - `investigate` (inbox + pre-planning button, added 2026-08-15) → set `needs_investigation: true`
      on the card; it becomes priority intake for the next lull-investigation sweep (see
      "Inbox hygiene" below).

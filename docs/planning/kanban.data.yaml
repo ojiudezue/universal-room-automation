@@ -241,6 +241,8 @@ cards:
     watchdog risk)
   thread: energy
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: suppress-keys gate exists (__init__.py:6664/7489; card''s 7280/7538 refs drifted). v5.99.0 closed options-save trigger but storm persists via a different trigger; debug armed live (1f7d94480). Needs the next-reload journald scan.'
   created: 2026-09-10 00:50
   updated: 2026-09-11 15:54
@@ -255,7 +257,7 @@ cards:
     run ~2h early. Solution: find WHAT is issuing the reload (a self-triggered homeassistant.reload_config_entry,
     an options write that cascades a reload, a device/entity-registry change, or a recovery-reload path)
     and stop the unnecessary reloads; reloads should happen only on a real config change.'
-  approval: unreviewed
+  approval: explicit
   tags:
   - energy
   - reload
@@ -1084,11 +1086,13 @@ cards:
   title: House flips to GUEST when only a single resident (Jaya) is home
   thread: identity
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with CENSUS-FACE-MISS-WATCH-1.'
   created: 2026-09-05 16:40
   updated: 2026-09-11 16:16
   refinement_status: refined
-  approval: unreviewed
+  approval: explicit
   tags:
   - identity
   - presence
@@ -1926,7 +1930,8 @@ cards:
   title: Closets/hallways carry the full ~105-entity Smart Room profile — a lean profile for simple room
     types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
   thread: platform
-  status: investigating
+  status: done
+  disposition_2026_09_12b: 'DECLINED (operator board 2026-09-12): SCALE-LEAN-ROOM-PROFILE not pursued — closed. (lean per-room-type entity profile; operator declined.)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) static half: NO lean profile exists (CONF_ROOM_TYPE only a behavioral dial, never gates platform registration). Quantitative premise (~105 entities/closet) needs the .storage/core.entity_registry probe. Stays investigating; run D0 registry probe.'
   created: 2026-09-03 16:40
   updated: 2026-09-03 16:40
@@ -3755,10 +3760,12 @@ cards:
 - id: ZIRI-COLLEGE-PERSISTENT-AWAY-1
   thread: presence
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): sub-item (c) persistent-absence state confirmed UNBUILT (0 hits long_term_absence). (a) stale-tracker anomaly + (b) return-guest-FP need live person/census checks — stays investigating.'
   applied_disposition_2026_09_10: 'Applied queued operator board-tap (investigate, tapped 2026-08-31):
     inbox -> investigating.'
-  approval: unreviewed
+  approval: explicit
   created: 2026-08-19 13:00
   updated: 2026-08-19 13:00
   refinement_status: initial
@@ -4063,6 +4070,8 @@ cards:
 - id: CENSUS-FACE-MISS-WATCH-1
   thread: presence
   status: investigating
+  disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
+  needs_investigation: true
   updated: 2026-09-12 11:15
   disposition_2026_09_12_sweep4: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: producer fail-closed (camera_census.py:2935/3168/3301 increments on unavailable/unknown/empty); ~12 on empty house is benign. Real-gap test needs residents home + recognized. Live watch; dispose on next occupancy via face_lookup_missing_count attribute read.'
   approval: unreviewed
@@ -4160,6 +4169,8 @@ cards:
     across NVRs
   thread: security
   status: investigating
+  disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
+  needs_investigation: true
   approval: unreviewed
   created: 2026-08-17 23:58
   updated: 2026-09-11 16:14
@@ -4944,6 +4955,8 @@ cards:
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D3 resolved-by-removal (const.py:3885 tombstone, commit b9975cf30) — card already reflects this. Remaining open = D1/P24 silence measurement (correctly-rare vs mis-thresholded), a live DB query.'
   verified_2026_09_11: 'D3 (frozen-tracker, the structurally-unreachable one) is RESOLVED BY REMOVAL —
     FROZEN_TRACKER_DAYS + the D3 detector were removed 2026-08-10 (const.py:3885-3953), matching the operator
@@ -4953,7 +4966,7 @@ cards:
     set (2026-08-09). Remaining OPEN sub-question the operator wanted answered: WHY D1 and P24 do not
     fire (correctly-inert vs broken). Measurement task.'
   shipped_version: v5.67.0
-  approval: unreviewed
+  approval: explicit
   tags:
   - no-fabrication-verify
   - measure-before-build
@@ -7989,12 +8002,14 @@ cards:
     a design choice
   thread: notifications
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): snapshot_path code path present + persisted (notification_manager.py:933/1883/2282). Whether the attachment actually rides the re-page is transport-level — arm debug log on next CRITICAL re-page. Measure-only.'
   relane_2026_09_10: 'Not a soak -> INVESTIGATING (measure-not-fix). Determine whether iMessage re-pages
     carry the attachment: log outbound BlueBubbles transport kwargs at debug on the next unack CRITICAL.
     Nothing known broken.'
   shipped_version: v5.73.1
-  approval: approved
+  approval: explicit
   origin:
     date: '2026-08-12'
     gist: 'operator: "Dont forget the missing images in follow on detections as designed. Intermittency
@@ -8870,12 +8885,14 @@ cards:
     is enabled, cancels nothing
   thread: presence
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   updated: 2026-09-12 10:30
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: guest-half fix shipped v5.79.0 (D1 clamp + guest-rooms-lead) mitigated guest-state harm, but the census NUMBER double-count is still open and face-recognition-dependent — explicitly deferred to CENSUS-DEDUP-REPAIR-1. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Suite NAME-diff at tip was blocked by the (now-cleared)
     concurrent-pytest deadlock; re-run the framings against the repaired oracle.
   shipped_version: v5.79.0
-  approval: implied
+  approval: explicit
   origin:
     date: '2026-08-16'
     gist: 'Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only
@@ -11568,6 +11585,8 @@ cards:
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
   status: investigating
+  disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
+  needs_investigation: true
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'CONDITIONAL APPROVE (operator): "Approve but FIRST bring me reasons for low yield and reverify — which legs (Frigate or UniFi/Protect) are working and which are not." I OWE a per-leg egress-identity breakdown: of the 54/487 (11%) person_id attaches last 14d, split by source (Frigate face bridge vs UniFi/Protect named-face vs other), identify which producer legs are emitting person_id and which are dead, and WHY the yield is low. Re-measure, then report before any build.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure attach rate post-v5.97.0 before scoping.'
@@ -12305,6 +12324,8 @@ cards:
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   status: investigating
+  disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
+  needs_investigation: true
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (live_broken): 87+ order-dependent failures across 7+ files; suite has NEVER run green in-process (sized 2026-09-11). SUITE-HYGIENE-1 child shipped v5.72.0 but excluded const/custom_components namespaces (net-zero). Parent re-arch; clear the cheap Tier-1 children first.'
   thread: platform
@@ -12627,11 +12648,13 @@ cards:
     B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase'
   thread: presence
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): pure ESPHome-device experiment, no URA surface; 48h window expired 3wk ago. Dispose via one-shot recorder query (kitchen mmWave OFF-episodes <25s over 7d) + read the g0..g8 still_threshold values.'
   created: 2026-08-21 18:00
   updated: 2026-08-21 18:00
   refinement_status: initial
-  approval: operator_directed
+  approval: explicit
   tags:
   - live-experiment
   - measure-before-build
@@ -12892,11 +12915,13 @@ cards:
     the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
   thread: presence
   status: investigating
+  disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
+  approved_by: 'operator 2026-09-12 (board approve button)'
   updated: 2026-09-12 10:30
   disposition_2026_09_12_sweep2: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: chatter_detector.py + const.py:3978 detector is burst/impossibility-based only; no rate (transitions/hour) detector exists. Build-or-not marginal-benefit decision; nothing built.'
   created: 2026-08-21 17:40
   refinement_status: initial
-  approval: unreviewed
+  approval: explicit
   tags:
   - measured-not-inferred
   - explains-a-null-result
@@ -13018,6 +13043,8 @@ cards:
     rather than retune
   thread: hvac
   status: investigating
+  disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
+  needs_investigation: true
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: AC-ramp gate has no occupancy/preset input (hvac_override.py gates ramp/cooling/setpoint/kwh/sustain only). Measure-first: run the 79-nudge occupancy split before any build.'
   created: 2026-08-21 11:40
