@@ -16062,18 +16062,19 @@ cards:
     Does NOT structurally under-charge. All winter charging on typical days depends on the attain net
     functioning (arbitrage gate is closed).'
 - id: ATTAIN-UNBOUNDED-RATE-WINTER-MASK-1
-  title: Attain-entry projection uses UNBOUNDED rate extrapolation (unlike the rung ladder) — could mask
-    a real winter grid-charge across a long overnight boundary
+  title: Attain-entry projection extrapolates a POSITIVE solar-tail rate past sunset (unbounded, unlike
+    the rung ladder) -> DELAYED attain entry -> bounded peak-buffer shortfall on shoulder/winter evenings
   thread: energy
-  status: investigating
+  status: waiting_operator
   created: 2026-09-11 19:20
-  updated: 2026-09-11 19:45
-  refinement_status: initial
+  updated: 2026-09-11 19:55
+  refinement_status: refined
   approval: unreviewed
   tags:
+  - no-fabrication-verify
   - measure-before-build
   - tier-2
-  - no-fabrication-verify
+  - tier-2db
   rank:
     value: 6
     effort: 5
@@ -16087,9 +16088,12 @@ cards:
     it is the exact asymmetry the ladder bounding was added to fix, left unbounded on the attain path.
     Solution: consider bounding the attain-entry rate extrapolation the same way, or cap the positive-rate
     contribution overnight.'
-  next: 'MEASURE: over winter overnight boundaries, does the attain projection ever exceed target on a
-    small positive rate and suppress a needed charge? If yes, bound the rate term. Tier 2 (touches the
-    attain predicate). Discriminator vs the arbitrage path which is separately gated.'
+  next: 'PARK pending operator go on a fix cycle (attain is DELICATE — no code change without go). Bounded
+    + self-correcting + not reachable in summer -> insurance, not urgent. If greenlit: Tier 2-DB/3, mirror
+    the rung ladder solar-horizon bound on the 2 attain sites, update the R7 parity oracle, 3 framing-disjoint
+    reviews (A horizon arithmetic per-site, B over-fire/double-fire/no-op-identical, C per-site mutation
+    + parity-oracle). REVIVAL TRIGGER: a live shoulder/winter evening where SOC<80 pre-boundary with a
+    positive solar-tail rate and attain enters late — measure the actual shortfall.'
   links:
     related:
     - ATTAIN-SEASONAL-BEHAVIOR-TRACE-1
@@ -16115,6 +16119,34 @@ cards:
     overnight rate; not reachable in summer, winter tail UNMEASURABLE now. A bounding fix would be cheap
     insurance, not an urgent defect. Awaiting design-refresh agent for the invariant a fix must preserve
     before any recommendation.'
+  - 'DESIGN REFRESH 2026-09-11 (verified v5.100.9; reference-skill lines DRIFTED). INTENT: attain is the
+    catch-up net when the arbitrage forecast GATE is CLOSED (rung0/1 said solar will fill) but loads/optimistic-Solcast
+    eat the solar; fires when projected<peak_buffer_target(80); must NOT pause EVSEs. CORRECTED MECHANISM:
+    entry predicate _should_attain_peak_buffer (energy_battery.py:3997, fire :4101) projects soc + (mins/60)*rate
+    + solar_surplus via EnergyProjector.project_soc_at_boundary(bound_to_solar_horizon=FALSE, :4074/:4081)
+    — rate extrapolated over the FULL mins-to-boundary, whereas the rung ladder BOUNDS rate to min(mins,
+    sunset-now) (:2938-2969, added because unbounded gave 836% artifacts). Rate (:3670) = end-slope over
+    4 samples/15min, +=charging. Reachable suppression: soc=60,target=80,mins=180,rate=+10%/h but sunset
+    in 60min,surplus~2 -> projected=92>=80 -> no entry, but post-sunset the +10 evaporates and SOC never
+    reaches 80. NOT durable: predicate re-runs every tick; as solar fades rate re-seeds lower and attain
+    enters LATE -> bounded shortfall (eaten runway + 30min entry floor + ~35min Enphase lag). Overnight
+    (no solar) rate<=0 -> attain fires correctly (safe). SECOND SITE: attain-hold-current also bound_to_solar_horizon=False
+    (:4792). INVARIANT a fix must preserve: under a real shortfall with no solar that will actually land,
+    attain MUST enter charging + floor reserve at target + command charge_from_grid in time to reach target
+    by the boundary; a bounding fix must NOT over-charge on genuine good-solar days (keep the solar_surplus
+    credit — orthogonal to rate), must NOT double-fire with arbitrage CHARGE (routing position :5570 keeps
+    them exclusive), byte-identical no-op path (R7 EnergyProjector parity test currently ENFORCES the
+    unbounded shape -> a fix must update that oracle), restart adoption unchanged (:4325/:4415). Touchpoints:
+    Bug Class #53 (_floor_reserve sites :4168/:4222/:4531) + #51 (boundary logic :3912/:4059). TIER: 2-DB
+    minimum; recommend Tier-3 elevation (shared EnergyProjector primitive, failure = one-missed-site,
+    cost-and-safety adjacent). FIX TARGET (future cycle, NOT this pass): the two bound_to_solar_horizon=False
+    attain sites (:4081, :4792) + the R7 parity oracle.'
+  refinement:
+  - 'overnight-trickle framing -> CORRECTED: overnight rate is <=0 so attain fires correctly (measured
+    + design-confirmed); the real reachable case is the DAYTIME/EVENING solar-tail before a high-rate
+    boundary near sunset, where a real +rate is extrapolated past the point solar delivers -> projected>=target
+    -> attain does not enter -> DELAYED entry (self-corrects as rate re-seeds each 5-min tick) -> bounded
+    shortfall, not permanent suppression.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
