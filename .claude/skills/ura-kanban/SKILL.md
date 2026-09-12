@@ -806,11 +806,28 @@ for everything Tier 2 and below.**
   operator approval** before build and again at the pre-deploy checkpoint, per CLAUDE.md Tier 3.
   These are the changes where one missed path loses money or safety; the human call stays.
 
-**The gate that earns the autonomy (run BEFORE building, every card):**
-1. **Parsimony** — is the problem sharp and real (one falsifiable sentence)? Does the simplest
+**The gate that earns the autonomy — FOUR steps IN ORDER, run BEFORE building, every card
+(operator-coined 2026-09-12).** Do not skip a step because the card "looks obvious"; a later step's
+verdict is only trustworthy if the earlier steps passed. Record each step's finding on the card.
+
+1. **Validity — GROUND TRUTH first (still needed AND not shipped).** This is the verify-before-work
+   check applied at build time: read the authoritative source (code at the named file:line, the
+   suite, the live entity/DB, git log) and confirm the work is *still real* and *not already
+   shipped* — the board is a claim, not proof (see the "Verify-before-work" section above). A card
+   that is ALREADY-DONE / MOOT retires here before any parsimony debate; a card whose own stated
+   `next` already shipped gets re-scoped to the real residual. Also re-verify the card's premise:
+   an agent-reported "reversal" or "still-open" is a hypothesis — confirm the commit / code exists
+   (don't trust the report). Reaching ALREADY-DONE here is a success, not a skipped build.
+2. **Prior-art / reuse scan (REUSE-or-BUILD, cite file:line).** Before proposing to BUILD any new
+   mechanism (constant, helper, sensor, signal, producer, state), scan URA's prior art — code,
+   plans, analysis/memory — and record a REUSE-or-BUILD verdict per piece with the existing symbol
+   at file:line (the CLAUDE.md Institutional-Context-First + Tier-2+ prior-art-scan rule, applied
+   per card). The producer/primitive you are about to "build" often already exists and needs only a
+   source-swap or a small extension. A BUILD verdict that skipped this scan is incomplete.
+3. **Parsimony** — is the problem sharp and real (one falsifiable sentence)? Does the simplest
    version capture most of the benefit? Verdict BUILD / SIMPLIFY / PARK / DROP recorded on the
    card. PARK/DROP means *don't build* — reaching that is a success, not a skipped step.
-2. **Cost/benefit** — does the marginal benefit pay for the ingredient risk + review cost? If a
+4. **Cost/benefit** — does the marginal benefit pay for the ingredient risk + review cost? If a
    Tier-2 change drags in a categorically risky ingredient (synthetic time, a new writer to a
    shared primitive, cross-coordinator state, rare-fire path), that is a signal to SIMPLIFY or to
    treat it as Tier 3 — not to barrel ahead because "it's only Tier 2."

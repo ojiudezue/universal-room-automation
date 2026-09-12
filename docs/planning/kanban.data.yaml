@@ -5079,9 +5079,26 @@ cards:
   title: 'EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real
     power (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
-  status: planned
-  updated: 2026-09-12 10:00
+  status: review
+  updated: 2026-09-12 12:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b} (do not exist in source today). REWRITE next to the reversal.'
+  gate_2026_09_12: 'GATE PASS -> BUILT. VALIDITY: still-needed=yes (operator REUSE reversal 486cd1cd3,
+    2026-09-01) / not-shipped=yes (grep ev_charge_rate_garage = 0 hits in source). PRIOR-ART/REUSE:
+    source data already exists — energy.ev_status[<bay>]["power"] (the same per-bay measured power
+    ev_charging_status reads, upstream sensor.garage_{a,b}_power_minute_average via DEFAULT_EVSE_ENTITIES);
+    old sensor shape recovered from ed37feb95. Bay key deterministic (DEFAULT_EVSE_ENTITIES keyed
+    "garage_a"/"garage_b") -> NO evse_id mapping ambiguity. PARSIMONY: minimal 2-sensor re-add from
+    existing source, SIMPLIFY. COST/BENEFIT: explicit operator ask, additive, low blast radius -> BUILD.'
+  disposition_2026_09_12_built: 'BUILT 2026-09-12 (Tier-1, overnight autonomous). Re-added
+    EnergyEVChargeRateGarageASensor/BSensor (sensor.py, shared _EnergyEVChargeRateBaySensor base):
+    device_class POWER, unit W, state_class MEASUREMENT, reads energy.ev_status[<bay>].get("power"),
+    fails CLOSED to None on missing bay / null / non-numeric (never a misleading 0 W). Registered at
+    the former removal-tombstone site in async_setup_entry. ev_charging_status left AS-IS per operator.
+    6 tests in test_ev_charge_rate_garage_sensors.py (both bays read own power, missing/null/non-numeric
+    -> None, no-coordinator -> None) PASS under .venv-ha; mutation drill (garage_a key -> garage_b)
+    turns test_garage_a RED; sibling test_ev_charging_status_d6_d7 regression clean (15 pass). status
+    review. Live check post-deploy: sensor.ura_energy_ev_charge_rate_garage_a/b read watts matching
+    ev_charging_status[garage_a/b].power.'
   operator_correction_2026_09_01: 'REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b};
     instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED
     on named sensors instead of buried in ev_charging_status attributes. Keep ev_charging_status AS IS
@@ -14702,8 +14719,23 @@ cards:
   title: HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge
     October; scope a bounded/windowed sample count into the shared detector
   thread: hvac
-  status: pre_planning
-  updated: 2026-09-12 11:00
+  status: parked
+  updated: 2026-09-12 12:00
+  gate_2026_09_12: 'PARKED at the pre-build gate (validity->prior-art->parsimony->cost/benefit).
+    VALIDITY: still-needed=yes / not-shipped=yes (HVAC metrics do not set max_samples; two creation
+    sites _get_baseline + load_baselines both build MetricBaseline without a cap). PRIOR-ART/REUSE:
+    the cap primitive EXISTS (coordinator_diagnostics MetricStats.max_samples, v3.13.3) and the
+    symmetric per-metric override pattern exists (minimum_samples_by_metric) — a clean reuse was
+    available. PARSIMONY/COST-BENEFIT (the deciding check): the ONLY live-consumed HVAC metric
+    baseline is short_cycle_rate (1 obs/day, min_samples 14); zone_call_frequency is suppressed and
+    comfort_deviation_hours/egress_pause_frequency are unwired, so capping them buys nothing (no
+    consumer). The change edits a SHARED primitive (AnomalyDetector, ~6 coordinators) => Tier-2-DB
+    review burden. The marginal benefit (seasonal adaptation of one slow metric that may not drive a
+    consumer action) does not pay for a shared-primitive change done unattended overnight. SIMPLIFY
+    floor would be cap-only-short_cycle_rate, but even that is speculative.
+    REVIVAL TRIGGER: if short_cycle_rate anomalies are observed to go seasonally stale in practice
+    (a false-nominal or false-anomaly traced to a >90-day-old baseline), build the cap-only-
+    short_cycle_rate version (reuse the max_samples primitive + a new max_samples_by_metric param).'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE — card premise partly WRONG: MetricStats ALREADY has max_samples recency cap (coordinator_diagnostics.py:148/169, v3.13.3, commit 283d9c171) wired for energy (energy.py:867-886). Genuine remaining work is NARROW: HVAC anomaly baselines don''t opt in (no max_samples). Rescope to ''set max_samples on HVAC metric baselines'' reusing the existing primitive — much smaller than ''build a bounded count''.'
   created: 2026-08-24 16:45
   refinement_status: initial

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T03:33:24-05:00_ - _Data commit: `de9e3af5308a`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-12T03:38:18-05:00_ - _Data commit: `f16206ab8d65`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,14 +13,14 @@ _Generated: 2026-09-12T03:33:24-05:00_ - _Data commit: `de9e3af5308a`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 20 |
-| 🧭 Pre-planning | 20 |
-| 📝 Planned | 8 |
+| 🧭 Pre-planning | 19 |
+| 📝 Planned | 7 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 1 |
+| 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 2 |
 | ⏸️ Waiting on operator | 14 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🅿️ Parked | 43 |
+| 🅿️ Parked | 44 |
 | ✅ Done | 135 |
 
 ## 📥 Inbox (0)
@@ -365,7 +365,7 @@ _created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
-## 🧭 Pre-planning (20)
+## 🧭 Pre-planning (19)
 _idea being decomposed_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -644,21 +644,7 @@ _created 2026-08-18 03:00 · updated 2026-09-12 11:00 · refined_
   - `problem`: test_presence_coordinator + test_presence_guest_latch_and_veto_gap (D3 edge/zone-log tests) PASS in isolation but FAIL when run inside a large multi-file batch — order-dependent pollution from some other test file leaking module state. P...
   - `subsumed_note`: Subsumed under TEST-STRATEGY-REARCH-1 (pollution = section B of that investigation). Keep as the concrete pollution instance; the broader re-arch owns the fix.
 
-### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector — _#20 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-08-24 16:45 · updated 2026-09-12 11:00 · initial_
-- **Problem / Solution:**
-  - Problem: the anomaly detector learns each metric's "normal" by accumulating every observation forever (unbounded Welford, no cap). So a baseline trained through the August cooling season keeps averaging in summer data indefinitely — by O...
-- **Origin:** 2026-08-24 - operator decision
-- **Why:** Operator-approved (#4). Distinct from the short-cycle producer's minimum_samples override: that governs MATURATION (how many samples before firing); this governs FORGETTING (bounding the accumulator so it tracks the current regime). The ...
-- **Next:** Scope the accumulation model (decay vs fixed window vs max_samples cap), decide default and per-metric opt-in, and enumerate blast radius across the 5 consumers. Then Tier 2-DB plan + review before build.
-- **Tags:** tier-2db, numbers-get-knobs
-- **Parsimony:** [BUILD] An unbounded baseline trained on one season will misjudge the next, with no forgetting mechanism.
-- **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (decision; coordinator_diagnostics.py (AnomalyDetector)
-- **Forensic keys (1):**
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE — card premise partly WRONG: MetricStats ALREADY has max_samples recency cap (coordinator_diagnostics.py:148/169, v3.13.3, commit 283d9c171) wired for energy (e...
-
-## 📝 Planned (8)
+## 📝 Planned (7)
 _has plan / acceptance_
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -735,19 +721,7 @@ _created 2026-09-06 18:10 · updated 2026-09-11 19:15 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: fix REVERTED (commit e1829da9a — Fix 2 exposed 87 order-pollution reds); conftest.py:28 still excludes custom_components/const namespace; full-suite --collect-only...
 
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **planned** - approval: **implied**
-_updated 2026-09-12 10:00 · refined ×3_
-- **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
-- **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
-- **Next:** Q3 remainder: add optional per-plug power entity in _plug_config wired to the Emporia garage circuit (small additive, keeps the 1440W estimate as fallback). Small Tier-1/2; queue behind the in-flight cycles.
-- **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
-- **Forensic keys (3):**
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor....
-  - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
-  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
-
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#7 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#6 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -765,7 +739,7 @@ _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
   - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
   - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
 
-### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#8 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#7 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **unreviewed**
 _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_root_
 - **Problem / Solution:**
@@ -819,7 +793,7 @@ _created 2026-09-12 09:15 · initial_
 - **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
 - **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -832,6 +806,20 @@ _updated 2026-09-12 11:40_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
+
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **review** - approval: **implied**
+_updated 2026-09-12 12:40 · refined ×3_
+- **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
+- **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
+- **Next:** Q3 remainder: add optional per-plug power entity in _plug_config wired to the Emporia garage circuit (small additive, keeps the 1440W estimate as fallback). Small Tier-1/2; queue behind the in-flight cycles.
+- **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
+- **Forensic keys (5):**
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor....
+  - `gate_2026_09_12`: GATE PASS -> BUILT. VALIDITY: still-needed=yes (operator REUSE reversal 486cd1cd3, 2026-09-01) / not-shipped=yes (grep ev_charge_rate_garage = 0 hits in source). PRIOR-ART/REUSE: source data already exists — energy.ev_status[<bay>]["powe...
+  - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Re-added EnergyEVChargeRateGarageASensor/BSensor (sensor.py, shared _EnergyEVChargeRateBaySensor base): device_class POWER, unit W, state_class MEASUREMENT, reads energy.ev_status[<bay>].g...
+  - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
+  - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
 ## 🚀 Shipped (organic open) (2)
 _live, awaiting proof_
@@ -1083,7 +1071,7 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-## 🅿️ Parked (43)
+## 🅿️ Parked (44)
 _revisit-trigger set_
 
 ### `D1-PROTECT-FACE-BRIDGE-ADDON-1` - Build a Home Assistant ADD-ON that bridges UniFi Protect recognized-face NAMES into sensor.<cam>_face_recognized for the egress-identity producer to consume — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -1605,7 +1593,22 @@ _updated 2026-08-23 14:30 · refined ×8_
   - `known_limitations`: restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed to persist or explicitly document + report
   - `organic_open`: engage the override, then confirm it releases on the next real context change (or 6h decay) and the switch flips OFF to match
 
-### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest — _#39 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector — _#39 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **hvac** - status: **parked** - approval: **explicit**
+_created 2026-08-24 16:45 · updated 2026-09-12 12:00 · initial_
+- **Problem / Solution:**
+  - Problem: the anomaly detector learns each metric's "normal" by accumulating every observation forever (unbounded Welford, no cap). So a baseline trained through the August cooling season keeps averaging in summer data indefinitely — by O...
+- **Origin:** 2026-08-24 - operator decision
+- **Why:** Operator-approved (#4). Distinct from the short-cycle producer's minimum_samples override: that governs MATURATION (how many samples before firing); this governs FORGETTING (bounding the accumulator so it tracks the current regime). The ...
+- **Next:** Scope the accumulation model (decay vs fixed window vs max_samples cap), decide default and per-metric opt-in, and enumerate blast radius across the 5 consumers. Then Tier 2-DB plan + review before build.
+- **Tags:** tier-2db, numbers-get-knobs
+- **Parsimony:** [BUILD] An unbounded baseline trained on one season will misjudge the next, with no forgetting mechanism.
+- **Refs:** docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (decision; coordinator_diagnostics.py (AnomalyDetector)
+- **Forensic keys (2):**
+  - `gate_2026_09_12`: PARKED at the pre-build gate (validity->prior-art->parsimony->cost/benefit). VALIDITY: still-needed=yes / not-shipped=yes (HVAC metrics do not set max_samples; two creation sites _get_baseline + load_baselines both build MetricBaseline w...
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE — card premise partly WRONG: MetricStats ALREADY has max_samples recency cap (coordinator_diagnostics.py:148/169, v3.13.3, commit 283d9c171) wired for energy (e...
+
+### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest — _#40 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
 _updated 2026-08-18 01:45 · refined_
 - **Problem / Solution:**
@@ -1626,7 +1629,7 @@ _updated 2026-08-18 01:45 · refined_
   - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
   - `direction_2026_08_18`: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented on marginal-benefit) is DEFERRED — re...
 
-### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end — _#40 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end — _#41 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **energy** - status: **parked** - approval: **implied**
 _created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
 - **Problem / Solution:**
@@ -1642,7 +1645,7 @@ _created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
   - `MARGINAL_BENEFIT_2026_08_26`: Operator asked to run the marginal-benefit test + isolate IF/WHY we need it, context-wide on solar-follow goals. RESULT: the value is REAL but NARROW, and the PLAN SCOPE is disproportionate. Grounding: solar-follow is REACTIVE (energy_po...
   - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
-### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4) — _#41 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `HVAC-EXCURSION-RESTORE-UNIFIED-1` - Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2), manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4) — _#42 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **hvac** - status: **parked** - approval: **needs_operator**
 _created 2026-08-26 02:20 · refined_
 - **Problem / Solution:**
@@ -1657,7 +1660,7 @@ _created 2026-08-26 02:20 · refined_
   - `DESCOPE_DECISION_2026_08_26`: Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now, with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests +...
   - `status_note`: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
 
-### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected — _#42 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected — _#43 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **energy** - status: **parked** - approval: **unreviewed**
 _created 2026-09-01 20:30 · initial_
 - **Problem / Solution:**
@@ -1668,7 +1671,7 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#43 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#44 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **identity** - status: **parked** - approval: **explicit**
 _created 2026-09-05 17:35 · initial_
 - **Problem / Solution:**
