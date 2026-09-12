@@ -864,7 +864,18 @@ promise, and promises are the thing this skill exists to replace.
 
 #### The wired overnight-pass contract (operator-coined 2026-09-12)
 
-Create the recurring job via **`/schedule`** (a cloud routine on a cron) — NOT a loose "remember to."
+**Vehicle — it MUST be a LOCAL scheduled job, NOT a `/schedule` cloud routine (operator-ruled
+2026-09-12).** The investigations lane's measurements need LIVE LAN data — `ssh ha sqlite3` on the
+URA DB, the Samba-mounted DB, the home-assistant / ura-sqlite MCPs — all LAN-only. A `/schedule`
+cloud agent runs in Anthropic's cloud with NONE of that reach (and the routine connector list offers
+only Fathom/GCal/Drive/Gmail), so it cannot run the probes that are the whole point. Wire it instead
+as a **`launchd` job on the always-on Mac mini** where `ssh ha` + the DB mount already work (same host
+as `refresh_urakanban.sh`), invoking `claude -p` headless with `--dangerously-skip-permissions` (the
+reference impl: `homelab-automation/scripts/overnight/ura_overnight_pass.sh` +
+`launchd/com.phalanxmadrone.ura-overnight-pass.plist`, nightly 02:00 local; activation is a deliberate
+`launchctl load`). A cloud routine is viable ONLY for code-side work (reconcile + static/prior-art
+investigations + Tier-≤2 builds-to-review) — never for the DB-probe investigations.
+
 Its contract, in order, every run:
 
 1. **Reconcile first.** Load this skill, apply any queued operator dispositions
