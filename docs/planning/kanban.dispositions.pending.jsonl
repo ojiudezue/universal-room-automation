@@ -7,3 +7,11 @@
 {"action": "ack", "at": "2026-09-12T14:12:22.398Z", "card_id": "BOARD-THEME-URA-1@2026-09-12T16:00"}
 {"action": "instruct", "at": "2026-09-12T14:13:40.242Z", "card_id": "AC-RAMP-NO-RECURRENCE-ESCALATION-1", "text": "We should park this for now as long as nudges seem to work."}
 {"action": "ack", "at": "2026-09-12T14:13:48.052Z", "card_id": "AC-RAMP-NO-RECURRENCE-ESCALATION-1@2026-09-12T14:50"}
+{"action": "instruct", "at": "2026-09-12T14:15:07.251Z", "card_id": "ARRIVAL-DEPARTURE-NOTIFY-1", "text": "Approve esp if built. Better than nothing."}
+{"action": "ack", "at": "2026-09-12T14:15:09.127Z", "card_id": "ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-12T14:30"}
+{"action": "instruct", "at": "2026-09-12T14:16:32.055Z", "card_id": "GUEST-GATE-DOOR-IDENTITY-1", "text": "Approve but first bring me reasons for low yield and reverify it. Which legs (frigate or Unifi?) are workng and which are not"}
+{"action": "ack", "at": "2026-09-12T14:16:33.272Z", "card_id": "GUEST-GATE-DOOR-IDENTITY-1@2026-09-12T14:30"}
+{"action": "instruct", "at": "2026-09-12T14:18:24.963Z", "card_id": "ROUTINE-DETECTOR-NO-DISCHARGE-1", "text": "Build care dashboard in ura v8 - in presence tab. Auto decay if unacknowledge after 2 weeks."}
+{"action": "ack", "at": "2026-09-12T14:18:25.536Z", "card_id": "ROUTINE-DETECTOR-NO-DISCHARGE-1@2026-09-12T14:40"}
+{"action": "instruct", "at": "2026-09-12T14:19:07.222Z", "card_id": "OPTIMIZER-NOTIFY-FLOOD-DEDUP-1", "text": "Both options"}
+{"action": "ack", "at": "2026-09-12T14:19:07.907Z", "card_id": "OPTIMIZER-NOTIFY-FLOOD-DEDUP-1@2026-09-12T15:00"}
