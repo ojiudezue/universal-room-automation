@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T13:40:03-05:00_ - _Data commit: `438845665f1a`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T13:43:27-05:00_ - _Data commit: `c36bd0237182`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -14,8 +14,8 @@ _Generated: 2026-09-12T13:40:03-05:00_ - _Data commit: `438845665f1a`_ - _last_r
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 11 |
 | 🔨 In progress | 2 |
-| 🔍 Review | 5 |
-| ⏸️ Waiting on operator | 19 |
+| 🔍 Review | 4 |
+| ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 2 |
 | 🅿️ Parked | 46 |
@@ -587,14 +587,15 @@ _created 2026-09-12 09:15 · initial_
 
 ### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#2 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **in_progress** - approval: **explicit**
-_created 2026-09-12 16:30 · updated 2026-09-12 14:35 · refined_
+_created 2026-09-12 16:30 · updated 2026-09-12 14:55 · refined_
 - **Problem / Solution:**
   - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
 - **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
 - **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
 - **Tags:** tier-2db
 - **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `slice1_certified_2026_09_12`: SLICE 1 FIX-UP CERTIFIED @ 6a4ccca2d. F1 RESOLVED — tests env-portable (19/19 stub + .venv-ha + 53/53 co-run with test_cycle_b_config_flow.py; _install_registries builds HA mock modules locally/idempotently). F2 RESOLVED — behavioral D9 ...
   - `slice1_review_2026_09_12`: Slice-1 review = FIX-REQUIRED (fix before Slice 2). MUST-FIX: F1 CRIT — the D1/D5 tests only pass under .venv-ha; under the standard stub harness they KeyError (borrowed _load_config_flow deletes the HA mock modules) -> D1/D5 have no por...
   - `slice1_built_2026_09_12`: SLICE 1 BUILT clean on feature/onboarding-simplify @ d63cfad51 (4 files +587/-9, 17/17 tests pass .venv-ha, py_compile+conflict clean, NOT merged/deployed). D1 additive filters (entity_category/hidden_by/platform) + NEW pure _rank_area_c...
   - `build_sliced_2026_09_12`: Builder paused pre-code (correct): a single-commit D1-D9 Tier-3 build is unreviewable + would fail its own INV-1 differential. Orchestrator decision = SLICE (build-sequencing is ours; operator blessed plan+Tier3). SLICE 1 (in progress, m...
@@ -607,7 +608,7 @@ _created 2026-09-12 16:30 · updated 2026-09-12 14:35 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-## 🔍 Review (5)
+## 🔍 Review (4)
 _under review_
 
 ### `UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1` - URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -659,26 +660,7 @@ _updated 2026-09-12 12:40 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **review** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-09-12 14:50 · refined_
-- **Problem / Solution:**
-  - Problem: when the thermostat cloud service times out, all three thermostats drop offline together for a minute and come back, and the system that watches for someone manually changing a thermostat mistakes that blip for a real human over...
-- **Why:** Live 2026-08-20: Carrier cloud returned 504 Gateway Timeout on getInfinityEnergy at 12:14:15; ALL THREE climate entities went unavailable 12:14:15->12:15:17 (simultaneous to the second); the arrester logged override #3 at 12:15:37, 20s a...
-- **Next:** Tier 1: narrow post-reconnect grace guard on the arrester detection path. DISCRIMINATOR: suppress the 3-zone-simultaneous reconnect case WITHOUT suppressing a genuine single-zone override. Operator 2026-09-09: no new Carrier cards — ride...
-- **Tags:** no-fabrication-verify
-- **Refs:** Carrier 504 getInfinityEnergy 12:14:15 2026-08-20; sensor.ura_hvac_coordinator_override_arrester (live attrs)
-- **Forensic keys (8):**
-  - `review_2026_09_12`: Adversarial review = SHIP (invariant HOLDS: per-ENTITY keying so one zone reconnect cannot mask another zone override; the 30s-window mis-fire fails OPEN = leaves the human setpoint alone, the safe side; 7 sites enumerated, guard skips n...
-  - `built_2026_09_12`: BUILT feature/arrester-reconnect-grace @ dd29169d0 (not merged/deployed). Guard in _handle_climate_change: old_state==unavailable->!=unavailable stamps recovery + returns; follow-up tick within OVERRIDE_RECONNECT_GRACE_S=30 (new rung-1 c...
-  - `verified_2026_09_12`: OPERATOR-LEANED-A + owed verification DONE -> A==B CONFIRMED, GREEN to build. MEASURED (recorder ~6d): the 3 Carrier zones (studyb_zone_1=1525, up_hallway_zone_2=5281, back_hallway_zone_3=5282) drop AND recover in the SAME event-loop tic...
-  - `operator_decision_2026_09_12`: LEANS A (operator): "A makes sense since one cloud service. Check reconnect ALWAYS happens for all zones at the same time. HOW do we detect reconnection? If they all reconnect at the same time, A and B are functionally the same." I OWE a...
-  - `gate_2026_09_12`: GATE -> waiting_operator (needs operator sign-off; NOT safe unattended-overnight). VALIDITY: still-real (0 reconnect/was_unavailable guards on the override-detection path), not shipped. CONSUMER CHECK (severity is a property of consumers...
-  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no post-reconnect grace on override-DETECTION path (hvac_override.py grace is comfort/sunset only; 0 reconnect/was_unavailable guards). CARRIER-STALE-POLL-REFRESH-...
-  - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
-  - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
-
-## ⏸️ Waiting on operator (19)
+## ⏸️ Waiting on operator (20)
 _needs a human call — groomed first_
 
 ### `REMINDER-ACTIVATE-OVERNIGHT-PASS-1` - Activate the overnight-pass launchd job (operator one-time launchctl load) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -854,7 +836,27 @@ _created 2026-08-28 22:00 · updated 2026-09-12 11:00 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: general FP fix SHIPPED v5.91.4 (const.py:3744 optimizer-LLM design-invariant 'multiple zones sharing one thermostat is by design — never flag', commit d529580a...
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You verify: is Master Bedroom actually served by studyb_zone_1 physical duct, or config drift? Then the comfort-check fix branches on the answer.
 
-### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-08-20 14:15 · updated 2026-09-12 14:55 · refined_
+- **Problem / Solution:**
+  - Problem: when the thermostat cloud service times out, all three thermostats drop offline together for a minute and come back, and the system that watches for someone manually changing a thermostat mistakes that blip for a real human over...
+- **Why:** Live 2026-08-20: Carrier cloud returned 504 Gateway Timeout on getInfinityEnergy at 12:14:15; ALL THREE climate entities went unavailable 12:14:15->12:15:17 (simultaneous to the second); the arrester logged override #3 at 12:15:37, 20s a...
+- **Next:** Tier 1: narrow post-reconnect grace guard on the arrester detection path. DISCRIMINATOR: suppress the 3-zone-simultaneous reconnect case WITHOUT suppressing a genuine single-zone override. Operator 2026-09-09: no new Carrier cards — ride...
+- **Tags:** no-fabrication-verify
+- **Refs:** Carrier 504 getInfinityEnergy 12:14:15 2026-08-20; sensor.ura_hvac_coordinator_override_arrester (live attrs)
+- **Forensic keys (9):**
+  - `fixup_2026_09_12`: D1+D2 FIX-UP DONE @ 895e5b923 (feature/arrester-reconnect-grace). D1 (the completing fix): reconnect stamp-and-return + follow-up-grace blocks HOISTED ABOVE _is_genuine_manual, so a reconnect landing inside a URA suppress-TTL window stil...
+  - `review_2026_09_12`: Adversarial review = SHIP (invariant HOLDS: per-ENTITY keying so one zone reconnect cannot mask another zone override; the 30s-window mis-fire fails OPEN = leaves the human setpoint alone, the safe side; 7 sites enumerated, guard skips n...
+  - `built_2026_09_12`: BUILT feature/arrester-reconnect-grace @ dd29169d0 (not merged/deployed). Guard in _handle_climate_change: old_state==unavailable->!=unavailable stamps recovery + returns; follow-up tick within OVERRIDE_RECONNECT_GRACE_S=30 (new rung-1 c...
+  - `verified_2026_09_12`: OPERATOR-LEANED-A + owed verification DONE -> A==B CONFIRMED, GREEN to build. MEASURED (recorder ~6d): the 3 Carrier zones (studyb_zone_1=1525, up_hallway_zone_2=5281, back_hallway_zone_3=5282) drop AND recover in the SAME event-loop tic...
+  - `operator_decision_2026_09_12`: LEANS A (operator): "A makes sense since one cloud service. Check reconnect ALWAYS happens for all zones at the same time. HOW do we detect reconnection? If they all reconnect at the same time, A and B are functionally the same." I OWE a...
+  - `gate_2026_09_12`: GATE -> waiting_operator (needs operator sign-off; NOT safe unattended-overnight). VALIDITY: still-real (0 reconnect/was_unavailable guards on the override-detection path), not shipped. CONSUMER CHECK (severity is a property of consumers...
+  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no post-reconnect grace on override-DETECTION path (hvac_override.py grace is comfort/sunset only; 0 reconnect/was_unavailable guards). CARRIER-STALE-POLL-REFRESH-...
+  - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
+  - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
+
+### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
 - **Next:** Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.
@@ -870,7 +872,7 @@ _created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
   - `THE_EVIDENCE_THAT_RULED_OUT_HARDWARE`: DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE. DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY — _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output ...
   - `ACCEPTANCE_AND_NEXT_STEPS`: RE-MEASURE IN 48H with the same script (interval histogram, sub-5s count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare against the recorded baseline: 724 transitions, median interval 44.0s, 116 ...
 
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-12 19:20 · initial_
 - **Problem / Solution:**
@@ -894,7 +896,7 @@ _created 2026-09-10 00:50 · updated 2026-09-12 19:20 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
 - **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
@@ -911,7 +913,7 @@ _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#18 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#19 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -925,7 +927,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#19 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#20 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
