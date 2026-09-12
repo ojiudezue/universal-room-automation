@@ -1215,6 +1215,50 @@ BLE_HOLD_CAP_DURATIONS: Final = {
 }
 
 # ============================================================================
+# ONBOARDING-SIMPLIFY-1 — D2 / D9 (Slice 1)
+# Room-type feature defaults. SOFT defaults applied on room CREATE only
+# (single producer for room-type-conditioned flags). Operator-explicit
+# submissions in Options always win on re-edit. See PLANNING_onboarding_simplify.md
+# §D2 and §D9. This subsumes the prior bathroom->CONF_WET_ROOM cascade at
+# config_flow.py:2035-2042 (deleted this cycle) so CONF_WET_ROOM has ONE
+# producer.
+#
+# D9 anchor row: CONF_HUMIDITY_FAN_SPIKE_ENABLED consumer fallback in
+# automation.py:2550 is False, but the schema default at
+# config_flow.py:2079-2081 was `wet_default` (True for bathroom). Seeding
+# it here preserves the pre-cycle effective post-create value for new
+# bathroom rooms once that field leaves the essentials path.
+# ============================================================================
+ROOM_TYPE_FEATURE_DEFAULTS: Final = {
+    ROOM_TYPE_BATHROOM: {
+        CONF_WET_ROOM: True,
+        CONF_HUMIDITY_FAN_SPIKE_ENABLED: True,
+    },
+}
+
+# ============================================================================
+# ONBOARDING-SIMPLIFY-1 — D1 (Slice 1)
+# Ranking backstop for `_rank_area_candidates` — entities whose entity_id
+# lowercased contains any of these substrings are ranked LAST regardless
+# of registry category. Safety-quality bound; module-constant (Rung 1),
+# not operator-tunable. Extend cautiously — every entry is a heuristic.
+# ============================================================================
+AUTODETECT_NAME_DENYLIST: Final = (
+    "chip_temperature",
+    "internal_temperature",
+    "cpu_temperature",
+    "device_temperature",
+    "firmware",
+    "rssi",
+    "signal_strength",
+    "linkquality",
+    "battery",
+    "uptime",
+    "restart",
+    "identify",
+)
+
+# ============================================================================
 # STATE KEYS (for coordinator data)
 # ============================================================================
 

@@ -230,6 +230,8 @@ from .const import (
     CONF_WET_ROOM,
     CONF_BLE_HOLD_CAP_ENABLED,
     ROOM_TYPE_BLE_HOLD_CAP_DEFAULT,
+    ROOM_TYPE_FEATURE_DEFAULTS,
+    AUTODETECT_NAME_DENYLIST,
     CONF_HUMIDITY_FAN_SPIKE_ENABLED,
     CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
     CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
@@ -764,6 +766,18 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         else:
             dc_set = set(device_class)
 
+        # ONBOARDING-SIMPLIFY-1 (D1): additive filters ONLY. This helper
+        # feeds 14 existing callers that consume the FULL list as
+        # multi-select defaults; SHRINKING semantics beyond disabled /
+        # diagnostic / helper platforms would silently drop real entities
+        # from those defaults. Dedup + ranking live in the sibling helper
+        # `_rank_area_candidates` and are called ONLY from the new
+        # sensors_confirm / devices_confirm steps (Slice 2 wire-in).
+        _EXCLUDED_PLATFORMS = {"template", "group", "helper", "input_boolean",
+                               "input_number", "input_select", "input_text",
+                               "input_datetime", "input_button", "counter",
+                               "timer", "schedule"}
+
         results = []
         for entry in ent_reg.entities.values():
             # Domain filter
@@ -771,6 +785,15 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 continue
             # Skip disabled/hidden entities
             if entry.disabled_by is not None:
+                continue
+            # D1 additive: skip DIAGNOSTIC / CONFIG entity_category
+            if entry.entity_category is not None:
+                continue
+            # D1 additive: skip user-hidden
+            if entry.hidden_by is not None:
+                continue
+            # D1 additive: skip helper / template / group platforms
+            if entry.platform in _EXCLUDED_PLATFORMS:
                 continue
             # Device class filter
             if dc_set is not None:
@@ -786,6 +809,104 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 results.append(entry.entity_id)
 
         return sorted(results)
+
+    def _rank_area_candidates(
+        self,
+        entity_ids: list[str],
+        actuator_device_ids: set[str] | None = None,
+    ) -> list[str]:
+        """Rank + dedup auto-detected area candidates for confirm steps.
+
+        ONBOARDING-SIMPLIFY-1 (D1). PURE helper — reads registry / state,
+        never writes. Called ONLY by the new sensors_confirm /
+        devices_confirm steps (wired in Slice 2). Does NOT mutate the
+        return contract of `_get_area_entities`.
+
+        Ranking ladder (higher rank = earlier in output):
+          1. Entity's OWN area_id set (not inherited from device area).
+          2. Device NOT shared with any known room actuator device.
+          3. Entity name NOT matching AUTODETECT_NAME_DENYLIST.
+          4. Registry enabled by default.
+          5. entity_id ascii sort (deterministic tiebreak).
+
+        Dedup key = ``(device_id, registry.original_device_class or
+        registry.device_class)``. Live-state ``device_class`` is a ranking
+        tiebreak ONLY (state may be ``unknown`` at flow time — registry is
+        stable). The `_2`-suffix collapse is a natural consequence:
+        `sensor.foo_temp` and `sensor.foo_temp_2` share device_id + same
+        registry original_device_class -> same dedup key -> single winner.
+        """
+        if not entity_ids:
+            return []
+
+        actuator_device_ids = actuator_device_ids or set()
+
+        from homeassistant.helpers import entity_registry as er
+
+        ent_reg = er.async_get(self.hass)
+
+        def _score(eid: str) -> tuple:
+            reg = ent_reg.async_get(eid)
+            if reg is None:
+                # Unregistered — rank last, deterministic.
+                return (1, 1, 1, 1, eid)
+            # Rank 1: own area_id set (0 = better).
+            own_area = 0 if reg.area_id else 1
+            # Rank 2: device NOT shared with a known actuator (0 = better).
+            shared = 1 if (reg.device_id and reg.device_id in actuator_device_ids) else 0
+            # Rank 3: denylist name match (1 = worse; last).
+            lname = eid.lower()
+            denyed = 1 if any(tok in lname for tok in AUTODETECT_NAME_DENYLIST) else 0
+            # Rank 4: enabled by default (0 = better).
+            not_enabled_by_default = 0 if not reg.disabled_by else 1
+            return (denyed, shared, own_area, not_enabled_by_default, eid)
+
+        # Dedup by registry-stable key. Winner within a group = lowest score.
+        groups: dict[tuple, tuple[tuple, str]] = {}
+        for eid in entity_ids:
+            reg = ent_reg.async_get(eid)
+            if reg is None:
+                key = (None, None, eid)  # unique — never collapses
+            else:
+                dc = reg.original_device_class or reg.device_class
+                key = (reg.device_id, dc)
+                if reg.device_id is None:
+                    # No device -> can't safely dedup (would collapse across
+                    # unrelated integrations); keep entity_id in key.
+                    key = (None, dc, eid)
+            score = _score(eid)
+            existing = groups.get(key)
+            if existing is None or score < existing[0]:
+                groups[key] = (score, eid)
+
+        winners = sorted(groups.values(), key=lambda pair: pair[0])
+        return [eid for _score, eid in winners]
+
+    def _detect_weather_entity(self) -> str | None:
+        """ONBOARDING-SIMPLIFY-1 (D5-thin): auto-detect a weather entity.
+
+        Prefers the sole `weather.*` when exactly one is registered; else
+        returns the alphabetically-first `weather.*` entity_id as a
+        pre-filled hint. Returns None when no weather entity exists. The
+        CONF field is REUSED (`CONF_WEATHER_ENTITY`, const.py:1124; already
+        wired at async_step_integration_config).
+        """
+        try:
+            from homeassistant.helpers import entity_registry as er
+            ent_reg = er.async_get(self.hass)
+            weather_ids = sorted(
+                entry.entity_id
+                for entry in ent_reg.entities.values()
+                if entry.domain == "weather"
+                and entry.disabled_by is None
+                and entry.hidden_by is None
+            )
+        except Exception:  # pragma: no cover - defensive
+            _LOGGER.debug("weather auto-detect: registry read failed", exc_info=True)
+            return None
+        if not weather_ids:
+            return None
+        return weather_ids[0]
 
     def _detect_light_capabilities(self, entity_ids: list[str]) -> str:
         """Auto-detect light capabilities from supported_features.
@@ -849,7 +970,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_OUTSIDE_HUMIDITY_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
             ),
-            vol.Optional(CONF_WEATHER_ENTITY): selector.EntitySelector(
+            # ONBOARDING-SIMPLIFY-1 (D5-thin): pre-fill sole `weather.*`
+            # if present; alphabetical-first otherwise. Operator can still
+            # clear or change it. REUSE — CONF_WEATHER_ENTITY exists.
+            vol.Optional(
+                CONF_WEATHER_ENTITY,
+                description={"suggested_value": self._detect_weather_entity()},
+            ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="weather")
             ),
             vol.Optional(CONF_SOLAR_PRODUCTION_SENSOR): selector.EntitySelector(
@@ -2032,14 +2159,12 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             if err:
                 errors["base"] = err
             else:
-                # D4 default cascade: bathroom rooms get wet_room=True unless
-                # operator explicitly overrode it.
-                room_type = self._data.get(CONF_ROOM_TYPE)
-                if (
-                    CONF_WET_ROOM not in user_input
-                    and room_type == ROOM_TYPE_BATHROOM
-                ):
-                    user_input[CONF_WET_ROOM] = True
+                # ONBOARDING-SIMPLIFY-1 (D2): the prior bathroom -> wet_room
+                # cascade that lived here has been DELETED and subsumed into
+                # const.ROOM_TYPE_FEATURE_DEFAULTS (single producer for
+                # CONF_WET_ROOM). Seeding now happens at room-create time in
+                # async_step_notifications so it also covers create paths that
+                # skip this step. See PLANNING_onboarding_simplify.md §D2/§D9.
                 self._data.update(user_input)
                 if user_input.get(CONF_FAN_CONTROL_ENABLED):
                     return await self.async_step_fan_speeds()
@@ -2311,6 +2436,17 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                         self._integration_entry_id = entry.entry_id
                         break
             
+            # ONBOARDING-SIMPLIFY-1 (D2/D9): apply room-type feature-default
+            # seeds as SOFT defaults (only when the operator has NOT already
+            # set the key on any step). Single producer for room-type
+            # -conditioned flags. See const.ROOM_TYPE_FEATURE_DEFAULTS.
+            room_type_seed = ROOM_TYPE_FEATURE_DEFAULTS.get(
+                self._data.get(CONF_ROOM_TYPE), {}
+            )
+            for _seed_key, _seed_val in room_type_seed.items():
+                if _seed_key not in self._data:
+                    self._data[_seed_key] = _seed_val
+
             # Create room entry linked to integration
             room_data = {
                 CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
