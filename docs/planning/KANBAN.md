@@ -15,7 +15,7 @@ _Generated: 2026-09-11T22:21:22-05:00_ - _Data commit: `e041b4333166`_ - _last_r
 | 🔬 Investigating | 28 |
 | 🧭 Pre-planning | 32 |
 | 📝 Planned | 19 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 19 |
@@ -31,9 +31,9 @@ _(none)_
 ## 🔬 Investigating (28)
 _measuring; truth not yet known_
 
-### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
 thread: **quality** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-11 18:20 · updated 2026-09-11 18:35 · refined_
+_created 2026-09-11 18:20 · updated 2026-09-12 09:10 · refined_
 - **Problem / Solution:**
   - Problem: fixing const-stub isolation lets the full test suite collect for the first time, which now RUNS a previously-unreached test (test_ble_hold_cap::test_cap_seconds_helper_reads_room_type_from_dict_not_default) that FAILS: its monke...
 - **Next:** CARD/PARK: order-dependent — passes alone + in the arbitrage pair, fails in some 4+-file orderings. Pre-existing (before Fix 2 it was masked by collection-abort). Fix belongs to the SUITE-ORDER-POLLUTION / TEST-STRATEGY-REARCH cluster (p...
@@ -1173,10 +1173,21 @@ _created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
   - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
   - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
-### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `VERIFY-BEFORE-WORK-SWEEP-1` - Every card's state is an unverified claim — sweep the whole board against ground truth before any card is worked — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **quality** - status: **in_progress** - approval: **explicit**
+_created 2026-09-12 09:15 · initial_
+- **Problem / Solution:**
+  - Problem: a card records what was true when someone last looked at it, not what is true now. The world moves without touching the board — another cycle fixes the bug, a config change makes the problem go away, a device comes back online, ...
+- **Why:** Coined the moment it paid for itself — the first card checked (BLE-HOLD-CAP-SUITE-POLLUTION-1) carried a same-day "collection now clean" claim that a single pytest run refuted, and the truth was worse than the card said (full-suite colle...
+- **Next:** Sweep open lanes highest-WSJF first (103 open + 42 parked-trigger checks); record ALREADY-DONE / PARTIALLY-DONE / MOOT / STILL-REAL / CARD-WAS-WRONG + evidence per card.
+- **Tags:** tier-1, no-fabrication-verify
+- **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
+- **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
+
+### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **in_progress** - approval: **explicit**
 _created 2026-09-11 16:55 · initial_
 - **Problem / Solution:**

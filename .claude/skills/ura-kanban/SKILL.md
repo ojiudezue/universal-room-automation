@@ -573,6 +573,80 @@ failure — the board is where "is it actually done?" gets answered.
 6. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
    live state (config entry / sensor / DB) — do not carry a stale TODO forward.
 
+## Verify-before-work — NO work starts until the work is proven not-already-done (operator-coined 2026-09-12)
+
+Operator: *"Check to see if done first before assuming it needs work. Do this for all cards. NO work
+until we know the work is not done. **The board may be outdated despite our best efforts.**"*
+
+This is the hardest precondition in this skill, and it sits ABOVE the parsimony gate in the drive
+loop: **read the card → verify against ground truth → THEN gate → then build.** A card is a *claim*
+about the world's state, written at some past moment. Every hygiene mechanism in this document —
+capture-first, status-tracks-reality, the staleness banner, the disposition queue — reduces drift
+but cannot eliminate it, because the world changes without touching the board: a sibling cycle fixes
+the bug, a config change moots the card, a device comes back online, a later ship subsumes the work.
+**Treat every card's state assertion as unverified until you check it this session.**
+
+**The rule:** before ANY build, plan, or investigation begins on a card, run the cheapest observation
+that would distinguish *already-done* from *still-real*, and record the result on the card the same
+turn. Not the card's own summary — an independent read of the authoritative source.
+
+**Where ground truth lives, by card kind:**
+
+| Card kind | The check that settles it |
+|---|---|
+| Code defect / missing behavior | grep the current source at the named file:line — is the fix already in `develop`? |
+| Shipped-feature follow-up | `git log` / the `README_v*.md` validation table for the surface |
+| Live-system symptom | read the live entity, the URA DB row, or the recorder — is it still happening? |
+| Test / suite defect | RUN the suite (or the file) NOW; do not trust a recorded pass/fail count |
+| Config-only item | read the live config entry / options — may already be set |
+| Doc / board item | open the file — the section may already exist |
+
+**Both directions are failures, and the second is the one this rule was coined on:**
+- The card says **open** but the work is **done** → wasted cycle rebuilding shipped work.
+- The card says **done / clean / fixed** but it is **not** → a false all-clear, which is worse:
+  it silently removes the item from every future sweep. Verification is not "confirm the card is
+  stale" — it is "confirm the card is *true*, in whichever direction."
+
+Observed 2026-09-12 (the coining case): `BLE-HOLD-CAP-SUITE-POLLUTION-1` carried a same-day
+disposition asserting *"Collection now clean (10376)"*. One `pytest --collect-only` run at the start
+of the next session returned **2 collection errors** on the default full-suite ordering. The card's
+recorded state had been written from one observation and had already stopped being true. Had the
+sweep skipped the file — per the card, collection was fine — the regression would have stayed
+invisible while looking filed.
+
+**Verdicts (recorded on the card, same turn, with the command/observation that produced them):**
+`ALREADY-DONE` (close with the evidence — never a silent delete) · `PARTIALLY-DONE` (narrow the card
+to the actual residual and re-score `effort`) · `MOOT` (premise gone — close with the evidence chain)
+· `STILL-REAL` (proceed to the parsimony gate, carrying the fresh evidence) · `CARD-WAS-WRONG` (the
+card's own claim was false — correct it per "Understanding changes → the card changes", mark the
+superseded claim WRONG with what refuted it).
+
+**Retire it BEFORE moving on — the verdict is worthless if the card stays open (operator-coined
+2026-09-12).** A verification that resolves a card must be *cashed in the same turn*: write the
+verdict + evidence, set the terminal `status` (`done` for ALREADY-DONE / MOOT / refuted; the narrowed
+residual for PARTIALLY-DONE), bump `updated`, re-render, and only THEN pick the next card. Carrying a
+resolved-but-still-open card forward is exactly the drift this rule exists to kill — and it is worse
+than never checking, because the next session sees an open card with a stale lane and re-verifies work
+already settled. The verdicts split cleanly into two dispositions:
+
+- **Retire now** — `ALREADY-DONE`, `MOOT`, and any card whose premise the check refuted → `status: done`
+  with the evidence chain. Never delete; the closed card is the record of why the answer is the answer.
+- **Stays open, but corrected** — `STILL-REAL` and `CARD-WAS-WRONG` → the card remains in its working
+  lane, but any claim the check falsified is marked WRONG *on the card* with what refuted it (per
+  "Understanding changes → the card changes"), and `live_broken` / `rank` are re-set to the freshly
+  measured reality before the card is queued for work.
+
+`CARD-WAS-WRONG` and `STILL-REAL` routinely co-occur: the card was right that a problem exists and
+wrong about its state or severity. Record both — the correction is what stops the next session
+inheriting the false detail.
+
+**Board-wide sweep.** This applies to the whole board, not just the card you are about to pick:
+every open lane (`inbox`, `investigating`, `pre_planning`, `planned`, `in_progress`, `review`,
+`waiting_*`) gets verified, and `parked` cards get their revival triggers checked the same way. Work
+highest-WSJF first so the drive loop is never blocked waiting on a complete sweep, and record the
+verdict + date on each card as you go so a later session can see which cards carry *fresh* evidence
+and which are still running on stale assertions.
+
 ## Inbox hygiene — bounded lull investigation (operator-coined 2026-08-15)
 
 **An uninvestigated inbox card is phantom load**: it sits on the backlog looking like work

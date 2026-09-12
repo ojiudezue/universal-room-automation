@@ -15935,10 +15935,10 @@ cards:
   thread: quality
   status: investigating
   created: 2026-09-11 18:20
-  updated: 2026-09-11 18:35
+  updated: 2026-09-12 09:10
   refinement_status: refined
   approval: unreviewed
-  live_broken: false
+  live_broken: true
   tags:
   - tier-1
   problem_solution:
@@ -15970,6 +15970,20 @@ cards:
     Fix-2 artifact — passes alone AND in the arbitrage pair, fails only in some multi-file orderings =
     pre-existing SUITE-ORDER-POLLUTION. Collection now clean (10376). Reclassified live_broken=false,
     unblocked the const-stub card, linked to the order-pollution cluster.'
+  - 'VERIFIED 2026-09-12 (verify-before-work sweep): the "Collection now clean (10376)" claim above
+    is WRONG as of today. `PYTHONPATH=quality python3 -m pytest quality/tests -q --collect-only` on
+    DEFAULT ordering returns "10333 tests collected, 2 errors" and ABORTS with
+    "Interrupted: 2 errors during collection" — test_ble_hold_cap.py AND test_ble_extend_not_create.py
+    both fail at import with "ImportError: cannot import name BLE_HOLD_CAP_DURATIONS from
+    custom_components.universal_room_automation.const (unknown location)". "unknown location" means a
+    STUB const module is sitting in sys.modules, shadowing the real one — installed at IMPORT TIME by
+    sibling test modules (grep: ~15 files do
+    sys.modules["custom_components.universal_room_automation.const"] = _const_mod at module scope,
+    e.g. test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111).
+    Verdict: STILL-REAL, and WORSE than carded — this is not a single order-dependent test failure,
+    it is a full-suite COLLECTION ABORT on the default ordering, so the suite is not currently
+    running end-to-end at all. live_broken raised false -> true; this outranks the monkeypatch-target
+    question, which is a downstream detail.'
 - id: CHECKOUT-CONCURRENT-RESET-HAZARD-1
   title: A dispatched builder ran git reset --hard in the shared checkout, destroying concurrent uncommitted
     work — RESOLVED via commit-before-dispatch + worktree isolation
@@ -16163,6 +16177,61 @@ cards:
     not attain-charging. Bounding would zero the grid rate term in dark windows (winter 00-05 -> 05:00
     mid_peak) = a REGRESSION.'
   live_broken: false
+- id: VERIFY-BEFORE-WORK-SWEEP-1
+  title: Every card's state is an unverified claim — sweep the whole board against ground truth before
+    any card is worked
+  thread: quality
+  status: in_progress
+  created: 2026-09-12 09:15
+  updated: 2026-09-12 09:15
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 ("Check to see if done first before assuming it needs work" /
+    "Do this for all cards" / "NO work until we know the work is not done")'
+  live_broken: false
+  tags:
+  - tier-1
+  - no-fabrication-verify
+  problem_solution:
+  - 'Problem: a card records what was true when someone last looked at it, not what is true now. The
+    world moves without touching the board — another cycle fixes the bug, a config change makes the
+    problem go away, a device comes back online, or a later release quietly includes the work. So we
+    can start rebuilding something that is already finished, or (worse) skip something because a card
+    says it is fine when it is not. Solution: before any card is worked, run the single cheapest check
+    that tells us which it is — read the code, run the test, look at the live house — and write that
+    answer, with the command that produced it, onto the card. Do this across the whole board, not just
+    the card we happen to be picking up.'
+  why: Coined the moment it paid for itself — the first card checked (BLE-HOLD-CAP-SUITE-POLLUTION-1)
+    carried a same-day "collection now clean" claim that a single pytest run refuted, and the truth was
+    worse than the card said (full-suite collection aborts). Both failure directions are real; the
+    false all-clear is the dangerous one because it removes the item from every future sweep.
+  constraints:
+  - Verification must be an INDEPENDENT read of the authoritative source (source / suite run / live
+    entity / DB), never a re-read of the card's own summary.
+  - Record the verdict + the exact command or observation on the card the same turn, so a later session
+    can tell fresh evidence from stale assertion.
+  - Highest-WSJF first, so the drive loop is never blocked waiting for the full sweep to finish.
+  refinement:
+  - 'Operator: "Check if done first" → applies to the card about to be worked'
+  - 'Operator: "Do this for all cards" → widened from a per-pick check to a board-wide sweep'
+  - 'Operator: "NO work until we know the work is not done. Board may be outdated despite our best
+    efforts" → promoted to a HARD precondition ABOVE the parsimony gate, and persisted into the
+    ura-kanban skill as a standing section rather than left as a session habit'
+  parsimony:
+    problem: Cards assert a world-state that may have changed since it was written, in either direction.
+    verdict: BUILD
+  next: 'Sweep open lanes highest-WSJF first (103 open + 42 parked-trigger checks); record
+    ALREADY-DONE / PARTIALLY-DONE / MOOT / STILL-REAL / CARD-WAS-WRONG + evidence per card.'
+  links:
+    related:
+    - BOARD-CURRENCY-1
+    - BLE-HOLD-CAP-SUITE-POLLUTION-1
+    context: BOARD-CURRENCY-1 hardened the SHIP transition (deploy.sh --cards) so shipped work cannot
+      stay carded as open; this card covers the complementary drift it cannot catch — a card going
+      stale for reasons unrelated to a URA release. BLE-HOLD-CAP-SUITE-POLLUTION-1 is the coining
+      instance (its own recorded claim was refuted on first check).
+  refs:
+  - .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
