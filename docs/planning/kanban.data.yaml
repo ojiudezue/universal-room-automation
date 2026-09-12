@@ -14312,8 +14312,22 @@ cards:
   title: A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that
     was never there
   thread: hvac
-  status: pre_planning
-  updated: 2026-09-12 11:15
+  status: waiting_operator
+  updated: 2026-09-12 13:10
+  gate_2026_09_12: 'GATE -> waiting_operator (needs operator sign-off; NOT safe unattended-overnight).
+    VALIDITY: still-real (0 reconnect/was_unavailable guards on the override-detection path), not
+    shipped. CONSUMER CHECK (severity is a property of consumers): override_count_today has 7 increment
+    sites in hvac_override.py (2002/2527/2816/2830/2895/2956/3013) and is CONSUMED beyond display — it
+    drives override_penalty (sensor.py:1588 = override_count_today*5) and the override_frequency HVAC
+    anomaly metric. COST/BENEFIT: the fix is a RARE-FIRE path (Carrier cloud 504 reconnect, hard to
+    observe/verify organically) on a multi-site COST/COMFORT detection primitive; a mis-fire that
+    suppresses a GENUINE single-zone human override makes URA ignore a real thermostat change (comfort
+    harm). That ingredient profile (rare-fire + shared decision primitive + mis-suppression harm)
+    escalates it to Tier-3-adjacent per the cost/benefit gate. NEXT -> operator: PICK the discriminator
+    design before build — (A) grace only when ALL configured zones reconnect within a short window (safe,
+    misses a 2-zone flap) vs (B) per-zone was-unavailable-within-N-seconds gate (tighter, needs per-zone
+    availability-transition timestamps at the detection site). Then Tier-2-DB build (mutation-anchor each
+    of the 7 sites; prove a single-zone override still counts).'
   disposition_2026_09_12_sweep4: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no post-reconnect grace on override-DETECTION path (hvac_override.py grace is comfort/sunset only; 0 reconnect/was_unavailable guards). CARRIER-STALE-POLL-REFRESH-1 (done v5.100.6) consolidated the flap but a reload does not retract an already-booked phantom override. Tier-1 build: post-reconnect grace discriminating 3-zone-simultaneous reconnect from a genuine single-zone override.'
   created: 2026-08-20 14:15
   refinement_status: refined

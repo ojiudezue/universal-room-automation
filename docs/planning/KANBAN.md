@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T03:53:11-05:00_ - _Data commit: `2ebf81876087`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-12T03:54:30-05:00_ - _Data commit: `0cafe7081da4`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -13,12 +13,12 @@ _Generated: 2026-09-12T03:53:11-05:00_ - _Data commit: `2ebf81876087`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 20 |
-| 🧭 Pre-planning | 17 |
+| 🧭 Pre-planning | 16 |
 | 📝 Planned | 7 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 3 |
 | 🚀 Shipped (organic open) | 2 |
-| ⏸️ Waiting on operator | 14 |
+| ⏸️ Waiting on operator | 15 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 45 |
 | ✅ Done | 135 |
@@ -365,7 +365,7 @@ _created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
-## 🧭 Pre-planning (17)
+## 🧭 Pre-planning (16)
 _idea being decomposed_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -587,21 +587,7 @@ _created 2026-08-18 02:30 · updated 2026-09-12 11:15 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-09-12 11:15 · refined_
-- **Problem / Solution:**
-  - Problem: when the thermostat cloud service times out, all three thermostats drop offline together for a minute and come back, and the system that watches for someone manually changing a thermostat mistakes that blip for a real human over...
-- **Why:** Live 2026-08-20: Carrier cloud returned 504 Gateway Timeout on getInfinityEnergy at 12:14:15; ALL THREE climate entities went unavailable 12:14:15->12:15:17 (simultaneous to the second); the arrester logged override #3 at 12:15:37, 20s a...
-- **Next:** Tier 1: narrow post-reconnect grace guard on the arrester detection path. DISCRIMINATOR: suppress the 3-zone-simultaneous reconnect case WITHOUT suppressing a genuine single-zone override. Operator 2026-09-09: no new Carrier cards — ride...
-- **Tags:** no-fabrication-verify
-- **Refs:** Carrier 504 getInfinityEnergy 12:14:15 2026-08-20; sensor.ura_hvac_coordinator_override_arrester (live attrs)
-- **Forensic keys (3):**
-  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no post-reconnect grace on override-DETECTION path (hvac_override.py grace is comfort/sunset only; 0 reconnect/was_unavailable guards). CARRIER-STALE-POLL-REFRESH-...
-  - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
-  - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
-
-### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
 - **Problem / Solution:**
@@ -613,7 +599,7 @@ _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self...
 
-### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene) — _#17 · WSJF 1.9 · v8 tc3 u4 /e8_
+### `SUITE-ORDER-POLLUTION-1` - Presence tests fail order-dependently in large batches (suite hygiene) — _#16 · WSJF 1.9 · v8 tc3 u4 /e8_
 thread: **platform** - status: **pre_planning**
 _created 2026-08-18 03:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** Bisect the batch to find the polluting file; add autouse snapshot/restore or fix the leak. Folds under UNLOAD-SYMMETRY-TASK-HYGIENE-1 suite-hygiene thread.
@@ -843,7 +829,7 @@ _updated 2026-09-12 11:00_
   - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
   - `reconcile_2026_08_16`: Root fixes SHIPPED v5.75.0 (fan duty-flag exclusion + room-name write-through). Deeper structural causes are in flight as PATH-ALPHA-DENOM-1 (H3 over-reach) + GAP-A-CENSUS-HOLE-1 (census half) + Gap-B guard. This card holds the incident ...
 
-## ⏸️ Waiting on operator (14)
+## ⏸️ Waiting on operator (15)
 _needs a human call_
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1010,7 +996,22 @@ _created 2026-08-28 22:00 · updated 2026-09-12 11:00 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: general FP fix SHIPPED v5.91.4 (const.py:3744 optimizer-LLM design-invariant 'multiple zones sharing one thermostat is by design — never flag', commit d529580a...
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You verify: is Master Bedroom actually served by studyb_zone_1 physical duct, or config drift? Then the comfort-check fix branches on the answer.
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-08-20 14:15 · updated 2026-09-12 13:10 · refined_
+- **Problem / Solution:**
+  - Problem: when the thermostat cloud service times out, all three thermostats drop offline together for a minute and come back, and the system that watches for someone manually changing a thermostat mistakes that blip for a real human over...
+- **Why:** Live 2026-08-20: Carrier cloud returned 504 Gateway Timeout on getInfinityEnergy at 12:14:15; ALL THREE climate entities went unavailable 12:14:15->12:15:17 (simultaneous to the second); the arrester logged override #3 at 12:15:37, 20s a...
+- **Next:** Tier 1: narrow post-reconnect grace guard on the arrester detection path. DISCRIMINATOR: suppress the 3-zone-simultaneous reconnect case WITHOUT suppressing a genuine single-zone override. Operator 2026-09-09: no new Carrier cards — ride...
+- **Tags:** no-fabrication-verify
+- **Refs:** Carrier 504 getInfinityEnergy 12:14:15 2026-08-20; sensor.ura_hvac_coordinator_override_arrester (live attrs)
+- **Forensic keys (4):**
+  - `gate_2026_09_12`: GATE -> waiting_operator (needs operator sign-off; NOT safe unattended-overnight). VALIDITY: still-real (0 reconnect/was_unavailable guards on the override-detection path), not shipped. CONSUMER CHECK (severity is a property of consumers...
+  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no post-reconnect grace on override-DETECTION path (hvac_override.py grace is comfort/sunset only; 0 reconnect/was_unavailable guards). CARRIER-STALE-POLL-REFRESH-...
+  - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
+  - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#15 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
