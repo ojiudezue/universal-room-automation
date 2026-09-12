@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T11:56:24-05:00_ - _Data commit: `1f084e46b847`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T11:57:46-05:00_ - _Data commit: `8899b0635867`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-12T11:56:24-05:00_ - _Data commit: `1f084e46b847`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 8 |
+| 🔬 Investigating | 9 |
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 12 |
 | 🔨 In progress | 1 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (8)
+## 🔬 Investigating (9)
 _measuring; truth not yet known_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -129,7 +129,17 @@ _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#8 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **security** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-12 20:45 · initial_
+- **Problem / Solution:**
+  - Problem: two independent probes surfaced a large perimeter alert load — notification_log hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL iMessage re-pages over 7d on "Perimeter Alert Person Detec...
+- **Why:** surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz) AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem, distinct from the phantom-xcorr severity quest...
+- **Next:** MEASURE: break exterior_person alert volume by camera + severity + hour; identify the dominant sources (front_side_ptz street cam) and whether per-camera masking/tuning or a re-page cadence cap cuts the fatigue without losing real detect...
+- **Tags:** no-fabrication-verify
+- **Refs:** notification_log hazard_type=exterior_person
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#9 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).

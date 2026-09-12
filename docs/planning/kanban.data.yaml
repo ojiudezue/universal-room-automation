@@ -16848,6 +16848,35 @@ cards:
     related: [WATCHDOG-INERT-1, STUCK-SENSOR-1]
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
+- id: PERIMETER-ALERT-VOLUME-FATIGUE-1
+  title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
+  thread: security
+  status: investigating
+  created: '2026-09-12 20:45'
+  updated: '2026-09-12 20:45'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: two independent probes surfaced a large perimeter alert load — notification_log
+     hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL
+     iMessage re-pages over 7d on "Perimeter Alert Person Detected". That volume causes alert fatigue
+     (and is why acks lag). Solution (TBD): measure where the volume concentrates (front_side_ptz street
+     cam dominates) and reduce it at source — per-camera street-masking / detection-tuning / severity
+     floor for uncorroboratable single-NVR cams / re-page cadence — WITHOUT suppressing genuine approach
+     detections.'
+  why: surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz)
+    AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem,
+    distinct from the phantom-xcorr severity question.
+  next: 'MEASURE: break exterior_person alert volume by camera + severity + hour; identify the dominant
+    sources (front_side_ptz street cam) and whether per-camera masking/tuning or a re-page cadence cap
+    cuts the fatigue without losing real detections. -> operator review.'
+  links:
+    related: [PERIMETER-PHANTOM-XCORR-1, NM-REPAGE-IMG-1, CONSOL-1]
+    context: 'Spawned from the PERIMETER-PHANTOM + NM-REPAGE probes (2026-09-12). Distinct from
+      PERIMETER-PHANTOM (which is about severity/corroboration); this is about sheer VOLUME + re-page
+      cadence = alert fatigue.'
+  refs: [notification_log hazard_type=exterior_person]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
