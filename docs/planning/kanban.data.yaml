@@ -238,6 +238,7 @@ cards:
     watchdog risk)
   thread: energy
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: suppress-keys gate exists (__init__.py:6664/7489; card''s 7280/7538 refs drifted). v5.99.0 closed options-save trigger but storm persists via a different trigger; debug armed live (1f7d94480). Needs the next-reload journald scan.'
   created: 2026-09-10 00:50
   updated: 2026-09-11 15:54
   refinement_status: initial
@@ -498,7 +499,8 @@ cards:
   title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown
     location') while every file passes in isolation
   thread: quality
-  status: review
+  status: planned
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: fix REVERTED (commit e1829da9a — Fix 2 exposed 87 order-pollution reds); conftest.py:28 still excludes custom_components/const namespace; full-suite --collect-only = 18 errors. Status was stale ''review''. Sits behind TEST-STRATEGY-REARCH-1.'
   created: 2026-09-06 18:10
   updated: 2026-09-11 19:15
   refinement_status: refined
@@ -1077,6 +1079,7 @@ cards:
   title: House flips to GUEST when only a single resident (Jaya) is home
   thread: identity
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with CENSUS-FACE-MISS-WATCH-1.'
   created: 2026-09-05 16:40
   updated: 2026-09-11 16:16
   refinement_status: refined
@@ -1676,7 +1679,8 @@ cards:
   title: persons-entered/exited-today over-counts across restarts (local-midnight vs naive-UTC string
     compare)
   thread: identity
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: sensor.py:4514/4648/4720 now naive-UTC-of-local-midnight before get_entry_exit_events_since; commit fa0dd8eca.'
   relane_2026_09_10: Not a soak -> PLANNED (BLE mop-up). Convert day-boundary to the column convention
     (naive-UTC of local-midnight) at sensor.py:4447 + :4559; test across a UTC-5 restart.
   shipped_version: v5.96.2
@@ -1772,7 +1776,8 @@ cards:
   title: Name BOTH people when a couple leaves together — each BLE tracker already identifies its own
     person
   thread: identity
-  status: pre_planning
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: retry-claim co-departure camera_census.py:1404-1407/4246; commits 677dfe901+07933907e shipped v5.97.1. Status was badly stale ''pre_planning''.'
   relane_2026_09_10: 'Not a soak -> PRE-PLANNING. Plan (prior-art: reuse EgressDirectionTracker row +
     v5.96.1 backfill; relax abstain-on-multiple, per-row claim, keep flap/sentinel/veto) -> plan-review.'
   shipped_version: v5.97.1
@@ -1835,7 +1840,8 @@ cards:
   title: Frigate 0.17 recognizes resident faces but the NAME never reaches a URA-joinable entity — the
     real gate for the whole egress-identity (6.0.0) arc
   thread: identity
-  status: investigating
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE (bridge built): camera_census.py:4668 async_register_frigate_face_listener on <prefix>/tracked_object_update; commits 82ac6b8b9/3a48d8e09 shipped v5.97.0. The ATTACH-RATE/matcher gap (attach ~0) is a JOIN defect, separate from the bridge — tracked via egress-attach work, not this bridge card.'
   relane_2026_09_10: Not a soak -> INVESTIGATING (measure). Probe frigate/events MQTT for person sub_labels
     (names + per-camera coverage + latency) via the existing frigate_mqtt bridge. Per memory, D1 bridge
     buildable now.
@@ -1916,6 +1922,7 @@ cards:
     types could cut ~1000+ registry rows (boot + .storage + registry-size lever)
   thread: platform
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) static half: NO lean profile exists (CONF_ROOM_TYPE only a behavioral dial, never gates platform registration). Quantitative premise (~105 entities/closet) needs the .storage/core.entity_registry probe. Stays investigating; run D0 registry probe.'
   created: 2026-09-03 16:40
   updated: 2026-09-03 16:40
   refinement_status: initial
@@ -2278,7 +2285,6 @@ cards:
   thread: presence
   status: parked
   created: 2026-08-31 19:15
-  updated: 2026-08-31 19:15
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -2507,7 +2513,8 @@ cards:
   title: BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address,
     decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
   thread: notifications
-  status: investigating
+  status: waiting_operator
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
   updated: 2026-08-28 22:00
   refinement_status: refined
@@ -2558,7 +2565,8 @@ cards:
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
   thread: energy
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: energy_pool.py:4953-4972 long-idle de-reserve via SOLAR_FOLLOW_IDLE_DERESERVE_TICKS; commit 803f0e2b3 shipped v5.91.3 (write-back committed).'
   relane_2026_09_10: 'Not a soak -> PLANNED. Build per PLANNING_evse_solar_idle_dereserve.md: _notdraw_ticks
     counter (mirrors _stale_ticks), exclude long_idle from parked_w, skip write churn, knob + discriminating
     tests.'
@@ -2871,7 +2879,8 @@ cards:
   title: 'Charge current is binary (48A or off) so solar charging yo-yos the house battery: add excess-following
     current modulation on the two L2 EVSEs'
   thread: energy
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE (D1): SolarFollowController energy_pool.py:4440 wired energy.py:553/1369; commit 856a69418. Card ''awaiting operator go'' was stale. If PLANNING_evse_solar_follow_amps.md had D2+, re-card the residual.'
   relane_2026_09_10: 'Not a soak -> PLANNED. Build-ready (PLANNING_evse_solar_follow_amps.md Rev-20).
     Ships AFTER the DP fix. Tier 3: four framing-disjoint reviews.'
   shipped_version: v5.91.0
@@ -3632,6 +3641,7 @@ cards:
 - id: ROUTINE-CARE-DASHBOARD-1
   thread: presence
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.'
   approval: unreviewed
   created: 2026-08-19 13:40
   updated: 2026-09-11 16:16
@@ -3674,6 +3684,7 @@ cards:
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
   thread: presence
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
   approval: unreviewed
   created: 2026-08-19 13:15
   updated: 2026-09-11 16:16
@@ -3723,6 +3734,7 @@ cards:
 - id: ZIRI-COLLEGE-PERSISTENT-AWAY-1
   thread: presence
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): sub-item (c) persistent-absence state confirmed UNBUILT (0 hits long_term_absence). (a) stale-tracker anomaly + (b) return-guest-FP need live person/census checks — stays investigating.'
   applied_disposition_2026_09_10: 'Applied queued operator board-tap (investigate, tapped 2026-08-31):
     inbox -> investigating.'
   approval: unreviewed
@@ -3944,6 +3956,7 @@ cards:
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
   status: waiting_me
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D1 Frigate leg shipped v5.81.0 (fa5b57c52). Only D2 (Protect Alarm Manager webhook) remains open, gated on the consultation in next. No alarm_manager/protect_face code exists yet.'
   relane_2026_09_10: Not a soak -> WAITING_ME. Duplicate-vs-complementary consultation running; I owe
     the operator the report, then operator go, then build.
   shipped_version: v5.81.0
@@ -4907,6 +4920,7 @@ cards:
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D3 resolved-by-removal (const.py:3885 tombstone, commit b9975cf30) — card already reflects this. Remaining open = D1/P24 silence measurement (correctly-rare vs mis-thresholded), a live DB query.'
   verified_2026_09_11: 'D3 (frozen-tracker, the structurally-unreachable one) is RESOLVED BY REMOVAL —
     FROZEN_TRACKER_DAYS + the D3 detector were removed 2026-08-10 (const.py:3885-3953), matching the operator
     decision to drop D1/D3/P24 from the ledger set. Open sub-question (why D1/P24 are silent: correctly-rare
@@ -5058,6 +5072,8 @@ cards:
     power (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
   status: planned
+  updated: 2026-09-12 10:00
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b} (do not exist in source today). REWRITE next to the reversal.'
   operator_correction_2026_09_01: 'REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b};
     instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED
     on named sensors instead of buried in ev_charging_status attributes. Keep ev_charging_status AS IS
@@ -5375,6 +5391,7 @@ cards:
     not care how hot the room is
   thread: hvac
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2047 zone entry dwell is flat _zone_entry_dwell, no temperature term (0 hot_entry hits). Needs operator approval to scope temp-aware bypass.'
   updated: 2026-08-20 22:45
   approval: needs_operator
   tags:
@@ -5595,7 +5612,8 @@ cards:
   title: 'Ramp detection is vetoed by hvac_action == cooling — a CLOUD-REPORTED CLAIM gating a power-based
     feature. Measured: Bryant reported idle for 18 min while drawing 4.2 kW.'
   thread: hvac
-  status: investigating
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: D-GATE4 SPAN-draw predicate hvac_override.py:1634, default LIVE (hvac_const.py:716); select.ura_hvac_ac_gate4_predicate_mode exposed. Commit 6a97b67df, shipped v5.89.0+.'
   relane_2026_09_10: 'Not a soak -> INVESTIGATING. Needs the sizing probe: per zone, share of time-above-threshold
     vetoed by hvac_action != cooling, and the subset also at/below setpoint (the costly modulation subset).'
   shipped_version: v5.89.0
@@ -6490,6 +6508,7 @@ cards:
     shared standard, and at least three detectors that can never reach their own threshold
   thread: platform
   status: planned
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: F2 persist + DailyCounter primitive shipped. STILL LIVE: F5 (hvac_override.py:397 _immune_holds not persisted), F8 (hvac_zones.py:631 snapshot omits override_count_today yet sensor.py:1588 reads it), F16 (hvac_egress.py:177 _nm_emitted_today not persisted). No CI exists to hang an F823 check on. Retitle to the BUILD remainder.'
   verified_2026_09_11: 'The read-only audit this card demanded IS done: docs/planning/AUDIT_restart_safety_classification.md
     (2026-08-21, 22 findings). Current delta vs that audit: F1 (safety.py) + F2 (manager.py) _baselines
     now PERSIST (save_baselines called at safety.py:3092 / manager.py:488) — FIXED. STILL LIVE: F5 _immune_holds
@@ -6667,7 +6686,8 @@ cards:
   title: The 14 HVAC tunable Numbers display the operator's value but the coordinator runs the DEFAULT
     until someone touches the knob — a nudge after a restart used 300s, not the configured 120s
   thread: hvac
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: __init__.py:6197 _seed_hvac_runtime_tunables_from_options() called at CM setup :3742 (commits 25ef9ab0d/98636ebf5). Discriminator if desired: number.ura_hvac_ac_nudge_duration seeded (120s not 300s) post-restart.'
   relane_2026_09_10: Not a soak -> PLANNED (operator-approved fix-in-cycle). (a) SEED RUNTIME FROM OPTIONS
     AT SETUP for all 14 factory tunables at the factory/CM-setup level (not 14 hand seeds); (b) the paired
     deliverable.
@@ -7546,6 +7566,7 @@ cards:
     parity break)
   thread: presence
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH-1 shipped but did NOT close entry=none parity. Needs operator decision on intended behavior.'
   created: 2026-08-31 19:05
   updated: 2026-08-31 19:05
   refinement_status: initial
@@ -7908,6 +7929,7 @@ cards:
     a design choice
   thread: notifications
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): snapshot_path code path present + persisted (notification_manager.py:933/1883/2282). Whether the attachment actually rides the re-page is transport-level — arm debug log on next CRITICAL re-page. Measure-only.'
   relane_2026_09_10: 'Not a soak -> INVESTIGATING (measure-not-fix). Determine whether iMessage re-pages
     carry the attachment: log outbound BlueBubbles transport kwargs at debug on the next unack CRITICAL.
     Nothing known broken.'
@@ -8016,6 +8038,8 @@ cards:
     into one occupancy bucket)
   thread: presence
   status: pre_planning
+  updated: 2026-09-12 10:00
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.'
   approval: unreviewed
   origin:
     date: '2026-08-14'
@@ -8703,6 +8727,7 @@ cards:
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
   status: planned
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, blocker CLEARED: EXTERIOR-GUEST-EGRESS-1 D1 shipped v5.81.0. No ''reinforce'' code exists. Run the measure-before-build gap probe (fraction of egress crossings NOT reflected in interior census, last 14d) before scoping; near-0% => moot.'
   approval: pre_approved_gated
   approved_by: 'operator 2026-08-17: "Seeing how exterior filters into interior and then using that to
     strengthen the interior count accuracy seems like a good thing. But let''s keep the scope to 1 and
@@ -9621,6 +9646,8 @@ cards:
     bundle into PATH-ALPHA)'
   thread: presence
   status: pre_planning
+  updated: 2026-09-12 10:00
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.'
   approval: unreviewed
   origin:
     date: '2026-08-16'
@@ -9991,6 +10018,8 @@ cards:
   title: 'Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions)'
   thread: tablets
   status: pre_planning
+  updated: 2026-09-12 10:00
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no wallpanel/displayCommand consumption in URA (0 hits). Unstarted, awaiting operator ruling (card is NO-ACTION-YET).'
   approval: unreviewed
   tags:
   - institutional-context
@@ -10463,6 +10492,8 @@ cards:
   title: Boot-time shadow diff (legacy vs resolver leg set)
   thread: resolver
   status: pre_planning
+  updated: 2026-09-12 10:00
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it''s REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.'
   approval: implied
   tags:
   - mutation-drill
@@ -10974,7 +11005,8 @@ cards:
   shipped_version: v5.81.0
 - id: SENSOR-HEALTH-SURFACING-1
   title: 'Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model'
-  status: review
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: STEP chatter-quarantine shipped v5.85.0 (07b3ad116; chatter_detector.py+sensor_exclusion.py). Open tail already carded as CHATTER-OBSERVE-CONTROL-D7-1 + CHATTER-RATE-VS-BURST-GAP-1. Status was stale ''review''.'
   thread: diagnostics
   created: 2026-08-18 02:30
   updated: 2026-08-19 10:35
@@ -11124,11 +11156,18 @@ cards:
   status: pre_planning
   thread: platform
   created: 2026-08-18 02:30
-  updated: 2026-09-11 16:20
+  updated: 2026-09-12 09:45
   refinement_status: refined
-  problem: async_on_unload used in only 2 sites; untracked background tasks — both match known URA bug
-    classes (reload-safety, task leak). One hardening cycle.
+  problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
+    (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
+    19 async_on_unload sites. The real, large half is task-hygiene: 178 raw hass.async_create_task call
+    sites vs 31 async_create_background_task. Re-scope around the 178 untracked tasks, not the unload half.)'
   origin: '2026-08-18 roadmap-undone review (#3, tech-debt #1+#2)'
+  disposition_2026_09_12:
+  - 'VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number
+    was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2).
+    Task-hygiene half confirmed real and large: 178 `hass.async_create_task(` vs 31
+    `async_create_background_task`. Corrected problem statement + re-scoped to the task-leak half.'
   next: 'Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety
     + task-leak). Independent of the test cluster.'
   refs: AUDIT_roadmap_undone_worthwhile.md
@@ -11386,7 +11425,8 @@ cards:
     by finding there was nothing to delete — and by catching that "dead" was being conflated with "deletable".'
 - id: PERIMETER-ALERT-NAME-PERSON-1
   title: Perimeter alerts should NAME the person (consume egress/face identity)
-  status: investigating
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: perimeter_alert.py:1353-1410 appends ''Identified: <Name>'' via census._resolve_face_legs; commit 8cdd2703a shipped v5.98.0. The residual ''Person Detected'' at :3706 is the retired legacy-notify leg.'
   relane_2026_09_10: Not a soak -> INVESTIGATING (measure-before-build). Probe the REAL egress identity
     rate against the GARAGE + family-room entry path (not front door) + Protect named face via webhook.
   shipped_version: v5.98.0
@@ -11429,6 +11469,7 @@ cards:
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure attach rate post-v5.97.0 before scoping.'
   thread: presence
   created: 2026-08-18 09:45
   updated: 2026-09-11 16:16
@@ -11652,6 +11693,7 @@ cards:
 - id: UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
   title: URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim): binary_sensor.py:1572 still ''return self._camera_total > self._ble_total'' (naive). Now UNBLOCKED — parent GUEST-COUNT-DEDUP-MIGRATE-1 shipped v5.83.0. Ready to build.'
   thread: security
   created: 2026-08-18 14:40
   updated: 2026-09-11 16:16
@@ -11927,7 +11969,8 @@ cards:
     never arms = never worked. Operator instinct CONFIRMED. Card closed -> fix is FAN-RECHECK-D2-DEADLOCK-1.'
 - id: FAN-SUSTAINED-SHAKE-DEMOTE-1
   title: Fan-RUNNING sustained-shake mmWave demotion (transition gate is wrong shape) — STEP sibling
-  status: pre_planning
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: D2 sustain demotion coordinator.py:470-492 + 3411; commits 76a2ae50e/eac707767 (Tier-3). Card premise (''cannot cover SUSTAIN'') predates D2.'
   thread: presence
   created: 2026-08-19 04:10
   updated: 2026-09-11 16:16
@@ -12058,6 +12101,7 @@ cards:
     infrastructure project" every review doc assumed
   thread: quality
   status: planned
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: .venv-ha exists but no pytest.ini/pyproject points the suite at it; _HA_REAL still a skip-when-absent gate. Nothing of the migration landed.'
   approval: explicit
   approved_by: operator 2026-08-23 ("We need to make this our default test harness and strategy")
   created: 2026-08-23 18:20
@@ -12220,6 +12264,7 @@ cards:
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: count is 319 function-local const imports (not ~8); audit never run (0 SHADOW-IMPORT commits); no lint/CI config exists at all. Cheap Tier-1, class recurred 3x.'
   thread: platform
   created: 2026-08-19 10:20
   updated: 2026-09-11 16:20
@@ -12248,6 +12293,7 @@ cards:
     assigned residents loses three protections entirely
   thread: hvac
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2086 night away-suppression iterates zone.zone_persons only (0 guest_person hits). Do the card''s own sleep-veto verification first.'
   OPERATOR_DESIGN_INPUT_OCCUPANCY_GATE_2026_08_20: 'OPERATOR, on how to stop the synthetic guest from
     pinning the zone: "We have to gate the person on occupancy for this fix. Guest mode flips on if a
     room is continuously occupied for 30m. But that might not be enough for the night. We need to know
@@ -12418,6 +12464,7 @@ cards:
     B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase'
   thread: presence
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): pure ESPHome-device experiment, no URA surface; 48h window expired 3wk ago. Dispose via one-shot recorder query (kitchen mmWave OFF-episodes <25s over 7d) + read the g0..g8 still_threshold values.'
   created: 2026-08-21 18:00
   updated: 2026-08-21 18:00
   refinement_status: initial
@@ -13590,6 +13637,7 @@ cards:
     is the hazard class that stays structurally inert; wire them only with an explicit statement of expected
     samples-per-day, or leave them declared-and-suppressed.'
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: short_cycle_rate now wired (hvac.py:4077). NARROW to the 2 still-unproduced metrics: comfort_deviation_hours (no call site, :4160) + egress_pause_frequency (0 hits). 4/5 wired.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Plan the short-cycle producer carrying measured distributions
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
   shipped_version: v5.90.0
@@ -14270,6 +14318,7 @@ cards:
     floods
   thread: platform
   status: planned
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): URA-owned attribute-churn half UNFIXED (binary_sensor.py:390 extra_state_attributes still emits changing idle_duration/last_motion). Rest is HA-config work. Re-measure recorder db size first; consider splitting the URA attribute-churn half into its own card.'
   relane_2026_09_10: 'Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.87.0
@@ -15081,7 +15130,8 @@ cards:
   title: ~4% of governed-write restores genuinely fail (immediate=0 AND delayed=0) — a small real tail
     behind HVAC-GOVERNED-EXCURSION-1
   thread: hvac
-  status: investigating
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: root cause classified (Carrier unreadable-at-settle ~1%); discharge exists hvac_excursion.py:344 _surface_restore_failure -> NM fire_stuck_signal kind=''borrow_restore_failed''. Response work lives in CARRIER-STALE-POLL-REFRESH-1.'
   created: 2026-08-25 22:20
   updated: 2026-08-25 22:20
   refinement_status: refined
@@ -15121,7 +15171,8 @@ cards:
   title: mmWave-only occupancy onset within ±N s of a fan speed/power transition = fan-suspect — route
     to the existing recheck ladder instead of granting occupancy
   thread: presence
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: coordinator.py:3382-3447 mmWave-sole creation suppression + FAN_TRANSITION_SUSPECT_WINDOW_S; commit b5f1cfa66 shipped v5.46.0.'
   created: 2026-08-26 09:45
   updated: 2026-09-11 16:16
   refinement_status: initial
@@ -15162,7 +15213,8 @@ cards:
   title: No very_poor off-peak-drain Number entity — the 5th quality target is tunable via the validator
     now (DP-VERYPOOR) but has no operator slider
   thread: energy
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: number.py:73 OffPeakDrainNumber ''very_poor'' + allowlist __init__.py:6529; commit 93e2af3c5 shipped v5.91.4.'
   relane_2026_09_10: Not a soak -> PLANNED. Add the 5th OffPeakDrain CONF+Number+dispatch+setup-loop+allowlist,
     mirroring the 4 existing sliders. Tier 2 (config round-trip).
   shipped_version: v5.91.4
@@ -15195,6 +15247,7 @@ cards:
     cooldown on the notification path spams the operator
   thread: notifications
   status: investigating
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_COOLDOWN_S). RE-SCOPE to cross-cycle cooldown OR close if DB shows no repeats since v5.91.4.'
   created: 2026-08-28 22:00
   updated: 2026-09-11 16:20
   refinement_status: refined
@@ -15303,7 +15356,8 @@ cards:
   title: HVAC pre-arrival ignores the camera_face "who just arrived" signal — wire it in for faster zone
     preconditioning
   thread: hvac
-  status: investigating
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: hvac.py:530 _pre_arrival_sources includes camera_face; filter :3603; commit b142583bf shipped v5.98.0.'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Confirm HVAC arrival source filter (hvac.py:529/977)
     + SIGNAL_PERSON_ARRIVING emit (presence.py:4702); scope whether camera_face should be gated.
   shipped_version: v5.98.0
@@ -15340,6 +15394,7 @@ cards:
     derived "known person"
   thread: security
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim, lines accurate): security.py ~:1480/:1573 name door entity_id only, no person join. NOTE: its blocker EGRESS-IDENTITY-JOIN-GAP-1 was operator-DECLINED 2026-09-11 — reconcile whether this card is therefore also parked/declined.'
   tier: 2
   created: 2026-08-28 12:00
   updated: 2026-09-11 16:14
@@ -15433,7 +15488,8 @@ cards:
 - id: EGRESS-IDENTITY-DASHBOARD-TILE-1
   title: Surface the egress observability attrs as a "who entered today, named" dashboard tile
   thread: dashboarding
-  status: planned
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE (HA leg): docs/dashboards/egress_identity_yield_card.yaml (commit 8cdd2703a) shipped v5.98.0. If a PWA leg was in scope it belongs to the dashboarding workstream, not this card.'
   relane_2026_09_10: Not a soak -> PLANNED. Build the tile against sensor.py:4260 attrs (egress_face_ids_active,
     egress_identities_stamped) + D3 attach/ambiguity signals. HA leg first, then PWA.
   shipped_version: v5.98.0
@@ -15909,7 +15965,8 @@ cards:
   title: Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every
     card
   thread: tooling
-  status: in_progress
+  status: done
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: WSJF scoring live in scripts/kanban_render.py (compute_wsjf, per-lane sort, badge); commits cf80c6211+c1e3c37ac. Status was stale ''in_progress''. rank: backfill happens organically per groom.'
   created: 2026-09-11 16:55
   updated: 2026-09-11 16:55
   refinement_status: initial
@@ -16059,6 +16116,7 @@ cards:
     them'
   thread: tooling
   status: pre_planning
+  disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: ~/Code/productmind-skills/.../kanban.data.example.yaml has zero rank:/links: keys. Tier-1 edit + push.'
   created: 2026-09-11 19:00
   updated: 2026-09-11 19:00
   refinement_status: initial
