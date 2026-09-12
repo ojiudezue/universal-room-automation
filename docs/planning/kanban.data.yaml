@@ -4954,7 +4954,9 @@ cards:
 - id: WATCHDOG-INERT-1
   title: Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable)
   thread: presence
-  status: investigating
+  status: done
+  updated: '2026-09-12 18:55'
+  verify_2026_09_12: 'APPROVED -> verify-before-work REFUTES the inert premise (operator: some look stale — this one was). MEASURED (URA DB anomaly_log + recorder): D1 camera_stuck is LIVE + firing CORRECTLY (7 all-time, 5 in 30d; most recent 2026-09-11) catching a real stuck camera (master_hallway person_occupancy asserted person_count=1 for 13.9h). P24 max_active_failsafe correctly-rare (3 all-time, 0 in 30d). D3 removed. Detectors are healthy + well-thresholded (STUCK_CAMERA_HOURS=3.0 caught 13.9h + 3.0h holds). Nothing to build/re-threshold -> CLOSED. The real recurring stuck-camera it surfaced is carded separately as CAMERA-STUCK-MASTER-HALLWAY-1.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D3 resolved-by-removal (const.py:3885 tombstone, commit b9975cf30) — card already reflects this. Remaining open = D1/P24 silence measurement (correctly-rare vs mis-thresholded), a live DB query.'
@@ -5099,7 +5101,6 @@ cards:
     but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all —
     different problem, linked not merged. BACKLOG B-2026-08-04-1 is about watchdog SPAM (too many notifications),
     the mirror of this. No planning-doc parked item covers it. NEW.'
-  updated: 2026-08-23 14:30
   organic_evidence:
   - '2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card
     tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm
@@ -12647,12 +12648,13 @@ cards:
   title: 'Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study
     B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase'
   thread: presence
-  status: investigating
+  status: waiting_operator
+  updated: '2026-09-12 18:55'
+  verify_2026_09_12: 'APPROVED -> experiment CONCLUDED, raised-threshold hypothesis REFUTED. MEASURED (live number.*_still_threshold = Study-B stock 0,0,40,40,40,30,30,20,20 still applied 3wk; recorder OFF-episodes <25s: 409/48h on stock vs the card 94 baseline, Study-B control 15/7d calm). Stock profile did NOT calm the kitchen mmwave — arguably WORSE. Tuning exonerated. NEXT -> operator PICK: leave stock, or revert to BEFORE values 39,71,58,53,60,39,38,44,49; and the escalation ladder continues distance-gates(g7/g6)->re-aim/placement->hardware LAST. Experiment itself is done; this is now the next-step decision.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): pure ESPHome-device experiment, no URA surface; 48h window expired 3wk ago. Dispose via one-shot recorder query (kitchen mmWave OFF-episodes <25s over 7d) + read the g0..g8 still_threshold values.'
   created: 2026-08-21 18:00
-  updated: 2026-08-21 18:00
   refinement_status: initial
   approval: explicit
   tags:
@@ -16809,6 +16811,30 @@ cards:
       wants to present these coherently in the room step. Swept board + BACKLOG.md + docs/planning
       (PLANNING_dpm_cleanup_and_room_label_pass.md is an adjacent label pass, not this). Verdict: NEW.'
   refs: [custom_components/universal_room_automation/const.py, custom_components/universal_room_automation/domain_coordinators/presence.py]
+- id: CAMERA-STUCK-MASTER-HALLWAY-1
+  title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"
+  thread: presence
+  status: investigating
+  created: '2026-09-12 18:55'
+  updated: '2026-09-12 18:55'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify]
+  problem_solution:
+  - 'Problem: binary_sensor.master_hallway_person_occupancy asserts person_count=1 with no interior
+     corroboration for long stretches (measured 13.9h on 2026-09-11, plus 3.0h holds on 09-09/09-10),
+     firing the D1 camera_stuck detector 5x in 30d. The detector is working; the underlying camera/sensor
+     is genuinely getting stuck. Solution (TBD): diagnose why master_hallway occupancy sticks (camera
+     integration? mmwave? a specific device) and stop the stuck-assert at source.'
+  why: surfaced by the WATCHDOG-INERT-1 verify-before-work probe — D1 is correctly catching a REAL
+    recurring stuck-camera, which is a distinct defect from the (now-closed) detector-health question.
+  next: 'MEASURE: identify the master_hallway occupancy source + why it sticks (recorder history of the
+    binary_sensor + its device siblings around a stick event); decide the fix (exclusion / corroboration
+    / device).'
+  links:
+    related: [WATCHDOG-INERT-1, STUCK-SENSOR-1]
+    context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
+  refs: [anomaly_log metric_name=camera_stuck]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

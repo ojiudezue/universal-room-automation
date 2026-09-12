@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T11:43:24-05:00_ - _Data commit: `7307f088669f`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T11:46:24-05:00_ - _Data commit: `0cb96ccdc857`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -10,23 +10,23 @@ _Generated: 2026-09-12T11:43:24-05:00_ - _Data commit: `7307f088669f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 16 |
+| 🔬 Investigating | 15 |
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 12 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
-| ⏸️ Waiting on operator | 15 |
+| ⏸️ Waiting on operator | 16 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 2 |
 | 🅿️ Parked | 46 |
-| ✅ Done | 139 |
+| ✅ Done | 140 |
 
 ## 📥 Inbox (0)
 _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (16)
+## 🔬 Investigating (15)
 _measuring; truth not yet known_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -38,40 +38,7 @@ _created 2026-09-11 18:20 · updated 2026-09-12 09:10 · refined_
 - **Tags:** tier-1
 - **Refs:** builder report v5.100.9 tier1-gate-and-knobs
 
-### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable) — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
-thread: **presence** - status: **investigating** - approval: **explicit**
-_updated 2026-08-23 14:30_
-- **Origin:** 2026-08-09 - fell out of the ledger golden-fixture yield probe — the short buckets were short because the events never happen, which is a statement about the detectors, not about instrumentation
-- **Why:** MEASURED over 7.46 d recorder + 14 d URA notification_log. D3 frozen-tracker is STRUCTURALLY UNREACHABLE: threshold FROZEN_TRACKER_DAYS=2.0 (const.py:3121) but longest HA uptime in-window is 1.02 d across 30 restarts (2.5 h median gap); ...
-- **Next:** OPERATOR DECISION 2026-08-09: DROP D1/D3/P24 from the ledger migration set ("1 want to drop. Some are rare. Not a bad thing."). Ledger migration set reduces to M1 (P22), M3 (P18), M5 (D2) + M7 (P14, hand-built). Open sub-question the ope...
-- **Tags:** no-fabrication-verify, measure-before-build, context-wide-scoping
-- **Blocks:** SIGNAL-TRUST-LEDGER M4/M6 scoping
-- **Parsimony:** [BUILD] three shipped detectors do not detect; one cannot detect by construction
-- **Refs:** docs/planning/AUDIT_ledger_golden_fixture_yield.md (the probe + orchestrator escalation); custom_components/universal_room_automation/const.py:3099,3121
-- **Forensic keys (21):**
-  - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D3 resolved-by-removal (const.py:3885 tombstone, commit b9975cf30) — card already reflects this. Remaining open = D1/P24 silence measurement (correctly-rare vs...
-  - `verified_2026_09_11`: D3 (frozen-tracker, the structurally-unreachable one) is RESOLVED BY REMOVAL — FROZEN_TRACKER_DAYS + the D3 detector were removed 2026-08-10 (const.py:3885-3953), matching the operator decision to drop D1/D3/P24 from the ledger set. Open...
-  - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Operator DROPPED D1/D3/P24 from the ledger migration set (2026-08-09). Remaining OPEN sub-question the operator wanted answered: WHY D1 and P24 do not fire (correctly-inert vs broken). Measurement task.
-  - `sharp_problem`: D3 cannot catch the incident it was built for. It exists because of the Ezinne 3-day frozen tracker; with HA restarting every ~2.5 h a 3-day freeze is invisible to a detector measuring uninterrupted in-memory last_updated age.
-  - `root_cause_link`: Same defect STUCK-SENSOR-1 flagged and nobody pursued — "NO PERSISTENCE: any stuck-state tally resets on restart, and we restarted 7+ times today." The probe proves it is fatal for D3 rather than merely degrading.
-  - `options`: FIX: measure staleness from a PERSISTED timestamp rather than in-memory last_updated, so restarts do not reset the counter. Restores D3 to its intended purpose.
-  - `RESTART_VERDICT_2026_08_09`: RESOLVED — NOT a red flag. Authoritative events-table count is 26 (not 30; my earlier figure was a heuristic overcount that also caught config-entry reloads). ALL 26 were clean stops preceded within 300s by an explicit homeassistant.rest...
-  - `D3_STILL_UNREACHABLE`: Corrected uptime stats CONFIRM it: median 3.43 h, mean 6.63 h, max 24.32 h (1.01 d) vs a 2.0 d threshold. Note the causality — D3 is unreachable BECAUSE we ship this often, so it will stay unreachable at this cadence. The fix is detector...
-  - `D1_VERDICT_2026_08_09`: (i) CORRECTLY RARE — leave the thresholds alone. Interior hold distribution over 7.30 d: p50 0.004 h, p90 0.013 h, p99 0.044 h, max 0.27 h against a 3.0 h threshold (11x above max, ~68x above p99). All 7 interior candidates are live and ...
-  - `GARAGE_CAMERA_RULING_2026_08_10`: OPERATOR: "No — garage cameras should feed only egresses and exterior. I fear it will be too noisy for interior listings." DECIDED: add camera.garage_a/garage_b to CONF_EGRESS_CAMERAS (perimeter_alert), NOT camera_person_entities. ACCEPT...
-  - `D1_REAL_FINDING_coverage_not_calibration`: sensor.garage_b_person_count held >0 for 6.52 h and WOULD have crossed both rules — but camera.garage_b and camera.garage_a are in NO URA camera list (not interior, not perimeter, not egress), while "Garage B" IS a configured URA room. W...
-  - `P24_VERDICT_2026_08_09`: (iii) STRUCTURALLY BLIND on its main leg — not a threshold problem. Duration precondition met 27 times across 7 rooms in 7.3 d (~3.7/day); the Tier-1 freshness skip suppressed 27 of 27 (100%). That 100% is a THEOREM not a statistic: any ...
-  - `P24_DIAGNOSABILITY_DEFECT`: The NM row persists message="[audit]" with NO room name — identifying the firing room required a recorder attribute join. Cheap fix, real cost the next time one fires.
-  - `BATCH_REVIEW_ROUND_2026_08_10`: b9975cf30 (P24 fix + D3 kill + dropdowns + constant split): A DO-NOT-SHIP — CRIT-A1: rebasing freshness on _last_pir_motion_time force-vacates the SIX no-PIR rooms at every 4h+ session (sleeping child in Jaya's room, nightly); the "27/27...
-  - `FIXUP_IN_FLIGHT_2026_08_10`: Single consolidated pass: CRIT-A1 no-PIR guard (mirror _d2_motion_sensors_present; failsafe simply does not apply to no-PIR rooms); HIGH-A2 invariant "fires only when no live override AND PIR stale" + latch fix; C1/H1/H2/H3 REAL behavior...
-  - `OPERATOR_DECISIONS_2026_08_09_round2`: GARAGE CAMERAS: "Yes pls. Or maybe to the egress list?" — ANSWERED: the two lists do different things and only ONE gives D1 coverage. CONF_CAMERA_PERSON_ENTITIES (interior) is what D1 scores (camera_census.py:1787,1803) and is ALSO consu...
-  - `SEQUENCING_NOTE`: P24-fix and D3-kill both touch coordinator.py / person_coordinator.py. The SENSOR-CAPABILITY-1 fix-up is concurrently editing coordinator.py on sensor-cap-rebase. Queue these two BEHIND that merge rather than running them in parallel — w...
-  - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
-  - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
-  - `organic_evidence`: 2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm drop is recorded in planning doc...
-
-### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ZIRI-COLLEGE-PERSISTENT-AWAY-1` - Ziri off to college — a resident is now persistently away (presence/census/schedule implications) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating** - approval: **explicit**
 _created 2026-08-19 13:00 · initial_
 - **Problem / Solution:**
@@ -85,22 +52,7 @@ _created 2026-08-19 13:00 · initial_
   - `applied_disposition_2026_09_10`: Applied queued operator board-tap (investigate, tapped 2026-08-31): inbox -> investigating.
   - `bayesian_finding_2026_08_19`: VERIFIED (Explore + live): URA HAS a real per-person routine-drift detector (RegimeDetector, JS-divergence, nightly, regime_detector.py). Ziri routine_status is currently `shifted` (146 unacked events) — it caught the PRE-DEPARTURE room-...
 
-### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **investigating** - approval: **explicit**
-_created 2026-08-21 18:00 · initial_
-- **Next:** Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.
-- **Tags:** live-experiment, measure-before-build, revert-values-recorded
-- **Parsimony:** [INVESTIGATE] a mmWave sensor chattering 724x/48h was heading for hardware replacement on a guess
-- **Refs:** number.mmwave_lux_wifi_esphome_kitchen_g0_still_threshold; binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence; binary_sensor.mmwave_lux_wifi_esphome_studyb_presence; KITCHEN-OCCUPANCY-DEAD-1; CHATTER-RATE-VS-BURST-GAP-1
-- **Forensic keys (6):**
-  - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): pure ESPHome-device experiment, no URA surface; 48h window expired 3wk ago. Dispose via one-shot recorder query (kitchen mmWave OFF-episodes <25s over 7d) + read the g0..g8 s...
-  - `THE_CHANGE_AND_HOW_TO_REVERT`: APPLIED 2026-08-21 ~18:00 CDT to number.mmwave_lux_wifi_esphome_kitchen_g{0..8}_still_threshold. BEFORE (operator-modified, revert to these if needed): 39, 71, 58, 53, 60, 39, 38, 44, 49 AFTER  (= Study B stock profile, verified applied)...
-  - `THE_HYPOTHESIS_AND_WHY_IT_INVERTS_THE_OBVIOUS_FIX`: The chatter is DROP-OUTS, not false positives. MEASURED (48h): kitchen _presence ON-durations have ZERO episodes under 25s and a hard mode at 25-28s — the 27s hold is governing cleanly and nothing cuts presence short. ALL the churn is on...
-  - `THE_EVIDENCE_THAT_RULED_OUT_HARDWARE`: DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE. DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY — _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output ...
-  - `ACCEPTANCE_AND_NEXT_STEPS`: RE-MEASURE IN 48H with the same script (interval histogram, sub-5s count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare against the recorded baseline: 724 transitions, median interval 44.0s, 116 ...
-
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **investigating** - approval: **explicit**
 _updated 2026-08-23 14:50_
 - **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
@@ -115,7 +67,7 @@ _updated 2026-08-23 14:50_
   - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
   - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
 
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **investigating** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-11 15:54 · initial_
 - **Problem / Solution:**
@@ -138,7 +90,7 @@ _created 2026-09-10 00:50 · updated 2026-09-11 15:54 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **investigating** - approval: **explicit**
 _created 2026-09-05 16:40 · updated 2026-09-11 16:16 · refined_
 - **Problem / Solution:**
@@ -154,7 +106,7 @@ _created 2026-09-05 16:40 · updated 2026-09-11 16:16 · refined_
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with C...
 
-### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-GHOST-DEDUP-1` - Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists, is enabled, cancels nothing — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating** - approval: **explicit**
 _updated 2026-09-12 10:30_
 - **Origin:** 2026-08-16 - Operator home with family of 4; census read 6 (identified 4 + unidentified 2). Operator: "only 4 of us — 2 are ghosts or unrecognized versions of us and should decay right?"
@@ -175,7 +127,7 @@ _updated 2026-09-12 10:30_
   - `empty_house_validation_window_2026_08_17`: OPERATOR 2026-08-17 21:53 CT: house EMPTY until Tue afternoon/evening; operator back Wed afternoon. ABSENCE OVER THIS WINDOW IS EXPECTED — do NOT flag away/empty/census-0 as anomaly. CONSEQUENCE for v5.79.0 live validation: L3 (resident ...
   - `needs_investigation`: False
 
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating** - approval: **unreviewed**
 _updated 2026-09-12 10:30_
 - **Origin:** 2026-08-08 - observed during v5.62.1 live validation
@@ -189,7 +141,7 @@ _updated 2026-09-12 10:30_
   - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification; then decide whether circling should escape pure clock-time gating.
   - `needs_investigation`: False
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-09-12 10:30 · initial_
 - **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
@@ -205,7 +157,7 @@ _created 2026-08-21 17:40 · updated 2026-09-12 10:30 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `AC-RAMP-ZONE3-NO-BENEFIT-1` - Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence rather than retune — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `AC-RAMP-ZONE3-NO-BENEFIT-1` - Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence rather than retune — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-21 11:40 · updated 2026-09-12 11:00 · initial_
 - **Next:** Two paths, not mutually exclusive. (1) Accumulate: another 3-4 weeks of ac_ramp_events tightens the CI roughly 2x and may resolve the null. (2) Test the rebound hypothesis directly against the recorder rather than waiting. If rebound is ...
@@ -224,7 +176,7 @@ _created 2026-08-21 11:40 · updated 2026-09-12 11:00 · initial_
   - `THE_REAL_QUESTION_NOW`: The question is NOT "does zone 3 save?" but "DOES ZONE 3 SAVE WHEN THE HOUSE IS ENTERTAINING?" Those are the nudges that carry actual comfort cost and the only ones worth tuning for. A null pooled across mostly-empty hours may be WASHING...
   - `SUPERSEDED_HYPOTHESIS_UNTESTED`: LOWER PRIORITY than the occupancy split above; retained as the alternative if both halves come back null. Original: Zone 3 covers kitchen + hallways — high internal gain, high infiltration, likely poor thermal mass. A nudged-off compress...
 
-### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-18 00:34 · updated 2026-09-12 11:15 · initial_
 - **Problem / Solution:**
@@ -240,7 +192,7 @@ _created 2026-08-18 00:34 · updated 2026-09-12 11:15 · initial_
   - `disposition_2026_08_29`: operator sent to INVESTIGATE 2026-08-29 (board-button investigate applied from pending-disposition queue). Discriminator remains: on occupancy, confirm face_lookup_missing_count DROPS when residents are present + recognized; if it stays ...
   - `interpretation_2026_08_18`: EXPLAINED: face_lookup_missing_count increments when a camera's face sensor reads unavailable/unknown/empty/none = "NO recognized face right now" (camera_census.py:2502), NOT only when the entity is absent. On an EMPTY house no camera ha...
 
-### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating**
 _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · refined_
 - **Next:** PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook) — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
@@ -257,7 +209,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-09-12 17:00 · refined_
 - **Problem / Solution:**
@@ -273,7 +225,17 @@ _created 2026-08-20 14:15 · updated 2026-09-12 17:00 · refined_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#15 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `CAMERA-STUCK-MASTER-HALLWAY-1` - master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **investigating** - approval: **unreviewed**
+_created 2026-09-12 18:55 · initial_
+- **Problem / Solution:**
+  - Problem: binary_sensor.master_hallway_person_occupancy asserts person_count=1 with no interior corroboration for long stretches (measured 13.9h on 2026-09-11, plus 3.0h holds on 09-09/09-10), firing the D1 camera_stuck detector 5x in 30d...
+- **Why:** surfaced by the WATCHDOG-INERT-1 verify-before-work probe — D1 is correctly catching a REAL recurring stuck-camera, which is a distinct defect from the (now-closed) detector-health question.
+- **Next:** MEASURE: identify the master_hallway occupancy source + why it sticks (recorder history of the binary_sensor + its device siblings around a stick event); decide the fix (exclusion / corroboration / device).
+- **Tags:** no-fabrication-verify
+- **Refs:** anomaly_log metric_name=camera_stuck
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#14 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 11:00 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -284,7 +246,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 11:00 · refined_
   - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#16 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#15 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
 - **Problem / Solution:**
@@ -833,7 +795,7 @@ _updated 2026-09-12 12:40 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-## ⏸️ Waiting on operator (15)
+## ⏸️ Waiting on operator (16)
 _needs a human call — groomed first_
 
 ### `REMINDER-ACTIVATE-OVERNIGHT-PASS-1` - Activate the overnight-pass launchd job (operator one-time launchctl load) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -1009,7 +971,23 @@ _created 2026-08-28 22:00 · updated 2026-09-12 11:00 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: general FP fix SHIPPED v5.91.4 (const.py:3744 optimizer-LLM design-invariant 'multiple zones sharing one thermostat is by design — never flag', commit d529580a...
   - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You verify: is Master Bedroom actually served by studyb_zone_1 physical duct, or config drift? Then the comfort-check fix branches on the answer.
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#15 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **waiting_operator** - approval: **explicit**
+_created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
+- **Next:** Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.
+- **Tags:** live-experiment, measure-before-build, revert-values-recorded
+- **Parsimony:** [INVESTIGATE] a mmWave sensor chattering 724x/48h was heading for hardware replacement on a guess
+- **Refs:** number.mmwave_lux_wifi_esphome_kitchen_g0_still_threshold; binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence; binary_sensor.mmwave_lux_wifi_esphome_studyb_presence; KITCHEN-OCCUPANCY-DEAD-1; CHATTER-RATE-VS-BURST-GAP-1
+- **Forensic keys (7):**
+  - `verify_2026_09_12`: APPROVED -> experiment CONCLUDED, raised-threshold hypothesis REFUTED. MEASURED (live number.*_still_threshold = Study-B stock 0,0,40,40,40,30,30,20,20 still applied 3wk; recorder OFF-episodes <25s: 409/48h on stock vs the card 94 baseli...
+  - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): pure ESPHome-device experiment, no URA surface; 48h window expired 3wk ago. Dispose via one-shot recorder query (kitchen mmWave OFF-episodes <25s over 7d) + read the g0..g8 s...
+  - `THE_CHANGE_AND_HOW_TO_REVERT`: APPLIED 2026-08-21 ~18:00 CDT to number.mmwave_lux_wifi_esphome_kitchen_g{0..8}_still_threshold. BEFORE (operator-modified, revert to these if needed): 39, 71, 58, 53, 60, 39, 38, 44, 49 AFTER  (= Study B stock profile, verified applied)...
+  - `THE_HYPOTHESIS_AND_WHY_IT_INVERTS_THE_OBVIOUS_FIX`: The chatter is DROP-OUTS, not false positives. MEASURED (48h): kitchen _presence ON-durations have ZERO episodes under 25s and a hard mode at 25-28s — the 27s hold is governing cleanly and nothing cuts presence short. ALL the churn is on...
+  - `THE_EVIDENCE_THAT_RULED_OUT_HARDWARE`: DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE. DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY — _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output ...
+  - `ACCEPTANCE_AND_NEXT_STEPS`: RE-MEASURE IN 48H with the same script (interval histogram, sub-5s count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare against the recorded baseline: 724 transitions, median interval 44.0s, 116 ...
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#16 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -1753,8 +1731,42 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (139)
+## ✅ Done (140)
 _closed, evidence in refs_
+
+### `WATCHDOG-INERT-1` - Three of four v5.35.0 stuck-signal detectors are effectively inert (D3 structurally unreachable) — _WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+thread: **presence** - status: **done** - approval: **explicit**
+_updated 2026-09-12 18:55_
+- **Origin:** 2026-08-09 - fell out of the ledger golden-fixture yield probe — the short buckets were short because the events never happen, which is a statement about the detectors, not about instrumentation
+- **Why:** MEASURED over 7.46 d recorder + 14 d URA notification_log. D3 frozen-tracker is STRUCTURALLY UNREACHABLE: threshold FROZEN_TRACKER_DAYS=2.0 (const.py:3121) but longest HA uptime in-window is 1.02 d across 30 restarts (2.5 h median gap); ...
+- **Next:** OPERATOR DECISION 2026-08-09: DROP D1/D3/P24 from the ledger migration set ("1 want to drop. Some are rare. Not a bad thing."). Ledger migration set reduces to M1 (P22), M3 (P18), M5 (D2) + M7 (P14, hand-built). Open sub-question the ope...
+- **Tags:** no-fabrication-verify, measure-before-build, context-wide-scoping
+- **Blocks:** SIGNAL-TRUST-LEDGER M4/M6 scoping
+- **Parsimony:** [BUILD] three shipped detectors do not detect; one cannot detect by construction
+- **Refs:** docs/planning/AUDIT_ledger_golden_fixture_yield.md (the probe + orchestrator escalation); custom_components/universal_room_automation/const.py:3099,3121
+- **Forensic keys (22):**
+  - `verify_2026_09_12`: APPROVED -> verify-before-work REFUTES the inert premise (operator: some look stale — this one was). MEASURED (URA DB anomaly_log + recorder): D1 camera_stuck is LIVE + firing CORRECTLY (7 all-time, 5 in 30d; most recent 2026-09-11) catc...
+  - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D3 resolved-by-removal (const.py:3885 tombstone, commit b9975cf30) — card already reflects this. Remaining open = D1/P24 silence measurement (correctly-rare vs...
+  - `verified_2026_09_11`: D3 (frozen-tracker, the structurally-unreachable one) is RESOLVED BY REMOVAL — FROZEN_TRACKER_DAYS + the D3 detector were removed 2026-08-10 (const.py:3885-3953), matching the operator decision to drop D1/D3/P24 from the ledger set. Open...
+  - `relane_2026_09_10`: Not a soak -> INVESTIGATING. Operator DROPPED D1/D3/P24 from the ledger migration set (2026-08-09). Remaining OPEN sub-question the operator wanted answered: WHY D1 and P24 do not fire (correctly-inert vs broken). Measurement task.
+  - `sharp_problem`: D3 cannot catch the incident it was built for. It exists because of the Ezinne 3-day frozen tracker; with HA restarting every ~2.5 h a 3-day freeze is invisible to a detector measuring uninterrupted in-memory last_updated age.
+  - `root_cause_link`: Same defect STUCK-SENSOR-1 flagged and nobody pursued — "NO PERSISTENCE: any stuck-state tally resets on restart, and we restarted 7+ times today." The probe proves it is fatal for D3 rather than merely degrading.
+  - `options`: FIX: measure staleness from a PERSISTED timestamp rather than in-memory last_updated, so restarts do not reset the counter. Restores D3 to its intended purpose.
+  - `RESTART_VERDICT_2026_08_09`: RESOLVED — NOT a red flag. Authoritative events-table count is 26 (not 30; my earlier figure was a heuristic overcount that also caught config-entry reloads). ALL 26 were clean stops preceded within 300s by an explicit homeassistant.rest...
+  - `D3_STILL_UNREACHABLE`: Corrected uptime stats CONFIRM it: median 3.43 h, mean 6.63 h, max 24.32 h (1.01 d) vs a 2.0 d threshold. Note the causality — D3 is unreachable BECAUSE we ship this often, so it will stay unreachable at this cadence. The fix is detector...
+  - `D1_VERDICT_2026_08_09`: (i) CORRECTLY RARE — leave the thresholds alone. Interior hold distribution over 7.30 d: p50 0.004 h, p90 0.013 h, p99 0.044 h, max 0.27 h against a 3.0 h threshold (11x above max, ~68x above p99). All 7 interior candidates are live and ...
+  - `GARAGE_CAMERA_RULING_2026_08_10`: OPERATOR: "No — garage cameras should feed only egresses and exterior. I fear it will be too noisy for interior listings." DECIDED: add camera.garage_a/garage_b to CONF_EGRESS_CAMERAS (perimeter_alert), NOT camera_person_entities. ACCEPT...
+  - `D1_REAL_FINDING_coverage_not_calibration`: sensor.garage_b_person_count held >0 for 6.52 h and WOULD have crossed both rules — but camera.garage_b and camera.garage_a are in NO URA camera list (not interior, not perimeter, not egress), while "Garage B" IS a configured URA room. W...
+  - `P24_VERDICT_2026_08_09`: (iii) STRUCTURALLY BLIND on its main leg — not a threshold problem. Duration precondition met 27 times across 7 rooms in 7.3 d (~3.7/day); the Tier-1 freshness skip suppressed 27 of 27 (100%). That 100% is a THEOREM not a statistic: any ...
+  - `P24_DIAGNOSABILITY_DEFECT`: The NM row persists message="[audit]" with NO room name — identifying the firing room required a recorder attribute join. Cheap fix, real cost the next time one fires.
+  - `BATCH_REVIEW_ROUND_2026_08_10`: b9975cf30 (P24 fix + D3 kill + dropdowns + constant split): A DO-NOT-SHIP — CRIT-A1: rebasing freshness on _last_pir_motion_time force-vacates the SIX no-PIR rooms at every 4h+ session (sleeping child in Jaya's room, nightly); the "27/27...
+  - `FIXUP_IN_FLIGHT_2026_08_10`: Single consolidated pass: CRIT-A1 no-PIR guard (mirror _d2_motion_sensors_present; failsafe simply does not apply to no-PIR rooms); HIGH-A2 invariant "fires only when no live override AND PIR stale" + latch fix; C1/H1/H2/H3 REAL behavior...
+  - `OPERATOR_DECISIONS_2026_08_09_round2`: GARAGE CAMERAS: "Yes pls. Or maybe to the egress list?" — ANSWERED: the two lists do different things and only ONE gives D1 coverage. CONF_CAMERA_PERSON_ENTITIES (interior) is what D1 scores (camera_census.py:1787,1803) and is ALSO consu...
+  - `SEQUENCING_NOTE`: P24-fix and D3-kill both touch coordinator.py / person_coordinator.py. The SENSOR-CAPABILITY-1 fix-up is concurrently editing coordinator.py on sensor-cap-rebase. Queue these two BEHIND that merge rather than running them in parallel — w...
+  - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
+  - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
+  - `organic_evidence`: 2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm drop is recorded in planning doc...
 
 ### `BOARD-THEME-URA-1` - Reskin the kanban board to the universalroom.org brand palette + fonts (kill the AI-slop default) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **done** - approval: **explicit**
