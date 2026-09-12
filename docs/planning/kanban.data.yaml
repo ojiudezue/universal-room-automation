@@ -1,6 +1,41 @@
 meta:
-  last_reconciled: '2026-09-11'
+  last_reconciled: '2026-09-12'
   history_file: docs/planning/kanban.history.yaml
+  # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
+  # autonomously (built / parked / waiting_operator / shipped / done). The
+  # renderer shows a big LAST-24H counter (entries in the last 24h over the
+  # non-done card count) + an expandable feed of entries that are NOT
+  # acknowledged AND younger than 7 days; `ack` (board button) retires an
+  # entry, and anything older than 7 days is archived (hidden) automatically.
+  # fid = "<card-id>@<at>" (the ack button posts it as card_id).
+  autonomy_feed:
+  - {fid: 'ROOM-NAME-UNIQUE-1@2026-09-12T11:40', at: '2026-09-12T11:40:00', outcome: built,
+     headline: 'ROOM-NAME-UNIQUE-1 — create-time duplicate room-name guard (Tier-1, in review)',
+     acknowledged: false}
+  - {fid: 'EV-SENSOR-CLEANUP-1@2026-09-12T12:40', at: '2026-09-12T12:40:00', outcome: built,
+     headline: 'EV-SENSOR-CLEANUP-1 — re-added per-bay EV charge-rate sensors per operator reversal (Tier-1, in review)',
+     acknowledged: false}
+  - {fid: 'SHADOW-IMPORT-AUDIT-1@2026-09-12T12:55', at: '2026-09-12T12:55:00', outcome: built,
+     headline: 'SHADOW-IMPORT-AUDIT-1 — AST audit FOUND+FIXED 2 latent Bug Class #34 shadows + permanent guard (Tier-1, in review)',
+     acknowledged: false}
+  - {fid: 'UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1@2026-09-12T13:05', at: '2026-09-12T13:05:00', outcome: built,
+     headline: 'UNEXPECTED-PERSON-IS-ON — migrated alert to deduped unidentified_count (Tier-2-DB, in review; deploy needs operator awareness)',
+     acknowledged: false}
+  - {fid: 'HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00', at: '2026-09-12T12:00:00', outcome: parked,
+     headline: 'HVAC-BASELINE-MAXSAMPLES-1 — PARKED at gate (shared-primitive change, margin does not pay)',
+     acknowledged: false}
+  - {fid: 'PATHBETA-VESTIGIAL-1@2026-09-12T12:20', at: '2026-09-12T12:20:00', outcome: parked,
+     headline: 'PATHBETA-VESTIGIAL-1 — PARKED at gate (hygiene-not-defect; gated on PATH-ALPHA proofs)',
+     acknowledged: false}
+  - {fid: 'ARRESTER-CLOUDFLAP-FALSEPOS-1@2026-09-12T13:10', at: '2026-09-12T13:10:00', outcome: waiting_operator,
+     headline: 'ARRESTER-CLOUDFLAP-FALSEPOS-1 — needs operator PICK of discriminator (Tier-3-adjacent; consumer check done)',
+     acknowledged: false}
+  - {fid: 'WAITING-OP-INSTRUCTIONS-1@2026-09-12T13:40', at: '2026-09-12T13:40:00', outcome: built,
+     headline: 'WAITING-OP-INSTRUCTIONS-1 — free-form instruction box on waiting_operator cards + groom-first + lane elevation (board tooling, done)',
+     acknowledged: false}
+  - {fid: 'BOARD-AUTONOMY-PROGRESS-1@2026-09-12T13:45', at: '2026-09-12T13:45:00', outcome: built,
+     headline: 'BOARD-AUTONOMY-PROGRESS-1 — top-of-board last-24h progress counter + acknowledgeable recent-work feed (board tooling, done)',
+     acknowledged: false}
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
   columns:
@@ -16481,6 +16516,71 @@ cards:
       instance (its own recorded claim was refuted on first check).
   refs:
   - .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
+- id: WAITING-OP-INSTRUCTIONS-1
+  title: Waiting-on-operator cards need a free-form instruction field + groom-first priority
+  thread: tooling
+  status: done
+  built_2026_09_12: 'SHIPPED to the board tooling. kanban_render.py: (1) COLUMN_META elevates
+    waiting_operator + waiting_me to just after review; (2) _render_card_html adds a free-form
+    instruction box (input + Send) on waiting_operator cards posting action=instruct with text;
+    (3) load_pending_dispositions preserves the text; pending chip shows it. Skill: disposition-apply
+    handles instruct (operator_instruction_<date> + front-of-grooming); Cadence grooms waiting_operator
+    FIRST. Rendered clean (15 instruct boxes = 15 waiting_operator cards).'
+  created: '2026-09-12 13:30'
+  updated: '2026-09-12 13:30'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 (direct request)'
+  tags: [tier-1]
+  problem_solution:
+  - 'Problem: when a card is waiting on the operator, the hosted board only offers fixed buttons
+     (done/deferred/declined/approve/investigate) — the operator cannot leave free-form instructions
+     telling the agent HOW to resolve it, and these cards are not prioritised for grooming so they
+     linger. Solution: add a free-form text box (plus a Send button) to every waiting-on-operator card
+     on the hosted board so the operator can type instructions the agent applies at session start; and
+     make the agent groom the waiting-on-operator lane FIRST each session so those cards move to the
+     right lane quickly.'
+  why: operator agency — the board is how the operator steers autonomous work; a decision queue with
+    no free-text channel forces every instruction back into chat, which is lossy.
+  parsimony: {problem: waiting_operator cards have buttons but no instruction channel and no grooming priority, verdict: BUILD}
+  next: 'BUILT: text field + Send (POST action=instruct w/ text) on waiting_operator cards; renderer
+    elevates the lane; disposition-apply handles instruct -> operator_instruction on the card; skill
+    cadence grooms waiting_operator first.'
+  refs: [scripts/kanban_render.py, '.claude/skills/ura-kanban/SKILL.md']
+- id: BOARD-AUTONOMY-PROGRESS-1
+  title: Board-top autonomy progress counter + acknowledgeable recent-work feed (last 24h, shrinking denominator)
+  thread: tooling
+  status: done
+  built_2026_09_12: 'SHIPPED to the board tooling. kanban_render.py: meta.autonomy_feed data model +
+    autonomy_stats() (num=last-24h entries, denom=non-done count, live=unacked & <7d, newest-first) +
+    a large counter banner above all lanes (N / D) + an expandable feed with per-entry Acknowledge
+    buttons (POST action=ack w/ fid). Skill: disposition-apply handles ack (sets acknowledged); render
+    design section documents the append-on-conclusion discipline + prune. 4 guard tests in
+    test_kanban_autonomy_render.py PASS (default env). Live counter reads 7 / 113.'
+  created: '2026-09-12 13:30'
+  updated: '2026-09-12 13:30'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 (direct request)'
+  tags: [tier-1]
+  problem_solution:
+  - 'Problem: as the agent works autonomously the operator has no at-a-glance view of how much got
+     done recently or a way to acknowledge it — autonomy without visibility/agency. Solution: a large
+     counter above all lanes showing board progress in the last 24h as N / D (N = cards concluded
+     autonomously in the last 24h; D = all cards minus done, so the denominator SHRINKS as work
+     completes), plus a compact expandable feed of the recent batch. Each feed entry has an Acknowledge
+     button; acknowledging retires it, and any entry older than one week is archived automatically to
+     avoid clutter.'
+  why: perfect agentic autonomy WITH operator visibility + agency — the operator sees and signs off on
+    what ran while they were away.
+  parsimony: {problem: no operator-facing view of recent autonomous progress nor a way to acknowledge it, verdict: BUILD}
+  constraints:
+  - Denominator = count(status != done); recomputed every render so it shrinks after each push.
+  - Feed entry retired on ack; archived (hidden) after 7 days; counter counts last-24h entries regardless of ack.
+  next: 'BUILT: meta.autonomy_feed data + renderer counter banner + expandable feed with ack buttons
+     (POST action=ack w/ fid); disposition-apply marks acknowledged; skill discipline = append a feed
+     entry on every autonomous card conclusion.'
+  refs: [scripts/kanban_render.py, '.claude/skills/ura-kanban/SKILL.md']
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

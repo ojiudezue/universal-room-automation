@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T03:56:18-05:00_ - _Data commit: `9a49a6ff0341`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-12T04:01:21-05:00_ - _Data commit: `6532fefc23d7`_ - _last_reconciled: 2026-09-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -17,11 +17,11 @@ _Generated: 2026-09-12T03:56:18-05:00_ - _Data commit: `9a49a6ff0341`_ - _last_r
 | 📝 Planned | 7 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
-| 🚀 Shipped (organic open) | 2 |
 | ⏸️ Waiting on operator | 15 |
 | ⏳ Waiting on me (Claude) | 2 |
+| 🚀 Shipped (organic open) | 2 |
 | 🅿️ Parked | 45 |
-| ✅ Done | 135 |
+| ✅ Done | 137 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -801,38 +801,8 @@ _updated 2026-09-12 12:40 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-## 🚀 Shipped (organic open) (2)
-_live, awaiting proof_
-
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **notifications** - status: **shipped_organic** - approval: **operator_proposed**
-_updated 2026-09-12 11:00_
-- **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
-- **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
-- **Next:** CONFIRM the scoped shape: perimeter-only, "duke Nh" syntax, 3h cap. APPROVE -> Tier 2 build (NM routing = regression-prone).
-- **Forensic keys (6):**
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE — operator ask MOOT: 'duke Nh' perimeter-only silence window shipped v5.75.2 (a8d8d9b0d) in the exact scoped shape (perimeter-only, Nh syntax, 3h cap, life-safety...
-  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h cap) -> Tier-2 (NM routing = regression-prone).
-  - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
-  - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
-  - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
-  - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
-
-### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
-_updated 2026-09-12 11:00_
-- **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
-- **Why:** Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room's own tower fan (fan O...
-- **Next:** APPROVE the recommended fix: 1+2 together (config turn + small loop-breaker for the fan->mmWave self-sustain loop); option 3 only if it recurs after. -> I build. Or tell me to pick differently.
-- **Forensic keys (5):**
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) MOOT->shipped_organic: operator already dispositioned all recs 2026-08-13 (rec1 'DO NOT RAISE AGAIN'; rec2/3 parked w/ triggers); root fixes shipped (STUCK-SENSOR-1 duty-flag ...
-  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if it recurs.
-  - `operator_decision`: Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole prov...
-  - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
-  - `reconcile_2026_08_16`: Root fixes SHIPPED v5.75.0 (fan duty-flag exclusion + room-name write-through). Deeper structural causes are in flight as PATH-ALPHA-DENOM-1 (H3 over-reach) + GAP-A-CENSUS-HOLE-1 (census half) + Gap-B guard. This card holds the incident ...
-
 ## ⏸️ Waiting on operator (15)
-_needs a human call_
+_needs a human call — groomed first_
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
@@ -1065,6 +1035,36 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `disposition_2026_09_10_RETRACTED`: RETRACTED — the DONE disposition was based on ONE night (09-08->09: onset_release at 06:02 UTC = 01:02 CDT = AT onset, correct). It did not check the NEXT night. Operator suspicion ("it wasnt working, now it is? suspicious") was RIGHT.
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
+
+## 🚀 Shipped (organic open) (2)
+_live, awaiting proof_
+
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **notifications** - status: **shipped_organic** - approval: **operator_proposed**
+_updated 2026-09-12 11:00_
+- **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
+- **Why:** Operator ergonomics during the FP-tuning era: busy afternoons / alert clusters currently need per-alert acks.
+- **Next:** CONFIRM the scoped shape: perimeter-only, "duke Nh" syntax, 3h cap. APPROVE -> Tier 2 build (NM routing = regression-prone).
+- **Forensic keys (6):**
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE — operator ask MOOT: 'duke Nh' perimeter-only silence window shipped v5.75.2 (a8d8d9b0d) in the exact scoped shape (perimeter-only, Nh syntax, 3h cap, life-safety...
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h cap) -> Tier-2 (NM routing = regression-prone).
+  - `institutional_reuse`: The silence primitive EXISTS: _silence_until (notification_manager.py:346, gate :1351-1352) — the reply-3 30-min silence. Proposal = parametrize duration + scope. NOT a new mechanism.
+  - `marginal_shape`: Simplest honest version: "duke" keeps acking the current alert; "duke 2h" (parsed duration, cap 3h) sets _silence_until for PERIMETER-CLASS hazards only. Life-safety (smoke/CO/water/intrusion-interior) NEVER blanketed — a real intruder a...
+  - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
+  - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
+
+### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+_updated 2026-09-12 11:00_
+- **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
+- **Why:** Traced (AUDIT_away_transition_2026_08_13.md): path-alpha dead (all 4 trackers LOST/STALE -> trusted denominator 0); path-beta vetoed by ONE zone occupied solely by the Living Room Screek mmWave, latched by the room's own tower fan (fan O...
+- **Next:** APPROVE the recommended fix: 1+2 together (config turn + small loop-breaker for the fan->mmWave self-sustain loop); option 3 only if it recurs after. -> I build. Or tell me to pick differently.
+- **Forensic keys (5):**
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) MOOT->shipped_organic: operator already dispositioned all recs 2026-08-13 (rec1 'DO NOT RAISE AGAIN'; rec2/3 parked w/ triggers); root fixes shipped (STUCK-SENSOR-1 duty-flag ...
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick; orchestrator recommends 1+2 together (config turn + small loop-breaker), 3 only if it recurs.
+  - `operator_decision`: Ranked recs — pick any: (1) CONFIG-ONLY: add a PIR/corroborator to Living Room + the 5 other no-PIR rooms (re-enables shipped D2 demotion; highest marginal benefit, near-zero risk). (2) TIER-1: cap comfort-fan sustain on mmwave-sole prov...
+  - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
+  - `reconcile_2026_08_16`: Root fixes SHIPPED v5.75.0 (fan duty-flag exclusion + room-name write-through). Deeper structural causes are in flight as PATH-ALPHA-DENOM-1 (H3 over-reach) + GAP-A-CENSUS-HOLE-1 (census half) + Gap-B guard. This card holds the incident ...
 
 ## 🅿️ Parked (45)
 _revisit-trigger set_
@@ -1693,8 +1693,34 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (135)
+## ✅ Done (137)
 _closed, evidence in refs_
+
+### `WAITING-OP-INSTRUCTIONS-1` - Waiting-on-operator cards need a free-form instruction field + groom-first priority — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **tooling** - status: **done** - approval: **explicit**
+_created 2026-09-12 13:30 · initial_
+- **Problem / Solution:**
+  - Problem: when a card is waiting on the operator, the hosted board only offers fixed buttons (done/deferred/declined/approve/investigate) — the operator cannot leave free-form instructions telling the agent HOW to resolve it, and these ca...
+- **Why:** operator agency — the board is how the operator steers autonomous work; a decision queue with no free-text channel forces every instruction back into chat, which is lossy.
+- **Next:** BUILT: text field + Send (POST action=instruct w/ text) on waiting_operator cards; renderer elevates the lane; disposition-apply handles instruct -> operator_instruction on the card; skill cadence grooms waiting_operator first.
+- **Tags:** tier-1
+- **Parsimony:** [BUILD] waiting_operator cards have buttons but no instruction channel and no grooming priority
+- **Refs:** scripts/kanban_render.py; .claude/skills/ura-kanban/SKILL.md
+- **Forensic keys (1):**
+  - `built_2026_09_12`: SHIPPED to the board tooling. kanban_render.py: (1) COLUMN_META elevates waiting_operator + waiting_me to just after review; (2) _render_card_html adds a free-form instruction box (input + Send) on waiting_operator cards posting action=i...
+
+### `BOARD-AUTONOMY-PROGRESS-1` - Board-top autonomy progress counter + acknowledgeable recent-work feed (last 24h, shrinking denominator) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **tooling** - status: **done** - approval: **explicit**
+_created 2026-09-12 13:30 · initial_
+- **Problem / Solution:**
+  - Problem: as the agent works autonomously the operator has no at-a-glance view of how much got done recently or a way to acknowledge it — autonomy without visibility/agency. Solution: a large counter above all lanes showing board progress...
+- **Why:** perfect agentic autonomy WITH operator visibility + agency — the operator sees and signs off on what ran while they were away.
+- **Next:** BUILT: meta.autonomy_feed data + renderer counter banner + expandable feed with ack buttons (POST action=ack w/ fid); disposition-apply marks acknowledged; skill discipline = append a feed entry on every autonomous card conclusion.
+- **Tags:** tier-1
+- **Parsimony:** [BUILD] no operator-facing view of recent autonomous progress nor a way to acknowledge it
+- **Refs:** scripts/kanban_render.py; .claude/skills/ura-kanban/SKILL.md
+- **Forensic keys (1):**
+  - `built_2026_09_12`: SHIPPED to the board tooling. kanban_render.py: meta.autonomy_feed data model + autonomy_stats() (num=last-24h entries, denom=non-done count, live=unacked & <7d, newest-first) + a large counter banner above all lanes (N / D) + an expanda...
 
 ### `BOOTSANITY-1` - Boot-sanity allowlist guard cannot fire on a cold boot — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **camera** - status: **done** - approval: **implied**

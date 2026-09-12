@@ -41,9 +41,12 @@ COLUMN_META: list[tuple[str, str, str, str]] = [
     ("planned",          "\U0001F4DD", "Planned",            "has plan / acceptance"),
     ("in_progress",      "\U0001F528", "In progress",        "being built"),
     ("review",           "\U0001F50D", "Review",             "under review"),
-    ("shipped_organic",  "\U0001F680", "Shipped (organic open)", "live, awaiting proof"),
-    ("waiting_operator", "⏸️", "Waiting on operator", "needs a human call"),
+    # WAITING-OP-INSTRUCTIONS-1: waiting_operator/waiting_me are elevated to
+    # just after review (ahead of shipped_organic) so the operator's decision
+    # queue is prominent — these lanes are groomed FIRST each session.
+    ("waiting_operator", "⏸️", "Waiting on operator", "needs a human call — groomed first"),
     ("waiting_me",       "⏳", "Waiting on me (Claude)", "I owe something"),
+    ("shipped_organic",  "\U0001F680", "Shipped (organic open)", "live, awaiting proof"),
     ("parked",           "\U0001F17F️", "Parked",       "revisit-trigger set"),
     ("done",             "✅", "Done",                    "closed, evidence in refs"),
     ("other",            "❓", "Other",                    "unknown status bucket"),
@@ -182,10 +185,52 @@ def load_pending_dispositions(path: Path) -> dict[str, list[dict]]:
         cid = str(d.get("card_id", "")).strip()
         if not cid:
             continue
-        out.setdefault(cid, []).append(
-            {"action": str(d.get("action", "?")), "at": str(d.get("at", ""))}
-        )
+        entry = {"action": str(d.get("action", "?")), "at": str(d.get("at", ""))}
+        # WAITING-OP-INSTRUCTIONS-1: preserve the operator's free-form text
+        # (action=instruct) so the pending chip can show it.
+        if d.get("text"):
+            entry["text"] = str(d.get("text"))
+        out.setdefault(cid, []).append(entry)
     return out
+
+
+def autonomy_stats(data: dict, now: _dt.datetime | None = None) -> dict:
+    """BOARD-AUTONOMY-PROGRESS-1: compute the last-24h progress counter and the
+    live feed (entries not acknowledged AND younger than 7 days, newest first).
+
+    - numerator   = feed entries whose `at` is within the last 24h (ack-agnostic;
+                    a conclusion is a historical fact).
+    - denominator = cards whose status != 'done' (shrinks as work completes).
+    - live feed   = unacknowledged entries younger than 7 days.
+    """
+    now = now or _dt.datetime.now()
+    cards = data.get("cards", []) or []
+    denom = sum(1 for c in cards if str(c.get("status", "")) != "done")
+    feed = (data.get("meta", {}) or {}).get("autonomy_feed", []) or []
+
+    def _parse(ts: str) -> _dt.datetime | None:
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return _dt.datetime.strptime(ts, fmt)
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    last24 = 0
+    live: list[dict] = []
+    for e in feed:
+        if not isinstance(e, dict):
+            continue
+        ts = _parse(str(e.get("at", "")))
+        age = (now - ts) if ts else None
+        if age is not None and age <= _dt.timedelta(hours=24):
+            last24 += 1
+        archived = (age is not None and age > _dt.timedelta(days=7))
+        if not e.get("acknowledged") and not archived:
+            live.append({**e, "_sort": ts or _dt.datetime.min})
+    live.sort(key=lambda e: e["_sort"], reverse=True)
+    return {"num": last24, "denom": denom, "live": live}
 
 
 # ---------- card classification ----------
@@ -572,6 +617,52 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 .summary span:last-child { border-right:none; }
 .summary b { color:var(--fg); }
 
+/* BOARD-AUTONOMY-PROGRESS-1 — last-24h progress counter + recent-work feed */
+.autonomy { margin:12px 22px 0; border:1px solid var(--border); border-left:6px solid var(--accent);
+  background:var(--code-bg); }
+.autonomy .hd { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:12px 18px 6px; }
+.autonomy .hd .lbl { font-family:ui-monospace, Menlo, monospace; font-size:11px; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--muted); }
+.autonomy .hd .metric { font-family:ui-monospace, Menlo, monospace; font-weight:700;
+  font-size:34px; line-height:1; color:var(--accent); letter-spacing:0.02em; }
+.autonomy .hd .metric .den { color:var(--muted); font-size:22px; }
+.autonomy .hd .sub { font-size:11.5px; color:var(--muted); }
+.autonomy details { border-top:1px dashed var(--border); }
+.autonomy details > summary { cursor:pointer; list-style:none; padding:7px 18px; font-size:11.5px;
+  font-family:ui-monospace, Menlo, monospace; letter-spacing:0.06em; color:var(--muted); }
+.autonomy details > summary::-webkit-details-marker { display:none; }
+.autonomy details > summary::marker { content:""; }
+.autonomy .feed { margin:0; padding:0 18px 12px; list-style:none; }
+.autonomy .feed li { display:flex; align-items:flex-start; gap:10px; padding:7px 0;
+  border-top:1px solid var(--border); font-size:12.5px; }
+.autonomy .feed li:first-child { border-top:none; }
+.autonomy .feed .oc { font-family:ui-monospace, Menlo, monospace; font-size:9.5px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; padding:2px 7px; border:1px solid var(--border);
+  white-space:nowrap; }
+.autonomy .feed .oc.built { color:var(--ok); border-color:var(--ok); }
+.autonomy .feed .oc.parked { color:var(--muted); }
+.autonomy .feed .oc.waiting_operator { color:var(--info); border-color:var(--info); }
+.autonomy .feed .oc.shipped, .autonomy .feed .oc.done { color:var(--accent); border-color:var(--accent); }
+.autonomy .feed .fhd { flex:1; }
+.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:ui-monospace, Menlo, monospace; }
+.autonomy .feed button.ack { font-family:ui-monospace, Menlo, monospace; font-size:10px;
+  letter-spacing:0.06em; padding:3px 9px; cursor:pointer; background:var(--code-bg); color:var(--fg);
+  border:1px solid var(--border); white-space:nowrap; }
+.autonomy .feed button.ack:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.autonomy .feed button.ack:disabled { opacity:0.4; cursor:default; }
+.autonomy .feed .empty { color:var(--muted); padding:8px 0; font-size:12px; }
+/* waiting_operator free-form instruction box (WAITING-OP-INSTRUCTIONS-1) */
+.instruct { margin-top:8px; display:flex; gap:6px; }
+.instruct input { flex:1; font-family:ui-monospace, Menlo, monospace; font-size:11px;
+  padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.instruct input:focus { outline:none; border-color:var(--accent); }
+.instruct button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px; letter-spacing:0.06em;
+  padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.instruct button:disabled { opacity:0.4; cursor:default; }
+.pending-chip.op-instruct { background:transparent; color:var(--info); border-color:var(--info); }
+.pending-chip.op-ack { background:transparent; color:var(--ok); border-color:var(--ok); }
+
 main.board { padding:6px 22px 30px; }
 .lane { margin-top:18px; }
 .lane > h2 { margin:0; font-size:12px; font-weight:600; letter-spacing:0.16em;
@@ -662,11 +753,13 @@ BOARD_JS = """
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 3200);
   }
-  function post(cardId, action) {
+  function post(cardId, action, extra) {
+    var body = { card_id: cardId, action: action, at: new Date().toISOString() };
+    if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) body[k] = extra[k]; } }
     return fetch('api/disposition', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ card_id: cardId, action: action, at: new Date().toISOString() })
+      body: JSON.stringify(body)
     }).then(function (r) {
       if (!r.ok) throw new Error('http ' + r.status);
       return r;
@@ -696,6 +789,50 @@ BOARD_JS = """
         addChip(card, action);
       }).catch(function () {
         buttons.forEach(function (b) { b.disabled = false; });
+        readOnlyToast();
+      });
+    });
+  });
+
+  // WAITING-OP-INSTRUCTIONS-1 — free-form instruction send
+  document.querySelectorAll('.card .instruct').forEach(function (box) {
+    var input = box.querySelector('input');
+    var btn = box.querySelector('button[data-action="instruct"]');
+    if (!input || !btn) return;
+    function send() {
+      var text = (input.value || '').trim();
+      if (!text) { input.focus(); return; }
+      var card = btn.closest('.card');
+      btn.disabled = true; input.disabled = true;
+      post(card.getAttribute('data-id'), 'instruct', { text: text }).then(function () {
+        addChip(card, 'instruct');
+        input.value = '';
+        toast('instruction queued');
+      }).catch(function () {
+        btn.disabled = false; input.disabled = false;
+        readOnlyToast();
+      });
+    }
+    btn.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); send(); });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); send(); }
+    });
+    // keep clicks inside the box from toggling the <details> card
+    box.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  });
+
+  // BOARD-AUTONOMY-PROGRESS-1 — acknowledge a recent-work feed entry (retires it)
+  document.querySelectorAll('.autonomy .feed button.ack').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var fid = btn.getAttribute('data-fid');
+      var li = btn.closest('li');
+      btn.disabled = true;
+      post(fid, 'ack').then(function () {
+        if (li) li.remove();  // optimistic retire
+        toast('acknowledged');
+      }).catch(function () {
+        btn.disabled = false;
         readOnlyToast();
       });
     });
@@ -802,6 +939,32 @@ def render_html(data: dict, meta_extras: dict) -> str:
         parts.append('</ul><div style="margin-top:6px">Reconcile <code>meta.last_reconciled</code> '
                      'and move shipped cards before picking next work.</div></div>')
 
+    # BOARD-AUTONOMY-PROGRESS-1 — last-24h progress counter + recent-work feed.
+    stats = autonomy_stats(data)
+    parts.append('<section class="autonomy">')
+    parts.append('<div class="hd">')
+    parts.append('<span class="lbl">Board progress · last 24h</span>')
+    parts.append(f'<span class="metric">{stats["num"]}<span class="den"> / {stats["denom"]}</span></span>')
+    parts.append('<span class="sub">cards concluded autonomously in the last 24h · '
+                 'denominator = open cards (all minus done), shrinks as work completes</span>')
+    parts.append('</div>')
+    live = stats["live"]
+    if live:
+        parts.append(f'<details open><summary>recent autonomous work — {len(live)} '
+                     'unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>')
+        parts.append('<ul class="feed">')
+        for e in live:
+            oc = str(e.get("outcome", "")).strip() or "done"
+            fid = str(e.get("fid", ""))
+            parts.append('<li>')
+            parts.append(f'<span class="oc {_h(oc)}">{_h(oc)}</span>')
+            parts.append(f'<span class="fhd">{_h(str(e.get("headline", "")))}'
+                         f'<br><span class="ft">{_h(str(e.get("at", "")))}</span></span>')
+            parts.append(f'<button type="button" class="ack" data-fid="{_h(fid)}">✓ ack</button>')
+            parts.append('</li>')
+        parts.append('</ul></details>')
+    parts.append('</section>')
+
     parts.append('<div class="summary">')
     for key, emoji, label, _ in COLUMN_META:
         n = len(buckets.get(key, []))
@@ -885,8 +1048,10 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     for disp in (pending or {}).get(cid, []):
         act = disp["action"]
         chip_cls = "op-move" if act.startswith("move:") else f"op-{act}"
+        txt = disp.get("text")
+        suffix = f': "{_h(txt)}"' if txt else ""
         out.append(f'<span class="pending-chip {_h(chip_cls)}" title="at {_h(disp["at"])}">'
-                   f'OPERATOR: {_h(act)} — pending apply</span>')
+                   f'OPERATOR: {_h(act)}{suffix} — pending apply</span>')
     if approval and approval != "implied":
         out.append(f'<span class="apl">{_h(approval)}</span>')
     out.append(f'<span class="title">{_h(title)}</span>')
@@ -976,6 +1141,15 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
                '<button type="button" data-action="declined">✕ declined</button>'
                + extra +
                '</div>')
+    # WAITING-OP-INSTRUCTIONS-1: free-form instruction channel on the operator
+    # decision queue — the operator types HOW to resolve; the agent applies it
+    # (action=instruct, with text) at session start.
+    if str(c.get("status", "")) == "waiting_operator":
+        out.append('<div class="instruct">'
+                   '<input type="text" placeholder="instruction for the agent…" '
+                   'aria-label="operator instruction">'
+                   '<button type="button" data-action="instruct">send</button>'
+                   '</div>')
     out.append('</div></details>')
     return "".join(out)
 

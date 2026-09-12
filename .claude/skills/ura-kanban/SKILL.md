@@ -252,6 +252,38 @@ the active board — this reuses the existing doctrine that the git history of s
 (READMEs / validation ledgers) is the durable record. Workflow: edit the yaml (must stay valid
 YAML), run `python3 scripts/kanban_render.py`, commit data + rendered views together.
 
+### Board render design — autonomy visibility + operator agency (operator-coined 2026-09-12)
+
+The render exists to make autonomous work **visible and steerable**, not just to list cards. Three
+elements, all pure functions of the data (so they never drift):
+
+1. **Lane order elevates the operator's decision queue.** `COLUMN_META` renders
+   `waiting_operator` + `waiting_me` immediately after `review` (ahead of `shipped_organic`), so the
+   cards needing a human call are near the top. The agent also grooms `waiting_operator` FIRST each
+   session (see Cadence).
+2. **`waiting_operator` cards carry a free-form instruction box** (not just buttons). It POSTs
+   `{card_id, action:"instruct", text, at}` to the same `api/disposition` endpoint the buttons use;
+   the agent applies `instruct` at session start (writes `operator_instruction_<date>` onto the card,
+   front of the grooming queue). This is the operator's free-text channel into autonomous work —
+   steering without dropping back to chat.
+3. **Top-of-board autonomy counter + recent-work feed** (`meta.autonomy_feed`, rendered by
+   `autonomy_stats()`):
+   - **Counter (large type, above all lanes):** `N / D` where **N = feed entries concluded in the
+     last 24h** (ack-agnostic — a conclusion is a historical fact) and **D = open-card count
+     (`status != done`)**. D **shrinks as work completes**, so the ratio is recomputed every render
+     and naturally re-bases after each push.
+   - **Feed:** an expandable list of entries that are NOT `acknowledged` AND younger than 7 days,
+     newest first. Each has an **Acknowledge** button (POST `{card_id:<fid>, action:"ack"}`); ack
+     retires the entry from the live feed (agent sets `acknowledged:true`), and any entry older than
+     7 days is auto-archived (hidden) regardless of ack — so the feed never clutters.
+   - **The append discipline is load-bearing:** every time a card is concluded autonomously (built /
+     parked-at-gate / moved to waiting_operator / shipped / done), append one `autonomy_feed` entry
+     `{fid:"<card-id>@<at>", at, outcome, headline, acknowledged:false}` the same turn. A conclusion
+     with no feed entry is invisible to the operator's 24h view — the same capture-failure class the
+     board exists to kill, applied to the progress counter.
+   - **Prune** acknowledged / >7-day entries from `meta.autonomy_feed` during grooming so the data
+     file does not grow unbounded (the rendered feed already hides them; pruning keeps the YAML lean).
+
 ## Card schema — the fields ARE the decay vectors
 
 Fill Origin, Why, and Next even when terse. Each field maps to a thing that otherwise leaks:
@@ -550,11 +582,25 @@ failure — the board is where "is it actually done?" gets answered.
    - `investigate` (inbox + pre-planning button, added 2026-08-15) → set `needs_investigation: true`
      on the card; it becomes priority intake for the next lull-investigation sweep (see
      "Inbox hygiene" below).
+   - `instruct` (waiting_operator free-text box, added 2026-09-12 — WAITING-OP-INSTRUCTIONS-1) →
+     carries a `text` field with the operator's free-form instruction. Append it to the card as
+     `operator_instruction_<date>: "<text>"`, treat it as OPERATOR AUTHORITY (same as a chat "go"
+     — act on it, do not re-ask), and put the card at the FRONT of the grooming queue. The
+     instruction usually says how to resolve a waiting_operator card — follow it, moving the card to
+     the right lane. If it asks for something that fails a gate, page back (NM) + record why on the card.
+   - `ack` (recent-work feed button, added 2026-09-12 — BOARD-AUTONOMY-PROGRESS-1) → the `card_id`
+     is a feed entry's `fid`; find that entry in `meta.autonomy_feed` and set `acknowledged: true`
+     (it retires from the live feed). Not a card-status change.
    Then DELETE the pending file, re-run `python3 scripts/kanban_render.py`, and commit.
    **Dispositions are OPERATOR AUTHORITY — apply, don't relitigate.** Ask only if a
    disposition is ambiguous against the card's state (e.g. `done` on a card that never
    shipped). Finally reconcile Shipped-organic and Waiting-on-operator against live state
    before reporting status.
+   **Groom `waiting_operator` FIRST (operator-coined 2026-09-12).** Before the inbox/lull sweep,
+   work the `waiting_operator` lane: apply any `instruct` text, re-verify whether the operator input
+   is still needed (ground truth — the blocker may have cleared), and move each card to the right lane
+   as soon as the decision/fact is available. These lanes are rendered just after `review` (elevated)
+   and must not rot — a card sitting in `waiting_operator` whose input already arrived is a grooming miss.
 2. **On every push / mid-turn idea:** add or update a card the same turn.
 3. **Before writing a planning doc:** harvest the relevant cards — Origin/Why/Constraints/
    Parked-alts/Knobs flow straight into the plan's Institutional-context + Acceptance sections.
@@ -805,6 +851,16 @@ for everything Tier 2 and below.**
 - **Tier 3+ (delicate shared-primitive / invariant-critical / cost-AND-safety) → PAUSE for
   operator approval** before build and again at the pre-deploy checkpoint, per CLAUDE.md Tier 3.
   These are the changes where one missed path loses money or safety; the human call stays.
+- **Investigations (`investigating` lane / measure-first cards) → DRIVE autonomously too
+  (operator-coined 2026-09-12).** Run the measurement (read-only probe over existing data per
+  Measure-Before-You-Build). Then branch on the OUTCOME, binary per the Investigating-lane exit:
+  - **Does NOT open a build lane** (refuted, or the fix needs a human call / external input) →
+    record the finding and **drop into `waiting_operator`** with a crisp operator-verb `next` (or
+    close `done` if the mechanism was refuted). Don't force a build the evidence doesn't support.
+  - **DOES open a build lane** → **plan and build ONLY if it passes the FULL four-step gate below —
+    not just the tier.** Tier is the first gate; value, prior-art/reuse, parsimony and cost/benefit
+    all still apply (operator: *"Not just tier… also value, parsimony etc"*). A Tier-1/2 build that
+    clears every step drives autonomously; anything that fails a step parks or escalates.
 
 **The gate that earns the autonomy — FOUR steps IN ORDER, run BEFORE building, every card
 (operator-coined 2026-09-12).** Do not skip a step because the card "looks obvious"; a later step's
