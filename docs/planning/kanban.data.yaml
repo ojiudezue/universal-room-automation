@@ -16301,7 +16301,8 @@ cards:
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)
   thread: quality
-  status: pre_planning
+  status: in_progress
+  decision_B_2026_09_12: 'OPERATOR PICK = B (root-cause). Full 40-file unification, Tier-2 test-only (regression-prone shared test-infra -> framing-disjoint reviews). Built in isolated worktree off develop; merges to develop only after reviews pass, then rides the bundled deploy. Design: ONE shared helper that exec-s the REAL const source (complete module) + applies per-file overrides, registered + restored safely; migrate all 40 preserving each file intent (some may stub DIFFERENT values, not just subsets). Acceptance: collection succeeds on default AND shuffled orderings; full suite runs end-to-end; the 2 victim tests pass.'
   created: 2026-09-11 18:20
   updated: 2026-09-12 16:20
   confirmed_2026_09_12: 'CONFIRMED (investigation exit) — mechanism PINNED by orchestrator. Default-ordering
