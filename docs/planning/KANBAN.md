@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T11:25:37-05:00_ - _Data commit: `afa76f065c12`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T11:29:55-05:00_ - _Data commit: `816032c16cfe`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-09-12T11:25:37-05:00_ - _Data commit: `afa76f065c12`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 17 |
-| 🧭 Pre-planning | 16 |
+| 🧭 Pre-planning | 17 |
 | 📝 Planned | 11 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
@@ -310,7 +310,7 @@ _created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
-## 🧭 Pre-planning (16)
+## 🧭 Pre-planning (17)
 _idea being decomposed_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -558,6 +558,16 @@ _created 2026-09-12 16:30 · updated 2026-09-12 17:35 · refined_
   - `refinement_2026_09_12_loadbearing`: Operator challenge: room-type must NOT silently flip features. URA has LOAD-BEARING classifications beyond room FUNCTION that carry cross-coordinator implications and today are scattered — CONF_ROOM_IS_GUEST_ROOM (const.py:386, consumed ...
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
+
+### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _#17 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **config-flow** - status: **pre_planning** - approval: **explicit**
+_created 2026-09-12 17:50 · initial_
+- **Problem / Solution:**
+  - Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented inconsistently and scattered: CONF_ROOM_IS_...
+- **Why:** surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these coherently, which exposed that the underlying representation is itself inconsistent). Operator wants it carded but explicitly gated on audi...
+- **Next:** AUDIT (read-only, when scheduled): enumerate producers + consumers + blast radius of CONF_ROOM_IS_GUEST_ROOM, CONF_WET_ROOM, ROOM_TYPE_UTILITY/INFRASTRUCTURE, CONF_SHARED_SPACE (+ CONF_ZONE_IS_OUTDOOR as the zone analogue); propose ONE c...
+- **Tags:** audit-first, institutional-context, tier-2db
+- **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
 
 ## 📝 Planned (11)
 _has plan / acceptance_

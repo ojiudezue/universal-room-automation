@@ -16738,6 +16738,48 @@ cards:
     <=4 screens / <=~12 visible fields. Tier 2-DB (options round-trip risk). Next: operator picks P1-P7
     scope (P1+P2+P5 deliver most of the >=50% alone).'
   refs: [custom_components/universal_room_automation/config_flow.py, custom_components/universal_room_automation/__init__.py, docs/planning/AUDIT_first_run_onboarding.md]
+- id: ROOM-CLASSIFICATION-CONSISTENCY-1
+  title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
+  thread: config-flow
+  status: pre_planning
+  created: '2026-09-12 17:50'
+  updated: '2026-09-12 17:50'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 ("Maybe we should card a consistency cleanup. Probably worth it. But we need a context wide audit and blast radius and design grounding")'
+  tags: [audit-first, institutional-context, tier-2db]
+  problem_solution:
+  - 'Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with
+     LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented
+     inconsistently and scattered: CONF_ROOM_IS_GUEST_ROOM is a first-class flag (consumed in
+     presence.py guest-mode), CONF_WET_ROOM is a boolean buried in the 21-field climate step,
+     utility/infrastructure are just ROOM_TYPE dropdown entries, and CONF_SHARED_SPACE is its own
+     room_setup field. Same conceptual axis, four different representations + two different screens —
+     confusing to set and easy to get wrong. Solution: a consistency cleanup that gives the
+     load-bearing classes one coherent representation + presentation. BUT ONLY AFTER a context-wide
+     audit + blast-radius + design grounding — several of these flags are load-bearing in presence /
+     humidity / safety / occupancy and a careless refactor would ripple.'
+  why: surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these
+    coherently, which exposed that the underlying representation is itself inconsistent). Operator wants
+    it carded but explicitly gated on audit + blast-radius + design first.
+  constraints:
+  - 'AUDIT-FIRST: do NOT refactor before a context-wide audit (every producer + consumer of each flag),
+    a blast-radius map (presence/census/guest-mode, humidity/HVAC, safety, occupancy-aggregation), and
+    a design-grounding decision on the target representation. Getting it right > doing it fast.'
+  - 'back-compat: existing rooms carry these flags today; any representation change needs a migration +
+    options round-trip proof (single-house, but the values must not silently flip behaviour).'
+  next: 'AUDIT (read-only, when scheduled): enumerate producers + consumers + blast radius of
+    CONF_ROOM_IS_GUEST_ROOM, CONF_WET_ROOM, ROOM_TYPE_UTILITY/INFRASTRUCTURE, CONF_SHARED_SPACE
+    (+ CONF_ZONE_IS_OUTDOOR as the zone analogue); propose ONE coherent representation + presentation;
+    size the migration. -> operator review before any build.'
+  links:
+    related: [GUEST-ROOM-CONFIG-1]
+    sibling_of: [ONBOARDING-SIMPLIFY-1]
+    context: 'ADJACENT to GUEST-ROOM-CONFIG-1 (guest-room slice only) — this is the BROAD
+      cross-class consistency cleanup. Sibling of ONBOARDING-SIMPLIFY-1, which surfaced the scatter and
+      wants to present these coherently in the room step. Swept board + BACKLOG.md + docs/planning
+      (PLANNING_dpm_cleanup_and_room_label_pass.md is an adjacent label pass, not this). Verdict: NEW.'
+  refs: [custom_components/universal_room_automation/const.py, custom_components/universal_room_automation/domain_coordinators/presence.py]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
