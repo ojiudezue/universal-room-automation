@@ -16704,8 +16704,9 @@ cards:
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
   status: pre_planning
+  updated: '2026-09-12 17:20'
+  recommended_combo_2026_09_12: 'Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essentials-only with everything else behind Tune-Later/Advanced (P1 aggressive + P4 relocate tuning) + room-type presets set feature enables (P3) + assistive house step auto-detecting weather (P6) + closing summary (P7). PREREQ surfaced up front: HA Areas must be correct (auto-detect reads area->entity). Awaiting approval -> then Tier-2-DB plan + build (mostly form/step restructuring + reuse _get_area_entities; the one real engine piece is area auto-detect; options round-trip test required).'
   created: '2026-09-12 16:30'
-  updated: '2026-09-12 16:30'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-12 ("simplify URA onboarding... at least a 50% reduction in cognitive complexity... much more assistive stance")'
