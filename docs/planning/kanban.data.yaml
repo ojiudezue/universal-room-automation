@@ -16735,7 +16735,18 @@ cards:
     areas, marginal-benefit decomposition -> simplest first deliverable. -> operator review.'
   links:
     related: [APPLIANCE-COST-DEFERRAL-1]
-  refs: [docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md]
+  planning_2026_09_12: 'CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md.
+    Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) —
+    re-verify all refs. LIVE devices richer than plan: LG washer/washer1/washtower_one/two + 2
+    dishwashers expose native number.*_delayed_start + select.*_operation + remaining_time (Open-Q#1
+    answerable NOW — control is entity writes, not thinq.* services). Rainbird = 22 per-zone switches,
+    NO confirmed set_rain_delay (D7 premise unverified + commodity). MARGINAL-BENEFIT SPLIT: DEFER
+    (write delay-start; likely NO state machine/DB/interrupt) is the cheap high-value win; INTERRUPT-
+    at-start is Tier-3-ish (SM+DB+signals+materially-started heuristic+HIGH UX-surprise) — PARK behind
+    evidence. RECOMMEND simplest-first: TOU delay-start for LG washers+dishwashers (+done-notify,
+    clean-by-morning) as a lean NEW plan (not a v3 revival); measure-first how often cycles start in
+    peak. Verify Rainbird service then likely DROP.'
+  refs: [docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, docs/planning/CRITIQUE_appliance_management_v3.md]
 - id: ONBOARDING-SIMPLIFY-1
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
@@ -16760,7 +16771,18 @@ cards:
   - 'assistive stance: auto-detect/sane-default/progressive-disclosure over asking the operator'
   next: 'PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional
     complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.'
-  refs: [custom_components/universal_room_automation/config_flow.py, custom_components/universal_room_automation/__init__.py]
+  planning_2026_09_12: 'AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable
+    step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE
+    entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + separate (77-95 fields/10-13
+    screens); coordinators optional (energy ~89 fields). The load is PRESENTATION not DECISIONS — only
+    3 fields ever required (rate, room name, room type). Proposals P1-P7 engineered to >=50%: P1
+    progressive-disclosure (essential vs advanced), P2 area-first auto-suggest via existing
+    _get_area_entities (turns ~9 entity-hunts into confirm-a-guess), P3 room-type presets set feature
+    enables, P4 relocate tuning constants off setup (Numbers-Get-Knobs), P5 fix broken/menu-interrupted
+    flow, P6 assistive house first-run (auto-detect weather), P7 end on a summary. Target: one room in
+    <=4 screens / <=~12 visible fields. Tier 2-DB (options round-trip risk). Next: operator picks P1-P7
+    scope (P1+P2+P5 deliver most of the >=50% alone).'
+  refs: [custom_components/universal_room_automation/config_flow.py, custom_components/universal_room_automation/__init__.py, docs/planning/AUDIT_first_run_onboarding.md]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
