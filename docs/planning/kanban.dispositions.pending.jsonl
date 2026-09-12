@@ -1,1 +1,9 @@
 {"action": "ack", "at": "2026-09-12T14:03:09.749Z", "card_id": "ROOM-NAME-UNIQUE-1@2026-09-12T11:40"}
+{"action": "ack", "at": "2026-09-12T14:10:12.454Z", "card_id": "EV-SENSOR-CLEANUP-1@2026-09-12T12:40"}
+{"action": "ack", "at": "2026-09-12T14:10:17.268Z", "card_id": "SHADOW-IMPORT-AUDIT-1@2026-09-12T12:55"}
+{"action": "ack", "at": "2026-09-12T14:11:15.019Z", "card_id": "UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1@2026-09-12T13:05"}
+{"action": "ack", "at": "2026-09-12T14:11:20.955Z", "card_id": "WAITING-OP-INSTRUCTIONS-1@2026-09-12T13:40"}
+{"action": "ack", "at": "2026-09-12T14:11:25.288Z", "card_id": "BOARD-AUTONOMY-PROGRESS-1@2026-09-12T13:45"}
+{"action": "ack", "at": "2026-09-12T14:12:22.398Z", "card_id": "BOARD-THEME-URA-1@2026-09-12T16:00"}
+{"action": "instruct", "at": "2026-09-12T14:13:40.242Z", "card_id": "AC-RAMP-NO-RECURRENCE-ESCALATION-1", "text": "We should park this for now as long as nudges seem to work."}
+{"action": "ack", "at": "2026-09-12T14:13:48.052Z", "card_id": "AC-RAMP-NO-RECURRENCE-ESCALATION-1@2026-09-12T14:50"}
