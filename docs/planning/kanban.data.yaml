@@ -9,63 +9,12 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - {fid: 'ROOM-NAME-UNIQUE-1@2026-09-12T11:40', at: '2026-09-12T11:40:00', outcome: built,
-     headline: 'ROOM-NAME-UNIQUE-1 — create-time duplicate room-name guard (Tier-1, in review)',
-     acknowledged: false}
-  - {fid: 'EV-SENSOR-CLEANUP-1@2026-09-12T12:40', at: '2026-09-12T12:40:00', outcome: built,
-     headline: 'EV-SENSOR-CLEANUP-1 — re-added per-bay EV charge-rate sensors per operator reversal (Tier-1, in review)',
-     acknowledged: false}
-  - {fid: 'SHADOW-IMPORT-AUDIT-1@2026-09-12T12:55', at: '2026-09-12T12:55:00', outcome: built,
-     headline: 'SHADOW-IMPORT-AUDIT-1 — AST audit FOUND+FIXED 2 latent Bug Class #34 shadows + permanent guard (Tier-1, in review)',
-     acknowledged: false}
-  - {fid: 'UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1@2026-09-12T13:05', at: '2026-09-12T13:05:00', outcome: built,
-     headline: 'UNEXPECTED-PERSON-IS-ON — migrated alert to deduped unidentified_count (Tier-2-DB, in review; deploy needs operator awareness)',
-     acknowledged: false}
   - {fid: 'HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00', at: '2026-09-12T12:00:00', outcome: parked,
      headline: 'HVAC-BASELINE-MAXSAMPLES-1 — PARKED at gate (shared-primitive change, margin does not pay)',
      acknowledged: false}
   - {fid: 'PATHBETA-VESTIGIAL-1@2026-09-12T12:20', at: '2026-09-12T12:20:00', outcome: parked,
      headline: 'PATHBETA-VESTIGIAL-1 — PARKED at gate (hygiene-not-defect; gated on PATH-ALPHA proofs)',
      acknowledged: false}
-  - {fid: 'ARRESTER-CLOUDFLAP-FALSEPOS-1@2026-09-12T13:10', at: '2026-09-12T13:10:00', outcome: waiting_operator,
-     headline: 'ARRESTER-CLOUDFLAP-FALSEPOS-1 — needs operator PICK of discriminator (Tier-3-adjacent; consumer check done)',
-     acknowledged: false}
-  - {fid: 'WAITING-OP-INSTRUCTIONS-1@2026-09-12T13:40', at: '2026-09-12T13:40:00', outcome: built,
-     headline: 'WAITING-OP-INSTRUCTIONS-1 — free-form instruction box on waiting_operator cards + groom-first + lane elevation (board tooling, done)',
-     acknowledged: false}
-  - {fid: 'BOARD-THEME-URA-1@2026-09-12T16:00', at: '2026-09-12T16:00:00', outcome: built,
-     headline: 'BOARD-THEME-URA-1 — reskinned the board to universalroom.org tokens (OKLCH light paper/cool ink/brand blue) + Hanken Grotesk / JetBrains Mono (board tooling, done)',
-     acknowledged: false}
-  - {fid: 'BOARD-AUTONOMY-PROGRESS-1@2026-09-12T13:45', at: '2026-09-12T13:45:00', outcome: built,
-     headline: 'BOARD-AUTONOMY-PROGRESS-1 — top-of-board last-24h progress counter + acknowledgeable recent-work feed (board tooling, done)',
-     acknowledged: false}
-  - {fid: 'GUEST-GATE-DOOR-IDENTITY-1@2026-09-12T14:30', at: '2026-09-12T14:30:00', outcome: waiting_operator,
-     headline: 'GUEST-GATE-DOOR-IDENTITY-1 — MEASURED egress person_id attach = 11% last 14d (NOT ~0; producer live). Build lane open at low coverage → operator PICK (consume now vs wait)',
-     acknowledged: false}
-  - {fid: 'ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-12T14:30', at: '2026-09-12T14:30:00', outcome: waiting_operator,
-     headline: 'ARRIVAL-DEPARTURE-NOTIFY-1 — same 11% attach; consumer branch already built. Operator APPROVE merge at 11% vs wait (NM volume)',
-     acknowledged: false}
-  - {fid: 'ROUTINE-DETECTOR-NO-DISCHARGE-1@2026-09-12T14:40', at: '2026-09-12T14:40:00', outcome: waiting_operator,
-     headline: 'ROUTINE-DETECTOR-NO-DISCHARGE-1 — MEASURED 462 routine_shift all unacked, 0 ever auto-discharged. Build lane open → operator PICK discharge design (auto-decay vs human-ack-only care signal)',
-     acknowledged: false}
-  - {fid: 'AC-RAMP-NO-RECURRENCE-ESCALATION-1@2026-09-12T14:50', at: '2026-09-12T14:50:00', outcome: waiting_operator,
-     headline: 'AC-RAMP-NO-RECURRENCE-ESCALATION-1 — organic data exhausted (nudge does not clear control-state, confirmed; reset-better UNTESTED, only 7 organic). Needs operator-run deliberate hard-reset experiment',
-     acknowledged: false}
-  - {fid: 'OPTIMIZER-NOTIFY-FLOOD-DEDUP-1@2026-09-12T15:00', at: '2026-09-12T15:00:00', outcome: waiting_operator,
-     headline: 'OPTIMIZER-NOTIFY-FLOOD-DEDUP-1 — DIAGNOSED: v5.91.4 cut volume ~45→5-10/day but identical findings still repeat 4x each (per-cycle-dedup-only gap). Operator PICK cross-cycle fix (suppress-TTL vs batch)',
-     acknowledged: false}
-  artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
-  target_host: urakanban.phalanxmadrone.com
-  columns:
-  - inbox
-  - pre_planning
-  - planned
-  - in_progress
-  - review
-  - shipped_organic
-  - waiting_operator
-  - waiting_me
-  - parked
   last_reconciled_note: Reconciled 2026-08-17 overnight pass. NOTHING SHIPPED since v5.78.0 — newest tag
     is v5.78.0 and manifest reads v5.78.0. README_v5.79.0.md exists but is an UNSHIPPED pre-deploy draft,
     which is why the rung-3 staleness rule (last_reconciled older than newest README) fired as a FALSE
@@ -3698,11 +3647,12 @@ cards:
   - project_enphase_coupling_tier (memory)
 - id: ROUTINE-CARE-DASHBOARD-1
   thread: presence
-  status: pre_planning
+  status: planned
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'UNBLOCKED + APPROVED — operator decided (on ROUTINE-DETECTOR-NO-DISCHARGE-1) to build the care dashboard in ura-v8 Presence tab + 14d auto-decay. Blocker resolved (discharge design = time-TTL). NEXT: build the Presence-tab care surface (colour signature of routine_shift anomalies) alongside the 14d auto-decay.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.'
   approval: unreviewed
   created: 2026-08-19 13:40
-  updated: 2026-09-11 16:16
   title: '"Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no
     notifications)'
   problem_solution:
@@ -3741,8 +3691,9 @@ cards:
     - ROUTINE-DETECTOR-NO-DISCHARGE-1
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
   thread: presence
-  status: waiting_operator
-  updated: '2026-09-12 14:40'
+  status: planned
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
   measured_2026_09_12: 'PROBE (URA DB anomaly_log, read-only via ssh) CONFIRMS the undischarged
     accumulator: 462 bayesian.routine_shift rows, ALL 462 unacked (recovery_at NULL), span 2026-05-15
@@ -3758,7 +3709,6 @@ cards:
     the parked decay-step constant). ROUTINE-CARE-DASHBOARD-1 stays blocked on this pick.'
   approval: unreviewed
   created: 2026-08-19 13:15
-  updated: 2026-09-11 16:16
   title: RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge,
     dead-letter ack, INFO near-noise, no consumer)
   problem_solution:
@@ -5988,8 +5938,9 @@ cards:
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight while the
     house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
-  status: waiting_operator
-  updated: '2026-09-12 14:50'
+  status: parked
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'PARK for now as long as nudges keep working (operator). REVIVAL TRIGGER: if nudge effectiveness drops (ac_ramp_events nudge_evaluated effective=0 rate climbs materially above the current ~1%), revisit the deliberate hard-reset escalation experiment. Nudges are 99% effective today.'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, probe-gated NO-BUILD: go/no-go ESCALATION_PROBE not run (only 1/9 historical resets in the fine-grained window). Do NOT build a trigger before the probe returns reset-ratio < nudge-ratio 0.97.'
   measured_2026_09_12: 'PROBE (URA DB ac_ramp_events, read-only via ssh): corroborates the card''s
     existing bound — nudge_evaluated n=888 post-08-15 with effective=1 on 879 (99%), but that "effective"
@@ -11616,9 +11567,10 @@ cards:
     - SECURITY-ENTRY-VERDICT-NAME-1
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
-  status: waiting_operator
+  status: investigating
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'CONDITIONAL APPROVE (operator): "Approve but FIRST bring me reasons for low yield and reverify — which legs (Frigate or UniFi/Protect) are working and which are not." I OWE a per-leg egress-identity breakdown: of the 54/487 (11%) person_id attaches last 14d, split by source (Frigate face bridge vs UniFi/Protect named-face vs other), identify which producer legs are emitting person_id and which are dead, and WHY the yield is low. Re-measure, then report before any build.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure attach rate post-v5.97.0 before scoping.'
-  updated: '2026-09-12 14:30'
   measured_2026_09_12: 'PROBE (URA DB person_entry_exit_events, read-only via ssh): egress person_id
     attach is NON-ZERO and recently active, overturning the earlier "attach ~0" assumption — 54/487
     (11%) in the last 14d; ALL 54 all-time filled events fall in that window (the Frigate face bridge
@@ -11632,7 +11584,6 @@ cards:
     operator-gated. On your go I scope the _is_known_person_in_room door-identity term.'
   thread: presence
   created: 2026-08-18 09:45
-  updated: 2026-09-11 16:16
   threshold_status: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
   sequence: 2
   confidence_gate: '>=0.9. Suppressing the guest gate on a WRONG identity UNDER-secures the house (a mis-named
@@ -11677,8 +11628,9 @@ cards:
     blocked_by EGRESS-IDENTITY-JOIN-GAP-1.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: waiting_operator
-  updated: '2026-09-12 14:30'
+  status: planned
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'APPROVED to merge+ship the already-built branch feature/arrival-departure-notify — operator: "Approve esp if built. Better than nothing" (named when identity known ~11%, generic otherwise). approval -> explicit. NEXT: cherry-pick/merge the branch onto current develop (re-verify base not stale), run its tests, Tier-2 review, deploy. Deploy restarts HA -> confirm timing with operator before shipping.'
   measured_2026_09_12: 'PROBE (same egress-identity-rate query as GUEST-GATE-DOOR-IDENTITY-1): attach
     rate = 54/487 (11%) last 14d, GARAGE path garage_a_person_count 11/146 (7.5%); producer live
     (v5.97.0 bridge), most recent filled event 2026-09-11. So the notify consumer (already BUILT on
@@ -14432,8 +14384,9 @@ cards:
   title: A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that
     was never there
   thread: hvac
-  status: waiting_operator
-  updated: 2026-09-12 13:10
+  status: investigating
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'LEANS A (operator): "A makes sense since one cloud service. Check reconnect ALWAYS happens for all zones at the same time. HOW do we detect reconnection? If they all reconnect at the same time, A and B are functionally the same." I OWE an investigation: (i) from ac_ramp_events / recorder, verify the 3 climate entities go unavailable->available SIMULTANEOUSLY on a Carrier cloud fault (quantify the spread); (ii) determine the reconnection-DETECTION mechanism available at the override-detection site (entity unavailable->available transition timestamps? a CARRIER freshness signal?); (iii) if reconnect is always simultaneous, note A==B and collapse the discriminator. Report before build (Tier-3-adjacent).'
   gate_2026_09_12: 'GATE -> waiting_operator (needs operator sign-off; NOT safe unattended-overnight).
     VALIDITY: still-real (0 reconnect/was_unavailable guards on the override-detection path), not
     shipped. CONSUMER CHECK (severity is a property of consumers): override_count_today has 7 increment
@@ -15500,8 +15453,9 @@ cards:
   title: Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup /
     cooldown on the notification path spams the operator
   thread: notifications
-  status: waiting_operator
-  updated: '2026-09-12 15:00'
+  status: planned
+  updated: '2026-09-12 17:00'
+  operator_decision_2026_09_12: 'DECISION (operator): "Both options" — build BOTH the cross-cycle per-finding SUPPRESS-with-TTL cooldown (reuse notification_log.cooldown_expires, NM_OPTIMIZER_FINDING_COOLDOWN_S knob) AND per-cycle BATCHing (one digest instead of N identical). NEXT: plan the suppression-discharge contract (what re-fires after TTL, restart rebuild from cooldown_expires, backstop) + the batch digest. Tier-2 (notify-path suppression).'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_COOLDOWN_S). RE-SCOPE to cross-cycle cooldown OR close if DB shows no repeats since v5.91.4.'
   measured_2026_09_12: 'PROBE (URA DB notification_log, read-only via ssh) — DIAGNOSED: the v5.91.4
     zonal-invariant HELPED (daily optimizer comfort notifications fell from ~45/day late-Aug to ~5-10/day
@@ -15519,7 +15473,6 @@ cards:
     (C) leave as-is. Proposed default: A with NM_OPTIMIZER_FINDING_COOLDOWN_S (a Number knob) keyed on
     the finding signature (room+finding-type). On your pick I build it to review.'
   created: 2026-08-28 22:00
-  updated: 2026-09-11 16:20
   refinement_status: refined
   approval: unreviewed
   tags:
