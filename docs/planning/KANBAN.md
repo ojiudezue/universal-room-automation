@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T13:49:06-05:00_ - _Data commit: `57e53311086b`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T14:01:27-05:00_ - _Data commit: `dbe65ef2eb14`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -639,14 +639,15 @@ _updated 2026-09-12 12:40 · refined ×3_
 
 ### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#5 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **review** - approval: **explicit**
-_created 2026-09-12 16:30 · updated 2026-09-12 15:05 · refined_
+_created 2026-09-12 16:30 · updated 2026-09-12 15:20 · refined_
 - **Problem / Solution:**
   - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
 - **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
 - **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
 - **Tags:** tier-2db
 - **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
-- **Forensic keys (13):**
+- **Forensic keys (14):**
+  - `tier3_review_2026_09_12`: TIER-3 4-REVIEW = UNANIMOUS FIX-REQUIRED (A round-trip, B migration/D9, C test-authority, D adversarial-completeness). Framings converged cleanly, each caught real defects the others missed — Tier-3 bar justified. CONSOLIDATED UNION (ded...
   - `slice2_built_2026_09_12`: SLICE 2 BUILT @ a9adafd28 (feature/onboarding-simplify). D3 essentials chain (room_setup[NAME/TYPE/AREA + conditional CONF_ZONE, auto-derived occupancy timeout] -> room_class[SOFT wet/guest defaults] -> sensors_confirm[_rank_area_candida...
   - `slice1_certified_2026_09_12`: SLICE 1 FIX-UP CERTIFIED @ 6a4ccca2d. F1 RESOLVED — tests env-portable (19/19 stub + .venv-ha + 53/53 co-run with test_cycle_b_config_flow.py; _install_registries builds HA mock modules locally/idempotently). F2 RESOLVED — behavioral D9 ...
   - `slice1_review_2026_09_12`: Slice-1 review = FIX-REQUIRED (fix before Slice 2). MUST-FIX: F1 CRIT — the D1/D5 tests only pass under .venv-ha; under the standard stub harness they KeyError (borrowed _load_config_flow deletes the HA mock modules) -> D1/D5 have no por...
