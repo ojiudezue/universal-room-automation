@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T11:58:22-05:00_ - _Data commit: `dfe8ac0869a3`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T13:14:33-05:00_ - _Data commit: `2edb7989582a`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -1527,7 +1527,7 @@ _created 2026-09-12 18:55 · updated 2026-09-12 13:15 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** anomaly_log metric_name=camera_stuck
 - **Forensic keys (1):**
-  - `verify_2026_09_12`: Operator REBOOTED it -> verify-before-work: CLEARED, do NOT fix on stale data. MEASURED live (13:15 CDT): binary_sensor.master_hallway_person_occupancy is TOGGLING NORMALLY (dozens of short ON/OFF cycles over the last few hours: 09:32,09...
+  - `verify_2026_09_12`: Operator REBOOTED yesterday -> verify-before-work: CLEARED + HOLDING ~21h, do NOT fix on stale data. MEASURED live (30h history): stuck ON 09-11 07:14->15:37 (~8.4h, part of the 13.9h episode), then reboot (unavailable 15:37->16:02 09-11...
 
 ### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count) — _#37 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **parked** - approval: **implied**

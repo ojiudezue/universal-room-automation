@@ -16831,7 +16831,7 @@ cards:
   thread: presence
   status: parked
   updated: '2026-09-12 13:15'
-  verify_2026_09_12: 'Operator REBOOTED it -> verify-before-work: CLEARED, do NOT fix on stale data. MEASURED live (13:15 CDT): binary_sensor.master_hallway_person_occupancy is TOGGLING NORMALLY (dozens of short ON/OFF cycles over the last few hours: 09:32,09:39,10:36,11:41,12:03..12:08,12:23,12:31,12:53,13:03; longest OFF ~1h) — NOT the 13.9h flat-stuck pattern. The reboot resolved the stuck assert. PARKED. REVIVAL TRIGGER: if master_hallway person_count goes flat=1 for >3h again (D1 camera_stuck re-fires), reopen and diagnose the source (camera integration vs mmwave). Stale 13.9h data is not a basis to build now.'
+  verify_2026_09_12: 'Operator REBOOTED yesterday -> verify-before-work: CLEARED + HOLDING ~21h, do NOT fix on stale data. MEASURED live (30h history): stuck ON 09-11 07:14->15:37 (~8.4h, part of the 13.9h episode), then reboot (unavailable 15:37->16:02 09-11); SINCE 16:02 yesterday it has TOGGLED NORMALLY for ~21h (evening+overnight+all today; longest OFF ~3.7h overnight = normal empty-hallway, no flat-stuck). The reboot resolved it. PARKED. REVIVAL TRIGGER: if master_hallway person_count goes flat=1 >3h again (D1 camera_stuck re-fires), reopen + diagnose source (camera integration vs mmwave).'
   created: '2026-09-12 18:55'
   refinement_status: initial
   approval: unreviewed
