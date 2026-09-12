@@ -8051,9 +8051,19 @@ cards:
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
   thread: presence
-  status: pre_planning
-  updated: 2026-09-12 10:00
+  status: review
+  updated: 2026-09-12 11:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.'
+  disposition_2026_09_12_built: 'BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time
+    duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the
+    existing zone_name_exists guard: case-insensitive + whitespace-trimmed compare of the new
+    CONF_ROOM_NAME against _get_all_room_entries(); empty name also rejected; error string
+    room_name_exists added to strings.json + translations/en.json. Scope is CREATE-path only
+    (self-collision impossible; rename/reconfigure is a separate flow, noted). 3 tests appended to
+    test_cycle_b_config_flow.py (dup-case-insensitive, empty, unique-proceeds); mutation drill:
+    neutering the guard turns the dup test RED (KeyError on errors[base]); 34/34 file regression
+    clean. Awaiting batched deploy for live validation (config-flow guard has no runtime entity to
+    watch; live check = attempt to add a same-named room in the UI shows the error). status review.'
   approval: unreviewed
   origin:
     date: '2026-08-14'

@@ -1112,14 +1112,31 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         errors = {}
 
         if user_input is not None:
-            self._data.update(user_input)
-            # Set default timeout based on room type if not explicitly set
-            if CONF_OCCUPANCY_TIMEOUT not in user_input:
-                room_type = user_input.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
-                self._data[CONF_OCCUPANCY_TIMEOUT] = ROOM_TYPE_TIMEOUTS.get(
-                    room_type, DEFAULT_OCCUPANCY_TIMEOUT
-                )
-            return await self.async_step_sensors()
+            # ROOM-NAME-UNIQUE-1 (v-stamp): reject a duplicate room name at
+            # CREATE time (mirrors the zone_name_exists guard in
+            # async_step_zone_setup). Case-insensitive, whitespace-trimmed —
+            # duplicate room names collide downstream (title, zone-rooms
+            # write-through, entity slugs) exactly as duplicate zone names do.
+            room_name = user_input.get(CONF_ROOM_NAME, "").strip()
+            if not room_name:
+                errors["base"] = "room_name_exists"
+            else:
+                existing_names = [
+                    e.data.get(CONF_ROOM_NAME, "").strip().lower()
+                    for e in self._get_all_room_entries()
+                ]
+                if room_name.lower() in existing_names:
+                    errors["base"] = "room_name_exists"
+
+            if not errors:
+                self._data.update(user_input)
+                # Set default timeout based on room type if not explicitly set
+                if CONF_OCCUPANCY_TIMEOUT not in user_input:
+                    room_type = user_input.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
+                    self._data[CONF_OCCUPANCY_TIMEOUT] = ROOM_TYPE_TIMEOUTS.get(
+                        room_type, DEFAULT_OCCUPANCY_TIMEOUT
+                    )
+                return await self.async_step_sensors()
 
         room_types = [
             {"label": "Bedroom", "value": ROOM_TYPE_BEDROOM},
