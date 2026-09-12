@@ -2276,7 +2276,7 @@ cards:
   title: Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together
     at 08-30 16:46 — one event, safety
   thread: presence
-  status: investigating
+  status: parked
   created: 2026-08-31 19:15
   updated: 2026-08-31 19:15
   refinement_status: initial
@@ -2296,8 +2296,23 @@ cards:
     alert fires on water-leak-specifically going unavailable.
   next: Investigate the 08-30 16:46 common cause (Zigbee/integration). Restore. Consider a water-leak
     availability trip-wire -> NM (per No-Soak).
+  updated: 2026-09-12 09:30
   refs:
   - room device audit 2026-08-31 (LOW/safety section)
+  disposition:
+  - 'VERIFIED 2026-09-12 (verify-before-work sweep) — verdict STILL-REAL, worse than "transient hiccup":
+    binary_sensor.waterleak_sonoff_zigbee_ziribathroom_water_leak is STILL "unknown" live (~13 days
+    after the 08-30 16:46 drop), and its battery_low sibling is "unknown" too. The sensor did NOT
+    self-restore — a safety input has been blind ~2 weeks. So the common-cause forensic is secondary
+    to getting the trio back online, and the availability trip-wire in `next` is now clearly warranted
+    (a 2-week silent blind spot on a leak sensor is exactly the No-Soak-in-code case). Card stays open;
+    priority raised.'
+  - 'PARKED 2026-09-12 (operator): "I think it reset. Ignore waterleak for now. Park — and it''s mostly
+    my work anyway." Operator handling the physical/Zigbee restore themselves. REVIVAL TRIGGER: if the
+    leak trio is STILL unknown after the operator''s reset settles (re-check
+    binary_sensor.waterleak_sonoff_zigbee_ziribathroom_water_leak != unknown), OR if we decide the
+    availability trip-wire is worth building as URA code regardless of the physical restore, unpark.'
+  live_broken: false
 - id: EGRESS-IDENTITY-JOIN-GAP-1
   consumer_link_note_2026_09_03: 'RE-POINTED 2026-09-03: the 8 consumers no longer depend on the PARKED
     Protect bridge (D1-PROTECT-FACE-BRIDGE-ADDON-1). Real gate = FRIGATE-SUBLABEL-FACE-BRIDGE-1 (Frigate
@@ -8159,7 +8174,7 @@ cards:
   title: RECOVER (not unconfigure) Ziri 3 device from Ziri Bedroom entry (presence + moving_target + VEML7700
     lux) — rides next deploy restart
   thread: presence
-  status: waiting_operator
+  status: done
   approval: explicit
   approved_by: operator 2026-08-15 ("Check if in config and if not unconfigure it")
   origin:
@@ -8177,9 +8192,19 @@ cards:
   reversal_2026_08_15: 'Operator: device is still physically in the room — DO NOT unconfigure. Staged
     flush-watcher rider DELETED. History: zero real readings in entire recorder retention (8+ days); node
     does not resolve on network (ESP fully off-WiFi, not flapping). Config refs stay.'
-  next: 'DO (physical): power-cycle the Ziri 3 node (unplug/replug). -> I verify entities leave unavailable,
-    presence/lux flow, optimizer sensor_health clears.'
-  updated: 2026-09-11 16:40
+  next: 'CLOSED 2026-09-12 — node recovered; no operator action outstanding.'
+  updated: 2026-09-12 09:30
+  disposition:
+  - 'VERIFIED 2026-09-12 (verify-before-work sweep) — verdict ALREADY-DONE. The card premise ("device
+    physically dead... zero real readings in entire recorder retention; node off-WiFi") is NO LONGER
+    TRUE. DISCRIMINATOR matters: current live states (presence=off, detection_distance=37.4) prove
+    nothing — every ziri_3 entity last_changed at 2026-09-11T19:16:10 (the HA restart), so "off" could
+    be a boot default. Decisive read is RECORDER HISTORY, which shows a real detection pulse BEFORE
+    that restart: binary_sensor.ziri_3_presence on 2026-09-11T10:34:48 -> off 10:34:54. A dead
+    off-WiFi ESP cannot produce a 6-second presence transition. Lux leg alive: ziri_3_veml7700_ambient_light
+    = 0.0 (not unavailable), matching the whole VEML7700 fleet at a night read. Config refs correctly
+    left in place by the 2026-08-15 reversal, so the room already has presence + lux back — nothing to
+    re-add.'
 - id: OPT-META-BOOT-TRANSIENT-1
   title: Optimizer meta-monitor false "cannot see problems" alert — findings_recent reads RAM cache emptied
     by restart while open-count reads durable state
