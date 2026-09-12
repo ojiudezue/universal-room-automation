@@ -1076,34 +1076,47 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         )
 
     async def async_step_add_first_room(self, user_input=None):
-        """Redirect to post-integration setup menu."""
-        return await self.async_step_post_integration_setup()
+        """ONBOARDING-SIMPLIFY-1 (D4 ribbon): first-run routes DIRECTLY into
+        room_setup carrying `_integration_data` + `_energy_data`; the House
+        entry is spawned at room-create time (async_step_room_summary) via
+        `flow.async_init(source="integration_create")` — the SAME internal-init
+        pattern already used at async_step_notifications:2432-2447. Keeping
+        the House-mint at the room-finale (not here) preserves the
+        capture-first invariant: no House entry is written until the operator
+        commits at least one room OR explicitly picks the Skip branch.
+        """
+        return await self.async_step_room_setup()
 
     async def async_step_post_integration_setup(self, user_input=None):
-        """Show menu after integration setup - zone, room, or finish."""
-        # First create the integration entry with both config and energy data
-        if self._integration_data:
-            combined_data = {
-                CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION,
-                **self._integration_data
-            }
-            # Merge energy data if present
-            if self._energy_data:
-                combined_data.update(self._energy_data)
-            
-            result = self.async_create_entry(
-                title="🏠 Home",
-                data=combined_data
-            )
-            self._integration_data = None  # Clear so we don't recreate
-            self._energy_data = None
-            return result
-        
-        # If we get here without integration_data, just show menu
+        """Menu shown when an add-room flow starts without an in-progress
+        first-run (i.e. `_integration_data` is None). D4 removed the House
+        `async_create_entry` from this step — first-run House-mint lives at
+        `async_step_room_summary` now, spawned via flow.async_init.
+        """
         return self.async_show_menu(
             step_id="post_integration_setup",
             menu_options=["setup_zone", "skip_to_room", "finish"],
         )
+
+    async def async_step_skip_rooms_later(self, user_input=None):
+        """D4 Skip branch: spawn House entry via internal-init and abort the
+        current flow cleanly. Used when the operator chooses to defer room
+        creation on first-run."""
+        if self._integration_data is not None:
+            combined = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION,
+                **self._integration_data,
+            }
+            if self._energy_data:
+                combined.update(self._energy_data)
+            await self.hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": "integration_create"},
+                data=combined,
+            )
+            self._integration_data = None
+            self._energy_data = None
+        return self.async_abort(reason="not_supported")
     
     async def async_step_setup_zone(self, user_input=None):
         """Route to zone setup from post-integration menu."""
@@ -1267,13 +1280,16 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
             if not errors:
                 self._data.update(user_input)
-                # Set default timeout based on room type if not explicitly set
-                if CONF_OCCUPANCY_TIMEOUT not in user_input:
-                    room_type = user_input.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
-                    self._data[CONF_OCCUPANCY_TIMEOUT] = ROOM_TYPE_TIMEOUTS.get(
-                        room_type, DEFAULT_OCCUPANCY_TIMEOUT
-                    )
-                return await self.async_step_sensors()
+                # ONBOARDING-SIMPLIFY-1 (D3): essentials-only room_setup —
+                # occupancy timeout is auto-derived from room TYPE (was a
+                # visible schema field pre-cycle; now deferred to Options).
+                # Timeout writes ALWAYS occur here (INV-3 parity: consumer
+                # fallbacks assume the key is present).
+                room_type = self._data.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
+                self._data[CONF_OCCUPANCY_TIMEOUT] = ROOM_TYPE_TIMEOUTS.get(
+                    room_type, DEFAULT_OCCUPANCY_TIMEOUT
+                )
+                return await self.async_step_room_class()
 
         room_types = [
             {"label": "Bedroom", "value": ROOM_TYPE_BEDROOM},
@@ -1311,43 +1327,14 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 )
             )
         
-        # Add remaining fields
-        schema_fields.update({
-            # v3.1.0: Shared space settings
-            vol.Optional(CONF_SHARED_SPACE, default=False): selector.BooleanSelector(),
-            vol.Optional(CONF_SHARED_SPACE_AUTO_OFF_HOUR, default=DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=23, step=1,
-                    unit_of_measurement="hour (0-23)",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(CONF_SHARED_SPACE_WARNING, default=True): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_OCCUPANCY_TIMEOUT,
-                default=DEFAULT_OCCUPANCY_TIMEOUT
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=60,
-                    max=3600,
-                    unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_OCCUPANCY_DEBOUNCE,
-                default=DEFAULT_OCCUPANCY_DEBOUNCE
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=2000,
-                    step=50,
-                    unit_of_measurement="ms",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-        })
-        
+        # ONBOARDING-SIMPLIFY-1 (D3): essentials-only room_setup. Prior
+        # cycle exposed CONF_SHARED_SPACE* + CONF_OCCUPANCY_TIMEOUT +
+        # CONF_OCCUPANCY_DEBOUNCE here — those moved to Options (D7 parity;
+        # OCCUPANCY_TIMEOUT is auto-derived from TYPE at submit above).
+        # CONF_ZONE stays on essentials CONDITIONALLY per operator ruling
+        # (2026-09-12): removing it would create a zone-less-new-room
+        # behavior change we explicitly chose not to ship.
+
         data_schema = vol.Schema(schema_fields)
 
         return self.async_show_form(
@@ -1356,7 +1343,243 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             errors=errors,
             description_placeholders={"name": "Basic room setup"},
         )
-    
+
+    # ============================================================================
+    # ONBOARDING-SIMPLIFY-1 (D3) — reshaped essentials chain
+    #   room_setup -> room_class -> sensors_confirm -> devices_confirm ->
+    #   room_summary -> async_create_entry
+    # Old mid-flow menus (automation_behavior, init_automation_chaining,
+    # climate, fan_speeds, energy, notifications, night_light_detail,
+    # cover_behavior) are UNREACHED from create-path; they remain live
+    # methods for the Options flow (D7 parity — every field editable there).
+    # ============================================================================
+
+    async def async_step_room_class(self, user_input=None):
+        """D3 step 2: class question (wet-room / guest-room). Writes existing
+        flags CONF_WET_ROOM + CONF_ROOM_IS_GUEST_ROOM. Utility / Infrastructure
+        are room TYPES (already picked in step 1), not class booleans.
+
+        Defaults are SOFT — pre-filled from ROOM_TYPE_FEATURE_DEFAULTS where
+        applicable (e.g. bathroom -> wet_room=True), but operator override
+        wins (final seed pass at room_summary respects existing keys).
+        """
+        room_type = self._data.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
+        seed = ROOM_TYPE_FEATURE_DEFAULTS.get(room_type, {})
+        default_wet = bool(seed.get(CONF_WET_ROOM, False))
+
+        if user_input is not None:
+            # Persist explicit operator choice into _data so the D9 seed at
+            # room_summary sees it (SOFT semantics: explicit-False wins).
+            self._data[CONF_WET_ROOM] = bool(user_input.get(CONF_WET_ROOM, default_wet))
+            self._data[CONF_ROOM_IS_GUEST_ROOM] = bool(
+                user_input.get(CONF_ROOM_IS_GUEST_ROOM, False)
+            )
+            return await self.async_step_sensors_confirm()
+
+        data_schema = vol.Schema({
+            vol.Optional(CONF_WET_ROOM, default=default_wet): selector.BooleanSelector(),
+            vol.Optional(CONF_ROOM_IS_GUEST_ROOM, default=False): selector.BooleanSelector(),
+        })
+        return self.async_show_form(
+            step_id="room_class",
+            data_schema=data_schema,
+            description_placeholders={
+                "name": "Room class — humidity handling and guest-room rules.",
+            },
+        )
+
+    async def async_step_sensors_confirm(self, user_input=None):
+        """D3 step 3: pre-filled sensors via _rank_area_candidates.
+
+        Occupancy retains the hard `no_occupancy_sensors` guard (INV-2
+        intentional exception). Non-required buckets (temp / humidity / lux
+        / door) accept `[]`/empty and persist EMPTY when the operator clears
+        the pre-filled selector (INV-2 anchor). D6 empty-area legibility:
+        if a bucket has zero candidates in the area, the description
+        placeholder tells the operator why + how to fix.
+        """
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            motion = user_input.get(CONF_MOTION_SENSORS, []) or []
+            mmwave = user_input.get(CONF_MMWAVE_SENSORS, []) or []
+            occupancy = user_input.get(CONF_OCCUPANCY_SENSORS, []) or []
+            if not motion and not mmwave and not occupancy:
+                errors["base"] = "no_occupancy_sensors"
+            else:
+                # INV-2: persist EXACTLY what the operator submitted for
+                # non-required buckets. Do NOT re-apply the pre-filled guess
+                # when a selector was cleared. `user_input` from voluptuous
+                # already carries `[]` for an emptied multi-selector and
+                # omits keys the operator explicitly cleared to empty for
+                # single-entity selectors — the update below is a straight
+                # merge without back-filling.
+                self._data.update(user_input)
+                return await self.async_step_devices_confirm()
+
+        area_id = self._data.get(CONF_AREA_ID)
+
+        def _ranked(entities: list[str]) -> list[str]:
+            return self._rank_area_candidates(entities, actuator_device_ids=set())
+
+        area_motion = _ranked(self._get_area_entities(area_id, "binary_sensor", "motion")) if area_id else []
+        area_occupancy = _ranked(self._get_area_entities(area_id, "binary_sensor", "occupancy")) if area_id else []
+        area_temp = _ranked(self._get_area_entities(area_id, "sensor", "temperature")) if area_id else []
+        area_humidity = _ranked(self._get_area_entities(area_id, "sensor", "humidity")) if area_id else []
+        area_illuminance = _ranked(self._get_area_entities(area_id, "sensor", "illuminance")) if area_id else []
+        area_door = _ranked(self._get_area_entities(area_id, "binary_sensor", ["door", "opening"])) if area_id else []
+
+        # D6 empty-area legibility hints
+        empty_buckets = []
+        for label, lst in (
+            ("temperature", area_temp),
+            ("humidity", area_humidity),
+            ("illuminance", area_illuminance),
+            ("door", area_door),
+        ):
+            if area_id and not lst:
+                empty_buckets.append(label)
+        hint = (
+            f"No {', '.join(empty_buckets)} sensor(s) found in this area — "
+            f"assign entities to the HA area or leave blank."
+            if empty_buckets else "Confirm auto-detected sensors."
+        )
+
+        data_schema = vol.Schema({
+            vol.Optional(CONF_MOTION_SENSORS, default=area_motion or []): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+            ),
+            vol.Optional(CONF_MMWAVE_SENSORS, default=[]): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+            ),
+            vol.Optional(CONF_OCCUPANCY_SENSORS, default=area_occupancy or []): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
+            ),
+            vol.Optional(CONF_TEMPERATURE_SENSOR, default=area_temp[0] if area_temp else vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+            ),
+            vol.Optional(CONF_HUMIDITY_SENSOR, default=area_humidity[0] if area_humidity else vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
+            ),
+            vol.Optional(CONF_ILLUMINANCE_SENSOR, default=area_illuminance[0] if area_illuminance else vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="illuminance")
+            ),
+            vol.Optional(CONF_DOOR_SENSORS, default=area_door[0] if area_door else vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", device_class=["door", "opening"])
+            ),
+        })
+        return self.async_show_form(
+            step_id="sensors_confirm",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={"name": hint},
+        )
+
+    async def async_step_devices_confirm(self, user_input=None):
+        """D3 step 4: essentials devices with area pre-fill.
+
+        Night-lights + covers-behavior EXCLUDED from essentials auto-prefill
+        per D9-M5 decision — set intentionally via Options, not on create.
+        """
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_room_summary()
+
+        area_id = self._data.get(CONF_AREA_ID)
+
+        def _ranked(entities: list[str]) -> list[str]:
+            return self._rank_area_candidates(entities, actuator_device_ids=set())
+
+        area_lights = _ranked(self._get_area_entities(area_id, "light")) if area_id else []
+        area_fans = _ranked(self._get_area_entities(area_id, "fan")) if area_id else []
+        area_covers = _ranked(self._get_area_entities(area_id, "cover")) if area_id else []
+
+        data_schema = vol.Schema({
+            vol.Optional(CONF_LIGHTS, default=area_lights or []): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["light", "switch"], multiple=True)
+            ),
+            vol.Optional(CONF_FANS, default=area_fans or []): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
+            ),
+            vol.Optional(CONF_HUMIDITY_FANS, default=[]): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["fan", "switch"], multiple=True)
+            ),
+            vol.Optional(CONF_COVERS, default=area_covers or []): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="cover", multiple=True)
+            ),
+        })
+        return self.async_show_form(
+            step_id="devices_confirm",
+            data_schema=data_schema,
+            description_placeholders={"name": "Confirm auto-detected devices."},
+        )
+
+    async def async_step_room_summary(self, user_input=None):
+        """D3 step 5 (final): read-only recap. On submit:
+        1. Apply D2/D9 SOFT seed from ROOM_TYPE_FEATURE_DEFAULTS (single
+           producer; explicit-False wins because keys already present in
+           self._data from prior steps are NOT overwritten).
+        2. D4 ribbon: spawn House entry via flow.async_init(
+           source="integration_create") when `_integration_data` is present
+           (same internal-init pattern used at async_step_notifications
+           :2432-2447).
+        3. `async_create_entry` for the room. This TERMINATES the flow.
+        """
+        if user_input is not None:
+            # D4: spawn House first (before creating room) so the room can
+            # link to the integration entry.
+            if self._integration_data is not None:
+                combined = {
+                    CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION,
+                    **self._integration_data,
+                }
+                if self._energy_data:
+                    combined.update(self._energy_data)
+                await self.hass.config_entries.flow.async_init(
+                    DOMAIN,
+                    context={"source": "integration_create"},
+                    data=combined,
+                )
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                        self._integration_entry_id = entry.entry_id
+                        break
+                self._integration_data = None
+                self._energy_data = None
+
+            # D2/D9 seed — SOFT: only fill keys the operator didn't already
+            # commit via room_class / sensors_confirm / devices_confirm.
+            room_type_seed = ROOM_TYPE_FEATURE_DEFAULTS.get(
+                self._data.get(CONF_ROOM_TYPE), {}
+            )
+            for _k, _v in room_type_seed.items():
+                if _k not in self._data:
+                    self._data[_k] = _v
+
+            room_data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_INTEGRATION_ENTRY_ID: self._integration_entry_id,
+                **self._data,
+            }
+            return self.async_create_entry(
+                title=self._data[CONF_ROOM_NAME],
+                data=room_data,
+            )
+
+        n_motion = len(self._data.get(CONF_MOTION_SENSORS, []) or [])
+        n_occ = len(self._data.get(CONF_OCCUPANCY_SENSORS, []) or [])
+        n_lights = len(self._data.get(CONF_LIGHTS, []) or [])
+        summary_text = (
+            f"Create room '{self._data.get(CONF_ROOM_NAME)}' "
+            f"(type={self._data.get(CONF_ROOM_TYPE)}) with "
+            f"{n_motion + n_occ} occupancy sensor(s), {n_lights} light(s). "
+            f"Submit to finish; tune advanced settings via Options."
+        )
+        return self.async_show_form(
+            step_id="room_summary",
+            data_schema=vol.Schema({}),
+            description_placeholders={"name": summary_text},
+        )
+
     def _get_existing_zones(self) -> set[str]:
         """Get existing zones from Zone Manager and legacy Zone config entries.
 
