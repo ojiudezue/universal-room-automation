@@ -326,11 +326,17 @@ def _run(coro):
 
 
 def _drive_notifications(user_input):
-    """Drive async_step_notifications with the given user_input and return
-    the created-entry `data` dict. Skips the integration-create branch
-    (self._integration_data left None by _make_config_flow)."""
+    """T6 (Tier-3 fix-up): D9 anchor repointed to `async_step_room_summary`
+    (the reachable create-path finale in the D3-reshaped chain).
+    `async_step_notifications` is unreached from create-path after Slice 2
+    and its duplicate seed loop was removed (single-producer discipline).
+
+    Drives the room-summary step with pre-populated `_data` (mimicking
+    what the reshaped chain accumulates) and returns the created-entry
+    `data` dict."""
     flow = _make_config_flow()
-    result = _run(flow.async_step_notifications(user_input=user_input))
+    flow._data.update(user_input)
+    result = _run(flow.async_step_room_summary(user_input={}))
     assert result.get("type") == "create_entry", (
         f"expected create_entry, got {result}"
     )

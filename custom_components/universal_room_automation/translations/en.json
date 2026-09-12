@@ -457,6 +457,71 @@
           "alert_lights": "Lights to flash/change color for visual alerts",
           "alert_light_color": "Color to use for alert indication"
         }
+      },
+      "room_class": {
+        "title": "Room class",
+        "description": "{name}",
+        "data": {
+          "wet_room": "Wet room (bathroom / laundry)",
+          "room_is_guest_room": "Guest room"
+        },
+        "data_description": {
+          "wet_room": "Enables humidity-fan and drying logic.",
+          "room_is_guest_room": "Occupancy defaults tuned for infrequent use."
+        }
+      },
+      "sensors_confirm": {
+        "title": "Confirm sensors",
+        "description": "{name}",
+        "data": {
+          "motion_sensors": "Motion",
+          "mmwave_sensors": "mmWave",
+          "occupancy_sensors": "Occupancy",
+          "temperature_sensor": "Temperature",
+          "humidity_sensor": "Humidity",
+          "illuminance_sensor": "Illuminance",
+          "door_sensors": "Door",
+          "water_leak_sensor": "Water leak"
+        },
+        "data_description": {
+          "motion_sensors": "One or more motion binary_sensors.",
+          "temperature_sensor": "Optional — leave blank if none.",
+          "humidity_sensor": "Optional — leave blank if none.",
+          "illuminance_sensor": "Optional — leave blank if none.",
+          "door_sensors": "Optional — leave blank if none.",
+          "water_leak_sensor": "Optional — leave blank if none."
+        }
+      },
+      "devices_confirm": {
+        "title": "Confirm devices",
+        "description": "{name}",
+        "data": {
+          "lights": "Lights",
+          "auto_switches": "Switches",
+          "fans": "Fans",
+          "humidity_fans": "Humidity fan(s)",
+          "covers": "Covers / shades"
+        },
+        "data_description": {
+          "auto_switches": "Non-light switch actuators (e.g. relays).",
+          "humidity_fans": "Fans driven by humidity logic."
+        }
+      },
+      "room_summary": {
+        "title": "Ready to create",
+        "description": "{name}"
+      },
+      "skip_rooms_later": {
+        "title": "Skipped",
+        "description": "Home installed. Add rooms any time via Settings > Devices & Services > Universal Room Automation > Configure."
+      },
+      "add_first_room": {
+        "title": "Add your first room",
+        "description": "Add a room now, or skip and add rooms later.",
+        "menu_options": {
+          "skip_to_room": "Add first room",
+          "skip_rooms_later": "Skip — add rooms later"
+        }
       }
     },
     "error": {

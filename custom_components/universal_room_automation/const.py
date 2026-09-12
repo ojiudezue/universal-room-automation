@@ -1233,6 +1233,12 @@ ROOM_TYPE_FEATURE_DEFAULTS: Final = {
     ROOM_TYPE_BATHROOM: {
         CONF_WET_ROOM: True,
         CONF_HUMIDITY_FAN_SPIKE_ENABLED: True,
+        # P3 (Tier-3 fix-up): the humidity-fan presence-runtime enable is
+        # the third leg of the bathroom humidity-fan story. Pre-cycle the
+        # schema default at config_flow.py (bathroom row) was True; the
+        # essentials collapse dropped the field. Seed here so the effective
+        # post-create for a new bathroom room matches pre-cycle.
+        CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED: True,
     },
 }
 
