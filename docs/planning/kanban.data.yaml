@@ -14428,8 +14428,9 @@ cards:
   title: A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that
     was never there
   thread: hvac
-  status: planned
-  updated: '2026-09-12 13:45'
+  status: review
+  updated: '2026-09-12 14:20'
+  built_2026_09_12: 'BUILT feature/arrester-reconnect-grace @ dd29169d0 (not merged/deployed). Guard in _handle_climate_change: old_state==unavailable->!=unavailable stamps recovery + returns; follow-up tick within OVERRIDE_RECONNECT_GRACE_S=30 (new rung-1 const) suppressed. 11 tests. INVARIANT PROVEN: single-zone human override (old_state!=unavailable, siblings untouched) still books (test_single_zone_human_override_still_counts); all-3-zone reconnect books 0 (was 3). 7-site mutation drill: 6/7 RED-on-neuter as expected; L2009 startup_audit site GREEN = PRE-EXISTING untested gap NOT reachable by a flap event (carded separately OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1). Family suite 153 pass / 3 fail = pre-existing order-pollution (reproduce on baseline, pass in isolation), NOT introduced. NEXT: 1 adversarial review (key risk: does the 30s follow-up-grace ever eat a GENUINE override landing within 30s of a reconnect?) -> operator DEPLOY checkpoint (cost/comfort; do not deploy unattended).'
   verified_2026_09_12: 'OPERATOR-LEANED-A + owed verification DONE -> A==B CONFIRMED, GREEN to build. MEASURED (recorder ~6d): the 3 Carrier zones (studyb_zone_1=1525, up_hallway_zone_2=5281, back_hallway_zone_3=5282) drop AND recover in the SAME event-loop tick — spread 0.000s, 11/11 events both directions (one ha_carrier cloud poll refreshes all three). ZERO single-zone flaps in-window. So A (post-reconnect grace) == B (3-zone-simultaneous gate). SIMPLEST BUILD (subsumes both, per-event, no cross-zone machinery): gate override detection when the triggering event old_state.state=="unavailable" (or reconnected within N s) — detector already gets old_state/new_state (hvac_override.py:134/1917/2293/2341/2722); currently 0 reconnect/was_unavailable guards (only attribute-value string checks). A genuine single-zone human override (old_state not unavailable, siblings untouched) is UNTOUCHED by the guard -> comfort-safety preserved. TIER: build is small but touches the override-arrester -> the card gate STILL requires mutation-anchoring each of the 7 override_count_today increment sites (2002/2527/2816/2830/2895/2956/3013) + proving a single-zone override still counts. Ready to build (queued behind current capacity).'
   operator_decision_2026_09_12: 'LEANS A (operator): "A makes sense since one cloud service. Check reconnect ALWAYS happens for all zones at the same time. HOW do we detect reconnection? If they all reconnect at the same time, A and B are functionally the same." I OWE an investigation: (i) from ac_ramp_events / recorder, verify the 3 climate entities go unavailable->available SIMULTANEOUSLY on a Carrier cloud fault (quantify the spread); (ii) determine the reconnection-DETECTION mechanism available at the override-detection site (entity unavailable->available transition timestamps? a CARRIER freshness signal?); (iii) if reconnect is always simultaneous, note A==B and collapse the discriminator. Report before build (Tier-3-adjacent).'
   gate_2026_09_12: 'GATE -> waiting_operator (needs operator sign-off; NOT safe unattended-overnight).
@@ -16886,6 +16887,27 @@ cards:
       PERIMETER-PHANTOM (which is about severity/corroboration); this is about sheer VOLUME + re-page
       cadence = alert fatigue.'
   refs: [notification_log hazard_type=exterior_person]
+- id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
+  title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
+  thread: hvac
+  status: inbox
+  created: '2026-09-12 14:20'
+  updated: '2026-09-12 14:20'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-1, mutation-drill]
+  problem_solution:
+  - 'Problem: the async_startup_audit stale-override increment of override_count_today
+     (hvac_override.py:2009) has no mutation-anchored test — neutering it leaves the suite green. Found
+     during the ARRESTER 7-site drill; it is NOT reachable by a cloud-flap reconnect (startup-audit path
+     is not event-driven), so it is outside the ARRESTER fix scope, but it is a real pre-existing
+     coverage gap on a cost-relevant counter. Solution: add a test that drives the startup-audit path
+     and asserts the increment (mutation-anchored), if the audit path is load-bearing.'
+  why: flagged by the ARRESTER build per Tier-3 mutation-drill discipline; captured rather than scope-crept.
+  next: 'Confirm the async_startup_audit stale-override path is load-bearing, then add a mutation-anchored test.'
+  links:
+    related: [ARRESTER-CLOUDFLAP-FALSEPOS-1]
+  refs: ['hvac_override.py:2009']
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
