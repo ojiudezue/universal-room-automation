@@ -5115,6 +5115,7 @@ cards:
     power (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
   status: review
+  ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). Primary deliverable DONE + on develop @9f983c073 (EnergyEVChargeRateGarage{A,B}Sensor, sensor.py:330-331/10395+, sourced from ev_status per-bay power, fail-closed None). RESIDUAL (separate tail, not blocking): optional per-plug power entity wired to the Emporia garage circuit — keep carded. Moves review->shipped_organic when deploy.sh runs.'
   updated: 2026-09-12 12:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b} (do not exist in source today). REWRITE next to the reversal.'
   gate_2026_09_12: 'GATE PASS -> BUILT. VALIDITY: still-needed=yes (operator REUSE reversal 486cd1cd3,
@@ -8123,6 +8124,7 @@ cards:
     into one occupancy bucket)
   thread: presence
   status: review
+  ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.'
   updated: 2026-09-12 11:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.'
   disposition_2026_09_12_built: 'BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time
@@ -11845,6 +11847,7 @@ cards:
 - id: UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
   title: URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
   status: review
+  ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (binary_sensor.py:1591 is_on -> result.house.unidentified_count > 0). Moves review->shipped_organic at deploy.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim): binary_sensor.py:1572 still ''return self._camera_total > self._ble_total'' (naive). Now UNBLOCKED — parent GUEST-COUNT-DEDUP-MIGRATE-1 shipped v5.83.0. Ready to build.'
   gate_2026_09_12: 'GATE PASS -> BUILT (finish-the-job sibling of the shipped parent). VALIDITY:
     still-naive, not-shipped; parent GUEST-COUNT-DEDUP v5.83.0 done (unblocked). PRIOR-ART/REUSE:
@@ -12442,6 +12445,7 @@ cards:
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
   status: review
+  ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (presence.py/energy.py shadow-import fixes + quality/tools/audit_shadow_imports.py + test). Moves review->shipped_organic at deploy.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: count is 319 function-local const imports (not ~8); audit never run (0 SHADOW-IMPORT commits); no lint/CI config exists at all. Cheap Tier-1, class recurred 3x.'
   gate_2026_09_12: 'GATE PASS -> BUILT. VALIDITY: still-needed=yes (audit never run; Bug Class #34
     recurred 3x) / not-shipped=yes. PRIOR-ART: no lint/CI exists; original incident fix shipped but the

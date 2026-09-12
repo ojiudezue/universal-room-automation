@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T14:33:51-05:00_ - _Data commit: `cd59e6540a6d`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T16:17:08-05:00_ - _Data commit: `3d31e4010f74`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -595,7 +595,8 @@ thread: **security** - status: **review**
 _created 2026-08-18 14:40 · updated 2026-09-11 16:16 · refined_
 - **Next:** Producer/consumer check on is_on NM alert consumers first, then migrate is_on to house.unidentified_count>0 (with/after the parent). Tier 2 (ALERT trust path).
 - **Depends on:** {'EGRESS-IDENTITY-JOIN-GAP-1  audit_2026_08_28': 'Post-ship consumer-gap audit (2026-08-28): beyond the census-union dedup already carded, egress person_id at >=0.9 can serve as CORROBORATION to subtract a phone-left-behind resident from the "unexpected person" count (a resident whose phone stayed home reads as camera>ble => false unexpected; a door-identification of that same resident is strong evidence to subtract them). Because this is the live ALERT/NM path, identity is corroboration-only and >=0.9 — never the sole reason to suppress. Producer now BUILT (v5.91.4 pending deploy).'}
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `ship_approved_2026_09_12`: APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (binary_sensor.py:1591 is_on -> result.house.unidentified_count > 0). Moves review->shipped_organic at deploy.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim): binary_sensor.py:1572 still 'return self._camera_total > self._ble_total' (naive). Now UNBLOCKED — parent GUEST-COUNT-DEDUP-MIGRATE-1 shipped v5.83.0. R...
   - `gate_2026_09_12`: GATE PASS -> BUILT (finish-the-job sibling of the shipped parent). VALIDITY: still-naive, not-shipped; parent GUEST-COUNT-DEDUP v5.83.0 done (unblocked). PRIOR-ART/REUSE: the deduped producer house.unidentified_count already exists and t...
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (overnight autonomous, left in review). Migrated URAUnexpectedPersonSensor.is_on (binary_sensor.py) from 'camera_total > ble_total' to 'result.house.unidentified_count > 0' (the canonical deduped count guest_count alread...
@@ -608,7 +609,8 @@ _created 2026-08-18 14:40 · updated 2026-09-11 16:16 · refined_
 thread: **platform** - status: **review**
 _created 2026-08-19 10:20 · updated 2026-09-11 16:20 · refined_
 - **Next:** Tier 1 audit: grep presence.py (~8 local imports) + repo for function-local const imports shadowing module-level names; optional F823/pylint CI rule. Runtime-only (py_compile misses it).
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `ship_approved_2026_09_12`: APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (presence.py/energy.py shadow-import fixes + quality/tools/audit_shadow_imports.py + test). Moves review->shipped_organic at deploy.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: count is 319 function-local const imports (not ~8); audit never run (0 SHADOW-IMPORT commits); no lint/CI config exists at all. Cheap Tier-1, class recurred 3x.
   - `gate_2026_09_12`: GATE PASS -> BUILT. VALIDITY: still-needed=yes (audit never run; Bug Class #34 recurred 3x) / not-shipped=yes. PRIOR-ART: no lint/CI exists; original incident fix shipped but the AUDIT + a durable guard are new. PARSIMONY: the sharp bug ...
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). (1) AST audit quality/tools/audit_shadow_imports.py scans all 98 component files for the use-before-local-import shadow. (2) It found TWO REAL Bug Class #34 shadows, both fixed: (a) presen...
@@ -620,7 +622,8 @@ _updated 2026-09-12 11:40_
 - **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
 - **Why:** Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.
 - **Next:** Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `ship_approved_2026_09_12`: APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
@@ -632,7 +635,8 @@ _updated 2026-09-12 12:40 · refined ×3_
 - **Why:** charge_rate_garage_a/b are strict-subset dupes of ev_charging_status power attrs (zero consumers verified) -> REMOVE (sensor.py:315-316 + classes + orphaned properties). Emporia outage ROOT-FIXED 2026-08-16: v0.12.2 boto3 pin conflict; v...
 - **Next:** Q3 remainder: add optional per-plug power entity in _plug_config wired to the Emporia garage circuit (small additive, keeps the 1440W estimate as fallback). Small Tier-1/2; queue behind the in-flight cycles.
 - **Refs:** docs/planning/AUDIT_ev_sensor_surface.md
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `ship_approved_2026_09_12`: APPROVED to ship on next deploy (operator 2026-09-12). Primary deliverable DONE + on develop @9f983c073 (EnergyEVChargeRateGarage{A,B}Sensor, sensor.py:330-331/10395+, sourced from ev_status per-bay power, fail-closed None). RESIDUAL (se...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor....
   - `gate_2026_09_12`: GATE PASS -> BUILT. VALIDITY: still-needed=yes (operator REUSE reversal 486cd1cd3, 2026-09-01) / not-shipped=yes (grep ev_charge_rate_garage = 0 hits in source). PRIOR-ART/REUSE: source data already exists — energy.ev_status[<bay>]["powe...
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Re-added EnergyEVChargeRateGarageASensor/BSensor (sensor.py, shared _EnergyEVChargeRateBaySensor base): device_class POWER, unit W, state_class MEASUREMENT, reads energy.ev_status[<bay>].g...
