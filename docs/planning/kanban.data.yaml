@@ -9692,7 +9692,15 @@ cards:
   title: 'Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT
     bundle into PATH-ALPHA)'
   thread: presence
-  status: pre_planning
+  status: parked
+  gate_2026_09_12: 'PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049
+    lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT:
+    HYGIENE not a defect (card own why: correctness preserved, beta cannot fire spuriously) AND next
+    explicitly gates it on "after PATH-ALPHA ships and its organic proofs land" — unconfirmed
+    precondition. Removing vestigial limbs from the core StateInferenceEngine.infer signature + test
+    migration, unattended overnight, buys only cleanliness at nonzero regression risk to the presence
+    inference core (dead != delete). Margin does not pay. REVIVAL TRIGGER: once PATH-ALPHA organic
+    proofs have landed, do the scoped delete-or-document cycle (reviewer B: separate, not bundled).'
   updated: 2026-09-12 10:00
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.'
   approval: unreviewed
