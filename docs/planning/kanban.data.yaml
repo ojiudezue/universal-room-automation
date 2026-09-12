@@ -11763,8 +11763,29 @@ cards:
     ADDENDUM 2 (T1)
 - id: UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
   title: URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
-  status: pre_planning
+  status: review
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim): binary_sensor.py:1572 still ''return self._camera_total > self._ble_total'' (naive). Now UNBLOCKED — parent GUEST-COUNT-DEDUP-MIGRATE-1 shipped v5.83.0. Ready to build.'
+  gate_2026_09_12: 'GATE PASS -> BUILT (finish-the-job sibling of the shipped parent). VALIDITY:
+    still-naive, not-shipped; parent GUEST-COUNT-DEDUP v5.83.0 done (unblocked). PRIOR-ART/REUSE:
+    the deduped producer house.unidentified_count already exists and this sensor''s own guest_count
+    attribute already reads it — REUSE. PARSIMONY: swap is_on to unidentified_count>0. COST/BENEFIT:
+    security ALERT path; the migration fires LESS (removes the naive false-positive where a
+    face-identified resident with no active BLE inflated camera-minus-BLE) and FAILS TOWARD ALERTING
+    when face is degraded (union collapses to BLE -> ~old behavior), so it is safe-on-miss. Tier-2-DB;
+    BUILD to review, do NOT auto-deploy overnight (alert-semantics change wants operator awareness at
+    deploy).'
+  disposition_2026_09_12_built: 'BUILT 2026-09-12 (overnight autonomous, left in review). Migrated
+    URAUnexpectedPersonSensor.is_on (binary_sensor.py) from ''camera_total > ble_total'' to
+    ''result.house.unidentified_count > 0'' (the canonical deduped count guest_count already exposes);
+    _camera_total/_ble_total still populated for the diagnostic attrs; None/last_result guards kept.
+    5 discriminating tests in test_unexpected_person_is_on_dedup.py (fires when camera==ble but
+    unidentified>0; SILENT when camera>ble but all identified; None guards; totals populated) PASS
+    under .venv-ha; mutation drill (revert to naive) turns the 2 discriminators RED. Updated the
+    parent-cycle fence test test_unexpected_person_is_on_still_uses_camera_gt_ble -> ...uses_deduped_
+    unidentified_count (superseded contract, documented); full parent file + new file = 23 pass.
+    CONSUMER CHECK: no internal URA consumer; external HA automations / NM key on
+    binary_sensor.ura_census_unexpected_person_detected -> deploy-time operator awareness noted
+    (fires less = fewer false unexpected-person alerts). status review.'
   thread: security
   created: 2026-08-18 14:40
   updated: 2026-09-11 16:16

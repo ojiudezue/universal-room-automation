@@ -333,20 +333,23 @@ def test_unexpected_person_attr_none_census_returns_zeros() -> None:
 # ===========================================================================
 
 
-def test_unexpected_person_is_on_still_uses_camera_gt_ble() -> None:
-    """`is_on` is INTENTIONALLY untouched by this cycle: fires when
-    camera_total > ble_active (independent of the deduped attribute).
-    This ensures the D2 attribute swap did not leak into is_on semantics.
+def test_unexpected_person_is_on_uses_deduped_unidentified_count() -> None:
+    """UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1 (supersedes the prior
+    `..._still_uses_camera_gt_ble` fence): is_on now reads the DEDUPED
+    ``house.unidentified_count`` — NOT the naive camera>ble comparison.
+
+    Discriminating config: camera_total=6, identified=6 (unidentified=0),
+    BLE active=2. The OLD naive form returned True (6 > 2); the migrated
+    form returns False because all six bodies are identified (guest_count
+    == 0). is_on and guest_count now AGREE on the deduped view.
     """
-    # camera_total=6, identified=6 (unidentified=0), BLE active=2 → is_on True
-    # because 6 > 2 despite deduped guest_count == 0.
     house = _build_house_result(identified=6, held=0, pre_cancel=6, camera_unrecognized=0)
     hass = _make_hass_with(house, ble_active=2)
     sensor = _make_unexpected_sensor(hass)
-    assert sensor.is_on is True
-    # attrs disagree with is_on on the deduped view — pre-existing signal
-    # separation, documented in plan §9.
+    assert sensor.is_on is False
     assert sensor.extra_state_attributes["guest_count"] == 0
+    # is_on now tracks the deduped attribute rather than diverging from it.
+    assert bool(sensor.is_on) == (sensor.extra_state_attributes["guest_count"] > 0)
 
 
 def test_unexpected_person_is_on_false_when_equal() -> None:
