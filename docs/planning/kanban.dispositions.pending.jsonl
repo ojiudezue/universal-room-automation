@@ -15,3 +15,5 @@
 {"action": "ack", "at": "2026-09-12T14:18:25.536Z", "card_id": "ROUTINE-DETECTOR-NO-DISCHARGE-1@2026-09-12T14:40"}
 {"action": "instruct", "at": "2026-09-12T14:19:07.222Z", "card_id": "OPTIMIZER-NOTIFY-FLOOD-DEDUP-1", "text": "Both options"}
 {"action": "ack", "at": "2026-09-12T14:19:07.907Z", "card_id": "OPTIMIZER-NOTIFY-FLOOD-DEDUP-1@2026-09-12T15:00"}
+{"action": "instruct", "at": "2026-09-12T14:27:38.319Z", "card_id": "ARRESTER-CLOUDFLAP-FALSEPOS-1", "text": "A makes sense I think since one cloud service. Check to see reconnect always happens for all zones at the same time. HOw do we detect reconnection? BTW if they all reconnect at the same time, then A and B are functionally the same thing"}
+{"action": "ack", "at": "2026-09-12T14:27:39.128Z", "card_id": "ARRESTER-CLOUDFLAP-FALSEPOS-1@2026-09-12T13:10"}
