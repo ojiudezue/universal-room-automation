@@ -240,12 +240,13 @@ cards:
     118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload
     watchdog risk)
   thread: energy
-  status: investigating
+  status: waiting_operator
+  updated: '2026-09-12 19:20'
+  verify_2026_09_12: 'APPROVED -> verify-before-work: PREMISE NO LONGER ACUTE. MEASURED (10d recorder, CM-hosted entity unavailable-transitions = parent reloads): ~5x/night on 09-08(6)/09-09(5) COLLAPSED to 1 reload/59h after 09-10 00:06 CDT (coincides with the v5.99.0 + v5.100.8/9 deploys). Reloads are afternoon/evening, NEVER deep-overnight (contradicts the overnight framing). Root cause still UNNAMED — and the armed capture is SELF-DEFEATING: URA-package DEBUG floods journald so the homeassistant.config_entries initiator line is unreadable. NEXT -> operator: do NOT ship a blind suppression/onset fix (you already held it; storm abated; blind fix = negative cost-benefit on a shared primitive). RE-INSTRUMENT instead: (a) set URA logger back to INFO while keeping config_entries=debug (de-flood), AND/OR (b) add a guarded WARNING+traceback breadcrumb at async_unload_entry top for the CM entry (trip-wire-in-code, No-Soak) so the next reload names its initiator. PICK: build the breadcrumb trip-wire, or downgrade to a low-priority watch + card the unnamed-trigger residual.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: suppress-keys gate exists (__init__.py:6664/7489; card''s 7280/7538 refs drifted). v5.99.0 closed options-save trigger but storm persists via a different trigger; debug armed live (1f7d94480). Needs the next-reload journald scan.'
   created: 2026-09-10 00:50
-  updated: 2026-09-11 15:54
   refinement_status: initial
   problem_solution:
   - 'Problem: the whole URA integration reloads itself several times a night with nobody changing any
@@ -1086,11 +1087,12 @@ cards:
   title: House flips to GUEST when only a single resident (Jaya) is home
   thread: identity
   status: investigating
+  updated: '2026-09-12 19:20'
+  verify_2026_09_12: 'APPROVED -> verify-before-work: STILL-REAL (FP live) + CANNOT-VERIFY the exact term from recorder. MEASURED: GUEST flips ~daily (10d); single-resident flip CONFIRMED 2026-09-10 14:17 (people_home_census=1 at flip). Faces dead (face_recognized_count=0) -> leans interior-Frigate IDENTIFICATION DEFICIT (this card term, camera_total>identified) not the known double-count. BUT the flip-instant camera_total/identified/unidentified split is NOT historized, so the term cannot be pinned post-hoc. I OWE: a code trip-wire logging census composition (camera_total/identified/unidentified/face_recognized_count) at each GUEST-flip instant -> NM (No-Soak); one capture of the next single-resident flip pins the term. Shares the interior-cam face gap with CENSUS-FACE-MISS-WATCH-1 + FRIGATE-SUBLABEL-FACE-BRIDGE-1 -> sequence behind those.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with CENSUS-FACE-MISS-WATCH-1.'
   created: 2026-09-05 16:40
-  updated: 2026-09-11 16:16
   refinement_status: refined
   approval: explicit
   tags:
@@ -8887,10 +8889,11 @@ cards:
   title: Census double-counts residents as unidentified (4 known + 2 ghost bodies = 6) — BLE-cancel exists,
     is enabled, cancels nothing
   thread: presence
-  status: investigating
+  status: done
+  updated: '2026-09-12 19:20'
+  verify_2026_09_12: 'APPROVED -> verify-before-work: the deliverable THIS card owned shipped (D1 clamp + guest-rooms-lead, v5.79.0) -> CLOSE. MEASURED: the residual census-NUMBER double-count is STILL live (people_home_census hit 6 on 09-08 and 4 repeatedly for a ~4-person house; faces DEAD — all 24 *_last_recognized_face_2 Unknown, face_recognized_count=0 -> both dedup defenses inert exactly as the root-cause predicted). That number-repair was explicitly deferred to CENSUS-DEDUP-REPAIR-1 / absorbed into CENSUS-ACCURACY-1 (active). Close this ID; the successor owns the number. Do NOT re-card.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
-  updated: 2026-09-12 10:30
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: guest-half fix shipped v5.79.0 (D1 clamp + guest-rooms-lead) mitigated guest-state harm, but the census NUMBER double-count is still open and face-recognition-dependent — explicitly deferred to CENSUS-DEDUP-REPAIR-1. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Suite NAME-diff at tip was blocked by the (now-cleared)
     concurrent-pytest deadlock; re-run the framings against the repaired oracle.
@@ -12918,10 +12921,11 @@ cards:
   title: The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY,
     the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
   thread: presence
-  status: investigating
+  status: waiting_operator
+  updated: '2026-09-12 19:20'
+  verify_2026_09_12: 'APPROVED -> verify-before-work gate says DON''T-BUILD-BLIND (approve authorises work, not exemption from the gate). The discriminating measurement already ran: shadow mode (v5.85.0, T_floor 5.0) detected NOTHING because this house chatter is sustained-moderate-RATE, not sub-T_floor bursts -> the impossibility/burst detector cannot fire. A RATE-based detector would be a NEW detector for a signal whose VALUE is unproven (no defined consumer action; no measured harm). PARSIMONY/COST-BENEFIT: marginal benefit does not pay for a new detector. PICK (operator): PARK with revival trigger (if sensor chatter is shown to cause real false presence/actuation, build a rate detector) — recommended; OR build a DIAGNOSTIC-ONLY rate-observation sensor (cheap, no action) if you want visibility now.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
-  updated: 2026-09-12 10:30
   disposition_2026_09_12_sweep2: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: chatter_detector.py + const.py:3978 detector is burst/impossibility-based only; no rate (transitions/hour) detector exists. Build-or-not marginal-benefit decision; nothing built.'
   created: 2026-08-21 17:40
   refinement_status: initial
