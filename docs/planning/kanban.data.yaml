@@ -11560,7 +11560,15 @@ cards:
     face-resolver card shipped_organic". README_v5.82.1 live-validation table confirms L1. H1 confirmed.'
 - id: GUEST-COUNT-DEDUP-MIGRATE-1
   title: ZoneGuestCountSensor uses naive subtractive guest count — migrate to deduped union
-  status: pre_planning
+  status: done
+  disposition_2026_09_12:
+  - 'VERIFIED 2026-09-12 (verify-before-work sweep) — verdict ALREADY-DONE; status was STALE
+    (pre_planning while the card already carried shipped_version v5.83.0 + "SHIPPED + LIVE"). Source
+    confirms the migration landed: aggregation.py:6165 ZoneGuestCountSensor reads the DEDUPED
+    house.unidentified_count (docstring explicitly contrasts it against the retired
+    "max(0, camera_total - ble_active_count)" subtraction); commit 47d151131 "v5.83.0 L1 write-back
+    (shipped)" is in the tree. Lane corrected pre_planning -> done. Child
+    UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1 (is_on ALERT-path sibling) is the remaining open work.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Verify ZoneGuestCountSensor live-status, then migrate
     _get_guest_count (+binary_sensor.py:1584) to the deduped unidentified_count. Producer/consumer check
     first.
