@@ -822,19 +822,25 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         devices_confirm steps (wired in Slice 2). Does NOT mutate the
         return contract of `_get_area_entities`.
 
-        Ranking ladder (higher rank = earlier in output):
+        Ranking ladder (order = tuple order; lower value = ranked earlier):
           1. Entity's OWN area_id set (not inherited from device area).
           2. Device NOT shared with any known room actuator device.
           3. Entity name NOT matching AUTODETECT_NAME_DENYLIST.
-          4. Registry enabled by default.
-          5. entity_id ascii sort (deterministic tiebreak).
+          4. entity_id ascii sort (deterministic tiebreak).
 
         Dedup key = ``(device_id, registry.original_device_class or
         registry.device_class)``. Live-state ``device_class`` is a ranking
         tiebreak ONLY (state may be ``unknown`` at flow time — registry is
-        stable). The `_2`-suffix collapse is a natural consequence:
-        `sensor.foo_temp` and `sensor.foo_temp_2` share device_id + same
-        registry original_device_class -> same dedup key -> single winner.
+        stable). The `_2`-suffix collapse is a natural consequence for
+        CLASSED entities: `sensor.foo_temp` and `sensor.foo_temp_2` share
+        device_id + same registry `original_device_class="temperature"` ->
+        same dedup key -> single winner.
+
+        **Classless-entity guard (F3):** when the resolved class is None
+        (typical for `light.*`, `fan.*`, `cover.*`), collapsing on
+        `device_id` alone would shrink a 4-light bar to 1. In that case
+        the entity_id is folded into the dedup key so N entities on one
+        device_id STAY N. Same guard for device_id-less registrations.
         """
         if not entity_ids:
             return []
@@ -849,31 +855,35 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             reg = ent_reg.async_get(eid)
             if reg is None:
                 # Unregistered — rank last, deterministic.
-                return (1, 1, 1, 1, eid)
-            # Rank 1: own area_id set (0 = better).
+                return (1, 1, 1, eid)
+            # Rung 1: own area_id set (0 = better).
             own_area = 0 if reg.area_id else 1
-            # Rank 2: device NOT shared with a known actuator (0 = better).
+            # Rung 2: device NOT shared with a known actuator (0 = better).
             shared = 1 if (reg.device_id and reg.device_id in actuator_device_ids) else 0
-            # Rank 3: denylist name match (1 = worse; last).
+            # Rung 3: denylist name match (1 = worse; last).
             lname = eid.lower()
             denyed = 1 if any(tok in lname for tok in AUTODETECT_NAME_DENYLIST) else 0
-            # Rank 4: enabled by default (0 = better).
-            not_enabled_by_default = 0 if not reg.disabled_by else 1
-            return (denyed, shared, own_area, not_enabled_by_default, eid)
+            # Rung 4: entity_id sort tiebreak.
+            # (F4: dropped inert `disabled_by` rung — upstream
+            # `_get_area_entities` already excludes disabled_by is not None,
+            # so this ranker never sees a disabled entry.)
+            return (own_area, shared, denyed, eid)
 
         # Dedup by registry-stable key. Winner within a group = lowest score.
         groups: dict[tuple, tuple[tuple, str]] = {}
         for eid in entity_ids:
             reg = ent_reg.async_get(eid)
             if reg is None:
-                key = (None, None, eid)  # unique — never collapses
+                key = ("__unreg__", eid)  # unique — never collapses
             else:
                 dc = reg.original_device_class or reg.device_class
-                key = (reg.device_id, dc)
-                if reg.device_id is None:
-                    # No device -> can't safely dedup (would collapse across
-                    # unrelated integrations); keep entity_id in key.
-                    key = (None, dc, eid)
+                if reg.device_id is None or dc is None:
+                    # F3: no device OR no registry class -> can't safely
+                    # dedup (would collapse 4-light bar into 1). Keep
+                    # entity_id in the key so N entities stay N.
+                    key = (reg.device_id, dc, eid)
+                else:
+                    key = (reg.device_id, dc)
             score = _score(eid)
             existing = groups.get(key)
             if existing is None or score < existing[0]:
