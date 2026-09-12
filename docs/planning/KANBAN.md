@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T13:14:33-05:00_ - _Data commit: `2edb7989582a`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T13:15:22-05:00_ - _Data commit: `1b2924e53b2a`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-09-12T13:14:33-05:00_ - _Data commit: `2edb7989582a`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 10 |
 | 🧭 Pre-planning | 16 |
-| 📝 Planned | 12 |
-| 🔨 In progress | 1 |
+| 📝 Planned | 11 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -442,7 +442,7 @@ _created 2026-09-12 17:50 · initial_
 - **Tags:** audit-first, institutional-context, tier-2db
 - **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
 
-## 📝 Planned (12)
+## 📝 Planned (11)
 _has plan / acceptance_
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
@@ -635,25 +635,7 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **config-flow** - status: **planned** - approval: **explicit**
-_created 2026-09-12 16:30 · updated 2026-09-12 20:20 · refined_
-- **Problem / Solution:**
-  - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
-- **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
-- **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
-- **Tags:** tier-2db
-- **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
-- **Forensic keys (7):**
-  - `plan_revised_2026_09_12`: Plan REVISED per review (verified in doc): all 2 CRIT/4 HIGH/5 MED/3 LOW fixed — D4 ribbon via async_init->integration_create, D1 split into additive-filter + new pure _rank_area_candidates, INV-1 differential, INV-2 non-required-bucket,...
-  - `plan_review_2026_09_12`: Tier-2-DB plan-review = FIX-REQUIRED (2 CRIT, 4 HIGH, 5 MED, 3 LOW) — caught real builder-traps: C1 ribbon unimplementable (async_create_entry terminates; use async_init->integration_create), C2 shared _get_area_entities mutation collaps...
-  - `plan_written_2026_09_12`: Tier-2-DB plan written -> docs/planning/PLANNING_onboarding_simplify.md (D1-D8 + falsifiable INV-1 round-trip / INV-2 no-silent-commit + institutional-context prior-art scan + acceptance). Operator blessed the design. NEXT: mandatory Tie...
-  - `autodetect_research_2026_09_12`: Auto-detect (the error-prone critical piece) researched + cited (HA dev docs/forum) -> design folded into AUDIT_first_run_onboarding.md. Rules: resolve via entity_registry.async_entries_for_area (entity area_id overrides device; registry...
-  - `refinement_2026_09_12_loadbearing`: Operator challenge: room-type must NOT silently flip features. URA has LOAD-BEARING classifications beyond room FUNCTION that carry cross-coordinator implications and today are scattered — CONF_ROOM_IS_GUEST_ROOM (const.py:386, consumed ...
-  - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
-  - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
-
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
 ### `VERIFY-BEFORE-WORK-SWEEP-1` - Every card's state is an unverified claim — sweep the whole board against ground truth before any card is worked — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -666,6 +648,25 @@ _created 2026-09-12 09:15 · initial_
 - **Tags:** tier-1, no-fabrication-verify
 - **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
 - **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
+
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#2 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **config-flow** - status: **in_progress** - approval: **explicit**
+_created 2026-09-12 16:30 · updated 2026-09-12 13:25 · refined_
+- **Problem / Solution:**
+  - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
+- **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
+- **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
+- **Tags:** tier-2db
+- **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
+- **Forensic keys (8):**
+  - `decisions_final_2026_09_12`: OPERATOR DECISIONS IN: (1) Tier 3 APPROVED (4 framing-disjoint reviews A/B/C/D + operator checkpoint before deploy); (2) CONF_ZONE stays on essentials CONDITIONALLY (as today — shown only when zones already exist; NOT removed -> no zone-...
+  - `plan_revised_2026_09_12`: Plan REVISED per review (verified in doc): all 2 CRIT/4 HIGH/5 MED/3 LOW fixed — D4 ribbon via async_init->integration_create, D1 split into additive-filter + new pure _rank_area_candidates, INV-1 differential, INV-2 non-required-bucket,...
+  - `plan_review_2026_09_12`: Tier-2-DB plan-review = FIX-REQUIRED (2 CRIT, 4 HIGH, 5 MED, 3 LOW) — caught real builder-traps: C1 ribbon unimplementable (async_create_entry terminates; use async_init->integration_create), C2 shared _get_area_entities mutation collaps...
+  - `plan_written_2026_09_12`: Tier-2-DB plan written -> docs/planning/PLANNING_onboarding_simplify.md (D1-D8 + falsifiable INV-1 round-trip / INV-2 no-silent-commit + institutional-context prior-art scan + acceptance). Operator blessed the design. NEXT: mandatory Tie...
+  - `autodetect_research_2026_09_12`: Auto-detect (the error-prone critical piece) researched + cited (HA dev docs/forum) -> design folded into AUDIT_first_run_onboarding.md. Rules: resolve via entity_registry.async_entries_for_area (entity area_id overrides device; registry...
+  - `refinement_2026_09_12_loadbearing`: Operator challenge: room-type must NOT silently flip features. URA has LOAD-BEARING classifications beyond room FUNCTION that carry cross-coordinator implications and today are scattered — CONF_ROOM_IS_GUEST_ROOM (const.py:386, consumed ...
+  - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
+  - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
 ## 🔍 Review (4)
 _under review_
