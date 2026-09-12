@@ -3759,7 +3759,9 @@ cards:
     (next=measure row-growth).'
 - id: ZIRI-COLLEGE-PERSISTENT-AWAY-1
   thread: presence
-  status: investigating
+  status: done
+  updated: '2026-09-12 19:05'
+  verify_2026_09_12: 'APPROVED -> verify-before-work: NOT-A-DEFECT, persistent-away is handled gracefully. MEASURED: person.ziri=not_home (device_tracker.ziri_iphone BLE, in_zones:[]), correctly EXCLUDED from census (people_home_census=3, ziri_phone_left_behind=off/ble_location:away) — no trusted-home miscount; anomaly_log has NO person-staleness path (only zone_stale_occupancy + bayesian.routine_shift); his routine_shift INFO rows stopped after 2026-09-02 (vacation-cell self-suppression, as the card predicted); notification_log shows ZERO pages from his absence; long_term_absence unbuilt (as expected). Steady-state away is clean across tracker/anomaly/census/NM. CLOSED not-a-defect. RESIDUAL (park-not-build, revival trigger): the RegimeDetector intermittent-return flip-flop noise + the absent positive resident-departed signal + the return-transient brief GUEST-arm are LIVE-RETURN-ONLY observations — revive only if his next actual return generates operator-visible noise.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): sub-item (c) persistent-absence state confirmed UNBUILT (0 hits long_term_absence). (a) stale-tracker anomaly + (b) return-guest-FP need live person/census checks — stays investigating.'
@@ -3767,7 +3769,6 @@ cards:
     inbox -> investigating.'
   approval: explicit
   created: 2026-08-19 13:00
-  updated: 2026-08-19 13:00
   refinement_status: initial
   title: Ziri off to college — a resident is now persistently away (presence/census/schedule implications)
   problem_solution:
@@ -8003,6 +8004,8 @@ cards:
     a design choice
   thread: notifications
   status: investigating
+  updated: '2026-09-12 19:05'
+  verify_2026_09_12: 'APPROVED -> verify-before-work: CANNOT-VERIFY from DB (confirmed — notification_log has NO attachment/snapshot column, so image-presence is undeterminable either way). Re-pages ARE firing in volume: Perimeter Alert Person Detected CRITICAL imessage n=76/7d (~75 unacked), 403 CRITICAL imessage/14d — the unack-CRITICAL 5-min re-page is active and re-fires within minutes. I OWE: arm a DEBUG log of the outbound BlueBubbles transport kwargs (attachment/snapshot_path presence) at the re-page dispatch site, deploy, capture the next re-page -> converts CANNOT-VERIFY to PASS/FAIL. ASIDE (not this card): ~75 unacked CRITICAL perimeter re-pages/7d is an alert-fatigue signal worth its own look.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): snapshot_path code path present + persisted (notification_manager.py:933/1883/2282). Whether the attachment actually rides the re-page is transport-level — arm debug log on next CRITICAL re-page. Measure-only.'
@@ -8026,7 +8029,6 @@ cards:
     at debug on the next unack CRITICAL, or check BB-side message records for an attachment). 221 unacknowledged
     CRITICALs on the imessage channel since 08-12 means opportunities are plentiful. Only if the attachment
     is genuinely absent does this become a fix.'
-  updated: 2026-08-23 14:50
   sharp_problem:
   - '2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage.
     The iMessage re-page attachment path did not land. Fix owed before card can close.'
