@@ -16067,12 +16067,13 @@ cards:
   thread: energy
   status: investigating
   created: 2026-09-11 19:20
-  updated: 2026-09-11 19:20
+  updated: 2026-09-11 19:35
   refinement_status: initial
   approval: unreviewed
   tags:
-  - no-fabrication-verify
+  - measure-before-build
   - tier-2
+  - no-fabrication-verify
   rank:
     value: 6
     effort: 5
@@ -16096,6 +16097,13 @@ cards:
       on typical days, so a suppression here would silently under-charge.
   refs:
   - energy_battery.py:4074 (unbounded) vs :2933-2954 (ladder bounds)
+  disposition:
+  - 'DRIVING 2026-09-11 (operator: do the measure + refresh design/assumptions from design doc AND code;
+    attain is DELICATE): running (1) a recorder MEASURE probe on overnight net-rate sign/magnitude + attain
+    projection history to test whether the unbounded extrapolation can actually push projected>=target
+    and suppress a needed charge, and (2) a full design refresh (ENERGY_COORDINATOR_DESIGN + ENERGY_MANAGEMENT_EXPLAINER
+    + current v5.100.9 attain code) to state the invariant any fix must preserve. NO code change this
+    pass — modification pauses for operator go (delicate).'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
