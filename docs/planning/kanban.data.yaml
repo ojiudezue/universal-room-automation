@@ -5957,8 +5957,9 @@ cards:
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight while the
     house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
-  status: parked
-  updated: '2026-09-12 17:00'
+  status: investigating
+  updated: '2026-09-12 13:15'
+  operator_2026_09_12: 'Operator asks: is the RESET investment worth it? HONEST STATE: the reset MACHINERY is built, but its VALUE OVER NUDGES is UNPROVEN — nudges are 99% effective (879/888), resets are rare+inconclusive (7-9 organic), and the nudge-does-not-clear-control-state theory is sound but reset>nudge is UNTESTED. GOOD NEXT STEP (cheaper than the deliberate 10-15-reset experiment): a one-shot $-CEILING bounding probe — quantify the worst-case annual $ recoverable by escalation = (the ~1% of nudges that fail, ~9/mo) x (max incremental benefit a reset could add over a failed nudge). If the ceiling is single-digit $/yr (likely), CLOSE the escalation permanently (nudges carry 99%, reset stays a manual backstop); only if material, run the deliberate ESCALATION_PROBE. This gates expensive experiment effort on a cheap bound. Running alongside the zone-3 probe.'
   operator_decision_2026_09_12: 'PARK for now as long as nudges keep working (operator). REVIVAL TRIGGER: if nudge effectiveness drops (ac_ramp_events nudge_evaluated effective=0 rate climbs materially above the current ~1%), revisit the deliberate hard-reset escalation experiment. Nudges are 99% effective today.'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, probe-gated NO-BUILD: go/no-go ESCALATION_PROBE not run (only 1/9 historical resets in the fine-grained window). Do NOT build a trigger before the probe returns reset-ratio < nudge-ratio 0.97.'
   measured_2026_09_12: 'PROBE (URA DB ac_ramp_events, read-only via ssh): corroborates the card''s
@@ -13054,8 +13055,9 @@ cards:
   title: Zone 3 AC ramp shows NO measurable savings across 79 nudges — candidate for disable-pending-evidence
     rather than retune
   thread: hvac
-  status: parked
-  updated: '2026-09-12 20:00'
+  status: investigating
+  updated: '2026-09-12 13:15'
+  operator_2026_09_12: 'APPROVED to run the revival probe whenever (operator). KEY CONTEXT (operator): zone 3 is a TRANSIT zone — people pass through, do not dwell, so ramp benefit may genuinely be low because nobody stays to enjoy the pre-cool (reframes no-benefit as expected, not a bug). NEXT: run the one-shot net-over-90-min (rebound-netted) energy delta per zone + sensor.<zone> occupancy join over each nudge window; interpret z3 through the transit-zone lens -> disable ramp for z3 / early-return-on-transit / accept. Read-only, in flight.'
   verify_2026_09_12: 'INVESTIGATE-flagged -> measured -> PARK (measure-before-build). ac_ramp_events (4160 rows, 30d): per-nudge effective rates z1 99.3% / z2 99.2% / z3 95.6%, and stored mean kwh_avoided z3=1.15 > z2=0.90 ~ z1=1.22 -> the in-table measure REFUTES zone-3-no-benefit. BUT that figure is the un-netted SHORT-window drop (over-claims, does not net the post-restore rebound), so it also cannot confirm the card null (-0.087+/-0.128 kWh net-90-min). Occupancy is NOT derivable from ac_ramp_events (no occ column; gate has no occupancy input; preset away-proxy n=3, too sparse). No safe basis to disable z3 or build occupancy-early-return on in-table data. REVIVAL TRIGGER: a one-shot recorder probe re-running net-over-90-min (rebound-netted) energy delta per zone JOINED to sensor.<zone> occupancy over each nudge window; if it re-confirms z3 CI-spans-zero AND meaningful entry-inside-nudge coincidence, revisit; else close.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
@@ -16827,9 +16829,10 @@ cards:
 - id: CAMERA-STUCK-MASTER-HALLWAY-1
   title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"
   thread: presence
-  status: investigating
+  status: parked
+  updated: '2026-09-12 13:15'
+  verify_2026_09_12: 'Operator REBOOTED it -> verify-before-work: CLEARED, do NOT fix on stale data. MEASURED live (13:15 CDT): binary_sensor.master_hallway_person_occupancy is TOGGLING NORMALLY (dozens of short ON/OFF cycles over the last few hours: 09:32,09:39,10:36,11:41,12:03..12:08,12:23,12:31,12:53,13:03; longest OFF ~1h) — NOT the 13.9h flat-stuck pattern. The reboot resolved the stuck assert. PARKED. REVIVAL TRIGGER: if master_hallway person_count goes flat=1 for >3h again (D1 camera_stuck re-fires), reopen and diagnose the source (camera integration vs mmwave). Stale 13.9h data is not a basis to build now.'
   created: '2026-09-12 18:55'
-  updated: '2026-09-12 18:55'
   refinement_status: initial
   approval: unreviewed
   tags: [no-fabrication-verify]
