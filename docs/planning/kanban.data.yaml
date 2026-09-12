@@ -16067,7 +16067,7 @@ cards:
   thread: energy
   status: investigating
   created: 2026-09-11 19:20
-  updated: 2026-09-11 19:35
+  updated: 2026-09-11 19:45
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -16104,6 +16104,17 @@ cards:
     and suppress a needed charge, and (2) a full design refresh (ENERGY_COORDINATOR_DESIGN + ENERGY_MANAGEMENT_EXPLAINER
     + current v5.100.9 attain code) to state the invariant any fix must preserve. NO code change this
     pass — modification pauses for operator go (delicate).'
+  - 'MEASURED 2026-09-11 (10d hourly SOC statistics, sensor.envoy_482543015950_battery): every overnight
+    pre-boundary window has a FLAT-OR-NEGATIVE SOC slope — battery sits at drain floor (10 excellent /
+    15 good) then declines to ~6-8 by pre-dawn (~-0.2pp/h). EVERY positive slope in the dataset is solar-coincident
+    (mid-morning ramp). So the hazard precondition (positive overnight rate with NO solar) did NOT occur
+    in 10 summer nights. KEY design insight: attain correctly does NOT grid-charge overnight in summer
+    because the large solar_surplus term keeps projected>=target — the rate term is MOOT when solar_surplus
+    dominates. The rate term only matters when solar_surplus is small = WINTER, which summer data cannot
+    exercise. VERDICT so far: hazard is structurally winter-only + requires a rare near-zero/slightly-positive
+    overnight rate; not reachable in summer, winter tail UNMEASURABLE now. A bounding fix would be cheap
+    insurance, not an urgent defect. Awaiting design-refresh agent for the invariant a fix must preserve
+    before any recommendation.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

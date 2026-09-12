@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T19:18:33-05:00_ - _Data commit: `11832237933d`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T22:04:46-05:00_ - _Data commit: `52e8aaf04ca9`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -98,7 +98,7 @@ _created 2026-08-19 13:15 · updated 2026-09-11 16:16 · refined_
 
 ### `ATTAIN-UNBOUNDED-RATE-WINTER-MASK-1` - Attain-entry projection uses UNBOUNDED rate extrapolation (unlike the rung ladder) — could mask a real winter grid-charge across a long overnight boundary — _#5 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **energy** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-11 19:20 · updated 2026-09-11 19:35 · initial_
+_created 2026-09-11 19:20 · updated 2026-09-11 19:45 · initial_
 - **Problem / Solution:**
   - Problem: the attain-entry projection extrapolates the observed net charge rate over the FULL minutes-to-boundary with bound_to_solar_horizon=False (energy_battery.py:4074), whereas the arbitrage rung ladder deliberately bounds its rate t...
 - **Next:** MEASURE: over winter overnight boundaries, does the attain projection ever exceed target on a small positive rate and suppress a needed charge? If yes, bound the rate term. Tier 2 (touches the attain predicate). Discriminator vs the arbi...
