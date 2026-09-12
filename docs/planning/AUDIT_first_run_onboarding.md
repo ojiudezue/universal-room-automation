@@ -209,6 +209,56 @@ sensor/device steps arrive PRE-FILLED from the area (operator edits only correct
 options flow still exposes 100% of today's fields (no capability lost); regression: an existing
 room's saved config round-trips unchanged through the new flow.
 
+## Auto-detect design — the critical piece (researched + cited, 2026-09-12)
+
+The assist is only trustworthy if it doesn't confidently suggest the WRONG entity (e.g. a switch's
+internal chip-temperature instead of the room's climate sensor). Researched against HA developer
+docs, user docs, and the community forum. **Do the resolution in the custom-component REGISTRY layer,
+not Jinja** — `entity_category` is not reliably exposed to templates, but is authoritative on the
+registry entry.
+
+**Area resolution (entity overrides device).** Use
+`entity_registry.async_entries_for_area(reg, area_id)` — it applies the real precedence: an entity's
+own `area_id` wins; if absent it inherits the device's effective area
+(`device_registry.async_get_effective_area_id`). Naive "group by device area" misses entity-level
+overrides. [core entity_registry.py; home-assistant.io/template-functions/area_entities]
+
+**The primary guard against the chip-temp footgun: `entity_category is None`.** HA marks auxiliary
+readings — a relay's internal temperature, RSSI, MAC, uptime — as `EntityCategory.DIAGNOSTIC`
+("diagnostics of a device ... for example a sensor showing RSSI", developer Entity docs). A room's
+real temperature sensor is a non-categorized (primary) entity. **Keep only `entity_category is None`
+(excludes both DIAGNOSTIC and CONFIG)** — this is the single highest-value filter. Also exclude
+`disabled_by`/`hidden_by` not None and helper/template/group platforms.
+
+**Bucket by domain + live `device_class`** (read from state attributes, the reliable runtime value;
+`device_class` can be mis-inherited from the parent device — core #88504 — so it's a ranking input,
+not an oracle): temperature/humidity/illuminance → `sensor`; motion/occupancy, door/window →
+`binary_sensor`; lights/fans/covers by domain.
+
+**When >1 survives in a bucket: RANK, never auto-pick — always operator-confirm.** Ladder:
+(1) entity with its own `area_id` set > device-inherited; (2) a sensor whose `device_id` is **NOT
+shared with an actuator** (the chip-temp lives on the relay's device; a dedicated climate sensor is
+usually its own device) > one that is; (3) name/`original_name` NOT matching a denylist
+{device temperature, internal, chip, cpu, core temp, rssi, uptime, battery} — the backstop for
+integrations that mis-mark internal temps as primary; (4) enabled-by-default > manually-enabled;
+(5) deterministic `entity_id` sort.
+
+**So the chip-temp example is handled three-deep:** `entity_category=diagnostic` exclusion (primary);
+if a sloppy integration left it `None`, the device-shared-with-actuator deprioritization catches it;
+and the name denylist is the final backstop — and even then the operator confirms a *ranked* list,
+so a wrong guess is a visible correction, not a silent mistake.
+
+**Pitfalls checklist (carry into acceptance tests):** exclude diagnostic/config; override-aware area
+resolution; name denylist backstop; deprioritize actuator-shared sensors; exclude disabled/hidden;
+de-dup `_2`/duplicate legs by device_id+device_class (URA already lives with the Frigate `_2`
+hazard); filter helpers; device_class is a ranking input not truth; make empty/no-area results
+**legible** ("found N entities in this area — assign the area in HA if this looks short") not silent.
+
+**Sources:** developers.home-assistant.io/docs/core/entity (EntityCategory) · core
+entity_registry.py (`async_entries_for_area`, `async_get_effective_area_id`, registry fields) ·
+home-assistant.io/template-functions/area_entities (device inheritance) · community 378523
+(entity_category not template-exposed → registry layer) · core #88504 (device_class mis-inheritance).
+
 ## Tiering + non-goals
 - **Tier 2-DB** — config-flow is a shared surface (ROOM/ZONE/CM entry types, options-flow
   round-trip, RestoreEntity); the prior-art scan + 3 framing-disjoint reviews apply. The risk is
