@@ -6597,9 +6597,9 @@ cards:
   title: A test writes production source with only a `finally` to restore it — a hard kill leaves the
     repo mutated on disk, and the concurrency guard is exactly what delivers hard kills
   thread: platform
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.9
-  updated: 2026-09-11 16:45
+  updated: 2026-09-11 19:20
   approval: explicit
   tags:
   - unrestored-drill
@@ -6640,6 +6640,8 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1. Promoted inbox -> pre_planning.'
   - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — gate-protecting; tmp-copy fix,
     near-zero risk, no behavior change. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  - 'SHIPPED v5.100.9 2026-09-11: test-only SIGKILL-safe tmp-copy hardening; 8/8 pass, md5-invariant asserted.
+    Test-infra, no live observable -> done.'
   approved_by: operator 2026-09-11 ("Approved. Drive till done.")
   parsimony:
     problem: A test writes production source with only a `finally` to restore it — a hard kill leaves
@@ -6787,9 +6789,9 @@ cards:
   title: HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3
     structurally inert and grace_constrained=5 the minimum expressible value
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.9
-  updated: 2026-09-11 16:45
+  updated: 2026-09-11 19:20
   approval: explicit
   tags:
   - numbers-get-knobs
@@ -6816,6 +6818,8 @@ cards:
     named.'
   - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — pure const extraction (no behavior
     change), satisfies numbers-get-knobs. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  - 'SHIPPED v5.100.9 2026-09-11: pure const extraction (no runtime change); in-suite anchor test proves
+    HVAC_DECISION_TICK reaches the call site. No live observable -> done.'
   approved_by: operator 2026-09-11 ("Approved. Drive till done.")
   parsimony:
     problem: HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3
@@ -14856,10 +14860,10 @@ cards:
   title: The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 —
     at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.100.9
   created: 2026-08-26 03:10
-  updated: 2026-09-11 16:45
+  updated: 2026-09-11 19:20
   refinement_status: refined
   approval: explicit
   tags:
@@ -14888,6 +14892,8 @@ cards:
     inbox -> pre_planning.'
   - 'GATE 2026-09-11 (drive-from-board): parsimony/cost-benefit = BUILD — additive display attr, no in-repo
     consumer, no behavior change. Moved -> in_progress (batch tier1-gate-and-knobs, v5.100.9).'
+  - 'SHIPPED+VALIDATED v5.100.9 2026-09-11: live d2_offset=2 present in forecast_outlook alongside d2_class=excellent
+    (== target_day_offset+1). Organic discriminator MET -> done.'
   approved_by: operator 2026-09-11 ("Approved. Drive till done.")
   parsimony:
     problem: The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2

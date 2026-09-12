@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-11T18:57:39-05:00_ - _Data commit: `7688e61c32c7`_ - _last_reconciled: 2026-09-11_
+_Generated: 2026-09-11T19:09:07-05:00_ - _Data commit: `a9fda225ab5f`_ - _last_reconciled: 2026-09-11_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -15,13 +15,13 @@ _Generated: 2026-09-11T18:57:39-05:00_ - _Data commit: `7688e61c32c7`_ - _last_r
 | 🔬 Investigating | 29 |
 | 🧭 Pre-planning | 32 |
 | 📝 Planned | 19 |
-| 🔨 In progress | 4 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 2 |
 | 🚀 Shipped (organic open) | 0 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🅿️ Parked | 42 |
-| ✅ Done | 96 |
+| ✅ Done | 99 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1182,39 +1182,10 @@ _created 2026-08-24 16:45 · updated 2026-09-01 00:15 · refined ×2_
   - `no_dup_audit_2026_08_31`: Context-wide no-duplication audit: solar staleness gate is NEW (no equivalent after grep of energy_battery/energy/energy_pool/aggregation/sensor). NO generic staleness helper exists — 4 hand-rolled per-site gates (battery_soc cloud-fallb...
   - `investigation_result`: CONFIRMED (read-only probe 2026-08-31). The frozen entity is sensor.envoy_482543015950_current_power_production (URA CONF_ENERGY_SOLAR_ENTITY). It FREEZES at a valid 0.0 for 13-21h while sibling sensor.envoy_482543015950_production_ct_po...
 
-## 🔨 In progress (4)
+## 🔨 In progress (1)
 _being built_
 
-### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **in_progress** - approval: **explicit**
-_updated 2026-09-11 16:45 · refined_
-- **Origin:** 2026-08-21 - Surfaced by the D1 observability agent as an ancillary observation it was right to flag: "the test suite mutated custom_components/.../energy_pool_owners.py (prune_participant True->False) during runs — hollow-test / write-b...
-- **Next:** Tier 1: rewrite test_owner_registry_mutation_matrix.py:58 to mutate a tmp copy (option a), then audit the 20+ source-writing tests. Standalone (operator kept it cheap).
-- **Tags:** unrestored-drill, test-strategy
-- **Parsimony:** [BUILD] A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and t
-- **Forensic keys (1):**
-  - `mechanism`: CONFIRMED. quality/tests/test_owner_registry_mutation_matrix.py writes PRODUCTION SOURCE — line 58 `path.write_text(mutated, encoding="utf-8")` against custom_components/universal_room_automation/... — and restores it in a `finally` at l...
-
-### `HVAC-TICK-LITERAL-1` - HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grace_constrained=5 the minimum expressible value — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **in_progress** - approval: **explicit**
-_updated 2026-09-11 16:45 · refined_
-- **Origin:** 2026-08-20 - Surfaced while computing the optimal dwell/grace tuning the operator asked for. Every preset transition in 48h of live history lands on a 5-min boundary; the cause is async_track_time_interval(..., timedelta(minutes=5)) at h...
-- **Next:** Promote the inline timedelta(minutes=5) at hvac.py:1213-1216 to a named module constant HVAC_DECISION_TICK in hvac_const.py (rung 1). Land before any HVAC-PRESET-FLAP tuning (hvac_const.py:1163 CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS a...
-- **Tags:** numbers-get-knobs, measure-before-build
-- **Parsimony:** [BUILD] HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grac
-
-### `ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1` - The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **in_progress** - approval: **explicit**
-_created 2026-08-26 03:10 · updated 2026-09-11 16:45 · refined_
-- **Problem / Solution:**
-  - Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1, so at offset 0 the value is TOMORROW's class, not calendar day-after-tomorrow. No in-repo consumer reads it (display-only), but it is ope...
-- **Why:** Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
-- **Next:** Tier 1 additive: publish sibling d2_offset attr (computed at energy_battery.py:6291; card ref :6119 STALE) so d2_class self-describes. Precedent: target_day_source attr in same get_status dict. Ship with DEGENERATE-PAIR.
-- **Tags:** no-fabrication-verify
-- **Parsimony:** [BUILD] The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes t
-- **Refs:** energy_battery.py:6119 (get_status d2_class)
-
-### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KANBAN-WSJF-RENDERER-1` - Implement WSJF ranking in kanban_render.py — compute + per-lane sort + show score/rank on every card — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **in_progress** - approval: **explicit**
 _created 2026-09-11 16:55 · initial_
 - **Problem / Solution:**
@@ -1226,18 +1197,7 @@ _created 2026-09-11 16:55 · initial_
 ## 🔍 Review (2)
 _under review_
 
-### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **quality** - status: **review** - approval: **explicit**
-_created 2026-09-06 18:10 · updated 2026-09-11 19:15 · refined_
-- **Problem / Solution:**
-  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
-- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
-- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
-- **Next:** Quick Tier 1-2 gate-protector (ahead of the re-arch): scoped autouse restore/reload teardown for the const module a test stubs into sys.modules and never restores (aborts full-suite collection; green per-file).
-- **Tags:** test-authority, no-fabrication-verify
-- **Parsimony:** [BUILD] Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while ev
-
-### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SENSOR-HEALTH-SURFACING-1` - Sensor health: chatter QUARANTINE (untrust from occupancy fusion) — trust model — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **review**
 _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
 - **Next:** Plan: chatter detector + ura_unhealthy_sensors sensor + sensor_health table + NM "replace this sensor" hook. Tier 2. Institutional-context grep first (chatter->0 files today).
@@ -1258,6 +1218,17 @@ _created 2026-08-18 02:30 · updated 2026-08-19 10:35 · initial_
   - `fixture_decision_2026_08_19`: OPERATOR ACCEPTED LIVE-VALIDATION (option a) for the coordinator-integration surface (C-CRIT) — same as the fan fix. Real-coord harness (option b) deferred to TEST-STRATEGY-REARCH-1. STEP fix-up proceeds: de-hollow the C-CRIT tests (extr...
   - `checkpoint_ready_2026_08_19`: CHECKPOINT-READY (Tier-3). Reviews: A SHIP-WITH-FIX(fixed), B SHIP, C DO-NOT-SHIP->C2 SHIP (de-hollow genuine, ast-extraction mutation-verified), D DO-NOT-SHIP->D2 SHIP-WITH-CONDITIONS (all 2 HIGH + 2 MED closed, no new leak from refacto...
   - `shadow_first_2026_08_19`: OPERATOR ROLLOUT DECISION: ship SHADOW-FIRST, not default-on-acting. The acting quarantine is gated behind D7 (CHATTER-OBSERVE-CONTROL-D7-1: observe+control panel) + a HARD 2-DAY forcing gate (flip to acting by 2026-08-21 or declare moot...
+
+### `PYTEST-SUITE-CONST-STUB-ISOLATION-1` - Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while every file passes in isolation — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **quality** - status: **review** - approval: **explicit**
+_created 2026-09-06 18:10 · updated 2026-09-11 19:15 · refined_
+- **Problem / Solution:**
+  - Problem: running the whole test suite in one pytest process fails to even collect — some tests import a stubbed/fake const module that stays in sys.modules, so a later test importing real constants (BLE_HOLD_CAP_DURATIONS, CONF_FAN_MANUA...
+- **Origin:** 2026-09-06 - discovered during v5.98.0 Wave-1 ship — full suite aborted collection; confirmed pre-existing (identical on pristine develop) and each file green in isolation
+- **Why:** A green-in-isolation suite that cannot run as one process hides real regressions behind an import abort and forces per-file runs; the deploy gate and validator name-diff both assume a clean single-process suite.
+- **Next:** Quick Tier 1-2 gate-protector (ahead of the re-arch): scoped autouse restore/reload teardown for the const module a test stubs into sys.modules and never restores (aborts full-suite collection; green per-file).
+- **Tags:** test-authority, no-fabrication-verify
+- **Parsimony:** [BUILD] Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown location') while ev
 
 ## 🚀 Shipped (organic open) (0)
 _live, awaiting proof_
@@ -2145,8 +2116,37 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (96)
+## ✅ Done (99)
 _closed, evidence in refs_
+
+### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **platform** - status: **done** - approval: **explicit**
+_updated 2026-09-11 19:20 · refined_
+- **Origin:** 2026-08-21 - Surfaced by the D1 observability agent as an ancillary observation it was right to flag: "the test suite mutated custom_components/.../energy_pool_owners.py (prune_participant True->False) during runs — hollow-test / write-b...
+- **Next:** Tier 1: rewrite test_owner_registry_mutation_matrix.py:58 to mutate a tmp copy (option a), then audit the 20+ source-writing tests. Standalone (operator kept it cheap).
+- **Tags:** unrestored-drill, test-strategy
+- **Parsimony:** [BUILD] A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and t
+- **Forensic keys (1):**
+  - `mechanism`: CONFIRMED. quality/tests/test_owner_registry_mutation_matrix.py writes PRODUCTION SOURCE — line 58 `path.write_text(mutated, encoding="utf-8")` against custom_components/universal_room_automation/... — and restores it in a `finally` at l...
+
+### `HVAC-TICK-LITERAL-1` - HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grace_constrained=5 the minimum expressible value — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **done** - approval: **explicit**
+_updated 2026-09-11 19:20 · refined_
+- **Origin:** 2026-08-20 - Surfaced while computing the optimal dwell/grace tuning the operator asked for. Every preset transition in 48h of live history lands on a 5-min boundary; the cause is async_track_time_interval(..., timedelta(minutes=5)) at h...
+- **Next:** Promote the inline timedelta(minutes=5) at hvac.py:1213-1216 to a named module constant HVAC_DECISION_TICK in hvac_const.py (rung 1). Land before any HVAC-PRESET-FLAP tuning (hvac_const.py:1163 CONF_HVAC_CARRIER_POST_RELOAD_GRACE_TICKS a...
+- **Tags:** numbers-get-knobs, measure-before-build
+- **Parsimony:** [BUILD] HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grac
+
+### `ARBITRAGE-D2CLASS-ATTR-SEMANTICS-1` - The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes tomorrow's class under a key a future diagnosis could read as day-after-tomorrow — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **done** - approval: **explicit**
+_created 2026-08-26 03:10 · updated 2026-09-11 19:20 · refined_
+- **Problem / Solution:**
+  - Problem: after the arbitrage D2 off-by-one fix, get_status publishes d2_class from target_offset+1, so at offset 0 the value is TOMORROW's class, not calendar day-after-tomorrow. No in-repo consumer reads it (display-only), but it is ope...
+- **Why:** Found by arbitrage review B (B7). Display-lies-about-ground-truth shape — same family as tonight's authoritative-telemetry theme. Cheap; fold into the next energy sensor touch.
+- **Next:** Tier 1 additive: publish sibling d2_offset attr (computed at energy_battery.py:6291; card ref :6119 STALE) so d2_class self-describes. Precedent: target_day_source attr in same get_status dict. Ship with DEGENERATE-PAIR.
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [BUILD] The battery-strategy sensor's d2_class attribute now means "D+1-of-target" not calendar D+2 — at offset 0 it publishes t
+- **Refs:** energy_battery.py:6119 (get_status d2_class)
 
 ### `ATTAIN-SEASONAL-BEHAVIOR-TRACE-1` - How does the arbitrage ATTAIN phase behave across shoulder + winter (low/moderate solar) seasons? — code trace question — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **done** - approval: **unreviewed**
