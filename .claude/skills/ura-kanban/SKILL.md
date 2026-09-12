@@ -284,6 +284,56 @@ elements, all pure functions of the data (so they never drift):
    - **Prune** acknowledged / >7-day entries from `meta.autonomy_feed` during grooming so the data
      file does not grow unbounded (the rendered feed already hides them; pruning keeps the YAML lean).
 
+### Board-stack BLUEPRINT — the contract every board implements itself (operator-coined 2026-09-12)
+
+There are multiple hosted boards (urakanban, gitbrowse, homelab-kanban), each stamped out by an
+agent from this skill. **Do NOT hand-patch each host's server per change** — that coupling is the
+thing to avoid. Instead this blueprint IS the contract: any agent maintaining any board reads it and
+brings ITS OWN render + server into conformance. The URA `scripts/kanban_render.py` +
+homelab `sites/urakanban/server.js` are the **reference implementation**.
+
+**1. Disposition API (the server the board POSTs to).** A tiny static file server + micro-API:
+- `POST /api/disposition` — body `{card_id, action, at[, text]}`; append one JSONL line.
+  `action` ∈ `done | deferred | declined | approve | investigate | instruct | ack | move:<status>`.
+  `text` is OPTIONAL free-form (operator decision/instruction), a string capped (≤2000 chars) —
+  **it MUST be preserved**, not stripped. `card_id` ≤128 chars (for `ack`, card_id is the feed
+  entry's `fid`; for `instruct`, it is the underlying card id).
+- `GET /api/dispositions` — raw JSONL (the puller reads this).
+- `POST /api/dispositions/clear` — truncate (puller calls after a successful import).
+- The **puller** (e.g. `refresh_urakanban.sh`) imports queue→`kanban.dispositions.pending.jsonl`,
+  **carrying `text`** and **including `text` in the dedup key** (so two distinct instructions on one
+  card both survive), commits+pushes, then clears.
+
+**2. Serving model → why the shim exists.** Boards are served as a **CACHED STATIC file**
+(`kanban_board.html`), re-rendered only when the refresh cron runs (~5 min). So an operator click's
+state must survive a reload BEFORE the next render, via TWO layers: (a) the render **reads the
+pending queue** and paints the acked/decided state server-side (durable source of truth); (b) a
+small **`localStorage` echo + CSS class toggle** re-applies it instantly on reload in the gap. This
+is the ONLY client state — no framework. If a board is ever served with per-request rendering, (a)
+alone suffices and (b) is optional polish.
+
+**3. Render contract.** Counter `N / D` (N = feed entries concluded in last 24h, D = open-card
+count, shrinks as done grows); feed entries show an **Acknowledge** button, and `waiting_operator`
+entries ALSO show an **inline decision text box** (posts `instruct` against the card). Acked entries
+render **in place** as "acked — pending apply" (never removed optimistically — that was the v1 bug);
+queued decisions render a "decision queued: …" chip. `waiting_operator`/`waiting_me` lanes render
+just after `review` (elevated).
+
+**4. Groom-time reconciliation (what the agent does when applying the queue).**
+- `ack` on a feed entry → set the `autonomy_feed` entry `acknowledged: true` (retires it). **AND if
+  the entry's card is in a terminal-ready lane (`review` / `shipped_organic`) and the work is
+  complete, MOVE the card to `done`** — an ack is the operator accepting the work, not just dismissing
+  a row. A built-and-acked card must not linger in `review`.
+- `instruct` on a card → write `operator_decision_<date>: "<text>"` onto the card, treat it as
+  authority, and **move the card to the lane the decision implies** (e.g. "go build it" → `planned`/
+  `in_progress`; "drop it" → `done`/`parked`). Front of the grooming queue.
+- Then prune acked/decided feed entries and re-render. Every disposed ack/decision must end with the
+  card in its correct lane and the feed/ack state shown — never a half-applied disposition.
+
+**Self-conform rule:** when you change any part of this contract, update THIS blueprint first, then
+each board's agent (or you, per board) brings its render + server into conformance from the spec —
+the skill is the single source, the per-host files are conformant implementations of it.
+
 ## Card schema — the fields ARE the decay vectors
 
 Fill Origin, Why, and Next even when terse. Each field maps to a thing that otherwise leaks:
