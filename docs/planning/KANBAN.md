@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T14:29:54-05:00_ - _Data commit: `1b4acada246a`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T14:33:51-05:00_ - _Data commit: `cd59e6540a6d`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -648,7 +648,8 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
 - **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
 - **Tags:** tier-2db
 - **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
-- **Forensic keys (17):**
+- **Forensic keys (18):**
+  - `f6_resolved_2026_09_12`: F6 RESOLVED (operator 2026-09-12): KEEP EXCLUDED. _EXCLUDED_PLATFORMS already excludes BOTH template AND group (config_flow.py:776) + helpers/input_*/counter/timer/schedule. Operator: error-prone to auto-detect for the default path, grou...
   - `ship_ready_2026_09_12`: SHIP-READY @ e61b0f962 (feature/onboarding-simplify). FIX-1(MED skip-route rooms_skipped abort string — House created before abort, reassuring copy in both strings files), FIX-2(LOW error-rerender preserves cleared fields), FIX-3(LOW doo...
   - `rereview_ship_2026_09_12`: TIER-3 COMPLETENESS RE-REVIEW @ b6bdf637e = SHIP (no CRIT/HIGH). All 4 prior-round fixes verified CLOSED with source evidence: D-CRIT-1 (eager _mint_house_now at energy_setup, mutation-anchored RED-on-neuter, tree clean), D-HIGH-1 INV-2 ...
   - `fixup_2026_09_12`: CONSOLIDATED FIX-UP DONE @ e8ca6656b + T4/T2 closure @ b6bdf637e. P1-P8 production + T1/T3/T5/T6/T7 each mutation-anchored (builder table all RED-on-neuter). P1 D-CRIT-1 root-cause: House minted EAGERLY in energy_setup via _mint_house_no...

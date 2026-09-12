@@ -60,10 +60,12 @@ unchanged) in the Options flow:
   no-occupancy-sensor install that previously could not complete at all.
 
 ## Known-issue / not addressed
-- **F6 (operator decision pending):** `_EXCLUDED_PLATFORMS` excludes `template` (and
-  group) entities from auto-suggest. This house uses template occupancy + light
-  groups, so those need manual add (no capability loss — selectors still allow manual
-  pick). [Resolved at deploy per operator call: INCLUDE / KEEP-EXCLUDED — fill in.]
+- **F6 (operator decision — RESOLVED 2026-09-12: KEEP EXCLUDED):** `_EXCLUDED_PLATFORMS`
+  excludes `template` and `group` (plus helpers/`input_*`/counter/timer/schedule) from
+  auto-suggest. Operator call: keep them out of the default path — they're error-prone
+  to auto-detect and groups are uncommon; the operator can still pick them manually
+  (selectors are unrestricted, so no capability loss). Zero code change — the build
+  already matched the decision.
 - **INV-3 test enforcement** anchors one bathroom key-set, not the full 48-key
   enumeration (would not catch a future 49th deferred key). Noted, accepted.
 - B5 residual area-prefills (window/power/energy/cameras/scanner/egress) intentionally
