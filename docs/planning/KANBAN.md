@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T13:37:21-05:00_ - _Data commit: `4466edcb43db`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T13:40:03-05:00_ - _Data commit: `438845665f1a`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -661,14 +661,15 @@ _updated 2026-09-12 12:40 · refined ×3_
 
 ### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **review** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-09-12 14:20 · refined_
+_created 2026-08-20 14:15 · updated 2026-09-12 14:50 · refined_
 - **Problem / Solution:**
   - Problem: when the thermostat cloud service times out, all three thermostats drop offline together for a minute and come back, and the system that watches for someone manually changing a thermostat mistakes that blip for a real human over...
 - **Why:** Live 2026-08-20: Carrier cloud returned 504 Gateway Timeout on getInfinityEnergy at 12:14:15; ALL THREE climate entities went unavailable 12:14:15->12:15:17 (simultaneous to the second); the arrester logged override #3 at 12:15:37, 20s a...
 - **Next:** Tier 1: narrow post-reconnect grace guard on the arrester detection path. DISCRIMINATOR: suppress the 3-zone-simultaneous reconnect case WITHOUT suppressing a genuine single-zone override. Operator 2026-09-09: no new Carrier cards — ride...
 - **Tags:** no-fabrication-verify
 - **Refs:** Carrier 504 getInfinityEnergy 12:14:15 2026-08-20; sensor.ura_hvac_coordinator_override_arrester (live attrs)
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `review_2026_09_12`: Adversarial review = SHIP (invariant HOLDS: per-ENTITY keying so one zone reconnect cannot mask another zone override; the 30s-window mis-fire fails OPEN = leaves the human setpoint alone, the safe side; 7 sites enumerated, guard skips n...
   - `built_2026_09_12`: BUILT feature/arrester-reconnect-grace @ dd29169d0 (not merged/deployed). Guard in _handle_climate_change: old_state==unavailable->!=unavailable stamps recovery + returns; follow-up tick within OVERRIDE_RECONNECT_GRACE_S=30 (new rung-1 c...
   - `verified_2026_09_12`: OPERATOR-LEANED-A + owed verification DONE -> A==B CONFIRMED, GREEN to build. MEASURED (recorder ~6d): the 3 Carrier zones (studyb_zone_1=1525, up_hallway_zone_2=5281, back_hallway_zone_3=5282) drop AND recover in the SAME event-loop tic...
   - `operator_decision_2026_09_12`: LEANS A (operator): "A makes sense since one cloud service. Check reconnect ALWAYS happens for all zones at the same time. HOW do we detect reconnection? If they all reconnect at the same time, A and B are functionally the same." I OWE a...
