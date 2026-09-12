@@ -16696,6 +16696,71 @@ cards:
      tests pass. Live at next ~5-min cron render.'
   next: 'Done. Live on next refresh; if oklch() ever needs a fallback for an old browser, add hex.'
   refs: [scripts/kanban_render.py, 'https://universalroom.org/style.css']
+- id: REMINDER-ACTIVATE-OVERNIGHT-PASS-1
+  title: "Activate the overnight-pass launchd job (operator one-time launchctl load)"
+  thread: tooling
+  status: waiting_operator
+  created: '2026-09-12 16:30'
+  updated: '2026-09-12 16:30'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 ("remind me to start it later")'
+  tags: [tier-1]
+  problem_solution:
+  - 'Problem: the nightly overnight-pass (drives the investigations lane while you sleep) is built
+     and committed but NOT activated — activation is a deliberate operator step because it enables
+     unattended autonomy. Solution: operator runs the one-time launchctl load.'
+  next: 'DO (operator, one-time): cp ~/Code/homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist
+     ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.phalanxmadrone.ura-overnight-pass.plist
+     (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
+  refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
+- id: APPLIANCE-MGMT-REFINE-1
+  title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
+  thread: energy
+  status: pre_planning
+  created: '2026-09-12 16:30'
+  updated: '2026-09-12 16:30'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 ("Finally deliver on appliance management — we have a plan we need to refine")'
+  tags: [tier-2db]
+  problem_solution:
+  - 'Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md,
+     BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution:
+     critique + refine the v3 plan, find the highest practical home-automation opportunity areas
+     (beyond cost-deferral), and scope the simplest first deliverable.'
+  why: operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral
+    slice) is the existing card — this is the parent refine-and-widen.
+  next: 'PLAN: critique PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, enumerate practical opportunity
+    areas, marginal-benefit decomposition -> simplest first deliverable. -> operator review.'
+  links:
+    related: [APPLIANCE-COST-DEFERRAL-1]
+  refs: [docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md]
+- id: ONBOARDING-SIMPLIFY-1
+  title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
+  thread: config-flow
+  status: pre_planning
+  created: '2026-09-12 16:30'
+  updated: '2026-09-12 16:30'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 ("simplify URA onboarding... at least a 50% reduction in cognitive complexity... much more assistive stance")'
+  tags: [tier-2db]
+  problem_solution:
+  - 'Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA ->
+     first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA
+     is moving to another house soon and the setup friction is a real blocker. Solution: trace the
+     actual first-run path + forms, document them, verify what is genuinely required vs assistive-able,
+     and cut cognitive complexity + required tasks by >=50% with a much more assistive (auto-detect,
+     sane-default, progressive-disclosure) stance.'
+  why: single-house integration moving to a second house; first-time setup has not been exercised in a
+    long time and was too arcane. Onboarding is the gate to reuse.
+  constraints:
+  - '>=50% reduction in cognitive complexity AND required tasks across the initial steps/forms'
+  - 'assistive stance: auto-detect/sane-default/progressive-disclosure over asking the operator'
+  next: 'PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional
+    complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.'
+  refs: [custom_components/universal_room_automation/config_flow.py, custom_components/universal_room_automation/__init__.py]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
