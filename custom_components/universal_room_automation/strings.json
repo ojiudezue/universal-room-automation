@@ -539,7 +539,8 @@
       "coordinator_use_options": "Domain coordinators are configured via the Coordinator Manager device. Click Configure on the Coordinator Manager entry.",
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted.",
-      "zone_added": "Zone added successfully. The Zone Manager will reload to apply changes."
+      "zone_added": "Zone added successfully. The Zone Manager will reload to apply changes.",
+      "rooms_skipped": "Home installed. You can add rooms any time from Settings > Devices & Services > Universal Room Automation > Configure."
     }
   },
   "options": {

@@ -1189,8 +1189,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         the registry. Guard `_integration_data is not None` for callers
         that bypass energy_setup (defensive belt-and-braces)."""
         await self._mint_house_now()
-        return self.async_abort(reason="not_supported")
-    
+        # FIX-1 (MEDIUM): use a dedicated abort reason with reassuring
+        # copy under config.abort.rooms_skipped in strings/en.json — the
+        # step's own config.step block does NOT render on abort, so the
+        # generic "not_supported" reason previously read as "install
+        # failed" even though the House entry was already created.
+        return self.async_abort(reason="rooms_skipped")
+
     async def async_step_setup_zone(self, user_input=None):
         """Route to zone setup from post-integration menu."""
         return await self.async_step_zone_setup()
@@ -1472,12 +1477,17 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         placeholder tells the operator why + how to fix.
         """
         errors: dict[str, str] = {}
+        submitted: dict | None = None
         if user_input is not None:
             motion = user_input.get(CONF_MOTION_SENSORS, []) or []
             mmwave = user_input.get(CONF_MMWAVE_SENSORS, []) or []
             occupancy = user_input.get(CONF_OCCUPANCY_SENSORS, []) or []
             if not motion and not mmwave and not occupancy:
                 errors["base"] = "no_occupancy_sensors"
+                # FIX-2 (LOW): retain the operator's submitted values so
+                # cleared single-entity selectors stay cleared across the
+                # error re-render (do not re-suggest the area guess).
+                submitted = dict(user_input)
             else:
                 # INV-2: persist EXACTLY what the operator submitted for
                 # non-required buckets. Do NOT re-apply the pre-filled guess
@@ -1492,8 +1502,10 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         area_id = self._data.get(CONF_AREA_ID)
 
         # P5 (Tier-3 fix-up): pick dedup discipline per bucket. Multi-select
-        # buckets (motion, occupancy, door — CONF_DOOR_SENSORS is multi)
-        # rank-only. Single-entity buckets (temp/humidity/lux) dedup.
+        # buckets (motion, occupancy) rank-only. Single-entity buckets
+        # (temp / humidity / lux / door — CONF_DOOR_SENSORS renders as a
+        # single-entity selector on the essentials path) dedup.
+        # FIX-3 (LOW): corrected stale comment that mis-classified door.
         # T1: pass REAL actuator device_ids so the shared-actuator rung is
         # live, not inert.
         def _rank_multi(entities: list[str]) -> list[str]:
@@ -1545,18 +1557,35 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         # ~line 986. Multi-select buckets keep `default=[]` — an empty
         # multi-selector serializes to `[]` unambiguously so it round-trips.
         def _opt_single(key, guess):
+            # FIX-2: if the operator submitted the form (error re-render),
+            # prefer their value — including an EXPLICIT clear (empty /
+            # missing) — over the area guess. A missing key in `submitted`
+            # means the operator cleared the selector; render with NO
+            # suggested_value so the field stays cleared.
+            if submitted is not None:
+                val = submitted.get(key)
+                if val:
+                    return vol.Optional(key, description={"suggested_value": val})
+                return vol.Optional(key)
             if guess:
                 return vol.Optional(key, description={"suggested_value": guess})
             return vol.Optional(key)
 
+        def _multi_default(key, area_guess):
+            # FIX-2: same principle for multi-select — an operator who
+            # submitted `[]` (cleared) must not see the area guess again.
+            if submitted is not None:
+                return submitted.get(key, []) or []
+            return area_guess or []
+
         data_schema = vol.Schema({
-            vol.Optional(CONF_MOTION_SENSORS, default=area_motion or []): selector.EntitySelector(
+            vol.Optional(CONF_MOTION_SENSORS, default=_multi_default(CONF_MOTION_SENSORS, area_motion)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
-            vol.Optional(CONF_MMWAVE_SENSORS, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_MMWAVE_SENSORS, default=_multi_default(CONF_MMWAVE_SENSORS, [])): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
-            vol.Optional(CONF_OCCUPANCY_SENSORS, default=area_occupancy or []): selector.EntitySelector(
+            vol.Optional(CONF_OCCUPANCY_SENSORS, default=_multi_default(CONF_OCCUPANCY_SENSORS, area_occupancy)): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
             _opt_single(CONF_TEMPERATURE_SENSOR, area_temp[0] if area_temp else None): selector.EntitySelector(

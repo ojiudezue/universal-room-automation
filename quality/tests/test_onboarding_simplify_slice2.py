@@ -362,6 +362,10 @@ def test_first_run_skip_rooms_still_creates_house():
     flow._integration_data = {"electricity_rate": 0.12}
     result = _run(flow.async_step_skip_rooms_later())
     assert result["type"] == "abort"
+    # FIX-1 (Tier-3 fix-up): dedicated 'rooms_skipped' reason so the
+    # translation surface can render reassuring copy (House installed,
+    # add rooms later) instead of the generic 'not_supported' message.
+    assert result["reason"] == "rooms_skipped"
     assert len(hass.flow_init_calls) == 1
     assert hass.flow_init_calls[0]["context"] == {"source": "integration_create"}
 

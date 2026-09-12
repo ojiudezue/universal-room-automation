@@ -505,6 +505,111 @@ def test_ranker_shared_actuator_rung_beats_alphabetical_tiebreak():
 
 
 # ===========================================================================
+# FIX-1 — Skip escape hatch uses dedicated abort reason + translation copy
+# ===========================================================================
+
+def test_skip_rooms_later_uses_rooms_skipped_reason():
+    """FIX-1: skip_rooms_later aborts with reason='rooms_skipped' (not
+    the generic 'not_supported' that renders as 'install failed')."""
+    _install_registries([])
+    hass = _FakeIntegrationHass()
+    flow = _make_config_flow(hass=hass)
+    flow._integration_data = {"electricity_rate": 0.12}
+    result = _run(flow.async_step_skip_rooms_later())
+    assert result["type"] == "abort"
+    assert result["reason"] == "rooms_skipped", (
+        f"FIX-1: expected reason='rooms_skipped', got {result.get('reason')!r}"
+    )
+    # And the House exists (mint runs BEFORE the abort).
+    assert any(
+        e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION
+        for e in hass._entries
+    ), "FIX-1: House must still be present when skip route aborts."
+
+
+def test_rooms_skipped_abort_copy_present_in_translations():
+    """FIX-1: config.abort.rooms_skipped exists in both strings.json and
+    translations/en.json so the abort renders reassuring copy."""
+    import json, os
+    _COMPONENT_DIR = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "custom_components", "universal_room_automation",
+    ))
+    for rel in ("strings.json", "translations/en.json"):
+        with open(os.path.join(_COMPONENT_DIR, rel)) as f:
+            data = json.load(f)
+        aborts = data.get("config", {}).get("abort", {})
+        assert "rooms_skipped" in aborts, (
+            f"FIX-1: {rel} is missing config.abort.rooms_skipped"
+        )
+        assert aborts["rooms_skipped"], (
+            f"FIX-1: {rel} config.abort.rooms_skipped is empty"
+        )
+
+
+# ===========================================================================
+# FIX-2 — sensors_confirm preserves operator input on error re-render
+# ===========================================================================
+
+def test_sensors_confirm_error_rerender_preserves_cleared_single_selector():
+    """FIX-2: operator submits with cleared TEMPERATURE (no
+    CONF_TEMPERATURE_SENSOR key) and empty occupancy → error
+    'no_occupancy_sensors'. On re-render the temperature selector must
+    NOT re-suggest the area guess (the operator explicitly cleared it).
+    """
+    _install_registries([
+        _reg_entry("sensor.pref_temp", "sensor", area_id="a1",
+                   original_device_class="temperature"),
+    ])
+    flow = _make_config_flow()
+    flow._data.update({
+        CONF_ROOM_NAME: "R", CONF_ROOM_TYPE: ROOM_TYPE_GENERIC,
+        CONF_AREA_ID: "a1",
+    })
+    # Submit that triggers the occupancy guard AND clears temperature.
+    result = _run(flow.async_step_sensors_confirm(user_input={
+        CONF_MOTION_SENSORS: [],
+    }))
+    assert result["type"] == "form"
+    assert result.get("errors", {}).get("base") == "no_occupancy_sensors"
+    # On re-render, the TEMPERATURE selector should carry NO suggested_value.
+    keys = {str(k): k for k in result["data_schema"].schema}
+    temp_marker = keys[CONF_TEMPERATURE_SENSOR]
+    desc = getattr(temp_marker, "description", None) or {}
+    assert "suggested_value" not in desc, (
+        f"FIX-2: cleared temperature re-suggested area guess "
+        f"({desc.get('suggested_value')!r}) on error re-render."
+    )
+
+
+def test_sensors_confirm_error_rerender_preserves_submitted_single_selector():
+    """FIX-2 dual: if the operator DID submit a temperature value, that
+    submitted value survives the error re-render (not overwritten by the
+    area guess)."""
+    _install_registries([
+        _reg_entry("sensor.pref_temp", "sensor", area_id="a1",
+                   original_device_class="temperature"),
+        _reg_entry("sensor.chosen_temp", "sensor", area_id="a1",
+                   original_device_class="temperature"),
+    ])
+    flow = _make_config_flow()
+    flow._data.update({
+        CONF_ROOM_NAME: "R", CONF_ROOM_TYPE: ROOM_TYPE_GENERIC,
+        CONF_AREA_ID: "a1",
+    })
+    result = _run(flow.async_step_sensors_confirm(user_input={
+        CONF_TEMPERATURE_SENSOR: "sensor.chosen_temp",
+    }))
+    assert result.get("errors", {}).get("base") == "no_occupancy_sensors"
+    keys = {str(k): k for k in result["data_schema"].schema}
+    temp_marker = keys[CONF_TEMPERATURE_SENSOR]
+    desc = getattr(temp_marker, "description", None) or {}
+    assert desc.get("suggested_value") == "sensor.chosen_temp", (
+        f"FIX-2: submitted value not preserved; got {desc!r}"
+    )
+
+
+# ===========================================================================
 # T5 — explicit-False-wins SOFT-seed guard at room_summary
 # ===========================================================================
 
