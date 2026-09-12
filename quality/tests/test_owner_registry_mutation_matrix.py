@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -32,37 +33,76 @@ def _md5(p: Path) -> str:
     return hashlib.md5(p.read_bytes()).hexdigest()
 
 
-def _clear_pycache() -> None:
-    for root, dirs, _ in os.walk(_REPO):
+def _clear_pycache_at(root: Path) -> None:
+    for r, dirs, _ in os.walk(root):
         if "__pycache__" in dirs:
-            shutil.rmtree(Path(root) / "__pycache__", ignore_errors=True)
+            shutil.rmtree(Path(r) / "__pycache__", ignore_errors=True)
 
 
-def _run(anchor: str):
+def _run(anchor: str, cwd: Path, pythonpath_prefix: Path):
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(_REPO / "quality")
+    # SIGKILL-safe mutation: subprocess resolves custom_components/ from
+    # the mutated tmp tree (prefix wins over cwd default). Bytecode
+    # disabled so a stale .pyc under _REPO cannot mask the mutation.
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(pythonpath_prefix), str(_REPO / "quality"), str(_REPO)]
+    )
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     return subprocess.run(
-        [sys.executable, "-m", "pytest", anchor, "-x", "--tb=line", "-q"],
-        env=env, cwd=str(_REPO),
+        [sys.executable, "-B", "-m", "pytest", anchor,
+         "-x", "--tb=line", "-q"],
+        env=env, cwd=str(cwd),
         capture_output=True, text=True,
     )
 
 
 def _apply(path: Path, swap_from: str, swap_to: str, anchor: str,
            expect: str):
+    """SIGKILL-safe: mutate a COPY of the package tree under tmp_path;
+    the real production source is NEVER written to. Even a hard SIGKILL
+    (concurrency-guard hard kill, OOM, ^C bypass) cannot leave the real
+    source mutated because we never open it for write.
+
+    Approach: shallow-symlink every top-level entry of _REPO into a
+    tempdir, EXCEPT `custom_components/` — which we copytree so we can
+    overwrite exactly one file with the mutation. subprocess runs at
+    cwd=tmp_root with PYTHONPATH prefix=tmp_root so imports of
+    `custom_components.*` resolve against the mutated tree; every other
+    path (quality/tests, docs, .git, ...) is a symlink to the real repo,
+    so the anchor test collects and runs identically.
+    """
     original = path.read_text(encoding="utf-8")
     assert swap_from in original, f"anchor missing in {path.name}"
     mutated = original.replace(swap_from, swap_to, 1)
     assert mutated != original, "no-op mutation"
-    _md5_before = _md5(path)
-    path.write_text(mutated, encoding="utf-8")
-    try:
-        _clear_pycache()
-        result = _run(anchor)
-    finally:
-        path.write_text(original, encoding="utf-8")
-        _clear_pycache()
-        assert _md5(path) == _md5_before
+    md5_before_real = _md5(path)
+
+    with tempfile.TemporaryDirectory(prefix="ura_mut_") as td:
+        tmp_root = Path(td)
+        # Symlink every top-level entry to the real repo, EXCEPT
+        # custom_components (which we copy so we can mutate one file).
+        for entry in _REPO.iterdir():
+            if entry.name == "custom_components":
+                continue
+            (tmp_root / entry.name).symlink_to(entry)
+        shutil.copytree(
+            _REPO / "custom_components",
+            tmp_root / "custom_components",
+            symlinks=False,
+        )
+        rel = path.relative_to(_REPO / "custom_components")
+        tmp_target = tmp_root / "custom_components" / rel
+        tmp_target.write_text(mutated, encoding="utf-8")
+
+        _clear_pycache_at(tmp_root / "custom_components")
+        result = _run(anchor, cwd=tmp_root, pythonpath_prefix=tmp_root)
+
+    # Invariant: the real production file was NEVER touched.
+    assert _md5(path) == md5_before_real, (
+        "real production source must not be modified by the mutation "
+        "harness (SIGKILL-safe invariant)."
+    )
+
     if expect == "KILLED":
         assert result.returncode != 0, (
             f"expected KILLED; test stayed GREEN\n{result.stdout[-2000:]}"

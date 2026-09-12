@@ -58,6 +58,8 @@ STANDARD_FIELDS = {
     "parsimony", "constraints", "parked_alts", "refinement",
     "knobs", "depends_on", "blocks", "sibling_of",
     "batch", "seq", "shipped_version",
+    "links", "rank", "live_broken", "disposition",
+    "_wsjf", "_lane_rank",  # transient render-only annotations (see compute_wsjf/group_cards)
 }
 
 APPROVAL_COLOR = {
@@ -193,11 +195,123 @@ def _column_for(status: str) -> str:
     return status if status in known else "other"
 
 
-def group_cards(cards: list[dict]) -> dict[str, list[dict]]:
-    buckets: dict[str, list[dict]] = {k: [] for k, *_ in COLUMN_META}
+# ---------- WSJF ranking (operator-finalized 2026-09-11) ----------
+# WSJF = (value + time_criticality + unblock) / effort   (higher = do sooner)
+
+_TIER_EFFORT = {
+    "hotfix": 2, "tier-1": 2, "tier1": 2,
+    "tier-2": 5, "tier2": 5,
+    "tier-2db": 8, "tier2db": 8, "tier-2-db": 8,
+    "tier-3": 13, "tier3": 13,
+}
+_FOUNDATIONAL_TAGS = {"platform-enabler", "shared-primitive"}
+_DEFAULT_VALUE = 5
+_DEFAULT_TC = 3
+_DEFAULT_EFFORT = 5
+
+
+def _card_tags(card: dict) -> set:
+    return {str(t).lower() for t in (card.get("tags") or []) if t is not None}
+
+
+def _tier_effort(tags: set) -> int:
+    efforts = [e for t, e in _TIER_EFFORT.items() if t in tags]
+    return max(efforts) if efforts else _DEFAULT_EFFORT
+
+
+def _links_of(card: dict) -> dict:
+    links = card.get("links")
+    return links if isinstance(links, dict) else {}
+
+
+def build_blocks_count(cards: list[dict]) -> dict:
+    """For each card id, how many distinct other cards depend on it (it unblocks them)."""
+    deps: dict = {}
+
+    def bump(enabler, dependent):
+        if enabler and dependent and enabler != dependent:
+            deps.setdefault(str(enabler), set()).add(str(dependent))
+
+    for c in cards:
+        cid = c.get("id")
+        links = _links_of(c)
+        for t in (links.get("blocks") or []):
+            bump(cid, t)
+        for fld in ("blocked_by", "after", "depends_on"):
+            for x in (links.get(fld) or []):
+                bump(x, cid)
+        for t in (c.get("blocks") or []):
+            bump(cid, t)
+        for x in (c.get("depends_on") or []):
+            bump(x, cid)
+    return {k: len(v) for k, v in deps.items()}
+
+
+def compute_wsjf(card: dict, blocks_count: dict) -> dict:
+    rank = card.get("rank") or {}
+    if not isinstance(rank, dict):
+        rank = {}
+    tags = _card_tags(card)
+    value = rank.get("value", _DEFAULT_VALUE)
+    tc = rank.get("time_criticality", _DEFAULT_TC)
+    if card.get("live_broken") or "live-broken" in tags:
+        tc = max(tc, 8)
+    fanout = blocks_count.get(str(card.get("id")), 0)
+    foundational = rank.get("foundational")
+    if foundational is None:
+        foundational = 6 if (tags & _FOUNDATIONAL_TAGS) else 0
+    unblock = min(10, max(2 + 2 * fanout, foundational))
+    effort = rank.get("effort") or _tier_effort(tags)
+    try:
+        score = (value + tc + unblock) / effort
+    except ZeroDivisionError:
+        score = 0.0
+    default_scored = not any(k in rank for k in ("value", "effort", "foundational"))
+    return {"wsjf": round(score, 1), "value": value, "tc": tc,
+            "unblock": unblock, "effort": effort, "fanout": fanout, "default": default_scored}
+
+
+def _sort_lane(key: str, lane: list, blocks_count: dict, in_progress_batches: set) -> list:
+    if key in ("done", "other"):
+        ordered = sorted(lane, key=lambda c: str(c.get("updated", "")), reverse=True)
+        for c in ordered:
+            c["_wsjf"] = compute_wsjf(c, blocks_count)
+            c["_lane_rank"] = 0
+        return ordered
+
+    def sortkey(c):
+        w = compute_wsjf(c, blocks_count)
+        batch = c.get("batch")
+        affinity = 1 if (batch and batch in in_progress_batches) else 0
+        return (-w["wsjf"], -affinity, -w["unblock"], str(c.get("updated", "")))
+
+    ordered = sorted(lane, key=sortkey)
+    for i, c in enumerate(ordered, 1):
+        c["_wsjf"] = compute_wsjf(c, blocks_count)
+        c["_lane_rank"] = i
+    return ordered
+
+
+def group_cards(cards: list[dict]) -> dict:
+    buckets: dict = {k: [] for k, *_ in COLUMN_META}
     for c in cards:
         buckets[_column_for(str(c.get("status", "")))].append(c)
+    blocks_count = build_blocks_count(cards)
+    in_progress_batches = {c.get("batch") for c in buckets["in_progress"] if c.get("batch")}
+    for key in buckets:
+        buckets[key] = _sort_lane(key, buckets[key], blocks_count, in_progress_batches)
     return buckets
+
+
+def _wsjf_badge_text(c: dict) -> str:
+    w = c.get("_wsjf")
+    if not isinstance(w, dict):
+        return ""
+    rank = c.get("_lane_rank") or 0
+    head = f"#{rank} · " if rank else ""
+    mark = " ⚠" if w.get("default") else ""
+    return (f"{head}WSJF {w['wsjf']} · "
+            f"v{w['value']} tc{w['tc']} u{w['unblock']} /e{w['effort']}{mark}")
 
 
 def _first_line(value: Any) -> str:
@@ -332,7 +446,9 @@ def _render_card_md(c: dict, pending: dict[str, list[dict]] | None = None) -> li
         origin_line = f"{od} - {og}".strip(" -") if (od or og) else ""
 
     lines: list[str] = []
-    lines.append(f"### `{cid}` - {_md_escape(title)}")
+    _badge_txt = _wsjf_badge_text(c)
+    _badge_md = f" — _{_md_escape(_badge_txt)}_" if _badge_txt else ""
+    lines.append(f"### `{cid}` - {_md_escape(title)}{_badge_md}")
     for disp in (pending or {}).get(cid, []):
         lines.append(f"> **⚡ OPERATOR: {_md_escape(disp['action'])} — pending apply** (at {disp['at']})")
     tag_bits = []
@@ -761,6 +877,11 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     ap_class = f" ap-{approval}" if approval in ("explicit", "implied", "unreviewed", "blocked") else ""
     out = [f'<details class="card{ap_class}" data-id="{_h(cid)}" draggable="true"><summary>']
     out.append(f'<span class="id">{_h(cid)}</span>')
+    _badge_txt = _wsjf_badge_text(c)
+    if _badge_txt:
+        out.append(f'<span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;'
+                   f'background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">'
+                   f'{_h(_badge_txt)}</span>')
     for disp in (pending or {}).get(cid, []):
         act = disp["action"]
         chip_cls = "op-move" if act.startswith("move:") else f"op-{act}"

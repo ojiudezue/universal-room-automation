@@ -33,7 +33,7 @@ Discipline: **before you edit code, run the discriminating experiment.** In URA 
 You are a solo Sonnet-class session with:
 - Terminal access to the URA repo at `/Users/okosisi/Code/universal-room-automation`.
 - MCP tools `home-assistant` (`ha_get_state`, `ha_get_logs`, `ha_get_history`, `ha_get_integration`, `ha_call_service`) and `ura-sqlite`.
-- Samba mount (may or may not be up) at `/Users/ojiudezue/ha-config/` giving read access to HA `.storage/`.
+- Samba mount (may or may not be up) at `/Users/okosisi/ha-config/` giving read access to HA `.storage/`.
 - **No subagent fleet** is assumed. Any "run 3 framing-disjoint reviews" step must be executed sequentially by you with the framings written down explicitly.
 
 Optional accelerator: if the `ura-planner` / `ura-reviewer` / `ura-validator` agents exist in `.claude/agents/`, they can parallelize. Do not assume they exist.
@@ -91,7 +91,7 @@ The URA integration cannot control an `unavailable` entity — the `turn_on`/`tu
 
 Do not assume the friendly name maps to the physical device. Verify from `.storage/core.config_entries` on the live Samba mount:
 
-Confirm the Samba mount is live with `stat /Users/ojiudezue/ha-config/.storage/core.config_entries`; if stale, remount per `ura-diagnostics-and-tooling` § Live-access commands (fact-home for the `mount_smbfs` command).
+Confirm the Samba mount is live with `stat /Users/okosisi/ha-config/.storage/core.config_entries`; if stale, remount per `ura-diagnostics-and-tooling` § Live-access commands (fact-home for the `mount_smbfs` command).
 
 Then locate the room's config entry — filter `domain == universal_room_automation` and the matching title. Read out `lights` / `night_lights` / `alert_lights` / `climate_entity`. **These are the entities URA will actually call.**
 

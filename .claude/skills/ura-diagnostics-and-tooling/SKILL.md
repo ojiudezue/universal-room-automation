@@ -127,7 +127,7 @@ Then in the review, cite `state=... attrs.<key>=... read_at=<ISO ts>`.
 ## URA sqlite DB reads
 
 DB filename: **`universal_room_automation.db`**, mounted at
-`/Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db`
+`/Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db`
 (verified against `CLAUDE.md` line 84).
 
 Key tables (verified in `database.py`, `CREATE TABLE IF NOT EXISTS` positions in parentheses):
@@ -184,7 +184,7 @@ QUALITY_CONTEXT Bug Class C-family (v4.6.3 test-infra defect).
    the row-rate script below or:
    ```
    sqlite3 -readonly \
-     "file:/Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db?mode=ro" \
+     "file:/Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db?mode=ro" \
      "SELECT COUNT(*) FROM anomaly_log WHERE timestamp > datetime('now','-1 hour');"
    ```
    Use `?mode=ro` so a stale writer lock doesn't error you out.
@@ -279,20 +279,20 @@ against the boot pattern first. `sensor.ura_house_state`
 
 ## Samba mount for `.storage/core.config_entries`
 
-Verified against `CLAUDE.md:84-86`. Mount path is `/Users/ojiudezue/ha-config`
+Verified against `CLAUDE.md:84-86`. Mount path is `/Users/okosisi/ha-config`
 (operator's account). Adjust to your account when re-running.
 
 ```
 # Check the mount
-ls /Users/ojiudezue/ha-config/.storage/core.config_entries >/dev/null && echo MOUNTED
+ls /Users/okosisi/ha-config/.storage/core.config_entries >/dev/null && echo MOUNTED
 
 # Remount if stale/down (copy verbatim from CLAUDE.md — the URL-encoded
 # password matters; do not "fix" the %40 or %5E)
-mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/ojiudezue/ha-config
+mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/okosisi/ha-config
 
 # Find URA config entries by title
 python3 -c "import json,sys;
-d=json.load(open('/Users/ojiudezue/ha-config/.storage/core.config_entries'));
+d=json.load(open('/Users/okosisi/ha-config/.storage/core.config_entries'));
 for e in d['data']['entries']:
   if e.get('domain')=='universal_room_automation':
     print(e['title'], '::', e.get('entry_id'), '::', list((e.get('data') or {}).keys())[:6])
@@ -335,13 +335,13 @@ Use the packaged script (v1 — minimal, read-only sqlite):
 
 ```
 python3 .claude/skills/ura-diagnostics-and-tooling/scripts/db_row_rate_snapshot.py \
-  --db-path /Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db \
+  --db-path /Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db \
   > /tmp/ura_rows_pre_v<version>.txt
 
 # ... deploy + restart + wait an hour ...
 
 python3 .claude/skills/ura-diagnostics-and-tooling/scripts/db_row_rate_snapshot.py \
-  --db-path /Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db \
+  --db-path /Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db \
   > /tmp/ura_rows_post_v<version>.txt
 
 diff /tmp/ura_rows_pre_v<version>.txt /tmp/ura_rows_post_v<version>.txt

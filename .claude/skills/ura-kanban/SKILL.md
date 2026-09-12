@@ -54,6 +54,28 @@ Two observed failure modes this system exists to kill:
 - **Discoverability:** a one-line pointer in MEMORY.md so the board is found at session start
   even after compaction.
 
+## When to load this skill — invocation points (auto-load + explicit)
+
+This skill is meant to be **loaded at session start automatically** and re-entered at specific
+events, not left to memory. Two mechanisms guarantee the session-start load: a `SessionStart` hook
+in `.claude/settings.json` injects a load-reminder + disposition/stale check, and a CLAUDE.md
+session-start line names it. Load it (via the `Skill` tool) at **every** point below:
+
+| Invocation point | Why |
+|---|---|
+| **Session start** (auto — hook + CLAUDE.md) | Read the board, apply queued operator dispositions, run `kanban_render.py --check`, reconcile before reporting status. |
+| **Every operator push / new request** | Capture the card(s) the same turn, before acting (capture-first). |
+| **Any mid-turn discovery** (a bug/knob/constraint surfaced inside a tool result) | Card it before continuing — mid-turn finds are the most fragile. |
+| **Before writing a planning doc** | Harvest the relevant cards into the plan (the anti-entropy handoff). |
+| **Before dispatching a build** | Board maintenance — move the target card to In-progress, reconcile siblings. |
+| **Deploy / commit / README write-back** | Reconcile In-progress → Review → Shipped (release-coupled gate). |
+| **Turn end** (state changed) | Move cards, re-render, redeploy the Artifact. |
+| **Grooming / lull / overnight** | Sweep, dedupe, link, AND score (`rank:` inputs) — ranking is part of grooming. |
+| **Picking "what's next"** | The WSJF-ranked board is the source of the next task — drive from it, don't ask. |
+
+If the skill is already loaded this session, re-entry is cheap — follow it; do not re-ask whether
+to load it.
+
 ## The one rule: capture-first
 
 Every operator push AND every pre-planning idea the model generates lands in
@@ -203,6 +225,22 @@ decisions/actions only the operator can take (physical fixes, go/no-go, design c
 "Waiting on me (Claude)" = things I owe (a promised re-measurement, a verification, a sweep).
 Do not file my own debt under the operator's lane — that hides it and reads as if the ball is
 in their court when it is in mine.
+
+**The `next` verb must be the OPERATOR's action, not mine (operator-coined 2026-09-11).** A
+`waiting_operator` card exists because the ball is in the operator's court, so its `next` must
+open with the concrete thing *they* do — **APPROVE** (I've scoped it, need a go/no-go) · **PICK**
+(a design/scope choice between named options A/B) · **ANSWER** / **VERIFY** (a fact only they know
+— "is Master Bedroom on that duct?") · **DO** (a physical/external act — power-cycle the node,
+apply the options-flow edit) · **REVIEW** (read a delivered doc). Write it as
+`VERB: <the ask> -> <what I do on your answer>` so the operator sees their decision first and the
+downstream work second. A `next` that opens with *my* verb ("Add the OFF path…", "Run the
+reviews…", "Ask operator if…") is the drift this rule kills: it reads as a task parked on the
+operator when it is really my work waiting on their one input, and it hides what they are actually
+being asked for. The most common real action is APPROVE or PICK — if a card can't be reduced to
+one of the five verbs, question whether it belongs in this lane at all (it may be mislaned work I
+can drive under implied approval). Observed 2026-09-11: the whole lane (20 cards) had `next`
+fields describing agent work; normalized to operator-verb-led so the lane reads as a decision
+queue.
 
 ## Architecture — data vs representation (KHOST-1, SHIPPED)
 
@@ -672,6 +710,65 @@ never implied:** destructive actions, outward-facing/published changes, cost- or
 logic, Tier-3 shared-primitive work, anything the operator flagged delicate. This is the CLAUDE.md
 "reversible → proceed; destructive/scope-change → ask" rule, made per-card.
 
+### Drive from the board — flow over pausing (operator-coined 2026-09-11)
+
+*"We're pausing too much. Drive work fairly automatically from the kanban. All Tier 2 and below
+should be solved after a parsimony and cost/benefit check. Above may need operator approval. And
+Agent just finds the next task and keeps going."*
+
+The default posture is **motion, not permission-seeking.** A groomed board is a work queue; work
+it. The tier is the throttle, and the **parsimony + cost/benefit gate replaces operator approval
+for everything Tier 2 and below.**
+
+**The autonomy ladder (by tier):**
+- **Tier 1 and Tier 2 (incl. 2-DB) → DRIVE autonomously, no pause for a go.** Run the card's
+  parsimony + marginal-benefit/cost check FIRST (the gate below). If the verdict is BUILD or
+  SIMPLIFY, take it all the way — build → the tier's framing-disjoint reviews → orchestrator
+  independent verify → ship — without stopping to ask. Approval is *implied* by the tier + a
+  passing gate; do not re-request it. (This raises the older "ask for Tier-2+" default; the
+  operator elevated the bar deliberately. CLAUDE.md remains canonical on *how* each tier is
+  reviewed — the review protocols do not weaken, only the pause-to-ask does.)
+- **Tier 3+ (delicate shared-primitive / invariant-critical / cost-AND-safety) → PAUSE for
+  operator approval** before build and again at the pre-deploy checkpoint, per CLAUDE.md Tier 3.
+  These are the changes where one missed path loses money or safety; the human call stays.
+
+**The gate that earns the autonomy (run BEFORE building, every card):**
+1. **Parsimony** — is the problem sharp and real (one falsifiable sentence)? Does the simplest
+   version capture most of the benefit? Verdict BUILD / SIMPLIFY / PARK / DROP recorded on the
+   card. PARK/DROP means *don't build* — reaching that is a success, not a skipped step.
+2. **Cost/benefit** — does the marginal benefit pay for the ingredient risk + review cost? If a
+   Tier-2 change drags in a categorically risky ingredient (synthetic time, a new writer to a
+   shared primitive, cross-coordinator state, rare-fire path), that is a signal to SIMPLIFY or to
+   treat it as Tier 3 — not to barrel ahead because "it's only Tier 2."
+
+**When the gate FAILS or is AMBIGUOUS → page the operator, don't guess (operator-coined
+2026-09-11).** A clean BUILD/SIMPLIFY drives autonomously; a clean PARK/DROP parks with its
+revival trigger. But when the parsimony verdict is genuinely unclear, or the cost/benefit is a
+toss-up (the marginal benefit and the ingredient risk are close enough that either call is
+defensible), do NOT silently pick and do NOT stall the whole queue waiting: **page the operator
+via NM** (a real notification, so the ball reaches their phone) AND **park the card as
+`waiting_operator` with a crisp operator-verb `next`** (APPROVE / PICK A-or-B — state the exact
+decision and the options, per the waiting-lane verb rule above). Then **move on to the next
+eligible card** — one ambiguous card must not block the flow. The page + the parked card are
+redundant on purpose: the notification prompts, the board holds the decision durably so it is not
+lost if the notification is missed. This keeps autonomy honest — the agent drives what is clear
+and escalates what isn't, rather than either freezing on every judgement call or barrelling
+through one it shouldn't own.
+
+**Still always pause — the gate does not override these:** a review returns DO-NOT-SHIP; the work
+grows beyond the card's scope (re-scope with the operator, don't silently widen); anything
+destructive / outward-facing / published; the operator flagged it delicate; hostile timing
+(house occupied + risky live change). These are the CLAUDE.md always-explicit set; they are few
+and specific, not a general licence to stop.
+
+**Keep going — the loop.** When a card reaches done (or a clean park), **do not stop and report
+for instructions — pick the next one.** Rank per the Ranking & sequencing section (dependency →
+batch affinity → leverage → unblocked-ness → freshness), skip `blocked` / unmet-`after:` /
+Tier-3-awaiting-approval cards, and drive the next eligible card through the same gate. Fan out
+to the width you can actually verify (concurrency is a depletion lever), then continue. Report at
+natural checkpoints — a ship, a batch cleared, a Tier-3 gate, or a genuine question — not after
+every card. The board, not a chat prompt, is the source of "what's next."
+
 ## Quality-practice tags — the gates a card must pass
 
 Tag each card with the arrived-at practices it must honor, so the gate travels with the work
@@ -706,18 +803,81 @@ only doing this organically. Every Pre-planning card shows its verdict before pr
 
 ## Ranking & sequencing — batch by affinity, order by dependency
 
-Cards are not a flat list. Rank/sequence by, in priority:
+Cards are not a flat list, and ranking is **computed, not eyeballed** — a deterministic score so
+the drive-loop picks the same "next" every time and the renderer can show it. The model is **WSJF**
+(Weighted Shortest Job First): cost-of-delay over job-size (operator-finalized 2026-09-11).
 
-1. **Dependency (hard order)** — X precedes Y when Y trusts X's output. Record as `blocks:`/`after:`.
-2. **Affinity / batch** — cards touching the same primitive, review cycle, or surface ship as one
-   `batch:` (one build, one Tier-2DB review, shared context) — not scattered across cycles.
-3. **Leverage** — foundational / shared-primitive work first; it de-risks everything downstream.
-4. **Unblocked-ness** — prefer `implied`/`explicit` cards with no pending decision; `blocked` waits.
-5. **Freshness / cost-of-delay** — a live-broken bug jumps the queue *unless* it folds into a
-   batched cycle (then it rides that cycle rather than spawning a one-off).
+### The WSJF score (renderer-computed, shown on every card)
 
-Record `batch:` (named group) and optional `seq:` (order within/among batches) on cards. Do not
-start a card whose `after:` dependency is unmet, or a `blocked` card, no matter how appealing.
+```
+WSJF = (value + time_criticality + unblock) / effort          # rounded to 1 decimal
+```
+
+| Factor | Range | Source |
+|---|---|---|
+| **value** | 1–10 | card field `rank.value` (default **5**) — user / $ / safety / correctness impact |
+| **time_criticality** | 1–10 | `rank.time_criticality` (default **3**); a `live_broken: true` card floors at **8** — how fast the cost of delay grows |
+| **unblock** | 1–10 | **computed** (see below) — never hand-stored, so it cannot drift |
+| **effort** | fib | `rank.effort` override, else from tier tag: T1=2, T2=5, T2-DB=8, T3=13, untiered=5 |
+
+**`unblock` is leverage, and leverage is more than links (operator-coined 2026-09-11).** A platform
+enabler that everything quietly stands on is a true unblock even when no card drew the edge. So:
+
+```
+unblock = min(10, max( 2 + 2×(#cards this blocks),  foundational ))
+```
+- link component `2 + 2×fanout` — from `links.blocks` plus the reverse of others' `blocked_by`/`after`.
+- `foundational` — `rank.foundational` (0–10) set on genuine platform pieces, OR a floor of **6** if
+  tagged `platform-enabler` / `shared-primitive`, else 0. The larger of the two wins.
+- **Standing foundational pieces that MUST carry `foundational`** (their leverage is otherwise
+  invisible): the camera/identity **resolver**, the **egress-identity producer**, the **census dedup**
+  producer, the **TOU / arbitrage resolver**, the **signal/dispatch bus**, the **reload-suppression
+  primitive**, the **test-strategy re-arch** (unblocks all test work). When you build a new primitive
+  many cards will consume, set its `foundational` the same turn.
+
+### Ordering — per-lane, at all times
+
+**Within EVERY lane, cards render first→last by WSJF descending** (ranks are *per-lane*, so each
+lane shows its own #1, #2, …). Ties break by: (1) **batch-affinity** with an `in_progress` card
+(ship the batch together), (2) **unblock** desc, (3) **oldest `updated`** (anti-starvation — a card
+never rots at the bottom forever). The one exception is `done`, which renders newest-first (WSJF is
+meaningless once shipped). Each card header shows `#<lane-rank> · WSJF X.X · (v… tc… u… / e…)` so the
+score is inspectable at a glance; a `⚠ default-scored` marker flags cards running on tier+link
+defaults so scoring effort lands where it matters.
+
+### Selection — display ranks per lane, the loop picks globally
+
+Display is per-lane; the **drive-loop picks the globally highest-WSJF card that passes the
+eligibility filter** — deps (`blocked_by`/`after`) all `done`, `approval != blocked`, and (Tier 3+)
+`approval == explicit`. That card is always some lane's #1, so the per-lane #1s are the candidate
+pool and the agent takes the best of them. Do not start a card whose `after:` is unmet or a
+`blocked` card, however high its raw score. Record `batch:` (named group) and optional `seq:` on
+cards; `rank:` holds `value` / `time_criticality` / `effort` / `foundational` (all optional — the
+board ranks on defaults until they are set).
+
+### Re-evaluate on every move — and score AS you groom (operator-coined 2026-09-11)
+
+Two things keep ranks honest:
+
+1. **Ranks recompute on every render.** WSJF is a pure function of the data, so re-running
+   `kanban_render.py` after any change re-orders every lane automatically — a card moved between
+   lanes lands at its correct per-lane rank with no manual renumbering. This is *why* the turn-end
+   / status-change render hook is load-bearing: a lane move without a re-render leaves the shown
+   order stale even though the data implies the new one. **Render after every status move.**
+2. **But the score INPUTS are not automatic — revisit them when the card materially changes.** A
+   lane move often changes what the card is worth or costs: promoting `investigating → planned`
+   sharpens `effort`; a measurement that lands changes `value`; a dependency clearing raises other
+   cards' `unblock`; a scope cut lowers `effort`. When you move or materially edit a card, re-check
+   its `rank:` inputs in the same edit, exactly as you re-check its `status` and `links` (the
+   "status must track reality" discipline, applied to score).
+
+**Ranking is a core part of grooming, not a separate chore.** Every groom pass — the inbox-hygiene
+sweep, the overnight reconcile, a disposition — **sets or refreshes the card's `rank:` inputs**
+(at minimum `value` and `effort`; `foundational` for platform pieces) alongside its verdict and
+links. A groomed board is not just correctly-laned and de-duped — it is *scored*, so the drive-loop
+can pick from it. An un-scored card after grooming is an unfinished groom, the same way an
+un-lane'd or un-swept card is. The `⚠ default-scored` marker is the tripwire: cards still wearing it
+after a groom are the ones the sweep skipped.
 
 ### 6. Concurrency — the depletion lever
 
@@ -747,6 +907,25 @@ now that this does not block.**"
 **The hard requirement:** every concurrent repo-writing dispatch gets **worktree isolation**, and the
 orchestrator freezes the main tree while builders run. Without it, concurrency converts throughput
 into merge damage.
+
+**A builder can `git reset --hard` the shared checkout — commit before you dispatch, isolate every
+builder (incident 2026-09-11).** The damage is not only merge conflicts: a dispatched builder doing
+routine git hygiene (`reset --hard` to a clean baseline, a stash, a `checkout -- .`) in the SHARED
+checkout **silently destroys the orchestrator's uncommitted edits and any other concurrent writer's
+work** — the `reset --hard` leaves no recoverable trace for uncommitted tracked files. On 2026-09-11
+a builder's reset wiped the orchestrator's in-flight renderer edits mid-session (recovered only
+because the code was still in context) and transiently clobbered the builder's own fixes. Two
+non-negotiable rules follow:
+1. **Commit (or stash) your own work BEFORE dispatching any repo-writing agent.** Never hold
+   uncommitted edits across a builder dispatch — a committed change survives a `reset --hard HEAD`;
+   an uncommitted one does not. The orchestrator's tree must be clean at dispatch time.
+2. **Every repo-writing builder runs in its own worktree** (`.claude/worktrees/<agent-id>`), never in
+   the orchestrator's checkout — even a single builder, even a "quick" one. "Only one builder, so no
+   collision" is the exact rationale that failed here: the collision was builder-vs-orchestrator, not
+   builder-vs-builder.
+This composes with the concurrent-cron reality: a homelab automation may also commit to `develop`
+(fast-forward only — that part is safe), so the ONLY reliable protection for in-flight work is to
+keep the orchestrator's own changes committed at every checkpoint and push builders into worktrees.
 
 **Verify the worktree's BASE, not just that it is isolated (added 2026-08-09).** A worktree can be
 isolated and still branch from a stale ref. Observed: a Tier-3 build came back green on

@@ -339,3 +339,11 @@ def test_get_status_d2_class_offset0_tracks_tomorrow_not_day3():
         f"get_status d2_class must reflect tomorrow (n=target_offset+1==1) "
         f"at offset==0, not day_3 (n=2). Got: {status['forecast_outlook']['d2_class']}"
     )
+    # ARBITRAGE-D2CLASS-ATTR: self-describing sibling — publishes the
+    # offset that d2_class was classified against so operators can see
+    # "d2 = tomorrow" vs "d2 = day_3" without reverse-engineering the
+    # resolver. offset==0 => d2_offset==1 (tomorrow).
+    assert status["forecast_outlook"]["d2_offset"] == 1, (
+        f"d2_offset must equal target_offset+1 (==1 at offset==0). "
+        f"Got: {status['forecast_outlook'].get('d2_offset')}"
+    )

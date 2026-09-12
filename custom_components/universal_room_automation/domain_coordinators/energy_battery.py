@@ -6393,6 +6393,10 @@ class BatteryStrategy:
                 "d1_class": tomorrow_class,
                 "d1_kwh": self.solcast_tomorrow,
                 "d2_class": d2_class,
+                # Self-describing sibling: at target_offset==0, d2_class is
+                # tomorrow (n=1) not day_3 (n=2). Additive display attr, no
+                # consumer, no decision-path change.
+                "d2_offset": _target_day_offset + 1,
                 "d2_kwh": self.solcast_day_3,
                 "horizon_enabled": self._multi_day_horizon_enabled,
             },

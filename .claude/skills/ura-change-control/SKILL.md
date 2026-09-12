@@ -254,7 +254,7 @@ Replace the prospective bullet list with a `Validated <date>` **results table** 
 
 - Live entity_id + attribute value (from MCP `home-assistant` `ha_get_state`).
 - Log scan result (from MCP `home-assistant` `ha_get_logs` — cite scan window).
-- DB row read (from MCP `ura-sqlite` — verify `--db-path` in `~/.claude.json` points to the LIVE Samba-mounted path `/Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db`, not `~/.cache/ura/`; see CLAUDE.md "Data Source Verification").
+- DB row read (from MCP `ura-sqlite` — verify `--db-path` in `~/.claude.json` points to the LIVE Samba-mounted path `/Users/okosisi/ha-config/universal_room_automation/data/universal_room_automation.db`, not `~/.cache/ura/`; see CLAUDE.md "Data Source Verification").
 
 Note any criterion that could only be proven in-suite (and why), and any boot-only transients you saw and dismissed. The README git history IS the validation ledger; future cycles must not have to re-litigate whether the feature shipped working.
 

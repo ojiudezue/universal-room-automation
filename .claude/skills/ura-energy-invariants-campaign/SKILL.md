@@ -185,9 +185,9 @@ Live config lives on the Samba mount:
 
 ```bash
 # Verify mount is fresh (per CLAUDE.md "Data Source Verification"):
-ls -la /Users/ojiudezue/ha-config/.HA_VERSION 2>&1 | head -3
+ls -la /Users/okosisi/ha-config/.HA_VERSION 2>&1 | head -3
 # If stale/missing, remount (copy verbatim from CLAUDE.md — do NOT retype from memory):
-# mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/ojiudezue/ha-config
+# mount_smbfs '//homeassistant:Verycool9277%40%5E@192.168.13.13/config' /Users/okosisi/ha-config
 ```
 
 Live probes via MCP `home-assistant`:

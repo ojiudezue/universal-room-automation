@@ -54,7 +54,7 @@ not teach HA integration internals; it teaches URA's specific conventions.
   `shadow` (DEFAULT) < `reversible_device` < `propose_config` <
   `immediate_config` < `unbounded`. `L1 shadow` is the standing safe default.
 - Live config source: Samba mount at
-  `/Users/ojiudezue/ha-config/.storage/core.config_entries` (mount command:
+  `/Users/okosisi/ha-config/.storage/core.config_entries` (mount command:
   see CLAUDE.md "Data Source Verification" -- copy verbatim).
 
 ## The `const.py` domain map
@@ -280,7 +280,7 @@ be misleading.
 
 ```bash
 # From the Samba mount (see CLAUDE.md "Data Source Verification" for mount command)
-python3 -c "import json; d=json.load(open('/Users/ojiudezue/ha-config/.storage/core.config_entries')); \
+python3 -c "import json; d=json.load(open('/Users/okosisi/ha-config/.storage/core.config_entries')); \
   [print(e.get('title'), e.get('data',{}).get('entry_type'), sorted(e.get('options',{}).keys())[:20]) \
     for e in d['data']['entries'] if e.get('domain')=='universal_room_automation']"
 ```
