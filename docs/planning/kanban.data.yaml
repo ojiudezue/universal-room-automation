@@ -36,6 +36,21 @@ meta:
   - {fid: 'BOARD-AUTONOMY-PROGRESS-1@2026-09-12T13:45', at: '2026-09-12T13:45:00', outcome: built,
      headline: 'BOARD-AUTONOMY-PROGRESS-1 — top-of-board last-24h progress counter + acknowledgeable recent-work feed (board tooling, done)',
      acknowledged: false}
+  - {fid: 'GUEST-GATE-DOOR-IDENTITY-1@2026-09-12T14:30', at: '2026-09-12T14:30:00', outcome: waiting_operator,
+     headline: 'GUEST-GATE-DOOR-IDENTITY-1 — MEASURED egress person_id attach = 11% last 14d (NOT ~0; producer live). Build lane open at low coverage → operator PICK (consume now vs wait)',
+     acknowledged: false}
+  - {fid: 'ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-12T14:30', at: '2026-09-12T14:30:00', outcome: waiting_operator,
+     headline: 'ARRIVAL-DEPARTURE-NOTIFY-1 — same 11% attach; consumer branch already built. Operator APPROVE merge at 11% vs wait (NM volume)',
+     acknowledged: false}
+  - {fid: 'ROUTINE-DETECTOR-NO-DISCHARGE-1@2026-09-12T14:40', at: '2026-09-12T14:40:00', outcome: waiting_operator,
+     headline: 'ROUTINE-DETECTOR-NO-DISCHARGE-1 — MEASURED 462 routine_shift all unacked, 0 ever auto-discharged. Build lane open → operator PICK discharge design (auto-decay vs human-ack-only care signal)',
+     acknowledged: false}
+  - {fid: 'AC-RAMP-NO-RECURRENCE-ESCALATION-1@2026-09-12T14:50', at: '2026-09-12T14:50:00', outcome: waiting_operator,
+     headline: 'AC-RAMP-NO-RECURRENCE-ESCALATION-1 — organic data exhausted (nudge does not clear control-state, confirmed; reset-better UNTESTED, only 7 organic). Needs operator-run deliberate hard-reset experiment',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-NOTIFY-FLOOD-DEDUP-1@2026-09-12T15:00', at: '2026-09-12T15:00:00', outcome: waiting_operator,
+     headline: 'OPTIMIZER-NOTIFY-FLOOD-DEDUP-1 — DIAGNOSED: v5.91.4 cut volume ~45→5-10/day but identical findings still repeat 4x each (per-cycle-dedup-only gap). Operator PICK cross-cycle fix (suppress-TTL vs batch)',
+     acknowledged: false}
   artifact_url: https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
   target_host: urakanban.phalanxmadrone.com
   columns:
@@ -3723,8 +3738,21 @@ cards:
     - ROUTINE-DETECTOR-NO-DISCHARGE-1
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
   thread: presence
-  status: investigating
+  status: waiting_operator
+  updated: '2026-09-12 14:40'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
+  measured_2026_09_12: 'PROBE (URA DB anomaly_log, read-only via ssh) CONFIRMS the undischarged
+    accumulator: 462 bayesian.routine_shift rows, ALL 462 unacked (recovery_at NULL), span 2026-05-15
+    -> 2026-09-08, monotonic ~3-13/day. And recovery_at is NEVER set for ANY metric_name in the whole
+    table (0 discharged) -> the manual ack button (button.py:1275) has effectively never been pressed.
+    Mechanism confirmed; build lane is OPEN.'
+  next: 'PICK (operator) the discharge DESIGN before any build — this is a product decision, not just
+    code: (A) time-based TTL auto-decay (recovery_at = timestamp + N days); (B) return-to-baseline
+    auto-clear (discharge when the regime cell returns to its learned behaviour); (C) KEEP human-ack-only
+    (deliberate: routine_shift is a CARE signal meant for human review) and instead build the sibling
+    ROUTINE-CARE-DASHBOARD-1 to surface them. Auto-decay (A/B) risks defeating the care-signal purpose
+    the dashboard exists for — hence the fork. On your pick I scope it (reuses the recovery_at field +
+    the parked decay-step constant). ROUTINE-CARE-DASHBOARD-1 stays blocked on this pick.'
   approval: unreviewed
   created: 2026-08-19 13:15
   updated: 2026-09-11 16:16
@@ -5957,9 +5985,22 @@ cards:
   title: The AC ramp-down nudges forever and never escalates — 47 "effective" nudges overnight while the
     house burned 49 kWh; hard reset has not fired since 2026-08-15
   thread: hvac
-  status: investigating
-  updated: 2026-09-12 11:00
+  status: waiting_operator
+  updated: '2026-09-12 14:50'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, probe-gated NO-BUILD: go/no-go ESCALATION_PROBE not run (only 1/9 historical resets in the fine-grained window). Do NOT build a trigger before the probe returns reset-ratio < nudge-ratio 0.97.'
+  measured_2026_09_12: 'PROBE (URA DB ac_ramp_events, read-only via ssh): corroborates the card''s
+    existing bound — nudge_evaluated n=888 post-08-15 with effective=1 on 879 (99%), but that "effective"
+    flag is the WRONG axis (the card already proved, power-side n=290, that the nudge does NOT clear
+    control state — I will NOT re-argue escalation on effectiveness/off-time; operator ruled the value is
+    control-state re-evaluation). Organic hard resets remain tiny: only 7 hard_reset_completed events ever
+    (reset_outcome: 2 floor_survived, 3 inconclusive, rest null) — so reset-beats-nudge is STILL UNTESTED
+    on real data, exactly as the card states. Investigation has extracted all organic data can give.'
+  next: 'DO / APPROVE (operator): this needs the DELIBERATE ESCALATION_PROBE — 10-15 controlled hard
+    resets with matched nudge controls + fine-grained SPAN + an off-duration sweep (60/120/180s). Only
+    the operator can authorize/trigger that live HVAC experiment; organic data cannot resolve it. NOTE
+    the card''s own new finding: the 60s off-window may be BELOW the actuation floor (measured
+    command->response lag p90 ~131s), so the probe must sweep off-duration. On probe results I scope the
+    escalation trigger (or close it). No build before then.'
   relane_2026_09_10: 'Not a soak -> INVESTIGATING. Cheap discriminating query: does any post-08-15 nudge_evaluated
     carry effective=0 (decides one-defect-vs-two), then the design question for the operator.'
   shipped_version: v5.89.0
@@ -11572,8 +11613,20 @@ cards:
     - SECURITY-ENTRY-VERDICT-NAME-1
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
-  status: investigating
+  status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:5069 _is_known_person_in_room reads only BLE/Bermuda location + sticky, no door-identity term. Stays blocked on egress person_id producer; re-measure attach rate post-v5.97.0 before scoping.'
+  updated: '2026-09-12 14:30'
+  measured_2026_09_12: 'PROBE (URA DB person_entry_exit_events, read-only via ssh): egress person_id
+    attach is NON-ZERO and recently active, overturning the earlier "attach ~0" assumption — 54/487
+    (11%) in the last 14d; ALL 54 all-time filled events fall in that window (the Frigate face bridge
+    v5.97.0 turned the producer on); most recent 2026-09-11T23:49. GARAGE path specifically:
+    garage_a_person_count 11/146 (7.5%), garage_a_person_occupancy_2 2/149. So a consumer would get a
+    named identity on ~1 in 9 crossings (fallback to current behavior otherwise). The producer is live
+    -> a build lane IS open, but at LOW coverage.'
+  next: 'PICK (operator): consume door-identity NOW at ~11% attach (additive: identity when known,
+    current BLE/sticky behavior otherwise) OR wait for better face coverage first? This sits in the
+    6.0.0 IDENTITY-DRIVEN-AUTONOMY arc (identity/guest/security domain, Tier-2-DB+), so it is
+    operator-gated. On your go I scope the _is_known_person_in_room door-identity term.'
   thread: presence
   created: 2026-08-18 09:45
   updated: 2026-09-11 16:16
@@ -11621,8 +11674,16 @@ cards:
     blocked_by EGRESS-IDENTITY-JOIN-GAP-1.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: investigating
-  updated: 2026-09-12 11:15
+  status: waiting_operator
+  updated: '2026-09-12 14:30'
+  measured_2026_09_12: 'PROBE (same egress-identity-rate query as GUEST-GATE-DOOR-IDENTITY-1): attach
+    rate = 54/487 (11%) last 14d, GARAGE path garage_a_person_count 11/146 (7.5%); producer live
+    (v5.97.0 bridge), most recent filled event 2026-09-11. So the notify consumer (already BUILT on
+    feature/arrival-departure-notify, not merged) would name the person on ~1 in 9-13 crossings and be
+    anonymous otherwise. Build lane is open; the call is whether 11% coverage + the NM cadence justify
+    merging now. next -> operator: APPROVE merge+ship of the existing branch at 11% attach (named when
+    known, generic "someone arrived/left" otherwise), or wait for higher face coverage? Consider NM
+    volume on every garage crossing.'
   disposition_2026_09_12_sweep4: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: producer (egress person_id) shipped v5.98.0; consumer BUILT on feature/arrival-departure-notify (c7fe80be2/7a4b5b87d) but NOT merged to develop. Gated on the GARAGE/family-room egress-identity-rate probe (measure-before-build). Not greenfield — branch awaits merge once rate justifies.'
   relane_2026_09_10: Not a soak -> INVESTIGATING (measure-before-build). Same egress-identity-rate probe
     (garage + family-room path) as PERIMETER-ALERT-NAME-PERSON; sibling.
@@ -15436,8 +15497,24 @@ cards:
   title: Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup /
     cooldown on the notification path spams the operator
   thread: notifications
-  status: investigating
+  status: waiting_operator
+  updated: '2026-09-12 15:00'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_COOLDOWN_S). RE-SCOPE to cross-cycle cooldown OR close if DB shows no repeats since v5.91.4.'
+  measured_2026_09_12: 'PROBE (URA DB notification_log, read-only via ssh) — DIAGNOSED: the v5.91.4
+    zonal-invariant HELPED (daily optimizer comfort notifications fell from ~45/day late-Aug to ~5-10/day
+    now) but did NOT close the gap: (a) the exact zonal-control FP ("Multiple rooms assigned to same
+    thermostat zone ... studyb_zone_1 ...") STILL fired 4x since 2026-08-25; (b) identical messages
+    repeat 4x each across cycles (e.g. "open_findings_count reports 6 but findings_recent is empty",
+    "Ziri Bedroom score 25.0 ...") — the per-cycle-dedup-only gap (optimization.py:1943 _cycle_dedup;
+    no cross-cycle cooldown) is CONFIRMED and still spamming. Build lane open, and the reuse is clean:
+    notification_log already has a `cooldown_expires` column to key a cross-cycle per-finding cooldown.'
+  next: 'PICK (operator) the approach for the cross-cycle fix (Tier-2 suppression on a notify path, so
+    the design needs a discharge contract): (A) SUPPRESS identical findings within a cooldown TTL
+    (re-fire only after TTL so a persistent problem still re-notifies periodically; restart rebuilds
+    from cooldown_expires) — stops the spam but you stop seeing a true-but-recurring finding for the
+    TTL; (B) BATCH per cycle (one digest instead of N identical) — you still see everything, less noise;
+    (C) leave as-is. Proposed default: A with NM_OPTIMIZER_FINDING_COOLDOWN_S (a Number knob) keyed on
+    the finding signature (room+finding-type). On your pick I build it to review.'
   created: 2026-08-28 22:00
   updated: 2026-09-11 16:20
   refinement_status: refined
