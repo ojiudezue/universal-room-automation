@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T11:34:47-05:00_ - _Data commit: `fa1a02c86bdf`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T11:43:24-05:00_ - _Data commit: `7307f088669f`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -11,8 +11,8 @@ _Generated: 2026-09-12T11:34:47-05:00_ - _Data commit: `fa1a02c86bdf`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 16 |
-| 🧭 Pre-planning | 17 |
-| 📝 Planned | 11 |
+| 🧭 Pre-planning | 16 |
+| 📝 Planned | 12 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
 | ⏸️ Waiting on operator | 15 |
@@ -313,7 +313,7 @@ _created 2026-08-17 23:58 · updated 2026-09-11 16:14 · refined_
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
-## 🧭 Pre-planning (17)
+## 🧭 Pre-planning (16)
 _idea being decomposed_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -558,22 +558,7 @@ _created 2026-09-12 17:50 · initial_
 - **Tags:** audit-first, institutional-context, tier-2db
 - **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#17 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **config-flow** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-12 16:30 · updated 2026-09-12 18:05 · refined_
-- **Problem / Solution:**
-  - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
-- **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
-- **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
-- **Tags:** tier-2db
-- **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
-- **Forensic keys (4):**
-  - `autodetect_research_2026_09_12`: Auto-detect (the error-prone critical piece) researched + cited (HA dev docs/forum) -> design folded into AUDIT_first_run_onboarding.md. Rules: resolve via entity_registry.async_entries_for_area (entity area_id overrides device; registry...
-  - `refinement_2026_09_12_loadbearing`: Operator challenge: room-type must NOT silently flip features. URA has LOAD-BEARING classifications beyond room FUNCTION that carry cross-coordinator implications and today are scattered — CONF_ROOM_IS_GUEST_ROOM (const.py:386, consumed ...
-  - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
-  - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
-
-## 📝 Planned (11)
+## 📝 Planned (12)
 _has plan / acceptance_
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
@@ -765,6 +750,22 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
   - `RELATIONSHIP_TO_SIBLINGS`: This is very likely the ROOT of HVAC-PRESET-RESTORE-MISS-1 (zone_1 stranded through the 06:01 home_day boundary) — that card may collapse into this one once the audit lands. It is the mirror image of HVAC-PRESET-FLAP-1: the flap is TOO M...
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
+
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **config-flow** - status: **planned** - approval: **explicit**
+_created 2026-09-12 16:30 · updated 2026-09-12 18:40 · refined_
+- **Problem / Solution:**
+  - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
+- **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
+- **Next:** PLAN: (a) trace + DOCUMENT the first-run path + every form field; (b) verify required-vs-optional complexity; (c) simplification proposals hitting >=50% reduction. -> operator review.
+- **Tags:** tier-2db
+- **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
+- **Forensic keys (5):**
+  - `plan_written_2026_09_12`: Tier-2-DB plan written -> docs/planning/PLANNING_onboarding_simplify.md (D1-D8 + falsifiable INV-1 round-trip / INV-2 no-silent-commit + institutional-context prior-art scan + acceptance). Operator blessed the design. NEXT: mandatory Tie...
+  - `autodetect_research_2026_09_12`: Auto-detect (the error-prone critical piece) researched + cited (HA dev docs/forum) -> design folded into AUDIT_first_run_onboarding.md. Rules: resolve via entity_registry.async_entries_for_area (entity area_id overrides device; registry...
+  - `refinement_2026_09_12_loadbearing`: Operator challenge: room-type must NOT silently flip features. URA has LOAD-BEARING classifications beyond room FUNCTION that carry cross-coordinator implications and today are scattered — CONF_ROOM_IS_GUEST_ROOM (const.py:386, consumed ...
+  - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
+  - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
 ## 🔨 In progress (1)
 _being built_
