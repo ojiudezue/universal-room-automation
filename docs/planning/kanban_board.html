@@ -3,34 +3,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="kanban_render.py (URA)">
 <title>URA Kanban</title>
+<meta name="theme-color" content="#fafaf8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 :root {
-  --bg:#f4f1ea; --fg:#232019; --muted:#7a7263; --card-bg:#fbf9f4;
-  --border:#ddd6c8; --rule:#c9c0ae;
-  --lane-bg:transparent; --accent:#9a6108; --accent-dim:#b98a3a;
-  --ok:#3f7d47; --warn:#a2541f; --bad:#a03030; --info:#3d6b80;
-  --stale:#8a5a00; --stale-bg:#f3e3bd; --code-bg:#ece7db;
+  /* URA brand tokens — lifted from https://universalroom.org/style.css (OKLCH).
+     Light "paper" + cool "ink" + brand blue `--accent` / warm secondary. */
+  --bg:oklch(0.985 0.003 240); --fg:oklch(0.15 0.008 240); --muted:oklch(0.55 0.010 240);
+  --card-bg:oklch(0.995 0.002 240); --border:oklch(0.88 0.008 240); --rule:oklch(0.80 0.010 240);
+  --lane-bg:transparent; --accent:oklch(0.50 0.16 235); --accent-dim:oklch(0.66 0.12 235);
+  --ok:oklch(0.55 0.13 150); --warn:oklch(0.60 0.13 50); --bad:oklch(0.55 0.17 25);
+  --info:oklch(0.55 0.10 210);
+  --stale:oklch(0.58 0.13 50); --stale-bg:oklch(0.93 0.05 65); --code-bg:oklch(0.965 0.005 240);
+  --font-sans:'Hanken Grotesk', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#131518; --fg:#d6d3c9; --muted:#7d8494; --card-bg:#1a1d22;
-    --border:#2a2e36; --rule:#3a3f49;
-    --accent:#ffb454; --accent-dim:#b98a3a;
-    --ok:#7fbf7a; --warn:#e0954f; --bad:#e07070; --info:#7ab3cc;
-    --stale:#ffb454; --stale-bg:#2b2210; --code-bg:#22252c;
+    /* URA is light-only; this is a URA-consistent cool dark (deep slate + brand
+       blue) for dark-OS viewers — NOT the old muddy default. */
+    --bg:oklch(0.20 0.012 240); --fg:oklch(0.93 0.004 240); --muted:oklch(0.66 0.012 240);
+    --card-bg:oklch(0.24 0.012 240); --border:oklch(0.33 0.012 240); --rule:oklch(0.42 0.012 240);
+    --accent:oklch(0.72 0.13 235); --accent-dim:oklch(0.55 0.12 235);
+    --ok:oklch(0.72 0.14 150); --warn:oklch(0.74 0.13 55); --bad:oklch(0.70 0.16 25);
+    --info:oklch(0.72 0.10 210);
+    --stale:oklch(0.74 0.13 55); --stale-bg:oklch(0.28 0.05 60); --code-bg:oklch(0.27 0.012 240);
   }
 }
 * { box-sizing:border-box; }
 html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-  font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-variant-numeric: tabular-nums; }
+  font:14px/1.55 var(--font-sans);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing:antialiased; }
 code, .mono, .id, .statusline, .lane h2, .count, .tagline, .kv dt {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  font-family: var(--font-mono); }
 
 header.top { position:sticky; top:0; z-index:5; background:var(--bg);
   border-bottom:2px solid var(--rule); padding:14px 22px 10px; }
 header.top h1 { margin:0; font-size:17px; letter-spacing:0.14em; text-transform:uppercase;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  font-family:var(--font-mono); }
 header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em; font-weight:400;
   display:block; margin-top:2px; text-transform:none; }
 .statusline { margin-top:8px; font-size:11.5px; color:var(--muted);
@@ -40,7 +52,7 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 
 .stale { background:var(--stale-bg); border:1px solid var(--stale);
   border-left:6px solid var(--stale); padding:12px 18px; margin:14px 22px 0;
-  font-family: ui-monospace, Menlo, monospace; font-size:12.5px; }
+  font-family:var(--font-mono); font-size:12.5px; }
 .stale h2 { margin:0 0 6px; font-size:13px; letter-spacing:0.1em; text-transform:uppercase;
   color:var(--stale); }
 .stale ul { margin:4px 0 0 18px; padding:0; }
@@ -48,7 +60,7 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 
 .summary { padding:10px 22px 2px; font-size:11.5px; color:var(--muted);
   display:flex; gap:0; flex-wrap:wrap;
-  font-family: ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 .summary span { padding:2px 10px; border-right:1px solid var(--border); }
 .summary span:first-child { padding-left:0; }
 .summary span:last-child { border-right:none; }
@@ -58,22 +70,22 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 .autonomy { margin:12px 22px 0; border:1px solid var(--border); border-left:6px solid var(--accent);
   background:var(--code-bg); }
 .autonomy .hd { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:12px 18px 6px; }
-.autonomy .hd .lbl { font-family:ui-monospace, Menlo, monospace; font-size:11px; letter-spacing:0.14em;
+.autonomy .hd .lbl { font-family:var(--font-mono); font-size:11px; letter-spacing:0.14em;
   text-transform:uppercase; color:var(--muted); }
-.autonomy .hd .metric { font-family:ui-monospace, Menlo, monospace; font-weight:700;
+.autonomy .hd .metric { font-family:var(--font-mono); font-weight:700;
   font-size:34px; line-height:1; color:var(--accent); letter-spacing:0.02em; }
 .autonomy .hd .metric .den { color:var(--muted); font-size:22px; }
 .autonomy .hd .sub { font-size:11.5px; color:var(--muted); }
 .autonomy details { border-top:1px dashed var(--border); }
 .autonomy details > summary { cursor:pointer; list-style:none; padding:7px 18px; font-size:11.5px;
-  font-family:ui-monospace, Menlo, monospace; letter-spacing:0.06em; color:var(--muted); }
+  font-family:var(--font-mono); letter-spacing:0.06em; color:var(--muted); }
 .autonomy details > summary::-webkit-details-marker { display:none; }
 .autonomy details > summary::marker { content:""; }
 .autonomy .feed { margin:0; padding:0 18px 12px; list-style:none; }
 .autonomy .feed li { display:flex; align-items:flex-start; gap:10px; padding:7px 0;
   border-top:1px solid var(--border); font-size:12.5px; }
 .autonomy .feed li:first-child { border-top:none; }
-.autonomy .feed .oc { font-family:ui-monospace, Menlo, monospace; font-size:9.5px; font-weight:700;
+.autonomy .feed .oc { font-family:var(--font-mono); font-size:9.5px; font-weight:700;
   letter-spacing:0.08em; text-transform:uppercase; padding:2px 7px; border:1px solid var(--border);
   white-space:nowrap; }
 .autonomy .feed .oc.built { color:var(--ok); border-color:var(--ok); }
@@ -81,8 +93,8 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 .autonomy .feed .oc.waiting_operator { color:var(--info); border-color:var(--info); }
 .autonomy .feed .oc.shipped, .autonomy .feed .oc.done { color:var(--accent); border-color:var(--accent); }
 .autonomy .feed .fhd { flex:1; }
-.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:ui-monospace, Menlo, monospace; }
-.autonomy .feed button.ack { font-family:ui-monospace, Menlo, monospace; font-size:10px;
+.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:var(--font-mono); }
+.autonomy .feed button.ack { font-family:var(--font-mono); font-size:10px;
   letter-spacing:0.06em; padding:3px 9px; cursor:pointer; background:var(--code-bg); color:var(--fg);
   border:1px solid var(--border); white-space:nowrap; }
 .autonomy .feed button.ack:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
@@ -91,27 +103,27 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 /* acked state (pending apply, before the next groom culls it) */
 .autonomy .feed li.acked { opacity:0.6; }
 .autonomy .feed li.acked .fhd { text-decoration:line-through; text-decoration-color:var(--muted); }
-.autonomy .feed .ackmark { font-family:ui-monospace, Menlo, monospace; font-size:10px;
+.autonomy .feed .ackmark { font-family:var(--font-mono); font-size:10px;
   letter-spacing:0.06em; color:var(--ok); white-space:nowrap; border:1px solid var(--ok);
   padding:3px 9px; }
 /* operator decision, queued from the feed (pending apply) */
-.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:ui-monospace, Menlo, monospace;
+.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:var(--font-mono);
   font-size:10.5px; color:var(--info); border-left:2px solid var(--info); padding-left:7px; }
 .autonomy .feed li.decision-row { border-top:none; padding-top:0; }
 .autonomy .feed .feed-instruct { flex:1; margin-top:0; }
-.autonomy .feed .feed-instruct input { flex:1; font-family:ui-monospace, Menlo, monospace;
+.autonomy .feed .feed-instruct input { flex:1; font-family:var(--font-mono);
   font-size:11px; padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
 .autonomy .feed .feed-instruct input:focus { outline:none; border-color:var(--accent); }
-.autonomy .feed .feed-instruct button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+.autonomy .feed .feed-instruct button { font-family:var(--font-mono); font-size:10.5px;
   padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .autonomy .feed .feed-instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .autonomy .feed .feed-instruct button:disabled { opacity:0.4; cursor:default; }
 /* waiting_operator free-form instruction box (WAITING-OP-INSTRUCTIONS-1) */
 .instruct { margin-top:8px; display:flex; gap:6px; }
-.instruct input { flex:1; font-family:ui-monospace, Menlo, monospace; font-size:11px;
+.instruct input { flex:1; font-family:var(--font-mono); font-size:11px;
   padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
 .instruct input:focus { outline:none; border-color:var(--accent); }
-.instruct button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px; letter-spacing:0.06em;
+.instruct button { font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.06em;
   padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .instruct button:disabled { opacity:0.4; cursor:default; }
@@ -130,7 +142,7 @@ main.board { padding:6px 22px 30px; }
 .lane .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr));
   gap:10px; padding-top:10px; }
 .lane .none { color:var(--muted); font-size:11px; padding:8px 0 0;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 
 .card { background:var(--card-bg); border:1px solid var(--border);
   border-left:3px solid var(--muted); padding:9px 12px 8px; }
@@ -143,7 +155,7 @@ main.board { padding:6px 22px 30px; }
 .card summary::marker { content:""; }
 .card .id { color:var(--accent); font-size:11px; letter-spacing:0.04em; }
 .card .apl { float:right; font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
-  font-family:ui-monospace, Menlo, monospace; color:var(--muted); }
+  font-family:var(--font-mono); color:var(--muted); }
 .card.ap-blocked .apl { color:var(--bad); }
 .card.ap-unreviewed .apl { color:var(--warn); }
 .card .title { font-weight:600; margin-top:2px; display:block; font-size:13.5px; line-height:1.35; }
@@ -163,18 +175,18 @@ code { background:var(--code-bg); padding:1px 5px; font-size:0.92em; }
 
 section.extras { margin:26px 22px 0; border-top:1px solid var(--rule); padding-top:12px; }
 section.extras h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 /* --- operator disposition UI (KHOST-2) --- */
 .actions { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
-.actions button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+.actions button { font-family:var(--font-mono); font-size:10.5px;
   letter-spacing:0.06em; padding:3px 9px; cursor:pointer;
   background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .actions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .actions button:disabled { opacity:0.4; cursor:default; }
 .pending-chip { display:inline-block; margin-top:6px; margin-right:6px;
-  font-family:ui-monospace, Menlo, monospace; font-size:10px; letter-spacing:0.08em;
+  font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em;
   text-transform:uppercase; padding:2px 8px; font-weight:600;
   background:var(--stale-bg); color:var(--stale); border:1px solid var(--stale); }
 .pending-chip.op-done     { background:transparent; color:var(--ok); border-color:var(--ok); }
@@ -187,7 +199,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 .lane.drop-ok { outline:2px dashed var(--accent); outline-offset:4px; }
 #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
   background:var(--fg); color:var(--bg); padding:8px 16px; font-size:12px;
-  font-family:ui-monospace, Menlo, monospace; z-index:20; display:none; }
+  font-family:var(--font-mono); z-index:20; display:none; }
 @media (max-width:720px) {
   main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
   .stale { margin:10px 12px 0; }
@@ -199,8 +211,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-12T04:54:24-05:00</b></span>
-<span>data <b>8a6ba8e6cea6</b></span>
+<span>generated <b>2026-09-12T09:00:47-05:00</b></span>
+<span>data <b>455e1b953daf</b></span>
 <span>reconciled <b>2026-09-12</b></span>
 <span><a href="https://urakanban.phalanxmadrone.com">urakanban.phalanxmadrone.com</a></span>
 <span><a href="https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149">artifact</a></span>
@@ -208,11 +220,17 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">14<span class="den"> / 111</span></span>
+<span class="metric">15<span class="den"> / 111</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 14 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 15 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
+<li class="" data-fid="BOARD-THEME-URA-1@2026-09-12T16:00" data-card="BOARD-THEME-URA-1">
+<span class="oc built">built</span>
+<span class="fhd">BOARD-THEME-URA-1 — reskinned the board to universalroom.org tokens (OKLCH light paper/cool ink/brand blue) + Hanken Grotesk / JetBrains Mono (board tooling, done)<br><span class="ft">2026-09-12T16:00:00</span>
+</span>
+<button type="button" class="ack" data-fid="BOARD-THEME-URA-1@2026-09-12T16:00">✓ ack</button>
+</li>
 <li class="" data-fid="OPTIMIZER-NOTIFY-FLOOD-DEDUP-1@2026-09-12T15:00" data-card="OPTIMIZER-NOTIFY-FLOOD-DEDUP-1">
 <span class="oc waiting_operator">waiting_operator</span>
 <span class="fhd">OPTIMIZER-NOTIFY-FLOOD-DEDUP-1 — DIAGNOSED: v5.91.4 cut volume ~45→5-10/day but identical findings still repeat 4x each (per-cycle-dedup-only gap). Operator PICK cross-cycle fix (suppress-TTL vs batch)<br><span class="ft">2026-09-12T15:00:00</span>
@@ -297,11 +315,11 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </span>
 <button type="button" class="ack" data-fid="HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00">✓ ack</button>
 </li>
-<li class="" data-fid="ROOM-NAME-UNIQUE-1@2026-09-12T11:40" data-card="ROOM-NAME-UNIQUE-1">
+<li class="acked" data-fid="ROOM-NAME-UNIQUE-1@2026-09-12T11:40" data-card="ROOM-NAME-UNIQUE-1">
 <span class="oc built">built</span>
 <span class="fhd">ROOM-NAME-UNIQUE-1 — create-time duplicate room-name guard (Tier-1, in review)<br><span class="ft">2026-09-12T11:40:00</span>
 </span>
-<button type="button" class="ack" data-fid="ROOM-NAME-UNIQUE-1@2026-09-12T11:40">✓ ack</button>
+<span class="ackmark">✓ acked — pending apply</span>
 </li>
 </ul></details>
 </section>
@@ -316,7 +334,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Waiting on me (Claude) <b>2</b></span>
 <span>Shipped (organic open) <b>2</b></span>
 <span>Parked <b>45</b></span>
-<span>Done <b>137</b></span>
+<span>Done <b>138</b></span>
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
@@ -480,8 +498,9 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="done">
-<h2>Done <span class="count">137</span><span class="hint">closed, evidence in refs</span></h2>
+<h2>Done <span class="count">138</span><span class="hint">closed, evidence in refs</span></h2>
 <div class="cards">
+<details class="card ap-explicit" data-id="BOARD-THEME-URA-1" draggable="true"><summary><span class="id">BOARD-THEME-URA-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="apl">explicit</span><span class="title">Reskin the kanban board to the universalroom.org brand palette + fonts (kill the AI-slop default)</span><div class="tagline">tooling<span class="sep">·</span>tier-1</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-12 16:00 · initial</div><dt>Problem / Solution</dt><dd>Problem: the board used a generic dark AI-default background the operator disliked and that did not match the URA brand. Solution: lift the exact design tokens from universalroom.org (OKLCH light &quot;paper&quot; bg, cool &quot;ink&quot; text, brand-blue a...</dd><dt>Next</dt><dd>Done. Live on next refresh; if oklch() ever needs a fallback for an old browser, add hex.</dd><dt>Refs</dt><dd>scripts/kanban_render.py; https://universalroom.org/style.css</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>built_2026_09_12</code>: Fetched universalroom.org/style.css (curl + browser UA; WebFetch 403d on Cloudflare). Mapped --paper/--paper-card/--ink/--ink-mute/--rule(-soft)/--accent(-mute) -&gt; board --bg/--card-bg/--fg/--muted/--rule/--border/--accent; semantic ok/w...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-explicit" data-id="WAITING-OP-INSTRUCTIONS-1" draggable="true"><summary><span class="id">WAITING-OP-INSTRUCTIONS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="apl">explicit</span><span class="title">Waiting-on-operator cards need a free-form instruction field + groom-first priority</span><div class="tagline">tooling<span class="sep">·</span>tier-1</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-12 13:30 · initial</div><dt>Problem / Solution</dt><dd>Problem: when a card is waiting on the operator, the hosted board only offers fixed buttons (done/deferred/declined/approve/investigate) — the operator cannot leave free-form instructions telling the agent HOW to resolve it, and these ca...</dd><dt>Why</dt><dd>operator agency — the board is how the operator steers autonomous work; a decision queue with no free-text channel forces every instruction back into chat, which is lossy.</dd><dt>Next</dt><dd>BUILT: text field + Send (POST action=instruct w/ text) on waiting_operator cards; renderer elevates the lane; disposition-apply handles instruct -&gt; operator_instruction on the card; skill cadence grooms waiting_operator first.</dd><dt>Parsimony</dt><dd>[BUILD] waiting_operator cards have buttons but no instruction channel and no grooming priority</dd><dt>Refs</dt><dd>scripts/kanban_render.py; .claude/skills/ura-kanban/SKILL.md</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>built_2026_09_12</code>: SHIPPED to the board tooling. kanban_render.py: (1) COLUMN_META elevates waiting_operator + waiting_me to just after review; (2) _render_card_html adds a free-form instruction box (input + Send) on waiting_operator cards posting action=i...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-explicit" data-id="BOARD-AUTONOMY-PROGRESS-1" draggable="true"><summary><span class="id">BOARD-AUTONOMY-PROGRESS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="apl">explicit</span><span class="title">Board-top autonomy progress counter + acknowledgeable recent-work feed (last 24h, shrinking denominator)</span><div class="tagline">tooling<span class="sep">·</span>tier-1</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-12 13:30 · initial</div><dt>Problem / Solution</dt><dd>Problem: as the agent works autonomously the operator has no at-a-glance view of how much got done recently or a way to acknowledge it — autonomy without visibility/agency. Solution: a large counter above all lanes showing board progress...</dd><dt>Why</dt><dd>perfect agentic autonomy WITH operator visibility + agency — the operator sees and signs off on what ran while they were away.</dd><dt>Next</dt><dd>BUILT: meta.autonomy_feed data + renderer counter banner + expandable feed with ack buttons (POST action=ack w/ fid); disposition-apply marks acknowledged; skill discipline = append a feed entry on every autonomous card conclusion.</dd><dt>Parsimony</dt><dd>[BUILD] no operator-facing view of recent autonomous progress nor a way to acknowledge it</dd><dt>Refs</dt><dd>scripts/kanban_render.py; .claude/skills/ura-kanban/SKILL.md</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>enhanced_2026_09_12</code>: V2 (operator feedback): ack was optimistic-remove -&gt; reappeared on reload. Fixed: render reads the pending queue (the durable persistence) and paints acked state (li.acked + &quot;acked — pending apply&quot;) + queued-decision chips; JS marks acke...</li><li><code>built_2026_09_12</code>: SHIPPED to the board tooling. kanban_render.py: meta.autonomy_feed data model + autonomy_stats() (num=last-24h entries, denom=non-done count, live=unacked &amp; &lt;7d, newest-first) + a large counter banner above all lanes (N / D) + an expanda...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 <details class="card ap-implied" data-id="BOOTSANITY-1" draggable="true"><summary><span class="id">BOOTSANITY-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Boot-sanity allowlist guard cannot fire on a cold boot</span><div class="tagline">camera<span class="sep">·</span>no-fabrication-verify<span class="sep">·</span>mutation-drill</div></summary><div class="body"><dl class="kv"><div class="cardmeta">updated 2026-09-12 11:15</div><dt>Origin</dt><dd>2026-08-07 - found during v5.61.0 live validation — I nearly read its silence as proof of success</dd><dt>Why</dt><dd>The F1(e) guard runs at the END of PerimeterAlertManager.async_setup() and is gated on `_linker_now` being present — but the linker registers AFTER that setup returns, which IS the bug. So on every cold boot it short-circuits and never w...</dd><dt>Next</dt><dd>move the check into the READY handler; pin with a test that asserts the WARNING fires when install fails</dd><dt>Parsimony</dt><dd>[BUILD] the tripwire for a CRITICAL class of bug is unreachable on the path that matters</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>disposition_2026_09_12_sweep4</code>: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE: perimeter_alert.py:646-663 re-runs SECC-1 sanity WARNING from READY handler after set_allowed_cameras (the only guard on normal boot ordering); silent early-retu...</li><li><code>fix</code>: re-run the sanity check from the READY handler AFTER the install attempt (and/or on a delayed post-boot check). Mutation drill: neuter the install -&gt; the sanity WARNING must fire.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
@@ -640,7 +659,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>8a6ba8e6cea6</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>455e1b953daf</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

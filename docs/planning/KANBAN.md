@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T04:54:24-05:00_ - _Data commit: `8a6ba8e6cea6`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T09:00:47-05:00_ - _Data commit: `455e1b953daf`_ - _last_reconciled: 2026-09-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -21,7 +21,7 @@ _Generated: 2026-09-12T04:54:24-05:00_ - _Data commit: `8a6ba8e6cea6`_ - _last_r
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 2 |
 | 🅿️ Parked | 45 |
-| ✅ Done | 137 |
+| ✅ Done | 138 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1698,8 +1698,19 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (137)
+## ✅ Done (138)
 _closed, evidence in refs_
+
+### `BOARD-THEME-URA-1` - Reskin the kanban board to the universalroom.org brand palette + fonts (kill the AI-slop default) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **tooling** - status: **done** - approval: **explicit**
+_created 2026-09-12 16:00 · initial_
+- **Problem / Solution:**
+  - Problem: the board used a generic dark AI-default background the operator disliked and that did not match the URA brand. Solution: lift the exact design tokens from universalroom.org (OKLCH light "paper" bg, cool "ink" text, brand-blue a...
+- **Next:** Done. Live on next refresh; if oklch() ever needs a fallback for an old browser, add hex.
+- **Tags:** tier-1
+- **Refs:** scripts/kanban_render.py; https://universalroom.org/style.css
+- **Forensic keys (1):**
+  - `built_2026_09_12`: Fetched universalroom.org/style.css (curl + browser UA; WebFetch 403d on Cloudflare). Mapped --paper/--paper-card/--ink/--ink-mute/--rule(-soft)/--accent(-mute) -> board --bg/--card-bg/--fg/--muted/--rule/--border/--accent; semantic ok/w...
 
 ### `WAITING-OP-INSTRUCTIONS-1` - Waiting-on-operator cards need a free-form instruction field + groom-first priority — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **done** - approval: **explicit**

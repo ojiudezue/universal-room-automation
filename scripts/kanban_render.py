@@ -568,32 +568,40 @@ def _render_card_md(c: dict, pending: dict[str, list[dict]] | None = None) -> li
 
 CSS = """
 :root {
-  --bg:#f4f1ea; --fg:#232019; --muted:#7a7263; --card-bg:#fbf9f4;
-  --border:#ddd6c8; --rule:#c9c0ae;
-  --lane-bg:transparent; --accent:#9a6108; --accent-dim:#b98a3a;
-  --ok:#3f7d47; --warn:#a2541f; --bad:#a03030; --info:#3d6b80;
-  --stale:#8a5a00; --stale-bg:#f3e3bd; --code-bg:#ece7db;
+  /* URA brand tokens — lifted from https://universalroom.org/style.css (OKLCH).
+     Light "paper" + cool "ink" + brand blue `--accent` / warm secondary. */
+  --bg:oklch(0.985 0.003 240); --fg:oklch(0.15 0.008 240); --muted:oklch(0.55 0.010 240);
+  --card-bg:oklch(0.995 0.002 240); --border:oklch(0.88 0.008 240); --rule:oklch(0.80 0.010 240);
+  --lane-bg:transparent; --accent:oklch(0.50 0.16 235); --accent-dim:oklch(0.66 0.12 235);
+  --ok:oklch(0.55 0.13 150); --warn:oklch(0.60 0.13 50); --bad:oklch(0.55 0.17 25);
+  --info:oklch(0.55 0.10 210);
+  --stale:oklch(0.58 0.13 50); --stale-bg:oklch(0.93 0.05 65); --code-bg:oklch(0.965 0.005 240);
+  --font-sans:'Hanken Grotesk', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#131518; --fg:#d6d3c9; --muted:#7d8494; --card-bg:#1a1d22;
-    --border:#2a2e36; --rule:#3a3f49;
-    --accent:#ffb454; --accent-dim:#b98a3a;
-    --ok:#7fbf7a; --warn:#e0954f; --bad:#e07070; --info:#7ab3cc;
-    --stale:#ffb454; --stale-bg:#2b2210; --code-bg:#22252c;
+    /* URA is light-only; this is a URA-consistent cool dark (deep slate + brand
+       blue) for dark-OS viewers — NOT the old muddy default. */
+    --bg:oklch(0.20 0.012 240); --fg:oklch(0.93 0.004 240); --muted:oklch(0.66 0.012 240);
+    --card-bg:oklch(0.24 0.012 240); --border:oklch(0.33 0.012 240); --rule:oklch(0.42 0.012 240);
+    --accent:oklch(0.72 0.13 235); --accent-dim:oklch(0.55 0.12 235);
+    --ok:oklch(0.72 0.14 150); --warn:oklch(0.74 0.13 55); --bad:oklch(0.70 0.16 25);
+    --info:oklch(0.72 0.10 210);
+    --stale:oklch(0.74 0.13 55); --stale-bg:oklch(0.28 0.05 60); --code-bg:oklch(0.27 0.012 240);
   }
 }
 * { box-sizing:border-box; }
 html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-  font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-variant-numeric: tabular-nums; }
+  font:14px/1.55 var(--font-sans);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing:antialiased; }
 code, .mono, .id, .statusline, .lane h2, .count, .tagline, .kv dt {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  font-family: var(--font-mono); }
 
 header.top { position:sticky; top:0; z-index:5; background:var(--bg);
   border-bottom:2px solid var(--rule); padding:14px 22px 10px; }
 header.top h1 { margin:0; font-size:17px; letter-spacing:0.14em; text-transform:uppercase;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  font-family:var(--font-mono); }
 header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em; font-weight:400;
   display:block; margin-top:2px; text-transform:none; }
 .statusline { margin-top:8px; font-size:11.5px; color:var(--muted);
@@ -603,7 +611,7 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 
 .stale { background:var(--stale-bg); border:1px solid var(--stale);
   border-left:6px solid var(--stale); padding:12px 18px; margin:14px 22px 0;
-  font-family: ui-monospace, Menlo, monospace; font-size:12.5px; }
+  font-family:var(--font-mono); font-size:12.5px; }
 .stale h2 { margin:0 0 6px; font-size:13px; letter-spacing:0.1em; text-transform:uppercase;
   color:var(--stale); }
 .stale ul { margin:4px 0 0 18px; padding:0; }
@@ -611,7 +619,7 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 
 .summary { padding:10px 22px 2px; font-size:11.5px; color:var(--muted);
   display:flex; gap:0; flex-wrap:wrap;
-  font-family: ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 .summary span { padding:2px 10px; border-right:1px solid var(--border); }
 .summary span:first-child { padding-left:0; }
 .summary span:last-child { border-right:none; }
@@ -621,22 +629,22 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 .autonomy { margin:12px 22px 0; border:1px solid var(--border); border-left:6px solid var(--accent);
   background:var(--code-bg); }
 .autonomy .hd { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:12px 18px 6px; }
-.autonomy .hd .lbl { font-family:ui-monospace, Menlo, monospace; font-size:11px; letter-spacing:0.14em;
+.autonomy .hd .lbl { font-family:var(--font-mono); font-size:11px; letter-spacing:0.14em;
   text-transform:uppercase; color:var(--muted); }
-.autonomy .hd .metric { font-family:ui-monospace, Menlo, monospace; font-weight:700;
+.autonomy .hd .metric { font-family:var(--font-mono); font-weight:700;
   font-size:34px; line-height:1; color:var(--accent); letter-spacing:0.02em; }
 .autonomy .hd .metric .den { color:var(--muted); font-size:22px; }
 .autonomy .hd .sub { font-size:11.5px; color:var(--muted); }
 .autonomy details { border-top:1px dashed var(--border); }
 .autonomy details > summary { cursor:pointer; list-style:none; padding:7px 18px; font-size:11.5px;
-  font-family:ui-monospace, Menlo, monospace; letter-spacing:0.06em; color:var(--muted); }
+  font-family:var(--font-mono); letter-spacing:0.06em; color:var(--muted); }
 .autonomy details > summary::-webkit-details-marker { display:none; }
 .autonomy details > summary::marker { content:""; }
 .autonomy .feed { margin:0; padding:0 18px 12px; list-style:none; }
 .autonomy .feed li { display:flex; align-items:flex-start; gap:10px; padding:7px 0;
   border-top:1px solid var(--border); font-size:12.5px; }
 .autonomy .feed li:first-child { border-top:none; }
-.autonomy .feed .oc { font-family:ui-monospace, Menlo, monospace; font-size:9.5px; font-weight:700;
+.autonomy .feed .oc { font-family:var(--font-mono); font-size:9.5px; font-weight:700;
   letter-spacing:0.08em; text-transform:uppercase; padding:2px 7px; border:1px solid var(--border);
   white-space:nowrap; }
 .autonomy .feed .oc.built { color:var(--ok); border-color:var(--ok); }
@@ -644,8 +652,8 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 .autonomy .feed .oc.waiting_operator { color:var(--info); border-color:var(--info); }
 .autonomy .feed .oc.shipped, .autonomy .feed .oc.done { color:var(--accent); border-color:var(--accent); }
 .autonomy .feed .fhd { flex:1; }
-.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:ui-monospace, Menlo, monospace; }
-.autonomy .feed button.ack { font-family:ui-monospace, Menlo, monospace; font-size:10px;
+.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:var(--font-mono); }
+.autonomy .feed button.ack { font-family:var(--font-mono); font-size:10px;
   letter-spacing:0.06em; padding:3px 9px; cursor:pointer; background:var(--code-bg); color:var(--fg);
   border:1px solid var(--border); white-space:nowrap; }
 .autonomy .feed button.ack:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
@@ -654,27 +662,27 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 /* acked state (pending apply, before the next groom culls it) */
 .autonomy .feed li.acked { opacity:0.6; }
 .autonomy .feed li.acked .fhd { text-decoration:line-through; text-decoration-color:var(--muted); }
-.autonomy .feed .ackmark { font-family:ui-monospace, Menlo, monospace; font-size:10px;
+.autonomy .feed .ackmark { font-family:var(--font-mono); font-size:10px;
   letter-spacing:0.06em; color:var(--ok); white-space:nowrap; border:1px solid var(--ok);
   padding:3px 9px; }
 /* operator decision, queued from the feed (pending apply) */
-.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:ui-monospace, Menlo, monospace;
+.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:var(--font-mono);
   font-size:10.5px; color:var(--info); border-left:2px solid var(--info); padding-left:7px; }
 .autonomy .feed li.decision-row { border-top:none; padding-top:0; }
 .autonomy .feed .feed-instruct { flex:1; margin-top:0; }
-.autonomy .feed .feed-instruct input { flex:1; font-family:ui-monospace, Menlo, monospace;
+.autonomy .feed .feed-instruct input { flex:1; font-family:var(--font-mono);
   font-size:11px; padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
 .autonomy .feed .feed-instruct input:focus { outline:none; border-color:var(--accent); }
-.autonomy .feed .feed-instruct button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+.autonomy .feed .feed-instruct button { font-family:var(--font-mono); font-size:10.5px;
   padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .autonomy .feed .feed-instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .autonomy .feed .feed-instruct button:disabled { opacity:0.4; cursor:default; }
 /* waiting_operator free-form instruction box (WAITING-OP-INSTRUCTIONS-1) */
 .instruct { margin-top:8px; display:flex; gap:6px; }
-.instruct input { flex:1; font-family:ui-monospace, Menlo, monospace; font-size:11px;
+.instruct input { flex:1; font-family:var(--font-mono); font-size:11px;
   padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
 .instruct input:focus { outline:none; border-color:var(--accent); }
-.instruct button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px; letter-spacing:0.06em;
+.instruct button { font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.06em;
   padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .instruct button:disabled { opacity:0.4; cursor:default; }
@@ -693,7 +701,7 @@ main.board { padding:6px 22px 30px; }
 .lane .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr));
   gap:10px; padding-top:10px; }
 .lane .none { color:var(--muted); font-size:11px; padding:8px 0 0;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 
 .card { background:var(--card-bg); border:1px solid var(--border);
   border-left:3px solid var(--muted); padding:9px 12px 8px; }
@@ -706,7 +714,7 @@ main.board { padding:6px 22px 30px; }
 .card summary::marker { content:""; }
 .card .id { color:var(--accent); font-size:11px; letter-spacing:0.04em; }
 .card .apl { float:right; font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
-  font-family:ui-monospace, Menlo, monospace; color:var(--muted); }
+  font-family:var(--font-mono); color:var(--muted); }
 .card.ap-blocked .apl { color:var(--bad); }
 .card.ap-unreviewed .apl { color:var(--warn); }
 .card .title { font-weight:600; margin-top:2px; display:block; font-size:13.5px; line-height:1.35; }
@@ -726,18 +734,18 @@ code { background:var(--code-bg); padding:1px 5px; font-size:0.92em; }
 
 section.extras { margin:26px 22px 0; border-top:1px solid var(--rule); padding-top:12px; }
 section.extras h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 /* --- operator disposition UI (KHOST-2) --- */
 .actions { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
-.actions button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+.actions button { font-family:var(--font-mono); font-size:10.5px;
   letter-spacing:0.06em; padding:3px 9px; cursor:pointer;
   background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .actions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .actions button:disabled { opacity:0.4; cursor:default; }
 .pending-chip { display:inline-block; margin-top:6px; margin-right:6px;
-  font-family:ui-monospace, Menlo, monospace; font-size:10px; letter-spacing:0.08em;
+  font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em;
   text-transform:uppercase; padding:2px 8px; font-weight:600;
   background:var(--stale-bg); color:var(--stale); border:1px solid var(--stale); }
 .pending-chip.op-done     { background:transparent; color:var(--ok); border-color:var(--ok); }
@@ -750,7 +758,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 .lane.drop-ok { outline:2px dashed var(--accent); outline-offset:4px; }
 #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
   background:var(--fg); color:var(--bg); padding:8px 16px; font-size:12px;
-  font-family:ui-monospace, Menlo, monospace; z-index:20; display:none; }
+  font-family:var(--font-mono); z-index:20; display:none; }
 @media (max-width:720px) {
   main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
   .stale { margin:10px 12px 0; }
@@ -1010,6 +1018,14 @@ def render_html(data: dict, meta_extras: dict) -> str:
     parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
     parts.append('<meta name="generator" content="kanban_render.py (URA)">')
     parts.append('<title>URA Kanban</title>')
+    parts.append('<meta name="theme-color" content="#fafaf8">')
+    # URA brand fonts (same two the site loads): Hanken Grotesk + JetBrains Mono.
+    # System fallbacks in the stacks keep it legible if Google Fonts is blocked.
+    parts.append('<link rel="preconnect" href="https://fonts.googleapis.com">')
+    parts.append('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>')
+    parts.append('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+                 'family=Hanken+Grotesk:ital,wght@0,300..800;1,300..700&'
+                 'family=JetBrains+Mono:wght@400;500&display=swap">')
     parts.append(f'<style>{CSS}</style>')
     parts.append('</head><body>')
 

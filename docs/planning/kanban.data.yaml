@@ -33,6 +33,9 @@ meta:
   - {fid: 'WAITING-OP-INSTRUCTIONS-1@2026-09-12T13:40', at: '2026-09-12T13:40:00', outcome: built,
      headline: 'WAITING-OP-INSTRUCTIONS-1 — free-form instruction box on waiting_operator cards + groom-first + lane elevation (board tooling, done)',
      acknowledged: false}
+  - {fid: 'BOARD-THEME-URA-1@2026-09-12T16:00', at: '2026-09-12T16:00:00', outcome: built,
+     headline: 'BOARD-THEME-URA-1 — reskinned the board to universalroom.org tokens (OKLCH light paper/cool ink/brand blue) + Hanken Grotesk / JetBrains Mono (board tooling, done)',
+     acknowledged: false}
   - {fid: 'BOARD-AUTONOMY-PROGRESS-1@2026-09-12T13:45', at: '2026-09-12T13:45:00', outcome: built,
      headline: 'BOARD-AUTONOMY-PROGRESS-1 — top-of-board last-24h progress counter + acknowledgeable recent-work feed (board tooling, done)',
      acknowledged: false}
@@ -16668,6 +16671,31 @@ cards:
      (POST action=ack w/ fid); disposition-apply marks acknowledged; skill discipline = append a feed
      entry on every autonomous card conclusion.'
   refs: [scripts/kanban_render.py, '.claude/skills/ura-kanban/SKILL.md']
+- id: BOARD-THEME-URA-1
+  title: Reskin the kanban board to the universalroom.org brand palette + fonts (kill the AI-slop default)
+  thread: tooling
+  status: done
+  created: '2026-09-12 16:00'
+  updated: '2026-09-12 16:00'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-12 (direct request)'
+  tags: [tier-1]
+  problem_solution:
+  - 'Problem: the board used a generic dark AI-default background the operator disliked and that
+     did not match the URA brand. Solution: lift the exact design tokens from universalroom.org
+     (OKLCH light "paper" bg, cool "ink" text, brand-blue accent, warm secondary) into the
+     renderer CSS variables, and adopt the site fonts Hanken Grotesk (sans) + JetBrains Mono
+     (mono) via Google Fonts with system fallbacks.'
+  built_2026_09_12: 'Fetched universalroom.org/style.css (curl + browser UA; WebFetch 403d on
+     Cloudflare). Mapped --paper/--paper-card/--ink/--ink-mute/--rule(-soft)/--accent(-mute) ->
+     board --bg/--card-bg/--fg/--muted/--rule/--border/--accent; semantic ok/warn/bad/info/stale
+     recoloured on the cool OKLCH axis; kept theme-aware structure with a URA-consistent cool-dark
+     variant for dark-OS. Fonts: added the same Google Fonts link the site uses; routed all 23
+     inline mono stacks + the body sans through --font-mono / --font-sans. Renders clean; guard
+     tests pass. Live at next ~5-min cron render.'
+  next: 'Done. Live on next refresh; if oklch() ever needs a fallback for an old browser, add hex.'
+  refs: [scripts/kanban_render.py, 'https://universalroom.org/style.css']
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
