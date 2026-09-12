@@ -12328,8 +12328,26 @@ cards:
     clean; no harm, but a rule to codify.'
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
-  status: pre_planning
+  status: review
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: count is 319 function-local const imports (not ~8); audit never run (0 SHADOW-IMPORT commits); no lint/CI config exists at all. Cheap Tier-1, class recurred 3x.'
+  gate_2026_09_12: 'GATE PASS -> BUILT. VALIDITY: still-needed=yes (audit never run; Bug Class #34
+    recurred 3x) / not-shipped=yes. PRIOR-ART: no lint/CI exists; original incident fix shipped but the
+    AUDIT + a durable guard are new. PARSIMONY: the sharp bug is "a name USED before its function-local
+    import -> UnboundLocalError" (not all 319 imports); simplest capture = an AST audit for exactly that
+    pattern. COST/BENEFIT: read-only audit + surgical fixes only for real hits + a permanent trip-wire
+    -> BUILD.'
+  disposition_2026_09_12_built: 'BUILT 2026-09-12 (Tier-1, overnight autonomous). (1) AST audit
+    quality/tools/audit_shadow_imports.py scans all 98 component files for the use-before-local-import
+    shadow. (2) It found TWO REAL Bug Class #34 shadows, both fixed: (a) presence.py async_setup —
+    CONF_ENTRY_TYPE (module-imported L44) used at L2362 but re-imported function-locally at L2494 ->
+    the L2362 use raised UnboundLocalError, SILENTLY SWALLOWED by its try/except, so the operator''s
+    configured presence anomaly sensitivity was NEVER read (always DEFAULT). Fixed by dropping the
+    redundant local import. (b) energy.py _save_evse_state — dt_util used at L2015 (epoch tz-normalise)
+    but energy.py has NO module-level dt_util and the only binding was a later function-local import
+    (L2058) -> UnboundLocalError on the tz-naive branch. Fixed by hoisting the import to the function
+    top. (3) Converted the one-shot audit into a PERMANENT guard: test_shadow_import_audit.py (3 tests,
+    runs in default env, no HA needed) asserts the detector detects (positive+negative controls) AND
+    the component stays CLEAN. Audit re-run CLEAN; both modules import under .venv-ha. status review.'
   thread: platform
   created: 2026-08-19 10:20
   updated: 2026-09-11 16:20
