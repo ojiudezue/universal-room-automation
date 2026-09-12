@@ -16628,6 +16628,16 @@ cards:
   title: Board-top autonomy progress counter + acknowledgeable recent-work feed (last 24h, shrinking denominator)
   thread: tooling
   status: done
+  enhanced_2026_09_12: 'V2 (operator feedback): ack was optimistic-remove -> reappeared on reload.
+    Fixed: render reads the pending queue (the durable persistence) and paints acked state
+    (li.acked + "acked — pending apply") + queued-decision chips; JS marks acked IN PLACE (not
+    remove) and echoes to localStorage so it survives a reload before the ~5-min cron re-render
+    (serving is CACHED-STATIC, confirmed in homelab server.js). Added an inline DECISION text box
+    on waiting_operator FEED rows (posts action=instruct against the card). Homelab server.js +
+    refresh_urakanban.sh updated to accept instruct/ack + preserve text. Groom semantics: ack sets
+    acknowledged + moves a review/shipped_organic card to done when appropriate; decision writes
+    operator_decision onto the card + moves it to the implied lane; acked/decided feed entries are
+    culled. Blueprint being written into the skill so every board self-conforms.'
   built_2026_09_12: 'SHIPPED to the board tooling. kanban_render.py: meta.autonomy_feed data model +
     autonomy_stats() (num=last-24h entries, denom=non-done count, live=unacked & <7d, newest-first) +
     a large counter banner above all lanes (N / D) + an expandable feed with per-entry Acknowledge

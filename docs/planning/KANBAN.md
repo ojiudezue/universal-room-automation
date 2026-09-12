@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T04:12:40-05:00_ - _Data commit: `bd178d541365`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T04:54:24-05:00_ - _Data commit: `8a6ba8e6cea6`_ - _last_reconciled: 2026-09-12_
 
 **Hosted:** https://urakanban.phalanxmadrone.com
 **Artifact:** https://claude.ai/code/artifact/5748808f-5f16-41e8-a455-c3c59ed40149
@@ -1724,7 +1724,8 @@ _created 2026-09-12 13:30 · initial_
 - **Tags:** tier-1
 - **Parsimony:** [BUILD] no operator-facing view of recent autonomous progress nor a way to acknowledge it
 - **Refs:** scripts/kanban_render.py; .claude/skills/ura-kanban/SKILL.md
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `enhanced_2026_09_12`: V2 (operator feedback): ack was optimistic-remove -> reappeared on reload. Fixed: render reads the pending queue (the durable persistence) and paints acked state (li.acked + "acked — pending apply") + queued-decision chips; JS marks acke...
   - `built_2026_09_12`: SHIPPED to the board tooling. kanban_render.py: meta.autonomy_feed data model + autonomy_stats() (num=last-24h entries, denom=non-done count, live=unacked & <7d, newest-first) + a large counter banner above all lanes (N / D) + an expanda...
 
 ### `BOOTSANITY-1` - Boot-sanity allowlist guard cannot fire on a cold boot — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_

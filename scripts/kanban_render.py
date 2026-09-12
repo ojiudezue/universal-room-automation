@@ -651,6 +651,24 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 .autonomy .feed button.ack:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .autonomy .feed button.ack:disabled { opacity:0.4; cursor:default; }
 .autonomy .feed .empty { color:var(--muted); padding:8px 0; font-size:12px; }
+/* acked state (pending apply, before the next groom culls it) */
+.autonomy .feed li.acked { opacity:0.6; }
+.autonomy .feed li.acked .fhd { text-decoration:line-through; text-decoration-color:var(--muted); }
+.autonomy .feed .ackmark { font-family:ui-monospace, Menlo, monospace; font-size:10px;
+  letter-spacing:0.06em; color:var(--ok); white-space:nowrap; border:1px solid var(--ok);
+  padding:3px 9px; }
+/* operator decision, queued from the feed (pending apply) */
+.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:ui-monospace, Menlo, monospace;
+  font-size:10.5px; color:var(--info); border-left:2px solid var(--info); padding-left:7px; }
+.autonomy .feed li.decision-row { border-top:none; padding-top:0; }
+.autonomy .feed .feed-instruct { flex:1; margin-top:0; }
+.autonomy .feed .feed-instruct input { flex:1; font-family:ui-monospace, Menlo, monospace;
+  font-size:11px; padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.autonomy .feed .feed-instruct input:focus { outline:none; border-color:var(--accent); }
+.autonomy .feed .feed-instruct button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+  padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.autonomy .feed .feed-instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.autonomy .feed .feed-instruct button:disabled { opacity:0.4; cursor:default; }
 /* waiting_operator free-form instruction box (WAITING-OP-INSTRUCTIONS-1) */
 .instruct { margin-top:8px; display:flex; gap:6px; }
 .instruct input { flex:1; font-family:ui-monospace, Menlo, monospace; font-size:11px;
@@ -821,7 +839,40 @@ BOARD_JS = """
     box.addEventListener('click', function (ev) { ev.stopPropagation(); });
   });
 
-  // BOARD-AUTONOMY-PROGRESS-1 — acknowledge a recent-work feed entry (retires it)
+  // BOARD-AUTONOMY-PROGRESS-1 — acknowledge / decide on recent-work feed entries.
+  // The board is served as a CACHED STATIC file (re-rendered every ~5min by the
+  // refresh cron), so a click's state must survive a reload BEFORE the next
+  // render. Two layers: (1) the server render already paints the acked/decided
+  // state by reading the pending queue (durable); (2) a localStorage echo
+  // re-applies it instantly on reload in the gap before that render lands.
+  var LS_ACK = 'ura_kanban_acked';      // {fid: true}
+  var LS_DEC = 'ura_kanban_decided';    // {card_id: text}
+  function lsGet(k) { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch (e) { return {}; } }
+  function lsSet(k, o) { try { localStorage.setItem(k, JSON.stringify(o)); } catch (e) {} }
+
+  function markAcked(li) {
+    if (!li || li.classList.contains('acked')) return;
+    li.classList.add('acked');
+    var btn = li.querySelector('button.ack');
+    if (btn) {
+      var mark = document.createElement('span');
+      mark.className = 'ackmark';
+      mark.textContent = '✓ acked — pending apply';
+      btn.replaceWith(mark);
+    }
+  }
+  function markDecided(cardId, text) {
+    document.querySelectorAll('.autonomy .feed li[data-card="' + (window.CSS && CSS.escape ? CSS.escape(cardId) : cardId) + '"]').forEach(function (li) {
+      if (li.classList.contains('decision-row')) return;  // the input row itself
+      if (li.querySelector('.decision-chip')) return;
+      var chip = document.createElement('span');
+      chip.className = 'decision-chip';
+      chip.textContent = 'decision queued: "' + text + '" — pending apply';
+      var fhd = li.querySelector('.fhd');
+      if (fhd) fhd.appendChild(chip);
+    });
+  }
+
   document.querySelectorAll('.autonomy .feed button.ack').forEach(function (btn) {
     btn.addEventListener('click', function (ev) {
       ev.preventDefault();
@@ -829,14 +880,57 @@ BOARD_JS = """
       var li = btn.closest('li');
       btn.disabled = true;
       post(fid, 'ack').then(function () {
-        if (li) li.remove();  // optimistic retire
-        toast('acknowledged');
+        markAcked(li);                       // mark in place — do NOT remove
+        var a = lsGet(LS_ACK); a[fid] = true; lsSet(LS_ACK, a);
+        toast('acknowledged — culled at next groom');
       }).catch(function () {
         btn.disabled = false;
         readOnlyToast();
       });
     });
   });
+
+  // Inline DECISION box on waiting_operator feed rows (action=instruct on the card).
+  document.querySelectorAll('.autonomy .feed .feed-instruct').forEach(function (box) {
+    var input = box.querySelector('input');
+    var btn = box.querySelector('button[data-action="instruct"]');
+    var row = box.closest('li');
+    if (!input || !btn || !row) return;
+    var cardId = row.getAttribute('data-card');
+    function send() {
+      var text = (input.value || '').trim();
+      if (!text) { input.focus(); return; }
+      btn.disabled = true; input.disabled = true;
+      post(cardId, 'instruct', { text: text }).then(function () {
+        markDecided(cardId, text);
+        var d = lsGet(LS_DEC); d[cardId] = text; lsSet(LS_DEC, d);
+        input.value = '';
+        toast('decision queued — applied at next groom');
+      }).catch(function () {
+        btn.disabled = false; input.disabled = false;
+        readOnlyToast();
+      });
+    }
+    btn.addEventListener('click', function (ev) { ev.preventDefault(); send(); });
+    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
+  });
+
+  // On-load shim: re-apply acked/decided state from localStorage, so a reload
+  // in the gap before the next static re-render still shows the operator's action.
+  (function () {
+    var a = lsGet(LS_ACK);
+    Object.keys(a).forEach(function (fid) {
+      document.querySelectorAll('.autonomy .feed li[data-fid="' + (window.CSS && CSS.escape ? CSS.escape(fid) : fid) + '"]').forEach(markAcked);
+    });
+    var d = lsGet(LS_DEC);
+    Object.keys(d).forEach(function (cardId) { markDecided(cardId, d[cardId]); });
+    // Prune localStorage entries the server has since culled (feed row gone).
+    var liveFids = {}, liveCards = {};
+    document.querySelectorAll('.autonomy .feed li[data-fid]').forEach(function (li) { liveFids[li.getAttribute('data-fid')] = 1; });
+    document.querySelectorAll('.autonomy .feed li[data-card]').forEach(function (li) { liveCards[li.getAttribute('data-card')] = 1; });
+    var a2 = {}; Object.keys(a).forEach(function (f) { if (liveFids[f]) a2[f] = true; }); lsSet(LS_ACK, a2);
+    var d2 = {}; Object.keys(d).forEach(function (c) { if (liveCards[c]) d2[c] = d[c]; }); lsSet(LS_DEC, d2);
+  })();
 
   // Drag between columns
   var draggingCard = null;
@@ -949,6 +1043,7 @@ def render_html(data: dict, meta_extras: dict) -> str:
                  'denominator = open cards (all minus done), shrinks as work completes</span>')
     parts.append('</div>')
     live = stats["live"]
+    pending = meta_extras.get("pending", {}) or {}
     if live:
         parts.append(f'<details open><summary>recent autonomous work — {len(live)} '
                      'unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>')
@@ -956,12 +1051,40 @@ def render_html(data: dict, meta_extras: dict) -> str:
         for e in live:
             oc = str(e.get("outcome", "")).strip() or "done"
             fid = str(e.get("fid", ""))
-            parts.append('<li>')
+            card_id = fid.split("@", 1)[0] if "@" in fid else fid
+            # Pending-queue overlay (the durable acked/decided state between an
+            # operator click and the next groom — survives reload because the
+            # render reads the queue). ack keys on the feed fid; instruct
+            # (decision) keys on the underlying card id.
+            acked = any(d.get("action") == "ack" for d in pending.get(fid, []))
+            decisions = [d.get("text", "") for d in pending.get(card_id, [])
+                         if d.get("action") == "instruct" and d.get("text")]
+            li_cls = "acked" if acked else ""
+            parts.append(f'<li class="{li_cls}" data-fid="{_h(fid)}" data-card="{_h(card_id)}">')
             parts.append(f'<span class="oc {_h(oc)}">{_h(oc)}</span>')
-            parts.append(f'<span class="fhd">{_h(str(e.get("headline", "")))}'
-                         f'<br><span class="ft">{_h(str(e.get("at", "")))}</span></span>')
-            parts.append(f'<button type="button" class="ack" data-fid="{_h(fid)}">✓ ack</button>')
+            parts.append('<span class="fhd">' + _h(str(e.get("headline", "")))
+                         + f'<br><span class="ft">{_h(str(e.get("at", "")))}</span>')
+            if decisions:
+                parts.append(f'<span class="decision-chip">decision queued: '
+                             f'"{_h(decisions[-1])}" — pending apply</span>')
+            parts.append('</span>')
+            # action column: acked-state vs ack button
+            if acked:
+                parts.append('<span class="ackmark">✓ acked — pending apply</span>')
+            else:
+                parts.append(f'<button type="button" class="ack" data-fid="{_h(fid)}">✓ ack</button>')
             parts.append('</li>')
+            # waiting_operator feed entries get an inline DECISION box too, so the
+            # operator can decide straight from the progress digest (not just on
+            # the card in its lane). Posts action=instruct against the CARD id.
+            if oc == "waiting_operator":
+                parts.append(f'<li class="decision-row" data-card="{_h(card_id)}">'
+                             '<span class="oc"></span>'
+                             '<div class="instruct feed-instruct">'
+                             f'<input type="text" placeholder="decision for {_h(card_id)}…" '
+                             'aria-label="operator decision">'
+                             '<button type="button" data-action="instruct">send</button>'
+                             '</div></li>')
         parts.append('</ul></details>')
     parts.append('</section>')
 
