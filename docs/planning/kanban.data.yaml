@@ -16806,6 +16806,7 @@ cards:
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
   status: shipped_organic
+  live_validated_2026_09_12: 'DEPLOYED v5.101.0 + live-validated post-restart. L1 PASS (45/45 URA entries loaded, ZERO ERROR logs — only normal boot WARNINGs), L2 PASS (one INTEGRATION entry, existing rooms untouched). L3-L6 operator-action-gated (manifest on next add-room/fresh-install) — code live + in-suite verified; README_v5.101.0 carries the Validated table. HACS installed_version=v5.101.0. Cycle closed pending organic add-room observation.'
   shipped_version: v5.101.0
   updated: '2026-09-12 16:05'
   f6_resolved_2026_09_12: 'F6 RESOLVED (operator 2026-09-12): KEEP EXCLUDED. _EXCLUDED_PLATFORMS already excludes BOTH template AND group (config_flow.py:776) + helpers/input_*/counter/timer/schedule. Operator: error-prone to auto-detect for the default path, groups uncommon, operator can still manually pick (no capability loss). ZERO code change — build already matched. F6 closed.'
