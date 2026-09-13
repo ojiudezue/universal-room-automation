@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:54:24-05:00_ - _Data commit: `8085f8dcd94c`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T01:10:54-05:00_ - _Data commit: `cf2c699e2c5d`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -131,7 +131,8 @@ _created 2026-09-13 01:00 · initial_
 - **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
 - **Sibling of:** ONBOARDING-SIMPLIFY-1
 - **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `live_diag_armed_2026_09_13`: Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via ...
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
