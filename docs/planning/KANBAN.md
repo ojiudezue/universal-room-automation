@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:35:38-05:00_ - _Data commit: `bdad1a9f2c90`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T00:41:20-05:00_ - _Data commit: `75b8e7aaf15b`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 9 |
@@ -21,7 +21,7 @@ _Generated: 2026-09-13T00:35:38-05:00_ - _Data commit: `bdad1a9f2c90`_ - _last_r
 | 🅿️ Parked | 46 |
 | ✅ Done | 148 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1` - override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -33,6 +33,16 @@ _created 2026-09-12 14:20 · initial_
 - **Next:** Confirm the async_startup_audit stale-override path is load-bearing, then add a mutation-anchored test.
 - **Tags:** tier-1, mutation-drill
 - **Refs:** hvac_override.py:2009
+
+### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **config-flow** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-13 01:30 · initial_
+- **Problem / Solution:**
+  - Problem: Recorder Review A (2026-09-13) re-enumerated extra_state_attributes across the package and found the safety_status churn class survives at >=6 ENABLED sites emitting a per-READ elapsed value (new states row every tick): sensor.p...
+- **Why:** Same write-amplification bug class as RECORDER-BLOAT-LOGFLOOD-1; these are the long-tail URA contributors the recorder probe predicted. Not scope of the parent fix (which targeted the 3 named last_check* sensors).
+- **Next:** MEASURE each site live row-rate (recorder states by entity), rank, then strip the per-read elapsed attr from the top offenders. Tier-1/2 per site.
+- **Sibling of:** RECORDER-BLOAT-LOGFLOOD-1
+- **Parsimony:** [BUILD] 6-9 more URA sensors churn recorder rows via per-read elapsed attrs
 
 ## 🔬 Investigating (7)
 _measuring; truth not yet known_
@@ -550,9 +560,10 @@ _created 2026-08-20 14:15 · updated 2026-08-23 15:45 · initial_
 - **Next:** Cheapest first, all config-level and outside URA code: fix the Sonoff number range, fix or disable the pantry adaptive-lighting automation, resolve the camera_census entity ids via FRIGATE-LEG-NAMING-1. THEN re-measure db growth before t...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault`: MEASURED over a live 7.7h window (05:17-12:58): 16,854 raw log lines, 1,505 distinct issues, 73 components. THE LARGEST FEEDER IS NOT URA: pywattbox.http               2,747 occurrences / 7 issues    ~8,500/day custom_components.wattbox ...
   - `ATTRIBUTE_CHURN_AMPLIFICATION_2026_08_22`: NEW MEASURED SOURCE, found incidentally while checking a Garage Hallway sensor swap, and it is large. URA ROOM OCCUPANCY SENSORS WRITE 46-89 RECORDER ROWS PER ACTUAL STATE CHANGE, entirely from ATTRIBUTE churn: binary_sensor.garage_hallw...
+  - `reviewA_2026_09_13`: Recorder Review A (removal-completeness) = SHIP, no must-fix: 3 removals complete, state values stable, no consumers. Found 6-9 ADDITIONAL enabled churn sites (same class) -> carded RECORDER-CHURN-SWEEP-URASENSORS-1. Nits: test_safety_st...
   - `measured_2026_09_13`: MEASURED (read-only live). 31GB confirmed, purge_keep_days=7, ~7.4M state rows/day, span ~7.8d. CORRECTION: /config is a 457GB NVMe at 28% used (316GB free) — NOT space-constrained; flash-life 51%% UNVERIFIED (smartctl needs root). So th...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): URA-owned attribute-churn half UNFIXED (binary_sensor.py:390 extra_state_attributes still emits changing idle_duration/last_motion). Rest is HA-config work. Re-measure record...
   - `relane_2026_09_10`: Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).

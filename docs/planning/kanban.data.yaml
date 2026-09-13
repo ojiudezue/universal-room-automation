@@ -14514,6 +14514,23 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT ADJACENT residual of CARRIER-STALE-POLL-REFRESH-1. Promoted inbox -> pre_planning;
     cleared stale batch + sibling_of; linked.'
+- id: RECORDER-CHURN-SWEEP-URASENSORS-1
+  title: "Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status)"
+  thread: config-flow
+  status: inbox
+  created: 2026-09-13 01:30
+  updated: 2026-09-13 01:30
+  refinement_status: initial
+  approval: unreviewed
+  sibling_of:
+  - RECORDER-BLOAT-LOGFLOOD-1
+  problem_solution:
+  - "Problem: Recorder Review A (2026-09-13) re-enumerated extra_state_attributes across the package and found the safety_status churn class survives at >=6 ENABLED sites emitting a per-READ elapsed value (new states row every tick): sensor.py:14060/14067 SafetyActiveCooldownsSensor age_seconds/max_remaining_seconds (0.1s); :13896/13909 EnergyEnvoyStatusSensor *_age_seconds; :12909 HVACACRampKwhRateSensor age_s (UNROUNDED float — worst); :17200 OptimizerStatusSensor next_eta (1s countdown); :3886 URAPersonsInHouseSensor frigate_face_last_latched.age_s (house-scope, hot); binary_sensor.py:3131 ECSubSwitchesSyncedSensor seconds_since_ec_ready; :14493 BayesianOccupancyForecastSensor clock-moving forecast xPER-ROOM(45); binary_sensor.py:1859 PersonPhoneLeftBehindSensor hours_since_sighting; aggregation.py:3618 EnergyCostPerOccupiedHourSensor occupied_hours. Plus DORMANT-but-offending-if-enabled: sensor.py:2068/2111/2151/2327 (registry_enabled_default=False; check live across 45 rooms). Solution: same fix as the parent — remove the per-read elapsed value from extra_state_attributes (expose a stored/quantized value or drop it; _unrecorded_attributes does NOT stop the states-row write). Measure each site's live row-rate first to rank; some (ACRamp unrounded float, cooldowns 0.1s, Bayesian x45) are the high-yield ones."
+  why: "Same write-amplification bug class as RECORDER-BLOAT-LOGFLOOD-1; these are the long-tail URA contributors the recorder probe predicted. Not scope of the parent fix (which targeted the 3 named last_check* sensors)."
+  next: "MEASURE each site live row-rate (recorder states by entity), rank, then strip the per-read elapsed attr from the top offenders. Tier-1/2 per site."
+  parsimony:
+    problem: "6-9 more URA sensors churn recorder rows via per-read elapsed attrs"
+    verdict: BUILD
 - id: RECORDER-BLOAT-LOGFLOOD-1
   INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault: 'MEASURED over a live 7.7h window (05:17-12:58):
     16,854 raw log lines, 1,505 distinct issues, 73 components. THE LARGEST FEEDER IS NOT URA: pywattbox.http               2,747
@@ -14565,6 +14582,7 @@ cards:
     floods
   thread: platform
   status: in_progress
+  reviewA_2026_09_13: 'Recorder Review A (removal-completeness) = SHIP, no must-fix: 3 removals complete, state values stable, no consumers. Found 6-9 ADDITIONAL enabled churn sites (same class) -> carded RECORDER-CHURN-SWEEP-URASENSORS-1. Nits: test_safety_status_no_churn_across_two_reads is AST-scan not behavioral (rename), README_v4.6.2:59/BACKLOG:807 attr-list doc drift. Awaiting Review B (hidden-consumers).'
   measured_2026_09_13: 'MEASURED (read-only live). 31GB confirmed, purge_keep_days=7, ~7.4M state rows/day, span ~7.8d. CORRECTION: /config is a 457GB NVMe at 28% used (316GB free) — NOT space-constrained; flash-life 51%% UNVERIFIED (smartctl needs root). So this is WRITE-AMPLIFICATION hygiene, not a space crisis. The 3 floods decompose: (1) URA-OWNED bug — sensor.ura_safety_coordinator_safety_status churns last_check=utcnow().isoformat() in recorded attrs (sensor.py:6544) -> 675k rows/wk despite 4 distinct states; NO consumer reads it. FIX BUILDING (feature/recorder-attr-churn, _unrecorded_attributes; + sibling audit :15052/:15086 last_check_at, security.py:2463). (2+3) EXTERNAL telemetry tail (kiosk wall_panel_studyb_*, iphone_*_unfiltered_distance_to_*, invisoutlet_*, outlet_lux_pir_mmwave_*, phalanxudmpro_*_utilization, binary_sensor.madronewatermonitor_low_flow_leak) -> OPERATOR-SIDE recorder exclude globs in configuration.yaml (NOT URA code; exclude block already exists, extend it). One-time reclaim: recorder.purge repack:true OR the URA VACUUM button after excludes land.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): URA-owned attribute-churn half UNFIXED (binary_sensor.py:390 extra_state_attributes still emits changing idle_duration/last_motion). Rest is HA-config work. Re-measure recorder db size first; consider splitting the URA attribute-churn half into its own card.'
   relane_2026_09_10: 'Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number
