@@ -105,7 +105,8 @@ sys.modules["custom_components.universal_room_automation"] = _ura
 _ura_const = types.ModuleType("custom_components.universal_room_automation.const")
 _ura_const.DOMAIN = "universal_room_automation"
 sys.modules["custom_components.universal_room_automation.const"] = _ura_const
-from _ura_const_support import ensure_ura_const as _ura_ensure_const; _ura_ensure_const()  # BLE-HOLD-CAP-SUITE-POLLUTION-1: upgrade partial const stub to complete
+from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-4
+_ura_ensure_const(); _ura_ensure_signals()
 
 # Provide .domain_coordinators.signals
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")

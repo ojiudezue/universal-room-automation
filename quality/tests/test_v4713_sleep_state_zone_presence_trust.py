@@ -517,6 +517,9 @@ _ura_const.DEFAULT_HUMIDITY_FAN_MAX_RUNTIME = 3600
 _ura_const.DEFAULT_HUMIDITY_FAN_HYSTERESIS = 10
 _ura_const.ENTRY_TYPE_ROOM = "room"
 sys.modules.setdefault("custom_components.universal_room_automation.const", _ura_const)
+# BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-3: upgrade resident const to COMPLETE.
+from _ura_const_support import ensure_ura_const as _ura_ensure_const  # noqa: E402
+_ura_ensure_const()
 # Fan-trust cycle: hvac_fans.py now imports the per-room sleep policy consts
 # (operator amendment 1 — coordinator path honors fan_sleep_policy). Apply
 # ADDITIVELY to whichever const module won the setdefault race so the import

@@ -137,7 +137,12 @@ _ura_const = sys.modules.get("custom_components.universal_room_automation.const"
 if _ura_const is None:
     _ura_const = types.ModuleType("custom_components.universal_room_automation.const")
     sys.modules["custom_components.universal_room_automation.const"] = _ura_const
-    from _ura_const_support import ensure_ura_const as _ura_ensure_const; _ura_ensure_const()  # BLE-HOLD-CAP-SUITE-POLLUTION-1: upgrade partial const stub to complete
+# BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-2/4: unconditional (was inside the
+# `if _ura_const is None` branch; polluted-resident case was skipped) + also
+# a signals poisoner below, so ensure signals too.
+from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # noqa: E402
+_ura_ensure_const()
+_ura_ensure_signals()
 if not hasattr(_ura_const, "DOMAIN"):
     _ura_const.DOMAIN = "universal_room_automation"
 if not hasattr(_ura_const, "VERSION"):

@@ -107,9 +107,14 @@ if _existing_const is None:
         "custom_components.universal_room_automation.const"
     )
     sys.modules["custom_components.universal_room_automation.const"] = _ura_const
-    from _ura_const_support import ensure_ura_const as _ura_ensure_const; _ura_ensure_const()  # BLE-HOLD-CAP-SUITE-POLLUTION-1: upgrade partial const stub to complete
 else:
     _ura_const = _existing_const
+# BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-2: ensure_ura_const must run
+# UNCONDITIONALLY (was inside the `if _existing_const is None` branch, which
+# skipped the polluted-resident case — the exact case to repair).
+from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # noqa: E402
+_ura_ensure_const()
+_ura_ensure_signals()  # FIX-4: this file is also a signals poisoner.
 if not hasattr(_ura_const, "DOMAIN"):
     _ura_const.DOMAIN = "universal_room_automation"
 if not hasattr(_ura_const, "VERSION"):

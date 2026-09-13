@@ -66,8 +66,14 @@ def _read_source(path: str) -> str:
 def _make_complete(mod: types.ModuleType, source_path: str = _REAL_CONST_PATH,
                    marker: str = _COMPLETE_MARKER,
                    default_name: str = "custom_components.universal_room_automation.const") -> None:
-    """Exec real source into ``mod.__dict__`` (additive). Idempotent."""
-    if getattr(mod, marker, False):
+    """Exec real source into ``mod.__dict__`` (additive). Idempotent.
+
+    FIX-1 (A1): use ``mod.__dict__.get`` NOT ``getattr`` — a stub with a
+    module-level ``__getattr__`` catch-all (e.g. test_arrester_comfort_delay
+    for signals) would return the marker NAME (truthy) and silently
+    short-circuit completion.
+    """
+    if mod.__dict__.get(marker, False):
         return
     source = _read_source(source_path)
     path = source_path
