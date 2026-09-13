@@ -304,8 +304,62 @@ cards:
     Lever C (raise the LLM's share vs the 24/day cap + delta gate) is NOT in this approval —
     revisit only after B+A land and the paging is judged on its merits.
   created: '2026-09-13 21:05'
-  updated: '2026-09-13 21:05'
-  refinement_status: initial
+  updated: '2026-09-13 21:50'
+  refinement_status: refined
+  refinement:
+  - >-
+    Operator approved levers B-then-A -> ran lever B's measurement FIRST (measure-before-build)
+    and it REFRAMED the card. B was scoped as "cut the 5026 sensor_health/high findings because
+    they dominate the paging". MEASURED: sensor_health NEVER PAGES AT ALL. The NM high-allowlist
+    key (nm_a2_optimizer_high_allowlist_dimensions, const.py:3470) is UNSET live and its default
+    is an EMPTY tuple, so `should_defer_high_to_digest` defers EVERY high finding to the daily
+    digest — only CRITICAL reaches the phone. So the 5026 findings are a digest/DB-volume
+    problem, not a paging problem, and cutting them would NOT have fixed what the operator
+    complained about. Sharpened: B splits into B1 (paging, below) and B2 (volume, below).
+  - >-
+    Measured what ACTUALLY pages, and it is a single self-referential defect. ALL SIX criticals
+    in the last 7 days are the same meta finding: "open_findings_count reports N but
+    findings_recent is empty" (2026-09-07 x2, 09-09, 09-12 x2, 09-13). ZERO of them describe a
+    house condition. The optimizer's only phone-reaching output is it reporting on its own broken
+    internal telemetry. THAT is why the paging reads primitive — not the template prose, which
+    was my original hypothesis and is now marked WRONG as the primary cause.
+  measured_2026_09_13_leverB: >-
+    LEVER-B PROBE (read-only, URA DB + live config). Findings:
+    (1) PAGING: 6/6 criticals in 7d = the meta "open_findings_count vs findings_recent empty"
+    artifact. Nothing else paged. sensor_health/high does not page (empty NM allowlist -> digest).
+    (2) VOLUME: the 5026 sensor_health/high rows are repeat-reports of the SAME offline devices,
+    one row per 5-min cycle per dead entity. Top offender
+    binary_sensor.rgbw_motion_lux_3rdr_wifi_matter_jayabath_occupancy_2 alone = 1550 rows/7d;
+    then protectkitchen_humidity / blu_kitchen_temperature / blu_kitchen_motion at 308 each; then
+    eight occupancy_lux_temp_humidity_* sensors at 166 each. These are the SAME devices that are
+    down in the live network outage — so this volume is largely outage collateral, and will not
+    be representative until the network is fixed.
+    (3) LLM QUALITY: the tier2 LLM is burning premium Claude invocations on the same artifact —
+    its most recent `high` is literally the same "findings_recent list is empty" observation, and
+    its `medium`s are pattern-matching on rooms all scoring 55.0 (the degraded-score constant the
+    offline sensors produce). Garbage corpus in, garbage findings out. This means lever A
+    (LLM-authored alert text) would produce BETTER-WRITTEN versions of the SAME junk unless the
+    corpus is cleaned first.
+  producer_trace_2026_09_13: >-
+    VERIFIED (file:line, no inference): `_open_findings_count` is durable, set at
+    optimization.py:4393. `_last_findings` (which feeds corpus.findings_recent via
+    optimization_llm.py:770) is RAM-only and assigned at optimization.py:1063 — INSIDE the
+    non-shadow `else` branch, i.e. AFTER the LLM tier is invoked at optimization.py:1037, and NOT
+    assigned at all on the boot-storm-skip path. A prior cycle already recognised this failure
+    shape: OPT-META-BOOT-TRANSIENT-1 (2026-08-15) added `_boot_findings_seed` (optimization.py:570,
+    694) as a post-restart fallback precisely because "the meta pass sees findings_recent=[]
+    alongside a nonzero _open_findings_count (durable) and produces a false HIGH every restart"
+    (optimization_llm.py:699-701). That fix is live and the artifact is STILL firing, so the
+    recurrence is NOT the boot case it covers.
+  hypothesis_not_verified_2026_09_13: >-
+    UNVERIFIED HYPOTHESIS, stated as such (no-fabrication): the recurrence may be the
+    boot-storm-skip path — during the live outage `_should_skip_for_boot_storm` fires (the card
+    CONFIG-FLOW-SLOW-ONBOARDING-1 captured optimization.py logging boot_storm_signature 27/43
+    rooms unavailable, frac=0.63), and on that path `_last_findings` is never refreshed while
+    `_open_findings_count` keeps its durable value. I have NOT proven this: the same skip branch
+    also skips the LLM call, so a pure-skip cycle could not emit the finding, and I have not
+    traced how a mixed sequence would produce it. DO NOT build against this hypothesis until it
+    is confirmed by reading the actual branch taken on a cycle that emitted one of the 6 criticals.
   problem_solution:
   - 'Problem: the optimizer''s notifications read like canned template text, so the operator
      asked to "transition the optimizer to use an actual LLM". VERIFIED FALSE PREMISE — the
@@ -343,13 +397,17 @@ cards:
     (config_flow.py:8396,8542). Notification path is the untouched surface:
     optimization.py:4139 `_notify_if_severe` pages with the finding's template description.
   next: >-
-    PICK which of the three levers to build first (they are independent):
-    (A) LLM-authored alert text — have the tier2 pass write the operator-facing message for
-    findings it analyzes, instead of paging the Tier-1 template string;
-    (B) volume cut — sensor_health/high produced 5026 findings in 7 days and is the dominant
-    noise source; decide digest-only vs raise its bar;
-    (C) raise the LLM's share — it ran ~333 times vs 13572 Tier-1; the delta gate + 24/day cap
-    are the throttles. -> I plan-review then build the picked lever.
+    B1 FIRST (re-sequenced by the measurement, operator's B-then-A intent preserved): fix the
+    self-referential meta finding that is 100% of what pages. Step 1 is to PROVE the mechanism
+    before touching code — confirm which branch the emitting cycles took (the boot-storm-skip
+    hypothesis above is UNVERIFIED) — then fix at source so `findings_recent` and
+    `open_findings_count` cannot disagree. Killing this removes every false page AND cleans the
+    LLM corpus, which is a precondition for lever A being worth anything.
+    THEN B2 (volume): the 5026 repeat sensor_health rows. HOLD this until the network outage is
+    fixed — the volume is largely outage collateral and any threshold tuned on today's data would
+    be tuned on a broken house. Likely shape is a per-entity repeat-suppression (one row per
+    stuck sensor per outage, not one per 5-min cycle), NOT raising the severity bar.
+    THEN A (LLM-authored alert text), which only pays off on a clean corpus.
   parsimony:
     problem: The operator-facing alert text is authored by rule-based templates even though an LLM already analyzes the same findings.
     verdict: BUILD
