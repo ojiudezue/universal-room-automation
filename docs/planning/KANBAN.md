@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T21:12:49-05:00_ - _Data commit: `d389b470046b`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T21:19:35-05:00_ - _Data commit: `8cd4af2ef1d3`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -509,7 +509,8 @@ _created 2026-08-28 22:00 · updated 2026-09-12 17:00 · refined_
 - **Tags:** operator-observed, live-instance, nm, numbers-get-knobs
 - **Parsimony:** [BUILD] an optimizer finding fires N times in a row instead of once + a cooldown
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `diagnosed_2026_09_13`: VERIFY-BEFORE-WORK diagnosis (orchestrator, read-only): the v4.7.36 dedup is self._cycle_dedup — a PER-CYCLE set (optimization.py:1880-2002), so it suppresses dup findings WITHIN one optimizer cycle but NOT across the 5-min cycles -> a p...
   - `operator_decision_2026_09_12`: DECISION (operator): "Both options" — build BOTH the cross-cycle per-finding SUPPRESS-with-TTL cooldown (reuse notification_log.cooldown_expires, NM_OPTIMIZER_FINDING_COOLDOWN_S knob) AND per-cycle BATCHing (one digest instead of N ident...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_...
   - `measured_2026_09_12`: PROBE (URA DB notification_log, read-only via ssh) — DIAGNOSED: the v5.91.4 zonal-invariant HELPED (daily optimizer comfort notifications fell from ~45/day late-Aug to ~5-10/day now) but did NOT close the gap: (a) the exact zonal-control...
