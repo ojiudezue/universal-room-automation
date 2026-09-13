@@ -2460,7 +2460,12 @@ class SecurityCoordinator(BaseCoordinator):
             "compliant": locked,
             "non_compliant": total - locked,
             "compliance_rate": round(locked / total * 100, 1) if total > 0 else 100.0,
-            "last_check": dt_util.utcnow().isoformat(),
+            # RECORDER-BLOAT-LOGFLOOD-1: last_check dropped — per-call
+            # utcnow() with no programmatic consumer forced
+            # EVENT_STATE_CHANGED (=> a recorder States row) on every
+            # signal-driven refresh of SecurityComplianceSensor despite a
+            # stable compliance_rate. Consumers wanting "when last checked"
+            # should read the entity's last_reported / last_updated.
             "checks_today": self._lock_checks_today.value,
         }
 

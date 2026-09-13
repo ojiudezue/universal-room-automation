@@ -6550,7 +6550,13 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
         return {
             "active_hazards": len(safety.active_hazards),
             "sensors_monitored": safety.sensors_monitored,
-            "last_check": dt_util.utcnow().isoformat(),
+            # RECORDER-BLOAT-LOGFLOOD-1: `last_check` dropped — was a
+            # per-refresh dt_util.utcnow() with no programmatic consumer,
+            # causing EVENT_STATE_CHANGED (and a recorder States row)
+            # each tick despite a 4-value stable state. Consumers wanting
+            # "when last checked" should read entity.last_reported /
+            # last_updated. `_unrecorded_attributes` retained as
+            # belt-and-suspenders in case the key is re-added.
             # v3.6.0.3: Scope and detail
             "scope": scope,
             "worst_location": hazards_detail[0]["location"] if hazards_detail else None,
@@ -15071,7 +15077,9 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
                     "max_magnitude": None,
                     "max_magnitude_cell": None,
                     "top_changes": [],
-                    "last_check_at": dt_util.utcnow().isoformat(),
+                    # RECORDER-BLOAT-LOGFLOOD-1: last_check_at dropped —
+                    # per-refresh utcnow() with no consumer, forced
+                    # EVENT_STATE_CHANGED (=> States row) every tick.
                 }
                 self._last_query_time = now
                 return
@@ -15105,7 +15113,8 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
                 "max_magnitude": max_row_payload.get("magnitude"),
                 "max_magnitude_cell": max_row_payload.get("cell"),
                 "top_changes": top_changes,
-                "last_check_at": dt_util.utcnow().isoformat(),
+                # RECORDER-BLOAT-LOGFLOOD-1: last_check_at dropped (see
+                # sibling site above).
             }
             _LOGGER.debug(
                 "PersonRoutineStatusSensor %s: state=%s unack=%d",
