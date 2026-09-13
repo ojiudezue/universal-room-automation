@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:41:20-05:00_ - _Data commit: `75b8e7aaf15b`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T00:46:37-05:00_ - _Data commit: `04a21a4a5428`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -131,6 +131,8 @@ _created 2026-09-13 01:00 · initial_
 - **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
 - **Sibling of:** ONBOARDING-SIMPLIFY-1
 - **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
+- **Forensic keys (1):**
+  - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
@@ -582,7 +584,8 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Next:** Build the onset-gate reload-resilience fix (#1). Tier 2-DB min (energy strategy, regression-prone): trace _evaluate_onset_gate enabled-source + the switch RestoreEntity restore path; make a held charger survive a transient enabled=False....
 - **Tags:** tier-2db, no-fabrication-verify, falsify-first
 - **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `verified_shipready_2026_09_13`: ORCHESTRATOR-VERIFIED @ b13feb770: onset suite 81 pass (.venv-ha), 3 new tests present (sync_after_restore writeback + setter-exception + seed-authoritative), const literal gone from switch.py. A/B=SHIP, C fix-up done (M4/M5 RED). SHIP-R...
   - `reviews_done_2026_09_13`: Tier-2DB 3-review: A=SHIP, B=SHIP (production logic correct end-to-end — seed chain closes, no reload cascade [key in OPTIONS_RELOAD_SUPPRESS_KEYS], no flap, ship-dormant preserved), C=FIX-REQUIRED (test-authority only: C-HIGH-1 _sync_af...
   - `built_inreview_2026_09_13`: BUILT @ df888881e (feature/evse-onset-reload-resilience). Fix: ECEVChargeOnsetEnabledSwitch writes the operator toggle back to entry.options (_write_back_options from turn_on/turn_off/_sync_after_restore) so EnergyCoordinator.__init__ se...
   - `verified_building_2026_09_13`: VERIFY-BEFORE-WORK = STILL-REAL (intermittent), CODE fix. Gate correct+enabled (onset=01:00, switch on since 09-05); held cleanly on quiet nights (01:02-01:05). FAILS OPEN transiently during CM/parent reload storm: _ev_charge_onset_enabl...
