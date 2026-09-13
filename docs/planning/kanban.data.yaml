@@ -16812,6 +16812,27 @@ cards:
     clean-by-morning) as a lean NEW plan (not a v3 revival); measure-first how often cycles start in
     peak. Verify Rainbird service then likely DROP.'
   refs: [docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, docs/planning/CRITIQUE_appliance_management_v3.md]
+- id: CONFIG-FLOW-SLOW-ONBOARDING-1
+  title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
+  thread: config-flow
+  status: investigating
+  created: 2026-09-13 01:00
+  updated: 2026-09-13 01:00
+  refinement_status: initial
+  approval: explicit
+  approved_by: "operator 2026-09-13 (reported live: Add Entry slow, Foyer 25min, submits 3-5min)"
+  sibling_of:
+  - ONBOARDING-SIMPLIFY-1
+  links:
+    related:
+    - EVSE-CHARGE-ONSET-NOT-HELD-1
+  problem_solution:
+  - "Problem: after v5.101.0, Add-Entry and room setup are very slow — Foyer took 25min, individual submits 3-5min. Trace so far (orchestrator, read-only): the new auto-detect hot path (_get_area_entities O(n) scan + _rank_area_candidates per-candidate lookups, ~8/step) is SUB-SECOND even on the large registry — NOT the cause. 3-5min/submit = EVENT LOOP BLOCKED, not flow logic. Logs show loop congestion (cover.* Update taking over 10s, 00:15-00:25). PRIME SUSPECT: the known CM/parent reload storm (~5x/night, ~5min loop-stall each; re-confirmed live via EVSE-CHARGE-ONSET today) stalls every async step; onboarding ADDED 4 steps (room_class/sensors_confirm/devices_confirm/room_summary) -> multiplies exposure. NO flow-step timing instrumentation exists -> cannot pin from existing logs. Solution: (1) add lightweight per-async_step timing logging + correlate with reload events (definitive); (2) if confirmed reload-storm, the cure is the storm (separate) + possibly collapse/defer onboarding steps to reduce round-trips."
+  why: "Operator-reported live regression coincident with v5.101.0. Either the onboarding added per-step cost (unproven) or it multiplied exposure to the reload-storm loop-stall. Must instrument to distinguish, not guess (No-Fabrication)."
+  next: "INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause."
+  parsimony:
+    problem: "config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)"
+    verdict: INVESTIGATE
 - id: ONBOARDING-SIMPLIFY-1
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:31:58-05:00_ - _Data commit: `4826fdb2d41d`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T00:35:38-05:00_ - _Data commit: `bdad1a9f2c90`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-13T00:31:58-05:00_ - _Data commit: `4826fdb2d41d`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 6 |
+| 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 2 |
@@ -34,7 +34,7 @@ _created 2026-09-12 14:20 · initial_
 - **Tags:** tier-1, mutation-drill
 - **Refs:** hvac_override.py:2009
 
-## 🔬 Investigating (6)
+## 🔬 Investigating (7)
 _measuring; truth not yet known_
 
 ### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -112,7 +112,17 @@ _created 2026-09-12 20:45 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** notification_log hazard_type=exterior_person
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#6 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **config-flow** - status: **investigating** - approval: **explicit**
+_created 2026-09-13 01:00 · initial_
+- **Problem / Solution:**
+  - Problem: after v5.101.0, Add-Entry and room setup are very slow — Foyer took 25min, individual submits 3-5min. Trace so far (orchestrator, read-only): the new auto-detect hot path (_get_area_entities O(n) scan + _rank_area_candidates per...
+- **Why:** Operator-reported live regression coincident with v5.101.0. Either the onboarding added per-step cost (unproven) or it multiplied exposure to the reload-storm loop-stall. Must instrument to distinguish, not guess (No-Fabrication).
+- **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
+- **Sibling of:** ONBOARDING-SIMPLIFY-1
+- **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
