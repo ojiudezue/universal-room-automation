@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:15:29-05:00_ - _Data commit: `ddd6bf6781d1`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T00:31:58-05:00_ - _Data commit: `4826fdb2d41d`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -12,14 +12,14 @@ _Generated: 2026-09-13T00:15:29-05:00_ - _Data commit: `ddd6bf6781d1`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 15 |
-| 📝 Planned | 10 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 9 |
 | 🅿️ Parked | 46 |
-| ✅ Done | 147 |
+| ✅ Done | 148 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -357,7 +357,7 @@ _created 2026-09-12 17:50 · initial_
 - **Tags:** audit-first, institutional-context, tier-2db
 - **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
@@ -447,24 +447,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · initial_
   - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `OPTIMIZER-NOTIFY-FLOOD-DEDUP-1` - Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup / cooldown on the notification path spams the operator — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **notifications** - status: **planned** - approval: **unreviewed**
-_created 2026-08-28 22:00 · updated 2026-09-12 17:00 · refined_
-- **Problem / Solution:**
-  - Problem: tonight the operator screenshotted 8+ back-to-back identical iMessage alerts from URA Optimizer — comfort ("Multiple rooms assigned to same thermostat zone climate.thermostat_bryant_wifi_studyb_zone_1 in Study A, Study B, Master...
-- **Origin:** 2026-08-28 - operator screenshotted 8+ identical iMessage comfort alerts back-to-back
-- **Why:** A notifier that repeats the same finding is worse than one that fires once — the operator starts tuning out real alerts. This is a hygiene-critical NM path change and interacts with the false-positive comfort finding (see OPTIMIZER-COMFO...
-- **Next:** DIAGNOSE-EXISTING (not build): why did v4.7.36 dedup_key fail to stop 8+ back-to-back comfort alerts 2026-08-28? Candidate: comfort dedup_key does not fold subject zone (3 rooms -> distinct keys). Tier 1 key-composition fix. Behind OPTIM...
-- **Tags:** operator-observed, live-instance, nm, numbers-get-knobs
-- **Parsimony:** [BUILD] an optimizer finding fires N times in a row instead of once + a cooldown
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
-- **Forensic keys (4):**
-  - `diagnosed_2026_09_13`: VERIFY-BEFORE-WORK diagnosis (orchestrator, read-only): the v4.7.36 dedup is self._cycle_dedup — a PER-CYCLE set (optimization.py:1880-2002), so it suppresses dup findings WITHIN one optimizer cycle but NOT across the 5-min cycles -> a p...
-  - `operator_decision_2026_09_12`: DECISION (operator): "Both options" — build BOTH the cross-cycle per-finding SUPPRESS-with-TTL cooldown (reuse notification_log.cooldown_expires, NM_OPTIMIZER_FINDING_COOLDOWN_S knob) AND per-cycle BATCHing (one digest instead of N ident...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_...
-  - `measured_2026_09_12`: PROBE (URA DB notification_log, read-only via ssh) — DIAGNOSED: the v5.91.4 zonal-invariant HELPED (daily optimizer comfort notifications fell from ~45/day late-Aug to ~5-10/day now) but did NOT close the gap: (a) the exact zonal-control...
-
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · initial_
 - **Problem / Solution:**
@@ -476,7 +459,7 @@ _created 2026-09-12 17:10 · initial_
 - **Forensic keys (1):**
   - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#8 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -494,7 +477,7 @@ _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
   - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
   - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
 
-### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **unreviewed**
 _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_root_
 - **Problem / Solution:**
@@ -578,7 +561,8 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Next:** Build the onset-gate reload-resilience fix (#1). Tier 2-DB min (energy strategy, regression-prone): trace _evaluate_onset_gate enabled-source + the switch RestoreEntity restore path; make a held charger survive a transient enabled=False....
 - **Tags:** tier-2db, no-fabrication-verify, falsify-first
 - **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `reviews_done_2026_09_13`: Tier-2DB 3-review: A=SHIP, B=SHIP (production logic correct end-to-end — seed chain closes, no reload cascade [key in OPTIONS_RELOAD_SUPPRESS_KEYS], no flap, ship-dormant preserved), C=FIX-REQUIRED (test-authority only: C-HIGH-1 _sync_af...
   - `built_inreview_2026_09_13`: BUILT @ df888881e (feature/evse-onset-reload-resilience). Fix: ECEVChargeOnsetEnabledSwitch writes the operator toggle back to entry.options (_write_back_options from turn_on/turn_off/_sync_after_restore) so EnergyCoordinator.__init__ se...
   - `verified_building_2026_09_13`: VERIFY-BEFORE-WORK = STILL-REAL (intermittent), CODE fix. Gate correct+enabled (onset=01:00, switch on since 09-05); held cleanly on quiet nights (01:02-01:05). FAILS OPEN transiently during CM/parent reload storm: _ev_charge_onset_enabl...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_pool.py:105 _evaluate_onset_gate still returns onset_permits=True on enabled=False (:119) with no sticky/latch/debounce — the transient-enabled=False-during...
@@ -1672,7 +1656,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (147)
+## ✅ Done (148)
 _closed, evidence in refs_
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1762,6 +1746,24 @@ _updated 2026-09-12 18:55_
   - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
   - `organic_evidence`: 2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm drop is recorded in planning doc...
+
+### `OPTIMIZER-NOTIFY-FLOOD-DEDUP-1` - Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup / cooldown on the notification path spams the operator — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **notifications** - status: **done** - approval: **unreviewed**
+_created 2026-08-28 22:00 · updated 2026-09-12 17:00 · refined_
+- **Problem / Solution:**
+  - Problem: tonight the operator screenshotted 8+ back-to-back identical iMessage alerts from URA Optimizer — comfort ("Multiple rooms assigned to same thermostat zone climate.thermostat_bryant_wifi_studyb_zone_1 in Study A, Study B, Master...
+- **Origin:** 2026-08-28 - operator screenshotted 8+ identical iMessage comfort alerts back-to-back
+- **Why:** A notifier that repeats the same finding is worse than one that fires once — the operator starts tuning out real alerts. This is a hygiene-critical NM path change and interacts with the false-positive comfort finding (see OPTIMIZER-COMFO...
+- **Next:** DIAGNOSE-EXISTING (not build): why did v4.7.36 dedup_key fail to stop 8+ back-to-back comfort alerts 2026-08-28? Candidate: comfort dedup_key does not fold subject zone (3 rooms -> distinct keys). Tier 1 key-composition fix. Behind OPTIM...
+- **Tags:** operator-observed, live-instance, nm, numbers-get-knobs
+- **Parsimony:** [BUILD] an optimizer finding fires N times in a row instead of once + a cooldown
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
+- **Forensic keys (5):**
+  - `handled_verified_2026_09_13`: DONE — ALREADY HANDLED (operator instinct correct; verify-before-work). Earlier same-day diagnosis (per-cycle-only dedup) was WRONG: there IS a cross-cycle notify-dedup — OPTIMIZER_NOTIFY_DEDUP_CYCLES=12 (const.py:3457) + _notify_dedup_s...
+  - `diagnosed_2026_09_13`: VERIFY-BEFORE-WORK diagnosis (orchestrator, read-only): the v4.7.36 dedup is self._cycle_dedup — a PER-CYCLE set (optimization.py:1880-2002), so it suppresses dup findings WITHIN one optimizer cycle but NOT across the 5-min cycles -> a p...
+  - `operator_decision_2026_09_12`: DECISION (operator): "Both options" — build BOTH the cross-cycle per-finding SUPPRESS-with-TTL cooldown (reuse notification_log.cooldown_expires, NM_OPTIMIZER_FINDING_COOLDOWN_S knob) AND per-cycle BATCHing (one digest instead of N ident...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_...
+  - `measured_2026_09_12`: PROBE (URA DB notification_log, read-only via ssh) — DIAGNOSED: the v5.91.4 zonal-invariant HELPED (daily optimizer comfort notifications fell from ~45/day late-Aug to ~5-10/day now) but did NOT close the gap: (a) the exact zonal-control...
 
 ### `BOARD-THEME-URA-1` - Reskin the kanban board to the universalroom.org brand palette + fonts (kill the AI-slop default) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **done** - approval: **explicit**
