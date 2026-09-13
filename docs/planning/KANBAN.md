@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:48:20-05:00_ - _Data commit: `e3c795824cea`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T00:54:24-05:00_ - _Data commit: `8085f8dcd94c`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -131,7 +131,8 @@ _created 2026-09-13 01:00 · initial_
 - **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
 - **Sibling of:** ONBOARDING-SIMPLIFY-1
 - **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
