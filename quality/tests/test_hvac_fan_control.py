@@ -119,6 +119,8 @@ _ura_const.FAN_SLEEP_OFF = "off"
 _ura_const.FAN_SLEEP_REDUCE = "reduce"
 _ura_const.FAN_SLEEP_NORMAL = "normal"
 sys.modules["custom_components.universal_room_automation.const"] = _ura_const
+from _ura_const_support import ensure_ura_const as _ura_ensure_const, ensure_ura_signals as _ura_ensure_signals  # BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-4
+_ura_ensure_const(); _ura_ensure_signals()
 
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
 _dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]

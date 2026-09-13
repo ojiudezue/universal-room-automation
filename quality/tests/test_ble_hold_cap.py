@@ -28,6 +28,12 @@ import pytest
 import _provenance_harness  # noqa: F401
 from _provenance_harness import make_hass
 
+# BLE-HOLD-CAP-SUITE-POLLUTION-1: ensure const + signals modules are COMPLETE
+# (upgrade any partial stub left resident by an alphabetically-earlier test).
+from _ura_const_support import ensure_ura_const, ensure_ura_signals  # noqa: E402
+ensure_ura_const()
+ensure_ura_signals()
+
 from custom_components.universal_room_automation.const import (
     BLE_HOLD_CAP_DURATIONS,
     CONF_BLE_HOLD_CAP_ENABLED,

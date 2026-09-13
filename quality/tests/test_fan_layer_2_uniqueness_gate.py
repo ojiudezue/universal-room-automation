@@ -68,6 +68,11 @@ _ura_const.DEFAULT_FAN_SLEEP_POLICY = "reduce"
 sys.modules.setdefault(
     "custom_components.universal_room_automation.const", _ura_const,
 )
+# BLE-HOLD-CAP-SUITE-POLLUTION-1 FIX-3: upgrade whatever const (this setdefault
+# leaves resident) to COMPLETE, so victims collected later don't hit
+# ImportError on any real symbol.
+from _ura_const_support import ensure_ura_const as _ura_ensure_const  # noqa: E402
+_ura_ensure_const()
 
 # Import _room_key from the module under test. We isolate the import to
 # just this one helper — hvac_fans.py's transitive imports (fan_veto etc.)
