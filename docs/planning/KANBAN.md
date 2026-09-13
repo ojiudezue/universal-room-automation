@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T20:40:08-05:00_ - _Data commit: `efe92bf6899b`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T20:58:02-05:00_ - _Data commit: `f0a16bd8ce2d`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -597,7 +597,8 @@ _created 2026-09-11 18:20 · updated 2026-09-12 16:20 · refined_
 - **Next:** PICK: (A) minimal-unblock now (~2 victim files, Tier-1 test-only, restores end-to-end collection today) then full 40-file unification as a Tier-2 cycle; or (B) straight to the Tier-2 unification. I drive whichever (test-only, no deploy)....
 - **Tags:** tier-1
 - **Refs:** builder report v5.100.9 tier1-gate-and-knobs
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `reviews_done_2026_09_12`: TIER-2 3-review done: C=SHIP (no masking/regression — +185/-0 additive, full-suite name-diff identical, victim RED-for-right-reason, helper load-bearing). A+B=FIX-REQUIRED(small), all applied @c0d6e6661: FIX-1 A1-HIGH (marker __dict__.ge...
   - `built_2026_09_12`: BUILT @ e311c428a (feature/test-const-stub-unify, worktree). ensure_ura_const()/ensure_ura_signals() helper exec-s the REAL const into any resident partial module IN PLACE (additive, idempotent). 6 poisoners + 2 victims migrated (7th poi...
   - `decision_B_2026_09_12`: OPERATOR PICK = B (root-cause). Full 40-file unification, Tier-2 test-only (regression-prone shared test-infra -> framing-disjoint reviews). Built in isolated worktree off develop; merges to develop only after reviews pass, then rides th...
   - `confirmed_2026_09_12`: CONFIRMED (investigation exit) — mechanism PINNED by orchestrator. Default-ordering collection ABORTS (2 errors: test_ble_hold_cap.py + test_ble_extend_not_create.py, ImportError BLE_HOLD_CAP_DURATIONS "unknown location"). ROOT CAUSE: 40...
