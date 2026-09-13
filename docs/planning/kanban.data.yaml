@@ -16297,6 +16297,27 @@ cards:
     generalized (no URA leakage; reviewed WSJF section for accuracy). Pushed to GitHub main 5ffddeb. Reflects
     "every agent follows our lead". Residual: references/schema example not yet annotated with rank:/links:
     (carded).'
+- id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
+  title: Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle)
+  thread: quality
+  status: inbox
+  created: 2026-09-12 17:10
+  updated: 2026-09-12 17:10
+  refinement_status: initial
+  approval: unreviewed
+  sibling_of:
+  - BLE-HOLD-CAP-SUITE-POLLUTION-1
+  links:
+    related:
+    - TEST-STRATEGY-REARCH-1
+    - BLE-HOLD-CAP-SUITE-POLLUTION-1
+  problem_solution:
+  - 'Problem: BLE-HOLD-CAP fixed the const-shadow class and restored DEFAULT-order collection, but Review B shuffles (seeds 1-5 + reverse) show the suite is NOT order-independent — 4-29 collection errors per shuffle from a LARGER class this cycle did not touch: test files that install PARTIAL stubs of PRODUCTION modules into sys.modules at module scope (automation.RoomAutomation, fan_veto.should_veto_comfort_fan, hvac_fans.FanController, actuator_reconciler, plus MagicMock-shadowed homeassistant.const) AND 6 remaining .domain_coordinators.signals poisoners (arrester_comfort_delay, path_alpha_d2a_matrix_classifier, fan_incident_2026_08_01_replay, fan_sweep_trio, occupied_fan_off_guard, v4713). Victim chains run through production top-level imports (e.g. sensor.py:53 from .signals import SIGNAL_HOUSE_POLICY_UPDATE). Solution: extend the ensure_ura_* unification pattern (quality/tests/_ura_const_support.py) to a general complete-module helper covering signals + the production modules, migrate the remaining poisoners; goal = suite collects 0 errors under ANY ordering (shuffle-seed matrix in CI). Belongs to the TEST-STRATEGY-REARCH cluster.'
+  next: 'PLAN: extend _ura_const_support complete-module helper to signals + production modules; migrate remaining poisoners; add a shuffle-seed collection matrix as the acceptance gate. Tier-2 test-only. Queue behind BLE-HOLD-CAP merge.'
+  why: 'Review B (2026-09-12) proved default-order collection clean but order-DEPENDENT; the baseline-diff review discipline is only as trustworthy as collection stability. Same bug class as BLE-HOLD-CAP, broader surface (production modules, not just const).'
+  parsimony:
+    problem: 'suite not order-independent; production-module partial stubs shadow on shuffle'
+    verdict: BUILD
 - id: BLE-HOLD-CAP-SUITE-POLLUTION-1
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)

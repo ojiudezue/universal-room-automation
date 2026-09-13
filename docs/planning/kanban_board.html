@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-12T18:45:22-05:00</b></span>
-<span>data <b>19b88867cb4b</b></span>
+<span>generated <b>2026-09-12T20:40:08-05:00</b></span>
+<span>data <b>efe92bf6899b</b></span>
 <span>reconciled <b>2026-09-12</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">2<span class="den"> / 111</span></span>
+<span class="metric">2<span class="den"> / 112</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 2 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -239,7 +239,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>1</b></span>
+<span>Inbox <b>2</b></span>
 <span>Investigating <b>6</b></span>
 <span>Pre-planning <b>16</b></span>
 <span>Planned <b>11</b></span>
@@ -253,9 +253,10 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">1</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
 <div class="cards">
 <details class="card ap-unreviewed" data-id="OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1" draggable="true"><summary><span class="id">OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="apl">unreviewed</span><span class="title">override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor</span><div class="tagline">hvac<span class="sep">·</span>tier-1<span class="sep">·</span>mutation-drill</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-12 14:20 · initial</div><dt>Problem / Solution</dt><dd>Problem: the async_startup_audit stale-override increment of override_count_today (hvac_override.py:2009) has no mutation-anchored test — neutering it leaves the suite green. Found during the ARRESTER 7-site drill; it is NOT reachable by...</dd><dt>Why</dt><dd>flagged by the ARRESTER build per Tier-3 mutation-drill discipline; captured rather than scope-crept.</dd><dt>Next</dt><dd>Confirm the async_startup_audit stale-override path is load-bearing, then add a mutation-anchored test.</dd><dt>Refs</dt><dd>hvac_override.py:2009</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
+<details class="card ap-unreviewed" data-id="TEST-SUITE-ORDER-INDEP-PRODSTUBS-1" draggable="true"><summary><span class="id">TEST-SUITE-ORDER-INDEP-PRODSTUBS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="apl">unreviewed</span><span class="title">Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle)</span><div class="tagline">quality</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-12 17:10 · initial</div><dt>Problem / Solution</dt><dd>Problem: BLE-HOLD-CAP fixed the const-shadow class and restored DEFAULT-order collection, but Review B shuffles (seeds 1-5 + reverse) show the suite is NOT order-independent — 4-29 collection errors per shuffle from a LARGER class this c...</dd><dt>Why</dt><dd>Review B (2026-09-12) proved default-order collection clean but order-DEPENDENT; the baseline-diff review discipline is only as trustworthy as collection stability. Same bug class as BLE-HOLD-CAP, broader surface (production modules, not...</dd><dt>Next</dt><dd>PLAN: extend _ura_const_support complete-module helper to signals + production modules; migrate remaining poisoners; add a shuffle-seed collection matrix as the acceptance gate. Tier-2 test-only. Queue behind BLE-HOLD-CAP merge.</dd><dt>Sibling of</dt><dd>BLE-HOLD-CAP-SUITE-POLLUTION-1</dd><dt>Parsimony</dt><dd>[BUILD] suite not order-independent; production-module partial stubs shadow on shuffle</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="investigating">
@@ -582,7 +583,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>19b88867cb4b</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>efe92bf6899b</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

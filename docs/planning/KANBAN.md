@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-12T18:45:22-05:00_ - _Data commit: `19b88867cb4b`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-12T20:40:08-05:00_ - _Data commit: `efe92bf6899b`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 11 |
@@ -21,7 +21,7 @@ _Generated: 2026-09-12T18:45:22-05:00_ - _Data commit: `19b88867cb4b`_ - _last_r
 | 🅿️ Parked | 46 |
 | ✅ Done | 145 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1` - override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -33,6 +33,16 @@ _created 2026-09-12 14:20 · initial_
 - **Next:** Confirm the async_startup_audit stale-override path is load-bearing, then add a mutation-anchored test.
 - **Tags:** tier-1, mutation-drill
 - **Refs:** hvac_override.py:2009
+
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **quality** - status: **inbox** - approval: **unreviewed**
+_created 2026-09-12 17:10 · initial_
+- **Problem / Solution:**
+  - Problem: BLE-HOLD-CAP fixed the const-shadow class and restored DEFAULT-order collection, but Review B shuffles (seeds 1-5 + reverse) show the suite is NOT order-independent — 4-29 collection errors per shuffle from a LARGER class this c...
+- **Why:** Review B (2026-09-12) proved default-order collection clean but order-DEPENDENT; the baseline-diff review discipline is only as trustworthy as collection stability. Same bug class as BLE-HOLD-CAP, broader surface (production modules, not...
+- **Next:** PLAN: extend _ura_const_support complete-module helper to signals + production modules; migrate remaining poisoners; add a shuffle-seed collection matrix as the acceptance gate. Tier-2 test-only. Queue behind BLE-HOLD-CAP merge.
+- **Sibling of:** BLE-HOLD-CAP-SUITE-POLLUTION-1
+- **Parsimony:** [BUILD] suite not order-independent; production-module partial stubs shadow on shuffle
 
 ## 🔬 Investigating (6)
 _measuring; truth not yet known_
