@@ -463,23 +463,39 @@ def test_security_get_compliance_summary_omits_last_check():
 
 
 # ---------------------------------------------------------------------------
-# No-churn behavioral invariant on SafetyStatusSensor.
-# Constructs the sensor with a stub hass/coordinator that returns a
-# stable (safety_status, hazards) pair, then reads extra_state_attributes
-# twice and asserts dict equality (and native_value stability). Under the
-# old code, the two dicts would differ by their `last_check` isoformat.
+# No-churn AST symbol scan on SafetyStatusSensor.extra_state_attributes.
+# Truth-in-labeling (Bug Class #62): this is NOT a behavioral two-read
+# dict-equality test. Constructing SafetyStatusSensor with a stub
+# hass/coordinator would drag the full custom_components import graph
+# (AggregationEntity + DOMAIN + coordinator wiring), so this test instead
+# parses sensor.py's AST, locates the terminal `return {...}` literal in
+# SafetyStatusSensor.extra_state_attributes, and asserts none of its
+# subexpressions reference the time-source symbols that would make two
+# consecutive reads diverge (`dt_util`, `datetime`, `.utcnow`, `.now`,
+# `.isoformat`, `.timestamp`). If all values are static wrt the
+# coordinator, then two reads under an unchanged coordinator ARE
+# dict-equal — that's the invariant this proxy protects.
+#
+# Maintainer note: `_ForbidChurn` flags any Attribute named
+# now/timestamp/isoformat, so a future legitimate STORED `.isoformat()`
+# value (e.g. a persisted last-transition timestamp that only updates
+# on real state change) would false-RED this check. If that happens,
+# audit the new site — if it's genuinely edge-triggered (not
+# per-refresh), narrow this test's forbid-list to `dt_util`/`datetime`
+# names only, or move the assertion to a subtree scan that excludes
+# the new key.
 # ---------------------------------------------------------------------------
-def test_safety_status_no_churn_across_two_reads():
-    """Behavioral: two back-to-back reads with unchanged coordinator
-    state must produce IDENTICAL (state, attrs) — otherwise
-    EVENT_STATE_CHANGED would fire and the recorder would write a row.
-    Mutation drill: re-inserting `dt_util.utcnow().isoformat()` into
-    either the returned attrs dict OR native_value fails this test."""
-    # Load sensor.py hermetically via a minimal stub environment.
-    # AggregationEntity + a large module import graph would drag the
-    # world; instead we simulate the two producer functions by
-    # re-executing the returned dict literal via AST evaluation of the
-    # SafetyStatusSensor.extra_state_attributes function body.
+def test_safety_status_return_dict_has_no_churn_symbols():
+    """AST symbol scan: SafetyStatusSensor.extra_state_attributes'
+    terminal `return {...}` literal must not reference dt_util,
+    datetime, .utcnow, .now, .isoformat, or .timestamp — any of which
+    would make two consecutive reads under stable coordinator state
+    produce different dicts (=> EVENT_STATE_CHANGED => per-tick States
+    row).
+
+    Mutation drill: re-adding `"last_check": dt_util.utcnow().isoformat()`
+    to the returned dict re-introduces `dt_util`, `utcnow`, and
+    `isoformat` in the subtree and fails this test."""
     src = _sensor_py()
     tree = ast.parse(src)
     func = None
