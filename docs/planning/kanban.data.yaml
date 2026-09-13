@@ -507,7 +507,8 @@ cards:
   title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown
     location') while every file passes in isolation
   thread: quality
-  status: planned
+  status: done
+  dedupe_2026_09_13: 'DONE — superseded by BLE-HOLD-CAP-SUITE-POLLUTION-1 (shipped v5.101.0). Its deliverable (single-process const-stub collection clean) is exactly what quality/tests/_ura_const_support.py::ensure_ura_const() delivered via per-file migration — the parsimonious fix that replaced this cards reverted broad Fix-2 (e1829da9a, which had exposed 87 reds). Verified 2026-09-13: default --collect-only = 0 errors, ZERO const/BLE_HOLD_CAP_DURATIONS ImportErrors in default OR reverse order. blocked_by reason moot. Closed.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: fix REVERTED (commit e1829da9a — Fix 2 exposed 87 order-pollution reds); conftest.py:28 still excludes custom_components/const namespace; full-suite --collect-only = 18 errors. Status was stale ''review''. Sits behind TEST-STRATEGY-REARCH-1.'
   created: 2026-09-06 18:10
   updated: 2026-09-11 19:15
@@ -11425,7 +11426,8 @@ cards:
     parent:
     - TEST-STRATEGY-REARCH-1
   title: Presence tests fail order-dependently in large batches (suite hygiene)
-  status: pre_planning
+  status: done
+  dedupe_2026_09_13: 'MERGED into TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (survivor). Verified 2026-09-13: its still-open instance (test_override_arrester_ttl_suppression.py installs homeassistant.helpers.storage and never pops it) is literally one of the 10 reverse-order collection errors PRODSTUBS-1 owns; reboot_pickup_d2 instance already CLOSED (71a769cfb). CARVE-OUT: the INSTANCE_2026_08_26_WALLCLOCK subset (EVSE drain-precedence tests RED near 02:00 local) is a DAY-BOUNDARY/wall-clock-coupled family, NOT sys.modules order — folded into TEST-STRATEGY-REARCH-1, not PRODSTUBS-1. Closed as duplicate; forensic history preserved here + referenced from PRODSTUBS-1.'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: reboot_pickup_d2 instance CLOSED (71a769cfb) but family open — test_override_arrester_ttl_suppression.py installs homeassistant.helpers.storage and never pops it + wall-clock EVSE tests. Durable fix rolls into TEST-STRATEGY-REARCH-1 (87+ order-dep fails measured 2026-09-11).'
   thread: platform
@@ -12340,6 +12342,7 @@ cards:
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   status: investigating
+  dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
   updated: '2026-09-12 20:40'
   verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -16305,7 +16308,8 @@ cards:
 - id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
   title: Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle)
   thread: quality
-  status: inbox
+  status: planned
+  verified_survivor_2026_09_13: 'KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKFILLED) + homeassistant.helpers.storage never-popped = 10 collection errors reverse / 0 default. ABSORBED SUITE-ORDER-POLLUTION-1 (storage-never-pops instance + forensics). Fix: extend _ura_const_support into a complete-module helper for signals + prod modules; acceptance = shuffle-seed collection matrix. inbox->planned.'
   created: 2026-09-12 17:10
   updated: 2026-09-12 17:10
   refinement_status: initial
