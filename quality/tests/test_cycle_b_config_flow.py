@@ -703,14 +703,17 @@ class TestD4ConditionalFields:
 
     @pytest.mark.asyncio
     async def test_initial_room_setup_shared_space_always_visible(self):
-        """REVIEW FIX: Initial room_setup always shows shared space detail fields."""
+        """ONBOARDING-SIMPLIFY-1 (D3, 2026-09-12): CONF_SHARED_SPACE* fields
+        moved off essentials into Options (they remain reachable via
+        `async_step_basic_setup` in the Options flow — see sibling tests
+        below). This test now asserts the D3 removal invariant: essentials
+        must NOT expose those keys."""
         flow = _make_config_flow()
         result = await flow.async_step_room_setup(user_input=None)
         keys = _schema_keys(result)
-        assert CONF_SHARED_SPACE in keys
-        # In initial flow, detail fields are always visible
-        assert CONF_SHARED_SPACE_AUTO_OFF_HOUR in keys
-        assert CONF_SHARED_SPACE_WARNING in keys
+        assert CONF_SHARED_SPACE not in keys
+        assert CONF_SHARED_SPACE_AUTO_OFF_HOUR not in keys
+        assert CONF_SHARED_SPACE_WARNING not in keys
 
     @pytest.mark.asyncio
     async def test_options_basic_setup_no_shared_space_when_off(self):
@@ -939,13 +942,15 @@ class TestRoomNameUniqueGuard:
 
     @pytest.mark.asyncio
     async def test_unique_name_proceeds_to_sensors(self):
-        """A non-colliding name must NOT set the guard and must advance."""
+        """A non-colliding name must NOT set the guard and must advance.
+        D3 (2026-09-12): room_setup now routes to `room_class` (not
+        `sensors`) as the next essentials step."""
         flow = _make_config_flow()
-        sentinel = {"type": "form", "step_id": "sensors"}
+        sentinel = {"type": "form", "step_id": "room_class"}
         with patch.object(
             flow, "_get_all_room_entries", return_value=[_RoomEntry("Kitchen")]
         ), patch.object(
-            flow, "async_step_sensors", AsyncMock(return_value=sentinel)
+            flow, "async_step_room_class", AsyncMock(return_value=sentinel)
         ):
             result = await flow.async_step_room_setup(
                 user_input={CONF_ROOM_NAME: "Office", CONF_ROOM_TYPE: "generic"}
