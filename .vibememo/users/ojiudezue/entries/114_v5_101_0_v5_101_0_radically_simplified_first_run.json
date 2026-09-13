@@ -1,0 +1,29 @@
+{
+  "format_version": "2.1",
+  "entry_id": "114",
+  "author": "ojiudezue",
+  "session_id": "claude_20260913_021249_ship_v5_101_0",
+  "timestamp": "2026-09-13T02:12:49Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.101.0 shipped: v5.101.0 \u2014 radically simplified first-run onboarding (Tier-3) + bundled fixes",
+  "summary": "v5.101.0 \u2014 radically simplified first-run onboarding (Tier-3) + bundled fixes",
+  "why": "Bundled release gated on operator go. Onboarding was the headline Tier-3 cycle (4 framing-disjoint reviews found a CRITICAL zero-House dead path + 5 HIGH silent-default/INV-2 defects; all fixed, re-review SHIP, orchestrator mutation-verified). Six ride along review-clean on develop: arrester closes a Bug-Class-#53 phantom-override leak; the const-stub unification had to land so the pre-deploy baseline-diff runs on a clean default-order suite. One HA restart instead of several into an occupied house.",
+  "implications": "Shipped ONBOARDING-SIMPLIFY-1, ARRESTER-CLOUDFLAP-FALSEPOS-1, ROOM-NAME-UNIQUE-1, EV-SENSOR-CLEANUP-1, UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1, SHADOW-IMPORT-AUDIT-1, BLE-HOLD-CAP-SUITE-POLLUTION-1 at v5.101.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.101.0.md (Live criteria).",
+  "revisit_trigger": "ARRESTER: on the next Carrier 3-zone simultaneous unavailable->available reconnect, override_count_today does NOT increment (query recorder/hvac override bookkeeping around the reconnect event; pre-fix it incremented up to +3). ONBOARDING (operator-action-gated): next room added post-deploy reaches create via essentials-only steps and its core.config_entries data carries the seeded room-type defaults; first-run always yields exactly one House entry.",
+  "refs": {
+    "cards": [
+      "ONBOARDING-SIMPLIFY-1",
+      "ARRESTER-CLOUDFLAP-FALSEPOS-1",
+      "ROOM-NAME-UNIQUE-1",
+      "EV-SENSOR-CLEANUP-1",
+      "UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1",
+      "SHADOW-IMPORT-AUDIT-1",
+      "BLE-HOLD-CAP-SUITE-POLLUTION-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.101.0.md"
+    ],
+    "release_notes": "Onboarding (Tier-3, MINOR): reshaped first-run/add-room flow \u2014 essentials-only steps, area auto-detect-and-confirm, continuous house->room ribbon, room-type feature defaults; closes a zero-House first-run dead path; INV-1/INV-2/INV-3 + one-House verified across 4 framing-disjoint reviews + completeness re-review (SHIP). Zero runtime change to existing rooms. ALSO BUNDLED: ARRESTER phantom-override fix (per-entity stamp above _is_genuine_manual, 7 sites mutation-verified); ROOM-NAME-UNIQUE guard; EV garage charge-rate sensors restored; UNEXPECTED-PERSON is_on dedup to house.unidentified_count; SHADOW-IMPORT audit fixes; test-suite collection root-cause fix (const-stub unification, default-order 10464/0). README: docs/readmes/README_v5.101.0.md."
+  }
+}

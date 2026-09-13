@@ -5114,7 +5114,7 @@ cards:
   title: 'EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real
     power (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
-  status: review
+  status: shipped_organic
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). Primary deliverable DONE + on develop @9f983c073 (EnergyEVChargeRateGarage{A,B}Sensor, sensor.py:330-331/10395+, sourced from ev_status per-bay power, fail-closed None). RESIDUAL (separate tail, not blocking): optional per-plug power entity wired to the Emporia garage circuit — keep carded. Moves review->shipped_organic when deploy.sh runs.'
   updated: 2026-09-12 12:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b} (do not exist in source today). REWRITE next to the reversal.'
@@ -5143,7 +5143,7 @@ cards:
     (Emporia per-plug real-power wiring already shipped v5.78.0.) Build: repoint the ev_charge_rate sensor
     native_value to the ev_charging_status source; add a small test that each populated sensor reflects
     the corresponding bay power. Tier 1/2 (additive display).'
-  shipped_version: v5.78.0
+  shipped_version: v5.101.0
   approval: implied
   origin:
     date: '2026-08-16'
@@ -8123,7 +8123,8 @@ cards:
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
   thread: presence
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.'
   updated: 2026-09-12 11:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.'
@@ -11846,7 +11847,8 @@ cards:
     ADDENDUM 2 (T1)
 - id: UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
   title: URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (binary_sensor.py:1591 is_on -> result.house.unidentified_count > 0). Moves review->shipped_organic at deploy.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim): binary_sensor.py:1572 still ''return self._camera_total > self._ble_total'' (naive). Now UNBLOCKED — parent GUEST-COUNT-DEDUP-MIGRATE-1 shipped v5.83.0. Ready to build.'
   gate_2026_09_12: 'GATE PASS -> BUILT (finish-the-job sibling of the shipped parent). VALIDITY:
@@ -12444,7 +12446,8 @@ cards:
     clean; no harm, but a rule to codify.'
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (presence.py/energy.py shadow-import fixes + quality/tools/audit_shadow_imports.py + test). Moves review->shipped_organic at deploy.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: count is 319 function-local const imports (not ~8); audit never run (0 SHADOW-IMPORT commits); no lint/CI config exists at all. Cheap Tier-1, class recurred 3x.'
   gate_2026_09_12: 'GATE PASS -> BUILT. VALIDITY: still-needed=yes (audit never run; Bug Class #34
@@ -14432,7 +14435,8 @@ cards:
   title: A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that
     was never there
   thread: hvac
-  status: waiting_operator
+  status: shipped_organic
+  shipped_version: v5.101.0
   updated: '2026-09-12 14:55'
   next: 'DO: give deploy go (HA restart) for feature/arrester-reconnect-grace @ 895e5b923 -> I deploy via deploy.sh + live-validate. Cost/comfort HVAC-override logic; NOT safe to deploy unattended into an occupied house, hence your go.'
   fixup_2026_09_12: 'D1+D2 FIX-UP DONE @ 895e5b923 (feature/arrester-reconnect-grace). D1 (the completing fix): reconnect stamp-and-return + follow-up-grace blocks HOISTED ABOVE _is_genuine_manual, so a reconnect landing inside a URA suppress-TTL window still gets stamped (Bug Class #53 leak closed). D2: dt_util.utcnow() for both stamp + age math. New test test_reconnect_inside_suppress_window_still_stamps drives the exact D1 repro (RED on stamp-neuter). Per-site mutation drill re-run (PYTHONDONTWRITEBYTECODE=1, .pyc cleared): all 7 override-count sites RED-on-neuter; 12 tests pass. READY for operator deploy checkpoint.'
@@ -16322,7 +16326,8 @@ cards:
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)
   thread: quality
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.0
   reviews_done_2026_09_12: 'TIER-2 3-review done: C=SHIP (no masking/regression — +185/-0 additive, full-suite name-diff identical, victim RED-for-right-reason, helper load-bearing). A+B=FIX-REQUIRED(small), all applied @c0d6e6661: FIX-1 A1-HIGH (marker __dict__.get bypasses __getattr__ catch-all), FIX-2 (envoy calls hoisted unconditional), FIX-3 B-HIGH (2 setdefault const poisoners + ensure_ura_const), FIX-4 (ensure_ura_signals in 5 touched files). ORCHESTRATOR VERIFIED: default collection 10397/0-err, FIX-3 repro pair 32/0-err, FIX-1 __getattr__ repro returns real signal value, victims 43 pass. MERGE-READY. Larger order-indep class carded TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (not ship-blocking). -> merges to develop in the bundled deploy on operator go.'
   built_2026_09_12: 'BUILT @ e311c428a (feature/test-const-stub-unify, worktree). ensure_ura_const()/ensure_ura_signals() helper exec-s the REAL const into any resident partial module IN PLACE (additive, idempotent). 6 poisoners + 2 victims migrated (7th poisoner defensive/safe). Collection DEFAULT order: 10397 collected, 0 errors (was: abort/2 errors); victims 43 pass; poisoner-first order clean; mutation drill = helper load-bearing. Reverse-order 10 errors = PRE-EXISTING unrelated (substrate/egress), out of scope. NOTE: .domain_coordinators.signals also partial-stubbed by ~20 files — defended victim-side only, NOT unified (flagged to Review B as latent repeat). 3 framing-disjoint reviews DISPATCHED (A helper+migration-completeness, B order-independence+signals-latent, C test-authority/no-masking). -> merges to develop after reviews, rides bundled deploy.'
   decision_B_2026_09_12: 'OPERATOR PICK = B (root-cause). Full 40-file unification, Tier-2 test-only (regression-prone shared test-infra -> framing-disjoint reviews). Built in isolated worktree off develop; merges to develop only after reviews pass, then rides the bundled deploy. Design: ONE shared helper that exec-s the REAL const source (complete module) + applies per-file overrides, registered + restored safely; migrate all 40 preserving each file intent (some may stub DIFFERENT values, not just subsets). Acceptance: collection succeeds on default AND shuffled orderings; full suite runs end-to-end; the 2 victim tests pass.'
@@ -16800,7 +16805,8 @@ cards:
 - id: ONBOARDING-SIMPLIFY-1
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.0
   updated: '2026-09-12 16:05'
   f6_resolved_2026_09_12: 'F6 RESOLVED (operator 2026-09-12): KEEP EXCLUDED. _EXCLUDED_PLATFORMS already excludes BOTH template AND group (config_flow.py:776) + helpers/input_*/counter/timer/schedule. Operator: error-prone to auto-detect for the default path, groups uncommon, operator can still manually pick (no capability loss). ZERO code change — build already matched. F6 closed.'
   ship_ready_2026_09_12: 'SHIP-READY @ e61b0f962 (feature/onboarding-simplify). FIX-1(MED skip-route rooms_skipped abort string — House created before abort, reassuring copy in both strings files), FIX-2(LOW error-rerender preserves cleared fields), FIX-3(LOW door comment) all landed + anchored. 83/83 co-run. Tier-3 fully passed (4 reviews + consolidated fix-up + orchestrator verify + completeness re-review = SHIP). BLOCKED ONLY ON: operator Tier-3 DEPLOY CHECKPOINT (mandatory explicit go) + F6 decision (template/group in auto-suggest; _EXCLUDED_PLATFORMS:1109-1113 currently excludes template — 1-line change, folds into this deploy). README write-back drafted prospective. Next: on operator go -> deploy.sh (new MINOR, onboarding is a new user-facing capability) -> live-validate fresh-install path -> README observed-results table.'
