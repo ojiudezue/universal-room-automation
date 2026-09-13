@@ -24,6 +24,21 @@ meta:
   - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-13T21:10', at: '2026-09-13T21:10:00', outcome: waiting_operator,
      headline: 'WORKTREE-BACKLOG-PRUNE-1 — ESCALATED: audited all 94 worktrees; ~54 safe-prune, ~40 hold real work. Needs APPROVE (deletion irreversible)',
      acknowledged: false}
+  - {fid: 'ROOM-ENTITY-STALE-CONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
+     headline: 'ROOM-ENTITY-STALE-CONFIG-1 — DONE with NO EDITS APPLIED: verify-before-work found 3 of 4 already repointed and the 4th inert (dead ref shadowed by options override). Approval spent on a no-op; no restart needed',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
+     headline: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 — KILLED per operator. MBR on studyb_zone_1 confirmed BY DESIGN (3 HVAC zones serve ~40 rooms); the check-side fix already shipped v5.91.4',
+     acknowledged: false}
+  - {fid: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1@2026-09-13T21:35', at: '2026-09-13T21:35:00', outcome: done,
+     headline: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1 — ACTIVATED: launchd job loaded + verified, nightly 02:00 America/Chicago. Unattended autonomous passes now live (builds stop at review, no unattended deploys)',
+     acknowledged: false}
+  - {fid: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: parked,
+     headline: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1 + KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 — PARKED per operator (leave alone); both carry revival triggers',
+     acknowledged: false}
+  - {fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: waiting_operator,
+     headline: 'CONFIG-FLOW-SLOW-ONBOARDING-1 — RECHECKED: network outage STILL LIVE and WORSE (7053 unavailable vs 6132; Shelly regressed 138->171; z2m 4/6 off). URA healthy (5 unavail). Operator infra fix',
+     acknowledged: false}
   - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1@2026-09-13T21:05', at: '2026-09-13T21:05:00', outcome: investigated,
      headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 — MEASURED: operator premise refuted, LLM tier already live (333 tier2_llm findings via Claude). Real gap = template alert text + 5026 sensor_health/high in 7d. Needs PICK of lever A/B/C',
      acknowledged: false}
@@ -170,6 +185,12 @@ cards:
   title: Ollama eating RAM — audit every LLM/vision integration for a dependency before stopping it
   thread: infra
   status: done
+  closed_2026_09_13: >-
+    CLOSED — operator stopped the Ollama service after this audit cleared it ("Kill the card for
+    Ollama. I just stopped the service"). Outcome realised: RAM reclaimed on 192.168.13.62, no
+    consumer broken. If anything later reports a missing local-LLM backend, the only two entities
+    that existed were conversation.ollama_conversation and ai_task.ollama_ai_task, both with zero
+    consumers at audit time — check this card's findings before re-adding the integration.
   created: '2026-09-13 20:50'
   updated: '2026-09-13 21:15'
   refinement_status: initial
@@ -269,7 +290,19 @@ cards:
 - id: OPTIMIZER-PAGING-PRIMITIVE-1
   title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
   thread: optimizer
-  status: investigating
+  status: planned
+  approval: explicit
+  approved_by: 'operator 2026-09-13 ("Approved" + "Your sequence on that card is fine")'
+  sequence_2026_09_13: >-
+    OPERATOR APPROVED with the recommended sequence CONFIRMED: lever B FIRST, then lever A.
+    B = cut the noise (sensor_health/high produced 5026 findings in 7 days and dominates the
+    paging volume — decide digest-only vs raise its bar). A = LLM-authored alert text (have the
+    already-live tier2 pass write the operator-facing message instead of paging the Tier-1
+    template description at optimization.py:4139).
+    Rationale the operator accepted: cutting ~5000 junk findings improves the experience more than
+    better prose on alerts that should never have fired, and it is the cheaper half.
+    Lever C (raise the LLM's share vs the 24/day cap + delta gate) is NOT in this approval —
+    revisit only after B+A land and the paging is judged on its merits.
   created: '2026-09-13 21:05'
   updated: '2026-09-13 21:05'
   refinement_status: initial
@@ -646,7 +679,16 @@ cards:
   title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context
     light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
   thread: diagnostics
-  status: waiting_operator
+  status: parked
+  parked_2026_09_13: >-
+    PARKED by operator ("Ok. Leave it alone now"). URA was already EXONERATED by evidence (activity
+    log clean; the light.turn_off arrives with an orphan context = an external caller, leading
+    suspect a HomeKit/iOS-side automation). The operator declined to chase which external app owns
+    it, so the diagnostic stops here. Do NOT re-surface or add the service-call-origin debug
+    logging that was offered.
+    REVIVAL TRIGGER: the operator reports the self-turn-off becoming frequent or disruptive enough
+    to want the caller identified — then arm the service-call-origin logging as previously scoped.
+  updated: '2026-09-13 21:40'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: URA exonerated (activity_log 0 rows, switch.kitchen_automation off, orphan-context turn_off, commit 810be0418). Ball legitimately with operator: is there a HomeKit/iOS automation turning the overhead off?'
   created: 2026-09-06 18:35
@@ -2444,8 +2486,31 @@ cards:
 - id: ROOM-ENTITY-STALE-CONFIG-1
   title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
   thread: presence
-  status: waiting_operator
-  updated: 2026-09-12 11:00
+  status: done
+  updated: '2026-09-13 21:40'
+  disposition_2026_09_13: >-
+    OPERATOR APPROVED the 4 edits -> verify-before-work ran FIRST and found NO EDITS NEEDED.
+    Verdict ALREADY-DONE (3 of 4) + MOOT (the 4th) + CARD-WAS-WRONG (premise). Closing without
+    applying anything; no restart required. Live .storage read 2026-09-13:
+    (1) Kitchen room_media_player = media_player.kitchen_3 — ALREADY REPOINTED (kitchen_2 still
+    exists in the registry, so the card's "404" claim for it was WRONG either way).
+    (2) Upstairs Guestroom = media_player.up_guest_room_3 — ALREADY REPOINTED (up_guest_room_2
+    also still exists; same wrong-404 claim).
+    (3) Master Bedroom = fan.ceilingfan_fanimaton_rf_masterbedroom — ALREADY REPOINTED; the dead
+    rf304_25 handle is gone from both data.fans and options.manual_switches. Genuinely was a 404.
+    (4) CM security_entry_sensors = ..._contact_2 — ALREADY REPOINTED.
+    RESIDUAL IS INERT: Jaya Bedroom still carries the dead ..._jayabedroom_contact, but it is in
+    `data.window_sensor` and `options.window_sensor` overrides it with the live ..._contact_2.
+    URA reads `{**entry.data, **entry.options}` (verified __init__.py:422,507,2308;
+    automation.py:2940; camera_census.py:1500,2204) so options WINS and the dead handle is never
+    read. Editing it would be a no-op requiring a restart — not worth a restart during a live
+    network outage.
+    CARD PREMISE CORRECTIONS (marked WRONG per understanding-changes rule): there is NO
+    `door_sensor` field on Jaya Bedroom at all — the dead handle sits in `window_sensor`, and the
+    card's claim that "_contact_2 is already the window_sensor" was right about _contact_2 but
+    wrong about which field held the corpse. Also note data.temperature_sensor still points at
+    the same dead device (..._jayabedroom_device_temperature), likewise shadowed by a live
+    options value. Both are inert-by-shadowing, not active bugs.
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: the 4 config edits (repoint kitchen_2->kitchen_3, up_guest_room_2->_3, MBR fan, CM contact->_contact_2; remove Jaya door_sensor) live in HA .storage, not git. Plan was to apply during NIGHT-LIGHT deploy (v5.92.1, shipped) but application unobservable in git. next -> orchestrator: one-shot .storage read to confirm applied, else re-surface operator approve/apply.'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. 4 low-risk config edits via options-flow — you apply
     them, or approve me doing them via ha_config. No code, no review tier.
@@ -7867,7 +7932,16 @@ cards:
   title: Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely
     a config mistake
   thread: presence
-  status: waiting_operator
+  status: parked
+  parked_2026_09_13: >-
+    PARKED by operator ("Leave alone"). The Kitchen night_lights field points at
+    switch.switch_tapo_wifi_kitchenrange (the range light) rather than light.kitchen_led. Operator
+    has seen the finding and declined the repoint — treat the current wiring as intended until
+    they say otherwise. Do NOT re-surface this as a defect or re-ask.
+    REVIVAL TRIGGER: only if the operator reports the Kitchen night light behaving wrongly at
+    night (wrong fixture lighting up on a night-time Kitchen entry), or if a future room-config
+    audit is explicitly asked to include operator-declined items.
+  updated: '2026-09-13 21:40'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: repoint of Kitchen night_lights -> light.kitchen_led lives in .storage; git a1097a9a5 shows operator was applying it. next -> orchestrator: one-shot .storage read to confirm; if applied, close.'
   created: 2026-08-31 19:05
@@ -15793,7 +15867,22 @@ cards:
   title: Optimizer flags Study A + Study B + Master Bedroom on one thermostat zone as a comfort VIOLATION
     — but multiple house rooms on one HVAC zone is BY DESIGN
   thread: optimization
-  status: waiting_operator
+  status: done
+  killed_2026_09_13: >-
+    KILLED by operator ("Yes but this is irrelevant. Reground yourself on design and kill this
+    card. Its annoying"). OPERATOR ORACLE ANSWER RECORDED: Master Bedroom IS genuinely served by
+    the studyb_zone_1 duct — NOT config drift. That settles the subordinate fact-check this card
+    was holding open.
+    DESIGN REGROUNDING (memory project_house_zones_vs_hvac_zones + reference_hvac_zone_tonnage):
+    the house has 3 Carrier thermostat-keyed HVAC zones serving ~40 house rooms, so one HVAC zone
+    -> MANY house rooms is the intended architecture, never a defect. Study A + Study B + Master
+    Bedroom sharing studyb_zone_1 is exactly that pattern working as designed. There was never a
+    misconfig to fix — the only real defect was the optimizer check that flagged it, and that
+    already SHIPPED in v5.91.4 (const.py:3744 LLM design-invariant "multiple zones sharing one
+    thermostat is by design — never flag", commit d529580a9).
+    So: general fix shipped + operator fact-check answered BY-DESIGN = nothing left. Do NOT
+    re-open this card or re-ask the duct question; the answer is recorded here.
+  updated: '2026-09-13 21:40'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: general FP fix SHIPPED v5.91.4 (const.py:3744 optimizer-LLM design-invariant ''multiple zones sharing one thermostat is by design — never flag'', commit d529580a9). Narrowed to the subordinate operator fact-check: is Master Bedroom actually on the studyb_zone_1 duct (real misconfig) or drift?'
   relane_2026_09_10: 'Not a soak -> WAITING_OPERATOR. You verify: is Master Bedroom actually served by
@@ -16967,7 +17056,25 @@ cards:
 - id: REMINDER-ACTIVATE-OVERNIGHT-PASS-1
   title: "Activate the overnight-pass launchd job (operator one-time launchctl load)"
   thread: tooling
-  status: waiting_operator
+  status: done
+  activated_2026_09_13: >-
+    ACTIVATED 2026-09-13 21:35 on operator go ("Do it"). Ran the documented one-time install:
+    cp ~/Code/homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist
+    ~/Library/LaunchAgents/ && launchctl load <same>. VERIFIED loaded —
+    `launchctl list | grep ura-overnight` returns "- 0 com.phalanxmadrone.ura-overnight-pass"
+    (exit status 0, not yet run). Schedule: StartCalendarInterval Hour=2 Minute=0 =
+    02:00 America/Chicago nightly, on this always-on Mac mini (the host where `ssh ha` + the
+    Samba DB mount already work — the LAN reach the investigations lane needs, which a /schedule
+    cloud routine cannot provide).
+    THIS ENABLES UNATTENDED AUTONOMOUS RUNS. Per the wired overnight-pass contract the pass will:
+    reconcile the board + apply dispositions FIRST, then drive the WSJF queue through the
+    four-step gate; investigations + read-only probes fully autonomous; Tier-1/2 clean builds go
+    to `review` but are NOT deployed unattended (occupied sleeping house = hostile timing);
+    Tier-3 / ambiguous / destructive escalate to waiting_operator + NM page. Everything concluded
+    appends an autonomy_feed entry, so the morning counter is the report.
+    TO STOP IT: launchctl unload ~/Library/LaunchAgents/com.phalanxmadrone.ura-overnight-pass.plist
+    TO RUN NOW: launchctl start com.phalanxmadrone.ura-overnight-pass
+  updated: '2026-09-13 21:40'
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -17021,7 +17128,27 @@ cards:
   status: waiting_operator
   disentangled_2026_09_13: 'CORRECTED (operator pushback on linkage + host check). HOST NOT PRESSURED: load 1.48, CPU 91.7%% idle, 0%% iowait, swap 0, 5.5GB free -> the 5585-unavailable-saturates-loop claim is UNSUPPORTED (unavailable entities are inert; no resource saturation). TWO SEPARATE problems, previously conflated: (1) NETWORK OUTAGE — reloaded all 49 shelly, only 173->138 recovered (~35), house-wide 5604 still down; contrast earlier-tonight 614->16 when devices were reachable/stale. Reload now largely FUTILE => devices genuinely off-network (z2m bridges 5/6 off, UniFi ports/Protect/Z-Wave-lock/cloud all down together) = operator infra fix (UniFi path/AP/switch). (2) CONFIG-FLOW DEGRADATION — likely reload-storm discrete loop-stalls (low CPU + periodic unresponsiveness, no blocking-call warnings) NOT the outage; proof requires the flow instrumentation (eb2f73094). No blocking-call detector hits. Onboarding ranking code confirmed sub-second. Log levels reverted.'
   independently_verified_2026_09_13: 'Operator pushback (do not trust optimizer; could be network) = CORRECT. Independent ground truth (NOT optimizer): (a) binary_sensor.zigbee2mqtt_bridge_connection_state 5-of-6 = OFF (the bridges OWN disconnect signal; 31 z2m bridge entities); (b) Shelly WiFi = 173 unavailable now, REGRESSED from 16 after my earlier recovery tonight; (c) 6132 entities unavailable house-wide; (d) MQTT broker (Mosquitto) itself LOADED/up. BOTH Zigbee-transport AND WiFi-transport down simultaneously => NETWORK/HOST event, not a single add-on/integration (a z2m crash would not also drop Shelly WiFi). Recurring (Shelly re-dropped within hours). URA 46/46 loaded — config-flow slow + cannot-add are COLLATERAL from the saturated loop. Corrected my earlier over-reliance on optimizer boot_storm flag. RESOLUTION is operator-side network/host recovery (AP/switch/VLAN serving the z2m coordinator host + WiFi gear), NOT URA.'
-  next: 'DO: recover the zigbee2mqtt add-on + Zigbee coordinator dongle (Settings->Add-ons; MQTT broker itself is up) and check the network — 6132 entities unavailable. Once devices return, retry Add-Entry (config flow was collateral, not URA). Then optionally deploy the flow-timing instrumentation to quantify onboarding step overhead under normal load.'
+  recheck_2026_09_13_2140: >-
+    RECHECKED LIVE on operator request — the outage is STILL ONGOING and has WORSENED, not
+    recovered. Measured via ha_eval_template at 21:40 CDT: house-wide unavailable/unknown = 7053
+    (was 6132 at first diagnosis = ~920 WORSE); Shelly unavailable = 171 (my earlier mass reload
+    recovered 173->138, it has since REGRESSED to 171 — re-confirming the devices are genuinely
+    off-network rather than stale, and that reloading is futile); zigbee2mqtt bridge connection
+    = 4 of 6 OFF (was 5 of 6 — marginally better, still broken).
+    URA REMAINS HEALTHY THROUGHOUT: only 5 ura_* entities unavailable. This re-confirms the
+    disentanglement — URA is a victim of the outage, not a cause of it.
+    BOTH CONCLUSIONS HOLD: (1) the outage is an operator infra fix (shared UniFi path / AP /
+    switch / VLAN serving the z2m coordinator host AND the WiFi gear — a single add-on failure
+    cannot drop Zigbee and WiFi transports simultaneously); (2) the config-flow degradation is a
+    SEPARATE and still-unproven suspect (reload-storm loop-stall), whose timing instrumentation
+    @eb2f73094 is built but unshipped, so the 25-minute Foyer setup remains unpinned.
+  next: >-
+    DO (operator, infra): fix the network event — 7053 entities are down and the count is rising,
+    not falling. Because BOTH the Zigbee transport (z2m bridges 4/6 off) and the WiFi transport
+    (171 Shelly down) are out together, look at the shared UniFi path (AP / switch port / VLAN)
+    serving the z2m coordinator host and the WiFi gear — not at any single integration or add-on.
+    -> once devices return, I ship the config-flow timing instrumentation and the next room setup
+    pins whether the residual slowness is reload-storm loop-stall or genuine flow-side cost.
   root_cause_found_2026_09_13: 'ROOT CAUSE = live mass DEVICE OUTAGE, not URA/onboarding. Operator re-clicked Add-Entry -> same dialog; live capture at that instant: optimization.py logged boot_storm_signature 27/43 rooms unavailable (frac=0.63); house-wide UNAVAILABLE entity count = 6132 (ha_search state_filter). First entity is a raw Zigbee IEEE (0xa4c1382e60e05225). MQTT broker (Mosquitto) = LOADED, but no ZHA integration -> Zigbee via zigbee2mqtt ADD-ON; z2m devices unavailable while broker up => the z2m add-on or Zigbee coordinator dongle is DOWN (stopped publishing -> availability topic offline). Scale (6132) implies broader network event too (Shelly was 614-down earlier tonight). URA HEALTHY: all 46 entries loaded incl Foyer. The config-flow slow + cannot-add-UI dialog (UnknownHandler) are COLLATERAL: 6000+ flapping entities saturate the event loop -> handler resolution starves + steps crawl. NOT the onboarding ranking code (confirmed sub-second) and not primarily the reload storm. RESOLUTION: operator recovers z2m add-on + Zigbee coordinator + network; config flow becomes responsive once devices return. Onboarding step-count adds only marginal overhead under NORMAL load -> instrumentation (eb2f73094) still worth deploying to quantify the baseline, but this is NOT an urgent onboarding regression. Log levels reverted to WARNING.'
   live_diag_armed_2026_09_13: 'Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via logger.set_level: homeassistant.config_entries=debug, homeassistant.setup=info, custom_components.universal_room_automation=info. NEXT: operator does one Add-Entry/add-room -> read reload/setup events live to confirm reload-storm-during-flow (vs flow-side cost). REVERT log levels after capture. Fuller per-step ms still needs the instrumentation deploy (eb2f73094).'
   symptom2_cannot_add_2026_09_13: 'SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (config_entries.py:2868/3475) — HA could not resolve URA config-flow handler at click time. config_flow:true (manifest OK) and async_step_user is CLEAN (routes to entry_type menu / integration_config; onboarding added NO abort path here). UnknownHandler at click = URA transiently degraded/reloading (handler resolution times out on a stalled loop) = SAME reload-storm root cause as the slowness. REFRAME: onboarding did NOT introduce this dialog; it is a reload-storm symptom (storm stall windows widened). Onboarding likely only WORSENED the slowness (4 added steps x stalled loop). REAL FIX for both = the reload storm (separate high-pri). Workaround: transient — retry Add after the reload window. Confirm when dialog appears: check URA integration state (loaded vs not_loaded/setup_retry) + reload logs at that instant.'
