@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T01:10:54-05:00_ - _Data commit: `cf2c699e2c5d`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T01:13:40-05:00_ - _Data commit: `bc8de456dbf9`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-09-13T01:10:54-05:00_ - _Data commit: `cf2c699e2c5d`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 7 |
+| 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 19 |
+| ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 9 |
 | 🅿️ Parked | 46 |
@@ -44,7 +44,7 @@ _created 2026-09-13 01:30 · initial_
 - **Sibling of:** RECORDER-BLOAT-LOGFLOOD-1
 - **Parsimony:** [BUILD] 6-9 more URA sensors churn recorder rows via per-read elapsed attrs
 
-## 🔬 Investigating (7)
+## 🔬 Investigating (6)
 _measuring; truth not yet known_
 
 ### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -122,21 +122,7 @@ _created 2026-09-12 20:45 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** notification_log hazard_type=exterior_person
 
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **config-flow** - status: **investigating** - approval: **explicit**
-_created 2026-09-13 01:00 · initial_
-- **Problem / Solution:**
-  - Problem: after v5.101.0, Add-Entry and room setup are very slow — Foyer took 25min, individual submits 3-5min. Trace so far (orchestrator, read-only): the new auto-detect hot path (_get_area_entities O(n) scan + _rank_area_candidates per...
-- **Why:** Operator-reported live regression coincident with v5.101.0. Either the onboarding added per-step cost (unproven) or it multiplied exposure to the reload-storm loop-stall. Must instrument to distinguish, not guess (No-Fabrication).
-- **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
-- **Sibling of:** ONBOARDING-SIMPLIFY-1
-- **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
-- **Forensic keys (3):**
-  - `live_diag_armed_2026_09_13`: Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via ...
-  - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
-  - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
-
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#6 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -598,7 +584,7 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-## ⏸️ Waiting on operator (19)
+## ⏸️ Waiting on operator (20)
 _needs a human call — groomed first_
 
 ### `REMINDER-ACTIVATE-OVERNIGHT-PASS-1` - Activate the overnight-pass launchd job (operator one-time launchctl load) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -831,7 +817,22 @@ _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#18 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
+_created 2026-09-13 01:00 · initial_
+- **Problem / Solution:**
+  - Problem: after v5.101.0, Add-Entry and room setup are very slow — Foyer took 25min, individual submits 3-5min. Trace so far (orchestrator, read-only): the new auto-detect hot path (_get_area_entities O(n) scan + _rank_area_candidates per...
+- **Why:** Operator-reported live regression coincident with v5.101.0. Either the onboarding added per-step cost (unproven) or it multiplied exposure to the reload-storm loop-stall. Must instrument to distinguish, not guess (No-Fabrication).
+- **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
+- **Sibling of:** ONBOARDING-SIMPLIFY-1
+- **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
+- **Forensic keys (4):**
+  - `root_cause_found_2026_09_13`: ROOT CAUSE = live mass DEVICE OUTAGE, not URA/onboarding. Operator re-clicked Add-Entry -> same dialog; live capture at that instant: optimization.py logged boot_storm_signature 27/43 rooms unavailable (frac=0.63); house-wide UNAVAILABLE...
+  - `live_diag_armed_2026_09_13`: Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via ...
+  - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
+  - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#19 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -845,7 +846,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#19 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#20 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
