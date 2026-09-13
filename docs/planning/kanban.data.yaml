@@ -15,6 +15,18 @@ meta:
   - {fid: 'PATHBETA-VESTIGIAL-1@2026-09-12T12:20', at: '2026-09-12T12:20:00', outcome: parked,
      headline: 'PATHBETA-VESTIGIAL-1 — PARKED at gate (hygiene-not-defect; gated on PATH-ALPHA proofs)',
      acknowledged: false}
+  - {fid: 'CRASH-ORPHAN-COMMITS-RECOVERY-1@2026-09-13T20:45', at: '2026-09-13T20:45:00', outcome: done,
+     headline: 'CRASH-ORPHAN-COMMITS-RECOVERY-1 — DONE: 14 orphaned develop commits recovered + pushed; no code lost',
+     acknowledged: false}
+  - {fid: 'OLLAMA-CONSUMER-AUDIT-1@2026-09-13T20:50', at: '2026-09-13T20:50:00', outcome: done,
+     headline: 'OLLAMA-CONSUMER-AUDIT-1 — DONE: cleared to stop Ollama; LLM Vision uses OpenAI cloud (operator hypothesis refuted), zero consumers found',
+     acknowledged: false}
+  - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-13T21:10', at: '2026-09-13T21:10:00', outcome: waiting_operator,
+     headline: 'WORKTREE-BACKLOG-PRUNE-1 — ESCALATED: audited all 94 worktrees; ~54 safe-prune, ~40 hold real work. Needs APPROVE (deletion irreversible)',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1@2026-09-13T21:05', at: '2026-09-13T21:05:00', outcome: investigated,
+     headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 — MEASURED: operator premise refuted, LLM tier already live (333 tier2_llm findings via Claude). Real gap = template alert text + 5026 sensor_health/high in 7d. Needs PICK of lever A/B/C',
+     acknowledged: false}
   last_reconciled_note: Reconciled 2026-08-17 overnight pass. NOTHING SHIPPED since v5.78.0 — newest tag
     is v5.78.0 and manifest reads v5.78.0. README_v5.79.0.md exists but is an UNSHIPPED pre-deploy draft,
     which is why the rung-3 staleness rule (last_reconciled older than newest README) fired as a FALSE
@@ -154,6 +166,106 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: OLLAMA-CONSUMER-AUDIT-1
+  title: Ollama eating RAM — audit every LLM/vision integration for a dependency before stopping it
+  thread: infra
+  status: done
+  created: '2026-09-13 20:50'
+  updated: '2026-09-13 21:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the local Ollama server was consuming a lot of memory and the operator wanted to
+     shut it down, but could not risk breaking whatever depended on it — the suspicion was that
+     the camera-image analysis integration (LLM Vision) was quietly pointing at it. Solution:
+     check every AI-related integration for what backend it actually calls, confirm nothing
+     depends on Ollama, and clear the operator to stop it.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "Check the Openai, Claude and LLM vision integrations… Probably vision. That way I can be cleared to stop ollama"
+  why: >-
+    Stopping a service that something silently depends on produces a failure that looks
+    unrelated days later. Cheap to verify up front, expensive to diagnose after.
+  findings_2026_09_13: >-
+    CLEARED TO STOP — no consumer found. LLM Vision (both entries) uses OpenAI gpt-5-mini
+    cloud, NOT Ollama (operator's hypothesis REFUTED). OpenAI / Anthropic / Google entries
+    are all cloud. Both Assist pipelines use conversation.home_assistant. No YAML, automation,
+    or script references it. Its only two entities (conversation.ollama_conversation,
+    ai_task.ollama_ai_task) have zero consumers. URA references it only as an OPTIONAL
+    cheap-triage backend (const.py:3669 OPTIMIZER_LLM_TRIAGE_LOCAL_PREFIX) and
+    CONF_OPTIMIZER_LLM_TRIAGE_ENTITY is unset live, so URA makes no Ollama calls.
+    RAM cause identified: keep_alive:-1 on BOTH subentries pins qwen3.5:9b + qwen3:4b-instruct
+    resident permanently. Server is 192.168.13.62, not the HA host.
+  parsimony:
+    problem: Is any live integration calling the Ollama server before we stop it?
+    verdict: BUILD
+  rank: {value: 5, time_criticality: 6, effort: 1}
+  tags: [no-fabrication-verify]
+  next: 'DONE — operator cleared to stop Ollama. If kept: set keep_alive 0 or 300 instead of -1.'
+  refs:
+  - /Users/okosisi/ha-config/.storage/core.config_entries
+  - custom_components/universal_room_automation/domain_coordinators/optimization_llm.py:303
+- id: CRASH-ORPHAN-COMMITS-RECOVERY-1
+  title: Terminal crash orphaned 14 develop commits — recovered and pushed
+  thread: infra
+  status: done
+  created: '2026-09-13 20:45'
+  updated: '2026-09-13 21:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the terminal died mid-session for the second time, and the work from that session
+     was sitting only on this machine — never pushed anywhere. Solution: check what local work
+     had not reached the server, confirm it was intact, and push it.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "The terminal exited again. Try to recover your last work context."
+  findings_2026_09_13: >-
+    14 commits on local develop unpushed (the whole CONFIG-FLOW-SLOW investigation chain plus
+    the v5.101.1 bundle readiness notes). All board commits — no code was lost, the crash only
+    orphaned board state. Pushed 8cd4af2ef..42eb0f130; develop now 0/0 with origin.
+    Working tree held only .vibememo/counseling.jsonl + KANBAN.md, both since committed.
+  parsimony: {problem: Local work from the crashed session had not reached origin., verdict: BUILD}
+  rank: {value: 6, time_criticality: 7, effort: 1}
+  next: DONE — develop synced with origin.
+  refs: [docs/planning/kanban.data.yaml]
+- id: WORKTREE-BACKLOG-PRUNE-1
+  title: 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work
+  thread: infra
+  status: waiting_operator
+  created: '2026-09-13 21:10'
+  updated: '2026-09-13 21:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work
+     safe to delete, but roughly 40 still hold either uncommitted edits or commits that never
+     reached the main branch — so a blanket cleanup would silently destroy real work. Solution:
+     classify each one, delete only the provably-finished ones, and decide case-by-case what to
+     do with the rest.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "check the develop tree and any work trees to see work we need to clean or continue"
+  findings_2026_09_13: >-
+    AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting:
+    DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files),
+    reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-chatter (4);
+    UNMERGED-commits-ahead — recorder-churn (3), evse-onset-reload (2), cflow-timing (1),
+    c1-arrival-notify (2), c2-perimeter-name (2), c4-identity-tile (2),
+    device-arrangement-rooms-menu-build (2), hvac-anomaly-blind-1 (2), + ~8 more at 1-2 each.
+    NOTE: recorder-churn + evse-onset-reload + cflow-timing are the v5.101.1 bundle the prior
+    session marked ship-ready and held for operator deploy go — those are pending work, not debris.
+  constraints:
+  - Deletion is irreversible for uncommitted tracked files — never blanket-prune the dirty set.
+  parsimony:
+    problem: 94 worktrees make it impossible to see which branches still hold unfinished work.
+    verdict: SIMPLIFY
+  rank: {value: 4, time_criticality: 3, effort: 2}
+  next: >-
+    APPROVE the safe prune (delete only the ~54 worktrees that are clean AND fully merged into
+    develop; touch nothing dirty or unmerged) -> I run it and report the surviving ~40 with a
+    continue-or-drop recommendation each.
+  links:
+    related: [EVSE-CHARGE-ONSET-NOT-HELD-1]
+    context: evse-onset-reload is one of the unmerged worktrees and is part of the held v5.101.1 deploy bundle.
+  refs: [.claude/worktrees/]
 - id: OPTIMIZER-PAGING-PRIMITIVE-1
   title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
   thread: optimizer
