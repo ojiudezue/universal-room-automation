@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T00:10:58-05:00_ - _Data commit: `d213ca7e48e0`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T00:15:29-05:00_ - _Data commit: `ddd6bf6781d1`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-13T00:10:58-05:00_ - _Data commit: `d213ca7e48e0`_ - _last_r
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 10 |
-| 🔨 In progress | 3 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 2 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 9 |
@@ -534,7 +534,7 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-## 🔨 In progress (3)
+## 🔨 In progress (2)
 _being built_
 
 ### `VERIFY-BEFORE-WORK-SWEEP-1` - Every card's state is an unverified claim — sweep the whole board against ground truth before any card is worked — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -565,8 +565,11 @@ _created 2026-08-20 14:15 · updated 2026-08-23 15:45 · initial_
   - `relane_2026_09_10`: Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox) covers the Frigate live/dead leg naming inconsistency and is the likely home for the camera_census garage_a/garage_b flood — fold that flood in there rather than duplicating. The MQT...
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#3 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **energy** - status: **in_progress** - approval: **implied**
+## 🔍 Review (1)
+_under review_
+
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#1 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **energy** - status: **review** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Problem / Solution:**
   - Problem: the charge-onset feature is enabled and set to 01:00 (meant to defer EV charging to off-peak 1am), but last night both chargers ran INSIDE the 17:00-01:00 hold window: the L2 (garage_a) pulled full 11.6kW from ~21:02 and drained...
@@ -575,18 +578,14 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Next:** Build the onset-gate reload-resilience fix (#1). Tier 2-DB min (energy strategy, regression-prone): trace _evaluate_onset_gate enabled-source + the switch RestoreEntity restore path; make a held charger survive a transient enabled=False....
 - **Tags:** tier-2db, no-fabrication-verify, falsify-first
 - **Refs:** project_charge_onset_correct_site; docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `built_inreview_2026_09_13`: BUILT @ df888881e (feature/evse-onset-reload-resilience). Fix: ECEVChargeOnsetEnabledSwitch writes the operator toggle back to entry.options (_write_back_options from turn_on/turn_off/_sync_after_restore) so EnergyCoordinator.__init__ se...
   - `verified_building_2026_09_13`: VERIFY-BEFORE-WORK = STILL-REAL (intermittent), CODE fix. Gate correct+enabled (onset=01:00, switch on since 09-05); held cleanly on quiet nights (01:02-01:05). FAILS OPEN transiently during CM/parent reload storm: _ev_charge_onset_enabl...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_pool.py:105 _evaluate_onset_gate still returns onset_permits=True on enabled=False (:119) with no sticky/latch/debounce — the transient-enabled=False-during...
   - `forensic_evidence`: sensor.garage_a_power_minute_average ~11600W from 21:02 through 23:30+ (in-window).
   - `disposition_2026_09_10_RETRACTED`: RETRACTED — the DONE disposition was based on ONE night (09-08->09: onset_release at 06:02 UTC = 01:02 CDT = AT onset, correct). It did not check the NEXT night. Operator suspicion ("it wasnt working, now it is? suspicious") was RIGHT.
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
 
 ## ⏸️ Waiting on operator (19)
 _needs a human call — groomed first_
