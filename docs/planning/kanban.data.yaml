@@ -154,6 +154,77 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: OPTIMIZER-PAGING-PRIMITIVE-1
+  title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
+  thread: optimizer
+  status: investigating
+  created: '2026-09-13 21:05'
+  updated: '2026-09-13 21:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the optimizer''s notifications read like canned template text, so the operator
+     asked to "transition the optimizer to use an actual LLM". VERIFIED FALSE PREMISE — the
+     LLM tier is already live and has been calling Claude for a month (333 findings tagged
+     tier2_llm in the URA database, most recent today). What is primitive is the PAGING, not
+     the analysis: the alert text sent to the phone is the finding''s own template description
+     written by the simple rule-based Tier-1 checks, and the LLM''s reasoning never reaches
+     the message. Solution: route the notification text through the LLM tier''s reasoning
+     instead of the raw template, and cut the volume that makes it feel noisy (one rule alone
+     produced ~5000 high-severity findings in seven days).'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "we should transition optimizer to use an actual LLM. The current paging from the OC is pretty primitive"
+  why: >-
+    The complaint is real but the proposed fix targets the wrong layer. Building an LLM
+    integration that already exists would be pure waste; the value is in the last mile
+    (message authoring + volume) that nobody wired to the LLM.
+  constraints:
+  - 'Cost: premium pass is capped at 24 invocations/24h (CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H).
+     Any per-notification LLM call must respect or extend that cap — do NOT add an uncapped call path.'
+  - Every LLM finding must keep flowing through the existing _consider_apply chokepoint — no bypass.
+  verify_before_work_2026_09_13: >-
+    STILL-REAL (paging) + CARD-WAS-WRONG (premise). Ground truth: URA DB
+    `select created_by, count(*) from optimization_findings` -> tier1=13572, tier2_llm=333
+    (max ts 2026-09-13T09:12). Live `ai_task.claude_ai_task` exists (Claude Haiku 4.5,
+    anthropic config entry) and IS the default for CONF_OPTIMIZER_LLM_TASK_ENTITY
+    (const.py:3659), so gate 1 in optimization_llm.py run_cycle passes with no operator config.
+    Call site verified at optimization.py:1037 (non-shadow branch only).
+  prior_art_2026_09_13: >-
+    REUSE, do not build. optimization_llm.py (~1200 LoC) already implements corpus assembly,
+    ai_task invocation w/ 45s timeout, cheap-triage routing, findings parse/validate,
+    confidence clamp, per-cycle severity caps, rolling-24h cap seeded from DB. Config surface
+    exists: CONF_OPTIMIZER_LLM_TASK_ENTITY / _TRIAGE_ENTITY / _SYSTEM_PROMPT /
+    _MAX_INVOCATIONS_PER_24H (const.py:3631-3659), wired into the CM options flow
+    (config_flow.py:8396,8542). Notification path is the untouched surface:
+    optimization.py:4139 `_notify_if_severe` pages with the finding's template description.
+  next: >-
+    PICK which of the three levers to build first (they are independent):
+    (A) LLM-authored alert text — have the tier2 pass write the operator-facing message for
+    findings it analyzes, instead of paging the Tier-1 template string;
+    (B) volume cut — sensor_health/high produced 5026 findings in 7 days and is the dominant
+    noise source; decide digest-only vs raise its bar;
+    (C) raise the LLM's share — it ran ~333 times vs 13572 Tier-1; the delta gate + 24/day cap
+    are the throttles. -> I plan-review then build the picked lever.
+  parsimony:
+    problem: The operator-facing alert text is authored by rule-based templates even though an LLM already analyzes the same findings.
+    verdict: BUILD
+  rank:
+    value: 7
+    time_criticality: 4
+    effort: 5
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  links:
+    related:
+    - OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
+    context: >-
+      OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 is a false-positive source feeding the same
+      paging path — fixing it reduces the noise this card is about (lever B).
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/optimization_llm.py
+  - custom_components/universal_room_automation/domain_coordinators/optimization.py:1037,4139
+  - docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW
     from 21:02 draining the house battery 46%->9%; L1 also ran in-window
