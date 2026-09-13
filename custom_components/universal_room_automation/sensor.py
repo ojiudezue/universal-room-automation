@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.100.9
+# Universal Room Automation vv5.101.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -322,11 +322,13 @@ async def async_setup_entry(
             # v3.7.7: Consumption + EV monitoring sensors
             EnergyTotalConsumptionSensor(hass, entry),
             EnergyNetConsumptionSensor(hass, entry),
-            # EV-SENSOR-CLEANUP-1 (2026-08-16): EnergyEVChargeRate{A,B}Sensor
-            # removed per AUDIT_ev_sensor_surface.md §Q1 — functional dupes of
-            # ev_charging_status.<plug>.power attrs (same upstream Emporia
-            # entity, no fallback, zero consumers). Two registry orphans
-            # remain until operator removes them via HA UI.
+            # EV-SENSOR-CLEANUP-1 (2026-09-12): EnergyEVChargeRate{A,B}Sensor
+            # RE-ADDED per operator REUSE reversal (486cd1cd3) — populate from
+            # ev_charging_status per-bay measured power (energy.ev_status[bay]
+            # ["power"]), do NOT delete. The 2026-08-16 removal was reversed;
+            # bay key is deterministic ("garage_a"/"garage_b").
+            EnergyEVChargeRateGarageASensor(hass, entry),
+            EnergyEVChargeRateGarageBSensor(hass, entry),
             # v3.8.0-H1: HVAC Coordinator sensors
             HVACModeSensor(hass, entry),
             # HVAC-GOVERNED-EXCURSION-1 fix-up r5 addendum A:
@@ -10343,6 +10345,75 @@ class EnergyEVChargingStatusSensor(AggregationEntity, SensorEntity):
             )
 
         return attrs
+
+
+class _EnergyEVChargeRateBaySensor(AggregationEntity, SensorEntity):
+    """Per-bay EV charge rate (measured watts) for one garage EVSE.
+
+    EV-SENSOR-CLEANUP-1 (2026-09-12, operator REUSE reversal 486cd1cd3):
+    the charge_rate_garage_{a,b} sensors were previously removed as dupes;
+    the operator reversed that ("don't delete; populate from
+    ev_charging_status per-bay power"). Re-added here sourced from the SAME
+    per-bay measured power the ev_charging_status sensor already exposes
+    (``energy.ev_status[<bay>]["power"]``, the Emporia
+    sensor.garage_{a,b}_power_minute_average upstream) — no new carrier
+    state, ev_charging_status left as-is. The bay key is deterministic:
+    DEFAULT_EVSE_ENTITIES is keyed by "garage_a"/"garage_b", so there is no
+    evse_id->bay mapping ambiguity.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_native_unit_of_measurement = "W"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:ev-station"
+    _bay_key: str = ""
+
+    @property
+    def native_value(self) -> float | None:
+        """Return this bay's measured charge power in watts, or None."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        try:
+            bay = energy.ev_status.get(self._bay_key)
+        except Exception:  # noqa: BLE001
+            return None
+        if not isinstance(bay, dict):
+            return None
+        power = bay.get("power")
+        try:
+            return round(float(power), 1) if power is not None else None
+        except (TypeError, ValueError):
+            return None
+
+
+class EnergyEVChargeRateGarageASensor(_EnergyEVChargeRateBaySensor):
+    """Entity: sensor.ura_energy_ev_charge_rate_garage_a."""
+
+    _bay_key = "garage_a"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_a"
+        self._attr_name = "EV Charge Rate Garage A"
+        self._attr_device_info = _energy_device_info()
+
+
+class EnergyEVChargeRateGarageBSensor(_EnergyEVChargeRateBaySensor):
+    """Entity: sensor.ura_energy_ev_charge_rate_garage_b."""
+
+    _bay_key = "garage_b"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_b"
+        self._attr_name = "EV Charge Rate Garage B"
+        self._attr_device_info = _energy_device_info()
 
 
 # ============================================================================

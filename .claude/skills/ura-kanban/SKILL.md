@@ -252,6 +252,88 @@ the active board — this reuses the existing doctrine that the git history of s
 (READMEs / validation ledgers) is the durable record. Workflow: edit the yaml (must stay valid
 YAML), run `python3 scripts/kanban_render.py`, commit data + rendered views together.
 
+### Board render design — autonomy visibility + operator agency (operator-coined 2026-09-12)
+
+The render exists to make autonomous work **visible and steerable**, not just to list cards. Three
+elements, all pure functions of the data (so they never drift):
+
+1. **Lane order elevates the operator's decision queue.** `COLUMN_META` renders
+   `waiting_operator` + `waiting_me` immediately after `review` (ahead of `shipped_organic`), so the
+   cards needing a human call are near the top. The agent also grooms `waiting_operator` FIRST each
+   session (see Cadence).
+2. **`waiting_operator` cards carry a free-form instruction box** (not just buttons). It POSTs
+   `{card_id, action:"instruct", text, at}` to the same `api/disposition` endpoint the buttons use;
+   the agent applies `instruct` at session start (writes `operator_instruction_<date>` onto the card,
+   front of the grooming queue). This is the operator's free-text channel into autonomous work —
+   steering without dropping back to chat.
+3. **Top-of-board autonomy counter + recent-work feed** (`meta.autonomy_feed`, rendered by
+   `autonomy_stats()`):
+   - **Counter (large type, above all lanes):** `N / D` where **N = feed entries concluded in the
+     last 24h** (ack-agnostic — a conclusion is a historical fact) and **D = open-card count
+     (`status != done`)**. D **shrinks as work completes**, so the ratio is recomputed every render
+     and naturally re-bases after each push.
+   - **Feed:** an expandable list of entries that are NOT `acknowledged` AND younger than 7 days,
+     newest first. Each has an **Acknowledge** button (POST `{card_id:<fid>, action:"ack"}`); ack
+     retires the entry from the live feed (agent sets `acknowledged:true`), and any entry older than
+     7 days is auto-archived (hidden) regardless of ack — so the feed never clutters.
+   - **The append discipline is load-bearing:** every time a card is concluded autonomously (built /
+     parked-at-gate / moved to waiting_operator / shipped / done), append one `autonomy_feed` entry
+     `{fid:"<card-id>@<at>", at, outcome, headline, acknowledged:false}` the same turn. A conclusion
+     with no feed entry is invisible to the operator's 24h view — the same capture-failure class the
+     board exists to kill, applied to the progress counter.
+   - **Prune** acknowledged / >7-day entries from `meta.autonomy_feed` during grooming so the data
+     file does not grow unbounded (the rendered feed already hides them; pruning keeps the YAML lean).
+
+### Board-stack BLUEPRINT — the contract every board implements itself (operator-coined 2026-09-12)
+
+There are multiple hosted boards (urakanban, gitbrowse, homelab-kanban), each stamped out by an
+agent from this skill. **Do NOT hand-patch each host's server per change** — that coupling is the
+thing to avoid. Instead this blueprint IS the contract: any agent maintaining any board reads it and
+brings ITS OWN render + server into conformance. The URA `scripts/kanban_render.py` +
+homelab `sites/urakanban/server.js` are the **reference implementation**.
+
+**1. Disposition API (the server the board POSTs to).** A tiny static file server + micro-API:
+- `POST /api/disposition` — body `{card_id, action, at[, text]}`; append one JSONL line.
+  `action` ∈ `done | deferred | declined | approve | investigate | instruct | ack | move:<status>`.
+  `text` is OPTIONAL free-form (operator decision/instruction), a string capped (≤2000 chars) —
+  **it MUST be preserved**, not stripped. `card_id` ≤128 chars (for `ack`, card_id is the feed
+  entry's `fid`; for `instruct`, it is the underlying card id).
+- `GET /api/dispositions` — raw JSONL (the puller reads this).
+- `POST /api/dispositions/clear` — truncate (puller calls after a successful import).
+- The **puller** (e.g. `refresh_urakanban.sh`) imports queue→`kanban.dispositions.pending.jsonl`,
+  **carrying `text`** and **including `text` in the dedup key** (so two distinct instructions on one
+  card both survive), commits+pushes, then clears.
+
+**2. Serving model → why the shim exists.** Boards are served as a **CACHED STATIC file**
+(`kanban_board.html`), re-rendered only when the refresh cron runs (~5 min). So an operator click's
+state must survive a reload BEFORE the next render, via TWO layers: (a) the render **reads the
+pending queue** and paints the acked/decided state server-side (durable source of truth); (b) a
+small **`localStorage` echo + CSS class toggle** re-applies it instantly on reload in the gap. This
+is the ONLY client state — no framework. If a board is ever served with per-request rendering, (a)
+alone suffices and (b) is optional polish.
+
+**3. Render contract.** Counter `N / D` (N = feed entries concluded in last 24h, D = open-card
+count, shrinks as done grows); feed entries show an **Acknowledge** button, and `waiting_operator`
+entries ALSO show an **inline decision text box** (posts `instruct` against the card). Acked entries
+render **in place** as "acked — pending apply" (never removed optimistically — that was the v1 bug);
+queued decisions render a "decision queued: …" chip. `waiting_operator`/`waiting_me` lanes render
+just after `review` (elevated).
+
+**4. Groom-time reconciliation (what the agent does when applying the queue).**
+- `ack` on a feed entry → set the `autonomy_feed` entry `acknowledged: true` (retires it). **AND if
+  the entry's card is in a terminal-ready lane (`review` / `shipped_organic`) and the work is
+  complete, MOVE the card to `done`** — an ack is the operator accepting the work, not just dismissing
+  a row. A built-and-acked card must not linger in `review`.
+- `instruct` on a card → write `operator_decision_<date>: "<text>"` onto the card, treat it as
+  authority, and **move the card to the lane the decision implies** (e.g. "go build it" → `planned`/
+  `in_progress`; "drop it" → `done`/`parked`). Front of the grooming queue.
+- Then prune acked/decided feed entries and re-render. Every disposed ack/decision must end with the
+  card in its correct lane and the feed/ack state shown — never a half-applied disposition.
+
+**Self-conform rule:** when you change any part of this contract, update THIS blueprint first, then
+each board's agent (or you, per board) brings its render + server into conformance from the spec —
+the skill is the single source, the per-host files are conformant implementations of it.
+
 ## Card schema — the fields ARE the decay vectors
 
 Fill Origin, Why, and Next even when terse. Each field maps to a thing that otherwise leaks:
@@ -547,14 +629,35 @@ failure — the board is where "is it actually done?" gets answered.
    - `approve` (inbox + pre-planning button, added 2026-08-15) → `approval: explicit` +
      `approved_by: 'operator <date> (board button)'`; inbox cards also move → pre_planning.
      Out-of-band approval carries the SAME authority as a chat "go" — do not re-ask.
+     **BUT an approve is NOT a bypass of verify-before-work (operator-coined 2026-09-12):** even an
+     approved card (board OR chat "go") first passes the validity/ground-truth gate — confirm the
+     premise is STILL real and not already-shipped/moot/stale BEFORE acting. If verification finds it
+     stale, record that on the card and re-surface rather than building the approved-but-dead thing;
+     then move the card to the lane the outcome implies. Approval authorises the work; it does not
+     exempt it from the check. (Many approved cards are investigations — "approve" means *go drive the
+     measurement*, and the measurement IS the verification.)
    - `investigate` (inbox + pre-planning button, added 2026-08-15) → set `needs_investigation: true`
      on the card; it becomes priority intake for the next lull-investigation sweep (see
      "Inbox hygiene" below).
+   - `instruct` (waiting_operator free-text box, added 2026-09-12 — WAITING-OP-INSTRUCTIONS-1) →
+     carries a `text` field with the operator's free-form instruction. Append it to the card as
+     `operator_instruction_<date>: "<text>"`, treat it as OPERATOR AUTHORITY (same as a chat "go"
+     — act on it, do not re-ask), and put the card at the FRONT of the grooming queue. The
+     instruction usually says how to resolve a waiting_operator card — follow it, moving the card to
+     the right lane. If it asks for something that fails a gate, page back (NM) + record why on the card.
+   - `ack` (recent-work feed button, added 2026-09-12 — BOARD-AUTONOMY-PROGRESS-1) → the `card_id`
+     is a feed entry's `fid`; find that entry in `meta.autonomy_feed` and set `acknowledged: true`
+     (it retires from the live feed). Not a card-status change.
    Then DELETE the pending file, re-run `python3 scripts/kanban_render.py`, and commit.
    **Dispositions are OPERATOR AUTHORITY — apply, don't relitigate.** Ask only if a
    disposition is ambiguous against the card's state (e.g. `done` on a card that never
    shipped). Finally reconcile Shipped-organic and Waiting-on-operator against live state
    before reporting status.
+   **Groom `waiting_operator` FIRST (operator-coined 2026-09-12).** Before the inbox/lull sweep,
+   work the `waiting_operator` lane: apply any `instruct` text, re-verify whether the operator input
+   is still needed (ground truth — the blocker may have cleared), and move each card to the right lane
+   as soon as the decision/fact is available. These lanes are rendered just after `review` (elevated)
+   and must not rot — a card sitting in `waiting_operator` whose input already arrived is a grooming miss.
 2. **On every push / mid-turn idea:** add or update a card the same turn.
 3. **Before writing a planning doc:** harvest the relevant cards — Origin/Why/Constraints/
    Parked-alts/Knobs flow straight into the plan's Institutional-context + Acceptance sections.
@@ -572,6 +675,80 @@ failure — the board is where "is it actually done?" gets answered.
    the Artifact if anything material changed.
 6. **Reconciliation discipline:** when marking Waiting-on-operator or Shipped, verify against
    live state (config entry / sensor / DB) — do not carry a stale TODO forward.
+
+## Verify-before-work — NO work starts until the work is proven not-already-done (operator-coined 2026-09-12)
+
+Operator: *"Check to see if done first before assuming it needs work. Do this for all cards. NO work
+until we know the work is not done. **The board may be outdated despite our best efforts.**"*
+
+This is the hardest precondition in this skill, and it sits ABOVE the parsimony gate in the drive
+loop: **read the card → verify against ground truth → THEN gate → then build.** A card is a *claim*
+about the world's state, written at some past moment. Every hygiene mechanism in this document —
+capture-first, status-tracks-reality, the staleness banner, the disposition queue — reduces drift
+but cannot eliminate it, because the world changes without touching the board: a sibling cycle fixes
+the bug, a config change moots the card, a device comes back online, a later ship subsumes the work.
+**Treat every card's state assertion as unverified until you check it this session.**
+
+**The rule:** before ANY build, plan, or investigation begins on a card, run the cheapest observation
+that would distinguish *already-done* from *still-real*, and record the result on the card the same
+turn. Not the card's own summary — an independent read of the authoritative source.
+
+**Where ground truth lives, by card kind:**
+
+| Card kind | The check that settles it |
+|---|---|
+| Code defect / missing behavior | grep the current source at the named file:line — is the fix already in `develop`? |
+| Shipped-feature follow-up | `git log` / the `README_v*.md` validation table for the surface |
+| Live-system symptom | read the live entity, the URA DB row, or the recorder — is it still happening? |
+| Test / suite defect | RUN the suite (or the file) NOW; do not trust a recorded pass/fail count |
+| Config-only item | read the live config entry / options — may already be set |
+| Doc / board item | open the file — the section may already exist |
+
+**Both directions are failures, and the second is the one this rule was coined on:**
+- The card says **open** but the work is **done** → wasted cycle rebuilding shipped work.
+- The card says **done / clean / fixed** but it is **not** → a false all-clear, which is worse:
+  it silently removes the item from every future sweep. Verification is not "confirm the card is
+  stale" — it is "confirm the card is *true*, in whichever direction."
+
+Observed 2026-09-12 (the coining case): `BLE-HOLD-CAP-SUITE-POLLUTION-1` carried a same-day
+disposition asserting *"Collection now clean (10376)"*. One `pytest --collect-only` run at the start
+of the next session returned **2 collection errors** on the default full-suite ordering. The card's
+recorded state had been written from one observation and had already stopped being true. Had the
+sweep skipped the file — per the card, collection was fine — the regression would have stayed
+invisible while looking filed.
+
+**Verdicts (recorded on the card, same turn, with the command/observation that produced them):**
+`ALREADY-DONE` (close with the evidence — never a silent delete) · `PARTIALLY-DONE` (narrow the card
+to the actual residual and re-score `effort`) · `MOOT` (premise gone — close with the evidence chain)
+· `STILL-REAL` (proceed to the parsimony gate, carrying the fresh evidence) · `CARD-WAS-WRONG` (the
+card's own claim was false — correct it per "Understanding changes → the card changes", mark the
+superseded claim WRONG with what refuted it).
+
+**Retire it BEFORE moving on — the verdict is worthless if the card stays open (operator-coined
+2026-09-12).** A verification that resolves a card must be *cashed in the same turn*: write the
+verdict + evidence, set the terminal `status` (`done` for ALREADY-DONE / MOOT / refuted; the narrowed
+residual for PARTIALLY-DONE), bump `updated`, re-render, and only THEN pick the next card. Carrying a
+resolved-but-still-open card forward is exactly the drift this rule exists to kill — and it is worse
+than never checking, because the next session sees an open card with a stale lane and re-verifies work
+already settled. The verdicts split cleanly into two dispositions:
+
+- **Retire now** — `ALREADY-DONE`, `MOOT`, and any card whose premise the check refuted → `status: done`
+  with the evidence chain. Never delete; the closed card is the record of why the answer is the answer.
+- **Stays open, but corrected** — `STILL-REAL` and `CARD-WAS-WRONG` → the card remains in its working
+  lane, but any claim the check falsified is marked WRONG *on the card* with what refuted it (per
+  "Understanding changes → the card changes"), and `live_broken` / `rank` are re-set to the freshly
+  measured reality before the card is queued for work.
+
+`CARD-WAS-WRONG` and `STILL-REAL` routinely co-occur: the card was right that a problem exists and
+wrong about its state or severity. Record both — the correction is what stops the next session
+inheriting the false detail.
+
+**Board-wide sweep.** This applies to the whole board, not just the card you are about to pick:
+every open lane (`inbox`, `investigating`, `pre_planning`, `planned`, `in_progress`, `review`,
+`waiting_*`) gets verified, and `parked` cards get their revival triggers checked the same way. Work
+highest-WSJF first so the drive loop is never blocked waiting on a complete sweep, and record the
+verdict + date on each card as you go so a later session can see which cards carry *fresh* evidence
+and which are still running on stale assertions.
 
 ## Inbox hygiene — bounded lull investigation (operator-coined 2026-08-15)
 
@@ -668,7 +845,7 @@ must be interrogated is not a mechanism.**
 | **2b** | **HARD** | **Unapplied-disposition gate** — `kanban_render.py --check` returns **exit 3** (distinct from stale=2) when `kanban.dispositions.pending.jsonl` is non-empty, listing each unapplied `{card_id, action}`. The session-start check (rung 4) therefore *cannot pass* while an operator button-tap sits unapplied. Scoped to `--check` only: a plain render (the homelab site deploy) still writes the views with pending chips, so the operator's live board keeps showing the pending state. This is the forcing function behind Cadence step 1 — before it existed, the pull-hook queued dispositions but nothing forced the apply, and a `declined` sat unapplied ~1 day (2026-08-14 miss). Chip = banner (operator-ruled insufficient); exit-3 = mechanism. |
 | **3** | soft | Generator renders a loud **STALE banner** + warns on build when `meta.last_reconciled` is older than the newest git tag or `README_v*.md`. |
 | **4** | soft | Session-start check: run `python3 scripts/kanban_render.py --check` — exit 2 = stale (reconcile), **exit 3 = unapplied operator dispositions (apply the queue FIRST, per Cadence step 1)**. Non-zero of either kind blocks reporting status until cleared. |
-| **5** | soft | Recurring overnight agentic pass reconciles the board as its **first** action, before picking up `overnight-agentic` work. |
+| **5** | HARD once wired | Recurring overnight agentic pass (a `/schedule` cloud routine on a cron) reconciles the board as its **first** action, then drives the WSJF queue through the four-step gate per the **wired overnight-pass contract** below. Soft only while unwired — and "unwired" is itself a finding (2026-09-12: the investigations lane didn't drain because rung-5 was never scheduled). |
 
 **Soft rungs are backups, not substitutes.** They exist because the hard gate covers one transition;
 they must never be cited as reason to skip rung 1.
@@ -686,10 +863,50 @@ worse. Write after the push succeeds, warn loudly on failure, never exit non-zer
 ### Overnight / autonomous work needs a trigger, not an intention
 
 Same class of failure: *"build it tonight while I'm sleeping"* has no forcing function — the session
-ends and nothing wakes anything up (observed 2026-08-09, KHOST-1 missed). Work tagged
-`autonomy: overnight-agentic` must be bound to a **real recurring scheduled job**, whose first action
-is a board reconciliation. An overnight commitment with no scheduler is a promise, and promises are
-the thing this skill exists to replace.
+ends and nothing wakes anything up (observed 2026-08-09, KHOST-1 missed; re-confirmed 2026-09-12 —
+the investigations lane did not drain overnight because rung-5 was documented but never WIRED to a
+scheduler). Work tagged `autonomy: overnight-agentic` must be bound to a **real recurring scheduled
+job**, whose first action is a board reconciliation. An overnight commitment with no scheduler is a
+promise, and promises are the thing this skill exists to replace.
+
+#### The wired overnight-pass contract (operator-coined 2026-09-12)
+
+**Vehicle — it MUST be a LOCAL scheduled job, NOT a `/schedule` cloud routine (operator-ruled
+2026-09-12).** The investigations lane's measurements need LIVE LAN data — `ssh ha sqlite3` on the
+URA DB, the Samba-mounted DB, the home-assistant / ura-sqlite MCPs — all LAN-only. A `/schedule`
+cloud agent runs in Anthropic's cloud with NONE of that reach (and the routine connector list offers
+only Fathom/GCal/Drive/Gmail), so it cannot run the probes that are the whole point. Wire it instead
+as a **`launchd` job on the always-on Mac mini** where `ssh ha` + the DB mount already work (same host
+as `refresh_urakanban.sh`), invoking `claude -p` headless with `--dangerously-skip-permissions` (the
+reference impl: `homelab-automation/scripts/overnight/ura_overnight_pass.sh` +
+`launchd/com.phalanxmadrone.ura-overnight-pass.plist`, nightly 02:00 local; activation is a deliberate
+`launchctl load`). A cloud routine is viable ONLY for code-side work (reconcile + static/prior-art
+investigations + Tier-≤2 builds-to-review) — never for the DB-probe investigations.
+
+Its contract, in order, every run:
+
+1. **Reconcile first.** Load this skill, apply any queued operator dispositions
+   (`kanban.dispositions.pending.jsonl`, incl. `instruct`/`ack`), run `kanban_render.py --check`,
+   move disposed cards to their lanes, prune acked / >7-day `autonomy_feed` entries.
+2. **Verify-before-work, then drive the WSJF-ranked eligible queue through the FOUR-step gate**
+   (validity → prior-art → parsimony → cost/benefit). Prioritise `waiting_operator` grooming and the
+   `investigating` lane: for each investigation run its one-shot read-only measurement, then
+   escalate-or-build per the investigation clearance.
+3. **Bounded autonomy — the overnight pass is MORE conservative than an attended session:**
+   - Investigations + read-only probes: fully autonomous.
+   - Tier-1 / Tier-2 clean builds that pass the gate: build + review + validate **to `review`** —
+     but **do NOT deploy unattended** (a deploy restarts HA in an occupied, sleeping house = the
+     "hostile timing" always-pause case). Deploys wait for the operator. Leave shippable work in
+     `review` with the README/tests done.
+   - Tier-3, ambiguous-gate, destructive, or outward-facing: **do not act** — escalate to
+     `waiting_operator` with an operator-verb `next` AND page via NM.
+4. **Append an `autonomy_feed` entry for everything concluded** (built-to-review / parked / escalated
+   / measured), so the morning board-progress counter reflects the overnight run — the feed IS the
+   report. Respect a token budget; stop when the eligible queue is dry or the budget is hit; never
+   spiral.
+
+The board + feed is the durable report; no separate "what I did overnight" prose is required (the
+operator reads the counter + feed and acks/decides from there).
 
 ## Approval & autonomy — so the board is drivable, not just visible
 
@@ -731,12 +948,39 @@ for everything Tier 2 and below.**
 - **Tier 3+ (delicate shared-primitive / invariant-critical / cost-AND-safety) → PAUSE for
   operator approval** before build and again at the pre-deploy checkpoint, per CLAUDE.md Tier 3.
   These are the changes where one missed path loses money or safety; the human call stays.
+- **Investigations (`investigating` lane / measure-first cards) → DRIVE autonomously too
+  (operator-coined 2026-09-12).** Run the measurement (read-only probe over existing data per
+  Measure-Before-You-Build). Then branch on the OUTCOME, binary per the Investigating-lane exit:
+  - **Does NOT open a build lane** (refuted, or the fix needs a human call / external input) →
+    record the finding and **drop into `waiting_operator`** with a crisp operator-verb `next` (or
+    close `done` if the mechanism was refuted). Don't force a build the evidence doesn't support.
+  - **DOES open a build lane** → **plan and build ONLY if it passes the FULL four-step gate below —
+    not just the tier.** Tier is the first gate; value, prior-art/reuse, parsimony and cost/benefit
+    all still apply (operator: *"Not just tier… also value, parsimony etc"*). A Tier-1/2 build that
+    clears every step drives autonomously; anything that fails a step parks or escalates.
 
-**The gate that earns the autonomy (run BEFORE building, every card):**
-1. **Parsimony** — is the problem sharp and real (one falsifiable sentence)? Does the simplest
+**The gate that earns the autonomy — FOUR steps IN ORDER, run BEFORE building, every card
+(operator-coined 2026-09-12).** Do not skip a step because the card "looks obvious"; a later step's
+verdict is only trustworthy if the earlier steps passed. Record each step's finding on the card.
+
+1. **Validity — GROUND TRUTH first (still needed AND not shipped).** This is the verify-before-work
+   check applied at build time: read the authoritative source (code at the named file:line, the
+   suite, the live entity/DB, git log) and confirm the work is *still real* and *not already
+   shipped* — the board is a claim, not proof (see the "Verify-before-work" section above). A card
+   that is ALREADY-DONE / MOOT retires here before any parsimony debate; a card whose own stated
+   `next` already shipped gets re-scoped to the real residual. Also re-verify the card's premise:
+   an agent-reported "reversal" or "still-open" is a hypothesis — confirm the commit / code exists
+   (don't trust the report). Reaching ALREADY-DONE here is a success, not a skipped build.
+2. **Prior-art / reuse scan (REUSE-or-BUILD, cite file:line).** Before proposing to BUILD any new
+   mechanism (constant, helper, sensor, signal, producer, state), scan URA's prior art — code,
+   plans, analysis/memory — and record a REUSE-or-BUILD verdict per piece with the existing symbol
+   at file:line (the CLAUDE.md Institutional-Context-First + Tier-2+ prior-art-scan rule, applied
+   per card). The producer/primitive you are about to "build" often already exists and needs only a
+   source-swap or a small extension. A BUILD verdict that skipped this scan is incomplete.
+3. **Parsimony** — is the problem sharp and real (one falsifiable sentence)? Does the simplest
    version capture most of the benefit? Verdict BUILD / SIMPLIFY / PARK / DROP recorded on the
    card. PARK/DROP means *don't build* — reaching that is a success, not a skipped step.
-2. **Cost/benefit** — does the marginal benefit pay for the ingredient risk + review cost? If a
+4. **Cost/benefit** — does the marginal benefit pay for the ingredient risk + review cost? If a
    Tier-2 change drags in a categorically risky ingredient (synthetic time, a new writer to a
    shared primitive, cross-coordinator state, rare-fire path), that is a signal to SIMPLIFY or to
    treat it as Tier 3 — not to barrel ahead because "it's only Tier 2."

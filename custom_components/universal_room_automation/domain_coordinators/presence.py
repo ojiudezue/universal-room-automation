@@ -2487,11 +2487,19 @@ class PresenceCoordinator(BaseCoordinator):
 
             # v3.19.0: Read face recognition toggle from integration config
             try:
+                # SHADOW-IMPORT-AUDIT-1 (Bug Class #34): CONF_ENTRY_TYPE is
+                # already module-imported (presence.py top) AND used earlier in
+                # this same async_setup (the anomaly-sensitivity block ~L2362).
+                # Importing it function-locally here made it a LOCAL for the
+                # whole function, so that earlier use raised UnboundLocalError
+                # (silently swallowed by its try/except -> the operator's
+                # configured presence anomaly sensitivity was never read). Drop
+                # the redundant local binding so the module-level one is used
+                # consistently throughout async_setup.
                 from ..const import (
                     CONF_FACE_RECOGNITION_ENABLED,
                     DEFAULT_FACE_RECOGNITION_ENABLED,
                     ENTRY_TYPE_INTEGRATION,
-                    CONF_ENTRY_TYPE,
                 )
                 for config_entry in self.hass.config_entries.async_entries(DOMAIN):
                     if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:

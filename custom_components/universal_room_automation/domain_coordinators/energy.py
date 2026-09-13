@@ -1989,6 +1989,12 @@ class EnergyCoordinator(BaseCoordinator):
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
+        # SHADOW-IMPORT-AUDIT-1 (Bug Class #34): dt_util is used below at the
+        # epoch tz-normalisation (before the later function-local import that
+        # used to bind it), and energy.py has NO module-level dt_util — so that
+        # earlier use raised UnboundLocalError on the tz-naive branch. Bind it
+        # once at the top of the function, before any use.
+        from homeassistant.util import dt as dt_util
         try:
             for evse_id in self._ev._evse:
                 await db.save_evse_state(
@@ -2053,9 +2059,11 @@ class EnergyCoordinator(BaseCoordinator):
             # tz-aware ISO; on restore goes through dt_util.parse_datetime.
             fc_until = self._ev._force_charge_until
             if fc_until is not None:
-                # Ensure tz-aware (defensive; setter only accepts UTC-aware)
+                # Ensure tz-aware (defensive; setter only accepts UTC-aware).
+                # dt_util now imported once at the top of this function
+                # (SHADOW-IMPORT-AUDIT-1) — the former local import here is what
+                # made the earlier epoch use raise UnboundLocalError.
                 if fc_until.tzinfo is None:
-                    from homeassistant.util import dt as dt_util
                     fc_until = fc_until.replace(tzinfo=dt_util.UTC)
                 await db.save_energy_state(
                     "ev_force_charge_until",

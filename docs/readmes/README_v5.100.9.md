@@ -51,8 +51,17 @@ order-pollution / test-strategy re-architecture (`SUITE-ORDER-POLLUTION-1` / `TE
   (pre-existing order-pollution, now measured at 87 failures). The 3 code fixes introduce no new
   isolation failures (each passes in isolation; no runtime behavior change).
 
-### Live (post-restart) — to validate
-- `HVAC_DECISION_TICK` in effect: HVAC decision timer still fires on its 5-minute cadence
-  (no cadence change expected).
-- `sensor.ura_energy_coordinator_battery_strategy` exposes a `d2_offset` attribute alongside
-  `d2_class`.
+### Validated 2026-09-11 (post-restart, HA core-2026.9.1)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| `d2_offset` attribute present alongside `d2_class` | **PASS** | `sensor.ura_energy_coordinator_battery_strategy` → `forecast_outlook: {d1_class: excellent, d2_class: excellent, **d2_offset: 2**, d2_kwh: 125.14}`. `d2_offset` = `_target_day_offset(1) + 1` = 2, with `target_day_source: solcast_tomorrow`. The additive attribute lands in the same `forecast_outlook` sub-dict as designed. |
+| Integration loads / house tier live | **PASS** | `sensor.ura_presence_coordinator_presence_house_state` = `arriving` (available, presence coordinator computing). |
+| `HVAC_DECISION_TICK` const in effect | **PASS (in-suite; no observable live change)** | Pure const extraction, same 5-min value — no runtime cadence change to observe. `test_hvac_decision_tick_const` asserts the named symbol reaches the `async_track_time_interval` call site. |
+
+Boot transient seen and dismissed: the battery-strategy sensor's top-level `state` was `unknown`
+("Envoy unavailable — holding") during warmup while its full attribute surface (incl. `d2_offset`)
+was already populated — expected Envoy-warmup behavior, not related to this cycle.
+
+The 87-failure suite order-pollution finding (which held Fix 2) is tracked under
+`SUITE-ORDER-POLLUTION-1` / `TEST-STRATEGY-REARCH-1`.

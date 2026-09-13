@@ -33,6 +33,10 @@ DEFAULT_HTML = REPO_ROOT / "docs" / "planning" / "kanban_board.html"
 DEFAULT_PENDING = REPO_ROOT / "docs" / "planning" / "kanban.dispositions.pending.jsonl"
 README_DIR = REPO_ROOT / "docs" / "readmes"
 
+# URA brand favicon — 48x48 PNG from universalroom.org/assets/brand/icon.png,
+# inlined as a data URI so the static board is self-contained (no extra deploy file).
+URA_FAVICON = "data:image/png;base64,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"
+
 # Column display order + labels + emoji. Anything not in this map falls into "other".
 COLUMN_META: list[tuple[str, str, str, str]] = [
     ("inbox",            "\U0001F4E5", "Inbox",              "raw capture"),
@@ -41,9 +45,12 @@ COLUMN_META: list[tuple[str, str, str, str]] = [
     ("planned",          "\U0001F4DD", "Planned",            "has plan / acceptance"),
     ("in_progress",      "\U0001F528", "In progress",        "being built"),
     ("review",           "\U0001F50D", "Review",             "under review"),
-    ("shipped_organic",  "\U0001F680", "Shipped (organic open)", "live, awaiting proof"),
-    ("waiting_operator", "⏸️", "Waiting on operator", "needs a human call"),
+    # WAITING-OP-INSTRUCTIONS-1: waiting_operator/waiting_me are elevated to
+    # just after review (ahead of shipped_organic) so the operator's decision
+    # queue is prominent — these lanes are groomed FIRST each session.
+    ("waiting_operator", "⏸️", "Waiting on operator", "needs a human call — groomed first"),
     ("waiting_me",       "⏳", "Waiting on me (Claude)", "I owe something"),
+    ("shipped_organic",  "\U0001F680", "Shipped (organic open)", "live, awaiting proof"),
     ("parked",           "\U0001F17F️", "Parked",       "revisit-trigger set"),
     ("done",             "✅", "Done",                    "closed, evidence in refs"),
     ("other",            "❓", "Other",                    "unknown status bucket"),
@@ -182,10 +189,52 @@ def load_pending_dispositions(path: Path) -> dict[str, list[dict]]:
         cid = str(d.get("card_id", "")).strip()
         if not cid:
             continue
-        out.setdefault(cid, []).append(
-            {"action": str(d.get("action", "?")), "at": str(d.get("at", ""))}
-        )
+        entry = {"action": str(d.get("action", "?")), "at": str(d.get("at", ""))}
+        # WAITING-OP-INSTRUCTIONS-1: preserve the operator's free-form text
+        # (action=instruct) so the pending chip can show it.
+        if d.get("text"):
+            entry["text"] = str(d.get("text"))
+        out.setdefault(cid, []).append(entry)
     return out
+
+
+def autonomy_stats(data: dict, now: _dt.datetime | None = None) -> dict:
+    """BOARD-AUTONOMY-PROGRESS-1: compute the last-24h progress counter and the
+    live feed (entries not acknowledged AND younger than 7 days, newest first).
+
+    - numerator   = feed entries whose `at` is within the last 24h (ack-agnostic;
+                    a conclusion is a historical fact).
+    - denominator = cards whose status != 'done' (shrinks as work completes).
+    - live feed   = unacknowledged entries younger than 7 days.
+    """
+    now = now or _dt.datetime.now()
+    cards = data.get("cards", []) or []
+    denom = sum(1 for c in cards if str(c.get("status", "")) != "done")
+    feed = (data.get("meta", {}) or {}).get("autonomy_feed", []) or []
+
+    def _parse(ts: str) -> _dt.datetime | None:
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                return _dt.datetime.strptime(ts, fmt)
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    last24 = 0
+    live: list[dict] = []
+    for e in feed:
+        if not isinstance(e, dict):
+            continue
+        ts = _parse(str(e.get("at", "")))
+        age = (now - ts) if ts else None
+        if age is not None and age <= _dt.timedelta(hours=24):
+            last24 += 1
+        archived = (age is not None and age > _dt.timedelta(days=7))
+        if not e.get("acknowledged") and not archived:
+            live.append({**e, "_sort": ts or _dt.datetime.min})
+    live.sort(key=lambda e: e["_sort"], reverse=True)
+    return {"num": last24, "denom": denom, "live": live}
 
 
 # ---------- card classification ----------
@@ -523,32 +572,40 @@ def _render_card_md(c: dict, pending: dict[str, list[dict]] | None = None) -> li
 
 CSS = """
 :root {
-  --bg:#f4f1ea; --fg:#232019; --muted:#7a7263; --card-bg:#fbf9f4;
-  --border:#ddd6c8; --rule:#c9c0ae;
-  --lane-bg:transparent; --accent:#9a6108; --accent-dim:#b98a3a;
-  --ok:#3f7d47; --warn:#a2541f; --bad:#a03030; --info:#3d6b80;
-  --stale:#8a5a00; --stale-bg:#f3e3bd; --code-bg:#ece7db;
+  /* URA brand tokens — lifted from https://universalroom.org/style.css (OKLCH).
+     Light "paper" + cool "ink" + brand blue `--accent` / warm secondary. */
+  --bg:oklch(0.985 0.003 240); --fg:oklch(0.15 0.008 240); --muted:oklch(0.55 0.010 240);
+  --card-bg:oklch(0.995 0.002 240); --border:oklch(0.88 0.008 240); --rule:oklch(0.80 0.010 240);
+  --lane-bg:transparent; --accent:oklch(0.50 0.16 235); --accent-dim:oklch(0.66 0.12 235);
+  --ok:oklch(0.55 0.13 150); --warn:oklch(0.60 0.13 50); --bad:oklch(0.55 0.17 25);
+  --info:oklch(0.55 0.10 210);
+  --stale:oklch(0.58 0.13 50); --stale-bg:oklch(0.93 0.05 65); --code-bg:oklch(0.965 0.005 240);
+  --font-sans:'Hanken Grotesk', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#131518; --fg:#d6d3c9; --muted:#7d8494; --card-bg:#1a1d22;
-    --border:#2a2e36; --rule:#3a3f49;
-    --accent:#ffb454; --accent-dim:#b98a3a;
-    --ok:#7fbf7a; --warn:#e0954f; --bad:#e07070; --info:#7ab3cc;
-    --stale:#ffb454; --stale-bg:#2b2210; --code-bg:#22252c;
+    /* URA is light-only; this is a URA-consistent cool dark (deep slate + brand
+       blue) for dark-OS viewers — NOT the old muddy default. */
+    --bg:oklch(0.20 0.012 240); --fg:oklch(0.93 0.004 240); --muted:oklch(0.66 0.012 240);
+    --card-bg:oklch(0.24 0.012 240); --border:oklch(0.33 0.012 240); --rule:oklch(0.42 0.012 240);
+    --accent:oklch(0.72 0.13 235); --accent-dim:oklch(0.55 0.12 235);
+    --ok:oklch(0.72 0.14 150); --warn:oklch(0.74 0.13 55); --bad:oklch(0.70 0.16 25);
+    --info:oklch(0.72 0.10 210);
+    --stale:oklch(0.74 0.13 55); --stale-bg:oklch(0.28 0.05 60); --code-bg:oklch(0.27 0.012 240);
   }
 }
 * { box-sizing:border-box; }
 html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
-  font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-variant-numeric: tabular-nums; }
+  font:14px/1.55 var(--font-sans);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing:antialiased; }
 code, .mono, .id, .statusline, .lane h2, .count, .tagline, .kv dt {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  font-family: var(--font-mono); }
 
 header.top { position:sticky; top:0; z-index:5; background:var(--bg);
   border-bottom:2px solid var(--rule); padding:14px 22px 10px; }
 header.top h1 { margin:0; font-size:17px; letter-spacing:0.14em; text-transform:uppercase;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  font-family:var(--font-mono); }
 header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em; font-weight:400;
   display:block; margin-top:2px; text-transform:none; }
 .statusline { margin-top:8px; font-size:11.5px; color:var(--muted);
@@ -558,7 +615,7 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 
 .stale { background:var(--stale-bg); border:1px solid var(--stale);
   border-left:6px solid var(--stale); padding:12px 18px; margin:14px 22px 0;
-  font-family: ui-monospace, Menlo, monospace; font-size:12.5px; }
+  font-family:var(--font-mono); font-size:12.5px; }
 .stale h2 { margin:0 0 6px; font-size:13px; letter-spacing:0.1em; text-transform:uppercase;
   color:var(--stale); }
 .stale ul { margin:4px 0 0 18px; padding:0; }
@@ -566,11 +623,75 @@ header.top h1 .gen { color:var(--muted); font-size:10.5px; letter-spacing:0.08em
 
 .summary { padding:10px 22px 2px; font-size:11.5px; color:var(--muted);
   display:flex; gap:0; flex-wrap:wrap;
-  font-family: ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 .summary span { padding:2px 10px; border-right:1px solid var(--border); }
 .summary span:first-child { padding-left:0; }
 .summary span:last-child { border-right:none; }
 .summary b { color:var(--fg); }
+
+/* BOARD-AUTONOMY-PROGRESS-1 — last-24h progress counter + recent-work feed */
+.autonomy { margin:12px 22px 0; border:1px solid var(--border); border-left:6px solid var(--accent);
+  background:var(--code-bg); }
+.autonomy .hd { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:12px 18px 6px; }
+.autonomy .hd .lbl { font-family:var(--font-mono); font-size:11px; letter-spacing:0.14em;
+  text-transform:uppercase; color:var(--muted); }
+.autonomy .hd .metric { font-family:var(--font-mono); font-weight:700;
+  font-size:34px; line-height:1; color:var(--accent); letter-spacing:0.02em; }
+.autonomy .hd .metric .den { color:var(--muted); font-size:22px; }
+.autonomy .hd .sub { font-size:11.5px; color:var(--muted); }
+.autonomy details { border-top:1px dashed var(--border); }
+.autonomy details > summary { cursor:pointer; list-style:none; padding:7px 18px; font-size:11.5px;
+  font-family:var(--font-mono); letter-spacing:0.06em; color:var(--muted); }
+.autonomy details > summary::-webkit-details-marker { display:none; }
+.autonomy details > summary::marker { content:""; }
+.autonomy .feed { margin:0; padding:0 18px 12px; list-style:none; }
+.autonomy .feed li { display:flex; align-items:flex-start; gap:10px; padding:7px 0;
+  border-top:1px solid var(--border); font-size:12.5px; }
+.autonomy .feed li:first-child { border-top:none; }
+.autonomy .feed .oc { font-family:var(--font-mono); font-size:9.5px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; padding:2px 7px; border:1px solid var(--border);
+  white-space:nowrap; }
+.autonomy .feed .oc.built { color:var(--ok); border-color:var(--ok); }
+.autonomy .feed .oc.parked { color:var(--muted); }
+.autonomy .feed .oc.waiting_operator { color:var(--info); border-color:var(--info); }
+.autonomy .feed .oc.shipped, .autonomy .feed .oc.done { color:var(--accent); border-color:var(--accent); }
+.autonomy .feed .fhd { flex:1; }
+.autonomy .feed .ft { color:var(--muted); font-size:10.5px; font-family:var(--font-mono); }
+.autonomy .feed button.ack { font-family:var(--font-mono); font-size:10px;
+  letter-spacing:0.06em; padding:3px 9px; cursor:pointer; background:var(--code-bg); color:var(--fg);
+  border:1px solid var(--border); white-space:nowrap; }
+.autonomy .feed button.ack:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.autonomy .feed button.ack:disabled { opacity:0.4; cursor:default; }
+.autonomy .feed .empty { color:var(--muted); padding:8px 0; font-size:12px; }
+/* acked state (pending apply, before the next groom culls it) */
+.autonomy .feed li.acked { opacity:0.6; }
+.autonomy .feed li.acked .fhd { text-decoration:line-through; text-decoration-color:var(--muted); }
+.autonomy .feed .ackmark { font-family:var(--font-mono); font-size:10px;
+  letter-spacing:0.06em; color:var(--ok); white-space:nowrap; border:1px solid var(--ok);
+  padding:3px 9px; }
+/* operator decision, queued from the feed (pending apply) */
+.autonomy .feed .decision-chip { display:block; margin-top:4px; font-family:var(--font-mono);
+  font-size:10.5px; color:var(--info); border-left:2px solid var(--info); padding-left:7px; }
+.autonomy .feed li.decision-row { border-top:none; padding-top:0; }
+.autonomy .feed .feed-instruct { flex:1; margin-top:0; }
+.autonomy .feed .feed-instruct input { flex:1; font-family:var(--font-mono);
+  font-size:11px; padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.autonomy .feed .feed-instruct input:focus { outline:none; border-color:var(--accent); }
+.autonomy .feed .feed-instruct button { font-family:var(--font-mono); font-size:10.5px;
+  padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.autonomy .feed .feed-instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.autonomy .feed .feed-instruct button:disabled { opacity:0.4; cursor:default; }
+/* waiting_operator free-form instruction box (WAITING-OP-INSTRUCTIONS-1) */
+.instruct { margin-top:8px; display:flex; gap:6px; }
+.instruct input { flex:1; font-family:var(--font-mono); font-size:11px;
+  padding:4px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--border); }
+.instruct input:focus { outline:none; border-color:var(--accent); }
+.instruct button { font-family:var(--font-mono); font-size:10.5px; letter-spacing:0.06em;
+  padding:3px 10px; cursor:pointer; background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
+.instruct button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.instruct button:disabled { opacity:0.4; cursor:default; }
+.pending-chip.op-instruct { background:transparent; color:var(--info); border-color:var(--info); }
+.pending-chip.op-ack { background:transparent; color:var(--ok); border-color:var(--ok); }
 
 main.board { padding:6px 22px 30px; }
 .lane { margin-top:18px; }
@@ -584,7 +705,7 @@ main.board { padding:6px 22px 30px; }
 .lane .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr));
   gap:10px; padding-top:10px; }
 .lane .none { color:var(--muted); font-size:11px; padding:8px 0 0;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 
 .card { background:var(--card-bg); border:1px solid var(--border);
   border-left:3px solid var(--muted); padding:9px 12px 8px; }
@@ -597,7 +718,7 @@ main.board { padding:6px 22px 30px; }
 .card summary::marker { content:""; }
 .card .id { color:var(--accent); font-size:11px; letter-spacing:0.04em; }
 .card .apl { float:right; font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase;
-  font-family:ui-monospace, Menlo, monospace; color:var(--muted); }
+  font-family:var(--font-mono); color:var(--muted); }
 .card.ap-blocked .apl { color:var(--bad); }
 .card.ap-unreviewed .apl { color:var(--warn); }
 .card .title { font-weight:600; margin-top:2px; display:block; font-size:13.5px; line-height:1.35; }
@@ -617,18 +738,18 @@ code { background:var(--code-bg); padding:1px 5px; font-size:0.92em; }
 
 section.extras { margin:26px 22px 0; border-top:1px solid var(--rule); padding-top:12px; }
 section.extras h2 { font-size:12px; letter-spacing:0.16em; text-transform:uppercase;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
-  font-family:ui-monospace, Menlo, monospace; }
+  font-family:var(--font-mono); }
 /* --- operator disposition UI (KHOST-2) --- */
 .actions { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
-.actions button { font-family:ui-monospace, Menlo, monospace; font-size:10.5px;
+.actions button { font-family:var(--font-mono); font-size:10.5px;
   letter-spacing:0.06em; padding:3px 9px; cursor:pointer;
   background:var(--code-bg); color:var(--fg); border:1px solid var(--border); }
 .actions button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
 .actions button:disabled { opacity:0.4; cursor:default; }
 .pending-chip { display:inline-block; margin-top:6px; margin-right:6px;
-  font-family:ui-monospace, Menlo, monospace; font-size:10px; letter-spacing:0.08em;
+  font-family:var(--font-mono); font-size:10px; letter-spacing:0.08em;
   text-transform:uppercase; padding:2px 8px; font-weight:600;
   background:var(--stale-bg); color:var(--stale); border:1px solid var(--stale); }
 .pending-chip.op-done     { background:transparent; color:var(--ok); border-color:var(--ok); }
@@ -641,7 +762,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 .lane.drop-ok { outline:2px dashed var(--accent); outline-offset:4px; }
 #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
   background:var(--fg); color:var(--bg); padding:8px 16px; font-size:12px;
-  font-family:ui-monospace, Menlo, monospace; z-index:20; display:none; }
+  font-family:var(--font-mono); z-index:20; display:none; }
 @media (max-width:720px) {
   main.board, .summary, header.top { padding-left:12px; padding-right:12px; }
   .stale { margin:10px 12px 0; }
@@ -662,11 +783,13 @@ BOARD_JS = """
     if (toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toastEl.style.display = 'none'; }, 3200);
   }
-  function post(cardId, action) {
+  function post(cardId, action, extra) {
+    var body = { card_id: cardId, action: action, at: new Date().toISOString() };
+    if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) body[k] = extra[k]; } }
     return fetch('api/disposition', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ card_id: cardId, action: action, at: new Date().toISOString() })
+      body: JSON.stringify(body)
     }).then(function (r) {
       if (!r.ok) throw new Error('http ' + r.status);
       return r;
@@ -700,6 +823,126 @@ BOARD_JS = """
       });
     });
   });
+
+  // WAITING-OP-INSTRUCTIONS-1 — free-form instruction send
+  document.querySelectorAll('.card .instruct').forEach(function (box) {
+    var input = box.querySelector('input');
+    var btn = box.querySelector('button[data-action="instruct"]');
+    if (!input || !btn) return;
+    function send() {
+      var text = (input.value || '').trim();
+      if (!text) { input.focus(); return; }
+      var card = btn.closest('.card');
+      btn.disabled = true; input.disabled = true;
+      post(card.getAttribute('data-id'), 'instruct', { text: text }).then(function () {
+        addChip(card, 'instruct');
+        input.value = '';
+        toast('instruction queued');
+      }).catch(function () {
+        btn.disabled = false; input.disabled = false;
+        readOnlyToast();
+      });
+    }
+    btn.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); send(); });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); send(); }
+    });
+    // keep clicks inside the box from toggling the <details> card
+    box.addEventListener('click', function (ev) { ev.stopPropagation(); });
+  });
+
+  // BOARD-AUTONOMY-PROGRESS-1 — acknowledge / decide on recent-work feed entries.
+  // The board is served as a CACHED STATIC file (re-rendered every ~5min by the
+  // refresh cron), so a click's state must survive a reload BEFORE the next
+  // render. Two layers: (1) the server render already paints the acked/decided
+  // state by reading the pending queue (durable); (2) a localStorage echo
+  // re-applies it instantly on reload in the gap before that render lands.
+  var LS_ACK = 'ura_kanban_acked';      // {fid: true}
+  var LS_DEC = 'ura_kanban_decided';    // {card_id: text}
+  function lsGet(k) { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch (e) { return {}; } }
+  function lsSet(k, o) { try { localStorage.setItem(k, JSON.stringify(o)); } catch (e) {} }
+
+  function markAcked(li) {
+    if (!li || li.classList.contains('acked')) return;
+    li.classList.add('acked');
+    var btn = li.querySelector('button.ack');
+    if (btn) {
+      var mark = document.createElement('span');
+      mark.className = 'ackmark';
+      mark.textContent = '✓ acked — pending apply';
+      btn.replaceWith(mark);
+    }
+  }
+  function markDecided(cardId, text) {
+    document.querySelectorAll('.autonomy .feed li[data-card="' + (window.CSS && CSS.escape ? CSS.escape(cardId) : cardId) + '"]').forEach(function (li) {
+      if (li.classList.contains('decision-row')) return;  // the input row itself
+      if (li.querySelector('.decision-chip')) return;
+      var chip = document.createElement('span');
+      chip.className = 'decision-chip';
+      chip.textContent = 'decision queued: "' + text + '" — pending apply';
+      var fhd = li.querySelector('.fhd');
+      if (fhd) fhd.appendChild(chip);
+    });
+  }
+
+  document.querySelectorAll('.autonomy .feed button.ack').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var fid = btn.getAttribute('data-fid');
+      var li = btn.closest('li');
+      btn.disabled = true;
+      post(fid, 'ack').then(function () {
+        markAcked(li);                       // mark in place — do NOT remove
+        var a = lsGet(LS_ACK); a[fid] = true; lsSet(LS_ACK, a);
+        toast('acknowledged — culled at next groom');
+      }).catch(function () {
+        btn.disabled = false;
+        readOnlyToast();
+      });
+    });
+  });
+
+  // Inline DECISION box on waiting_operator feed rows (action=instruct on the card).
+  document.querySelectorAll('.autonomy .feed .feed-instruct').forEach(function (box) {
+    var input = box.querySelector('input');
+    var btn = box.querySelector('button[data-action="instruct"]');
+    var row = box.closest('li');
+    if (!input || !btn || !row) return;
+    var cardId = row.getAttribute('data-card');
+    function send() {
+      var text = (input.value || '').trim();
+      if (!text) { input.focus(); return; }
+      btn.disabled = true; input.disabled = true;
+      post(cardId, 'instruct', { text: text }).then(function () {
+        markDecided(cardId, text);
+        var d = lsGet(LS_DEC); d[cardId] = text; lsSet(LS_DEC, d);
+        input.value = '';
+        toast('decision queued — applied at next groom');
+      }).catch(function () {
+        btn.disabled = false; input.disabled = false;
+        readOnlyToast();
+      });
+    }
+    btn.addEventListener('click', function (ev) { ev.preventDefault(); send(); });
+    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); send(); } });
+  });
+
+  // On-load shim: re-apply acked/decided state from localStorage, so a reload
+  // in the gap before the next static re-render still shows the operator's action.
+  (function () {
+    var a = lsGet(LS_ACK);
+    Object.keys(a).forEach(function (fid) {
+      document.querySelectorAll('.autonomy .feed li[data-fid="' + (window.CSS && CSS.escape ? CSS.escape(fid) : fid) + '"]').forEach(markAcked);
+    });
+    var d = lsGet(LS_DEC);
+    Object.keys(d).forEach(function (cardId) { markDecided(cardId, d[cardId]); });
+    // Prune localStorage entries the server has since culled (feed row gone).
+    var liveFids = {}, liveCards = {};
+    document.querySelectorAll('.autonomy .feed li[data-fid]').forEach(function (li) { liveFids[li.getAttribute('data-fid')] = 1; });
+    document.querySelectorAll('.autonomy .feed li[data-card]').forEach(function (li) { liveCards[li.getAttribute('data-card')] = 1; });
+    var a2 = {}; Object.keys(a).forEach(function (f) { if (liveFids[f]) a2[f] = true; }); lsSet(LS_ACK, a2);
+    var d2 = {}; Object.keys(d).forEach(function (c) { if (liveCards[c]) d2[c] = d[c]; }); lsSet(LS_DEC, d2);
+  })();
 
   // Drag between columns
   var draggingCard = null;
@@ -779,6 +1022,15 @@ def render_html(data: dict, meta_extras: dict) -> str:
     parts.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
     parts.append('<meta name="generator" content="kanban_render.py (URA)">')
     parts.append('<title>URA Kanban</title>')
+    parts.append('<meta name="theme-color" content="#fafaf8">')
+    parts.append(f'<link rel="icon" type="image/png" href="{URA_FAVICON}">')
+    # URA brand fonts (same two the site loads): Hanken Grotesk + JetBrains Mono.
+    # System fallbacks in the stacks keep it legible if Google Fonts is blocked.
+    parts.append('<link rel="preconnect" href="https://fonts.googleapis.com">')
+    parts.append('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>')
+    parts.append('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
+                 'family=Hanken+Grotesk:ital,wght@0,300..800;1,300..700&'
+                 'family=JetBrains+Mono:wght@400;500&display=swap">')
     parts.append(f'<style>{CSS}</style>')
     parts.append('</head><body>')
 
@@ -801,6 +1053,61 @@ def render_html(data: dict, meta_extras: dict) -> str:
             parts.append(f'<li>{_h(r)}</li>')
         parts.append('</ul><div style="margin-top:6px">Reconcile <code>meta.last_reconciled</code> '
                      'and move shipped cards before picking next work.</div></div>')
+
+    # BOARD-AUTONOMY-PROGRESS-1 — last-24h progress counter + recent-work feed.
+    stats = autonomy_stats(data)
+    parts.append('<section class="autonomy">')
+    parts.append('<div class="hd">')
+    parts.append('<span class="lbl">Board progress · last 24h</span>')
+    parts.append(f'<span class="metric">{stats["num"]}<span class="den"> / {stats["denom"]}</span></span>')
+    parts.append('<span class="sub">cards concluded autonomously in the last 24h · '
+                 'denominator = open cards (all minus done), shrinks as work completes</span>')
+    parts.append('</div>')
+    live = stats["live"]
+    pending = meta_extras.get("pending", {}) or {}
+    if live:
+        parts.append(f'<details open><summary>recent autonomous work — {len(live)} '
+                     'unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>')
+        parts.append('<ul class="feed">')
+        for e in live:
+            oc = str(e.get("outcome", "")).strip() or "done"
+            fid = str(e.get("fid", ""))
+            card_id = fid.split("@", 1)[0] if "@" in fid else fid
+            # Pending-queue overlay (the durable acked/decided state between an
+            # operator click and the next groom — survives reload because the
+            # render reads the queue). ack keys on the feed fid; instruct
+            # (decision) keys on the underlying card id.
+            acked = any(d.get("action") == "ack" for d in pending.get(fid, []))
+            decisions = [d.get("text", "") for d in pending.get(card_id, [])
+                         if d.get("action") == "instruct" and d.get("text")]
+            li_cls = "acked" if acked else ""
+            parts.append(f'<li class="{li_cls}" data-fid="{_h(fid)}" data-card="{_h(card_id)}">')
+            parts.append(f'<span class="oc {_h(oc)}">{_h(oc)}</span>')
+            parts.append('<span class="fhd">' + _h(str(e.get("headline", "")))
+                         + f'<br><span class="ft">{_h(str(e.get("at", "")))}</span>')
+            if decisions:
+                parts.append(f'<span class="decision-chip">decision queued: '
+                             f'"{_h(decisions[-1])}" — pending apply</span>')
+            parts.append('</span>')
+            # action column: acked-state vs ack button
+            if acked:
+                parts.append('<span class="ackmark">✓ acked — pending apply</span>')
+            else:
+                parts.append(f'<button type="button" class="ack" data-fid="{_h(fid)}">✓ ack</button>')
+            parts.append('</li>')
+            # waiting_operator feed entries get an inline DECISION box too, so the
+            # operator can decide straight from the progress digest (not just on
+            # the card in its lane). Posts action=instruct against the CARD id.
+            if oc == "waiting_operator":
+                parts.append(f'<li class="decision-row" data-card="{_h(card_id)}">'
+                             '<span class="oc"></span>'
+                             '<div class="instruct feed-instruct">'
+                             f'<input type="text" placeholder="decision for {_h(card_id)}…" '
+                             'aria-label="operator decision">'
+                             '<button type="button" data-action="instruct">send</button>'
+                             '</div></li>')
+        parts.append('</ul></details>')
+    parts.append('</section>')
 
     parts.append('<div class="summary">')
     for key, emoji, label, _ in COLUMN_META:
@@ -885,8 +1192,10 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     for disp in (pending or {}).get(cid, []):
         act = disp["action"]
         chip_cls = "op-move" if act.startswith("move:") else f"op-{act}"
+        txt = disp.get("text")
+        suffix = f': "{_h(txt)}"' if txt else ""
         out.append(f'<span class="pending-chip {_h(chip_cls)}" title="at {_h(disp["at"])}">'
-                   f'OPERATOR: {_h(act)} — pending apply</span>')
+                   f'OPERATOR: {_h(act)}{suffix} — pending apply</span>')
     if approval and approval != "implied":
         out.append(f'<span class="apl">{_h(approval)}</span>')
     out.append(f'<span class="title">{_h(title)}</span>')
@@ -976,6 +1285,15 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
                '<button type="button" data-action="declined">✕ declined</button>'
                + extra +
                '</div>')
+    # WAITING-OP-INSTRUCTIONS-1: free-form instruction channel on the operator
+    # decision queue — the operator types HOW to resolve; the agent applies it
+    # (action=instruct, with text) at session start.
+    if str(c.get("status", "")) == "waiting_operator":
+        out.append('<div class="instruct">'
+                   '<input type="text" placeholder="instruction for the agent…" '
+                   'aria-label="operator instruction">'
+                   '<button type="button" data-action="instruct">send</button>'
+                   '</div>')
     out.append('</div></details>')
     return "".join(out)
 

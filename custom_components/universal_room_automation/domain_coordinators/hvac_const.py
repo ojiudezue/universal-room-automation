@@ -492,6 +492,20 @@ OVERRIDE_SEVERE_GRACE_MINUTES: Final = 2  # grace before reverting severe
 OVERRIDE_NORMAL_GRACE_MINUTES: Final = 5  # grace before compromise on normal
 OVERRIDE_COAST_TOLERANCE_BONUS: Final = 1.0  # F — widen tolerance during energy coast
 
+# ARRESTER-CLOUDFLAP-FALSEPOS-1 (2026-09-12): after a Carrier cloud fault the
+# thermostat entity returns from `unavailable` and the ha_carrier integration
+# may re-post preset/setpoint attributes a tick or two after `available`, which
+# the override-detector would otherwise book as a phantom manual override.
+# Primary signal is `old_state.state == "unavailable"` on the triggering event
+# (verified: all 3 zones drop+recover in the SAME tick, 0.000s spread, 11/11);
+# this grace absorbs the follow-up ticks where old_state is now a normal
+# state but attributes are still settling. Kept short so a GENUINE
+# single-zone human override (siblings untouched, no recent recovery stamp)
+# is UNTOUCHED. Numbers-Get-Knobs rung 1 (module const): a change here is a
+# safety-shaped decision (mis-suppresses a real override) so must ride code
+# review, not an operator entity.
+OVERRIDE_RECONNECT_GRACE_S: Final = 30
+
 # AC Reset (legacy v3.8.3 — preserved for hard-reset escalation path)
 AC_RESET_MAX_PER_DAY: Final = 2  # max resets per zone per day
 AC_RESET_STUCK_MINUTES: Final = 10  # minutes past setpoint before reset

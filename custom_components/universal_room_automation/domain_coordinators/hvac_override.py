@@ -110,6 +110,7 @@ from .hvac_const import (
     OVERRIDE_COAST_TOLERANCE_BONUS,
     OVERRIDE_NORMAL_DELTA,
     OVERRIDE_NORMAL_GRACE_MINUTES,
+    OVERRIDE_RECONNECT_GRACE_S,
     OVERRIDE_SEVERE_DELTA,
     OVERRIDE_SEVERE_GRACE_MINUTES,
 )
@@ -207,6 +208,12 @@ class OverrideArrester:
         # set_hvac_mode + set_preset_mode in _revert_override) stays
         # suppressed across all of them. Window self-clears on TTL expiry.
         self._suppressed_until: dict[str, datetime] = {}
+        # ARRESTER-CLOUDFLAP-FALSEPOS-1: per-entity last-recovery timestamp
+        # (unavailable -> available). Used by _handle_climate_change to
+        # suppress phantom override detections during a Carrier cloud-fault
+        # reconnect. Populated ONLY on a real reconnect transition; not
+        # otherwise touched. Bounded by number of climate entities tracked.
+        self._last_reconnect_at: dict[str, datetime] = {}
         # FIX B1: tag each active suppression with a KIND so the
         # manual-passthrough (~:660) can distinguish induced-manual from
         # a URA temp-write ("temp") vs a URA preset-write ("preset") vs
@@ -2725,6 +2732,82 @@ class OverrideArrester:
 
         if new_state is None or old_state is None:
             return
+
+        # ================================================================
+        # ARRESTER-CLOUDFLAP-FALSEPOS-1 (2026-09-12): reconnect guard.
+        # MUST run BEFORE `_is_genuine_manual` (D1 fix, review 2026-09-12):
+        # a URA revert/compromise opens `_suppressed_until` for
+        # SUPPRESS_TTL_SECONDS. If a Carrier fault + reconnect lands inside
+        # that window, `_is_genuine_manual` returns False and we would
+        # early-return WITHOUT stamping `_last_reconnect_at`. Then
+        # ha_carrier's post-window preset re-post (old_state=<normal>,
+        # new_state=manual) would be genuine=True with an inert grace and
+        # book the phantom override anyway (Bug Class #53, one missed path).
+        # Stamping unconditionally on every reconnect closes that leak.
+        #
+        # Measurement (recorder ~6d): all 3 Carrier zones drop AND recover
+        # in the SAME event-loop tick, spread 0.000s across 11/11 events,
+        # zero single-zone flaps in-window — so a per-event
+        # `old_state.state == "unavailable"` gate is equivalent to a
+        # 3-zone-simultaneous discriminator with none of the cross-zone
+        # machinery. A short OVERRIDE_RECONNECT_GRACE_S grace covers
+        # follow-up ticks where old_state is now a normal value but
+        # attributes are still settling.
+        #
+        # D2 (2026-09-12): use `dt_util.utcnow()` for stamp + age math —
+        # local `now()` is DST/NTP-step-back-sensitive and can produce
+        # negative ages that silently disable the grace.
+        #
+        # INVARIANT PRESERVED: a genuine single-zone human override —
+        # old_state is a normal state, no recent reconnect stamp for this
+        # entity — flows through UNCHANGED.
+        try:
+            old_state_v = event.data.get("old_state")
+            new_state_v = event.data.get("new_state")
+            old_ent_state = (
+                getattr(old_state_v, "state", None) if old_state_v is not None else None
+            )
+            new_ent_state = (
+                getattr(new_state_v, "state", None) if new_state_v is not None else None
+            )
+        except Exception:  # noqa: BLE001
+            old_ent_state = None
+            new_ent_state = None
+        if old_ent_state == "unavailable" and new_ent_state != "unavailable":
+            # Real reconnect transition — stamp UNCONDITIONALLY (before
+            # the suppression-TTL gate) and suppress this event.
+            try:
+                self._last_reconnect_at[entity_id] = dt_util.utcnow()
+            except Exception:  # noqa: BLE001
+                pass
+            _LOGGER.info(
+                "Arrester reconnect suppression: %s came back from "
+                "unavailable; stamping recovery + ignoring this state-"
+                "change as a potential cloud-fault re-post (grace=%ds)",
+                entity_id, OVERRIDE_RECONNECT_GRACE_S,
+            )
+            return
+        # Follow-up-tick grace: entity is available now but was
+        # unavailable within the last OVERRIDE_RECONNECT_GRACE_S. Also
+        # runs BEFORE `_is_genuine_manual` so ha_carrier's post-window
+        # preset re-post is still caught by the grace even after the
+        # suppress-TTL has expired.
+        recon_at = self._last_reconnect_at.get(entity_id)
+        if recon_at is not None:
+            try:
+                age_s = (dt_util.utcnow() - recon_at).total_seconds()
+            except Exception:  # noqa: BLE001
+                age_s = None
+            if age_s is not None and 0 <= age_s < OVERRIDE_RECONNECT_GRACE_S:
+                _LOGGER.debug(
+                    "Arrester reconnect suppression: %s within post-"
+                    "reconnect grace (age=%.1fs); ignoring state-change",
+                    entity_id, age_s,
+                )
+                return
+            # Stale stamp — drop to keep the dict bounded.
+            if age_s is None or age_s >= OVERRIDE_RECONNECT_GRACE_S:
+                self._last_reconnect_at.pop(entity_id, None)
 
         # ARREST-COMFORT-1 Cycle A rev-2 L1: suppression-TTL filter is now
         # the single predicate _is_genuine_manual. Behavior-preserving

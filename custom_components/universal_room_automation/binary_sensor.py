@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.100.9
+# Universal Room Automation vv5.101.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1550,7 +1550,21 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return True when cameras see more persons than BLE can identify."""
+        """Return True when cameras see a person that neither face NOR BLE can identify.
+
+        UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1: migrated off the naive
+        ``camera_total > ble_total`` comparison — a second, BLE-only
+        derivation of the same quantity behind the historical GUEST
+        double-count — to the canonical DEDUPED
+        ``house.unidentified_count`` (``camera_total`` minus the UNION of
+        face_ids and ble_ids), the exact value ``guest_count`` already
+        exposes. The naive form over-fired because BLE-active undercounts
+        known persons (a face-recognised resident with no active BLE would
+        inflate the naive camera-minus-BLE difference). When face
+        recognition is degraded the identity union collapses to BLE-only, so
+        ``unidentified_count`` falls back to ~the prior camera-minus-BLE
+        value rather than going silent (fails toward alerting, not away).
+        """
         census = self.hass.data.get(DOMAIN, {}).get("census")
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
 
@@ -1558,9 +1572,14 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
             return False
 
         result = census.last_result
-        self._camera_total = result.house.total_persons if result else 0
+        if not result:
+            self._camera_total = 0
+            self._ble_total = 0
+            return False
 
-        # Count active BLE persons (known, currently tracked as home)
+        self._camera_total = result.house.total_persons
+
+        # Keep _ble_total populated for the diagnostic attributes / parity.
         ble_active: list[str] = []
         if person_coordinator.data:
             ble_active = [
@@ -1569,7 +1588,7 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
             ]
         self._ble_total = len(ble_active)
 
-        return self._camera_total > self._ble_total
+        return result.house.unidentified_count > 0
 
     @property
     def extra_state_attributes(self) -> dict:
