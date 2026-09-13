@@ -50,6 +50,14 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
+# EVSE-CHARGE-ONSET-NOT-HELD-1 C-LOW-1 / A-LOW / B-LOW: import the CONF
+# key rather than hardcoding the string literal in the write-back sites.
+# A rename would otherwise move the coord seed (energy.py:481-483) but
+# not the writer (silent drift — the exact failure shape this cycle
+# fixes at the persistence layer).
+from .domain_coordinators.energy_const import (
+    CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1384,13 +1392,13 @@ class ECEVChargeOnsetEnabledSwitch(_ECEVChargeOnsetEnabledBase):
         try:
             entry = self._entry
             current = entry.options.get(
-                "energy_evse_charge_onset_enabled", None,
+                _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED, None,
             )
             if current == bool(value):
                 return
             new_options = {
                 **entry.options,
-                "energy_evse_charge_onset_enabled": bool(value),
+                _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED: bool(value),
             }
             self.hass.config_entries.async_update_entry(
                 entry, options=new_options,
@@ -1437,12 +1445,22 @@ class ECEVChargeOnsetEnabledSwitch(_ECEVChargeOnsetEnabledBase):
         energy = self._get_energy()
         if energy is None:
             return
+        # A-LOW: isolate the persistence write-back so a setter exception
+        # cannot silently skip it (reload-resilience must survive fanout
+        # errors — else stale entry.options re-emerges on next reload).
+        current = getattr(energy, "_ev_charge_onset_enabled", False)
+        # Persist FIRST — cheapest and independent of setter health.
+        try:
+            self._write_back_options(bool(current))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EVChargeOnsetEnabledSwitch: _sync_after_restore write-back "
+                "raised", exc_info=True,
+            )
         try:
             fn = getattr(energy, "set_ev_charge_onset_enabled", None)
-            current = getattr(energy, "_ev_charge_onset_enabled", False)
             if callable(fn):
                 fn(bool(current))
-            self._write_back_options(bool(current))
         except Exception:  # noqa: BLE001
             pass
 
