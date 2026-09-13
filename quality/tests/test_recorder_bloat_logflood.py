@@ -254,3 +254,97 @@ def test_camera_census_resolve_camera_entity_warn_once_missing():
     assert "_unresolved_warned.discard(camera_entity_id)" in body, (
         "resolve_camera_entity missing warn-once RE-ARM on resolved entity"
     )
+
+
+# ---------------------------------------------------------------------------
+# D4 (attribute-churn recorder bloat) — `_unrecorded_attributes` anchors.
+#
+# The three per-refresh diagnostic timestamps
+# (SafetyStatusSensor.last_check, PersonRoutineStatusSensor.last_check_at,
+# SecurityComplianceSensor.last_check) each ticked on every entity
+# refresh, forcing the recorder to write a new state_attributes payload
+# despite a stable state value (~675K states/week for
+# sensor.ura_safety_coordinator_safety_status). HA's
+# `_unrecorded_attributes` frozenset strips those keys from the
+# serialized shared_attrs payload the recorder stores (verified against
+# .venv-ha homeassistant/helpers/entity.py:518, 563 and
+# components/recorder/db_schema.py:565-568). Live-state consumers still
+# see the attribute; only the recorder ignores it.
+#
+# These tests parse sensor.py's AST rather than importing the classes to
+# avoid pulling the full custom_components import graph. Mutation drill:
+# removing the key from any of the three class definitions fails the
+# matching assertion.
+# ---------------------------------------------------------------------------
+def _sensor_class_unrecorded_attrs(class_name: str) -> frozenset[str] | None:
+    """Return the literal frozenset({...}) declared on a class in
+    sensor.py, or None if the class declares no _unrecorded_attributes."""
+    p = os.path.join(
+        _CC, "universal_room_automation", "sensor.py",
+    )
+    with open(p) as fh:
+        tree = ast.parse(fh.read())
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == class_name):
+            continue
+        for stmt in node.body:
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == "_unrecorded_attributes"
+            ):
+                # Expect: frozenset({"key", ...})
+                call = stmt.value
+                if (
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id == "frozenset"
+                    and call.args
+                    and isinstance(call.args[0], ast.Set)
+                ):
+                    keys = {
+                        el.value for el in call.args[0].elts
+                        if isinstance(el, ast.Constant)
+                        and isinstance(el.value, str)
+                    }
+                    return frozenset(keys)
+        return None
+    raise AssertionError(f"class {class_name} not found in sensor.py")
+
+
+def test_safety_status_sensor_last_check_unrecorded():
+    """SafetyStatusSensor: the 675K-rows/week churn source."""
+    attrs = _sensor_class_unrecorded_attrs("SafetyStatusSensor")
+    assert attrs is not None, (
+        "SafetyStatusSensor lost its _unrecorded_attributes declaration — "
+        "recorder attribute-churn regression (RECORDER-BLOAT-LOGFLOOD-1)"
+    )
+    assert "last_check" in attrs, (
+        f"SafetyStatusSensor._unrecorded_attributes missing 'last_check'; "
+        f"got {sorted(attrs)}"
+    )
+
+
+def test_person_routine_status_sensor_last_check_at_unrecorded():
+    attrs = _sensor_class_unrecorded_attrs("PersonRoutineStatusSensor")
+    assert attrs is not None, (
+        "PersonRoutineStatusSensor lost its _unrecorded_attributes declaration"
+    )
+    assert "last_check_at" in attrs, (
+        f"PersonRoutineStatusSensor._unrecorded_attributes missing "
+        f"'last_check_at'; got {sorted(attrs)}"
+    )
+
+
+def test_security_compliance_sensor_last_check_unrecorded():
+    """SecurityComplianceSensor pulls last_check via
+    SecurityCoordinator.get_compliance_summary() (security.py:2463)."""
+    attrs = _sensor_class_unrecorded_attrs("SecurityComplianceSensor")
+    assert attrs is not None, (
+        "SecurityComplianceSensor lost its _unrecorded_attributes declaration"
+    )
+    assert "last_check" in attrs, (
+        f"SecurityComplianceSensor._unrecorded_attributes missing "
+        f"'last_check'; got {sorted(attrs)}"
+    )

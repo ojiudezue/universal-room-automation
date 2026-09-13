@@ -6495,6 +6495,15 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:shield-check"
+    # RECORDER-BLOAT-LOGFLOOD-1: `last_check` is a per-refresh
+    # dt_util.utcnow() diagnostic timestamp with no programmatic consumer
+    # (grep of custom_components/ finds only this producer site, no reader).
+    # Marking it unrecorded keeps it visible on the live state but stops it
+    # from generating a new state_attributes payload every refresh (was
+    # ~675K states rows/week on a 4-value state). See HA
+    # `Entity._unrecorded_attributes` at helpers/entity.py:518,563 and its
+    # consumption in components/recorder/db_schema.py:565-568.
+    _unrecorded_attributes = frozenset({"last_check"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -7077,6 +7086,13 @@ class SecurityComplianceSensor(AggregationEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:lock-check"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # RECORDER-BLOAT-LOGFLOOD-1: `last_check` flows in from
+    # SecurityCoordinator.get_compliance_summary() (security.py:2463) and
+    # is a per-call dt_util.utcnow() diagnostic timestamp with no
+    # programmatic consumer. Unrecorded so signal-driven refreshes don't
+    # spawn a new state_attributes payload each tick while compliance_rate
+    # is stable.
+    _unrecorded_attributes = frozenset({"last_check"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -14982,6 +14998,12 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
     _attr_icon = "mdi:account-clock"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = True
+    # RECORDER-BLOAT-LOGFLOOD-1: `last_check_at` is a per-cache-refresh
+    # dt_util.utcnow() diagnostic timestamp with no programmatic consumer
+    # (only producer sites in the same file). Unrecorded so signal-driven
+    # refreshes don't spawn a new state_attributes row while the routine
+    # state (stable/drifting/shifted/major_shift) is unchanged.
+    _unrecorded_attributes = frozenset({"last_check_at"})
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, person_id: str
