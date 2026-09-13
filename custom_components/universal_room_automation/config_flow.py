@@ -38,6 +38,10 @@ except Exception:  # noqa: BLE001 — tests may mock without data_entry_flow
 
 _LOGGER = logging.getLogger(__name__)
 
+# CONFIG-FLOW-SLOW-ONBOARDING-1: diagnostic entry/exit timing on every
+# async_step_* handler. See _cflow_timing.py for gate + log format.
+from ._cflow_timing import instrument_flow  # noqa: E402
+
 from .const import (
     DOMAIN,
     # v3.0.0 Entry types
@@ -641,6 +645,7 @@ MIRROR_KEYS_ZONE_DPM: frozenset[str] = frozenset({
 })
 
 
+@instrument_flow
 class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Universal Room Automation v3.0.0."""
 
@@ -2971,6 +2976,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         return UniversalRoomAutomationOptionsFlow(config_entry)
 
 
+@instrument_flow
 class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for Universal Room Automation v3.3.3."""
 
