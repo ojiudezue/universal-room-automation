@@ -3487,6 +3487,46 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # restore per-cycle persistence (every cycle re-persists).
 OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S: Final = 86400
 
+# CAMERA-STUCK-SENSOR-TRIPWIRE-1 (2026-09-14) — exterior camera person
+# detectors stuck ON.
+#
+# Why a SEPARATE check from sensor_health: sensor_health is ROOM-keyed.
+# Measured 2026-09-14 it produced 7,970 findings in a month and EVERY
+# target_id was a URA room name — it watches room-score degradation, not
+# sensor liveness. A perimeter camera binary_sensor pinned ON is outside
+# its target universe entirely, which is why a 29.5h stuck sensor went
+# unnoticed (front_side_ptz, 2026-09-10 10:05 -> 09-11 15:37 CDT).
+#
+# THRESHOLD DERIVED FROM MEASUREMENT, not invented. Over 2026-09-06..09-14,
+# excluding the two pathological cameras below, EVERY exterior person
+# detector's p99 ON-duration was <= 355s, and the fleet max was 1562s.
+# 1800s sits ~5x above the worst non-pathological p99 and above every
+# observed non-stuck ON period on 12 of 14 sensors. Backtested over that
+# window it fires exactly twice — the two real incident sensors — and zero
+# times spuriously on the other twelve.
+#
+# Knob rung: module constant. This is a detection bound derived from a
+# measured distribution, not policy an operator tunes by observation; a
+# change should be re-derived from data under review. Kill switch: 0.
+CAMERA_STUCK_ON_THRESHOLD_S: Final = 1800
+
+# Per-camera overrides, because one pathological camera must not be
+# allowed to set the fleet threshold — that is how you end up with a
+# useless 12h trip-wire that misses everything else.
+#   garage_a: p99 2141s (36 min) with a real 3.9h dwell. It is an
+#     INTERIOR-facing egress camera watching a space people legitimately
+#     occupy for long periods, so 1800s would false-fire.
+#   pool_equipment: chronically false-positive at measurement time — 25 ON
+#     periods over 1h in 7.9 days, 53% of wall-clock ON, median 408s vs a
+#     fleet median of ~25s. At 1800s it would fire ~25x/week. Quarantined
+#     at 8h until the underlying detection is fixed. The operator rebooted
+#     this camera 2026-09-14; if it self-corrects, REMOVE this override
+#     rather than leaving a permanent blind spot.
+CAMERA_STUCK_ON_OVERRIDES_S: Final[dict[str, int]] = {
+    "garage_a": 7200,
+    "pool_equipment": 28800,
+}
+
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
 # Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated
 # the noise floor with unactionable "you might tweak X" pages that belonged

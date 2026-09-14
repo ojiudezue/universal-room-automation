@@ -99,6 +99,8 @@ from ..const import (
     OPTIMIZER_DIGEST_TOP_N,
     OPTIMIZER_NOTIFY_DEDUP_CYCLES,
     OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
+    CAMERA_STUCK_ON_THRESHOLD_S,
+    CAMERA_STUCK_ON_OVERRIDES_S,
     OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
@@ -579,6 +581,12 @@ class OptimizationCoordinator(BaseCoordinator):
         self._comfort_out_since: dict[tuple, datetime] = {}
         # Per-room sustained-sensor-stuck tracking.
         self._sensor_stuck_since: dict[tuple, datetime] = {}
+        # CAMERA-STUCK-SENSOR-TRIPWIRE-1: first time each exterior camera
+        # person-detector was seen continuously ON, keyed by camera key.
+        # RAM-only: a restart re-arms, which is correct — we cannot know
+        # from a cold start how long a sensor was already stuck.
+        self._camera_on_since: dict[str, datetime] = {}
+        self._camera_stuck_fired: set[str] = set()
         # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
         # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
         # RAM-only by design: a restart re-persists once per stuck sensor,
@@ -911,6 +919,7 @@ class OptimizationCoordinator(BaseCoordinator):
         evaluators: tuple[tuple[str, Any], ...] = (
             # Phase 1 dimensions.
             ("sensor_health", self._evaluate_sensor_health_dimension),
+            ("camera_stuck", self._evaluate_camera_stuck_dimension),
             ("comfort", self._evaluate_comfort_dimension),
             # Phase 3 — room-level.
             ("occupancy_accuracy", self._evaluate_occupancy_accuracy_dimension),
@@ -1855,6 +1864,109 @@ class OptimizationCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
     # Rule engine — Phase 1 dimensions
     # ------------------------------------------------------------------
+
+    def _evaluate_camera_stuck_dimension(self) -> list[OptimizationFinding]:
+        """Exterior camera person-detectors pinned ON far past normal.
+
+        CAMERA-STUCK-SENSOR-TRIPWIRE-1. sensor_health cannot catch this —
+        it is ROOM-keyed (every one of its 7,970 findings in a month
+        targeted a room), so a perimeter camera binary_sensor stuck ON is
+        outside its target universe. That is how a 29.5h stuck sensor went
+        unnoticed.
+
+        Threshold is derived from a measured distribution (see
+        CAMERA_STUCK_ON_THRESHOLD_S), with per-camera overrides so one
+        pathological camera cannot set the fleet bound.
+
+        Emits at most ONE finding per camera per stuck episode — the
+        `_camera_stuck_fired` latch — so this cannot re-create the
+        per-cycle row flood that B2 just removed. The latch clears when
+        the sensor goes OFF, so a genuine re-stick alerts again.
+        """
+        findings: list[OptimizationFinding] = []
+        if CAMERA_STUCK_ON_THRESHOLD_S <= 0:
+            return findings  # kill switch
+        now = dt_util.utcnow()
+        try:
+            cams = self._exterior_person_sensors()
+        except Exception:  # noqa: BLE001
+            return findings
+        for cam_key, entity_id in cams.items():
+            st = self._state_value(entity_id)
+            is_on = st is not None and str(st.state).lower() == "on"
+            if not is_on:
+                self._camera_on_since.pop(cam_key, None)
+                self._camera_stuck_fired.discard(cam_key)
+                continue
+            first = self._camera_on_since.get(cam_key)
+            if first is None:
+                self._camera_on_since[cam_key] = now
+                continue
+            if cam_key in self._camera_stuck_fired:
+                continue
+            threshold = int(
+                CAMERA_STUCK_ON_OVERRIDES_S.get(
+                    cam_key, CAMERA_STUCK_ON_THRESHOLD_S
+                )
+            )
+            elapsed = (now - first).total_seconds()
+            if elapsed < threshold:
+                continue
+            self._camera_stuck_fired.add(cam_key)
+            findings.append(OptimizationFinding(
+                timestamp=now.isoformat(),
+                level="house",
+                target_id=cam_key,
+                dimension=OptimizationDimension.SENSOR_HEALTH,
+                severity="high",
+                confidence=0.95,
+                score=0.0,
+                description=(
+                    f"Exterior camera {cam_key} person detector "
+                    f"({entity_id}) has been continuously ON for "
+                    f"{elapsed / 3600.0:.1f}h — far past its normal "
+                    f"maximum ({threshold}s threshold). Likely a stuck "
+                    f"sensor or a frozen detector feed."
+                ),
+                proposed_action=None,
+                payload={
+                    "entity_id": entity_id,
+                    "camera_key": cam_key,
+                    "stuck_seconds": int(elapsed),
+                    "threshold_s": threshold,
+                },
+                dedup_key=("camera_stuck", cam_key),
+            ))
+        return findings
+
+    def _exterior_person_sensors(self) -> dict[str, str]:
+        """Map camera_key -> its person-detection binary_sensor entity_id.
+
+        Resolved from the integration entry's configured perimeter + egress
+        camera lists so the check follows operator config rather than a
+        hardcoded list that would silently rot when a camera is added.
+        """
+        out: dict[str, str] = {}
+        try:
+            from ..const import CONF_EGRESS_CAMERAS, CONF_PERIMETER_CAMERAS
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                cams = list(merged.get(CONF_PERIMETER_CAMERAS) or [])
+                cams += list(merged.get(CONF_EGRESS_CAMERAS) or [])
+                for cam in cams:
+                    if not isinstance(cam, str) or "." not in cam:
+                        continue
+                    key = cam.split(".", 1)[1]
+                    for suffix in ("_person_occupancy_2", "_person_occupancy"):
+                        cand = f"binary_sensor.{key}{suffix}"
+                        if self._state_value(cand) is not None:
+                            out[key] = cand
+                            break
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "_exterior_person_sensors resolution failed", exc_info=True,
+            )
+        return out
 
     def _evaluate_sensor_health_dimension(self) -> list[OptimizationFinding]:
         """Per room: configured sensors stuck unavailable/unknown >60s → high."""
