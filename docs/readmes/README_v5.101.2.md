@@ -175,13 +175,32 @@ would otherwise have silently un-wired the other's card — and the resolution w
 
 ---
 
-## Live Validation — to be completed post-restart
+## Validated 2026-09-14 (post-restart)
 
-Per CLAUDE.md this README is not done until observed results are written back here as a
-`Validated <date>` table with concrete evidence.
+HA restarted 2026-09-14T07:28:12Z. URA: 378 entities, 19 unavailable (normal repopulation
+at the time of reading). **Zero ERROR entries** for `universal_room_automation` in the system
+log after restart.
 
-- [ ] D1 — perimeter alerting still fires; no linker ERRORs; graph loads with 13 nodes
-- [ ] D2 — in-suite only (the file is not consumed at runtime this release)
-- [ ] D3 — TOU path resolves; unset key behaves as before
-- [ ] D4 — `tou_rates.json` accepted; rates unchanged from pre-deploy
-- [ ] D5 — `sensor.ura_tou_period` exposes `tou_file_status: ok`
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| D1 | Seam graph loads with 13 nodes, no dead ends | **PASS** | Installed `const.py` parsed on the live instance: **13 nodes / 21 undirected edges, dead ends NONE**. Derived `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS` = `('front_side_ptz','utilities_ptz','armcrest','g5_bullet','rear_ptz')` — `hot_tub` and `front_door_aerial` correctly dropped. |
+| D1 | No linker ERRORs | **PASS** | `ha_get_logs(level=ERROR, search=universal_room_automation)` returned **0 entries**. |
+| D2 | Seam file validator | **IN-SUITE ONLY, as designed** | The file is not consumed at runtime this release; 18 tests cover it. The ratified file at the canonical path round-trips clean (21 edges, 0 errors, 0 warnings). |
+| D3 | TOU path key resolves | **PASS** | `rate_source` = `universal_room_automation/tou_rates.json (PEC, effective 2026-01-01)` — the resolver returned the configured relative path and the loader used it. |
+| D4 | `tou_rates.json` accepted by the new validator | **PASS** | `sensor.ura_energy_coordinator_tou_period` = `off_peak`, `season` = `summer`, `import_rate` = **0.043481** (PEC summer off-peak). The operator's real file loads under the strict validator — no fallback. |
+| D5 | `tou_file_status` exposed | **PASS** | `tou_file_status` = **`ok`** on `sensor.ura_energy_coordinator_tou_period`. |
+
+**Correction to this document:** the pre-deploy draft named the entity
+`sensor.ura_tou_period`. The real entity is
+**`sensor.ura_energy_coordinator_tou_period`** — recorded so a future validation does not
+read `None` from a wrong entity_id and mistake it for a failure.
+
+**Carried-forward discriminator (v5.101.1 regression guard):** zero NEW
+`optimization_findings` rows with `severity='critical'` matching `findings_recent` /
+`open_findings_count` since the restart — the B1 corpus-truncation fix is holding. Note the
+optimizer had not yet persisted a full cycle at the time of reading, so this is an early
+read, not a settled one.
+
+**Not observable this release:** the linker's `adjacency_nodes=%d` init line logs at INFO but
+did not surface in the captured window, so the graph was verified structurally from the
+installed source rather than from a runtime log line.
