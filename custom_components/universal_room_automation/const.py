@@ -3545,15 +3545,18 @@ CAMERA_STUCK_ON_THRESHOLD_S: Final = 1800
 #   garage_a: p99 2141s (36 min) with a real 3.9h dwell. It is an
 #     INTERIOR-facing egress camera watching a space people legitimately
 #     occupy for long periods, so 1800s would false-fire.
-#   pool_equipment: chronically false-positive at measurement time — 25 ON
-#     periods over 1h in 7.9 days, 53% of wall-clock ON, median 408s vs a
-#     fleet median of ~25s. At 1800s it would fire ~25x/week. Quarantined
-#     at 8h until the underlying detection is fixed. The operator rebooted
-#     this camera 2026-09-14; if it self-corrects, REMOVE this override
-#     rather than leaving a permanent blind spot.
+#   pool_equipment: WAS chronically false-positive (25 ON periods over 1h
+#     in 7.9 days, 53% wall-clock ON). Operator rebooted it 2026-09-14, it
+#     recovered on measurement, and its override was REMOVED — it now uses
+#     the fleet default. Re-add if it regresses.
 CAMERA_STUCK_ON_OVERRIDES_S: Final[dict[str, int]] = {
     "garage_a": 7200,
-    "pool_equipment": 28800,
+    # pool_equipment override REMOVED 2026-09-14: operator rebooted the
+    # camera and it recovered (measured post-reboot: currently off,
+    # recent hours 0-31% ON with no multi-hour period, vs the chronic 53%
+    # wall-clock ON / 25 periods>1h that had it quarantined). It now sits
+    # at the fleet 1800s default like every other exterior camera. If it
+    # regresses, re-add the override rather than leaving a blind spot.
 }
 
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
