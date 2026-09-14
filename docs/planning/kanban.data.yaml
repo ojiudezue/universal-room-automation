@@ -449,10 +449,71 @@ cards:
   refs:
   - custom_components/universal_room_automation/exterior_track_linker.py
   - docs/examples/exterior_seams.example.json
+- id: CAMERA-ZERO-FIRE-DETECTORS-1
+  title: Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring
+  thread: perimeter
+  status: investigating
+  created: '2026-09-14 02:05'
+  updated: '2026-09-14 02:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: three of the outdoor cameras reported a person exactly ZERO times over eight days.
+     A camera that never reports anything looks identical to a quiet camera, so nothing flags it —
+     yet two of the three are cameras we just placed into the map of which cameras are next to
+     which, so the system is relying on them. One of them was firing normally five weeks ago, so
+     something changed. Solution: find out whether each is genuinely quiet, misconfigured, or
+     broken, and fix or remove it from the map.'
+  origin:
+    date: '2026-09-14'
+    gist: fell out of the stuck-sensor measurement — the zero-ON column was as informative as the stuck column
+  evidence_2026_09_14: >-
+    Over 2026-09-06..09-14 (7.9 days), ZERO ON periods despite having rows in `states`
+    (availability churn only): `binary_sensor.madroneptultra_person_occupancy` (47 rows),
+    `binary_sensor.reolinkstudybporchptz_person_occupancy_2` (56 rows),
+    `binary_sensor.armcrestash41b_person_occupancy_2` (56 rows).
+    For contrast, active neighbours over the same window: back_yard 582 ON periods, hot_tub 352,
+    front_side_ptz 739, pool_equipment 135.
+    IT IS A CHANGE, NOT A STEADY STATE: AUDIT_exterior_camera_adjacency_probe.md (2026-08-06)
+    recorded reolinkstudybporchptz at 30 ON events in 7 days. It has since gone silent.
+  WHY_IT_MATTERS_NOW: >-
+    madroneptultra (ring position 5) and reolinkstudybporchptz (position 8) are BOTH in the
+    13-camera ring shipped in v5.101.2. Their ring edges cannot link anything while the detectors
+    are silent. This is a SECOND reason those positions are inert, distinct from the known
+    perimeter_cameras config gap for madroneptultra — fixing the config would NOT make
+    madroneptultra fire if the detector itself is not producing.
+    It does not invalidate the seam graph (the adjacency is still physically true, and an inert
+    node is harmless per the operator priority ruling — detection is never lost because these
+    cameras were contributing nothing anyway). It does mean the ring is effectively 11 live
+    cameras, not 13.
+  next: >-
+    DIAGNOSE each of the three separately — they may have different causes:
+    (a) Is the camera online and streaming at all (Protect/Reolink side)?
+    (b) Is it configured in Frigate 2 with person tracking enabled, and is its detect stream
+        healthy? Check the Frigate host's /api/config and /api/stats for these camera names.
+    (c) For armcrestash41b specifically: the 2026-08-06 audit recorded an ArmCrest asymmetry
+        (left at threshold 0.7 / min_init 2 while its siblings were recall-tuned to 0.6/1) —
+        check whether that explains a low-but-nonzero rate collapsing to zero.
+    (d) Is it simply pointed somewhere nobody walks? That is a legitimate answer for a
+        pool-equipment-adjacent or porch camera and would mean REMOVING it from the ring rather
+        than fixing it.
+    DISCRIMINATOR: Frigate's own events table for these cameras over a longer window — if Frigate
+    logged person events that never reached HA, it is a publish/MQTT problem; if Frigate logged
+    none either, it is a camera/aim/config problem.
+  parsimony:
+    problem: Two cameras the seam ring depends on have not produced a single detection in eight days.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 4, effort: 3}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [CAMERA-STUCK-SENSOR-TRIPWIRE-1, CAMERA-SEAM-VALIDATION-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1]
+    context: Same measurement; and it compounds CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — adding madroneptultra to perimeter_cameras will not help if its detector is silent.
+  refs:
+  - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
+  - docs/planning/AUDIT_exterior_camera_detection_settings.md
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
-  status: investigating
+  status: planned
   created: '2026-09-14 01:50'
   updated: '2026-09-14 01:50'
   refinement_status: initial
@@ -486,8 +547,69 @@ cards:
     report honestly what horizon it could cover rather than extrapolating 8 days as though measured.
     It is also measuring the NORMAL ON-duration distribution (median/p95) per camera, so any future
     threshold is set against real behaviour rather than an arbitrary number.
+  MEASURED_2026_09_14: >-
+    VERDICT: BUILD — but not the card as framed, and the measurement found a LIVE defect nobody
+    had noticed.
+    WINDOW: 7.9 days only (2026-09-06..09-14). A 3-month lookback is IMPOSSIBLE from the recorder
+    and was NOT extrapolated. Longer-horizon routes checked and closed: the URA DB hasdeep history
+    (occupancy_events to 2025-11-20, anomaly_log to 2026-05-15) but carries NO per-sensor identity
+    — trigger_source is a KIND (presence/motion/ble/mmwave), never an entity_id, the same
+    room-keyed blind spot as sensor_health. HA long-term statistics do not cover binary_sensors.
+    The Frigate host's own events DB is the ONLY remaining route to a real 3-month base rate.
+    TWO DISTINCT FAILURE MODES, previously read as one:
+    (A) FLEET-WIDE PRODUCER FREEZE, not a stuck sensor. front_side_ptz_2 pinned ON at 09-10
+    10:05:54 CDT and pool_equipment_2 at 09-10 09:55:03 — 11 minutes apart — and BOTH segments
+    ended at 09-11 15:37:42/:43, one second apart, with state `unavailable`. Frigate stopped
+    publishing; each sensor froze at its last value and only "unstuck" when HA marked it
+    unavailable 29.5h later. front_side_ptz was toggling normally every ~30-60s right up to the
+    freeze.
+    (B) CHRONIC FALSE POSITIVE ON pool_equipment — a LIVE, CURRENT defect. 25 ON periods over 1h
+    in 7.9 days, median 408s against a fleet median of 20-30s, and 100.5 ON hours out of 190 =
+    **53% of wall-clock reporting a person present**. This camera is effectively always detecting
+    someone. That is a Frigate zone/static-object problem, not sensor liveness, and nothing in URA
+    reports it.
+  THRESHOLD_EVIDENCE_2026_09_14: >-
+    Excluding pool_equipment and garage_a, EVERY exterior camera's p99 ON-duration is <= 355s
+    (under 6 min); the fleet max outside those two is 1562s. A 1800s (30-min) threshold sits ~5x
+    above the worst non-pathological p99 and above every observed non-stuck ON period on 12 of 14
+    sensors. Over the measured window it would have fired exactly TWICE — the two real incident
+    sensors — and zero times spuriously on those 12.
+    REQUIRED EXCEPTIONS: garage_a p99 = 2141s (36 min) with a real 3.9h dwell — interior-facing
+    egress, needs a per-camera override at ~2h or 30min false-fires. pool_equipment would fire
+    ~25x/week at 30min — quarantine it or set 8h until its false detection is fixed. Do NOT let
+    one pathological camera set the fleet threshold; that is how you end up with a useless 12h
+    trip-wire that misses everything else.
+    CHEAPER PRIMARY MECHANISM WORTH CONSIDERING: because mode (A) froze the whole Frigate family
+    at once, a PRODUCER-LEVEL staleness check (no state change on ANY Frigate person sensor for
+    > N min while >= 1 is ON) catches the real incident faster with ONE detector instead of 14 —
+    with per-sensor duration as the backstop.
+  CAVEATS_2026_09_14: >-
+    (1) The 7.9-day window CONTAINS the known 09-10/09-11 network outage already on the board, so
+    the single mode-(A) incident may be collateral from that outage rather than an independent
+    base rate. A weekly rate is a LOW-CONFIDENCE inference from one sample, not a measurement.
+    (2) The chronic pool_equipment finding does NOT depend on that caveat — it is present across
+    the whole window and justifies a detector on its own.
+  ZERO_FIRE_SENSORS_2026_09_14: >-
+    SEPARATE FINDING, and it touches what we are about to ship: THREE exterior person detectors
+    produced ZERO ON periods in 7.9 days despite having rows in `states` (availability churn
+    only) — `madroneptultra_person_occupancy`, `reolinkstudybporchptz_person_occupancy_2`, and
+    `armcrestash41b_person_occupancy_2`.
+    TWO OF THOSE ARE IN THE RATIFIED 13-CAMERA RING (madroneptultra at position 5,
+    reolinkstudybporchptz at position 8). So two ring positions are inert for a reason beyond the
+    known perimeter_cameras config gap — the detectors themselves are not firing.
+    Note reolinkstudybporchptz DID fire in the 2026-08-06 adjacency probe (30 ON events in 7
+    days), so this is a CHANGE, not a permanent state. A never-firing detector is as invisible as
+    a stuck one and neither the recorder nor sensor_health flags it. Carded as
+    CAMERA-ZERO-FIRE-DETECTORS-1.
   next: >-
-    AWAIT the measurement, then BUILD or PARK on the measured frequency. If built: a duration
+    BUILD, sized by the evidence above: default 1800s duration trip-wire + per-camera override map
+    (garage_a ~2h, pool_equipment quarantined) as module constant + options override per
+    Numbers-Get-Knobs; consider the producer-level staleness check as the PRIMARY mechanism with
+    per-sensor duration as backstop. Reuse _stuck_signal_nm.fire_stuck_signal — do not invent a
+    new alerting path.
+    OPTIONAL FIRST (~20 min, read-only): query the Frigate host's events DB for a real 3-month
+    base rate before sizing. Worth it only if the sizing decision is contested — the chronic
+    pool_equipment defect already justifies building. If built: a duration
     trip-wire on exterior person-detection binary sensors, threshold derived from the measured p95,
     wired to NM per the no-soak rule (trip-wire in code, not a calendar reminder). Reuse the
     existing stuck-signal NM path (_stuck_signal_nm.fire_stuck_signal) that the TOU loud-failure

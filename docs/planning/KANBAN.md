@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T00:42:13-05:00_ - _Data commit: `aa8ea099f7c4`_ - _last_reconciled: 2026-09-13_
+_Generated: 2026-09-14T00:59:49-05:00_ - _Data commit: `2b86408c4f5f`_ - _last_reconciled: 2026-09-13_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.101.2.md (2026-09-14) is newer than last_reconciled (2026-09-13)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -12,7 +18,7 @@ _Generated: 2026-09-14T00:42:13-05:00_ - _Data commit: `aa8ea099f7c4`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 11 |
 | 🧭 Pre-planning | 15 |
-| 📝 Planned | 11 |
+| 📝 Planned | 12 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 17 |
@@ -52,7 +58,21 @@ _created 2026-09-14 00:20 · initial_
   - `CORRECTED_2026_09_14`: TWO OF MY REPORTED FACTS WERE WRONG — corrected so they are not inherited. (1) TIMEZONE ERROR: I reported the onset peak as 03:00-05:00 "when nobody is about". The real peak is 08:00-10:00 LOCAL with ZERO onsets between midnight and 04:0...
   - `DETECT_ZONE_HYPOTHESIS_REFUTED_2026_09_14`: The agent recommended a detect-zone crop, reasoning Frigate's zone covers the street while Protect's is cropped. THAT WAS INFERRED, NOT VERIFIED — and a committed audit refutes it. AUDIT_exterior_camera_detection_settings.md (2026-08-06)...
 
-### `REGIME-NOTIFY-PATH-DEAD-1` - The routine-shift notification path has produced nothing in 4 months and 462 events — _#2 · WSJF 3.7 · v6 tc3 u2 /e3_
+### `CAMERA-ZERO-FIRE-DETECTORS-1` - Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring — _#2 · WSJF 4.0 · v6 tc4 u2 /e3_
+thread: **perimeter** - status: **investigating**
+_created 2026-09-14 02:05 · initial_
+- **Problem / Solution:**
+  - Problem: three of the outdoor cameras reported a person exactly ZERO times over eight days. A camera that never reports anything looks identical to a quiet camera, so nothing flags it — yet two of the three are cameras we just placed int...
+- **Origin:** 2026-09-14 - fell out of the stuck-sensor measurement — the zero-ON column was as informative as the stuck column
+- **Next:** DIAGNOSE each of the three separately — they may have different causes: (a) Is the camera online and streaming at all (Protect/Reolink side)? (b) Is it configured in Frigate 2 with person tracking enabled, and is its detect stream
+- **Tags:** measure-before-build, no-fabrication-verify
+- **Parsimony:** [BUILD] Two cameras the seam ring depends on have not produced a single detection in eight days.
+- **Refs:** docs/planning/AUDIT_exterior_camera_adjacency_probe.md; docs/planning/AUDIT_exterior_camera_detection_settings.md
+- **Forensic keys (2):**
+  - `evidence_2026_09_14`: Over 2026-09-06..09-14 (7.9 days), ZERO ON periods despite having rows in `states` (availability churn only): `binary_sensor.madroneptultra_person_occupancy` (47 rows), `binary_sensor.reolinkstudybporchptz_person_occupancy_2` (56 rows), ...
+  - `WHY_IT_MATTERS_NOW`: madroneptultra (ring position 5) and reolinkstudybporchptz (position 8) are BOTH in the 13-camera ring shipped in v5.101.2. Their ring edges cannot link anything while the detectors are silent. This is a SECOND reason those positions are...
+
+### `REGIME-NOTIFY-PATH-DEAD-1` - The routine-shift notification path has produced nothing in 4 months and 462 events — _#3 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **notifications** - status: **investigating**
 _created 2026-09-14 00:45 · initial_
 - **Problem / Solution:**
@@ -64,21 +84,6 @@ _created 2026-09-14 00:45 · initial_
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036
 - **Forensic keys (1):**
   - `evidence_2026_09_14`: Live URA DB: `regime_weekly_digest_queue` = 0 rows; `regime_event_notification_log` = 0 rows. Against 462 anomaly_log rows with metric_name='bayesian.routine_shift' spanning 2026-05-15 to 2026-09-08. The code path exists — regime_detecto...
-
-### `CAMERA-STUCK-SENSOR-TRIPWIRE-1` - No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed — _#3 · WSJF 3.0 · v5 tc2 u2 /e3_
-thread: **perimeter** - status: **investigating**
-_created 2026-09-14 01:50 · initial_
-- **Problem / Solution:**
-  - Problem: a camera's person-detection sensor got stuck reporting "person present" for 29 and a half hours straight, and no part of the system noticed. The health checker that ought to catch this only ever looks at ROOMS, never at individu...
-- **Origin:** 2026-09-14 - operator — "Card as lower priority. Lets see this happen. What we need is to measure how often an exterior camera has been stuck in the last 3 months first"
-- **Next:** AWAIT the measurement, then BUILD or PARK on the measured frequency. If built: a duration trip-wire on exterior person-detection binary sensors, threshold derived from the measured p95, wired to NM per the no-soak rule (trip-wire in code...
-- **Tags:** measure-before-build, no-fabrication-verify
-- **Parsimony:** [INVESTIGATE] A stuck camera sensor is invisible to every existing health check and poisons downstream presence and perimeter logic.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py
-- **Forensic keys (3):**
-  - `priority_note`: OPERATOR SET THIS LOWER PRIORITY and gated it on measurement. Do NOT build the trip-wire until the frequency is known — if it has happened once in three months, this parks.
-  - `evidence_2026_09_14`: CONFIRMED INCIDENT: binary_sensor.front_side_ptz_person_occupancy_2 pinned ON for 106,308s (29.5h), 2026-09-10 10:05:54 CDT to ~09-11 15:37 CDT. COVERAGE GAP IS STRUCTURAL, not a tuning miss: URA sensor_health produced 7,970 findings in ...
-  - `measurement_dispatched_2026_09_14`: Read-only measurement running. NOTE a hard constraint the operator should know: the HA recorder retains only ~8 DAYS (verified 2026-09-06..09-14), so a literal 3-month lookback is likely IMPOSSIBLE from it. The agent is tasked to confirm...
 
 ### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#4 · WSJF 2.4 · v7 tc3 u2 /e5_
 thread: **analytics** - status: **investigating**
@@ -431,7 +436,7 @@ _created 2026-09-12 17:50 · initial_
 - **Tags:** audit-first, institutional-context, tier-2db
 - **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
 
-## 📝 Planned (11)
+## 📝 Planned (12)
 _has plan / acceptance_
 
 ### `TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1` - Make the TOU file opt-in with a toggle, and make a rejected file LOUD instead of a log line — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
@@ -464,7 +469,26 @@ _created 2026-09-13 22:10 · updated 2026-09-13 22:40 · refined_
   - `resolved_2026_09_13`: AMBIGUITY RESOLVED — and MY EARLIER READING WAS AN UNDER-READ, corrected here. (1) [C] is NOT a system designation; the operator confirms it was explanatory notation only. (2) I called the notation ambiguous and reported only armcrest+ba...
   - `ambiguity_2026_09_13`: "[C] on the camera right after" can mean either (a) this camera is close to the one BEFORE it in the ring, or (b) close to the one AFTER it. The five marks sit after front_door_aerial, the Madrone PT Ultra/Reolink hub, armcrest, back_yar...
 
-### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#3 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `CAMERA-STUCK-SENSOR-TRIPWIRE-1` - No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed — _#3 · WSJF 3.0 · v5 tc2 u2 /e3_
+thread: **perimeter** - status: **planned**
+_created 2026-09-14 01:50 · initial_
+- **Problem / Solution:**
+  - Problem: a camera's person-detection sensor got stuck reporting "person present" for 29 and a half hours straight, and no part of the system noticed. The health checker that ought to catch this only ever looks at ROOMS, never at individu...
+- **Origin:** 2026-09-14 - operator — "Card as lower priority. Lets see this happen. What we need is to measure how often an exterior camera has been stuck in the last 3 months first"
+- **Next:** BUILD, sized by the evidence above: default 1800s duration trip-wire + per-camera override map (garage_a ~2h, pool_equipment quarantined) as module constant + options override per Numbers-Get-Knobs; consider the producer-level staleness ...
+- **Tags:** measure-before-build, no-fabrication-verify
+- **Parsimony:** [INVESTIGATE] A stuck camera sensor is invisible to every existing health check and poisons downstream presence and perimeter logic.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py
+- **Forensic keys (7):**
+  - `priority_note`: OPERATOR SET THIS LOWER PRIORITY and gated it on measurement. Do NOT build the trip-wire until the frequency is known — if it has happened once in three months, this parks.
+  - `evidence_2026_09_14`: CONFIRMED INCIDENT: binary_sensor.front_side_ptz_person_occupancy_2 pinned ON for 106,308s (29.5h), 2026-09-10 10:05:54 CDT to ~09-11 15:37 CDT. COVERAGE GAP IS STRUCTURAL, not a tuning miss: URA sensor_health produced 7,970 findings in ...
+  - `measurement_dispatched_2026_09_14`: Read-only measurement running. NOTE a hard constraint the operator should know: the HA recorder retains only ~8 DAYS (verified 2026-09-06..09-14), so a literal 3-month lookback is likely IMPOSSIBLE from it. The agent is tasked to confirm...
+  - `MEASURED_2026_09_14`: VERDICT: BUILD — but not the card as framed, and the measurement found a LIVE defect nobody had noticed. WINDOW: 7.9 days only (2026-09-06..09-14). A 3-month lookback is IMPOSSIBLE from the recorder and was NOT extrapolated. Longer-horiz...
+  - `THRESHOLD_EVIDENCE_2026_09_14`: Excluding pool_equipment and garage_a, EVERY exterior camera's p99 ON-duration is <= 355s (under 6 min); the fleet max outside those two is 1562s. A 1800s (30-min) threshold sits ~5x above the worst non-pathological p99 and above every o...
+  - `CAVEATS_2026_09_14`: (1) The 7.9-day window CONTAINS the known 09-10/09-11 network outage already on the board, so the single mode-(A) incident may be collateral from that outage rather than an independent base rate. A weekly rate is a LOW-CONFIDENCE inferen...
+  - `ZERO_FIRE_SENSORS_2026_09_14`: SEPARATE FINDING, and it touches what we are about to ship: THREE exterior person detectors produced ZERO ON periods in 7.9 days despite having rows in `states` (availability churn only) — `madroneptultra_person_occupancy`, `reolinkstudy...
+
+### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#4 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:15 · updated 2026-09-12 17:00 · refined_
 - **Problem / Solution:**
@@ -479,7 +503,7 @@ _created 2026-08-19 13:15 · updated 2026-09-12 17:00 · refined_
   - `MEASURED_2026_09_14`: ORCHESTRATOR-VERIFIED (I re-ran every query and read the live sensors myself). VERDICT SPLIT, and the live consequence is worse than the card assumed. REFUTED (detector side): regime_cell_state.unacknowledged_consecutive DOES discharge —...
   - `design_pick_evidence_2026_09_14`: The measurement discriminates the A/B/C pick below. (C) KEEP HUMAN-ACK-ONLY is REFUTED BY OUTCOME — it is what ships today, and in four months the button was pressed ZERO times while 462 events piled up and the house sensor latched on th...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-08-18 10:05_
 - **Problem / Solution:**
@@ -493,7 +517,7 @@ _updated 2026-08-18 10:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-08-21 10:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -510,7 +534,7 @@ _updated 2026-08-21 10:05_
   - `DENOMINATOR_MEASURED_2026_08_21`: THE NUMBER THE AUDIT COULD NOT GET (no shell from that environment) — I ran it from the HA recorder: homeassistant_start events, last 14 days. 20 RESTARTS IN 6.9 DAYS = 2.9/day. Interval stats over 19 gaps: min 0.18h, p25 1.52h, MEDIAN 5...
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
 
-### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **explicit**
 _created 2026-08-23 18:20 · initial_
 - **Problem / Solution:**
@@ -524,7 +548,7 @@ _created 2026-08-23 18:20 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `PROPOSED_SHAPE`: Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in requirements_test.txt + run instructions so nobody silently runs 3.9 again. 2) New tests import real HA; no new file adds sys.modules stubs. 3) Existing files migr...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
 - **Problem / Solution:**
@@ -537,7 +561,7 @@ _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **planned**
 _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · initial_
 - **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
@@ -553,7 +577,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · initial_
   - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · initial_
 - **Problem / Solution:**
@@ -565,7 +589,7 @@ _created 2026-09-12 17:10 · initial_
 - **Forensic keys (1):**
   - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#11 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -583,7 +607,7 @@ _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
   - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
   - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
 
-### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#11 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **unreviewed**
 _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_root_
 - **Problem / Solution:**
