@@ -559,6 +559,39 @@ async def _migrate_room_cameras_to_integration(hass: HomeAssistant, integration_
     return len(collected_cameras)
 
 
+def _resolve_tou_rate_file(cm_config: dict) -> str:
+    """Resolve the TOU rate-file path from CM config with a safe fallback.
+
+    TOU-RATE-FILE-KEY-UNWIRED-1: `CONF_ENERGY_TOU_RATE_FILE` had been defined
+    but never read. The value is joined under `hass.config.path("")` by
+    `TOURateEngine.async_from_json_file`, so this must NOT be allowed to be
+    absolute or to escape via `..` — otherwise a config key becomes an
+    arbitrary-file-read primitive. Unset / empty / unsafe value → default.
+    """
+    from .domain_coordinators.energy_const import (
+        CONF_ENERGY_TOU_RATE_FILE,
+        DEFAULT_TOU_RATE_FILE,
+    )
+
+    raw = cm_config.get(CONF_ENERGY_TOU_RATE_FILE) if cm_config else None
+    if not raw or not isinstance(raw, str):
+        return DEFAULT_TOU_RATE_FILE
+    candidate = raw.strip()
+    if not candidate:
+        return DEFAULT_TOU_RATE_FILE
+
+    # Path-safety: reject absolute paths and any traversal segment.
+    import os
+    if os.path.isabs(candidate) or ".." in candidate.replace("\\", "/").split("/"):
+        _LOGGER.warning(
+            "Rejecting unsafe TOU rate file %r (absolute or traversal); "
+            "using default %s",
+            candidate, DEFAULT_TOU_RATE_FILE,
+        )
+        return DEFAULT_TOU_RATE_FILE
+    return candidate
+
+
 async def _camera_autoenable_dry_run_scan(
     hass: HomeAssistant, integration_entry: ConfigEntry
 ) -> None:
@@ -3446,10 +3479,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                     # v4.0.5: Pre-load TOU rates asynchronously to avoid
                     # blocking I/O on event loop (HA 2026.x enforcement)
+                    # TOU-RATE-FILE-KEY-UNWIRED-1: resolve operator-configured
+                    # rate-file key with safe fallback + path-traversal guard.
                     from .domain_coordinators.energy_tou import TOURateEngine
-                    from .domain_coordinators.energy_const import DEFAULT_TOU_RATE_FILE
+                    tou_rate_file = _resolve_tou_rate_file(cm_config)
                     tou_engine = await TOURateEngine.async_from_json_file(
-                        hass, hass.config.path(""), DEFAULT_TOU_RATE_FILE,
+                        hass, hass.config.path(""), tou_rate_file,
                     )
 
                     energy = EnergyCoordinator(
