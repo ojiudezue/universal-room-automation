@@ -4001,3 +4001,168 @@ async def test_optimizer_corpus_populates_hvac_zone_fanout():
     assert "climate.zone_1_thermostat" in body
     assert "entertainment" in body and "master_bedroom" in body
     assert "Entertainment + Master Suite" in body
+
+
+# ======================================================================
+# OPTIMIZER-PAGING-PRIMITIVE-1 B2 — repeat sensor_health persistence
+# ======================================================================
+
+def _sensor_health_finding(room="Jaya Bath", eid="binary_sensor.jb_occ",
+                           stuck_state="unavailable"):
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    return OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="room", target_id=room,
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity="high", confidence=0.95, score=0.0,
+        description=f"Sensor {eid} stuck {stuck_state} >60s",
+        payload={"entity_id": eid, "stuck_state": stuck_state},
+        dedup_key=("sensor_health", room, eid),
+    )
+
+
+def test_b2_repeat_sensor_health_suppressed_after_first_persist():
+    """An UNCHANGED stuck sensor persists ONCE, not once per cycle.
+
+    Measured 2026-09-13: one offline entity produced 1550 rows in 7 days
+    (~288/day) because the evaluator dedups only WITHIN a cycle.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding()])) == 1, "FIRST occurrence must persist"
+    for _ in range(20):
+        assert coord._filter_repeat_sensor_health(
+            [_sensor_health_finding()]) == [], "repeat must not re-persist"
+
+
+def test_b2_state_change_and_other_entity_still_persist():
+    """A CHANGED stuck state is new information and must re-emit; and one
+    entity's suppression must never swallow a different entity."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(stuck_state="unavailable")])) == 1
+    assert coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(stuck_state="unavailable")]) == []
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(stuck_state="unknown")])) == 1
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(eid="binary_sensor.other")])) == 1
+
+
+def test_b2_does_not_touch_other_dimensions():
+    """Suppression is scoped to sensor_health ONLY — comfort rows must
+    persist every cycle exactly as before."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    def comfort():
+        return OptimizationFinding(
+            timestamp=datetime.utcnow().isoformat(),
+            level="room", target_id="Kitchen",
+            dimension=OptimizationDimension.COMFORT,
+            severity="medium", confidence=0.9, score=50.0,
+            description="comfort out of range",
+            dedup_key=("comfort", "Kitchen", "temp"),
+        )
+
+    for _ in range(5):
+        assert len(coord._filter_repeat_sensor_health([comfort()])) == 1
+
+
+def test_b2_kill_switch_restores_per_cycle_persistence(monkeypatch):
+    """Interval 0 = kill switch: every cycle re-persists (pre-fix
+    behaviour), so the change is reversible without a code edit."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass, _ = _make_hass()
+    coord = opt_mod.OptimizationCoordinator(hass)
+    monkeypatch.setattr(
+        opt_mod, "OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S", 0,
+    )
+    for _ in range(5):
+        assert len(coord._filter_repeat_sensor_health(
+            [_sensor_health_finding()])) == 1
+
+
+@pytest.mark.asyncio
+async def test_b2_wire_in_persist_batch_writes_stuck_sensor_once():
+    """WIRE-IN ANCHOR (not a helper unit test).
+
+    Drives the ENCLOSING method `_persist_findings_batch` across many
+    simulated cycles and asserts the DATABASE only receives the unchanged
+    stuck-sensor row once. A unit test on `_filter_repeat_sensor_health`
+    alone stays green if the filter is never CALLED — this test is what
+    fails when the call site is removed.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+
+    for _ in range(10):
+        await coord._persist_findings_batch([_sensor_health_finding()])
+
+    persisted = [
+        f for call in db.log_findings_batch.await_args_list
+        for f in call.args[0]
+    ]
+    assert len(persisted) == 1, (
+        "the unchanged stuck sensor must reach the DB exactly once across "
+        f"10 cycles; got {len(persisted)} rows"
+    )
+
+
+@pytest.mark.asyncio
+async def test_b2_wire_in_scoreboard_still_sees_every_occurrence():
+    """THE LOAD-BEARING INVARIANT — suppression must be persistence-only.
+
+    `_update_scoreboard` derives open_findings_count / room_scores /
+    house_score from the in-cycle findings list. If B2 had suppressed at
+    evaluation time instead, a room with a still-broken sensor would score
+    100 and the house score would RISE — hiding a fault would look like
+    fixing it. This asserts the scoreboard is unchanged by B2 even on the
+    cycles whose DB row is suppressed.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+
+    for _ in range(5):
+        findings = [_sensor_health_finding()]
+        coord._update_scoreboard(findings)
+        await coord._persist_findings_batch(findings)
+        # Every cycle the fault is STILL counted, regardless of persistence.
+        assert coord._open_findings_count == 1
+        assert coord._room_scores.get("Jaya Bath") == 85.0
+
+    persisted = [
+        f for call in db.log_findings_batch.await_args_list
+        for f in call.args[0]
+    ]
+    assert len(persisted) == 1
