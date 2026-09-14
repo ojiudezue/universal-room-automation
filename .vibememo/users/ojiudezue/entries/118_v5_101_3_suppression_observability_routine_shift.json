@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "118",
+  "author": "ojiudezue",
+  "session_id": "claude_20260914_130601_ship_v5_101_3",
+  "timestamp": "2026-09-14T13:06:01Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.101.3 shipped: Suppression observability, routine-shift discharge + recency bound, exterior camera stuck trip-wire",
+  "summary": "Suppression observability, routine-shift discharge + recency bound, exterior camera stuck trip-wire",
+  "why": "All three are additive observability or housekeeping \u2014 no actuation path changes \u2014 which is why three cards ship together rather than as separate cycles. The routine work gained a second deliverable mid-build: the operator asked whether an unacknowledged shift ages out, and tracing the sensor query showed it had NO time bound at all, so the discharge alone would not have delivered the property they actually wanted. Fixing the query is what makes acknowledgement optional. The camera threshold is derived from a measured distribution rather than chosen, and quarantines the one pathological camera explicitly so it cannot drag the fleet bound to uselessness. A retuning recommendation for seven other cameras was WITHDRAWN this cycle because the operator disputes the underlying figure and I could not reproduce it.",
+  "implications": "Shipped CIRCLING-SEVERITY-1, ROUTINE-DETECTOR-NO-DISCHARGE-1, CAMERA-STUCK-SENSOR-TRIPWIRE-1 at v5.101.3; card(s) sit shipped_organic pending validation. Acceptance in README_v5.101.3.md (Live criteria).",
+  "revisit_trigger": "sqlite: zero optimization_findings rows with dimension='sensor_health' naming a healthy camera within 24h of restart (trip-wire not false-firing); AND the person routine-status sensors read 'stable' rather than 'major_shift' once the May rows pass the 56-day recency bound; AND attrs['suppressions_by_camera'] is present on sensor.ura_security_coordinator_outside_open_tracks_diagnostic",
+  "refs": {
+    "cards": [
+      "CIRCLING-SEVERITY-1",
+      "ROUTINE-DETECTOR-NO-DISCHARGE-1",
+      "CAMERA-STUCK-SENSOR-TRIPWIRE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.101.3.md"
+    ],
+    "release_notes": "- PERIMETER: the two pre-dispatch gates (egress suppression, per-camera cooldown) previously returned SILENTLY, so a suppressed circling track left no evidence of which gate stopped it. Both now record a reason, reusing the burst path's existing decision-reason idiom, surfaced as suppressions_by_camera. The cooldown record also says whether the classification-transition exemption was offered and declined \u2014 a different diagnosis from never-reachable.\n- ROUTINE SHIFT DISCHARGE: the detector's cell counter always reset correctly on return-to-stable, but the anomaly_log rows it emitted had NO automatic clear path. Measured: 462 rows, 462 unacknowledged since 2026-05-15, zero ever acked, while all 48 cells read stable \u2014 the household sensor had said major_shift for four months on three May rows. Now discharges that cell's rows at the same seam, scoped to one cell (a bulk clear would also discharge cells still drifting).\n- ROUTINE STATUS RECENCY BOUND: the sensor query had NO time filter and the only pruning is 365 days, so ONE unacknowledged row pinned the sensor for up to a year. Bounded to 56 days, tied to the detector's own baseline window. Acknowledging is now OPTIONAL rather than mandatory.\n- CAMERA STUCK TRIP-WIRE: a camera sensor sat pinned ON for 29.5h unnoticed because sensor_health is ROOM-keyed (all 7,970 findings in a month targeted rooms) and structurally cannot see a camera binary_sensor. New camera_stuck evaluator, threshold 1800s DERIVED from the measured p99 (<=355s on 12 of 14 sensors), per-camera overrides so one pathological camera cannot set the fleet bound, once-per-episode latch so it cannot re-create the row flood B2 removed, cameras resolved from live config rather than a hardcoded list."
+  }
+}

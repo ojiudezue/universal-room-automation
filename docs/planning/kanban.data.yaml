@@ -723,7 +723,8 @@ cards:
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.3
   BUILT_2026_09_14: >-
     BUILT @ feature/camera-stuck-sensor-tripwire — in review, not deployed.
     NEW `camera_stuck` evaluator in the optimizer cycle. Deliberately a SEPARATE check from
@@ -5671,7 +5672,8 @@ cards:
     button.ura_coordinator_manager_acknowledge_routine_changes AFTER this ships, so it cannot
     silently re-accumulate.
   thread: presence
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.3
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
@@ -12219,7 +12221,7 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: review
+  status: shipped_organic
   BUILT_2026_09_14: >-
     BUILT @ feature/circling-suppression-reason (c59714de8) — in review, not deployed.
     Added a suppression `reason` to the TWO pre-dispatch gates the 2026-09-13 trace isolated
@@ -12243,7 +12245,7 @@ cards:
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: perimeter_alert.py:1050 still gates circling on clock alert-hours; transition-exemption landed in sibling CIRCLING-LABEL-1 but the daytime-gating escape (should circling escape pure clock-time, daytime alert_count=0) is unbuilt. Open decision: escape-vs-accept. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification;
     then decide whether circling should escape pure clock-time gating.
-  shipped_version: v5.74.0
+  shipped_version: v5.101.3
   approval: unreviewed
   tags:
   - no-fabrication-verify
