@@ -910,7 +910,8 @@ cards:
 - id: TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1
   title: Make the TOU file opt-in with a toggle, and make a rejected file LOUD instead of a log line
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.2
   BUILT_2026_09_14: >-
     BUILT @ feature/tou-file-toggle-loud (e5a0e5796), merged into release/v5.101.2-integration.
     Loud failure reuses the existing shared NM path _stuck_signal_nm.fire_stuck_signal
@@ -987,7 +988,8 @@ cards:
 - id: TOU-FILE-NO-RATE-VALIDATION-1
   title: A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.2
   BUILT_2026_09_14: >-
     BUILT by a worktree-isolated builder @ feature/tou-file-validation, commit 85d19e6b1 — in
     review, NOT merged, NOT deployed. Whole-file rejection contract, mirroring exterior_seams.py:
@@ -1072,7 +1074,8 @@ cards:
 - id: TOU-RATE-FILE-KEY-UNWIRED-1
   title: CONF_ENERGY_TOU_RATE_FILE is declared but never read — the TOU file path is hardcoded
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.2
   created: '2026-09-13 23:30'
   updated: '2026-09-13 23:30'
   refinement_status: initial
@@ -1365,7 +1368,8 @@ cards:
 - id: CAMERA-SEAM-VALIDATION-1
   title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
   thread: perimeter
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.2
   UNHELD_2026_09_14: >-
     HOLD LIFTED — the operator answered all three blocking questions. (1) Ring order: resolved by
     a MISSING CAMERA, not the swap I hypothesised; there are two Reolinks and the ring is 13
