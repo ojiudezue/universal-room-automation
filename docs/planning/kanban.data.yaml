@@ -196,10 +196,56 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: FRONT-SIDE-PTZ-CHATTER-1
+  title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
+  thread: perimeter
+  status: investigating
+  created: '2026-09-14 00:20'
+  updated: '2026-09-14 00:20'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: one exterior camera reports "person detected" far more than any other — it is
+     active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed
+     "on" continuously for 29.5 hours. Because the system links sightings across cameras within a
+     three-minute window, this near-constant chatter gets merged with genuine sightings elsewhere
+     and manufactures fake "someone is circling the house" tracks — about 6.6 of them a day.
+     Solution: find out whether the camera is detecting nothing real (a bug/spider/IR artefact)
+     or something real but irrelevant (street traffic in a wide field of view), because the fix
+     differs: the first is a detector problem, the second is a detection-zone crop.'
+  origin:
+    date: '2026-09-14'
+    gist: fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
+  evidence_2026_09_14: >-
+    Measured over 2026-09-06..09-14 (8 days, recorder). front_side_ptz: 739 ON-periods, 38.59h
+    total ON, 21.25% duty cycle, median duration 19s, and ONE period lasting 106,308s (29.5h).
+    Onset peak 03:00-05:00 local (76/118/82). Compare its neighbours: back_yard 582 periods /
+    2.16h / 1.19% duty; g5_bullet 54 / 0.73h / 0.40%; doorbell_lite 87 / 1.50h / 0.83%. It is an
+    order of magnitude out of family.
+    CONSEQUENCE (measured, not inferred): replaying the 180s link rule across
+    back_yard<->front_side_ptz produced 53 circling-shaped tracks in 8 days, mostly pre-dawn.
+    Its 180s co-onset rate with back_yard (0.565) is fully explained by sheer firing frequency —
+    simultaneity is 11.9%, BELOW the 32.7% chance null.
+  next: >-
+    MEASURE (read-only, not a fix): sample ~10 of the 53 circling-shaped track windows and pull
+    the UniFi Protect smart-detect event records for the front_side_ptz legs via the unifi-protect
+    MCP — object label, bounding-box size, zone. DISCRIMINATOR: tiny or edge-of-frame person
+    boxes / no clip-confirmable person => detector false-positive (fix at the detector); real
+    people at street distance => real-but-irrelevant (fix is a detect-zone crop). Also check the
+    29.5h stuck-ON separately — a stuck sensor is a different failure from chatter and may be the
+    existing sensor_health path already catching it.
+  parsimony:
+    problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-VALIDATION-1, OPTIMIZER-PAGING-PRIMITIVE-1]
+    context: This is the noise source that made the founding circling case look real; the 29.5h stuck-ON may also be feeding the sensor_health row flood that B2 addressed.
+  refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
-  status: investigating
+  status: done
   created: '2026-09-13 22:10'
   updated: '2026-09-13 22:10'
   refinement_status: initial
@@ -234,8 +280,55 @@ cards:
     _HISTORICAL_ADJACENCY_2026_08 graph so it keeps reproducing the original incident as a
     historical regression record, with a comment stating it is NOT a claim that those cameras
     are adjacent today. Tests are green again (117 pass, 1 pre-existing failure unchanged).
+  MEASURED_2026_09_14: >-
+    VERDICT: ARTIFACT — (c) a chronically-firing detector driving (a) a two-person merge. The
+    operator's strike on back_yard<->front_side_ptz is now CONFIRMED BY DATA, independently of
+    the geometry argument.
+    THE ORIGINAL WINDOW IS GONE — recorder retention is ~8 days (2026-09-06 to 09-14) and the
+    founding case was 2026-08-08, five weeks out. It is not in the URA DB either: no
+    perimeter/exterior/track table exists (ExteriorTrack objects live only in RAM), and a grep of
+    anomaly_log for track ids returns 0 rows.
+    SO IT WAS MEASURED GENERALLY over the 8 available days, against the operator-confirmed
+    adjacent pair g5_bullet<->doorbell_lite as a CONTROL:
+      - CONTROL (real adjacency): 65% of g5_bullet ON-periods OVERLAP IN TIME with doorbell_lite
+        — 59x its time-shifted null. That is the signature of one person in two overlapping
+        fields of view.
+      - back_yard<->front_side_ptz: simultaneity 11.9%, which is BELOW its own chance null
+        (32.7%). No adjacency signature at all. Its 180s co-onset rate is fully explained by
+        front_side_ptz firing so often that almost any 6-minute window contains one of its onsets.
+      - TRANSIT GAPS: 241 hops, p10/p50/p90 = -33.6 / 21.0 / 121.0s, with 32% of hops completing
+        in UNDER 5 SECONDS. Nobody crosses from a detached garage to the front of the house in 5s.
+      - DIURNAL: the two cameras' peaks are DISJOINT — back_yard peaks 07:00-08:00 and 11:00;
+        front_side_ptz peaks 03:00-05:00 (76/118/82 onsets). Not one person traversing.
+      - FREQUENCY: replaying the 180s linking rule produced 53 circling-shaped tracks in 8 days
+        (~6.6/day), mostly pre-dawn. The founding case was never a rare intrusion — it is the
+        routine output of this seam.
+    NOT SEPARABLE FROM THIS DATA: whether front_side_ptz's chatter is a true detector
+    false-positive (spider/IR/headlights/PTZ motion) or real-but-irrelevant detection (street
+    traffic in a wide PTZ field). Both land in the same bucket for the classifier, so it does not
+    change the disposition — but do NOT write it up as "detector is broken" without the check in
+    `next`. Carded separately as FRONT-SIDE-PTZ-CHATTER-1.
+  MY_CORRECTION_2026_09_14: >-
+    I described the founding-case fixture as "preserved as a HISTORICAL regression record" that
+    "keeps reproducing the ORIGINAL incident". THAT OVERSTATED IT. The per-hop timings in
+    test_circling_founding_case.py (t0, +25, +60, +95, +130s) were SYNTHESIZED by the test author
+    to sum to the documented 133s — the planning doc records only the path, duration and
+    classification, never real per-hop timestamps, and the real event rows are outside retention.
+    The fixture reproduces the SHAPE of the incident, not its measured timings. Corrected here so
+    a future session does not cite those numbers as live evidence.
+  no_stranding_2026_09_14: >-
+    The investigating agent flagged that pulling this edge might strand back_yard under the seam
+    validator's no-dead-ends rule. VERIFIED IT DOES NOT: on the held re-ratification branch
+    back_yard has degree 3 (armcrest, g5_bullet, hot_tub) and the whole graph has ZERO nodes of
+    degree < 2. No decision needed; the rule stays as written.
   next: >-
-    MEASURE: pull the original event rows for the founding window from the URA DB / recorder
+    OPTIONAL follow-up, not blocking: sample ~10 of the 53 circling-shaped tracks and pull the
+    UniFi Protect smart-detect records for the front_side_ptz legs (object label, bounding-box
+    size, zone). Tiny/edge-of-frame boxes => detector false-positive; real people on the street
+    => real-but-irrelevant, and the fix is a detect-zone crop, not a detector fix. Either way the
+    seam strike stands. Tracked under FRONT-SIDE-PTZ-CHATTER-1.
+  SUPERSEDED_next: >-
+    (original) MEASURE: pull the original event rows for the founding window from the URA DB / recorder
     (per-camera detection timestamps + snapshots if retained) and decide which explanation fits:
     (a) TWO people, one front + one at the garage, merged by the bad seam; (b) ONE person on a
     real path between them that the ring does not model (if so the ring needs an edge and the

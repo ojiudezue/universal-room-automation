@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T22:27:58-05:00_ - _Data commit: `cc91e0720ad7`_ - _last_reconciled: 2026-09-13_
+_Generated: 2026-09-13T23:12:36-05:00_ - _Data commit: `77d2e676bff3`_ - _last_reconciled: 2026-09-13_
 
 
 ## Columns
@@ -19,7 +19,7 @@ _Generated: 2026-09-13T22:27:58-05:00_ - _Data commit: `cc91e0720ad7`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 48 |
-| ✅ Done | 154 |
+| ✅ Done | 155 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -50,19 +50,18 @@ _created 2026-09-13 23:05 · initial_
 - **Forensic keys (1):**
   - `evidence_2026_09_13`: Live .storage/core.config_entries: egress_cameras = [camera.madrone_g6_entry, camera.doorbell_lite, camera.front_door_aerial, camera.garage_a_2, camera.garage_b_2] = FIVE. const.py:1942 comment still asserts "Egress cameras (operator con...
 
-### `CIRCLING-FOUNDING-CASE-ARTIFACT-1` - The founding circling case may be an artifact of a seam the operator has now struck — _#2 · WSJF 2.6 · v7 tc4 u2 /e5_
+### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#2 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **investigating**
-_created 2026-09-13 22:10 · initial_
+_created 2026-09-14 00:20 · initial_
 - **Problem / Solution:**
-  - Problem: the live track that motivated the whole circling feature (xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, 133s) was classified as "circling" only because the system believed those two c...
-- **Origin:** 2026-09-13 - fell out of applying the operator seam re-ratification — striking back_yard<->front_side_ptz broke all 16 circling tests, which all trace to that one fixture
-- **Why:** This matters beyond tidiness: the founding case is the reference example the circling feature was designed and tuned against. If its premise was a wrong seam, then the tuned thresholds (3 distinct cameras, non-monotonic sequence) were fi...
-- **Next:** MEASURE: pull the original event rows for the founding window from the URA DB / recorder (per-camera detection timestamps + snapshots if retained) and decide which explanation fits: (a) TWO people, one front + one at the garage, merged b...
-- **Tags:** measure-before-build, no-fabrication-verify, falsify-first
-- **Parsimony:** [BUILD] The reference example for circling may not have been a circling event at all.
-- **Refs:** quality/tests/perimeter/test_circling_founding_case.py; docs/planning/VALIDATE_exterior_camera_seams.md
+  - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
+- **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
+- **Next:** MEASURE (read-only, not a fix): sample ~10 of the 53 circling-shaped track windows and pull the UniFi Protect smart-detect event records for the front_side_ptz legs via the unifi-protect MCP — object label, bounding-box size, zone. DISCR...
+- **Tags:** measure-before-build, no-fabrication-verify
+- **Parsimony:** [BUILD] One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
+- **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
 - **Forensic keys (1):**
-  - `evidence_2026_09_13`: Applying the corrected graph turned 16 tests RED across 4 files (test_circling_founding_case, _transition, test_circling_label_transition, test_circling_diag_sensor) — all of them import the single fixture in test_circling_founding_case....
+  - `evidence_2026_09_14`: Measured over 2026-09-06..09-14 (8 days, recorder). front_side_ptz: 739 ON-periods, 38.59h total ON, 21.25% duty cycle, median duration 19s, and ONE period lasting 106,308s (29.5h). Onset peak 03:00-05:00 local (76/118/82). Compare its n...
 
 ### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating** - approval: **unreviewed**
@@ -1792,8 +1791,26 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (154)
+## ✅ Done (155)
 _closed, evidence in refs_
+
+### `CIRCLING-FOUNDING-CASE-ARTIFACT-1` - The founding circling case may be an artifact of a seam the operator has now struck — _WSJF 2.6 · v7 tc4 u2 /e5_
+thread: **perimeter** - status: **done**
+_created 2026-09-13 22:10 · initial_
+- **Problem / Solution:**
+  - Problem: the live track that motivated the whole circling feature (xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, 133s) was classified as "circling" only because the system believed those two c...
+- **Origin:** 2026-09-13 - fell out of applying the operator seam re-ratification — striking back_yard<->front_side_ptz broke all 16 circling tests, which all trace to that one fixture
+- **Why:** This matters beyond tidiness: the founding case is the reference example the circling feature was designed and tuned against. If its premise was a wrong seam, then the tuned thresholds (3 distinct cameras, non-monotonic sequence) were fi...
+- **Next:** OPTIONAL follow-up, not blocking: sample ~10 of the 53 circling-shaped tracks and pull the UniFi Protect smart-detect records for the front_side_ptz legs (object label, bounding-box size, zone). Tiny/edge-of-frame boxes => detector false...
+- **Tags:** measure-before-build, no-fabrication-verify, falsify-first
+- **Parsimony:** [BUILD] The reference example for circling may not have been a circling event at all.
+- **Refs:** quality/tests/perimeter/test_circling_founding_case.py; docs/planning/VALIDATE_exterior_camera_seams.md
+- **Forensic keys (5):**
+  - `evidence_2026_09_13`: Applying the corrected graph turned 16 tests RED across 4 files (test_circling_founding_case, _transition, test_circling_label_transition, test_circling_diag_sensor) — all of them import the single fixture in test_circling_founding_case....
+  - `MEASURED_2026_09_14`: VERDICT: ARTIFACT — (c) a chronically-firing detector driving (a) a two-person merge. The operator's strike on back_yard<->front_side_ptz is now CONFIRMED BY DATA, independently of the geometry argument. THE ORIGINAL WINDOW IS GONE — rec...
+  - `MY_CORRECTION_2026_09_14`: I described the founding-case fixture as "preserved as a HISTORICAL regression record" that "keeps reproducing the ORIGINAL incident". THAT OVERSTATED IT. The per-hop timings in test_circling_founding_case.py (t0, +25, +60, +95, +130s) w...
+  - `no_stranding_2026_09_14`: The investigating agent flagged that pulling this edge might strand back_yard under the seam validator's no-dead-ends rule. VERIFIED IT DOES NOT: on the held re-ratification branch back_yard has degree 3 (armcrest, g5_bullet, hot_tub) an...
+  - `SUPERSEDED_next`: (original) MEASURE: pull the original event rows for the founding window from the URA DB / recorder (per-camera detection timestamps + snapshots if retained) and decide which explanation fits: (a) TWO people, one front + one at the garag...
 
 ### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1 — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done** - approval: **unreviewed**
