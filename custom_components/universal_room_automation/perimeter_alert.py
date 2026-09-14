@@ -525,6 +525,36 @@ class PerimeterAlertManager:
                         )
                 except Exception:  # noqa: BLE001
                     pass
+                # TEST-1 (shadow diff): the resolver path is now live, but
+                # the retired helpers it replaced could surface a leg it
+                # does not. Compute what the LEGACY fallback WOULD have
+                # found and WARN if the resolver's leg set is not a
+                # superset — a live tripwire for silent coverage shrinkage
+                # that unit tests miss (the reason this card exists: we
+                # gave a hardened surface new methods; something is bound
+                # to fail). Observability only — does NOT change the legs
+                # actually subscribed (the resolver set already won above);
+                # the union with base+`_2` above is the belt-and-braces.
+                try:
+                    legacy_would = {
+                        eid for eid, _eng in self._legacy_leg_fallback(
+                            base_bs, cam_entity_id, "person",
+                        )
+                    }
+                    missing = legacy_would - set(seen)
+                    if missing:
+                        _LOGGER.warning(
+                            "PerimeterAlertManager: resolver leg set for %s "
+                            "is NOT a superset of the legacy fallback — "
+                            "legacy would also cover %s. Possible silent "
+                            "coverage shrinkage (TEST-1 shadow diff).",
+                            cam_entity_id, sorted(missing),
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "PerimeterAlertManager: TEST-1 shadow diff failed "
+                        "for %s", cam_entity_id, exc_info=True,
+                    )
             else:
                 # Legacy fallback path (kill switch OFF / no manager).
                 for eid, engine in self._legacy_leg_fallback(base_bs, cam_entity_id, "person"):
