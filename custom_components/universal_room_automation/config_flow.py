@@ -4378,6 +4378,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_EVSE_A_SPAN_BREAKER,
             CONF_ENERGY_EVSE_B_SPAN_BREAKER,
             CONF_ENERGY_L1_CHARGER_ENTITIES,
+            CONF_ENERGY_TOU_RATE_FILE,
+            DEFAULT_TOU_RATE_FILE,
             CONF_ENERGY_WEATHER_ENTITY,
             CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
             CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT,
@@ -4391,6 +4393,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             SOLAR_CLASS_MODE_CUSTOM,
             CONF_ENERGY_LOAD_SHEDDING_ENABLED,
             CONF_ENERGY_LOAD_SHEDDING_THRESHOLD,
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: explicit kill switch for
+            # /config/universal_room_automation/tou_rates.json ingestion.
+            CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+            DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED,
             CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
             CONF_ENERGY_LOAD_SHEDDING_MODE,
             CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
@@ -4843,6 +4849,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     min=1, max=30, step=1,
                     unit_of_measurement="min",
                     mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # --- TOU rate file (2 settings, keep together) ---
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: explicit kill switch for
+            # /config/universal_room_automation/tou_rates.json ingestion.
+            # Default TRUE — behaviour byte-identical to pre-toggle
+            # (file present + valid => file wins). Set FALSE to skip
+            # filesystem access entirely and use built-in PEC rates.
+            vol.Optional(
+                CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+                default=self._get_current(
+                    CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+                    DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # TOU-RATE-FILE-KEY-UNWIRED-1: operator override for the TOU
+            # rate file (relative to HA config dir). Empty → default
+            # (universal_room_automation/tou_rates.json). Absolute paths
+            # and `..` traversal are rejected at load time.
+            vol.Optional(
+                CONF_ENERGY_TOU_RATE_FILE,
+                default=self._get_current(
+                    CONF_ENERGY_TOU_RATE_FILE, DEFAULT_TOU_RATE_FILE
+                ),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.TEXT,
                 )
             ),
             vol.Optional(

@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-13'
+  last_reconciled: '2026-09-14'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,6 +9,33 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T04:50', at: '2026-09-14T04:50:00', outcome: investigated,
+     headline: 'CIRCLING-SEVERITY-1 — STALE PLAN CAUGHT + promoted to build-ready. Its plan said fold into CONSOL-1; CONSOL-1 has SHIPPED and did not carry it, so the card was waiting on a closed cycle. Re-verified in source: the burst path has decision reasons but the two pre-dispatch gates (egress suppression, cooldown) still return silently. Passes all four gate steps as a Tier-1 REUSE of the existing reason idiom. Scoped, not built (branch hygiene at 05:00, no urgency).',
+     acknowledged: false}
+  - {fid: 'NM-REPAGE-IMG-1@2026-09-14T04:35', at: '2026-09-14T04:35:00', outcome: done,
+     headline: 'NM-REPAGE-IMG-1 — ALREADY-DONE, closed with zero work. The card still asked me to instrument the BlueBubbles transport and wait for an unacked CRITICAL; the fix shipped a month earlier in v5.73.1 (commit aee318b0e) and the code carries this card ID. A grep answered what a live measurement was queued to find out.',
+     acknowledged: false}
+  - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:40', at: '2026-09-14T04:40:00', outcome: investigated,
+     headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 (follow-up) — re-pages are INVISIBLE to notification_log (_repeat_alert never calls log_notification), so 102/day UNDERSTATES the real buzz load: 2153 unacked CRITICALs keep paging on the 300s/1800s/daily ladder. Low ack rate does not just indicate fatigue, it manufactures it. Also confirms the 300s histogram spike is the perimeter cooldown, not the repeat timer (both share a 300s period).',
+     acknowledged: false}
+  - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated,
+     headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 — MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working — so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).',
+     acknowledged: false}
+  - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated,
+     headline: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 — MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).',
+     acknowledged: false}
+  - {fid: 'REGIME-NOTIFY-PATH-DEAD-1@2026-09-14T03:05', at: '2026-09-14T03:05:00', outcome: investigated,
+     headline: 'REGIME-NOTIFY-PATH-DEAD-1 — REFUTED + CLOSED: the routine-shift notify path is ALIVE. notification_log shows 5 Weekly Routine Digests on 5 consecutive Sundays (08-16 -> 09-13). The two empty tables were expected under mode=weekly_digest, and an empty queue is the signature of a HEALTHY drain.',
+     acknowledged: false}
+  - {fid: 'CAMERA-ZERO-FIRE-DETECTORS-1@2026-09-14T03:30', at: '2026-09-14T03:30:00', outcome: investigated,
+     headline: 'CAMERA-ZERO-FIRE-DETECTORS-1 — MEASURED on the Frigate host, then ESCALATED. Not an MQTT gap: Frigate logged ~no person events either, so URA is faithful. All 3 cameras alive + detecting (offline hypothesis refuted). Per-camera causes differ; all remaining fixes are homelab/physical, no URA build. Also found a naming trap: ArmCrestASH41B != ArmCrest.',
+     acknowledged: false}
+  - {fid: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1@2026-09-14T03:35', at: '2026-09-14T03:35:00', outcome: waiting_operator,
+     headline: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — RECOMMENDATION CHANGED by measurement: MadronePTUltra has fired ZERO Frigate events ALL TIME (on-demand PIR duty-cycle to protect its battery). Adding it to perimeter_cameras is safe but buys ~no coverage. Operator should decide duty-cycle, not just the config toggle.',
+     acknowledged: false}
+  - {fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-14T03:10', at: '2026-09-14T03:10:00', outcome: parked,
+     headline: 'FRONT-SIDE-PTZ-CHATTER-1 — LANE FIX only: card sat in investigating while its own next said the operator owns it and nothing was queued on my side. Moved to waiting_operator with an operator-verb next. No finding changed.',
+     acknowledged: false}
   - {fid: 'HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00', at: '2026-09-12T12:00:00', outcome: parked,
      headline: 'HVAC-BASELINE-MAXSAMPLES-1 — PARKED at gate (shared-primitive change, margin does not pay)',
      acknowledged: false}
@@ -38,6 +65,9 @@ meta:
      acknowledged: false}
   - {fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: waiting_operator,
      headline: 'CONFIG-FLOW-SLOW-ONBOARDING-1 — RECHECKED: network outage STILL LIVE and WORSE (7053 unavailable vs 6132; Shelly regressed 138->171; z2m 4/6 off). URA healthy (5 unavail). Operator infra fix',
+     acknowledged: false}
+  - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T02:20', at: '2026-09-14T02:20:00', outcome: investigated,
+     headline: 'CIRCLING-SEVERITY-1 — TRACED: refuted the card''s own clock-gating premise (that window gates burst DEMOTION, not alerting) and refuted a dead-severity-table theory; isolated to egress-suppression vs per-camera cooldown. Next step is now a measurement, not a code change',
      acknowledged: false}
   - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-14T01:05', at: '2026-09-14T01:05:00', outcome: done,
      headline: 'WORKTREE-BACKLOG-PRUNE-1 — DONE: 51 worktrees pruned (94->43). The recheck RESCUED 10 orphaned code-review records (2462 lines) that existed only in throwaway worktrees and would have been destroyed',
@@ -193,6 +223,1230 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: FRONT-SIDE-PTZ-CHATTER-1
+  title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-14 00:20'
+  updated: '2026-09-14 03:10'
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: one exterior camera reports "person detected" far more than any other — it is
+     active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed
+     "on" continuously for 29.5 hours. Because the system links sightings across cameras within a
+     three-minute window, this near-constant chatter gets merged with genuine sightings elsewhere
+     and manufactures fake "someone is circling the house" tracks — about 6.6 of them a day.
+     Solution: find out whether the camera is detecting nothing real (a bug/spider/IR artefact)
+     or something real but irrelevant (street traffic in a wide field of view), because the fix
+     differs: the first is a detector problem, the second is a detection-zone crop.'
+  origin:
+    date: '2026-09-14'
+    gist: fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
+  evidence_2026_09_14: >-
+    Measured over 2026-09-06..09-14 (8 days, recorder). front_side_ptz: 739 ON-periods, 38.59h
+    total ON, 21.25% duty cycle, median duration 19s, and ONE period lasting 106,308s (29.5h).
+    Onset peak 03:00-05:00 local (76/118/82). Compare its neighbours: back_yard 582 periods /
+    2.16h / 1.19% duty; g5_bullet 54 / 0.73h / 0.40%; doorbell_lite 87 / 1.50h / 0.83%. It is an
+    order of magnitude out of family.
+    CONSEQUENCE (measured, not inferred): replaying the 180s link rule across
+    back_yard<->front_side_ptz produced 53 circling-shaped tracks in 8 days, mostly pre-dawn.
+    Its 180s co-onset rate with back_yard (0.565) is fully explained by sheer firing frequency —
+    simultaneity is 11.9%, BELOW the 32.7% chance null.
+  CORRECTED_2026_09_14: >-
+    TWO OF MY REPORTED FACTS WERE WRONG — corrected so they are not inherited.
+    (1) TIMEZONE ERROR: I reported the onset peak as 03:00-05:00 "when nobody is about". The real
+    peak is 08:00-10:00 LOCAL with ZERO onsets between midnight and 04:00. That INVERTS the
+    conclusion — it kills IR wash, night vision, headlights and spider-on-lens outright, since an
+    IR artefact must correlate with darkness and this anti-correlates.
+    (2) It is FRIGATE 2, not Protect (the _2 suffix). Protect exposes its own separate sensor for
+    the same camera.
+    (3) The 21.25% duty cycle is ONE STUCK EVENT, not chatter — excluding it, 738 periods = 4.7%.
+    Two separate defects were being read as one (see CAMERA-STUCK-SENSOR-TRIPWIRE-1).
+    DISCRIMINATOR FOUND: same camera, same 8 days, two independent detectors — Frigate 739 onsets
+    vs Protect 8 (~92x), with Protect person detection enabled throughout.
+  DETECT_ZONE_HYPOTHESIS_REFUTED_2026_09_14: >-
+    The agent recommended a detect-zone crop, reasoning Frigate's zone covers the street while
+    Protect's is cropped. THAT WAS INFERRED, NOT VERIFIED — and a committed audit refutes it.
+    AUDIT_exterior_camera_detection_settings.md (2026-08-06) headline: "no object mask, no motion
+    mask, no zones... ZERO masks and zero zones fleet-wide. Nothing excludes any walkway." Protect
+    is recorded as full-frame zones too. So zone geometry explains nothing in either direction.
+    THE ACTUAL EXPLANATION is in the same audit: front_side_ptz was DELIBERATELY RECALL-TUNED on
+    2026-08-06 on both instances — person threshold 0.7 -> 0.6 and detect.min_initialized 2 -> 1,
+    verified live via /api/config after restart. The stated goal was to stop MISSED MIDDLES. So
+    the 739 detections are largely the intended consequence of a decision we made; Protect is
+    untuned at sensitivity 50, hence 8.
+    THE IRONY WORTH KEEPING: we loosened precision to fix fragmentation — which the operator has
+    since ruled cosmetic-tier — and the cost landed in the dangerous direction, feeding a bad seam
+    to manufacture ~6.6 false circling tracks/day. But the SEAM was the load-bearing fault, and it
+    is now struck.
+    CAVEATS: the audit is five weeks old and the 0.6/1 settings are NOT re-verified as current;
+    the audit itself flags PTZ aiming as an unreadable gap.
+  next: >-
+    DO: recheck front_side_ptz and apply the detection-zone crop you flagged ("I'll recheck and
+    handle the crop") -> then I re-measure the circling-shaped track count. RECOMMENDED SEQUENCE
+    if it recurs: ship the corrected seam graph FIRST, then re-measure. If the count collapses on
+    the seam fix alone, the recall tune is fine as-is and no crop is needed — the seam was the
+    fault, not the sensitivity.
+  parsimony:
+    problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-VALIDATION-1, OPTIMIZER-PAGING-PRIMITIVE-1]
+    context: This is the noise source that made the founding circling case look real; the 29.5h stuck-ON may also be feeding the sensor_health row flood that B2 addressed.
+  refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+  groom_2026_09_14: >-
+    LANE FIX (overnight groom): this card sat in `investigating` while its own `next` read
+    "OPERATOR OWNS THIS ... Nothing queued on my side" — i.e. there is no measurement left for me
+    to run, which is the entry condition for the investigating lane. Moved to `waiting_operator`
+    and the `next` rewritten operator-verb-first per the waiting-lane rule. No finding changed.
+
+- id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
+  title: The founding circling case may be an artifact of a seam the operator has now struck
+  thread: perimeter
+  status: done
+  created: '2026-09-13 22:10'
+  updated: '2026-09-13 22:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the live track that motivated the whole circling feature (xt-000001-695c9e:
+     back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, 133s) was
+     classified as "circling" only because the system believed those two cameras were next to
+     each other. The operator has now confirmed they are NOT: back_yard points into a SEPARATE
+     detached garage and front_side_ptz faces the front of the main house. A person cannot
+     bounce between them five times in 133 seconds, so the "one person circling" reading was
+     probably manufactured by a wrong adjacency entry. Solution: work out what that sequence
+     actually was (two different people? a camera mis-detecting? one person moving along a path
+     we have not modelled?) before treating the founding case as the reference example of
+     circling.'
+  origin:
+    date: '2026-09-13'
+    gist: fell out of applying the operator seam re-ratification — striking back_yard<->front_side_ptz broke all 16 circling tests, which all trace to that one fixture
+  why: >-
+    This matters beyond tidiness: the founding case is the reference example the circling
+    feature was designed and tuned against. If its premise was a wrong seam, then the tuned
+    thresholds (3 distinct cameras, non-monotonic sequence) were fitted to an artifact. With the
+    corrected graph that sequence forks into separate tracks and would not classify as circling
+    at all.
+  evidence_2026_09_13: >-
+    Applying the corrected graph turned 16 tests RED across 4 files
+    (test_circling_founding_case, _transition, test_circling_label_transition,
+    test_circling_diag_sensor) — all of them import the single fixture in
+    test_circling_founding_case.py, whose own comment said it "MUST set_adjacency to the
+    ratified EXTERIOR_ADJACENCY_GRAPH so back_yard <-> front_side_ptz link into ONE track".
+    That dependency is the tell: the entire cluster rests on one now-struck seam.
+    MITIGATION SHIPPED (not a fix): the fixture is pinned to an explicit
+    _HISTORICAL_ADJACENCY_2026_08 graph so it keeps reproducing the original incident as a
+    historical regression record, with a comment stating it is NOT a claim that those cameras
+    are adjacent today. Tests are green again (117 pass, 1 pre-existing failure unchanged).
+  MEASURED_2026_09_14: >-
+    VERDICT: ARTIFACT — (c) a chronically-firing detector driving (a) a two-person merge. The
+    operator's strike on back_yard<->front_side_ptz is now CONFIRMED BY DATA, independently of
+    the geometry argument.
+    THE ORIGINAL WINDOW IS GONE — recorder retention is ~8 days (2026-09-06 to 09-14) and the
+    founding case was 2026-08-08, five weeks out. It is not in the URA DB either: no
+    perimeter/exterior/track table exists (ExteriorTrack objects live only in RAM), and a grep of
+    anomaly_log for track ids returns 0 rows.
+    SO IT WAS MEASURED GENERALLY over the 8 available days, against the operator-confirmed
+    adjacent pair g5_bullet<->doorbell_lite as a CONTROL:
+      - CONTROL (real adjacency): 65% of g5_bullet ON-periods OVERLAP IN TIME with doorbell_lite
+        — 59x its time-shifted null. That is the signature of one person in two overlapping
+        fields of view.
+      - back_yard<->front_side_ptz: simultaneity 11.9%, which is BELOW its own chance null
+        (32.7%). No adjacency signature at all. Its 180s co-onset rate is fully explained by
+        front_side_ptz firing so often that almost any 6-minute window contains one of its onsets.
+      - TRANSIT GAPS: 241 hops, p10/p50/p90 = -33.6 / 21.0 / 121.0s, with 32% of hops completing
+        in UNDER 5 SECONDS. Nobody crosses from a detached garage to the front of the house in 5s.
+      - DIURNAL: the two cameras' peaks are DISJOINT — back_yard peaks 07:00-08:00 and 11:00;
+        front_side_ptz peaks 03:00-05:00 (76/118/82 onsets). Not one person traversing.
+      - FREQUENCY: replaying the 180s linking rule produced 53 circling-shaped tracks in 8 days
+        (~6.6/day), mostly pre-dawn. The founding case was never a rare intrusion — it is the
+        routine output of this seam.
+    NOT SEPARABLE FROM THIS DATA: whether front_side_ptz's chatter is a true detector
+    false-positive (spider/IR/headlights/PTZ motion) or real-but-irrelevant detection (street
+    traffic in a wide PTZ field). Both land in the same bucket for the classifier, so it does not
+    change the disposition — but do NOT write it up as "detector is broken" without the check in
+    `next`. Carded separately as FRONT-SIDE-PTZ-CHATTER-1.
+  MY_CORRECTION_2026_09_14: >-
+    I described the founding-case fixture as "preserved as a HISTORICAL regression record" that
+    "keeps reproducing the ORIGINAL incident". THAT OVERSTATED IT. The per-hop timings in
+    test_circling_founding_case.py (t0, +25, +60, +95, +130s) were SYNTHESIZED by the test author
+    to sum to the documented 133s — the planning doc records only the path, duration and
+    classification, never real per-hop timestamps, and the real event rows are outside retention.
+    The fixture reproduces the SHAPE of the incident, not its measured timings. Corrected here so
+    a future session does not cite those numbers as live evidence.
+  no_stranding_2026_09_14: >-
+    The investigating agent flagged that pulling this edge might strand back_yard under the seam
+    validator's no-dead-ends rule. VERIFIED IT DOES NOT: on the held re-ratification branch
+    back_yard has degree 3 (armcrest, g5_bullet, hot_tub) and the whole graph has ZERO nodes of
+    degree < 2. No decision needed; the rule stays as written.
+  next: >-
+    OPTIONAL follow-up, not blocking: sample ~10 of the 53 circling-shaped tracks and pull the
+    UniFi Protect smart-detect records for the front_side_ptz legs (object label, bounding-box
+    size, zone). Tiny/edge-of-frame boxes => detector false-positive; real people on the street
+    => real-but-irrelevant, and the fix is a detect-zone crop, not a detector fix. Either way the
+    seam strike stands. Tracked under FRONT-SIDE-PTZ-CHATTER-1.
+  SUPERSEDED_next: >-
+    (original) MEASURE: pull the original event rows for the founding window from the URA DB / recorder
+    (per-camera detection timestamps + snapshots if retained) and decide which explanation fits:
+    (a) TWO people, one front + one at the garage, merged by the bad seam; (b) ONE person on a
+    real path between them that the ring does not model (if so the ring needs an edge and the
+    operator should say which); (c) a detector false-positive on one of the two cameras.
+    Discriminator: the inter-camera gaps. A real walk between opposite sides of the property has
+    a plausible transit time; a merge artifact shows overlapping or implausibly short gaps.
+    THEN decide whether the circling thresholds need re-fitting against a real example.
+  parsimony:
+    problem: The reference example for circling may not have been a circling event at all.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 4, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify, falsify-first]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-SEVERITY-1]
+    context: CAMERA-SEAM-VALIDATION-1 struck the seam that created this doubt; CIRCLING-SEVERITY-1 is the other open question about the same live track (why it produced no page).
+  refs:
+  - quality/tests/perimeter/test_circling_founding_case.py
+  - docs/planning/VALIDATE_exterior_camera_seams.md
+- id: PERIMETER-TOLERANCE-AND-SECTIONS-1
+  title: Measure link tolerance against real history, and decide whether some stretches of the perimeter deserve special treatment
+  thread: perimeter
+  status: parked
+  DISPOSITION_2026_09_14: >-
+    PARKED WITH AN EXPLICIT FIRING TRIGGER — not left open as a vague investigation.
+    It is genuinely blocked: measuring link tolerance against an adjacency graph we KNOW was wrong
+    would measure the wrong thing, and the corrected graph has not shipped yet. Operator sequencing
+    is explicit — "keep the design as is. Our focus is on seam accuracy. We can measure and act on
+    tolerance after some investigation."
+    REVIVAL TRIGGER (both conditions): (1) v5.101.2 seam graph is deployed AND live-validated; AND
+    (2) at least one full week of detection history exists under the corrected graph — the recorder
+    retains ~8 days, so the replay window opens roughly 7 days post-deploy and would be lost if
+    left much longer. THIS IS TIME-SENSITIVE IN ONE DIRECTION: wait too long past the outage window
+    and the labelled control data ages out.
+    THE REPLAY IS FULLY SPECIFIED on this card already (positive control g5_bullet<->doorbell_lite
+    at 65% overlap, negative control back_yard<->front_side_ptz below chance, three candidate
+    rules). Nothing further is needed to start it when the trigger fires.
+    THE SECTIONS QUESTION is separable and NOT blocked — but it is a design conversation with the
+    operator, not a measurement, so it waits for the same sit-down rather than being driven solo.
+  created: '2026-09-14 01:50'
+  updated: '2026-09-14 01:50'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the system only joins two camera sightings into one tracked walk if the two cameras
+     are declared neighbours. Where camera coverage is thin — the sides of the property — a single
+     missed detection splits one walk into two, which costs alert QUALITY (a walk that should read
+     "circling" reads as two unremarkable sightings). Separately, not all of the perimeter matters
+     equally: some stretches are higher-consequence than others and might deserve different
+     treatment. Solution: FIRST measure, against real recorded history, how a looser rule would
+     behave — how many genuine walks it would rescue versus how many separate people it would
+     wrongly merge. Only then decide whether to change anything, and whether to mark certain
+     stretches as high-priority.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "keep the design as is. Our focus is on seam accuracy. We can measure and act on tolerance after some investigation. We should also figure out if we should annotate high priority sections of the perimeter and do something special about them."
+  SEQUENCING_IS_THE_POINT: >-
+    OPERATOR DIRECTION: KEEP THE CURRENT DESIGN. Focus is on SEAM ACCURACY first; tolerance is
+    measured and acted on AFTERWARDS. This card is explicitly an INVESTIGATION, not a build. Do
+    NOT change exterior_track_linker.py under it.
+    This also sits under SEAM-TOLERANCE-PRIORITY-RULING-1: fragmentation is cosmetic-tier
+    (detection never lost), while a wrong merge SUPPRESSES a real alert. So any tolerance change
+    trades a dangerous failure for a cosmetic one and must clear a high evidence bar.
+  current_behaviour_measured: >-
+    exterior_track_linker.py:594-598 — adjacency is a HARD BINARY GATE; time proximity cannot
+    override it. Knobs: TRACK_LINK_WINDOW_S=180, TRACK_CLOSE_IDLE_S=300,
+    EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS=3. No second-order hops, no distance decay, no
+    per-camera reliability weighting. On the ratified 13-camera ring, 5 of 13 middle-camera misses
+    are bridged by a validated skip; 8 of 13 break, clustered on the thin side/pool run.
+  THE_REPLAY_EXPERIMENT: >-
+    The measurement that would settle tolerance. We already have BOTH labels from real data:
+    a POSITIVE control — g5_bullet<->doorbell_lite, operator-confirmed adjacent, 65% temporal
+    overlap (59x its null); and a NEGATIVE control — back_yard<->front_side_ptz, operator-struck
+    and measurement-refuted, simultaneity BELOW chance with 32% of "hops" under 5 seconds.
+    Replay real detection history under each candidate rule and score: how many known-good walks
+    survive (recall) vs how many known-distinct people merge (the dangerous direction).
+    CANDIDATE RULES to score (hypotheses, NOT recommendations): (a) second-order hops allowed with
+    a TIGHTER time bound than the 180s used for direct neighbours; (b) per-camera reliability
+    weighting so an unreliable camera cannot anchor a hard gate; (c) asymmetric time window —
+    more tolerance on thin side runs, less on the dense front where a genuine second person is
+    likelier. NOTE the recorder retains only ~8 days, so the replay window is bounded; say so.
+  THE_SECTIONS_QUESTION: >-
+    SECOND, SEPARABLE DELIVERABLE (operator raised it; do not bundle the build): should stretches
+    of the perimeter carry a PRIORITY ANNOTATION, and what would change for a high-priority one?
+    Candidate meanings to evaluate, each cheap to state and testable: a lower circling threshold
+    (2 cameras instead of 3) on a high-priority run; a severity floor regardless of house state;
+    exemption from burst-demotion; tighter tolerance (prefer fragmentation over merging) where a
+    missed alert is most costly.
+    PRIOR ART TO SCAN FIRST: EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS already encodes one notion of
+    "these cameras matter more" (one hop from a way out) and the severity matrix already varies by
+    camera_class (perimeter vs egress). A sections concept may be an EXTENSION of camera_class
+    rather than a new axis — check before proposing anything new.
+    The seam file (docs/examples/exterior_seams.example.json) is the natural place to declare
+    sections if they are adopted; it already carries close_pairs as a similar unconsumed annotation.
+  next: >-
+    RUN THE REPLAY (read-only) and report recall-vs-merge for each candidate rule against the two
+    labelled control pairs. Do NOT change linker code. Separately, scan the prior art named above
+    and report whether "high-priority sections" should extend camera_class or be a new annotation,
+    with a concrete proposal for what it would CHANGE. Both outputs are input to an operator
+    decision, not a build.
+  parsimony:
+    problem: We do not know what a looser linking rule would cost in wrong merges, and we have not decided whether parts of the perimeter warrant different handling.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 2, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify, audit-first]
+  links:
+    blocked_by: [CAMERA-SEAM-VALIDATION-1]
+    related: [SEAM-TOLERANCE-PRIORITY-RULING-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1]
+    context: Blocked on seam accuracy landing first per operator sequencing — measuring tolerance against a graph we know is wrong would measure the wrong thing.
+  refs:
+  - custom_components/universal_room_automation/exterior_track_linker.py
+  - docs/examples/exterior_seams.example.json
+- id: CAMERA-ZERO-FIRE-DETECTORS-1
+  title: Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-14 02:05'
+  updated: '2026-09-14 03:30'
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: three of the outdoor cameras reported a person exactly ZERO times over eight days.
+     A camera that never reports anything looks identical to a quiet camera, so nothing flags it —
+     yet two of the three are cameras we just placed into the map of which cameras are next to
+     which, so the system is relying on them. One of them was firing normally five weeks ago, so
+     something changed. Solution: find out whether each is genuinely quiet, misconfigured, or
+     broken, and fix or remove it from the map.'
+  origin:
+    date: '2026-09-14'
+    gist: fell out of the stuck-sensor measurement — the zero-ON column was as informative as the stuck column
+  evidence_2026_09_14: >-
+    Over 2026-09-06..09-14 (7.9 days), ZERO ON periods despite having rows in `states`
+    (availability churn only): `binary_sensor.madroneptultra_person_occupancy` (47 rows),
+    `binary_sensor.reolinkstudybporchptz_person_occupancy_2` (56 rows),
+    `binary_sensor.armcrestash41b_person_occupancy_2` (56 rows).
+    For contrast, active neighbours over the same window: back_yard 582 ON periods, hot_tub 352,
+    front_side_ptz 739, pool_equipment 135.
+    IT IS A CHANGE, NOT A STEADY STATE: AUDIT_exterior_camera_adjacency_probe.md (2026-08-06)
+    recorded reolinkstudybporchptz at 30 ON events in 7 days. It has since gone silent.
+  WHY_IT_MATTERS_NOW: >-
+    madroneptultra (ring position 5) and reolinkstudybporchptz (position 8) are BOTH in the
+    13-camera ring shipped in v5.101.2. Their ring edges cannot link anything while the detectors
+    are silent. This is a SECOND reason those positions are inert, distinct from the known
+    perimeter_cameras config gap for madroneptultra — fixing the config would NOT make
+    madroneptultra fire if the detector itself is not producing.
+    It does not invalidate the seam graph (the adjacency is still physically true, and an inert
+    node is harmless per the operator priority ruling — detection is never lost because these
+    cameras were contributing nothing anyway). It does mean the ring is effectively 11 live
+    cameras, not 13.
+  measured_2026_09_14_frigate_host: >-
+    ONE-SHOT READ-ONLY PROBE against the AUTHORITATIVE source — Frigate 2's own event DB and
+    /api/stats on 192.168.13.18 (the card's named discriminator). Read-only sqlite + the internal
+    stats endpoint; nothing changed on the host.
+    HEADLINE: it is NOT an HA/MQTT publish gap. Frigate itself logged (almost) no person events
+    for all three, so URA's zero is FAITHFUL — the detectors really are contributing nothing.
+    ALL THREE CAMERAS ARE ALIVE AND BEING PROCESSED, so "camera offline" (hypothesis (a)) is
+    REFUTED for every one. Live /api/stats camera_fps / detection_fps: ArmCrestASH41B 6.1 / 0.5
+    (process 5.9), ReolinkStudyBPorchPTZ 6.1 / 2.7, MadronePTUltra 3.1 / 5.2 (awake at probe
+    time — its PIR daemon had it enabled).
+    FRIGATE EVENT COUNTS, per camera:
+    (1) MadronePTUltra — ZERO events of ANY label, ALL TIME (total=0). Not a regression: it has
+    never produced one. Consistent with its on-demand design (homelab CONFIGS.md 2026-09-07: the
+    ptultra-frigate-trigger systemd daemon keeps Frigate detection DISABLED except during short
+    PIR motion windows, because continuous mode drained the battery 100->98% in 33 min).
+    (2) ReolinkStudyBPorchPTZ — 3 events in 30 days total (1 person 2026-09-04, 1 cat, 1 speech).
+    Alive but effectively blind. MECHANISM ALREADY DOCUMENTED: it detects on its sub stream at
+    640x480, the lowest detect resolution on the fleet (config.yaml detect width 640 height 480;
+    h264Preview_01_main carries only record+audio). homelab CONFIGS.md flagged exactly this on
+    2026-08-26 ("0 person events in 7d ... next rung = the h264Preview_01_main stream") and
+    deprioritised it. So the card's "it has since gone silent" (vs 30 ON events in the 2026-08-06
+    audit) lines up with the 2026-08-26/27 F2 detect-stream and fps rework, not a camera fault.
+    (3) ArmCrestASH41B — 272 speech events in 30d (latest 2026-09-14T00:55) and ZERO object
+    events of any kind. The audio role proves the stream is consumed; detection runs (process_fps
+    5.9). Checked and REFUTED: no motion mask and no zones/required_zones on this camera; and the
+    missing per-camera objects.track list is NOT the cause — the global objects: block sets only
+    genai, so Frigate's default track list (person) applies.
+    NAMING TRAP WORTH RECORDING: ArmCrestASH41B (192.168.12.143) and ArmCrest (192.168.15.96) are
+    TWO DIFFERENT Frigate cameras. ArmCrest is healthy — 5 person events in 14d, det_fps 3.1. Do
+    not read one's health as the other's.
+  verdict_2026_09_14: >-
+    Hypothesis (a) camera-offline: REFUTED for all three. Publish/MQTT gap: REFUTED. What remains
+    is the card's own option (d) — aim/field-of-view/recall — with a different answer per camera,
+    and every remaining fix is an OPERATOR/HOMELAB action (re-aim, crop, raise detect resolution,
+    or drop from the ring), NOT a URA code change. No URA build lane opened.
+  ura_side_consequence: >-
+    The URA-relevant conclusion is about the SEAM RING, not the cameras: two of these three are
+    legs in the exterior adjacency ring while contributing ~zero detections, so the ring carries
+    phantom legs. Input to CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1 and
+    PERIMETER-TOLERANCE-AND-SECTIONS-1, and it materially changes the recommendation on
+    CAMERA-PTULTRA-NOT-IN-PERIMETER-1 (see that card's cross_finding).
+  next: >-
+    PICK per camera (all three are homelab/physical calls, none is a URA code change):
+    (1) ReolinkStudyBPorchPTZ — APPROVE moving its detect role onto h264Preview_01_main (640x480
+    -> main res) to restore recall, or DECIDE it stays low-priority and I drop it from the
+    perimeter seam ring so it stops contributing a dead leg. Note the F2 decode budget is the
+    constraint (CONFIGS.md 2026-08-27: this box is software-decode bound), so this is a real
+    trade, not free.
+    (2) ArmCrestASH41B — ANSWER where this camera is actually pointed. It is alive, detecting,
+    unmasked and hearing speech daily, yet has never seen a person: that pattern says aim/scene,
+    not fault. If it covers somewhere nobody walks, the right answer is DROP it from the ring.
+    (3) MadronePTUltra — no action here; it is zero BY DESIGN (battery on-demand PIR windows).
+    See CAMERA-PTULTRA-NOT-IN-PERIMETER-1 before adding it to perimeter_cameras.
+  parsimony:
+    problem: Two cameras the seam ring depends on have not produced a single detection in eight days.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 4, effort: 3}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [CAMERA-STUCK-SENSOR-TRIPWIRE-1, CAMERA-SEAM-VALIDATION-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1]
+    context: Same measurement; and it compounds CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — adding madroneptultra to perimeter_cameras will not help if its detector is silent.
+  refs:
+  - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
+  - docs/planning/AUDIT_exterior_camera_detection_settings.md
+- id: OC-STUCK-SENSOR-GENERALIZE-1
+  title: "Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores"
+  thread: optimization
+  status: pre_planning
+  created: '2026-09-14 02:20'
+  updated: '2026-09-14 02:20'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: sensors get stuck — reporting the same value for hours or days — and URA has no
+     general way to notice. The health check it does have only ever looks at whether a ROOM looks
+     degraded, so a single jammed sensor is invisible unless it happens to drag a room score down.
+     This has now bitten repeatedly and differently: a camera pinned "person present" for 29 hours,
+     another reporting a person 53% of all wall-clock time, detectors that stop firing entirely,
+     and offline actuators a room cannot see. Every one was found by hand. Solution: give the
+     Optimization Coordinator one general stuck-sensor check keyed to the SENSOR, covering every
+     kind of device it already watches, with sane per-kind expectations — a door contact may sit
+     unchanged for days; a motion sensor may not.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
+  THE_STRUCTURAL_GAP: >-
+    MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is
+    a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It
+    watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS. An individual sensor stuck at a plausible
+    value is outside its target universe entirely — no threshold change would ever catch it.
+    The same blind spot repeats in the DB: occupancy_events keys on (room_id, trigger_source) where
+    trigger_source is a KIND (presence/motion/ble/mmwave), never an entity_id. URA holds deep
+    history and still cannot answer "was THIS sensor stuck".
+  KNOWN_INSTANCES: >-
+    (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate
+    producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full
+    8-day window, median 408s vs fleet median ~25s; operator rebooted the camera 2026-09-14 and it
+    is expected to self-correct. (3) three exterior detectors firing ZERO times in 8 days
+    (CAMERA-ZERO-FIRE-DETECTORS-1) — the never-fires twin. (4) the standing BACKLOG gap that
+    sensor.<room>_unavailable_entities tracks only INPUT sensors, so a dead ACTUATOR is invisible
+    (documented in CLAUDE.md troubleshooting).
+    FOUR SHAPES: stuck-ON, stuck-OFF/never-fires, stuck-at-a-value (numeric), unavailable-but-
+    unreported. A design must say which it covers.
+  design_questions_do_not_guess: >-
+    (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion
+    sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even
+    while "reporting". Derive horizons from MEASURED p95/p99 per class — as the camera measurement
+    did (p99 <= 355s on 12 of 14 exterior detectors -> 1800s) — never invent numbers.
+    (b) SCOPE: everything URA is configured to consume — room inputs, perimeter/egress cameras,
+    climate, and per the BACKLOG gap, actuators.
+    (c) WHERE: OC already runs a sensor_health dimension with finding/severity/dedup/NM plumbing.
+    This is very likely an EXTENSION of that dimension keyed on entity_id, NOT a new coordinator.
+    Prior-art scan REQUIRED before proposing new infra.
+    (d) VOLUME: v5.101.1 B2 just suppressed repeat sensor_health rows to ~1/day/sensor. A new
+    per-entity dimension MUST adopt the same suppression or it re-creates the flood B2 just fixed.
+  next: >-
+    PLAN, do not build. Tier 2 minimum (new finding dimension on a shared coordinator with NM
+    reach). Before any build brief: (1) prior-art scan of sensor_health + the existing
+    unavailable-entity surfaces; (2) measure per-device-class change-duration distributions to
+    derive horizons from data; (3) pick which of the four shapes v1 covers — recommend stuck-ON and
+    never-fires, both proven to have occurred; (4) state the suppression story up front.
+  parsimony:
+    problem: URA has no sensor-keyed liveness check; every stuck-sensor incident so far was found by hand.
+    verdict: BUILD
+  rank: {value: 8, time_criticality: 4, effort: 8}
+  tags: [tier-2, measure-before-build, no-fabrication-verify, institutional-context]
+  links:
+    related: [CAMERA-STUCK-SENSOR-TRIPWIRE-1, CAMERA-ZERO-FIRE-DETECTORS-1, FRONT-SIDE-PTZ-CHATTER-1]
+    context: CAMERA-STUCK-SENSOR-TRIPWIRE-1 is the camera-only special case; if this is built, that folds into it rather than shipping separately.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/optimization.py
+  - docs/BACKLOG.md
+- id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
+  title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
+  thread: perimeter
+  status: planned
+  created: '2026-09-14 01:50'
+  updated: '2026-09-14 01:50'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: a camera''s person-detection sensor got stuck reporting "person present" for 29 and
+     a half hours straight, and no part of the system noticed. The health checker that ought to
+     catch this only ever looks at ROOMS, never at individual sensors, so a perimeter camera
+     pinned on is invisible to it. A stuck sensor quietly poisons everything downstream. Solution:
+     first measure how often this actually happens, then — if it is frequent enough to matter —
+     add a simple check that a sensor which has been ON far longer than that camera ever normally
+     is gets flagged.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "Card as lower priority. Lets see this happen. What we need is to measure how often an exterior camera has been stuck in the last 3 months first"
+  priority_note: >-
+    OPERATOR SET THIS LOWER PRIORITY and gated it on measurement. Do NOT build the trip-wire until
+    the frequency is known — if it has happened once in three months, this parks.
+  evidence_2026_09_14: >-
+    CONFIRMED INCIDENT: binary_sensor.front_side_ptz_person_occupancy_2 pinned ON for 106,308s
+    (29.5h), 2026-09-10 10:05:54 CDT to ~09-11 15:37 CDT.
+    COVERAGE GAP IS STRUCTURAL, not a tuning miss: URA sensor_health produced 7,970 findings in a
+    month and every single target_id is a URA ROOM name (Jaya Bathroom 3402, Kitchen 940, Garage A
+    739, Butler Pantry 591...). It watches room-score degradation, not sensor liveness. A perimeter
+    camera binary_sensor is outside its target universe entirely — no threshold change would ever
+    catch this.
+  measurement_dispatched_2026_09_14: >-
+    Read-only measurement running. NOTE a hard constraint the operator should know: the HA recorder
+    retains only ~8 DAYS (verified 2026-09-06..09-14), so a literal 3-month lookback is likely
+    IMPOSSIBLE from it. The agent is tasked to confirm retention first, then look for longer-horizon
+    sources (URA DB tables, Frigate's own events DB which typically keeps weeks-to-months) and to
+    report honestly what horizon it could cover rather than extrapolating 8 days as though measured.
+    It is also measuring the NORMAL ON-duration distribution (median/p95) per camera, so any future
+    threshold is set against real behaviour rather than an arbitrary number.
+  MEASURED_2026_09_14: >-
+    VERDICT: BUILD — but not the card as framed, and the measurement found a LIVE defect nobody
+    had noticed.
+    WINDOW: 7.9 days only (2026-09-06..09-14). A 3-month lookback is IMPOSSIBLE from the recorder
+    and was NOT extrapolated. Longer-horizon routes checked and closed: the URA DB hasdeep history
+    (occupancy_events to 2025-11-20, anomaly_log to 2026-05-15) but carries NO per-sensor identity
+    — trigger_source is a KIND (presence/motion/ble/mmwave), never an entity_id, the same
+    room-keyed blind spot as sensor_health. HA long-term statistics do not cover binary_sensors.
+    The Frigate host's own events DB is the ONLY remaining route to a real 3-month base rate.
+    TWO DISTINCT FAILURE MODES, previously read as one:
+    (A) FLEET-WIDE PRODUCER FREEZE, not a stuck sensor. front_side_ptz_2 pinned ON at 09-10
+    10:05:54 CDT and pool_equipment_2 at 09-10 09:55:03 — 11 minutes apart — and BOTH segments
+    ended at 09-11 15:37:42/:43, one second apart, with state `unavailable`. Frigate stopped
+    publishing; each sensor froze at its last value and only "unstuck" when HA marked it
+    unavailable 29.5h later. front_side_ptz was toggling normally every ~30-60s right up to the
+    freeze.
+    [OPERATOR 2026-09-14: rebooted the pool_equipment camera; expected to self-correct. RE-MEASURE
+    before calling this an open defect — if it clears, the finding still stands as evidence for the
+    trip-wire (nothing reported it for 8 days) but the instance closes.]
+    (B) CHRONIC FALSE POSITIVE ON pool_equipment — a LIVE, CURRENT defect. 25 ON periods over 1h
+    in 7.9 days, median 408s against a fleet median of 20-30s, and 100.5 ON hours out of 190 =
+    **53% of wall-clock reporting a person present**. This camera is effectively always detecting
+    someone. That is a Frigate zone/static-object problem, not sensor liveness, and nothing in URA
+    reports it.
+  THRESHOLD_EVIDENCE_2026_09_14: >-
+    Excluding pool_equipment and garage_a, EVERY exterior camera's p99 ON-duration is <= 355s
+    (under 6 min); the fleet max outside those two is 1562s. A 1800s (30-min) threshold sits ~5x
+    above the worst non-pathological p99 and above every observed non-stuck ON period on 12 of 14
+    sensors. Over the measured window it would have fired exactly TWICE — the two real incident
+    sensors — and zero times spuriously on those 12.
+    REQUIRED EXCEPTIONS: garage_a p99 = 2141s (36 min) with a real 3.9h dwell — interior-facing
+    egress, needs a per-camera override at ~2h or 30min false-fires. pool_equipment would fire
+    ~25x/week at 30min — quarantine it or set 8h until its false detection is fixed. Do NOT let
+    one pathological camera set the fleet threshold; that is how you end up with a useless 12h
+    trip-wire that misses everything else.
+    CHEAPER PRIMARY MECHANISM WORTH CONSIDERING: because mode (A) froze the whole Frigate family
+    at once, a PRODUCER-LEVEL staleness check (no state change on ANY Frigate person sensor for
+    > N min while >= 1 is ON) catches the real incident faster with ONE detector instead of 14 —
+    with per-sensor duration as the backstop.
+  CAVEATS_2026_09_14: >-
+    (1) The 7.9-day window CONTAINS the known 09-10/09-11 network outage already on the board, so
+    the single mode-(A) incident may be collateral from that outage rather than an independent
+    base rate. A weekly rate is a LOW-CONFIDENCE inference from one sample, not a measurement.
+    (2) The chronic pool_equipment finding does NOT depend on that caveat — it is present across
+    the whole window and justifies a detector on its own.
+  ZERO_FIRE_SENSORS_2026_09_14: >-
+    SEPARATE FINDING, and it touches what we are about to ship: THREE exterior person detectors
+    produced ZERO ON periods in 7.9 days despite having rows in `states` (availability churn
+    only) — `madroneptultra_person_occupancy`, `reolinkstudybporchptz_person_occupancy_2`, and
+    `armcrestash41b_person_occupancy_2`.
+    TWO OF THOSE ARE IN THE RATIFIED 13-CAMERA RING (madroneptultra at position 5,
+    reolinkstudybporchptz at position 8). So two ring positions are inert for a reason beyond the
+    known perimeter_cameras config gap — the detectors themselves are not firing.
+    Note reolinkstudybporchptz DID fire in the 2026-08-06 adjacency probe (30 ON events in 7
+    days), so this is a CHANGE, not a permanent state. A never-firing detector is as invisible as
+    a stuck one and neither the recorder nor sensor_health flags it. Carded as
+    CAMERA-ZERO-FIRE-DETECTORS-1.
+  next: >-
+    BUILD, sized by the evidence above: default 1800s duration trip-wire + per-camera override map
+    (garage_a ~2h, pool_equipment quarantined) as module constant + options override per
+    Numbers-Get-Knobs; consider the producer-level staleness check as the PRIMARY mechanism with
+    per-sensor duration as backstop. Reuse _stuck_signal_nm.fire_stuck_signal — do not invent a
+    new alerting path.
+    OPTIONAL FIRST (~20 min, read-only): query the Frigate host's events DB for a real 3-month
+    base rate before sizing. Worth it only if the sizing decision is contested — the chronic
+    pool_equipment defect already justifies building. If built: a duration
+    trip-wire on exterior person-detection binary sensors, threshold derived from the measured p95,
+    wired to NM per the no-soak rule (trip-wire in code, not a calendar reminder). Reuse the
+    existing stuck-signal NM path (_stuck_signal_nm.fire_stuck_signal) that the TOU loud-failure
+    work just used — do NOT invent a new alerting mechanism.
+  parsimony:
+    problem: A stuck camera sensor is invisible to every existing health check and poisons downstream presence and perimeter logic.
+    verdict: INVESTIGATE
+  rank: {value: 5, time_criticality: 2, effort: 3}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [FRONT-SIDE-PTZ-CHATTER-1, OPTIMIZER-PAGING-PRIMITIVE-1]
+    context: The 29.5h stuck period is also what inflated front_side_ptz's apparent duty cycle to 21% (4.7% excluding it) — two separate defects that were being read as one.
+  refs: [custom_components/universal_room_automation/domain_coordinators/optimization.py]
+- id: SEAM-TOLERANCE-PRIORITY-RULING-1
+  title: "Operator ruling: a missed link is NOT catastrophic — detection still fires; do not trade suppression risk for link tolerance"
+  thread: perimeter
+  status: done
+  created: '2026-09-14 01:25'
+  updated: '2026-09-14 01:25'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the agent was treating a broken camera-to-camera link as a serious defect and
+     proposed a whole cycle to make linking more forgiving. That over-weighted the wrong risk.
+     Solution: record the operator''s priority ordering so the question is not re-opened — keep the
+     camera adjacency map accurate through ordinary diligence, and do NOT loosen the linking rules
+     to compensate for gaps.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "missing is not catastrophic anyway. As long as detection happens. Its just that we have to do basic due diligence to avoid it"
+  THE_RULING: >-
+    PRIORITY ORDER, operator-coined 2026-09-14:
+      1. A DETECTION IS NEVER LOST. Someone seen on any camera produces an alert. This is the
+         load-bearing property and nothing may weaken it.
+      2. NEVER MERGE TWO PEOPLE. A wrong seam links two individuals into one track and SUPPRESSES
+         the second alert. This is the only genuinely dangerous failure mode.
+      3. Link correctly for classification. Track linking is a QUALITY layer — it makes alerts
+         fewer and better-classified (circling vs pass_by). A broken link costs classification
+         fidelity, not safety.
+    CONSEQUENCE: fragmentation (a missed middle camera splitting one walk into two weaker tracks)
+    is a cosmetic-tier problem. It is worth ordinary due diligence — keep the graph accurate — but
+    it does NOT justify engineering.
+  WHY_THE_TOLERANCE_CYCLE_IS_DROPPED: >-
+    I had offered a "tolerance model" cycle (second-order hops, per-camera reliability weighting,
+    asymmetric time windows) to survive missed detections. DROPPED, and the reasoning matters:
+    every one of those levers loosens the SPACE gate, and loosening the space gate pushes toward
+    failure mode 2 (merging two people) in order to buy back failure mode 3 (classification
+    fidelity). That trades a dangerous failure for a cosmetic one — the wrong direction.
+    The measured evidence already showed where that leads: the false founding case happened
+    BECAUSE a non-existent seam let time-proximity merge two independent people into one
+    "circling" track, 6.6 times a day.
+  what_the_code_does_today_2026_09_14: >-
+    Recorded for reference so it need not be re-traced. exterior_track_linker.py:594-598 —
+    `same = last.camera == camera; adj = camera in self._adjacency.get(last.camera, set());
+    if not (same or adj): continue`. Adjacency is a HARD BINARY GATE; time proximity cannot
+    override it (two detections 1s apart on non-adjacent cameras do NOT link). Time is used only
+    as a tiebreaker among candidates that already passed the gate. Anchored on the track''s LAST
+    hop only. No second-order hops, no distance decay, no per-camera reliability weighting —
+    verified by grep. Knobs: TRACK_LINK_WINDOW_S=180, TRACK_CLOSE_IDLE_S=300,
+    EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS=3. None is a spatial tolerance.
+    Measured miss-tolerance on the ratified 13-camera ring: 5 of 13 middle-camera misses are
+    bridged by a validated skip; 8 of 13 break the track, clustered on the thin side/pool run.
+    Per the ruling above this is ACCEPTED, not a defect to fix.
+  next: 'DONE — ruling recorded. Do not re-propose loosening the linking rules; keep the graph accurate instead.'
+  parsimony:
+    problem: Fragmentation was being treated as a defect worth engineering; it is not.
+    verdict: DROP
+  rank: {value: 3, time_criticality: 1, effort: 1}
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1]
+    context: This ruling is why the seam validator stays STRICT (wrong seams are the dangerous direction) and why no tolerance-loosening work follows.
+  refs: [custom_components/universal_room_automation/exterior_track_linker.py]
+- id: CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1
+  title: Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling
+  thread: perimeter
+  status: planned
+  created: '2026-09-13 22:10'
+  updated: '2026-09-13 22:40'
+  refinement_status: refined
+  resolved_2026_09_13: >-
+    AMBIGUITY RESOLVED — and MY EARLIER READING WAS AN UNDER-READ, corrected here.
+    (1) [C] is NOT a system designation; the operator confirms it was explanatory notation only.
+    (2) I called the notation ambiguous and reported only armcrest+back_yard as a confident pair.
+    THAT WAS A MISS: the operator had ALSO annotated seam #11 doorbell_lite<->g5_bullet with
+    "Very close so valid" directly in the verdict table. That annotation independently
+    disambiguates the [C] notation — the [C] on "Doorbell lite" marks closeness to the PREVIOUS
+    ring camera (g5_bullet), confirming reading (a). I had the disambiguating evidence in the
+    document and failed to join it to the [C] question.
+    RESOLVED CLOSE PAIRS (reading (a): [C] on camera X = X is close to its PREDECESSOR in the ring):
+      1. madrone_g6_entry  <-> front_door_aerial
+      2. utilities_ptz     <-> reolinkstudybporchptz
+      3. hot_tub           <-> armcrest
+      4. armcrest          <-> back_yard
+      5. g5_bullet         <-> doorbell_lite   (corroborated by the explicit "Very close" note)
+    All five are live seams in the re-ratified graph, so no graph change is implied — the open
+    question is only whether a close pair should count as ONE vantage point for circling.
+  problem_solution:
+  - 'Problem: along with the camera ring, the operator marked five cameras with [C] meaning
+     "close enough that these are not really big transitions" — front_door_aerial, the
+     Madrone/Reolink hub, armcrest, back_yard and doorbell_lite. Nothing in the system currently
+     knows about this. It could matter: a person is flagged as "circling" once they appear on
+     three DIFFERENT cameras in a looping order, so if two of those cameras are really just two
+     views of nearly the same spot, someone milling around one doorway could trip the circling
+     alarm without going anywhere. Solution: decide whether near-identical camera pairs should
+     count as one vantage point for that three-camera test — but first confirm exactly which
+     pairs the operator meant.'
+  origin:
+    date: '2026-09-13'
+    gist: operator seam sheet — "Some are close enough that they are actually not big transitions I will designate by [C] on the camera right after"
+  why: >-
+    Recording it now because it is new physical information with no home in the code, and the
+    capture-first rule exists for exactly this. NOT acting on it yet because the notation is
+    genuinely ambiguous and guessing would encode a wrong physical model into a rung-1
+    safety-adjacent constant.
+  ambiguity_2026_09_13: >-
+    "[C] on the camera right after" can mean either (a) this camera is close to the one BEFORE
+    it in the ring, or (b) close to the one AFTER it. The five marks sit after front_door_aerial,
+    the Madrone PT Ultra/Reolink hub, armcrest, back_yard and doorbell_lite. Under reading (a)
+    the close pairs are madrone_g6_entry-front_door_aerial, utilities_ptz-reolinkstudybporchptz,
+    hot_tub-armcrest, armcrest-back_yard, g5_bullet-doorbell_lite. Under reading (b) they are
+    front_door_aerial-utilities_ptz, reolinkstudybporchptz-pool_equipment, armcrest-back_yard,
+    back_yard-g5_bullet, doorbell_lite-rear_ptz. Only armcrest-back_yard is common to both.
+  next: >-
+    DECIDE (with operator) whether a close pair should count as ONE camera toward the
+    3-distinct-camera circling threshold (EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS). The five
+    pairs are now known (see resolved_2026_09_13) so no further operator input is needed to
+    SCOPE it. Marginal-benefit first: quantify how many historical circling classifications used
+    >=2 cameras from a single close pair — if the answer is ~0 this is a PARK, not a build. Do
+    NOT collapse close pairs in the ADJACENCY graph (they are genuine seams); the only candidate
+    change is the distinct-camera COUNT used by _classify.
+  parsimony:
+    problem: Near-duplicate camera views may inflate the distinct-camera count that triggers circling.
+    verdict: PARK
+  rank: {value: 5, time_criticality: 2, effort: 3}
+  tags: [no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1]
+    context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
+  refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1
+  title: Make the TOU file opt-in with a toggle, and make a rejected file LOUD instead of a log line
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.101.2
+  BUILT_2026_09_14: >-
+    BUILT @ feature/tou-file-toggle-loud (e5a0e5796), merged into release/v5.101.2-integration.
+    Loud failure reuses the existing shared NM path _stuck_signal_nm.fire_stuck_signal
+    (per-day-latched, fail-open) rather than inventing a mechanism. tou_file_status on
+    sensor.ura_tou_period = ok / rejected / absent / disabled — the builder added a FOURTH value
+    for the toggle-off case rather than overloading `absent`, which is better than the brief asked
+    for. CONF_ENERGY_TOU_RATE_FILE_ENABLED defaults TRUE so behaviour is byte-identical until
+    flipped. Both mutation drills passed (alert-raise neutered and toggle-gate neutered each
+    reddened a specific named test).
+    INTEGRATION FIX BY ORCHESTRATOR: this branch and feature/tou-rate-file-key-wire independently
+    rewrote the same TOU engine construction site — each would have silently un-wired the other's
+    card. Resolved keeping BOTH (path resolver AND enabled flag) and mutation-verified the
+    resolution. Also paired the two TOU settings in the options form; they had landed 253 lines
+    apart, reading as unrelated settings.
+  created: '2026-09-14 01:10'
+  updated: '2026-09-14 01:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA will read electricity prices from a file the operator writes by hand, and that
+     file silently takes priority over the built-in schedule. We are about to make the file
+     checks much stricter, and the operator is reasonably worried: if a future edit trips a check,
+     the system quietly falls back to the built-in prices and nobody finds out until the energy
+     decisions look wrong. There is also no way to turn the file off except deleting it, which
+     needs filesystem access. Solution: add an explicit on/off switch for using the file, and make
+     a rejected file announce itself loudly instead of writing one line to a log nobody reads.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "honestly we might need a toggle in config flow to use the file. Nervous about messing this up and having a bad day tmr."
+  measured_2026_09_14: >-
+    THE IMMEDIATE RISK IS ZERO, measured not assumed. The live
+    /config/universal_room_automation/tou_rates.json is IDENTICAL to the built-in PEC_TOU_RATES
+    fallback — zero differences across every season''s rates, hour ranges and month mappings, and
+    the fixed charges match too (service_availability 32.5, delivery 0.022546, transmission
+    0.01993). So if the stricter validator rejected the file tomorrow, the fallback would serve
+    exactly the same numbers that are running today. The operator cannot have a bad day from this
+    change in its current state.
+    THE RISK IS PROSPECTIVE: it appears the moment the file is edited to differ from built-in —
+    which is precisely when a silent rejection would matter.
+  why: >-
+    This reframes what actually protects the operator. A TOGGLE is the knob they asked for, but it
+    does not address the stated fear — a toggle does not tell you the file was rejected. VISIBILITY
+    does. Both are cheap; build both, but the loud-failure half is the one that answers the worry.
+  deliverables:
+  - 'D1 LOUD FAILURE (the important half): when the file is present but REJECTED, do not settle for
+     an ERROR log. Raise an operator-visible signal — an NM alert and/or an HA repair issue —
+     naming the specific validation errors. Also expose the existing rate_source provenance
+     (already computed: "built-in PEC 2026" vs "tou_rates.json (PEC, effective ...)") plus a
+     tou_file_status attribute (ok / rejected / absent) on the energy sensor, so the state is
+     inspectable without log-diving.'
+  - 'D2 TOGGLE: a config-flow boolean, e.g. CONF_ENERGY_TOU_RATE_FILE_ENABLED, default TRUE so
+     current behaviour is preserved byte-identically. When false, skip the file entirely and use
+     built-in — an explicit kill switch that needs no filesystem access. Pairs with the existing
+     (now wired) CONF_ENERGY_TOU_RATE_FILE path key.'
+  constraints:
+  - Default must preserve today's behaviour exactly — file present and valid => file wins.
+  - A rejected file must STILL fall back to built-in. Loudness is additive; never fail-open to no rates.
+  - Do not make the toggle the only protection — an operator who never opens the options page must still learn about a rejection.
+  next: >-
+    BUILD D1 + D2 onto the existing feature/tou-file-validation branch (same surface, same review).
+    Acceptance: (a) a rejected file produces an operator-visible alert naming the errors, not just
+    a log line; (b) tou_file_status attribute reads ok/rejected/absent correctly in all three
+    cases; (c) toggle=false uses built-in even with a valid file present; (d) toggle default
+    leaves behaviour byte-identical.
+  parsimony:
+    problem: A stricter validator can silently demote the operator's price file to the built-in fallback with no visible signal.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [tier-2, numbers-get-knobs, no-fabrication-verify]
+  links:
+    related: [TOU-FILE-NO-RATE-VALIDATION-1, TOU-RATE-FILE-KEY-UNWIRED-1, CAMERA-SEAM-VALIDATION-1]
+    context: Directly mitigates the risk introduced by TOU-FILE-NO-RATE-VALIDATION-1; the same loud-failure pattern should apply to the exterior seam file loader when D3 lands.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_tou.py
+- id: TOU-FILE-NO-RATE-VALIDATION-1
+  title: A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.101.2
+  BUILT_2026_09_14: >-
+    BUILT by a worktree-isolated builder @ feature/tou-file-validation, commit 85d19e6b1 — in
+    review, NOT merged, NOT deployed. Whole-file rejection contract, mirroring exterior_seams.py:
+    _validate_parsed_data returns a LIST of all errors (operator sees every fault at once), and
+    _from_parsed_data logs them and returns cls() — the same PEC fallback the missing-file path
+    already uses.
+    RULES: a rate field is REQUIRED per period (import_rate+export_rate, or symmetric rate) —
+    this kills the `.get("rate", 0.0)` silent zero; import rate >= 0 while EXPORT may be negative
+    (some tariffs charge for over-export); magnitude ceiling 10.0 $/kWh (PEC peak is ~0.16, so
+    this catches a two-decimal typo like 1.61 -> 16.1); hours must be integer [start,end] with
+    0<=start<end<=24 (the live file uses [21,24], so end==24 is legal) and must not overlap
+    within a season; months 1..12 covered exactly once across all seasons; off_peak still required.
+    DELIBERATE SEMANTIC CHANGE: an unknown period name now REJECTS the whole file (was warn+skip).
+    This unifies the loader's previously inconsistent partial-failure behaviour — flagged because
+    it is a behaviour change, not a pure addition.
+  ORCHESTRATOR_VERIFIED_2026_09_14: >-
+    I did not trust the builder's report. (1) THE CRITICAL REGRESSION CHECK — the operator's REAL
+    /config/universal_room_automation/tou_rates.json still loads CLEAN under the new validator:
+    zero validation errors, _rate_file_loaded=True, source "tou_rates.json (PEC, effective
+    2026-01-01)", summer peak import 0.161843. The tightening did not lock the operator out of
+    their own file. (2) I re-ran the mutation myself with a different neuter (early `return []`
+    from _validate_parsed_data): NINE tests went RED, including
+    test_misspelled_rate_field_rejects_file, test_negative_import_rate_rejects_file,
+    test_absurd_rate_rejects_file, test_out_of_range_hours_reject_file,
+    test_uncovered_month_rejects_file and test_double_claimed_month_rejects_file. Restored,
+    residue 0, tree clean, 40 pass.
+    BASELINE NAME-DIFF (scoped — full suite times out): affected files went 82 passed / 0 failing
+    -> 92 passed / 0 failing. No test went pass->fail.
+  reviewer_note_2026_09_14: >-
+    Builder flagged honestly: the pre-existing `try/except Exception` catch-all in
+    _from_parsed_data remains, so any post-validation exception ALSO lands in the PEC fallback.
+    Safe, but it is why the discriminating test anchors on _validate_parsed_data directly rather
+    than only on _rate_file_loaded — otherwise a KeyError would produce the same observable and
+    the test could not tell the rule fired. Correct call.
+  created: '2026-09-14 00:05'
+  updated: '2026-09-14 00:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA can load the electricity price schedule from a JSON file the operator writes by
+     hand. If they misspell a field name — "rates" instead of "rate", say — the loader does not
+     complain: it quietly substitutes a price of ZERO and reports the file as successfully
+     loaded. Every money decision downstream (when to charge the battery, when to sell back, when
+     to shift load) then runs on the belief that electricity is free. Nothing warns anyone.
+     Solution: validate the file on load — prices must be present and sane, hour ranges must be
+     real and non-overlapping — and refuse a file that fails, falling back to the built-in
+     schedule exactly as a missing file already does.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "Make sure the TOU file is uploaded is quite accurate", while reviewing the TOU loader as prior art for the seam file
+  evidence_2026_09_14: >-
+    energy_tou.py:99-101: `symmetric_rate = period_data.get("rate", 0.0)`, then import_rate and
+    export_rate both fall back to it. A missing or misspelled rate field therefore yields 0.0
+    with no warning. energy_tou.py:96: `hours = [tuple(h) for h in period_data.get("hours", [])]`
+    — no range check, no overlap check, an empty list is accepted. grep for raise/ValueError in
+    the module returns NOTHING: there is no validation path at all. The only checks that exist
+    are JSON-parse failure, unknown period names (warn + skip), and a missing off_peak period
+    (reject file).
+    BLAST RADIUS: get_effective_import_rate / get_export_rate feed the battery arbitrage and TOU
+    strategy. A 0.0 import rate makes displaced-cost arithmetic collapse — the optimizer would
+    see no value in shifting load. And because the file "loaded", rate_source would name it as
+    the authoritative source, so the sensor attribute would actively reassure the operator.
+  next: >-
+    Add validation to _from_parsed_data mirroring the seam validator's whole-file-rejection
+    contract: every period must carry an explicit numeric rate (reject the 0.0 default — require
+    the field rather than defaulting it), rates within a sane band, hours must be integer
+    0-23 ranges, non-overlapping within a season, and seasons must cover all 12 months. ANY
+    failure -> reject the whole file and keep the built-in PEC table (the behaviour a missing
+    file already gets). Add a discriminating test: a file with a misspelled rate field must be
+    REJECTED, not silently loaded at 0.0.
+  parsimony:
+    problem: A hand-written price file can silently set electricity to free, and the system reports success.
+    verdict: BUILD
+  rank: {value: 8, time_criticality: 4, effort: 3}
+  tags: [tier-2, no-fabrication-verify]
+  links:
+    related: [TOU-RATE-FILE-KEY-UNWIRED-1, CAMERA-SEAM-VALIDATION-1]
+    context: Same loader as TOU-RATE-FILE-KEY-UNWIRED-1; the seam-file plan's critique C4/C5 exist because of exactly this class of silent partial-acceptance.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_tou.py:96
+  - custom_components/universal_room_automation/domain_coordinators/energy_tou.py:99
+  - docs/planning/PLANNING_exterior_seam_file_injection.md
+- id: TOU-RATE-FILE-KEY-UNWIRED-1
+  title: CONF_ENERGY_TOU_RATE_FILE is declared but never read — the TOU file path is hardcoded
+  thread: energy
+  status: shipped_organic
+  shipped_version: v5.101.2
+  created: '2026-09-13 23:30'
+  updated: '2026-09-13 23:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA can load a custom electricity-rate schedule from a JSON file, and there is a
+     setting named for exactly that purpose — but nothing ever reads the setting. The file path
+     is hardcoded, so an operator who sets it sees no effect and has no way to rename or relocate
+     the file. Nothing is broken today (the hardcoded value is the same one the setting would
+     default to); the feature was simply never finished. Solution: read the setting at the one
+     place the path is passed, and add the matching field to the energy options form.'
+  origin:
+    date: '2026-09-13'
+    gist: operator challenged the claim while critiquing the TOU pattern for the seam-file plan — "its never read? Are you sure?"
+  verification_2026_09_13: >-
+    CONFIRMED never read, three independent ways: (1) grep of the constant NAME across the whole
+    repo returns only its definition (energy_const.py:740) plus doc mentions; (2) grep of the
+    string VALUE "energy_tou_rate_file" returns only the definition — so nothing reads it via a
+    literal either; (3) the key is absent from every live config entry, so no operator has ever
+    set it. INDEPENDENTLY CORROBORATED: a prior audit already recorded this as finding P16 —
+    AUDIT_excess_solar_and_evse_prior_art.md:249 "CONF_ENERGY_TOU_RATE_FILE is DORMANT —
+    grep-verified zero consumers; setting it has no effect" (its line refs have since drifted:
+    energy_const.py:679 -> :740, __init__.py:3256 -> :3449).
+  the_gap_2026_09_13: >-
+    NOT A BUG, an UNFINISHED WIRE. The place it should be read already exists and is a one-line
+    change — __init__.py:3449-3453 passes the path as the third argument:
+    `await TOURateEngine.async_from_json_file(hass, hass.config.path(""), DEFAULT_TOU_RATE_FILE)`.
+    That argument is exactly where `cm_config.get(CONF_ENERGY_TOU_RATE_FILE,
+    DEFAULT_TOU_RATE_FILE)` belongs. The second missing half is a field in the energy options
+    step to set it. Triage bucket: KEEP + WIRE (a useful capability that a downstream should be
+    consuming) — NOT delete, and not a footgun.
+  built_2026_09_14: >-
+    BUILT by a worktree-isolated builder @ feature/tou-rate-file-key-wire, commit 8b9036ab2 —
+    in review, NOT merged, NOT deployed.
+    Read site now calls a new module-level `_resolve_tou_rate_file(cm_config)` helper whose
+    result is passed as the third argument to TOURateEngine.async_from_json_file. Options-flow
+    field added to the coordinator_energy step + strings.json + translations/en.json.
+    PATH SAFETY (per brief): the value is joined under hass.config.path(""), so the resolver
+    rejects absolute paths and any ".." segment, warns, and falls back to DEFAULT_TOU_RATE_FILE.
+    Unset / empty / non-string also fall back. Behaviour is unchanged when the key is unset.
+    ORCHESTRATOR INDEPENDENT VERIFICATION (did not trust the builder's report): re-ran the
+    mutation myself in the builder's worktree — replacing the call site with the hardcoded
+    DEFAULT_TOU_RATE_FILE turns exactly `test_wire_in_call_site_uses_resolver` RED. Restored,
+    residue 0, tree clean, 37 pass across the new file + test_energy_tou.py.
+  KNOWN_LIMITATION_2026_09_14: >-
+    THE WIRE-IN ANCHOR IS SOURCE-LEVEL, NOT BEHAVIOURAL — flagged by the builder, confirmed by
+    me, recorded rather than papered over. `test_wire_in_call_site_uses_resolver` parses
+    __init__.py, isolates the async_from_json_file argument list with a paren-depth walker (a
+    naive regex breaks on the nested `hass.config.path("")`), and asserts the third argument is
+    not the hardcoded constant. That is stronger than a grep but it still asserts source SHAPE,
+    not the value the loader receives at runtime. The six resolver tests ARE behavioural and kill
+    any mutation of the resolver body, so the pair is adequate for Tier-1.
+    RESIDUAL RISK: a future edit could wire a DIFFERENT, wrong resolver and both anchors would
+    stay green. Closing it properly needs the call site reachable without standing up the whole
+    async_setup_entry — i.e. worth doing only if that function is ever decomposed. Do NOT cite
+    this test as proof the runtime receives the configured path.
+  baseline_caveat_2026_09_14: >-
+    Full-suite baseline name-diff NOT established — `pytest quality/tests/` exceeds the 2-minute
+    tool timeout (the known TEST-STRATEGY-REARCH-1 problem). The builder verified the affected
+    surface only (test_energy_tou.py, test_day_boundary_tou.py, new file) = 54 pass, and I
+    re-verified 37 pass on the subset I ran. Treat "no regressions" as scoped to that surface,
+    not the suite.
+  next: 'IN REVIEW — merge + ship with the next deploy. Nothing further needed from the operator.'
+  parsimony:
+    problem: A named configuration key has no effect because its single read site was never written.
+    verdict: BUILD
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  tags: [tier-1, no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1]
+    context: Surfaced while critiquing the TOU loader as prior art for the exterior-seam file; the seam plan's critique C3 exists to avoid repeating this.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_const.py:740
+  - custom_components/universal_room_automation/__init__.py:3449
+  - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:249
+- id: CAMERA-SEAM-RING-CONTRADICTION-1
+  title: The written ring contradicts the operator's own seam notes — pool_equipment and the Reolink/PT-Ultra slot look swapped
+  thread: perimeter
+  status: done
+  RESOLVED_2026_09_14_MY_HYPOTHESIS_WAS_WRONG: >-
+    I proposed that pool_equipment and the Reolink slot were SWAPPED, scoring that 6/8 against the
+    operator's own between-notes versus 4/8 for the ring as written. THE SWAP WAS THE WRONG
+    EXPLANATION. The operator supplied the actual cause: the ring was MISSING A CAMERA. There are
+    two Reolinks — `madroneptultra` (ring position 5) and `reolinkstudybporchptz` (position 8) —
+    and the 12-camera reading collapsed them into one, which is what made the ring appear to
+    contradict notes #6 and #21.
+    LESSON RECORDED: the ring was never mis-ordered. I had two competing hypotheses (mis-ordering
+    vs missing node) and scored only the first, because I had already assumed the camera set was
+    complete. The assumption that produced the earlier madroneptultra mis-mapping is the same one
+    that produced this wrong hypothesis.
+    Ring corrected to 13 cameras / 21 seams @ c01d97194.
+  created: '2026-09-13 23:05'
+  updated: '2026-09-13 23:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the operator gave a left-to-right ring of the exterior cameras AND, separately,
+     wrote notes on individual seams saying which cameras sit between which. Those two pieces of
+     the same document disagree about where the pool-equipment camera sits relative to the
+     Reolink/PT-Ultra camera. The agent built the corrected graph from the written ring WITHOUT
+     cross-checking it against the seam notes, so two of the three newly-added seams may be
+     wrong. Solution: get the operator to confirm which ordering is right, then correct the graph
+     before it ships. It is still on a branch, undeployed.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "Don't skim" (after the agent under-read the same document twice)
+  evidence_2026_09_13: >-
+    Scored both orderings against the operator's four explicit "X is between them" notes.
+    RING AS WRITTEN (... utilities_ptz > reolinkstudybporchptz > pool_equipment > hot_tub ...)
+    scores 4/8 and CONTRADICTS note #21 outright: the operator wrote that front_side_ptz and
+    reolinkstudybporchptz have "Utilities and Pool equipment in btw them", but under the written
+    ring pool_equipment is NOT between them (it sits on the far side of reolink).
+    RING WITH POOL/REOLINK SWAPPED (... utilities_ptz > pool_equipment > reolinkstudybporchptz >
+    hot_tub ...) scores 6/8 and makes note #6 EXACT: the operator wrote armcrest <->
+    reolinkstudybporchptz is valid "although technically the hot tub is btw them" — under the
+    swap hot_tub is the ONLY camera between them; under the written ring pool_equipment is there
+    too. Both discrepancies resolve under the same single swap, which is what makes it credible
+    rather than a coincidence.
+    IMPACT IF THE SWAP IS RIGHT: of the 3 seams added to close the ring, only
+    front_door_aerial<->utilities_ptz survives. utilities_ptz<->reolinkstudybporchptz and
+    pool_equipment<->reolinkstudybporchptz would be replaced by utilities_ptz<->pool_equipment
+    and reolinkstudybporchptz<->hot_tub. hot_tub<->pool_equipment (operator-validated #25) stays
+    either way — as a ring edge under the written order, as a 2-skip under the swap.
+  next: >-
+    CONFIRM the ring order around the pool: is it utilities_ptz > pool_equipment >
+    Reolink/PT-Ultra > hot_tub (the swap, which matches your seam notes #6 and #21), or
+    utilities_ptz > Reolink/PT-Ultra > pool_equipment > hot_tub (as written)? -> I correct the
+    graph on the existing branch and re-run the invariants. HOLDING the seam branch undeployed
+    until this is settled.
+  parsimony: {problem: Two of three newly-added seams may be wrong., verdict: BUILD}
+  rank: {value: 8, time_criticality: 6, effort: 1}
+  tags: [no-fabrication-verify, falsify-first]
+  links:
+    blocks: [CAMERA-SEAM-VALIDATION-1]
+    context: CAMERA-SEAM-VALIDATION-1 must not deploy until this ordering is settled — it would ship wrong seams.
+  refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: CAMERA-PTULTRA-NOT-IN-PERIMETER-1
+  title: "'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list"
+  thread: perimeter
+  status: waiting_operator
+  ANSWERED_2026_09_14: >-
+    OPERATOR CONFIRMED IT IS A SEPARATE CAMERA: "There is a missing camera in this loop I had left
+    out. There are 2 reolinks." The corrected ring places `madroneptultra` at position 5 (between
+    utilities_ptz and pool_equipment) and `reolinkstudybporchptz` ("Reolink PTZ") at position 8
+    (between hot_tub and armcrest). Verified in the entity registry: both have their own Frigate
+    person detector (binary_sensor.madroneptultra_person_occupancy and
+    binary_sensor.reolinkstudybporchptz_person_occupancy_2).
+    THE SEAM GRAPH IS UPDATED (13 cameras, 21 seams) — but the CONFIG GAP REMAINS: `madroneptultra`
+    is still absent from the integration's `perimeter_cameras` list, so URA receives no events from
+    it and its ring position is INERT. Fixing the graph did not fix the blindness.
+  REMAINING_ASK: >-
+    DO (operator, or approve me to do it via ha_config): add camera.madroneptultra to the URA
+    integration''s perimeter_cameras list. Until then URA is blind to an exterior camera that has
+    working person detection, and the ring edge through it can never link.
+  created: '2026-09-13 23:05'
+  updated: '2026-09-14 03:35'
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: the operator named a ring position "Madrone PT Ultra/Reolink hub". There IS a
+     camera called Madrone PT Ultra in Home Assistant, with its own Frigate person detection
+     (binary_sensor.madroneptultra_person_occupancy), but it is NOT one of the nine cameras URA
+     watches as perimeter — URA watches camera.reolinkstudybporchptz in that slot, which is a
+     different physical device (the study-B porch TrackMix). So either the operator used a loose
+     name for the study-B camera, or there is a real exterior camera whose person detections URA
+     never sees. Solution: ask which, and if it is a real gap, add it to the perimeter list and
+     the ring.'
+  origin:
+    date: '2026-09-13'
+    gist: operator ring slot named "Madrone PT Ultra/Reolink hub"; agent silently mapped it to reolinkstudybporchptz without verifying
+  evidence_2026_09_13: >-
+    BOTH devices exist and are distinct. madroneptultra: camera.madroneptultra +
+    binary_sensor.madroneptultra_person_occupancy (Frigate, no _2 suffix) + a Reolink-integration
+    sibling binary_sensor.madrone_pt_ultra_person + camera.madrone_pt_ultra_clear/_fluent.
+    reolinkstudybporchptz: camera.reolinkstudybporchptz +
+    binary_sensor.reolinkstudybporchptz_person_occupancy_2 (Frigate, _2 suffix) + a
+    Reolink-integration sibling binary_sensor.ptzcamreolinktmixpstudybporch_person.
+    URA's perimeter_cameras (9) contains camera.reolinkstudybporchptz and does NOT contain
+    madroneptultra. There is also a reolink_reolink_home_hub device, which is probably the "hub"
+    half of the operator's name.
+    MY ERROR: I mapped the operator's label onto reolinkstudybporchptz purely because the ring
+    had 12 slots and 11 mapped cleanly — an assumption, not a verification.
+  WRONG_ENTITY_ADDED_2026_09_14: >-
+    OPERATOR ACTED BUT THE WRONG ENTITY LANDED — verified, not assumed. perimeter_cameras went
+    9 -> 10, but the new entry is
+    `camera.study_a_closet_reolink_reolink_home_hub_high_resolution_channel`, NOT
+    `camera.madroneptultra`.
+    THAT ENTITY HAS NO PERSON DETECTOR: grep of the entity registry returns NONE for any
+    person/occupancy sensor on `study_a_closet_reolink_reolink_home_hub`; its device is "REOLINK
+    Reolink Home Hub", model IPC-BO. By contrast `madroneptultra` has
+    binary_sensor.madroneptultra_person_occupancy plus _all_occupancy, person_count and
+    person_active_count. So URA gains NOTHING from the current add — a camera with no person
+    detection cannot feed census or perimeter alerting.
+    LIKELY CAUSE OF THE MIX-UP: the operator's own ring label was "Madrone PT Ultra/Reolink hub",
+    and there IS a literal Reolink Home Hub device in the registry. The PT Ultra is the one with
+    the detector.
+  TWO_STEPS_NOT_ONE: >-
+    I previously told the operator this card was "down to one config action". WRONG — it is two,
+    and the second decides whether the camera is useful at all:
+    (1) CONFIG: swap the entity (remove the Home Hub channel, add camera.madroneptultra).
+    (2) DETECTOR: madroneptultra fired ZERO times in 8 days (CAMERA-ZERO-FIRE-DETECTORS-1).
+    Fixing the config will NOT produce detections if the detector itself is silent. Diagnosis
+    dispatched under that card.
+  cross_finding_2026_09_14: >-
+    CAUTION — MEASURED, AND IT CHANGES THIS CARD'S RECOMMENDATION. While probing
+    CAMERA-ZERO-FIRE-DETECTORS-1 I read Frigate 2's own event DB directly (192.168.13.18,
+    read-only): `MadronePTUltra` has produced **ZERO events of ANY label, ALL TIME** (total=0),
+    not merely zero in the recent window. So adding camera.madroneptultra to perimeter_cameras
+    today would wire in a leg that has never once fired.
+    THIS IS NOT A FAULT — it is the camera's design. It is solar/battery, and per homelab
+    CONFIGS.md (2026-09-07) continuous Frigate detection drained it 100->98% in 33 minutes, so it
+    now runs on-demand: the `ptultra-frigate-trigger` systemd daemon on F2 enables Frigate
+    detection only during short PIR motion windows and lets the camera sleep otherwise. It was
+    alive and awake at probe time (camera_fps 3.1), so the plumbing works; it just produces
+    almost no detection windows.
+    CONSEQUENCE FOR THE ASK BELOW: the config-only change is still correct and still safe (adding
+    a camera that fires rarely costs nothing and fails closed), but it will NOT make the camera
+    "actually visible to URA" in any practical sense until its detection duty-cycle is addressed.
+    Expect it to contribute ~nothing to perimeter coverage as configured. Deciding that is a
+    separate, larger call about whether a battery PT camera can serve a perimeter role at all.
+  next: >-
+    APPROVE me to add camera.madroneptultra to perimeter_cameras (config-only, no code, no tier),
+    or add it yourself in the integration options — BUT read cross_finding_2026_09_14 first: the
+    camera has never fired a single Frigate event because it runs on-demand to protect its
+    battery, so this wires in a near-silent leg rather than new coverage. If what you actually
+    want is perimeter coverage from that angle, the real decision is whether to change its
+    duty-cycle (or use a wired camera there) — say which and I will scope it.
+  parsimony: {problem: A named ring position may refer to a camera URA does not watch., verdict: BUILD}
+  rank: {value: 7, time_criticality: 5, effort: 2}
+  tags: [no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-RING-CONTRADICTION-1, CAMERA-SEAM-VALIDATION-1]
+    context: Same ring slot as the pool/reolink ordering question — settle both together.
+  refs: [.storage/core.config_entries perimeter_cameras]
+- id: EGRESS-CAMERA-LIST-STALE-5-NOT-3-1
+  title: Live egress_cameras is FIVE (adds garage_a, garage_b) but the const and its derived list assume THREE
+  thread: perimeter
+  status: done
+  created: '2026-09-13 23:05'
+  updated: '2026-09-13 23:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA is configured with five egress cameras — the front entry, doorbell, front-door
+     aerial AND both garage cameras. But the code that works out which perimeter cameras sit next
+     to an egress only ever considers the first three; the comment in the source still says there
+     are three. So the two garage cameras are invisible to that calculation, and they are also
+     absent from the camera adjacency map entirely. A person arriving at a garage door is
+     therefore not treated as approaching an exit. Solution: confirm the garage cameras should
+     count as egress, then include them in both the adjacency ring and the derived list.'
+  origin:
+    date: '2026-09-13'
+    gist: found while verifying the operator's ring against live config — perimeter_cameras(9) and egress_cameras(5) read from .storage
+  evidence_2026_09_13: >-
+    Live .storage/core.config_entries: egress_cameras = [camera.madrone_g6_entry,
+    camera.doorbell_lite, camera.front_door_aerial, camera.garage_a_2, camera.garage_b_2] = FIVE.
+    const.py:1942 comment still asserts "Egress cameras (operator config): madrone_g6_entry,
+    doorbell_lite, front_door_aerial". EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS is derived from
+    those three only, and the invariant guard I just added
+    (quality/tests/perimeter/test_seam_graph_invariants.py) HARDCODES the same three — so the
+    guard would not catch this drift. Both garage cameras DO have Frigate person detection
+    (binary_sensor.garage_a_person_occupancy_2, binary_sensor.garage_b_person_occupancy) and
+    neither appears in EXTERIOR_ADJACENCY_GRAPH.
+    RELATED PHYSICAL FACT from the operator: the back_yard camera "points into" the standalone
+    detached garage — so back_yard, garage_a and garage_b may all be watching the same structure,
+    which is exactly where their adjacency should be declared.
+  ANSWERED_2026_09_14: >-
+    OPERATOR RULING: the garage cameras ARE egress, but they are INTERIOR — "the garage cameras
+    are in the garage not outside so they do not normally see external people but they do see
+    crossings into the house". The other three sit OUTSIDE near the doors (overhead front door,
+    the doorbells).
+    SO THE HARDCODED THREE WAS ACCIDENTALLY CORRECT, FOR THE WRONG REASON. The derivation should
+    use EXTERIOR egress cameras only — but nothing in the code encoded that distinction, so the
+    next person to "fix" the 5-vs-3 mismatch by deriving from the full list would have made it
+    WRONG: interior cameras would confer outdoor egress-adjacency and upgrade unrelated tracks to
+    `approach`.
+    SHIPPED IN D1/D2 (feature/exterior-seam-file-d1d2, 09e9faa61): the seam spec now takes
+    `egress_cameras: {exterior: [...], interior: [...]}`; `derive_egress_adjacent` uses EXTERIOR
+    ONLY; NEW RULE 2b makes an interior egress camera appearing in the exterior ring an ERROR;
+    and RULE 2 no longer warns that interior cameras are missing from the ring (my first version
+    had that backwards). Two tests cover it.
+  next: 'DONE — semantics captured in code + tests. Garage cameras stay egress, stay out of the exterior ring.'
+  parsimony:
+    problem: Two configured egress cameras are invisible to the egress-adjacency derivation and absent from the seam graph.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1]
+    context: The derived egress-adjacent constant shipped on the seam branch was computed from three egress cameras; if it is five, it must be recomputed.
+  refs:
+  - custom_components/universal_room_automation/const.py:1942
+  - quality/tests/perimeter/test_seam_graph_invariants.py
+- id: CAMERA-SEAM-VALIDATION-1
+  title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
+  thread: perimeter
+  status: shipped_organic
+  shipped_version: v5.101.2
+  UNHELD_2026_09_14: >-
+    HOLD LIFTED — the operator answered all three blocking questions. (1) Ring order: resolved by
+    a MISSING CAMERA, not the swap I hypothesised; there are two Reolinks and the ring is 13
+    cameras. (2) 'Madrone PT Ultra' IS a distinct camera (madroneptultra), confirmed in the entity
+    registry with its own Frigate detector. (3) Garage cameras are egress but INTERIOR — they must
+    stay out of the exterior ring, and the egress-adjacent derivation uses EXTERIOR egress only.
+    Graph rebuilt to 13 cameras / 21 seams @ c01d97194 and merged into
+    release/v5.101.2-integration. 95 perimeter/linker tests pass.
+  SUPERSEDED_HELD_2026_09_13: >-
+    (superseded by UNHELD above) BRANCH HELD, DO NOT DEPLOY. Three findings from a proper re-read of the operator's sheet
+    (CAMERA-SEAM-RING-CONTRADICTION-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1,
+    EGRESS-CAMERA-LIST-STALE-5-NOT-3-1) mean the graph as committed may carry two wrong seams and
+    a derived constant computed from an incomplete egress list. Code is sound and tests pass; the
+    DATA needs operator confirmation first.
+  applied_2026_09_13: >-
+    OPERATOR RETURNED THE VALIDATED SHEET + a singular ring. APPLIED @
+    feature/camera-seam-ratification-2026-09 (f75c18801) — in review, not deployed. 27 -> 20
+    seams: 10 struck, 3 added to close the ring. Derived constant
+    EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS recomputed (hot_tub + front_door_aerial drop out).
+    Q1 resolved (pool_equipment degree 1 -> 2). Q2 resolved (front_door_aerial removed).
+    Q3 answered by the ring (reolinkstudybporchptz sits between utilities_ptz and
+    pool_equipment). 4 invariant guards added + mutation drill. NOTE the "no code change" route
+    does not exist: set_adjacency() has NO production caller and no config surface was ever
+    built, so this is necessarily a const edit.
+  created: '2026-09-13 21:30'
+  updated: '2026-09-13 21:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the exterior cameras are wired together by a declared list of "seams" — pairs of
+     cameras a person can plausibly walk between. That list decides whether several sightings of
+     one person become ONE tracked walk or several unrelated alerts, so a wrong seam quietly
+     merges two different people and a missing seam splits one person into repeated weak alerts.
+     The operator declared these once in Aug 2026 and wants to re-check them against the real
+     property. Solution: extract the actual live seam list from the code (not from memory or the
+     original audit) and hand it over as a tick-or-strike sheet, with the three specific spots
+     that look questionable called out.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "list the adjacent camera seams for the external cameras ie the handoff points btw cameras. I want to validate them"
+  why: >-
+    Seam correctness is upstream of every perimeter classification: linking, circling detection
+    (needs 3 distinct cameras), and severity. Validating it is cheap and the operator is the only
+    oracle for physical adjacency.
+  delivered_2026_09_13: >-
+    docs/planning/VALIDATE_exterior_camera_seams.md — 27 undirected seams (symmetrized exactly as
+    ExteriorTrackLinker.__init__ does), per-camera degree table, the consumer explanation (link
+    window 180s / close 300s / circling needs 3 cameras), and the two ratification-removed edges
+    fenced so they are not re-added by accident.
+    CROSS-CHECKS PASSED: (a) every declared edge live in both directions; (b) the source comment's
+    "22 after the two removals" is the probe-pair subtotal — the 5 non-probe ratified additions
+    bring it to 27, consistent, NOT drift; (c) EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS recomputed
+    from the graph — nothing missing.
+    THREE FLAGGED FOR OPERATOR: Q1 pool_equipment is degree-1 (only hot_tub) so pool-area activity
+    can never reach the 3-camera circling threshold — is it really reachable only via the hot tub?
+    Q2 front_door_aerial appears in the egress-ADJACENT list although it IS one of the three egress
+    cameras, while the other two are not listed — cosmetic inconsistency (severity for
+    camera_class=="egress" short-circuits track_class at const.py:1803), confirm intended.
+    Q3 reolinkstudybporchptz is degree-2 (armcrest, front_side_ptz only) — no seam to back_yard or
+    madrone_g6_entry despite being a porch camera?
+  next: >-
+    REVIEW the seam sheet (docs/planning/VALIDATE_exterior_camera_seams.md) and tick/strike each of
+    the 27, plus ANSWER Q1/Q2/Q3. -> I apply the accepted edits to EXTERIOR_ADJACENCY_GRAPH
+    (rung-1 module constant, reviewed code change; declare one direction, it symmetrizes).
+    Note the direction of harm when deciding: a MISSING seam fragments one person into several
+    weaker alerts (noisier), a WRONG seam merges two people into one track (suppresses the second).
+  parsimony:
+    problem: The declared camera adjacency has never been re-validated against the property since Aug 2026.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 3, effort: 2}
+  tags: [no-fabrication-verify, audit-first]
+  links:
+    related: [CIRCLING-SEVERITY-1]
+    context: CIRCLING-SEVERITY-1 depends on this graph — circling requires 3 distinct adjacent cameras, so a missing seam suppresses circling classification outright.
+  refs:
+  - docs/planning/VALIDATE_exterior_camera_seams.md
+  - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
+  - custom_components/universal_room_automation/const.py (EXTERIOR_ADJACENCY_GRAPH)
 - id: OLLAMA-CONSUMER-AUDIT-1
   title: Ollama eating RAM — audit every LLM/vision integration for a dependency before stopping it
   thread: infra
@@ -4116,6 +5370,180 @@ cards:
   links:
     blocked_by:
     - ROUTINE-DETECTOR-NO-DISCHARGE-1
+- id: REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1
+  title: Room renames split one room's history across two labels and manufacture fake "routine drift"
+  thread: analytics
+  status: waiting_operator
+  created: '2026-09-14 00:45'
+  updated: '2026-09-14 03:55'
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: URA watches where each person spends time and flags when someone''s routine changes.
+     It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED,
+     the old name stops appearing and the new one starts — so from the comparison''s point of
+     view a person abruptly abandoned one room for another, which is exactly what a real routine
+     change looks like. The system has been reporting routine shifts that are really just the
+     rename. Solution: make the comparison follow a room across a rename, or exclude cells whose
+     movement is explained by a label swap.'
+  origin:
+    date: '2026-09-14'
+    gist: fell out of the ROUTINE-DETECTOR-NO-DISCHARGE-1 measurement — the live top_movers are the tell
+  evidence_2026_09_14: >-
+    The detector's own live `top_movers` diagnostics show the signature. Jaya time-bin 0:
+    "Jaya Bedroom" p_share 0.499 -> q_share 0.088, while "Jaya Bedroom (Bedroom 4)" p_share
+    **0** -> q_share 0.376. Ziri time-bin 0: "Ziri Bedroom (Bedroom 5)" p_share **0** ->
+    q_share 0.314. Mass moving off an old label onto a near-identical new label with a baseline
+    share of exactly ZERO is a rename, not a person changing behaviour — a real behavioural shift
+    moves mass between rooms that BOTH already exist in the baseline.
+    SCALE: August was the largest month at 206 of the 462 routine_shift rows. A substantial
+    fraction is plausibly this artifact.
+    IMPLICATION FOR A PRIOR VERDICT: the 2026-08-19 audit concluded the drifts were "DEFENSIBLE
+    real signal (summer + kids home, operator travel, a child pre-departure)". That verdict
+    deserves re-examination for the renamed cells specifically — it may be partly right and
+    partly this.
+  why: >-
+    This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL
+    on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename
+    would immediately manufacture a fresh pile.
+  measured_2026_09_14: >-
+    ONE-SHOT READ-ONLY PROBE over all 462 routine_shift rows in the live URA DB (parsed each
+    row's context_json top_movers). MECHANISM CONFIRMED — but the scale is far NARROWER than this
+    card assumed, and the measurement kills one of the two fixes the card proposed.
+    FIRST PASS (the loose signature the card described — any mover with baseline share exactly 0
+    and current share >5%): 269 of 462 rows = 58%. I did NOT accept this number, because the
+    loose signature cannot tell a rename from a person simply not having visited a room during
+    the baseline window — and a person starting to use a room IS the real signal the detector
+    exists to find. Flagging it as contamination would be the detector eating its own product.
+    The over-count is visible in the label list: the top zero-baseline gainers include Kitchen
+    (31), Media Room (34), Balcony (10) — rooms that plainly were not renamed.
+    SECOND PASS (the strict rename discriminator the card's own evidence actually described — a
+    zero-baseline GAINER whose label near-matches a same-event LOSER that shed >half its share):
+    **82 of 462 rows = 17.8%**, and every single one is ONE rename:
+    "Jaya Bedroom" -> "Jaya Bedroom (Bedroom 4)" (82/82 pairs). Confined to 2026-08 (57 rows) and
+    2026-09 (25). No other rename pair appears anywhere in the corpus.
+    REMAINING 187 rows are zero-baseline-gainer but NOT rename-paired — unexplained by this
+    card's mechanism; they are either genuine new-room behaviour or a separate artifact.
+    NOTE on "Ziri Bedroom (Bedroom 5)": it appears 36 times as a zero-baseline gainer but never
+    with a matching "Ziri Bedroom" loser in the same event, so it does not meet the strict test —
+    likely a rename whose old label had already aged out of the baseline, or a newly-added room.
+  claim_narrowed_2026_09_14: >-
+    The card's `evidence_2026_09_14` speculated "August was the largest month at 206 of 462 rows.
+    A substantial fraction is plausibly this artifact." MEASURED: of August's 206 rows, 57 (28%)
+    are rename-paired — real, but not the bulk of them. The corpus-wide figure is 17.8%, not a
+    majority. The 2026-08-19 audit's "defensible real signal" verdict therefore stands for most
+    of the corpus and needs correcting only for the Jaya-Bedroom cells.
+  fix_option_assessment_2026_09_14: >-
+    MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the
+    measurement suggests:
+    (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the
+    baseline store to fix one rename affecting 82 rows. Poor margin as scoped.
+    (b) CHEAP — exclude zero-baseline-share cells from the divergence. **MEASUREMENT SAYS THIS IS
+    WRONG.** It would suppress all 269 loose-signature rows to catch 82 real ones — discarding
+    187 rows that are not renames and may be exactly the behaviour changes the feature is for.
+    Precision ~30%. Do not build this.
+    (c) NEW, suggested by the probe — a NARROW rename-pair suppressor implementing the strict
+    discriminator above (suppress a cell only when a zero-baseline gainer near-name-matches a
+    same-event loser). On this corpus it selected 82/82 real rename pairs and zero false
+    positives, so it is both cheap AND precise — strictly better than (b) on the measured data.
+    COUNTER-ARGUMENT AGAINST BUILDING ANYTHING: the contamination is SELF-CLEARING. The baseline
+    is a trailing 2-month window, so a rename's effect ages out ~2 months after it happens, and
+    the decline is already visible (Aug 57 -> Sep 25). Against that, renames will recur —
+    ROOM-NAME-DESYNC-1 documents renames that never write back — so this is a recurring artifact,
+    not a one-off.
+  gate_2026_09_14: >-
+    AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate.
+    The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the
+    narrow suppressor" and "park until the next rename" are both defensible calls. That is the
+    operator's to make, not mine.
+  next: >-
+    PICK one — (A) BUILD the narrow rename-pair suppressor (option (c) above: suppress a cell only
+    when a zero-baseline gainer near-name-matches a same-event loser; measured 82/82 precision on
+    this corpus, Tier 1-2, contained to the detector's divergence step), or (B) PARK it — the
+    artifact ages out of the 2-month baseline on its own (already decaying Aug 57 -> Sep 25) and
+    we revisit on the next room rename. Do NOT pick the card's original cheap fix; the
+    measurement shows it suppresses ~187 legitimate rows to catch 82.
+    -> On (A) I plan-review then build; on (B) I park with "next rename" as the revival trigger.
+    SEPARATELY WORTH KNOWING: 187 rows show a zero-baseline gainer with no rename pair. If you
+    want that explained, say so and I will open it as its own investigation.
+  parsimony:
+    problem: A room rename is indistinguishable from a behaviour change in the routine baseline.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 3, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [ROUTINE-DETECTOR-NO-DISCHARGE-1, ROOM-NAME-DESYNC-1]
+    context: ROOM-NAME-DESYNC-1 is the same root cause seen from the config side (renames without write-back); this is its analytics-side consequence.
+  refs: [custom_components/universal_room_automation/domain_coordinators/regime_detector.py]
+- id: REGIME-NOTIFY-PATH-DEAD-1
+  title: 'REFUTED — the routine-shift notification path is ALIVE: weekly digests are sending every Sunday'
+  thread: notifications
+  status: done
+  created: '2026-09-14 00:45'
+  updated: '2026-09-14 03:05'
+  refinement_status: refined
+  problem_solution:
+  - 'Problem: when URA detects that someone''s routine has changed it is supposed to tell the
+     operator, either immediately or in a weekly digest. Over four months it recorded 462 such
+     events and sent NOTHING — both the queue that feeds the weekly digest and the log of
+     notifications actually sent are completely empty. Either the feature is throttled to
+     silence, mis-wired, or never finished. Solution: find out which, then either fix the wiring
+     or retire the feature honestly rather than leaving a dead path that looks alive.'
+  origin:
+    date: '2026-09-14'
+    gist: found while measuring ROUTINE-DETECTOR-NO-DISCHARGE-1 — the consumer check turned up two empty tables
+  evidence_2026_09_14: >-
+    Live URA DB: `regime_weekly_digest_queue` = 0 rows; `regime_event_notification_log` = 0 rows.
+    Against 462 anomaly_log rows with metric_name='bayesian.routine_shift' spanning 2026-05-15 to
+    2026-09-08. The code path exists — regime_detector dispatches SIGNAL_REGIME_EVENT_EMITTED,
+    handled at notification_manager.py:5036, with a weekly digest flush at :5263 via
+    flush_regime_weekly_digest_queue. So handlers are wired but nothing has ever landed in either
+    table.
+  claim_marked_WRONG_2026_09_14: >-
+    The card's own premise — "sent NOTHING", "the log of notifications actually sent [is]
+    completely empty" — is WRONG, and `evidence_2026_09_14` above is superseded. It read the two
+    EMPTY tables as proof of a dead path without checking the table the sends actually land in.
+    Refuted by `notification_log`: 5 rows with coordinator_id='bayesian', title='Weekly Routine
+    Digest', spanning 2026-08-16T14:00Z -> 2026-09-13T14:00Z — exactly 5 consecutive Sundays at
+    09:00 local, i.e. the configured cadence with no misses. (notification_log retention only
+    reaches back to 2026-08-15, so "4 months of silence" was never observable from that table.)
+  measured_2026_09_14: >-
+    ONE-SHOT READ-ONLY TRACE (no code changed). Both empty tables are EXPECTED under the live
+    configuration, not symptoms:
+    (1) MODE. `_dispatch_regime_notification` (notification_manager.py:5169) branches on
+    CONF_ROUTINE_CHANGE_NOTIFICATION_MODE, default "silent". Live value read from
+    /config/.storage/core.config_entries = **"weekly_digest"** — so the per-event branch (which is
+    the only writer of `regime_event_notification_log`) is never taken. That table being empty is
+    correct behaviour, not a defect. Hypothesis (b) severity/cooldown gating REFUTED — those gates
+    live inside the mode=="event" branch and are unreachable here.
+    (2) DISPATCH. Hypothesis (a) REFUTED: regime_detector.py:594-612 dispatches
+    SIGNAL_REGIME_EVENT_EMITTED unconditionally on the success path immediately after
+    save_anomaly_event returns a row_id, and the 462 rows prove that path ran.
+    (3) QUEUE. Hypothesis (c) REFUTED: `regime_weekly_digest_queue` = 0 rows is AMBIGUOUS by
+    construction — `_send_regime_weekly_digest` (:5255) calls flush_regime_weekly_digest_queue,
+    which DRAINS the table on every successful send. An empty queue is the signature of a
+    HEALTHY weekly flush, identical to the signature of never-enqueued. The disambiguator is
+    notification_log (above), which shows the sends.
+    ANOMALY CORPUS for context: 462 rows, 2026-05-15 -> 2026-09-08, severity 0=374 / 1=85 / 4=3.
+  lesson_2026_09_14: >-
+    Two empty tables were read as one finding; neither was the table that records the outcome.
+    This is the discriminating-acceptance-criterion rule (CLAUDE.md "acceptance criteria must
+    DISCRIMINATE"): "queue is empty" is equally the signature of a working drain and of a dead
+    producer, so it could never have settled the question. The cheap decisive observation was
+    `select title, count(*) from notification_log where coordinator_id='bayesian'`.
+  next: >-
+    NONE — closed REFUTED. The feature works as configured (weekly_digest). If the operator wants
+    per-event routine notifications instead of a Sunday digest, that is a Select change
+    (select.py:330, ura_coordinator_manager_routine_change_notification_mode -> "event"), not a
+    code cycle. No build lane opened.
+  parsimony:
+    problem: A notification path with handlers wired has produced zero output across 462 events.
+    verdict: DROP — premise refuted by measurement; the path is alive and sending weekly.
+  rank: {value: 6, time_criticality: 3, effort: 3}
+  tags: [no-fabrication-verify, falsify-first]
+  links:
+    related: [ROUTINE-DETECTOR-NO-DISCHARGE-1]
+    context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
+  refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
   thread: presence
   status: planned
@@ -4127,6 +5555,39 @@ cards:
     -> 2026-09-08, monotonic ~3-13/day. And recovery_at is NEVER set for ANY metric_name in the whole
     table (0 discharged) -> the manual ack button (button.py:1275) has effectively never been pressed.
     Mechanism confirmed; build lane is OPEN.'
+  MEASURED_2026_09_14: >-
+    ORCHESTRATOR-VERIFIED (I re-ran every query and read the live sensors myself). VERDICT SPLIT,
+    and the live consequence is worse than the card assumed.
+    REFUTED (detector side): regime_cell_state.unacknowledged_consecutive DOES discharge —
+    regime_detector.py:497-499 resets it to 0 on return-to-stable. Live: 48 cells, ZERO with an
+    open counter, max 0, every bucket 'stable', last evaluated 2026-09-13.
+    CONFIRMED (emission side): the anomaly_log rows have NO automatic clear path. Live:
+    metric_name='bayesian.routine_shift' => 462 rows, 462 UNACKNOWLEDGED, 2026-05-15 to
+    2026-09-08. Zero acknowledged in four months. Only discharge is
+    database.py:7101 acknowledge_all_routine_shifts(), reachable ONLY via a manual button.
+    LIVE DAMAGE: sensor.ura_coordinator_manager_household_routine_status reads **major_shift**
+    with total_unacknowledged_events=462; the Jaya sensor reads major_shift driven by THREE
+    severity-4 rows from 2026-05-21/27/28. Every cell is stable, nothing has been emitted since
+    09-08, and the house has reported a major routine shift since MAY — because the cell state
+    recovers and the emitted event does not.
+    CONSUMERS: PersonRoutineStatusSensor (sensor.py:14987) + HouseholdRoutineStatusSensor
+    (:15150), both DIAGNOSTIC display (no trust decision), plus two NotificationManager paths.
+    Retention is NOT the driver — database.py:5423 already prunes at 365 days, rate ~4/night.
+    This is SENSOR CORRECTNESS, not DB size.
+  design_pick_evidence_2026_09_14: >-
+    The measurement discriminates the A/B/C pick below.
+    (C) KEEP HUMAN-ACK-ONLY is REFUTED BY OUTCOME — it is what ships today, and in four months the
+    button was pressed ZERO times while 462 events piled up and the house sensor latched on three
+    May rows. A care signal nobody can clear stops being a signal.
+    (A) TIME-BASED TTL is unnecessary: every cell DID return to stable, so a timer would just
+    approximate the event we can observe exactly.
+    (B) RETURN-TO-BASELINE AUTO-CLEAR is directly supported: ~15 LoC at the seam that already
+    resets the counter correctly, writing recovery_at on that cell's open rows. Same table, same
+    path, consumers are display-only. Falsifiable acceptance invariant: no cell whose
+    last_magnitude_bucket='stable' may have an open anomaly_log row — one query proves it.
+    RECOMMENDATION: B, plus a one-time button press to clear the 462-row backlog, shipped
+    TOGETHER so the backlog cannot silently re-accumulate. I did NOT press the button — it is a
+    one-shot change over four months of the operator's own care signal.
   next: 'PICK (operator) the discharge DESIGN before any build — this is a product decision, not just
     code: (A) time-based TTL auto-decay (recovery_at = timestamp + N days); (B) return-to-baseline
     auto-clear (discharge when the regime cell returns to its learned behaviour); (C) KEEP human-ack-only
@@ -8439,8 +9900,8 @@ cards:
   title: Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not
     a design choice
   thread: notifications
-  status: investigating
-  updated: '2026-09-12 19:05'
+  status: done
+  updated: '2026-09-14 04:35'
   verify_2026_09_12: 'APPROVED -> verify-before-work: CANNOT-VERIFY from DB (confirmed — notification_log has NO attachment/snapshot column, so image-presence is undeterminable either way). Re-pages ARE firing in volume: Perimeter Alert Person Detected CRITICAL imessage n=76/7d (~75 unacked), 403 CRITICAL imessage/14d — the unack-CRITICAL 5-min re-page is active and re-fires within minutes. I OWE: arm a DEBUG log of the outbound BlueBubbles transport kwargs (attachment/snapshot_path presence) at the re-page dispatch site, deploy, capture the next re-page -> converts CANNOT-VERIFY to PASS/FAIL. ASIDE (not this card): ~75 unacked CRITICAL perimeter re-pages/7d is an alert-fatigue signal worth its own look.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -8460,11 +9921,28 @@ cards:
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp
     + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must
     red a test).'
-  next: 'MEASURE, do not fix — nothing is known to be broken. Determine whether iMessage re-pages actually
-    carry the attachment: inspect an outbound BlueBubbles payload at re-page time (log the transport kwargs
-    at debug on the next unack CRITICAL, or check BB-side message records for an attachment). 221 unacknowledged
-    CRITICALs on the imessage channel since 08-12 means opportunities are plentiful. Only if the attachment
-    is genuinely absent does this become a fix.'
+  verified_2026_09_14: >-
+    VERIFY-BEFORE-WORK verdict: **ALREADY-DONE — shipped in v5.73.1 on 2026-08-12.** The card was
+    still sitting in `investigating` asking me to measure whether re-pages carry the attachment;
+    the fix had already been built and released a month earlier. No measurement was needed and no
+    work was done.
+    EVIDENCE (source, not inference): notification_manager.py `_repeat_alert` carries the fix
+    under this card's own ID — "NM-REPAGE-IMG-1: reuse the original snapshot on every re-page so
+    image-bearing CRITICALs (perimeter/security) keep carrying the photo." It reads snapshot_url
+    and snapshot_path off the stored `_active_alert_data` and re-attaches them on each repeat,
+    with the graceful fallback the operator ruling implied: if the local file is gone at re-page
+    time it drops snapshot_path (keeping snapshot_url), logs at DEBUG, and never blocks the
+    re-page. The os.path.exists call is off-loaded to the executor (a LOW fix-up), so it does not
+    do sync I/O on the event loop.
+    PROVENANCE: commit aee318b0e "NM-REPAGE-IMG-1: re-attach snapshot on CRITICAL re-pages"
+    (2026-08-12), present on develop and contained in release tags from v5.73.1 onward.
+  how_this_was_missed: >-
+    The card's `next` proposed an expensive live measurement (instrument the BlueBubbles transport
+    at debug and wait for an unacked CRITICAL) to answer a question a single grep of the re-page
+    function would have settled — and did settle, in seconds. This is the exact case the
+    verify-before-work rule exists for: the board asserted "nothing is known to be broken, go
+    measure" while the fix was a month old and shipped.
+  next: 'DONE — no action. Shipped v5.73.1 (commit aee318b0e); verified in source 2026-09-14.'
   sharp_problem:
   - '2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage.
     The iMessage re-page attachment path did not land. Fix owed before card can close.'
@@ -10616,8 +12094,9 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: investigating
-  updated: 2026-09-12 10:30
+  status: planned
+  updated: '2026-09-14 04:50'
+  refinement_status: refined
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: perimeter_alert.py:1050 still gates circling on clock alert-hours; transition-exemption landed in sibling CIRCLING-LABEL-1 but the daytime-gating escape (should circling escape pure clock-time, daytime alert_count=0) is unbuilt. Open decision: escape-vs-accept. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification;
     then decide whether circling should escape pure clock-time gating.
@@ -10633,8 +12112,69 @@ cards:
     not five alerts). But CIRCLING is arguably the classification most deserving of a page, and it produced
     none. Probably correct-by-design (daytime + occupied + outside the 23:00-05:00 window) - NOT VERIFIED,
     do not assert. Needs the actual gating path traced.'
-  next: trace why alert_count=0 for a circling classification; decide whether circling should escape pure
-    clock-time gating
+  traced_2026_09_13: >-
+    CODE TRACE DONE (autonomous, read-only). TWO HYPOTHESES REFUTED, one candidate isolated.
+    REFUTED #1 — "circling was suppressed by clock-time / alert-hours gating" (the card's own
+    framing, and the reason its next asked whether circling should escape clock gating). The
+    ONLY clock window on this path is PERIMETER_BURST_NIGHT_WINDOW (23-05) at
+    perimeter_alert.py:2200-2215, and it gates burst DEMOTION, not alerting: outside the window
+    the burst-demote helper returns False with reason "outside_night_window" — i.e. it DECLINES
+    TO DEMOTE. Daytime therefore makes suppression LESS likely, not more. Clock time cannot zero
+    an alert here, so "should circling escape clock gating" is the wrong question.
+    REFUTED #2 — a dead/unconsumed severity table. NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY
+    IS consumed (perimeter_alert.py:1627), and for (home_day, perimeter, circling) the universal
+    override at const.py:1794 returns HIGH. So the track resolved to HIGH, not DIGEST — severity
+    resolution is NOT the suppressor either.
+    ISOLATED — the suppressor is UPSTREAM OF DISPATCH. alert_count increments only in
+    note_alert_dispatched (exterior_track_linker.py:819), called only on the successful-dispatch
+    branch (perimeter_alert.py:1544). alert_count=0 therefore PROVES no dispatch occurred, and
+    the two gates that can do that before dispatch are (a) the egress-crossing suppression window
+    (perimeter_alert.py:1055, EGRESS_SUPPRESSION_WINDOW_SECONDS) and (b) the per-camera cooldown
+    (perimeter_alert.py:1064-1082, PERIMETER_ALERT_COOLDOWN_SECONDS), which the code itself calls
+    the "outer, authoritative rate limit". A CIRCLING-LABEL-1 classification-transition exemption
+    already exists to let exactly this case through the cooldown once per (track x target-class)
+    — so the live question is whether that exemption failed to fire, or egress-suppression
+    pre-empted it.
+  stale_vehicle_2026_09_14: >-
+    IMPORTANT — THIS CARD'S PLAN WAS STALE. Its `parsimony.note` said "exactly what CONSOL-1
+    contextual severity is for - fold in rather than a separate cycle". **CONSOL-1 has since
+    SHIPPED (status done), and it did NOT carry this.** Verified in source today: the burst path
+    builds a decision dict with a reason at perimeter_alert.py:2169-2272 ("disabled",
+    "classification_transition_exemption", "outside_night_window", "first_alert",
+    "sibling_corroborated", "adjacent_activity", "burst_isolated") — but the two PRE-DISPATCH
+    gates the trace isolated still have no reason: egress suppression (~:1050) and the per-camera
+    cooldown (~:1082) both just `return` silently. So the fold-in vehicle is gone and the work
+    did not ride it. Left as-was, this card would have waited forever on a cycle that already
+    closed.
+  gate_2026_09_14: >-
+    FOUR-STEP GATE RUN, PASSES — promoted investigating -> planned (build-ready, NOT built).
+    (1) VALIDITY: STILL-REAL, re-verified in source today (the two gates remain reason-less).
+    (2) PRIOR-ART / REUSE: **REUSE, do not invent.** The decision-reason pattern already exists in
+    this same file at perimeter_alert.py:2169-2272; this is extending an established idiom to two
+    more sites, not a new mechanism.
+    (3) PARSIMONY: sharp and falsifiable — "when a circling track is suppressed we cannot tell
+    which gate did it." Simplest version captures the whole benefit: a reason string on the two
+    existing suppression returns, surfaced the way the burst path already surfaces its own.
+    (4) COST/BENEFIT: additive observability with NO control-flow change and no new number, so
+    ingredient risk is near zero even though perimeter_alert.py is a regression-prone path.
+    NOTE ON WHY THIS IS THE RIGHT SHAPE: the alternative in the card's old `next` was "raise to
+    debug and wait for the next circling track" — that is soak-watching, which doctrine forbids.
+    Putting the discriminator in code is the sanctioned form (trip-wire in code, not a calendar).
+  not_built_overnight_because: >-
+    Scoped and gated but deliberately NOT built on this pass. The session is running on the
+    release/v5.101.2-integration branch and a code change belongs on a feature branch off develop;
+    spinning that up for a small observability change at 05:00 adds branch-management risk with no
+    urgency, and the payoff only lands the next time a circling track is suppressed. Left
+    build-ready so an attended session can take it straight to build.
+  next: >-
+    BUILD-READY (Tier 1, additive observability, no behaviour change). Add a suppression `reason`
+    to the two pre-dispatch gates in perimeter_alert.py — egress suppression (~:1050) and
+    per-camera cooldown (~:1082) — reusing the existing decision-reason idiom at :2169-2272, and
+    surface it the same way. Acceptance: the next suppressed circling track reports
+    reason == egress_suppression | cooldown | exemption_not_offered, which is the discriminator
+    the 2026-09-13 trace isolated. ONLY THEN decide whether circling should be exempt.
+    DO NOT ship a "circling escapes clock gating" change — the 2026-09-13 trace REFUTED that gate
+    as the cause.
   refs:
   - exterior_track_linker.py classification
   - perimeter_alert.py alert-hours gating
@@ -17487,10 +19027,10 @@ cards:
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
   thread: security
-  status: investigating
+  status: waiting_operator
   created: '2026-09-12 20:45'
-  updated: '2026-09-12 20:45'
-  refinement_status: initial
+  updated: '2026-09-14 04:20'
+  refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
   problem_solution:
@@ -17504,9 +19044,84 @@ cards:
   why: surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz)
     AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem,
     distinct from the phantom-xcorr severity question.
-  next: 'MEASURE: break exterior_person alert volume by camera + severity + hour; identify the dominant
-    sources (front_side_ptz street cam) and whether per-camera masking/tuning or a re-page cadence cap
-    cuts the fatigue without losing real detections. -> operator review.'
+  measured_2026_09_14: >-
+    ONE-SHOT READ-ONLY PROBE over the full live notification_log (5412 hazard_type=exterior_person
+    rows, 2026-08-15 -> 2026-09-14, 31 days). The volume problem IS REAL, but the headline number
+    this card was built on counts the wrong thing, and two plausible mechanisms are REFUTED.
+    ROW ANATOMY (the correction that matters): notification_log does NOT hold one row per alert.
+    5412 rows decompose into 3165 ALERT records (recipient NULL) + 2247 per-recipient DELIVERY
+    AUDIT rows (message literally '[audit]', recipient person.oji_udezue). On top of that,
+    CRITICAL alerts FAN OUT ACROSS FOUR CHANNELS — 433 rows each for imessage / pushover /
+    whatsapp plus a combined companion row. So one CRITICAL event can write ~5 rows.
+    CORRECTED VOLUME: 3165 alert records / 31d = **102/day**, not the 155/day this card cites
+    (and not the 174.6/day the raw row count gives). Severity split of the real alert records:
+    CRITICAL 1732, HIGH 1433.
+    CONCENTRATION CONFIRMED — the card was right about the source: front_side_ptz_person_occupancy_2
+    alone is 1338 of 3165 = **42%** of all alert records. Next: back_yard 480, pool_equipment 424,
+    hot_tub 225.
+    ACK RATE IS THE REAL FATIGUE EVIDENCE: **24 acknowledged out of 5412 rows (0.44%)**; 2153
+    CRITICAL rows unacked. Whatever the exact volume, essentially nothing is being acknowledged.
+    TIME-OF-DAY: peaks 13:00-17:00 (461/559/407/486/471 rows) — daytime street traffic on the
+    front cam, not an intruder profile.
+  hypotheses_refuted_2026_09_14: >-
+    TWO OF MY OWN HYPOTHESES DIED IN THIS PROBE — recording them so they are not re-derived:
+    (1) "The same physical camera double-alerts through two entity paths." Seven cameras DO expose
+    both a `_person_detected` and a `_person_occupancy_2` leg, which looked damning. MEASURED
+    cross-leg co-firing within 60s: 0-6% of volume (back_yard 2 pairs, front_side_ptz 5,
+    pool_equipment 0). REFUTED — the fused-sourcing dedup in perimeter_alert.py (cooldown keyed by
+    CAMERA, not entity_id) is doing its job.
+    (2) "A per-entity debounce would halve the volume — 58% of rows repeat within 60s." REFUTED,
+    and this one was nearly a false finding. Those sub-60s repeats are the per-recipient and
+    per-channel FAN-OUT rows of a SINGLE alert (the 2s/4s/6s inter-arrival spikes), not repeat
+    detections. Debouncing them would have suppressed delivery legs of one event while changing
+    the real alert rate hardly at all.
+    (3) THE EXISTING COOLDOWN IS WORKING. PERIMETER_ALERT_COOLDOWN_SECONDS=300 (const.py:1570) is
+    consumed at perimeter_alert.py:1082, keyed by camera with an in-flight guard. The
+    inter-arrival histogram shows a clean spike at exactly 299-300s — the cooldown releasing on
+    schedule. This is NOT a Bug-Class-#53 computed-but-not-consumed case; do not open one.
+  prior_art_2026_09_14: >-
+    REUSE-or-BUILD scan before recommending anything: rate limiting for this path ALREADY EXISTS
+    and is live — PERIMETER_ALERT_COOLDOWN_SECONDS (const.py:1570, per-camera, 300s) plus a
+    classification-transition exemption and an in-flight dispatch guard (perimeter_alert.py:1064-1115).
+    So the answer here is NOT a new debounce mechanism. Any volume reduction should come from
+    (a) tuning the existing cooldown, (b) the per-channel fan-out policy, or (c) the source
+    camera — not from building a second rate limiter alongside the working one.
+  repage_blind_spot_2026_09_14: >-
+    FOLLOW-UP THAT STRENGTHENS THIS CARD (found while verifying NM-REPAGE-IMG-1, same session).
+    The 102/day figure above EXCLUDES re-pages entirely, because **re-pages are invisible to
+    notification_log**. Verified in source: every `log_notification` call site in
+    notification_manager.py sits in the async_notify fan-out (lines 1677-1896) or the audit-row
+    writer (4470); `_repeat_alert` (2626-2790) re-sends to all qualifying channels WITHOUT writing
+    a row. So the table records first-sends only.
+    WHY THAT MATTERS HERE: an unacked CRITICAL keeps paging on the repeat ladder —
+    NM_REPEAT_PHASE1_S=300s for the first hour (NM_REPEAT_PHASE1_WINDOW_S=3600), then
+    NM_REPEAT_PHASE2_S=1800s, then daily (NM_REPEAT_DAILY_AFTER_S). With **2153 unacked CRITICAL
+    rows**, the operator's true buzz count is materially higher than 102/day and is NOT MEASURABLE
+    from this table. This also closes the loop on the 0.44% ack rate: acking is the only thing
+    that stops the ladder, so a low ack rate does not merely indicate fatigue — it actively
+    MANUFACTURES more of it.
+    IT ALSO CONFIRMS THE COOLDOWN ATTRIBUTION ABOVE: because re-pages never log, the clean 299-300s
+    spike in the inter-arrival histogram cannot be the 300s repeat timer and must be
+    PERIMETER_ALERT_COOLDOWN_SECONDS releasing. Both mechanisms share a 300s period, so this was
+    worth checking rather than assuming.
+    CONSEQUENCE FOR LEVER (B): trimming CRITICAL channel fan-out is now clearly the highest-value
+    URA-side lever, because it divides the re-page ladder's cost too, not just the first send.
+  next: >-
+    PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building
+    a second rate limiter):
+    (A) SOURCE — front_side_ptz is 42% of all alerts and peaks in daytime street hours. This is
+    already yours on FRONT-SIDE-PTZ-CHATTER-1 ("I'll recheck and handle the crop"). Doing that one
+    crop is the single biggest reduction available and needs no URA change at all. RECOMMENDED
+    FIRST — it is free to URA and cuts the largest slice.
+    (B) CHANNEL FAN-OUT — 433 CRITICAL events each paged imessage + pushover + whatsapp +
+    companion. APPROVE trimming CRITICAL exterior_person to fewer channels (this is the buzz-count
+    driver the 0.44% ack rate reflects) and say which channels to keep.
+    (C) COOLDOWN TUNING — raise PERIMETER_ALERT_COOLDOWN_SECONDS from 300s. Cheap knob turn, but
+    note it is a blunt instrument: it trades away genuine re-approach detections, and per the
+    Numbers-Get-Knobs ladder this number currently sits as a module constant (review-gated) rather
+    than an operator entity. Say if you want it promoted to a live knob.
+    DO NOT pick "add a per-entity debounce" — measured above, it would suppress delivery legs of
+    single events and barely move the real alert rate.
   links:
     related: [PERIMETER-PHANTOM-XCORR-1, NM-REPAGE-IMG-1, CONSOL-1]
     context: 'Spawned from the PERIMETER-PHANTOM + NM-REPAGE probes (2026-09-12). Distinct from

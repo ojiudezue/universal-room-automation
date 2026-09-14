@@ -322,9 +322,11 @@ class TestPeriodAliases:
 class TestValidation:
     """Invalid period names are skipped; missing off_peak falls back to defaults."""
 
-    def test_unknown_period_ignored(self):
+    def test_unknown_period_rejects_file(self):
+        """v5.101+: unknown period name now rejects the file wholesale
+        (previously warn+skip). Deliberate semantic change to prevent a
+        misspelled period from silently dropping arbitrage windows."""
         data = json.loads(json.dumps(_VALID_JSON))
-        # Add a bogus period to shoulder
         data["seasons"]["shoulder"]["periods"]["super_off_peak"] = {
             "hours": [[0, 5]], "rate": 0.01,
         }
@@ -332,11 +334,8 @@ class TestValidation:
             _write_json(tmpdir, "tou.json", data)
             filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
             engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
-            # Should still load successfully, ignoring the unknown period
-            assert engine._rate_file_loaded is True
-            # shoulder mid_peak should still work
-            now = datetime(2026, 3, 15, 18, 0)
-            assert engine.get_current_period(now) == "mid_peak"
+            assert engine._rate_file_loaded is False
+            assert engine.rate_source == "built-in PEC 2026"
 
     def test_missing_off_peak_falls_back(self):
         """If a season is missing off_peak, fall back to PEC defaults entirely."""
@@ -348,6 +347,166 @@ class TestValidation:
             engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine._rate_file_loaded is False
             assert engine.rate_source == "built-in PEC 2026"
+
+
+# ── Whole-file-rejection validation (v5.101+ TOU-FILE-NO-RATE-VALIDATION-1) ──
+
+
+class TestWholeFileValidation:
+    """A misspelled/missing rate field or malformed schema must REJECT the
+    file wholesale — no silent 0.0 defaulting, no partial apply. The
+    fail-safe is byte-identical to the missing-file path (return cls())."""
+
+    def test_misspelled_rate_field_rejects_file(self):
+        """THE DISCRIMINATING TEST for TOU-FILE-NO-RATE-VALIDATION-1.
+
+        A period with 'rates' instead of 'rate' (or import_rate/export_rate)
+        MUST be flagged by the validator with a missing-rate error, AND the
+        file loader MUST reject the file. Previously this silently defaulted
+        to 0.0, collapsing arbitrage economics.
+
+        Anchors on the validator directly (not just the end-to-end fallback)
+        because the loader has a legacy catch-all ``except`` that will fall
+        back on ANY exception — the validator is the only surface that
+        actually PROVES the missing-rate rule fires."""
+        data = json.loads(json.dumps(_VALID_JSON))
+        summer_peak = data["seasons"]["summer"]["periods"]["peak"]
+        del summer_peak["import_rate"]
+        del summer_peak["export_rate"]
+        summer_peak["rates"] = 0.16  # <-- typo: 'rates' not 'rate'
+
+        errors = TOURateEngine._validate_parsed_data(data)
+        assert any("missing rate" in e and "peak" in e for e in errors), (
+            f"Expected a 'missing rate' error for the peak period; got {errors!r}"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False, (
+                "Misspelled rate field must reject the file, not silently load at 0.0"
+            )
+            assert engine.rate_source == "built-in PEC 2026"
+            assert engine.get_current_rate(datetime(2026, 7, 15, 17, 0)) > 0.0
+
+    def test_overlapping_hours_reject_file(self):
+        data = json.loads(json.dumps(_VALID_JSON))
+        # peak [16,20] overlaps mid_peak by extending to [14,20]
+        data["seasons"]["summer"]["periods"]["mid_peak"]["hours"] = [[14, 20]]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False
+            assert engine.rate_source == "built-in PEC 2026"
+
+    def test_out_of_range_hours_reject_file(self):
+        data = json.loads(json.dumps(_VALID_JSON))
+        data["seasons"]["summer"]["periods"]["off_peak"]["hours"] = [[0, 25], [21, 24]]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False
+
+    def test_uncovered_month_rejects_file(self):
+        data = json.loads(json.dumps(_VALID_JSON))
+        # Drop September from summer without moving it to another season
+        data["seasons"]["summer"]["months"] = [6, 7, 8]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False
+
+    def test_double_claimed_month_rejects_file(self):
+        data = json.loads(json.dumps(_VALID_JSON))
+        # Add August to shoulder — it's already claimed by summer
+        data["seasons"]["shoulder"]["months"] = [3, 4, 5, 8, 10, 11]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False
+
+    def test_negative_import_rate_rejects_file(self):
+        data = json.loads(json.dumps(_VALID_JSON))
+        data["seasons"]["summer"]["periods"]["peak"]["import_rate"] = -0.05
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False
+
+    def test_absurd_rate_rejects_file(self):
+        data = json.loads(json.dumps(_VALID_JSON))
+        data["seasons"]["summer"]["periods"]["peak"]["import_rate"] = 42.0
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is False
+
+    def test_negative_export_rate_accepted(self):
+        """Export rate CAN be negative (some tariffs charge for over-export)."""
+        data = json.loads(json.dumps(_VALID_JSON))
+        data["seasons"]["summer"]["periods"]["peak"]["export_rate"] = -0.02
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", data)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is True
+            assert engine.get_export_rate(datetime(2026, 7, 15, 17, 0)) == -0.02
+
+    def test_valid_file_still_loads_and_matches_prior_rates(self):
+        """Regression guard: the canonical _VALID_JSON fixture must still
+        load and produce the same rates as before the validation gate."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", _VALID_JSON)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is True
+            assert engine.get_current_rate(datetime(2026, 7, 15, 17, 0)) == 0.16
+            assert engine.get_current_rate(datetime(2026, 7, 15, 10, 0)) == 0.04
+
+    def test_live_pec_shaped_file_loads(self):
+        """The operator's real /config/universal_room_automation/tou_rates.json
+        shape (verified live 2026-09-14) must still pass the new validator."""
+        live_shape = {
+            "utility": "PEC",
+            "effective_date": "2026-01-01",
+            "seasons": {
+                "summer": {
+                    "months": [6, 7, 8, 9],
+                    "periods": {
+                        "off_peak": {"hours": [[0, 14], [21, 24]], "import_rate": 0.043481, "export_rate": 0.043481},
+                        "mid_peak": {"hours": [[14, 16], [20, 21]], "import_rate": 0.093169, "export_rate": 0.093169},
+                        "peak":     {"hours": [[16, 20]], "import_rate": 0.161843, "export_rate": 0.161843},
+                    },
+                },
+                "shoulder": {
+                    "months": [3, 4, 5, 10, 11],
+                    "periods": {
+                        "off_peak": {"hours": [[0, 17], [21, 24]], "import_rate": 0.043481, "export_rate": 0.043481},
+                        "mid_peak": {"hours": [[17, 21]], "import_rate": 0.086442, "export_rate": 0.086442},
+                    },
+                },
+                "winter": {
+                    "months": [12, 1, 2],
+                    "periods": {
+                        "off_peak": {"hours": [[0, 5], [9, 17], [21, 24]], "import_rate": 0.043481, "export_rate": 0.043481},
+                        "mid_peak": {"hours": [[5, 9], [17, 21]], "import_rate": 0.086442, "export_rate": 0.086442},
+                    },
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou.json", live_shape)
+            filepath_str, parsed = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(parsed, filepath_str, "tou.json") if parsed else TOURateEngine()
+            assert engine._rate_file_loaded is True
+            assert engine.get_current_rate(datetime(2026, 7, 15, 17, 0)) == 0.161843
 
 
 # ── Separate import/export rates ─────────────────────────────────────────────
@@ -532,3 +691,104 @@ class TestTodayHighRateTransitions:
         # winter: mid_peak 05-09 + 17-21
         assert (5, "mid_peak") in windows
         assert (17, "mid_peak") in windows
+
+
+# ── D1 loud failure + D2 toggle — TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1 ─────────
+
+import asyncio
+
+
+class _FakeHass:
+    """Minimal HA stub for async_from_json_file — runs the executor sync."""
+    def __init__(self):
+        self.data = {}
+    async def async_add_executor_job(self, fn, *args):
+        return fn(*args)
+
+
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro) if False else asyncio.new_event_loop().run_until_complete(coro)
+
+
+class TestFileStatusAndToggle:
+    """D1 (loud failure via tou_file_status + rejection_errors) + D2 (toggle)."""
+
+    def test_rejected_file_status_and_errors_populated_and_rates_are_builtin(self):
+        """Rejected file => file_status='rejected', rejection_errors non-empty,
+        rates STILL equal built-in PEC (fallback is byte-safe)."""
+        data = json.loads(json.dumps(_VALID_JSON))
+        # Overlap: peak [16,20] vs mid_peak forced to [14,20] — rejected.
+        data["seasons"]["summer"]["periods"]["mid_peak"]["hours"] = [[14, 20]]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", data)
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json",
+            ))
+            assert engine.file_status == "rejected"
+            assert engine.rejection_errors, "rejection_errors must be populated"
+            assert engine.rejected_filepath is not None
+            # Rates fall back to PEC — verify against a native PEC engine.
+            baseline = TOURateEngine()
+            now = datetime(2026, 7, 15, 17, 0)
+            assert engine.get_current_rate(now) == baseline.get_current_rate(now)
+            assert engine.rate_source == "built-in PEC 2026"
+            # get_period_info surfaces the status attribute.
+            assert engine.get_period_info(now)["tou_file_status"] == "rejected"
+
+    def test_valid_file_status_ok_and_no_alert(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", _VALID_JSON)
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json",
+            ))
+            assert engine.file_status == "ok"
+            assert engine.rejection_errors == []
+            assert engine._rate_file_loaded is True
+
+    def test_absent_file_status_absent_and_no_alert(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "does_not_exist.json",
+            ))
+            assert engine.file_status == "absent"
+            assert engine.rejection_errors == []
+            assert engine.rate_source == "built-in PEC 2026"
+
+    def test_toggle_false_with_valid_file_present_uses_builtin_and_status_disabled(self):
+        """D2 kill switch: enabled=False => skip file entirely even if valid."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", _VALID_JSON)
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json", enabled=False,
+            ))
+            assert engine.file_status == "disabled"
+            assert engine.rejection_errors == []
+            assert engine.rate_source == "built-in PEC 2026"
+            baseline = TOURateEngine()
+            now = datetime(2026, 7, 15, 17, 0)
+            assert engine.get_current_rate(now) == baseline.get_current_rate(now)
+
+    def test_toggle_default_matches_current_behaviour(self):
+        """Default (enabled unset) is byte-identical to prior behaviour:
+        a valid file wins exactly as before."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", _VALID_JSON)
+            hass = _FakeHass()
+            engine_default = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json",
+            ))
+            hass2 = _FakeHass()
+            engine_explicit_true = _run(TOURateEngine.async_from_json_file(
+                hass2, tmpdir, "tou_rates.json", enabled=True,
+            ))
+            assert engine_default.file_status == engine_explicit_true.file_status == "ok"
+            now = datetime(2026, 7, 15, 17, 0)
+            assert (
+                engine_default.get_current_rate(now)
+                == engine_explicit_true.get_current_rate(now)
+                == 0.16  # from _VALID_JSON, not built-in PEC
+            )

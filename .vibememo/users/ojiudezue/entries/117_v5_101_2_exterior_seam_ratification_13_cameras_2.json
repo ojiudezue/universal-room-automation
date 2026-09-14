@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "117",
+  "author": "ojiudezue",
+  "session_id": "claude_20260914_071658_ship_v5_101_2",
+  "timestamp": "2026-09-14T07:16:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.101.2 shipped: Exterior seam ratification (13 cameras/21 seams) + TOU rate-file hardening (validation, loud failure, kill switch, path key wired)",
+  "summary": "Exterior seam ratification (13 cameras/21 seams) + TOU rate-file hardening (validation, loud failure, kill switch, path key wired)",
+  "why": "Seam accuracy first, per operator sequencing \u2014 tolerance work is explicitly parked behind it because measuring link tolerance against a graph we KNEW was wrong would measure the wrong thing. The graph was corrected twice tonight: my first pass mis-mapped 'Madrone PT Ultra/Reolink hub' onto reolinkstudybporchptz by assumption, and my swap hypothesis for the ring contradiction was wrong \u2014 the real cause was a missing node, not a mis-ordering. Both recorded so neither is re-derived. TOU strictness is paired with loud failure deliberately: validation without visibility would silently demote the operator's price file to built-in rates, and the measured blast radius today is zero only because their file is byte-identical to the fallback. Three TOU branches independently rewrote the same engine-construction site; the conflict was resolved keeping BOTH the path resolver and the enabled toggle, because either alone would have silently un-wired the other card, and the resolution was mutation-verified.",
+  "implications": "Shipped CAMERA-SEAM-VALIDATION-1, TOU-RATE-FILE-KEY-UNWIRED-1, TOU-FILE-NO-RATE-VALIDATION-1, TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1 at v5.101.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.101.2.md (Live criteria).",
+  "revisit_trigger": "sqlite: optimization_findings has zero NEW rows after the restart timestamp whose description matches 'findings_recent' (the v5.101.1 fix holding); AND sensor.ura_tou_period attribute tou_file_status == 'ok' with the summer peak import rate still 0.161843; AND exterior_track_linker logs zero ERROR after restart with the 13-node graph loaded",
+  "refs": {
+    "cards": [
+      "CAMERA-SEAM-VALIDATION-1",
+      "TOU-RATE-FILE-KEY-UNWIRED-1",
+      "TOU-FILE-NO-RATE-VALIDATION-1",
+      "TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.101.2.md"
+    ],
+    "release_notes": "- SEAMS: operator re-ratified every camera adjacency against the property. 27 -> 21 seams across THIRTEEN cameras (a second Reolink had been missed and two distinct cameras were collapsed into one). 10 seams struck as physically impossible, all fenced in-source so re-adding one is an error.\n- DERIVED CONSTANT MOVED WITH IT: EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS recomputed \u2014 hot_tub drops out (its only qualifying seam was struck) and front_door_aerial drops out (it IS an egress camera). Behaviour change: a track seen only on hot_tub no longer auto-classifies 'approach'.\n- EGRESS SPLIT: egress cameras are not all exterior. Garage cameras watch a way into the house but sit inside it; the spec now splits exterior/interior and derives egress-adjacency from EXTERIOR only.\n- SEAM FILE + VALIDATOR: ring-first declarative format, six rules, whole-file rejection (a partially-applied seam graph IS the wrong-seam failure). Ratified file committed + placed at the canonical path. NOT wired as a runtime loader this release.\n- TOU: the config key for the rate-file path was defined and never read \u2014 now wired, with absolute-path and traversal rejected.\n- TOU VALIDATION: the loader had ZERO validation; a misspelled rate field silently priced electricity at 0.0 while reporting the file as authoritative. Rates now required, bounded, hours and month coverage checked, whole-file rejection.\n- TOU LOUD FAILURE + KILL SWITCH: a rejected file now raises an operator-visible alert naming the errors; tou_file_status exposed on sensor.ura_tou_period; CONF_ENERGY_TOU_RATE_FILE_ENABLED defaults TRUE."
+  }
+}
