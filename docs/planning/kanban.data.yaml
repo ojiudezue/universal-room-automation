@@ -468,7 +468,7 @@ cards:
 - id: TOU-RATE-FILE-KEY-UNWIRED-1
   title: CONF_ENERGY_TOU_RATE_FILE is declared but never read — the TOU file path is hardcoded
   thread: energy
-  status: planned
+  status: review
   created: '2026-09-13 23:30'
   updated: '2026-09-13 23:30'
   refinement_status: initial
@@ -499,11 +499,38 @@ cards:
     DEFAULT_TOU_RATE_FILE)` belongs. The second missing half is a field in the energy options
     step to set it. Triage bucket: KEEP + WIRE (a useful capability that a downstream should be
     consuming) — NOT delete, and not a footgun.
-  next: >-
-    Fold into the seam-file cycle if it is built (same pattern, same critique C3), or ship
-    standalone as a Tier-1: read the key at __init__.py:3449 with DEFAULT_TOU_RATE_FILE as the
-    fallback, add the options-flow field, and add a test that setting the key changes the path
-    the loader receives (wire-in anchor, not a helper test).
+  built_2026_09_14: >-
+    BUILT by a worktree-isolated builder @ feature/tou-rate-file-key-wire, commit 8b9036ab2 —
+    in review, NOT merged, NOT deployed.
+    Read site now calls a new module-level `_resolve_tou_rate_file(cm_config)` helper whose
+    result is passed as the third argument to TOURateEngine.async_from_json_file. Options-flow
+    field added to the coordinator_energy step + strings.json + translations/en.json.
+    PATH SAFETY (per brief): the value is joined under hass.config.path(""), so the resolver
+    rejects absolute paths and any ".." segment, warns, and falls back to DEFAULT_TOU_RATE_FILE.
+    Unset / empty / non-string also fall back. Behaviour is unchanged when the key is unset.
+    ORCHESTRATOR INDEPENDENT VERIFICATION (did not trust the builder's report): re-ran the
+    mutation myself in the builder's worktree — replacing the call site with the hardcoded
+    DEFAULT_TOU_RATE_FILE turns exactly `test_wire_in_call_site_uses_resolver` RED. Restored,
+    residue 0, tree clean, 37 pass across the new file + test_energy_tou.py.
+  KNOWN_LIMITATION_2026_09_14: >-
+    THE WIRE-IN ANCHOR IS SOURCE-LEVEL, NOT BEHAVIOURAL — flagged by the builder, confirmed by
+    me, recorded rather than papered over. `test_wire_in_call_site_uses_resolver` parses
+    __init__.py, isolates the async_from_json_file argument list with a paren-depth walker (a
+    naive regex breaks on the nested `hass.config.path("")`), and asserts the third argument is
+    not the hardcoded constant. That is stronger than a grep but it still asserts source SHAPE,
+    not the value the loader receives at runtime. The six resolver tests ARE behavioural and kill
+    any mutation of the resolver body, so the pair is adequate for Tier-1.
+    RESIDUAL RISK: a future edit could wire a DIFFERENT, wrong resolver and both anchors would
+    stay green. Closing it properly needs the call site reachable without standing up the whole
+    async_setup_entry — i.e. worth doing only if that function is ever decomposed. Do NOT cite
+    this test as proof the runtime receives the configured path.
+  baseline_caveat_2026_09_14: >-
+    Full-suite baseline name-diff NOT established — `pytest quality/tests/` exceeds the 2-minute
+    tool timeout (the known TEST-STRATEGY-REARCH-1 problem). The builder verified the affected
+    surface only (test_energy_tou.py, test_day_boundary_tou.py, new file) = 54 pass, and I
+    re-verified 37 pass on the subset I ran. Treat "no regressions" as scoped to that surface,
+    not the suite.
+  next: 'IN REVIEW — merge + ship with the next deploy. Nothing further needed from the operator.'
   parsimony:
     problem: A named configuration key has no effect because its single read site was never written.
     verdict: BUILD
