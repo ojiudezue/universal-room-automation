@@ -16,12 +16,12 @@ from custom_components.universal_room_automation.exterior_seams import (
 # The operator's re-ratified ring (2026-09-13), written as the file would be.
 RING = [
     "front_side_ptz", "madrone_g6_entry", "front_door_aerial", "utilities_ptz",
-    "reolinkstudybporchptz", "pool_equipment", "hot_tub", "armcrest",
-    "back_yard", "g5_bullet", "doorbell_lite", "rear_ptz",
+    "madroneptultra", "pool_equipment", "hot_tub", "reolinkstudybporchptz",
+    "armcrest", "back_yard", "g5_bullet", "doorbell_lite", "rear_ptz",
 ]
 SKIPS = [
     ["armcrest", "doorbell_lite"], ["armcrest", "g5_bullet"],
-    ["armcrest", "reolinkstudybporchptz"], ["back_yard", "hot_tub"],
+    ["armcrest", "hot_tub"], ["back_yard", "hot_tub"],
     ["front_door_aerial", "front_side_ptz"], ["front_side_ptz", "utilities_ptz"],
     ["g5_bullet", "rear_ptz"], ["madrone_g6_entry", "utilities_ptz"],
 ]
@@ -29,8 +29,12 @@ FENCED = [
     ["pool_equipment", "rear_ptz"], ["rear_ptz", "utilities_ptz"],
     ["back_yard", "front_side_ptz"], ["front_side_ptz", "hot_tub"],
 ]
-EGRESS = ["madrone_g6_entry", "doorbell_lite", "front_door_aerial"]
-KNOWN = set(RING)
+EGRESS = {
+    # Operator ruling 2026-09-14: not every egress camera is an EXTERIOR camera.
+    "exterior": ["madrone_g6_entry", "doorbell_lite", "front_door_aerial"],
+    "interior": ["garage_a", "garage_b"],
+}
+KNOWN = set(RING) | {"garage_a", "garage_b"}
 
 
 def _spec(**over):
@@ -39,7 +43,7 @@ def _spec(**over):
         "ring": list(RING),
         "skips": [list(p) for p in SKIPS],
         "fenced": [list(p) for p in FENCED],
-        "egress_cameras": list(EGRESS),
+        "egress_cameras": {k: list(v) for k, v in EGRESS.items()},
     }
     spec.update(over)
     return spec
@@ -62,7 +66,7 @@ def test_skips_add_exactly_the_named_edges():
     ring_only = build_edges({"schema_version": 1, "ring": list(RING)})
     full = build_edges(_spec())
     added = full - ring_only
-    assert len(full) == 20, f"expected 20 seams, got {len(full)}"
+    assert len(full) == 21, f"expected 21 seams, got {len(full)}"
     assert added == {tuple(sorted(p)) for p in SKIPS}
 
 
@@ -76,7 +80,7 @@ def test_graph_declares_each_edge_once_not_pre_symmetrized():
             pair = tuple(sorted((a, b)))
             assert pair not in seen, f"{pair} declared twice"
             seen.add(pair)
-    assert len(seen) == 20
+    assert len(seen) == 21
 
 
 # --- D2: validation rules ---------------------------------------------------
@@ -153,9 +157,30 @@ def test_ring_with_duplicate_camera_is_rejected():
 
 
 def test_camera_absent_from_ring_warns():
-    errors, warnings = validate_seam_spec(_spec(), KNOWN | {"garage_a"})
+    errors, warnings = validate_seam_spec(_spec(), KNOWN | {"side_gate_cam"})
     assert errors == [], errors
-    assert any("garage_a" in w for w in warnings), warnings
+    assert any("side_gate_cam" in w for w in warnings), warnings
+
+
+def test_interior_egress_camera_in_the_ring_is_rejected():
+    """Operator ruling 2026-09-14: the garage cameras are egress but sit INSIDE
+    the garage — they see crossings into the house, not outdoor movement. Ringing
+    one would fabricate outdoor transits."""
+    spec = _spec(ring=RING + ["garage_a"])
+    errors, _ = validate_seam_spec(spec, KNOWN)
+    assert any("interior egress" in e for e in errors), errors
+    assert any("garage_a" in e for e in errors), errors
+
+
+def test_egress_adjacent_ignores_INTERIOR_egress_cameras():
+    """The derivation must use EXTERIOR egress only. Deriving from the full
+    egress list would drag interior cameras into the outdoor adjacency model."""
+    spec = _spec(skips=[list(p) for p in SKIPS] + [["garage_a", "back_yard"]])
+    derived = derive_egress_adjacent(spec)
+    assert "back_yard" not in derived, (
+        "back_yard neighbours garage_a, but garage_a is INTERIOR egress — it "
+        "must not confer egress-adjacency"
+    )
 
 
 # --- D2: derived egress-adjacent -------------------------------------------
@@ -177,13 +202,11 @@ def test_egress_adjacent_is_derived_and_excludes_egress_cameras_themselves():
 def test_egress_adjacent_follows_the_egress_list_not_a_hardcoded_three():
     """Adding the garage cameras as egress must change the derived set — the
     5-vs-3 drift becomes impossible when the set is computed."""
-    spec = _spec(
-        ring=RING + ["garage_a"],
-        skips=[list(p) for p in SKIPS] + [["garage_a", "back_yard"]],
-        egress_cameras=EGRESS + ["garage_a"],
-    )
+    spec = _spec(egress_cameras={
+        "exterior": EGRESS["exterior"] + ["armcrest"], "interior": [],
+    })
     derived = derive_egress_adjacent(spec)
     assert "back_yard" in derived, (
-        "back_yard neighbours the newly-declared egress camera garage_a"
+        "back_yard neighbours armcrest, newly declared an EXTERIOR egress camera"
     )
-    assert "garage_a" not in derived
+    assert "armcrest" not in derived

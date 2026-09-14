@@ -48,6 +48,12 @@ _LOGGER = logging.getLogger(__name__)
 
 SEAM_SCHEMA_VERSION = 1
 
+# Canonical location, relative to the HA config dir — mirrors
+# DEFAULT_TOU_RATE_FILE. This is also the landing path the config-flow file
+# picker writes to (D3), so the drop-a-file and upload routes converge on ONE
+# location rather than diverging.
+DEFAULT_EXTERIOR_SEAM_FILE = "universal_room_automation/exterior_seams.json"
+
 # A skip joining cameras this many ring positions apart is physically
 # suspicious — the 2026-09-13 re-ratification found every operator-validated
 # skip sat 2-3 positions apart, while the struck ones spanned further or
@@ -82,6 +88,33 @@ def _pairs(raw: Any, field: str) -> list[tuple[str, str]]:
 
 def _undirected(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a <= b else (b, a)
+
+
+def split_egress(spec: dict) -> tuple[list[str], list[str]]:
+    """Return (exterior_egress, interior_egress).
+
+    NOT every egress camera is an exterior camera. Operator ruling 2026-09-14:
+    the garage cameras are egress — they watch a way into the house — but they
+    sit INSIDE the garage and "do not normally see external people; they see
+    crossings into the house". The door-adjacent ones (overhead front door, the
+    doorbells) sit outside.
+
+    That distinction is load-bearing. `EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS`
+    means "perimeter cameras one hop from a way out", and it must be derived
+    from the EXTERIOR egress cameras only — deriving it from the full egress
+    list would drag interior cameras into the outdoor adjacency model and
+    upgrade unrelated tracks to `approach`.
+
+    Accepts either the split form ``{"exterior": [...], "interior": [...]}`` or
+    a bare list (treated as all-exterior) for forward compatibility.
+    """
+    raw = spec.get("egress_cameras") or []
+    if isinstance(raw, dict):
+        return (
+            list(raw.get("exterior") or []),
+            list(raw.get("interior") or []),
+        )
+    return list(raw), []
 
 
 def build_edges(spec: dict) -> set[tuple[str, str]]:
@@ -158,10 +191,18 @@ def validate_seam_spec(
         errors.append(str(exc))
         return errors, warnings
 
-    egress = spec.get("egress_cameras") or []
-    if not isinstance(egress, list) or not all(isinstance(c, str) for c in egress):
-        errors.append("'egress_cameras' must be a list of camera names")
-        egress = []
+    raw_egress = spec.get("egress_cameras")
+    if raw_egress is not None and not isinstance(raw_egress, (list, dict)):
+        errors.append(
+            "'egress_cameras' must be a list, or an object with "
+            "'exterior'/'interior' lists"
+        )
+        raw_egress = []
+    ext_egress, int_egress = split_egress(spec)
+    if not all(isinstance(c, str) for c in ext_egress + int_egress):
+        errors.append("'egress_cameras' entries must be camera names")
+        ext_egress, int_egress = [], []
+    egress = ext_egress + int_egress
 
     if errors:
         return errors, warnings
@@ -179,14 +220,26 @@ def validate_seam_spec(
                 f"{unknown}"
             )
 
-    # RULE 2 — every configured exterior camera should appear in the ring.
+    # RULE 2 — every configured EXTERIOR camera should appear in the ring.
+    # Interior egress cameras are excluded by design: they are declared so the
+    # egress model is complete, but they must NOT be ringed (RULE 2b).
     if known_cameras:
-        missing = sorted(known_cameras - set(ring))
+        missing = sorted(known_cameras - set(ring) - set(int_egress))
         if missing:
             warnings.append(
                 f"configured exterior camera(s) absent from the ring: {missing} "
                 "— they can never be linked into a track"
             )
+
+    # RULE 2b — an INTERIOR egress camera must not sit in the exterior ring.
+    # It cannot see outdoor traffic, so linking it into an outdoor walk would
+    # fabricate transits. Declaring it is right; ringing it is not.
+    inside_ring = sorted(set(int_egress) & set(ring))
+    if inside_ring:
+        errors.append(
+            f"interior egress camera(s) present in the exterior ring: {inside_ring} "
+            "— they watch crossings into the house, not outdoor movement"
+        )
 
     # RULE 3 — no dead ends. Degree < 2 can never reach the circling threshold.
     for cam in sorted(adj):
@@ -261,7 +314,8 @@ def derive_egress_adjacent(
         _undirected(a, b) for a, ns in graph.items() for b in ns
     }
     adj = _symmetrized(edges)
-    egress = set(spec.get("egress_cameras") or [])
+    ext_egress, _interior = split_egress(spec)
+    egress = set(ext_egress)
     out: set[str] = set()
     for cam in egress:
         out |= adj.get(cam, set())
