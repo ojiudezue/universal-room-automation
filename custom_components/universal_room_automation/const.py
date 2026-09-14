@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.101.2
+# Universal Room Automation vv5.101.3
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.101.2"
+VERSION: Final = "v5.101.3"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -3486,6 +3486,75 @@ OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 # so a change should require code review. Kill switch: set to 0 to
 # restore per-cycle persistence (every cycle re-persists).
 OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S: Final = 86400
+
+# CAMERA-STUCK-SENSOR-TRIPWIRE-1 (2026-09-14) — exterior camera person
+# detectors stuck ON.
+#
+# Why a SEPARATE check from sensor_health: sensor_health is ROOM-keyed.
+# Measured 2026-09-14 it produced 7,970 findings in a month and EVERY
+# target_id was a URA room name — it watches room-score degradation, not
+# sensor liveness. A perimeter camera binary_sensor pinned ON is outside
+# its target universe entirely, which is why a 29.5h stuck sensor went
+# unnoticed (front_side_ptz, 2026-09-10 10:05 -> 09-11 15:37 CDT).
+#
+# THRESHOLD DERIVED FROM MEASUREMENT, not invented. Over 2026-09-06..09-14,
+# excluding the two pathological cameras below, EVERY exterior person
+# detector's p99 ON-duration was <= 355s, and the fleet max was 1562s.
+# 1800s sits ~5x above the worst non-pathological p99 and above every
+# observed non-stuck ON period on 12 of 14 sensors. Backtested over that
+# window it fires exactly twice — the two real incident sensors — and zero
+# times spuriously on the other twelve.
+#
+# Knob rung: module constant. This is a detection bound derived from a
+# measured distribution, not policy an operator tunes by observation; a
+# change should be re-derived from data under review. Kill switch: 0.
+# ROUTINE-DETECTOR-NO-DISCHARGE-1 (2026-09-14) — recency bound on the
+# routine-status sensors.
+#
+# THE PROBLEM THIS FIXES. The person/household routine-status sensors
+# query anomaly_log with NO TIME BOUND — `recovery_at IS NULL` and nothing
+# else (sensor.py). The only pruning is 365 days. So a single
+# unacknowledged row pins the sensor for up to a YEAR, and the only escape
+# is a human pressing the acknowledge button. Measured 2026-09-14: Jaya
+# carried severity-4 rows dated 2026-05-15 that had been holding the
+# household sensor at `major_shift` for four months while ALL 48 detector
+# cells read `stable`.
+#
+# WHY 56 DAYS. The detector compares a 14-day recent window against a
+# 56-day baseline. A shift emitted more than one baseline-window ago was
+# computed against data that has itself fully aged out — it is stale BY
+# CONSTRUCTION and cannot describe current routine. Tying the bound to the
+# baseline window keeps the sensor's notion of "recent" consistent with
+# the detector's own, rather than inventing an unrelated number.
+#
+# EFFECT: acknowledgement becomes OPTIONAL rather than mandatory. An
+# unacknowledged shift stops driving the sensor once it ages past the
+# window, so forgetting to press the button is no longer a year-long
+# stuck state. The button still works for clearing early.
+#
+# Knob rung: module constant — it must stay coherent with the detector's
+# baseline window, so changing it is a reviewed code change. 0 disables
+# the bound (restores the pre-fix unbounded behaviour).
+ROUTINE_STATUS_RECENCY_DAYS: Final = 56
+
+CAMERA_STUCK_ON_THRESHOLD_S: Final = 1800
+
+# Per-camera overrides, because one pathological camera must not be
+# allowed to set the fleet threshold — that is how you end up with a
+# useless 12h trip-wire that misses everything else.
+#   garage_a: p99 2141s (36 min) with a real 3.9h dwell. It is an
+#     INTERIOR-facing egress camera watching a space people legitimately
+#     occupy for long periods, so 1800s would false-fire.
+#   pool_equipment: chronically false-positive at measurement time — 25 ON
+#     periods over 1h in 7.9 days, 53% of wall-clock ON, median 408s vs a
+#     fleet median of ~25s. At 1800s it would fire ~25x/week. Quarantined
+#     at 8h until the underlying detection is fixed. The operator rebooted
+#     this camera 2026-09-14; if it self-corrects, REMOVE this override
+#     rather than leaving a permanent blind spot.
+CAMERA_STUCK_ON_OVERRIDES_S: Final[dict[str, int]] = {
+    "garage_a": 7200,
+    "pool_equipment": 28800,
+}
 
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
 # Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated

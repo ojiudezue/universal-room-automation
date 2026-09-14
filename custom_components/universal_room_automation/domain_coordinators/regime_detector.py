@@ -497,6 +497,40 @@ class RegimeDetector:
             )
             if magnitude_bucket in ("stable", None):
                 new_counter = 0
+                # ROUTINE-DETECTOR-NO-DISCHARGE-1: the counter reset below
+                # was already correct, but the anomaly_log rows this cell
+                # emitted had NO automatic clear path — only a manual
+                # button. Result (measured 2026-09-14): 462 rows, 462
+                # unacknowledged since 2026-05-15, zero ever acked, while
+                # every one of the 48 cells read `stable`. The household
+                # routine sensor was pinned at `major_shift` on three rows
+                # from May. The cell recovers; the emitted event did not.
+                #
+                # Discharge at the SAME seam that resets the counter, and
+                # only for THIS cell — a bulk clear would also discharge
+                # cells that are still genuinely drifting.
+                old_counter = (
+                    existing["unacknowledged_consecutive"] if existing else 0
+                )
+                if old_counter > 0:
+                    try:
+                        cleared = await (
+                            self._database.discharge_routine_shifts_for_cell(
+                                person_id, time_bin, day_type,
+                            )
+                        )
+                        if cleared:
+                            _LOGGER.info(
+                                "RegimeDetector: %s tb=%d dt=%d returned to "
+                                "stable — discharged %d open routine-shift "
+                                "row(s)",
+                                person_id, time_bin, day_type, cleared,
+                            )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "RegimeDetector: discharge failed (non-fatal)",
+                            exc_info=True,
+                        )
             else:
                 old_counter = existing["unacknowledged_consecutive"] if existing else 0
                 new_counter = old_counter + 1

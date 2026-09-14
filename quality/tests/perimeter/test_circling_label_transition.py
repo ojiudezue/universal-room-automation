@@ -485,3 +485,82 @@ def test_s4_in_flight_suppression_rolls_back_optimistic_seed():
         f"S4-suppressed exemption seed must be rolled back; "
         f"set={tr._dispatched_classifications}"
     )
+
+
+# ======================================================================
+# CIRCLING-SEVERITY-1 — pre-dispatch suppression reason
+#
+# The 2026-09-13 trace proved a circling track had alert_count=0 (no
+# dispatch) and isolated the cause to ONE OF TWO gates that both returned
+# silently: egress suppression and the per-camera cooldown. Code reading
+# cannot distinguish them retrospectively. These anchor the reason.
+# ======================================================================
+
+def _mgr_for_suppression():
+    """Bare manager instance sufficient to exercise _record_suppression."""
+    from custom_components.universal_room_automation import perimeter_alert as _pa
+    mgr = _pa.PerimeterAlertManager.__new__(_pa.PerimeterAlertManager)
+    mgr._last_suppression = {}
+    return mgr
+
+
+def test_suppression_reason_recorded_and_surfaced():
+    mgr = _mgr_for_suppression()
+    mgr._record_suppression("front_side_ptz", "cooldown",
+                            seconds_since_alert=12.0, cooldown_s=300)
+    stats = mgr.suppression_stats()
+    assert "front_side_ptz" in stats
+    rec = stats["front_side_ptz"]
+    assert rec["reason"] == "cooldown"
+    assert rec["seconds_since_alert"] == 12.0
+    assert "at" in rec, "timestamp needed to tell a stale record from a fresh one"
+
+
+def test_suppression_reasons_are_distinguishable():
+    """THE POINT OF THE CARD: the two gates must be tellable apart."""
+    mgr = _mgr_for_suppression()
+    mgr._record_suppression("cam_a", "egress_suppression",
+                            seconds_since_egress=4.0, window_s=30)
+    mgr._record_suppression("cam_b", "cooldown",
+                            seconds_since_alert=9.0, cooldown_s=300)
+    stats = mgr.suppression_stats()
+    assert stats["cam_a"]["reason"] == "egress_suppression"
+    assert stats["cam_b"]["reason"] == "cooldown"
+    assert stats["cam_a"]["reason"] != stats["cam_b"]["reason"]
+
+
+def test_cooldown_record_says_whether_the_exemption_was_offered():
+    """A cooldown suppression with the classification-transition exemption
+    OFFERED-AND-DECLINED is a different diagnosis from one where the
+    exemption was never reachable. The record must carry that."""
+    mgr = _mgr_for_suppression()
+    mgr._record_suppression("cam", "cooldown", exemption_offered=True,
+                            exemption_granted=False)
+    rec = mgr.suppression_stats()["cam"]
+    assert rec["exemption_offered"] is True
+    assert rec["exemption_granted"] is False
+
+
+def test_record_suppression_never_raises():
+    """Observability must never break the alert path — it runs immediately
+    before a `return` on a live suppression."""
+    mgr = _mgr_for_suppression()
+    mgr._last_suppression = None  # force an internal failure
+    mgr._record_suppression("cam", "cooldown")  # must swallow
+
+
+def test_both_gates_call_the_recorder_wire_in_anchor():
+    """WIRE-IN ANCHOR: a helper-only test stays green if the call sites are
+    never added. Assert BOTH pre-dispatch gates invoke the recorder with
+    their own reason, and that each sits before its `return`."""
+    import inspect
+    from custom_components.universal_room_automation import perimeter_alert as _pa
+    src = inspect.getsource(_pa)
+    assert '"egress_suppression"' in src, "egress gate does not record a reason"
+    assert src.count("_record_suppression(") >= 3, (
+        "expected the definition plus BOTH gate call sites"
+    )
+    egress_at = src.find('"egress_suppression"')
+    cooldown_at = src.find('"cooldown",')
+    assert egress_at != -1 and cooldown_at != -1
+    assert egress_at < cooldown_at, "gates recorded out of expected order"

@@ -11,13 +11,13 @@ meta:
   autonomy_feed:
   - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T04:50', at: '2026-09-14T04:50:00', outcome: investigated,
      headline: 'CIRCLING-SEVERITY-1 — STALE PLAN CAUGHT + promoted to build-ready. Its plan said fold into CONSOL-1; CONSOL-1 has SHIPPED and did not carry it, so the card was waiting on a closed cycle. Re-verified in source: the burst path has decision reasons but the two pre-dispatch gates (egress suppression, cooldown) still return silently. Passes all four gate steps as a Tier-1 REUSE of the existing reason idiom. Scoped, not built (branch hygiene at 05:00, no urgency).',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'NM-REPAGE-IMG-1@2026-09-14T04:35', at: '2026-09-14T04:35:00', outcome: done,
      headline: 'NM-REPAGE-IMG-1 — ALREADY-DONE, closed with zero work. The card still asked me to instrument the BlueBubbles transport and wait for an unacked CRITICAL; the fix shipped a month earlier in v5.73.1 (commit aee318b0e) and the code carries this card ID. A grep answered what a live measurement was queued to find out.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:40', at: '2026-09-14T04:40:00', outcome: investigated,
      headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 (follow-up) — re-pages are INVISIBLE to notification_log (_repeat_alert never calls log_notification), so 102/day UNDERSTATES the real buzz load: 2153 unacked CRITICALs keep paging on the 300s/1800s/daily ladder. Low ack rate does not just indicate fatigue, it manufactures it. Also confirms the 300s histogram spike is the perimeter cooldown, not the repeat timer (both share a 300s period).',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated,
      headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 — MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working — so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).',
      acknowledged: false}
@@ -32,7 +32,7 @@ meta:
      acknowledged: false}
   - {fid: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1@2026-09-14T03:35', at: '2026-09-14T03:35:00', outcome: waiting_operator,
      headline: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — RECOMMENDATION CHANGED by measurement: MadronePTUltra has fired ZERO Frigate events ALL TIME (on-demand PIR duty-cycle to protect its battery). Adding it to perimeter_cameras is safe but buys ~no coverage. Operator should decide duty-cycle, not just the config toggle.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-14T03:10', at: '2026-09-14T03:10:00', outcome: parked,
      headline: 'FRONT-SIDE-PTZ-CHATTER-1 — LANE FIX only: card sat in investigating while its own next said the operator owns it and nothing was queued on my side. Moved to waiting_operator with an operator-verb next. No finding changed.',
      acknowledged: false}
@@ -499,6 +499,60 @@ cards:
   refs:
   - custom_components/universal_room_automation/exterior_track_linker.py
   - docs/examples/exterior_seams.example.json
+- id: FRIGATE-THRESHOLD-CLAIM-DISPUTED-1
+  title: "The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me"
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-14 03:05'
+  updated: '2026-09-14 03:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: an investigation agent reported that almost all real person detections on the
+     exterior cameras score below the 0.70 confidence cut-off, and concluded that ten cameras are
+     effectively blind and should be retuned. The operator says that does not match what they see
+     on their own system, and that the current settings were chosen from measurement in the first
+     place. I cannot reach the detection host from here to check either claim. Solution: do not
+     act on the number until someone can reproduce it; record both positions and what would
+     settle it.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "We're seeing much higher in our infra. The settings were measure first"
+  MY_RECOMMENDATION_IS_WITHDRAWN: >-
+    I recommended sweeping seven ring cameras from threshold 0.7 to 0.6 and called it "the
+    high-value item". THAT RECOMMENDATION IS WITHDRAWN pending verification. It rested entirely on
+    an agent-reported figure I did not reproduce, and the operator — who has direct visibility
+    into the detection host — disputes it.
+    THE CLAIM AS REPORTED: over 8 days, back_yard 382 person events with only 3 (1%) scoring
+    >=0.70, median 0.63; hot_tub 193 events with 4 (2%) >=0.70, median 0.63; ArmCrest 4 events all
+    >=0.70, median 0.75.
+    WHY I CANNOT ADJUDICATE IT: those figures come from the Frigate host's own events table, which
+    is NOT reachable from this session (curl to the Frigate API returns no response) and is not
+    mirrored in the HA recorder — HA only stores the resulting binary_sensor ON/OFF, never the
+    per-event score. So I have no independent path to the numbers.
+    CORROBORATING THE OPERATOR: AUDIT_exterior_camera_detection_settings.md (2026-08-06) shows the
+    settings WERE measured and deliberately tuned — the recall change to 0.6/min_init 1 on three
+    cameras was applied and verified live via /api/config after restart. "Measure first" matches
+    the record.
+  what_would_settle_it: >-
+    A read of the Frigate host's `events` table for a recent window: per camera, the count of
+    person events and the distribution of `top_score` (median, p90, and the fraction >= 0.70).
+    That single query decides whether 0.7 is a sensible cut or a blind one, and it must be run
+    where the events DB actually lives. Until then, treat the 98-99% figure as UNVERIFIED and do
+    NOT cite it as a basis for retuning.
+  next: >-
+    ANSWER or DELEGATE: either share the score distribution you are seeing, or point me at a host
+    I can query read-only. -> if the operator's read is right, this card closes and the seven
+    cameras stay at 0.7; if the agent's is right, the sweep becomes a real (but still
+    operator-owned, homelab-side) change.
+  parsimony:
+    problem: A retuning recommendation rests on a single unreproduced number the operator disputes.
+    verdict: PARK
+  rank: {value: 5, time_criticality: 2, effort: 2}
+  tags: [no-fabrication-verify, falsify-first]
+  links:
+    related: [CAMERA-ZERO-FIRE-DETECTORS-1, FRONT-SIDE-PTZ-CHATTER-1]
+    context: CAMERA-ZERO-FIRE-DETECTORS-1's per-camera verdicts came from the same agent run; its per-camera facts (MadronePTUltra enabled=false, ReolinkStudyBPorchPTZ at 0.7/min_init 3) are separately checkable and are NOT withdrawn — only the fleet-wide score claim is.
+  refs: [docs/planning/AUDIT_exterior_camera_detection_settings.md]
 - id: CAMERA-ZERO-FIRE-DETECTORS-1
   title: Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring
   thread: perimeter
@@ -669,7 +723,38 @@ cards:
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.101.3
+  BUILT_2026_09_14: >-
+    BUILT @ feature/camera-stuck-sensor-tripwire — in review, not deployed.
+    NEW `camera_stuck` evaluator in the optimizer cycle. Deliberately a SEPARATE check from
+    sensor_health rather than a threshold tweak to it: sensor_health is ROOM-keyed (all 7,970
+    findings in a month targeted rooms), so a camera binary_sensor is outside its target
+    universe and NO threshold change there could ever catch this.
+    THRESHOLD IS MEASURED, NOT INVENTED: CAMERA_STUCK_ON_THRESHOLD_S=1800, derived from the
+    2026-09-06..09-14 distribution where every non-pathological exterior detector's p99
+    ON-duration was <=355s and the fleet max was 1562s. Backtested over that window it fires
+    exactly twice — the two real incident sensors — and zero times spuriously on the other twelve.
+    PER-CAMERA OVERRIDES so one pathological camera cannot set the fleet bound:
+    garage_a=7200s (interior-facing egress with a real 3.9h dwell; 1800s would false-fire) and
+    pool_equipment=28800s (quarantined — it was firing 25 periods >1h in 7.9 days). NOTE: the
+    operator rebooted pool_equipment on 2026-09-14; if it self-corrects, REMOVE that override
+    rather than leaving a permanent blind spot. That instruction is in the const comment.
+    VOLUME-SAFE: a `_camera_stuck_fired` latch emits at most ONE finding per camera per stuck
+    episode, so it cannot re-create the per-cycle row flood that v5.101.1 B2 removed. The latch
+    clears on recovery so a genuine re-stick alerts again.
+    CONFIG-FOLLOWING: cameras are resolved from the live perimeter+egress config lists, not a
+    hardcoded list that would silently rot when a camera is added (exactly what happened to the
+    egress list).
+    6 tests incl. a WIRE-IN ANCHOR asserting the evaluator is registered in the cycle's evaluator
+    table — an unregistered evaluator never runs no matter how correct it is. TWO mutation drills:
+    unregistering the evaluator and removing the once-per-episode latch each reddened their own
+    named test; restored, residue 0, 113 pass.
+    NOT DONE (deliberate, per the card's own analysis): the PRODUCER-LEVEL staleness check. The
+    measurement showed the real incident was a fleet-wide Frigate freeze (two cameras 11 min
+    apart, both ending the same second), which one producer-level detector would catch faster
+    than 14 per-sensor ones. Left as a follow-up because the per-sensor wire also catches the
+    chronic single-camera case that the producer check would miss.
   created: '2026-09-14 01:50'
   updated: '2026-09-14 01:50'
   refinement_status: initial
@@ -843,7 +928,27 @@ cards:
 - id: CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1
   title: Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling
   thread: perimeter
-  status: planned
+  status: parked
+  DISPOSITION_2026_09_14: >-
+    PARKED, merged into the PERIMETER-TOLERANCE-AND-SECTIONS-1 replay rather than measured
+    separately. Reasoning, so this is a decision and not a deferral:
+    THE CARD'S OWN GATE CANNOT BE MET CHEAPLY. Its `next` requires "how many historical circling
+    classifications used >=2 cameras from a single close pair — if ~0 this is a PARK". But
+    ExteriorTrack objects are RAM-ONLY (no perimeter/exterior/track table exists in the URA DB;
+    a grep of anomaly_log for track ids returns 0 rows), so there is no history of circling
+    classifications to query. The only way to get the number is to REPLAY recorder history under
+    the link rule — which is exactly the replay PERIMETER-TOLERANCE-AND-SECTIONS-1 is already
+    parked for. Running two replays over the same 8-day window would be waste.
+    WHAT I COULD COMPUTE, and why it is NOT sufficient: 55 of the 286 possible 3-camera
+    combinations (19%) contain a close pair, so collapsing them would take the effective vantage
+    count from 13 to 8. That is COMBINATORIAL, not observed — it says nothing about how often a
+    real walk actually touches both halves of a pair. Acting on it would be exactly the
+    "measurement licenses only what it measured" error.
+    FIRING TRIGGER: same as PERIMETER-TOLERANCE-AND-SECTIONS-1 (seam graph deployed — now DONE at
+    v5.101.2 — plus one week of history under the corrected graph). When that replay runs, add one
+    output: per close pair, how many circling-shaped tracks used BOTH halves. If ~0, DROP this
+    card; if material, the change is to the distinct-camera COUNT in _classify, never to the
+    adjacency graph (the pairs are genuine seams).
   created: '2026-09-13 22:10'
   updated: '2026-09-13 22:40'
   refinement_status: refined
@@ -1213,7 +1318,7 @@ cards:
 - id: CAMERA-PTULTRA-NOT-IN-PERIMETER-1
   title: "'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list"
   thread: perimeter
-  status: waiting_operator
+  status: done
   ANSWERED_2026_09_14: >-
     OPERATOR CONFIRMED IT IS A SEPARATE CAMERA: "There is a missing camera in this loop I had left
     out. There are 2 reolinks." The corrected ring places `madroneptultra` at position 5 (between
@@ -5545,8 +5650,30 @@ cards:
     context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
   refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
+  BUILT_2026_09_14: >-
+    BUILT @ feature/regime-return-to-stable-discharge — in review, not deployed. Option (B)
+    return-to-baseline auto-clear, as the measurement indicated: new DAO
+    discharge_routine_shifts_for_cell(person_id, time_bin, day_type) sets recovery_at on that
+    cell's open anomaly_log rows, called from the SAME seam in _persist_state that already
+    resets the counter correctly.
+    SCOPED TO ONE CELL, deliberately not a bulk ack — a bulk clear would also discharge cells
+    that are still genuinely drifting.
+    PAYLOAD SHAPE VERIFIED AGAINST LIVE DATA before writing the query: json_extract on
+    $.cell.person_id / $.cell.time_bin / $.cell.day_type returns ('Jaya',0,1) etc. on real rows.
+    GUARDED against the row-flood shape B2 just fixed: the discharge only runs when the cell's
+    previous counter was > 0, so a stable cell does not hit the DB every cycle across 48 cells.
+    6 BEHAVIOURAL tests (the pre-existing regime tests in this repo are SOURCE GREPS, so these
+    are new in kind): discharges on return-to-stable; scoped to the one cell; does NOT discharge
+    a still-drifting cell; no pointless write when already stable; failure is non-fatal; the
+    pre-existing counter-reset invariant still holds. Mutation: neutering the discharge reddens
+    2 named tests; restored, residue 0.
+    STILL NEEDS THE ONE-TIME BACKLOG CLEAR: 462 rows from 2026-05-15 remain open and the
+    household sensor still reads major_shift. Press
+    button.ura_coordinator_manager_acknowledge_routine_changes AFTER this ships, so it cannot
+    silently re-accumulate.
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.101.3
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
@@ -12094,13 +12221,31 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: planned
+  status: shipped_organic
+  BUILT_2026_09_14: >-
+    BUILT @ feature/circling-suppression-reason (c59714de8) — in review, not deployed.
+    Added a suppression `reason` to the TWO pre-dispatch gates the 2026-09-13 trace isolated
+    (egress suppression and the per-camera cooldown), both of which previously just `return`ed
+    silently. REUSE not new mechanism: mirrors the burst path's decision["reason"] idiom already
+    in perimeter_alert.py, surfaced the same way as burst_demotion_stats via the exterior
+    open-tracks diagnostic sensor as attrs["suppressions_by_camera"].
+    The cooldown record also carries exemption_offered/exemption_granted, because "exemption
+    offered and declined" is a DIFFERENT diagnosis from "exemption never reachable" — that
+    distinction is the discriminator the trace actually needed.
+    Additive observability only: no control-flow change, no new behavioural number.
+    5 tests incl. a WIRE-IN ANCHOR (helper-only tests stay green if the call sites are never
+    added). Mutation: changing the egress reason string reddens the anchor; restored, residue 0.
+    117 perimeter/linker tests pass.
+    ORCHESTRATOR NOTE: during this build a `git checkout --` intended to revert a mutation
+    reverted the whole file because the work was UNCOMMITTED — edits were lost and re-applied,
+    then committed BEFORE the drill was re-run. Same class as the 2026-09-11 builder-reset
+    incident; the rule is commit-before-drill, not just commit-before-dispatch.
   updated: '2026-09-14 04:50'
   refinement_status: refined
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: perimeter_alert.py:1050 still gates circling on clock alert-hours; transition-exemption landed in sibling CIRCLING-LABEL-1 but the daytime-gating escape (should circling escape pure clock-time, daytime alert_count=0) is unbuilt. Open decision: escape-vs-accept. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification;
     then decide whether circling should escape pure clock-time gating.
-  shipped_version: v5.74.0
+  shipped_version: v5.101.3
   approval: unreviewed
   tags:
   - no-fabrication-verify
