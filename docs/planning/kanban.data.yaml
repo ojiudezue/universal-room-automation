@@ -225,14 +225,40 @@ cards:
     back_yard<->front_side_ptz produced 53 circling-shaped tracks in 8 days, mostly pre-dawn.
     Its 180s co-onset rate with back_yard (0.565) is fully explained by sheer firing frequency —
     simultaneity is 11.9%, BELOW the 32.7% chance null.
+  CORRECTED_2026_09_14: >-
+    TWO OF MY REPORTED FACTS WERE WRONG — corrected so they are not inherited.
+    (1) TIMEZONE ERROR: I reported the onset peak as 03:00-05:00 "when nobody is about". The real
+    peak is 08:00-10:00 LOCAL with ZERO onsets between midnight and 04:00. That INVERTS the
+    conclusion — it kills IR wash, night vision, headlights and spider-on-lens outright, since an
+    IR artefact must correlate with darkness and this anti-correlates.
+    (2) It is FRIGATE 2, not Protect (the _2 suffix). Protect exposes its own separate sensor for
+    the same camera.
+    (3) The 21.25% duty cycle is ONE STUCK EVENT, not chatter — excluding it, 738 periods = 4.7%.
+    Two separate defects were being read as one (see CAMERA-STUCK-SENSOR-TRIPWIRE-1).
+    DISCRIMINATOR FOUND: same camera, same 8 days, two independent detectors — Frigate 739 onsets
+    vs Protect 8 (~92x), with Protect person detection enabled throughout.
+  DETECT_ZONE_HYPOTHESIS_REFUTED_2026_09_14: >-
+    The agent recommended a detect-zone crop, reasoning Frigate's zone covers the street while
+    Protect's is cropped. THAT WAS INFERRED, NOT VERIFIED — and a committed audit refutes it.
+    AUDIT_exterior_camera_detection_settings.md (2026-08-06) headline: "no object mask, no motion
+    mask, no zones... ZERO masks and zero zones fleet-wide. Nothing excludes any walkway." Protect
+    is recorded as full-frame zones too. So zone geometry explains nothing in either direction.
+    THE ACTUAL EXPLANATION is in the same audit: front_side_ptz was DELIBERATELY RECALL-TUNED on
+    2026-08-06 on both instances — person threshold 0.7 -> 0.6 and detect.min_initialized 2 -> 1,
+    verified live via /api/config after restart. The stated goal was to stop MISSED MIDDLES. So
+    the 739 detections are largely the intended consequence of a decision we made; Protect is
+    untuned at sensitivity 50, hence 8.
+    THE IRONY WORTH KEEPING: we loosened precision to fix fragmentation — which the operator has
+    since ruled cosmetic-tier — and the cost landed in the dangerous direction, feeding a bad seam
+    to manufacture ~6.6 false circling tracks/day. But the SEAM was the load-bearing fault, and it
+    is now struck.
+    CAVEATS: the audit is five weeks old and the 0.6/1 settings are NOT re-verified as current;
+    the audit itself flags PTZ aiming as an unreadable gap.
   next: >-
-    MEASURE (read-only, not a fix): sample ~10 of the 53 circling-shaped track windows and pull
-    the UniFi Protect smart-detect event records for the front_side_ptz legs via the unifi-protect
-    MCP — object label, bounding-box size, zone. DISCRIMINATOR: tiny or edge-of-frame person
-    boxes / no clip-confirmable person => detector false-positive (fix at the detector); real
-    people at street distance => real-but-irrelevant (fix is a detect-zone crop). Also check the
-    29.5h stuck-ON separately — a stuck sensor is a different failure from chatter and may be the
-    existing sensor_health path already catching it.
+    OPERATOR OWNS THIS — "I'll recheck and handle the crop." Nothing queued on my side.
+    RECOMMENDED SEQUENCE if it comes back: ship the corrected seam graph FIRST, then re-measure
+    circling-shaped track count. If it collapses, the recall tune is fine as-is and no crop is
+    needed — the seam was the fault, not the sensitivity.
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
@@ -347,6 +373,134 @@ cards:
   refs:
   - quality/tests/perimeter/test_circling_founding_case.py
   - docs/planning/VALIDATE_exterior_camera_seams.md
+- id: PERIMETER-TOLERANCE-AND-SECTIONS-1
+  title: Measure link tolerance against real history, and decide whether some stretches of the perimeter deserve special treatment
+  thread: perimeter
+  status: investigating
+  created: '2026-09-14 01:50'
+  updated: '2026-09-14 01:50'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the system only joins two camera sightings into one tracked walk if the two cameras
+     are declared neighbours. Where camera coverage is thin — the sides of the property — a single
+     missed detection splits one walk into two, which costs alert QUALITY (a walk that should read
+     "circling" reads as two unremarkable sightings). Separately, not all of the perimeter matters
+     equally: some stretches are higher-consequence than others and might deserve different
+     treatment. Solution: FIRST measure, against real recorded history, how a looser rule would
+     behave — how many genuine walks it would rescue versus how many separate people it would
+     wrongly merge. Only then decide whether to change anything, and whether to mark certain
+     stretches as high-priority.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "keep the design as is. Our focus is on seam accuracy. We can measure and act on tolerance after some investigation. We should also figure out if we should annotate high priority sections of the perimeter and do something special about them."
+  SEQUENCING_IS_THE_POINT: >-
+    OPERATOR DIRECTION: KEEP THE CURRENT DESIGN. Focus is on SEAM ACCURACY first; tolerance is
+    measured and acted on AFTERWARDS. This card is explicitly an INVESTIGATION, not a build. Do
+    NOT change exterior_track_linker.py under it.
+    This also sits under SEAM-TOLERANCE-PRIORITY-RULING-1: fragmentation is cosmetic-tier
+    (detection never lost), while a wrong merge SUPPRESSES a real alert. So any tolerance change
+    trades a dangerous failure for a cosmetic one and must clear a high evidence bar.
+  current_behaviour_measured: >-
+    exterior_track_linker.py:594-598 — adjacency is a HARD BINARY GATE; time proximity cannot
+    override it. Knobs: TRACK_LINK_WINDOW_S=180, TRACK_CLOSE_IDLE_S=300,
+    EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS=3. No second-order hops, no distance decay, no
+    per-camera reliability weighting. On the ratified 13-camera ring, 5 of 13 middle-camera misses
+    are bridged by a validated skip; 8 of 13 break, clustered on the thin side/pool run.
+  THE_REPLAY_EXPERIMENT: >-
+    The measurement that would settle tolerance. We already have BOTH labels from real data:
+    a POSITIVE control — g5_bullet<->doorbell_lite, operator-confirmed adjacent, 65% temporal
+    overlap (59x its null); and a NEGATIVE control — back_yard<->front_side_ptz, operator-struck
+    and measurement-refuted, simultaneity BELOW chance with 32% of "hops" under 5 seconds.
+    Replay real detection history under each candidate rule and score: how many known-good walks
+    survive (recall) vs how many known-distinct people merge (the dangerous direction).
+    CANDIDATE RULES to score (hypotheses, NOT recommendations): (a) second-order hops allowed with
+    a TIGHTER time bound than the 180s used for direct neighbours; (b) per-camera reliability
+    weighting so an unreliable camera cannot anchor a hard gate; (c) asymmetric time window —
+    more tolerance on thin side runs, less on the dense front where a genuine second person is
+    likelier. NOTE the recorder retains only ~8 days, so the replay window is bounded; say so.
+  THE_SECTIONS_QUESTION: >-
+    SECOND, SEPARABLE DELIVERABLE (operator raised it; do not bundle the build): should stretches
+    of the perimeter carry a PRIORITY ANNOTATION, and what would change for a high-priority one?
+    Candidate meanings to evaluate, each cheap to state and testable: a lower circling threshold
+    (2 cameras instead of 3) on a high-priority run; a severity floor regardless of house state;
+    exemption from burst-demotion; tighter tolerance (prefer fragmentation over merging) where a
+    missed alert is most costly.
+    PRIOR ART TO SCAN FIRST: EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS already encodes one notion of
+    "these cameras matter more" (one hop from a way out) and the severity matrix already varies by
+    camera_class (perimeter vs egress). A sections concept may be an EXTENSION of camera_class
+    rather than a new axis — check before proposing anything new.
+    The seam file (docs/examples/exterior_seams.example.json) is the natural place to declare
+    sections if they are adopted; it already carries close_pairs as a similar unconsumed annotation.
+  next: >-
+    RUN THE REPLAY (read-only) and report recall-vs-merge for each candidate rule against the two
+    labelled control pairs. Do NOT change linker code. Separately, scan the prior art named above
+    and report whether "high-priority sections" should extend camera_class or be a new annotation,
+    with a concrete proposal for what it would CHANGE. Both outputs are input to an operator
+    decision, not a build.
+  parsimony:
+    problem: We do not know what a looser linking rule would cost in wrong merges, and we have not decided whether parts of the perimeter warrant different handling.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 2, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify, audit-first]
+  links:
+    blocked_by: [CAMERA-SEAM-VALIDATION-1]
+    related: [SEAM-TOLERANCE-PRIORITY-RULING-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1]
+    context: Blocked on seam accuracy landing first per operator sequencing — measuring tolerance against a graph we know is wrong would measure the wrong thing.
+  refs:
+  - custom_components/universal_room_automation/exterior_track_linker.py
+  - docs/examples/exterior_seams.example.json
+- id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
+  title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
+  thread: perimeter
+  status: investigating
+  created: '2026-09-14 01:50'
+  updated: '2026-09-14 01:50'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: a camera''s person-detection sensor got stuck reporting "person present" for 29 and
+     a half hours straight, and no part of the system noticed. The health checker that ought to
+     catch this only ever looks at ROOMS, never at individual sensors, so a perimeter camera
+     pinned on is invisible to it. A stuck sensor quietly poisons everything downstream. Solution:
+     first measure how often this actually happens, then — if it is frequent enough to matter —
+     add a simple check that a sensor which has been ON far longer than that camera ever normally
+     is gets flagged.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "Card as lower priority. Lets see this happen. What we need is to measure how often an exterior camera has been stuck in the last 3 months first"
+  priority_note: >-
+    OPERATOR SET THIS LOWER PRIORITY and gated it on measurement. Do NOT build the trip-wire until
+    the frequency is known — if it has happened once in three months, this parks.
+  evidence_2026_09_14: >-
+    CONFIRMED INCIDENT: binary_sensor.front_side_ptz_person_occupancy_2 pinned ON for 106,308s
+    (29.5h), 2026-09-10 10:05:54 CDT to ~09-11 15:37 CDT.
+    COVERAGE GAP IS STRUCTURAL, not a tuning miss: URA sensor_health produced 7,970 findings in a
+    month and every single target_id is a URA ROOM name (Jaya Bathroom 3402, Kitchen 940, Garage A
+    739, Butler Pantry 591...). It watches room-score degradation, not sensor liveness. A perimeter
+    camera binary_sensor is outside its target universe entirely — no threshold change would ever
+    catch this.
+  measurement_dispatched_2026_09_14: >-
+    Read-only measurement running. NOTE a hard constraint the operator should know: the HA recorder
+    retains only ~8 DAYS (verified 2026-09-06..09-14), so a literal 3-month lookback is likely
+    IMPOSSIBLE from it. The agent is tasked to confirm retention first, then look for longer-horizon
+    sources (URA DB tables, Frigate's own events DB which typically keeps weeks-to-months) and to
+    report honestly what horizon it could cover rather than extrapolating 8 days as though measured.
+    It is also measuring the NORMAL ON-duration distribution (median/p95) per camera, so any future
+    threshold is set against real behaviour rather than an arbitrary number.
+  next: >-
+    AWAIT the measurement, then BUILD or PARK on the measured frequency. If built: a duration
+    trip-wire on exterior person-detection binary sensors, threshold derived from the measured p95,
+    wired to NM per the no-soak rule (trip-wire in code, not a calendar reminder). Reuse the
+    existing stuck-signal NM path (_stuck_signal_nm.fire_stuck_signal) that the TOU loud-failure
+    work just used — do NOT invent a new alerting mechanism.
+  parsimony:
+    problem: A stuck camera sensor is invisible to every existing health check and poisons downstream presence and perimeter logic.
+    verdict: INVESTIGATE
+  rank: {value: 5, time_criticality: 2, effort: 3}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [FRONT-SIDE-PTZ-CHATTER-1, OPTIMIZER-PAGING-PRIMITIVE-1]
+    context: The 29.5h stuck period is also what inflated front_side_ptz's apparent duty cycle to 21% (4.7% excluding it) — two separate defects that were being read as one.
+  refs: [custom_components/universal_room_automation/domain_coordinators/optimization.py]
 - id: SEAM-TOLERANCE-PRIORITY-RULING-1
   title: "Operator ruling: a missed link is NOT catastrophic — detection still fires; do not trade suppression risk for link tolerance"
   thread: perimeter
