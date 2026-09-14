@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-12'
+  last_reconciled: '2026-09-13'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -14,6 +14,45 @@ meta:
      acknowledged: false}
   - {fid: 'PATHBETA-VESTIGIAL-1@2026-09-12T12:20', at: '2026-09-12T12:20:00', outcome: parked,
      headline: 'PATHBETA-VESTIGIAL-1 — PARKED at gate (hygiene-not-defect; gated on PATH-ALPHA proofs)',
+     acknowledged: false}
+  - {fid: 'CRASH-ORPHAN-COMMITS-RECOVERY-1@2026-09-13T20:45', at: '2026-09-13T20:45:00', outcome: done,
+     headline: 'CRASH-ORPHAN-COMMITS-RECOVERY-1 — DONE: 14 orphaned develop commits recovered + pushed; no code lost',
+     acknowledged: false}
+  - {fid: 'OLLAMA-CONSUMER-AUDIT-1@2026-09-13T20:50', at: '2026-09-13T20:50:00', outcome: done,
+     headline: 'OLLAMA-CONSUMER-AUDIT-1 — DONE: cleared to stop Ollama; LLM Vision uses OpenAI cloud (operator hypothesis refuted), zero consumers found',
+     acknowledged: false}
+  - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-13T21:10', at: '2026-09-13T21:10:00', outcome: waiting_operator,
+     headline: 'WORKTREE-BACKLOG-PRUNE-1 — ESCALATED: audited all 94 worktrees; ~54 safe-prune, ~40 hold real work. Needs APPROVE (deletion irreversible)',
+     acknowledged: false}
+  - {fid: 'ROOM-ENTITY-STALE-CONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
+     headline: 'ROOM-ENTITY-STALE-CONFIG-1 — DONE with NO EDITS APPLIED: verify-before-work found 3 of 4 already repointed and the 4th inert (dead ref shadowed by options override). Approval spent on a no-op; no restart needed',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
+     headline: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 — KILLED per operator. MBR on studyb_zone_1 confirmed BY DESIGN (3 HVAC zones serve ~40 rooms); the check-side fix already shipped v5.91.4',
+     acknowledged: false}
+  - {fid: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1@2026-09-13T21:35', at: '2026-09-13T21:35:00', outcome: done,
+     headline: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1 — ACTIVATED: launchd job loaded + verified, nightly 02:00 America/Chicago. Unattended autonomous passes now live (builds stop at review, no unattended deploys)',
+     acknowledged: false}
+  - {fid: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: parked,
+     headline: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1 + KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 — PARKED per operator (leave alone); both carry revival triggers',
+     acknowledged: false}
+  - {fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: waiting_operator,
+     headline: 'CONFIG-FLOW-SLOW-ONBOARDING-1 — RECHECKED: network outage STILL LIVE and WORSE (7053 unavailable vs 6132; Shelly regressed 138->171; z2m 4/6 off). URA healthy (5 unavail). Operator infra fix',
+     acknowledged: false}
+  - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-14T01:05', at: '2026-09-14T01:05:00', outcome: done,
+     headline: 'WORKTREE-BACKLOG-PRUNE-1 — DONE: 51 worktrees pruned (94->43). The recheck RESCUED 10 orphaned code-review records (2462 lines) that existed only in throwaway worktrees and would have been destroyed',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1-B1@2026-09-13T22:10', at: '2026-09-13T22:10:00', outcome: built,
+     headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 B1 — BUILT (review): the corpus TRIMMER empties findings_recent while keeping open_findings_count, manufacturing the contradiction the LLM paged as CRITICAL. Fix = truncation notice. 3 tests + mutation drill',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1-B2@2026-09-14T01:40', at: '2026-09-14T01:40:00', outcome: built,
+     headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 B2 — BUILT (review): unchanged stuck-sensor rows now persist ~1/day not ~288/day. Suppressed at the persistence layer so the house score cannot silently rise. 6 tests incl 2 wire-in anchors',
+     acknowledged: false}
+  - {fid: 'OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1@2026-09-14T02:00', at: '2026-09-14T02:00:00', outcome: built,
+     headline: 'OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 — BUILT (review): existing coverage was a SOURCE GREP (hollow anchor) and an in-repo comment claiming a behavioural test was false. Added real anchors + source-mutation drill',
+     acknowledged: false}
+  - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1@2026-09-13T21:05', at: '2026-09-13T21:05:00', outcome: investigated,
+     headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 — MEASURED: operator premise refuted, LLM tier already live (333 tier2_llm findings via Claude). Real gap = template alert text + 5026 sensor_health/high in 7d. Needs PICK of lever A/B/C',
      acknowledged: false}
   last_reconciled_note: Reconciled 2026-08-17 overnight pass. NOTHING SHIPPED since v5.78.0 — newest tag
     is v5.78.0 and manifest reads v5.78.0. README_v5.79.0.md exists but is an UNSHIPPED pre-deploy draft,
@@ -154,11 +193,359 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: OLLAMA-CONSUMER-AUDIT-1
+  title: Ollama eating RAM — audit every LLM/vision integration for a dependency before stopping it
+  thread: infra
+  status: done
+  closed_2026_09_13: >-
+    CLOSED — operator stopped the Ollama service after this audit cleared it ("Kill the card for
+    Ollama. I just stopped the service"). Outcome realised: RAM reclaimed on 192.168.13.62, no
+    consumer broken. If anything later reports a missing local-LLM backend, the only two entities
+    that existed were conversation.ollama_conversation and ai_task.ollama_ai_task, both with zero
+    consumers at audit time — check this card's findings before re-adding the integration.
+  created: '2026-09-13 20:50'
+  updated: '2026-09-13 21:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the local Ollama server was consuming a lot of memory and the operator wanted to
+     shut it down, but could not risk breaking whatever depended on it — the suspicion was that
+     the camera-image analysis integration (LLM Vision) was quietly pointing at it. Solution:
+     check every AI-related integration for what backend it actually calls, confirm nothing
+     depends on Ollama, and clear the operator to stop it.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "Check the Openai, Claude and LLM vision integrations… Probably vision. That way I can be cleared to stop ollama"
+  why: >-
+    Stopping a service that something silently depends on produces a failure that looks
+    unrelated days later. Cheap to verify up front, expensive to diagnose after.
+  findings_2026_09_13: >-
+    CLEARED TO STOP — no consumer found. LLM Vision (both entries) uses OpenAI gpt-5-mini
+    cloud, NOT Ollama (operator's hypothesis REFUTED). OpenAI / Anthropic / Google entries
+    are all cloud. Both Assist pipelines use conversation.home_assistant. No YAML, automation,
+    or script references it. Its only two entities (conversation.ollama_conversation,
+    ai_task.ollama_ai_task) have zero consumers. URA references it only as an OPTIONAL
+    cheap-triage backend (const.py:3669 OPTIMIZER_LLM_TRIAGE_LOCAL_PREFIX) and
+    CONF_OPTIMIZER_LLM_TRIAGE_ENTITY is unset live, so URA makes no Ollama calls.
+    RAM cause identified: keep_alive:-1 on BOTH subentries pins qwen3.5:9b + qwen3:4b-instruct
+    resident permanently. Server is 192.168.13.62, not the HA host.
+  parsimony:
+    problem: Is any live integration calling the Ollama server before we stop it?
+    verdict: BUILD
+  rank: {value: 5, time_criticality: 6, effort: 1}
+  tags: [no-fabrication-verify]
+  next: 'DONE — operator cleared to stop Ollama. If kept: set keep_alive 0 or 300 instead of -1.'
+  refs:
+  - /Users/okosisi/ha-config/.storage/core.config_entries
+  - custom_components/universal_room_automation/domain_coordinators/optimization_llm.py:303
+- id: CRASH-ORPHAN-COMMITS-RECOVERY-1
+  title: Terminal crash orphaned 14 develop commits — recovered and pushed
+  thread: infra
+  status: done
+  created: '2026-09-13 20:45'
+  updated: '2026-09-13 21:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the terminal died mid-session for the second time, and the work from that session
+     was sitting only on this machine — never pushed anywhere. Solution: check what local work
+     had not reached the server, confirm it was intact, and push it.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "The terminal exited again. Try to recover your last work context."
+  findings_2026_09_13: >-
+    14 commits on local develop unpushed (the whole CONFIG-FLOW-SLOW investigation chain plus
+    the v5.101.1 bundle readiness notes). All board commits — no code was lost, the crash only
+    orphaned board state. Pushed 8cd4af2ef..42eb0f130; develop now 0/0 with origin.
+    Working tree held only .vibememo/counseling.jsonl + KANBAN.md, both since committed.
+  parsimony: {problem: Local work from the crashed session had not reached origin., verdict: BUILD}
+  rank: {value: 6, time_criticality: 7, effort: 1}
+  next: DONE — develop synced with origin.
+  refs: [docs/planning/kanban.data.yaml]
+- id: WORKTREE-BACKLOG-PRUNE-1
+  title: 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work
+  thread: infra
+  status: done
+  created: '2026-09-13 21:10'
+  updated: '2026-09-13 21:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work
+     safe to delete, but roughly 40 still hold either uncommitted edits or commits that never
+     reached the main branch — so a blanket cleanup would silently destroy real work. Solution:
+     classify each one, delete only the provably-finished ones, and decide case-by-case what to
+     do with the rest.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "check the develop tree and any work trees to see work we need to clean or continue"
+  findings_2026_09_13: >-
+    AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting:
+    DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files),
+    reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-chatter (4);
+    UNMERGED-commits-ahead — recorder-churn (3), evse-onset-reload (2), cflow-timing (1),
+    c1-arrival-notify (2), c2-perimeter-name (2), c4-identity-tile (2),
+    device-arrangement-rooms-menu-build (2), hvac-anomaly-blind-1 (2), + ~8 more at 1-2 each.
+    NOTE: recorder-churn + evse-onset-reload + cflow-timing are the v5.101.1 bundle the prior
+    session marked ship-ready and held for operator deploy go — those are pending work, not debris.
+  constraints:
+  - Deletion is irreversible for uncommitted tracked files — never blanket-prune the dirty set.
+  parsimony:
+    problem: 94 worktrees make it impossible to see which branches still hold unfinished work.
+    verdict: SIMPLIFY
+  rank: {value: 4, time_criticality: 3, effort: 2}
+  executed_2026_09_13: >-
+    DONE — operator approved ("Prune worktrees but don't delete what is important. Recheck for
+    recent work that's useful"). Re-classified at delete time (not trusting the earlier audit):
+    51 worktrees were BOTH clean AND fully merged into develop; each was re-verified
+    clean+merged immediately before removal. REMOVED=51, FAILED=0. 94 -> 43 worktrees.
+    THE RECHECK EARNED ITS KEEP — it found real loss risk. 10 CODE-REVIEW RECORDS existed ONLY
+    as untracked files inside throwaway agent worktrees and were MISSING from develop
+    (v4.7.0.1_wpm_cleanup, v4.7.1 cycleB reviewerA/B/C, v4.7.1_fixup_4thpass, v4.7.2.1
+    occupancy_weighted, v4.7.3.1 hvac_switches, v4.7.4 reviewerA/reviewerB, v4.7.4.1
+    reentrancy) = 2462 lines of review findings that a blanket prune would have destroyed
+    permanently. CLAUDE.md REQUIRES review findings be persisted to docs/reviews/code-review/,
+    so these were institutional records, not scratch. Rescued + committed (eeb8e463b) BEFORE
+    any deletion. Four uncommitted PLANNING docs were checked too and were already in develop.
+    KEPT (42, untouched): everything dirty or unmerged — incl. build/fan-layer-2 (42
+    uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8),
+    step-chatter (4), and the unmerged feature branches (recorder-churn, evse-onset-reload,
+    cflow-timing = the held v5.101.1 bundle; c1-c4 identity branches; hvac-anomaly-blind-1; etc).
+    NOT DONE (deliberately out of scope — operator asked for worktrees, not branches): 60+ local
+    branches are fully merged into develop and could be deleted separately on request.
+    .claude/worktrees still holds 2.5G across the surviving 43.
+  next: 'DONE. Optional follow-up if wanted: delete the 60+ fully-merged local branches.'
+  links:
+    related: [EVSE-CHARGE-ONSET-NOT-HELD-1]
+    context: evse-onset-reload is one of the unmerged worktrees and is part of the held v5.101.1 deploy bundle.
+  refs: [.claude/worktrees/]
+- id: OPTIMIZER-PAGING-PRIMITIVE-1
+  title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
+  thread: optimizer
+  status: shipped_organic
+  shipped_version: v5.101.1
+  approval: explicit
+  approved_by: 'operator 2026-09-13 ("Approved" + "Your sequence on that card is fine")'
+  sequence_2026_09_13: >-
+    OPERATOR APPROVED with the recommended sequence CONFIRMED: lever B FIRST, then lever A.
+    B = cut the noise (sensor_health/high produced 5026 findings in 7 days and dominates the
+    paging volume — decide digest-only vs raise its bar). A = LLM-authored alert text (have the
+    already-live tier2 pass write the operator-facing message instead of paging the Tier-1
+    template description at optimization.py:4139).
+    Rationale the operator accepted: cutting ~5000 junk findings improves the experience more than
+    better prose on alerts that should never have fired, and it is the cheaper half.
+    Lever C (raise the LLM's share vs the 24/day cap + delta gate) is NOT in this approval —
+    revisit only after B+A land and the paging is judged on its merits.
+  created: '2026-09-13 21:05'
+  updated: '2026-09-13 21:50'
+  refinement_status: refined
+  refinement:
+  - >-
+    Operator approved levers B-then-A -> ran lever B's measurement FIRST (measure-before-build)
+    and it REFRAMED the card. B was scoped as "cut the 5026 sensor_health/high findings because
+    they dominate the paging". MEASURED: sensor_health NEVER PAGES AT ALL. The NM high-allowlist
+    key (nm_a2_optimizer_high_allowlist_dimensions, const.py:3470) is UNSET live and its default
+    is an EMPTY tuple, so `should_defer_high_to_digest` defers EVERY high finding to the daily
+    digest — only CRITICAL reaches the phone. So the 5026 findings are a digest/DB-volume
+    problem, not a paging problem, and cutting them would NOT have fixed what the operator
+    complained about. Sharpened: B splits into B1 (paging, below) and B2 (volume, below).
+  - >-
+    Measured what ACTUALLY pages, and it is a single self-referential defect. ALL SIX criticals
+    in the last 7 days are the same meta finding: "open_findings_count reports N but
+    findings_recent is empty" (2026-09-07 x2, 09-09, 09-12 x2, 09-13). ZERO of them describe a
+    house condition. The optimizer's only phone-reaching output is it reporting on its own broken
+    internal telemetry. THAT is why the paging reads primitive — not the template prose, which
+    was my original hypothesis and is now marked WRONG as the primary cause.
+  measured_2026_09_13_leverB: >-
+    LEVER-B PROBE (read-only, URA DB + live config). Findings:
+    (1) PAGING: 6/6 criticals in 7d = the meta "open_findings_count vs findings_recent empty"
+    artifact. Nothing else paged. sensor_health/high does not page (empty NM allowlist -> digest).
+    (2) VOLUME: the 5026 sensor_health/high rows are repeat-reports of the SAME offline devices,
+    one row per 5-min cycle per dead entity. Top offender
+    binary_sensor.rgbw_motion_lux_3rdr_wifi_matter_jayabath_occupancy_2 alone = 1550 rows/7d;
+    then protectkitchen_humidity / blu_kitchen_temperature / blu_kitchen_motion at 308 each; then
+    eight occupancy_lux_temp_humidity_* sensors at 166 each. These are the SAME devices that are
+    down in the live network outage — so this volume is largely outage collateral, and will not
+    be representative until the network is fixed.
+    (3) LLM QUALITY: the tier2 LLM is burning premium Claude invocations on the same artifact —
+    its most recent `high` is literally the same "findings_recent list is empty" observation, and
+    its `medium`s are pattern-matching on rooms all scoring 55.0 (the degraded-score constant the
+    offline sensors produce). Garbage corpus in, garbage findings out. This means lever A
+    (LLM-authored alert text) would produce BETTER-WRITTEN versions of the SAME junk unless the
+    corpus is cleaned first.
+  producer_trace_2026_09_13: >-
+    VERIFIED (file:line, no inference): `_open_findings_count` is durable, set at
+    optimization.py:4393. `_last_findings` (which feeds corpus.findings_recent via
+    optimization_llm.py:770) is RAM-only and assigned at optimization.py:1063 — INSIDE the
+    non-shadow `else` branch, i.e. AFTER the LLM tier is invoked at optimization.py:1037, and NOT
+    assigned at all on the boot-storm-skip path. A prior cycle already recognised this failure
+    shape: OPT-META-BOOT-TRANSIENT-1 (2026-08-15) added `_boot_findings_seed` (optimization.py:570,
+    694) as a post-restart fallback precisely because "the meta pass sees findings_recent=[]
+    alongside a nonzero _open_findings_count (durable) and produces a false HIGH every restart"
+    (optimization_llm.py:699-701). That fix is live and the artifact is STILL firing, so the
+    recurrence is NOT the boot case it covers.
+  hypothesis_not_verified_2026_09_13: >-
+    UNVERIFIED HYPOTHESIS, stated as such (no-fabrication): the recurrence may be the
+    boot-storm-skip path — during the live outage `_should_skip_for_boot_storm` fires (the card
+    CONFIG-FLOW-SLOW-ONBOARDING-1 captured optimization.py logging boot_storm_signature 27/43
+    rooms unavailable, frac=0.63), and on that path `_last_findings` is never refreshed while
+    `_open_findings_count` keeps its durable value. I have NOT proven this: the same skip branch
+    also skips the LLM call, so a pure-skip cycle could not emit the finding, and I have not
+    traced how a mixed sequence would produce it. DO NOT build against this hypothesis until it
+    is confirmed by reading the actual branch taken on a cycle that emitted one of the 6 criticals.
+  problem_solution:
+  - 'Problem: the optimizer''s notifications read like canned template text, so the operator
+     asked to "transition the optimizer to use an actual LLM". VERIFIED FALSE PREMISE — the
+     LLM tier is already live and has been calling Claude for a month (333 findings tagged
+     tier2_llm in the URA database, most recent today). What is primitive is the PAGING, not
+     the analysis: the alert text sent to the phone is the finding''s own template description
+     written by the simple rule-based Tier-1 checks, and the LLM''s reasoning never reaches
+     the message. Solution: route the notification text through the LLM tier''s reasoning
+     instead of the raw template, and cut the volume that makes it feel noisy (one rule alone
+     produced ~5000 high-severity findings in seven days).'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "we should transition optimizer to use an actual LLM. The current paging from the OC is pretty primitive"
+  why: >-
+    The complaint is real but the proposed fix targets the wrong layer. Building an LLM
+    integration that already exists would be pure waste; the value is in the last mile
+    (message authoring + volume) that nobody wired to the LLM.
+  constraints:
+  - 'Cost: premium pass is capped at 24 invocations/24h (CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H).
+     Any per-notification LLM call must respect or extend that cap — do NOT add an uncapped call path.'
+  - Every LLM finding must keep flowing through the existing _consider_apply chokepoint — no bypass.
+  verify_before_work_2026_09_13: >-
+    STILL-REAL (paging) + CARD-WAS-WRONG (premise). Ground truth: URA DB
+    `select created_by, count(*) from optimization_findings` -> tier1=13572, tier2_llm=333
+    (max ts 2026-09-13T09:12). Live `ai_task.claude_ai_task` exists (Claude Haiku 4.5,
+    anthropic config entry) and IS the default for CONF_OPTIMIZER_LLM_TASK_ENTITY
+    (const.py:3659), so gate 1 in optimization_llm.py run_cycle passes with no operator config.
+    Call site verified at optimization.py:1037 (non-shadow branch only).
+  prior_art_2026_09_13: >-
+    REUSE, do not build. optimization_llm.py (~1200 LoC) already implements corpus assembly,
+    ai_task invocation w/ 45s timeout, cheap-triage routing, findings parse/validate,
+    confidence clamp, per-cycle severity caps, rolling-24h cap seeded from DB. Config surface
+    exists: CONF_OPTIMIZER_LLM_TASK_ENTITY / _TRIAGE_ENTITY / _SYSTEM_PROMPT /
+    _MAX_INVOCATIONS_PER_24H (const.py:3631-3659), wired into the CM options flow
+    (config_flow.py:8396,8542). Notification path is the untouched surface:
+    optimization.py:4139 `_notify_if_severe` pages with the finding's template description.
+  b1_root_cause_CONFIRMED_2026_09_13: >-
+    ROOT CAUSE FOUND AND FIXED (B1). The corpus TRIMMER manufactures the contradiction.
+    `to_prompt_body` (optimization_llm.py:136) trims greedily in the order
+    findings_recent -> prior_actions -> rooms -> zones, popping until the body fits, while
+    `house` (which carries open_findings_count, set at optimization_llm.py:596) is preserved
+    until a last-resort stub. The intent is stated in the code at line 98-99: "keeps any single
+    section from eating the whole budget so a noisy findings_recent can't crowd out house."
+    So under corpus pressure the LLM receives `open_findings_count=N` next to
+    `findings_recent=[]` — a contradiction WE created — and correctly reports it as CRITICAL
+    "system running blind". CRITICAL bypasses `should_defer_high_to_digest`, so it pages.
+    Corpus pressure peaks exactly when findings are numerous = during this outage, which is why
+    all 6 landed in this window.
+    FIX (additive, ~64 LoC incl. comments): emit a `corpus_truncation_notice` into the
+    serialized snapshot naming each truncated section with shown-vs-total and explicitly telling
+    the model not to report a count-vs-truncated-list mismatch as an anomaly. Chosen over
+    suppressing the LLM's reasoning (it was reasoning CORRECTLY) and over reordering the trim
+    (bigger behavioral change, rooms/zones may matter more). The notice is counted INSIDE the
+    budget and rides along on every deeper fallback.
+  b1_correction_trail_2026_09_13: >-
+    TWO OF MY OWN CLAIMS THIS SESSION WERE WRONG — recorded so they are not inherited:
+    (1) I first said the primitive paging was the TEMPLATE PROSE. WRONG — the prose is not the
+    primary cause; the only things that page are LLM-generated criticals.
+    (2) I then said "mechanism CONFIRMED: tier1 emitted nothing on the emitting cycles",
+    based on a same-timestamp join showing tier1_rows=0. That join was INVALID: LLM findings
+    carry their OWN timestamp (the ai_task call takes up to 45s), so tier1 rows simply sit at a
+    different timestamp. Re-tested with a 6-minute lookback: tier1 emitted 5-11 non-meta findings
+    before EVERY critical, which REFUTES the empty-corpus mechanism entirely. The real cause is
+    the trimmer, above. Also note the earlier `nonmeta_within_3min` column read 0 for all rows
+    because sqlite datetime() formatting did not match the stored ISO+offset strings — a broken
+    query, not evidence.
+  b1_verification_2026_09_13: >-
+    Framing-disjoint review performed SOLO (agent dispatch disabled this session).
+    A/local-correctness: `_orig_counts` snapshots sizes from the PRE-trim `snap`; `_with_notice`
+    never mutates (builds a new dict, only ADDS a key); the pop-loop still terminates on empty;
+    the deeper fallbacks reassign keys on an already-copied dict.
+    B/integration + no-suppression: the no-op path is BYTE-IDENTICAL — an in-budget corpus
+    returns at optimization_llm.py:161 before any new code runs. A GENUINE empty findings_recent
+    (no truncation) produces NO notice, so a real count-vs-list inconsistency is still reportable
+    — this is the load-bearing invariant and it has its own test.
+    C/test authority: MUTATION DRILL run with PYTHONDONTWRITEBYTECODE=1 and __pycache__ cleared
+    (per the .pyc-staleness rule). Neutering `_with_notice` to a no-op turned exactly 2 of the 3
+    tests RED with the expected assertion ("budget 2000 produced a truncated body with NO
+    notice"); source restored, residue grep = 0, re-run green.
+    Suite: 101 passed in the full test_optimization_coordinator.py — no regressions.
+  b1_residual_gap_2026_09_13: >-
+    RESIDUAL, deliberately NOT fixed (parsimony — no evidence it fires): a SECOND path can still
+    produce findings_recent=[] alongside a nonzero open_findings_count, with no truncation and
+    therefore no notice. In `_assemble_corpus`, `recent` is built from `_last_findings` (RAM,
+    assigned at optimization.py:1063) with a `_boot_findings_seed` fallback that is CLEARED
+    ONE-SHOT after the first cycle (optimization.py:1072-1074) — so a steady-state cycle where
+    `_last_findings` is [] AND tier1_findings is [] has no fallback. The 2026-09-13 measurement
+    shows this did NOT cause the 6 observed criticals (tier1 was non-empty every time), so it is
+    unproven as a live defect. REVIVAL TRIGGER: a future meta critical whose cycle shows zero
+    tier1 findings in the preceding 6 minutes.
+  b2_built_2026_09_13: >-
+    B2 BUILT (operator: "Go ahead and B2") @ feature/optimizer-sensor-health-repeat-suppress,
+    commit e00918a95 — in review, NOT deployed.
+    Fix: cross-cycle suppression of UNCHANGED repeat sensor_health rows at the PERSISTENCE layer,
+    keyed (dedup_key, stuck_state), bounded by the new module constant
+    OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S = 86400 (24h). Turns ~288 rows/day/stuck-sensor
+    into ~1. Recovery clears the key (re-break alerts at once); a stuck_state CHANGE re-emits
+    immediately; interval 0 is a documented kill switch.
+    CONSUMER CHECK — the load-bearing decision: the filter is deliberately NOT in the evaluator.
+    `_update_scoreboard` runs EARLIER in the cycle and derives open_findings_count / room_scores
+    / house_score from the full findings list, so suppressing at evaluation time would make a
+    still-broken room score 100 and RAISE the house score — hiding a fault would look like
+    fixing it. Verified unaffected: scoreboard, _notify_if_severe, _last_findings (LLM corpus).
+    Only the persisted row-rate changes.
+    TESTS: 6, including TWO WIRE-IN ANCHORS that drive `_persist_findings_batch` end-to-end.
+    This mattered — the first mutation drill neutered the CALL SITE and all 4 helper-only unit
+    tests stayed GREEN (a hollow anchor, exactly the failure mode memory
+    feedback_wire_in_anchor_mandatory warns about). Added the wire-in tests; re-ran the call-site
+    mutation: 2 RED, restored, residue 0, 104 pass.
+  next: >-
+    B1 and B2 are both BUILT and in review on their own branches (B1
+    @feature/optimizer-corpus-truncation-notice, B2 @feature/optimizer-sensor-health-repeat-
+    suppress) — neither deployed. Next: ship them (ideally bundled with the held v5.101.1 work so
+    the house restarts once), then lever A (LLM-authored alert text) LAST, since A only pays off
+    on a corpus cleaned by B1+B2. Original sequencing note follows:
+    B1 FIRST (re-sequenced by the measurement, operator's B-then-A intent preserved): fix the
+    self-referential meta finding that is 100% of what pages. Step 1 is to PROVE the mechanism
+    before touching code — confirm which branch the emitting cycles took (the boot-storm-skip
+    hypothesis above is UNVERIFIED) — then fix at source so `findings_recent` and
+    `open_findings_count` cannot disagree. Killing this removes every false page AND cleans the
+    LLM corpus, which is a precondition for lever A being worth anything.
+    THEN B2 (volume): the 5026 repeat sensor_health rows. HOLD this until the network outage is
+    fixed — the volume is largely outage collateral and any threshold tuned on today's data would
+    be tuned on a broken house. Likely shape is a per-entity repeat-suppression (one row per
+    stuck sensor per outage, not one per 5-min cycle), NOT raising the severity bar.
+    THEN A (LLM-authored alert text), which only pays off on a clean corpus.
+  parsimony:
+    problem: The operator-facing alert text is authored by rule-based templates even though an LLM already analyzes the same findings.
+    verdict: BUILD
+  rank:
+    value: 7
+    time_criticality: 4
+    effort: 5
+  tags:
+  - no-fabrication-verify
+  - measure-before-build
+  links:
+    related:
+    - OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1
+    context: >-
+      OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 is a false-positive source feeding the same
+      paging path — fixing it reduces the noise this card is about (lever B).
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/optimization_llm.py
+  - custom_components/universal_room_automation/domain_coordinators/optimization.py:1037,4139
+  - docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md
 - id: EVSE-CHARGE-ONSET-NOT-HELD-1
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW
     from 21:02 draining the house battery 46%->9%; L1 also ran in-window
   thread: energy
-  status: waiting_me
+  status: shipped_organic
+  shipped_version: v5.101.1
+  verified_shipready_2026_09_13: 'ORCHESTRATOR-VERIFIED @ b13feb770: onset suite 81 pass (.venv-ha), 3 new tests present (sync_after_restore writeback + setter-exception + seed-authoritative), const literal gone from switch.py. A/B=SHIP, C fix-up done (M4/M5 RED). SHIP-READY -> bundled deploy pending operator checkpoint (energy cost/comfort live change).'
+  reviews_done_2026_09_13: 'Tier-2DB 3-review: A=SHIP, B=SHIP (production logic correct end-to-end — seed chain closes, no reload cascade [key in OPTIONS_RELOAD_SUPPRESS_KEYS], no flap, ship-dormant preserved), C=FIX-REQUIRED (test-authority only: C-HIGH-1 _sync_after_restore untested, C-HIGH-2 invariant test hand-rolled not driving real seed). TEST-ONLY fix-up dispatched (+ const-import the 3 reviewers flagged, + try-isolation). B-LOW residual: ONE-BOOT first-reload-after-deploy window (operator-ON pre-fix, entry.options stale) self-heals after _sync_after_restore — INHERENT to write-back, do NOT fix, DOCUMENT in README live-validation.'
+  built_inreview_2026_09_13: 'BUILT @ df888881e (feature/evse-onset-reload-resilience). Fix: ECEVChargeOnsetEnabledSwitch writes the operator toggle back to entry.options (_write_back_options from turn_on/turn_off/_sync_after_restore) so EnergyCoordinator.__init__ seed (energy.py:481-489) reads the authoritative value on every reload; key in OPTIONS_RELOAD_SUPPRESS_KEYS so write-back does NOT cascade a reload. Ship-dormant preserved (False still permits). Invariant mutation-anchored (3/4 RED on neuter). _sync_after_restore migrates the existing operator entry.options on first restart. 3 framing-disjoint Tier-2DB reviews IN FLIGHT (A local-correctness, B reload/state-machine+residual-first-reload-window, C test-authority-mutation). OPERATOR DECISION 2026-09-13: NO self-start suppression — the vehicle/EVSE-self-started evening charge caveat is DECLINED, no card (onset gate governs URA proactive ensure-on only; self-started sessions remain reactively shut by grid_cap/drain-pause by design).'
+  verified_building_2026_09_13: 'VERIFY-BEFORE-WORK = STILL-REAL (intermittent), CODE fix. Gate correct+enabled (onset=01:00, switch on since 09-05); held cleanly on quiet nights (01:02-01:05). FAILS OPEN transiently during CM/parent reload storm: _ev_charge_onset_enabled re-inits to hardcoded dormant default False (energy_pool.py:422/3394) BEFORE entry-options re-seed (energy.py:478-489) restores true value -> gate permits in-window -> ensure-on turns charger on -> 11.6kW peak -> grid_cap flaps it. Evidence: onset_release 02:49 UTC remaining=190min coincident w/ switch unavailable->off->on. FIX (building, feature/evse-onset-reload-resilience, Tier-2DB): persist/restore the operator enabled value so first-post-reload tick reads it (NOT blanket-hold — preserve dormant-ship for genuinely-off installs). Invariant: post-reload enabled==operator-persisted (True stays True, False stays False). Ties to reload-storm (durable cure separate). CAVEAT surfaced: vehicle-self-started evening charging only shut off reactively (onset gate governs URA proactive ensure-on only) -> possible separate card.'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_pool.py:105 _evaluate_onset_gate still returns onset_permits=True on enabled=False (:119) with no sticky/latch/debounce — the transient-enabled=False-during-reload early-out is unchanged. Fix #1 unbuilt. Tier 2-DB; coordinate with URA-CONFIG-ENTRY-RELOAD-STORM-1.'
   created: 2026-09-08 00:10
@@ -459,7 +846,16 @@ cards:
   title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context
     light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
   thread: diagnostics
-  status: waiting_operator
+  status: parked
+  parked_2026_09_13: >-
+    PARKED by operator ("Ok. Leave it alone now"). URA was already EXONERATED by evidence (activity
+    log clean; the light.turn_off arrives with an orphan context = an external caller, leading
+    suspect a HomeKit/iOS-side automation). The operator declined to chase which external app owns
+    it, so the diagnostic stops here. Do NOT re-surface or add the service-call-origin debug
+    logging that was offered.
+    REVIVAL TRIGGER: the operator reports the self-turn-off becoming frequent or disruptive enough
+    to want the caller identified — then arm the service-call-origin logging as previously scoped.
+  updated: '2026-09-13 21:40'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: URA exonerated (activity_log 0 rows, switch.kitchen_automation off, orphan-context turn_off, commit 810be0418). Ball legitimately with operator: is there a HomeKit/iOS automation turning the overhead off?'
   created: 2026-09-06 18:35
@@ -507,7 +903,8 @@ cards:
   title: Full-suite single-process pytest run halts on cross-test const-stub poisoning (imports fail 'unknown
     location') while every file passes in isolation
   thread: quality
-  status: planned
+  status: done
+  dedupe_2026_09_13: 'DONE — superseded by BLE-HOLD-CAP-SUITE-POLLUTION-1 (shipped v5.101.0). Its deliverable (single-process const-stub collection clean) is exactly what quality/tests/_ura_const_support.py::ensure_ura_const() delivered via per-file migration — the parsimonious fix that replaced this cards reverted broad Fix-2 (e1829da9a, which had exposed 87 reds). Verified 2026-09-13: default --collect-only = 0 errors, ZERO const/BLE_HOLD_CAP_DURATIONS ImportErrors in default OR reverse order. blocked_by reason moot. Closed.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: fix REVERTED (commit e1829da9a — Fix 2 exposed 87 order-pollution reds); conftest.py:28 still excludes custom_components/const namespace; full-suite --collect-only = 18 errors. Status was stale ''review''. Sits behind TEST-STRATEGY-REARCH-1.'
   created: 2026-09-06 18:10
   updated: 2026-09-11 19:15
@@ -2256,8 +2653,31 @@ cards:
 - id: ROOM-ENTITY-STALE-CONFIG-1
   title: 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1
   thread: presence
-  status: waiting_operator
-  updated: 2026-09-12 11:00
+  status: done
+  updated: '2026-09-13 21:40'
+  disposition_2026_09_13: >-
+    OPERATOR APPROVED the 4 edits -> verify-before-work ran FIRST and found NO EDITS NEEDED.
+    Verdict ALREADY-DONE (3 of 4) + MOOT (the 4th) + CARD-WAS-WRONG (premise). Closing without
+    applying anything; no restart required. Live .storage read 2026-09-13:
+    (1) Kitchen room_media_player = media_player.kitchen_3 — ALREADY REPOINTED (kitchen_2 still
+    exists in the registry, so the card's "404" claim for it was WRONG either way).
+    (2) Upstairs Guestroom = media_player.up_guest_room_3 — ALREADY REPOINTED (up_guest_room_2
+    also still exists; same wrong-404 claim).
+    (3) Master Bedroom = fan.ceilingfan_fanimaton_rf_masterbedroom — ALREADY REPOINTED; the dead
+    rf304_25 handle is gone from both data.fans and options.manual_switches. Genuinely was a 404.
+    (4) CM security_entry_sensors = ..._contact_2 — ALREADY REPOINTED.
+    RESIDUAL IS INERT: Jaya Bedroom still carries the dead ..._jayabedroom_contact, but it is in
+    `data.window_sensor` and `options.window_sensor` overrides it with the live ..._contact_2.
+    URA reads `{**entry.data, **entry.options}` (verified __init__.py:422,507,2308;
+    automation.py:2940; camera_census.py:1500,2204) so options WINS and the dead handle is never
+    read. Editing it would be a no-op requiring a restart — not worth a restart during a live
+    network outage.
+    CARD PREMISE CORRECTIONS (marked WRONG per understanding-changes rule): there is NO
+    `door_sensor` field on Jaya Bedroom at all — the dead handle sits in `window_sensor`, and the
+    card's claim that "_contact_2 is already the window_sensor" was right about _contact_2 but
+    wrong about which field held the corpse. Also note data.temperature_sensor still points at
+    the same dead device (..._jayabedroom_device_temperature), likewise shadowed by a live
+    options value. Both are inert-by-shadowing, not active bugs.
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: the 4 config edits (repoint kitchen_2->kitchen_3, up_guest_room_2->_3, MBR fan, CM contact->_contact_2; remove Jaya door_sensor) live in HA .storage, not git. Plan was to apply during NIGHT-LIGHT deploy (v5.92.1, shipped) but application unobservable in git. next -> orchestrator: one-shot .storage read to confirm applied, else re-surface operator approve/apply.'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. 4 low-risk config edits via options-flow — you apply
     them, or approve me doing them via ha_config. No code, no review tier.
@@ -7679,7 +8099,16 @@ cards:
   title: Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely
     a config mistake
   thread: presence
-  status: waiting_operator
+  status: parked
+  parked_2026_09_13: >-
+    PARKED by operator ("Leave alone"). The Kitchen night_lights field points at
+    switch.switch_tapo_wifi_kitchenrange (the range light) rather than light.kitchen_led. Operator
+    has seen the finding and declined the repoint — treat the current wiring as intended until
+    they say otherwise. Do NOT re-surface this as a defect or re-ask.
+    REVIVAL TRIGGER: only if the operator reports the Kitchen night light behaving wrongly at
+    night (wrong fixture lighting up on a night-time Kitchen entry), or if a future room-config
+    audit is explicitly asked to include operator-declined items.
+  updated: '2026-09-13 21:40'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: repoint of Kitchen night_lights -> light.kitchen_led lives in .storage; git a1097a9a5 shows operator was applying it. next -> orchestrator: one-shot .storage read to confirm; if applied, close.'
   created: 2026-08-31 19:05
@@ -11425,7 +11854,8 @@ cards:
     parent:
     - TEST-STRATEGY-REARCH-1
   title: Presence tests fail order-dependently in large batches (suite hygiene)
-  status: pre_planning
+  status: done
+  dedupe_2026_09_13: 'MERGED into TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (survivor). Verified 2026-09-13: its still-open instance (test_override_arrester_ttl_suppression.py installs homeassistant.helpers.storage and never pops it) is literally one of the 10 reverse-order collection errors PRODSTUBS-1 owns; reboot_pickup_d2 instance already CLOSED (71a769cfb). CARVE-OUT: the INSTANCE_2026_08_26_WALLCLOCK subset (EVSE drain-precedence tests RED near 02:00 local) is a DAY-BOUNDARY/wall-clock-coupled family, NOT sys.modules order — folded into TEST-STRATEGY-REARCH-1, not PRODSTUBS-1. Closed as duplicate; forensic history preserved here + referenced from PRODSTUBS-1.'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: reboot_pickup_d2 instance CLOSED (71a769cfb) but family open — test_override_arrester_ttl_suppression.py installs homeassistant.helpers.storage and never pops it + wall-clock EVSE tests. Durable fix rolls into TEST-STRATEGY-REARCH-1 (87+ order-dep fails measured 2026-09-11).'
   thread: platform
@@ -12340,6 +12770,7 @@ cards:
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   status: investigating
+  dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
   updated: '2026-09-12 20:40'
   verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -14508,6 +14939,23 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT ADJACENT residual of CARRIER-STALE-POLL-REFRESH-1. Promoted inbox -> pre_planning;
     cleared stale batch + sibling_of; linked.'
+- id: RECORDER-CHURN-SWEEP-URASENSORS-1
+  title: "Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status)"
+  thread: config-flow
+  status: inbox
+  created: 2026-09-13 01:30
+  updated: 2026-09-13 01:30
+  refinement_status: initial
+  approval: unreviewed
+  sibling_of:
+  - RECORDER-BLOAT-LOGFLOOD-1
+  problem_solution:
+  - "Problem: Recorder Review A (2026-09-13) re-enumerated extra_state_attributes across the package and found the safety_status churn class survives at >=6 ENABLED sites emitting a per-READ elapsed value (new states row every tick): sensor.py:14060/14067 SafetyActiveCooldownsSensor age_seconds/max_remaining_seconds (0.1s); :13896/13909 EnergyEnvoyStatusSensor *_age_seconds; :12909 HVACACRampKwhRateSensor age_s (UNROUNDED float — worst); :17200 OptimizerStatusSensor next_eta (1s countdown); :3886 URAPersonsInHouseSensor frigate_face_last_latched.age_s (house-scope, hot); binary_sensor.py:3131 ECSubSwitchesSyncedSensor seconds_since_ec_ready; :14493 BayesianOccupancyForecastSensor clock-moving forecast xPER-ROOM(45); binary_sensor.py:1859 PersonPhoneLeftBehindSensor hours_since_sighting; aggregation.py:3618 EnergyCostPerOccupiedHourSensor occupied_hours. Plus DORMANT-but-offending-if-enabled: sensor.py:2068/2111/2151/2327 (registry_enabled_default=False; check live across 45 rooms). Solution: same fix as the parent — remove the per-read elapsed value from extra_state_attributes (expose a stored/quantized value or drop it; _unrecorded_attributes does NOT stop the states-row write). Measure each site's live row-rate first to rank; some (ACRamp unrounded float, cooldowns 0.1s, Bayesian x45) are the high-yield ones."
+  why: "Same write-amplification bug class as RECORDER-BLOAT-LOGFLOOD-1; these are the long-tail URA contributors the recorder probe predicted. Not scope of the parent fix (which targeted the 3 named last_check* sensors)."
+  next: "MEASURE each site live row-rate (recorder states by entity), rank, then strip the per-read elapsed attr from the top offenders. Tier-1/2 per site."
+  parsimony:
+    problem: "6-9 more URA sensors churn recorder rows via per-read elapsed attrs"
+    verdict: BUILD
 - id: RECORDER-BLOAT-LOGFLOOD-1
   INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault: 'MEASURED over a live 7.7h window (05:17-12:58):
     16,854 raw log lines, 1,505 distinct issues, 73 components. THE LARGEST FEEDER IS NOT URA: pywattbox.http               2,747
@@ -14558,11 +15006,14 @@ cards:
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log
     floods
   thread: platform
-  status: planned
+  status: shipped_organic
+  shipready_2026_09_13: 'SHIP-READY @ 39b2a525d (feature/recorder-attr-churn). A/B=SHIP (no must-fix; no consumers anywhere incl all 20 dashboards; last_reported validated as live-freshness substitute, historical-tick trace intentionally traded away = the 675k rows bought back). Cleanups done: test truth-in-labeling rename + doc-drift struck (4 docs). Suite baseline unchanged. -> bundled deploy v5.101.1 pending operator checkpoint. Additional 6-9 churn sites carded RECORDER-CHURN-SWEEP-URASENSORS-1.'
+  reviewA_2026_09_13: 'Recorder Review A (removal-completeness) = SHIP, no must-fix: 3 removals complete, state values stable, no consumers. Found 6-9 ADDITIONAL enabled churn sites (same class) -> carded RECORDER-CHURN-SWEEP-URASENSORS-1. Nits: test_safety_status_no_churn_across_two_reads is AST-scan not behavioral (rename), README_v4.6.2:59/BACKLOG:807 attr-list doc drift. Awaiting Review B (hidden-consumers).'
+  measured_2026_09_13: 'MEASURED (read-only live). 31GB confirmed, purge_keep_days=7, ~7.4M state rows/day, span ~7.8d. CORRECTION: /config is a 457GB NVMe at 28% used (316GB free) — NOT space-constrained; flash-life 51%% UNVERIFIED (smartctl needs root). So this is WRITE-AMPLIFICATION hygiene, not a space crisis. The 3 floods decompose: (1) URA-OWNED bug — sensor.ura_safety_coordinator_safety_status churns last_check=utcnow().isoformat() in recorded attrs (sensor.py:6544) -> 675k rows/wk despite 4 distinct states; NO consumer reads it. FIX BUILDING (feature/recorder-attr-churn, _unrecorded_attributes; + sibling audit :15052/:15086 last_check_at, security.py:2463). (2+3) EXTERNAL telemetry tail (kiosk wall_panel_studyb_*, iphone_*_unfiltered_distance_to_*, invisoutlet_*, outlet_lux_pir_mmwave_*, phalanxudmpro_*_utilization, binary_sensor.madronewatermonitor_low_flow_leak) -> OPERATOR-SIDE recorder exclude globs in configuration.yaml (NOT URA code; exclude block already exists, extend it). One-time reclaim: recorder.purge repack:true OR the URA VACUUM button after excludes land.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): URA-owned attribute-churn half UNFIXED (binary_sensor.py:390 extra_state_attributes still emits changing idle_duration/last_motion). Rest is HA-config work. Re-measure recorder db size first; consider splitting the URA attribute-churn half into its own card.'
   relane_2026_09_10: 'Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
-  shipped_version: v5.87.0
+  shipped_version: v5.101.1
   created: 2026-08-20 14:15
   updated: 2026-08-23 15:45
   refinement_status: initial
@@ -15510,7 +15961,9 @@ cards:
   title: Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup /
     cooldown on the notification path spams the operator
   thread: notifications
-  status: planned
+  status: done
+  handled_verified_2026_09_13: 'DONE — ALREADY HANDLED (operator instinct correct; verify-before-work). Earlier same-day diagnosis (per-cycle-only dedup) was WRONG: there IS a cross-cycle notify-dedup — OPTIMIZER_NOTIFY_DEDUP_CYCLES=12 (const.py:3457) + _notify_dedup_state + _notify_if_severe (optimization.py:653/~1000), shipped v5.11.0. LIVE DISCRIMINATOR (URA DB notification_log): comfort/zonal notifications fired ONLY 2026-08-28 (4 sends within ~1s = the original incident), ZERO in the 21 days since — while optimization_findings dimension=comfort is still GENERATED ~250/day every day. So the notify suppression works in production; the flood does not recur. Closed. RESIDUAL (separate card): the comfort FINDING itself fires ~250/day and never resolves — if it is a false positive (duct question on OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1), that is wrong-finding noise bloating optimization_findings; tracked there, gated on operator duct answer — NOT a notify-flood issue.'
+  diagnosed_2026_09_13: 'VERIFY-BEFORE-WORK diagnosis (orchestrator, read-only): the v4.7.36 dedup is self._cycle_dedup — a PER-CYCLE set (optimization.py:1880-2002), so it suppresses dup findings WITHIN one optimizer cycle but NOT across the 5-min cycles -> a persistent finding re-sends every cycle = the observed flood. The ROBUST hygiene fix (cross-cycle per-finding cooldown via NM_OPTIMIZER_FINDING_COOLDOWN_S, rung-3 Number, default 6h) is Tier-1 and CORRECT regardless of whether the finding is a true-positive or FP. BUT root cause of this specific flood is the comfort-FP firing for 3 rooms, which is GATED: OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 is waiting_operator on a physical-duct fact (is Master Bedroom on studyb_zone_1 duct?). DISPOSITION: the cross-cycle cooldown is build-ready Tier-1 and strictly-good; holding only because the board sequenced it behind the FP card and suppressing alerts on a possibly-wrong finding could mask real config drift until the duct question is answered. Surfaced duct question to operator.'
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): "Both options" — build BOTH the cross-cycle per-finding SUPPRESS-with-TTL cooldown (reuse notification_log.cooldown_expires, NM_OPTIMIZER_FINDING_COOLDOWN_S knob) AND per-cycle BATCHing (one digest instead of N identical). NEXT: plan the suppression-discharge contract (what re-fires after TTL, restart rebuild from cooldown_expires, backstop) + the batch digest. Tier-2 (notify-path suppression).'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: FP source fixed (optimization_llm.py:656 serialised HVAC zone fan-out, v5.91.4). Only per-cycle dedup exists; no cross-cycle cooldown (no NM_OPTIMIZER_FINDING_COOLDOWN_S). RE-SCOPE to cross-cycle cooldown OR close if DB shows no repeats since v5.91.4.'
@@ -15581,7 +16034,22 @@ cards:
   title: Optimizer flags Study A + Study B + Master Bedroom on one thermostat zone as a comfort VIOLATION
     — but multiple house rooms on one HVAC zone is BY DESIGN
   thread: optimization
-  status: waiting_operator
+  status: done
+  killed_2026_09_13: >-
+    KILLED by operator ("Yes but this is irrelevant. Reground yourself on design and kill this
+    card. Its annoying"). OPERATOR ORACLE ANSWER RECORDED: Master Bedroom IS genuinely served by
+    the studyb_zone_1 duct — NOT config drift. That settles the subordinate fact-check this card
+    was holding open.
+    DESIGN REGROUNDING (memory project_house_zones_vs_hvac_zones + reference_hvac_zone_tonnage):
+    the house has 3 Carrier thermostat-keyed HVAC zones serving ~40 house rooms, so one HVAC zone
+    -> MANY house rooms is the intended architecture, never a defect. Study A + Study B + Master
+    Bedroom sharing studyb_zone_1 is exactly that pattern working as designed. There was never a
+    misconfig to fix — the only real defect was the optimizer check that flagged it, and that
+    already SHIPPED in v5.91.4 (const.py:3744 LLM design-invariant "multiple zones sharing one
+    thermostat is by design — never flag", commit d529580a9).
+    So: general fix shipped + operator fact-check answered BY-DESIGN = nothing left. Do NOT
+    re-open this card or re-ask the duct question; the answer is recorded here.
+  updated: '2026-09-13 21:40'
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: general FP fix SHIPPED v5.91.4 (const.py:3744 optimizer-LLM design-invariant ''multiple zones sharing one thermostat is by design — never flag'', commit d529580a9). Narrowed to the subordinate operator fact-check: is Master Bedroom actually on the studyb_zone_1 duct (real misconfig) or drift?'
   relane_2026_09_10: 'Not a soak -> WAITING_OPERATOR. You verify: is Master Bedroom actually served by
@@ -16304,7 +16772,8 @@ cards:
 - id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
   title: Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle)
   thread: quality
-  status: inbox
+  status: planned
+  verified_survivor_2026_09_13: 'KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKFILLED) + homeassistant.helpers.storage never-popped = 10 collection errors reverse / 0 default. ABSORBED SUITE-ORDER-POLLUTION-1 (storage-never-pops instance + forensics). Fix: extend _ura_const_support into a complete-module helper for signals + prod modules; acceptance = shuffle-seed collection matrix. inbox->planned.'
   created: 2026-09-12 17:10
   updated: 2026-09-12 17:10
   refinement_status: initial
@@ -16754,7 +17223,25 @@ cards:
 - id: REMINDER-ACTIVATE-OVERNIGHT-PASS-1
   title: "Activate the overnight-pass launchd job (operator one-time launchctl load)"
   thread: tooling
-  status: waiting_operator
+  status: done
+  activated_2026_09_13: >-
+    ACTIVATED 2026-09-13 21:35 on operator go ("Do it"). Ran the documented one-time install:
+    cp ~/Code/homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist
+    ~/Library/LaunchAgents/ && launchctl load <same>. VERIFIED loaded —
+    `launchctl list | grep ura-overnight` returns "- 0 com.phalanxmadrone.ura-overnight-pass"
+    (exit status 0, not yet run). Schedule: StartCalendarInterval Hour=2 Minute=0 =
+    02:00 America/Chicago nightly, on this always-on Mac mini (the host where `ssh ha` + the
+    Samba DB mount already work — the LAN reach the investigations lane needs, which a /schedule
+    cloud routine cannot provide).
+    THIS ENABLES UNATTENDED AUTONOMOUS RUNS. Per the wired overnight-pass contract the pass will:
+    reconcile the board + apply dispositions FIRST, then drive the WSJF queue through the
+    four-step gate; investigations + read-only probes fully autonomous; Tier-1/2 clean builds go
+    to `review` but are NOT deployed unattended (occupied sleeping house = hostile timing);
+    Tier-3 / ambiguous / destructive escalate to waiting_operator + NM page. Everything concluded
+    appends an autonomy_feed entry, so the morning counter is the report.
+    TO STOP IT: launchctl unload ~/Library/LaunchAgents/com.phalanxmadrone.ura-overnight-pass.plist
+    TO RUN NOW: launchctl start com.phalanxmadrone.ura-overnight-pass
+  updated: '2026-09-13 21:40'
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -16802,10 +17289,84 @@ cards:
     clean-by-morning) as a lean NEW plan (not a v3 revival); measure-first how often cycles start in
     peak. Verify Rainbird service then likely DROP.'
   refs: [docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, docs/planning/CRITIQUE_appliance_management_v3.md]
+- id: CONFIG-FLOW-SLOW-ONBOARDING-1
+  title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
+  thread: config-flow
+  status: waiting_operator
+  disentangled_2026_09_13: 'CORRECTED (operator pushback on linkage + host check). HOST NOT PRESSURED: load 1.48, CPU 91.7%% idle, 0%% iowait, swap 0, 5.5GB free -> the 5585-unavailable-saturates-loop claim is UNSUPPORTED (unavailable entities are inert; no resource saturation). TWO SEPARATE problems, previously conflated: (1) NETWORK OUTAGE — reloaded all 49 shelly, only 173->138 recovered (~35), house-wide 5604 still down; contrast earlier-tonight 614->16 when devices were reachable/stale. Reload now largely FUTILE => devices genuinely off-network (z2m bridges 5/6 off, UniFi ports/Protect/Z-Wave-lock/cloud all down together) = operator infra fix (UniFi path/AP/switch). (2) CONFIG-FLOW DEGRADATION — likely reload-storm discrete loop-stalls (low CPU + periodic unresponsiveness, no blocking-call warnings) NOT the outage; proof requires the flow instrumentation (eb2f73094). No blocking-call detector hits. Onboarding ranking code confirmed sub-second. Log levels reverted.'
+  independently_verified_2026_09_13: 'Operator pushback (do not trust optimizer; could be network) = CORRECT. Independent ground truth (NOT optimizer): (a) binary_sensor.zigbee2mqtt_bridge_connection_state 5-of-6 = OFF (the bridges OWN disconnect signal; 31 z2m bridge entities); (b) Shelly WiFi = 173 unavailable now, REGRESSED from 16 after my earlier recovery tonight; (c) 6132 entities unavailable house-wide; (d) MQTT broker (Mosquitto) itself LOADED/up. BOTH Zigbee-transport AND WiFi-transport down simultaneously => NETWORK/HOST event, not a single add-on/integration (a z2m crash would not also drop Shelly WiFi). Recurring (Shelly re-dropped within hours). URA 46/46 loaded — config-flow slow + cannot-add are COLLATERAL from the saturated loop. Corrected my earlier over-reliance on optimizer boot_storm flag. RESOLUTION is operator-side network/host recovery (AP/switch/VLAN serving the z2m coordinator host + WiFi gear), NOT URA.'
+  recheck_CORRECTED_2026_09_13_2320: >-
+    MY 21:40 "OUTAGE IS WORSE" CLAIM WAS WRONG — RETRACTED. Operator pushed back ("Ist showing
+    healed on my side") and they were right. The 21:40 and later readings were measuring a
+    HOME ASSISTANT RESTART TRANSIENT, not device loss.
+    PROOF (23:20 CDT / 2026-09-14 00:19 UTC): HA restarted at 2026-09-14T00:11:53Z — the earliest
+    last_changed across ALL binary_sensors is that exact timestamp; all six z2m bridge entities
+    changed state within 31ms of each other (00:14:51.682-.713), which is a re-initialisation
+    signature, not six independent device events. Age-bucketing every unavailable entity:
+    under-2min=258, 2-5min=5790, 5-10min=392, 10-20min=0, 20-60min=0, >1h=0 — i.e. NOTHING has
+    been unavailable for more than ~10 minutes. A real outage leaves a long tail; this has none.
+    URA_UNAVAIL fell to 3. Shelly recovered to 12-of-1211 on its own.
+    METHOD LESSON (the reason I got it wrong): I reported a raw unavailable COUNT as an outage
+    signal across several readings without ever establishing a BASELINE or checking the AGE
+    distribution. A count alone cannot distinguish "devices are dropping" from "HA just
+    restarted and is repopulating" — the age histogram can, and it should have been the first
+    measurement, not the last. Counts rose (5702 -> 6183) purely because a restart re-armed the
+    clock on everything.
+    STILL OPEN / NOT CLAIMED EITHER WAY: the EARLIER Zigbee event tonight was corroborated by
+    independent evidence (the z2m bridges' own disconnect signal + a Shelly regression) and is
+    not retracted. But the CURRENT numbers are unreadable until repopulation finishes; any
+    z2m/Shelly verdict must be re-measured on a settled instance before it is trusted.
+  recheck_SUPERSEDED_2026_09_13_2140: >-
+    [SUPERSEDED — see recheck_CORRECTED above. This claim was WRONG; kept so the error is not
+    re-derived.] Claimed: the outage is STILL ONGOING and has WORSENED, not recovered. Measured via ha_eval_template at 21:40 CDT: house-wide unavailable/unknown = 7053
+    (was 6132 at first diagnosis = ~920 WORSE); Shelly unavailable = 171 (my earlier mass reload
+    recovered 173->138, it has since REGRESSED to 171 — re-confirming the devices are genuinely
+    off-network rather than stale, and that reloading is futile); zigbee2mqtt bridge connection
+    = 4 of 6 OFF (was 5 of 6 — marginally better, still broken).
+    URA REMAINS HEALTHY THROUGHOUT: only 5 ura_* entities unavailable. This re-confirms the
+    disentanglement — URA is a victim of the outage, not a cause of it.
+    BOTH CONCLUSIONS HOLD: (1) the outage is an operator infra fix (shared UniFi path / AP /
+    switch / VLAN serving the z2m coordinator host AND the WiFi gear — a single add-on failure
+    cannot drop Zigbee and WiFi transports simultaneously); (2) the config-flow degradation is a
+    SEPARATE and still-unproven suspect (reload-storm loop-stall), whose timing instrumentation
+    @eb2f73094 is built but unshipped, so the 25-minute Foyer setup remains unpinned.
+  restart_explained_2026_09_13: >-
+    ANSWERED by operator: "i restarted it" — the 2026-09-14T00:11:53Z restart was INTENTIONAL,
+    operator-initiated recovery. So there is no unexplained restart here and NOTHING to chase on
+    the parent-reload / watchdog-hazard side for this event. Closes the last open thread from my
+    retracted outage claim: restart was deliberate, transients were its expected consequence, and
+    the house healed. Do NOT log this restart as evidence in URA-CONFIG-ENTRY-RELOAD-STORM-1 — it
+    is operator-initiated and would contaminate that card's reload-trigger hunt.
+  next: >-
+    -> then I re-measure z2m + Shelly on a SETTLED instance (age-distribution, not raw counts)
+    to get a trustworthy verdict on whether the earlier Zigbee event actually cleared, and ship
+    the config-flow timing instrumentation to pin the remaining slowness.
+  root_cause_found_2026_09_13: 'ROOT CAUSE = live mass DEVICE OUTAGE, not URA/onboarding. Operator re-clicked Add-Entry -> same dialog; live capture at that instant: optimization.py logged boot_storm_signature 27/43 rooms unavailable (frac=0.63); house-wide UNAVAILABLE entity count = 6132 (ha_search state_filter). First entity is a raw Zigbee IEEE (0xa4c1382e60e05225). MQTT broker (Mosquitto) = LOADED, but no ZHA integration -> Zigbee via zigbee2mqtt ADD-ON; z2m devices unavailable while broker up => the z2m add-on or Zigbee coordinator dongle is DOWN (stopped publishing -> availability topic offline). Scale (6132) implies broader network event too (Shelly was 614-down earlier tonight). URA HEALTHY: all 46 entries loaded incl Foyer. The config-flow slow + cannot-add-UI dialog (UnknownHandler) are COLLATERAL: 6000+ flapping entities saturate the event loop -> handler resolution starves + steps crawl. NOT the onboarding ranking code (confirmed sub-second) and not primarily the reload storm. RESOLUTION: operator recovers z2m add-on + Zigbee coordinator + network; config flow becomes responsive once devices return. Onboarding step-count adds only marginal overhead under NORMAL load -> instrumentation (eb2f73094) still worth deploying to quantify the baseline, but this is NOT an urgent onboarding regression. Log levels reverted to WARNING.'
+  live_diag_armed_2026_09_13: 'Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via logger.set_level: homeassistant.config_entries=debug, homeassistant.setup=info, custom_components.universal_room_automation=info. NEXT: operator does one Add-Entry/add-room -> read reload/setup events live to confirm reload-storm-during-flow (vs flow-side cost). REVERT log levels after capture. Fuller per-step ms still needs the instrumentation deploy (eb2f73094).'
+  symptom2_cannot_add_2026_09_13: 'SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (config_entries.py:2868/3475) — HA could not resolve URA config-flow handler at click time. config_flow:true (manifest OK) and async_step_user is CLEAN (routes to entry_type menu / integration_config; onboarding added NO abort path here). UnknownHandler at click = URA transiently degraded/reloading (handler resolution times out on a stalled loop) = SAME reload-storm root cause as the slowness. REFRAME: onboarding did NOT introduce this dialog; it is a reload-storm symptom (storm stall windows widened). Onboarding likely only WORSENED the slowness (4 added steps x stalled loop). REAL FIX for both = the reload storm (separate high-pri). Workaround: transient — retry Add after the reload window. Confirm when dialog appears: check URA integration state (loaded vs not_loaded/setup_retry) + reload logs at that instant.'
+  instrumented_2026_09_13: 'INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER/EXIT with elapsed_ms (handler time) + autodetect_calls/ms + wall/mono ts. READ: large elapsed_ms=URA-side; large wall-gap between EXIT(N) and ENTER(N+1) with instant submit=loop-stall (cross-ref reload logs); autodetect_ms should stay sub-second. Gated CONFIG_FLOW_TIMING. Bundles into next deploy -> next room setup pins the 25min. Still: prime suspect reload-storm loop-stall x added steps.'
+  created: 2026-09-13 01:00
+  updated: 2026-09-13 01:00
+  refinement_status: initial
+  approval: explicit
+  approved_by: "operator 2026-09-13 (reported live: Add Entry slow, Foyer 25min, submits 3-5min)"
+  sibling_of:
+  - ONBOARDING-SIMPLIFY-1
+  links:
+    related:
+    - EVSE-CHARGE-ONSET-NOT-HELD-1
+  problem_solution:
+  - "Problem: after v5.101.0, Add-Entry and room setup are very slow — Foyer took 25min, individual submits 3-5min. Trace so far (orchestrator, read-only): the new auto-detect hot path (_get_area_entities O(n) scan + _rank_area_candidates per-candidate lookups, ~8/step) is SUB-SECOND even on the large registry — NOT the cause. 3-5min/submit = EVENT LOOP BLOCKED, not flow logic. Logs show loop congestion (cover.* Update taking over 10s, 00:15-00:25). PRIME SUSPECT: the known CM/parent reload storm (~5x/night, ~5min loop-stall each; re-confirmed live via EVSE-CHARGE-ONSET today) stalls every async step; onboarding ADDED 4 steps (room_class/sensors_confirm/devices_confirm/room_summary) -> multiplies exposure. NO flow-step timing instrumentation exists -> cannot pin from existing logs. Solution: (1) add lightweight per-async_step timing logging + correlate with reload events (definitive); (2) if confirmed reload-storm, the cure is the storm (separate) + possibly collapse/defer onboarding steps to reduce round-trips."
+  why: "Operator-reported live regression coincident with v5.101.0. Either the onboarding added per-step cost (unproven) or it multiplied exposure to the reload-storm loop-stall. Must instrument to distinguish, not guess (No-Fabrication)."
+  next: "INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause."
+  parsimony:
+    problem: "config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)"
+    verdict: INVESTIGATE
 - id: ONBOARDING-SIMPLIFY-1
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
   status: shipped_organic
+  live_validated_2026_09_12: 'DEPLOYED v5.101.0 + live-validated post-restart. L1 PASS (45/45 URA entries loaded, ZERO ERROR logs — only normal boot WARNINGs), L2 PASS (one INTEGRATION entry, existing rooms untouched). L3-L6 operator-action-gated (manifest on next add-room/fresh-install) — code live + in-suite verified; README_v5.101.0 carries the Validated table. HACS installed_version=v5.101.0. Cycle closed pending organic add-room observation.'
   shipped_version: v5.101.0
   updated: '2026-09-12 16:05'
   f6_resolved_2026_09_12: 'F6 RESOLVED (operator 2026-09-12): KEEP EXCLUDED. _EXCLUDED_PLATFORMS already excludes BOTH template AND group (config_flow.py:776) + helpers/input_*/counter/timer/schedule. Operator: error-prone to auto-detect for the default path, groups uncommon, operator can still manually pick (no capability loss). ZERO code change — build already matched. F6 closed.'
@@ -16955,9 +17516,10 @@ cards:
 - id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
   title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
   thread: hvac
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.101.1
   created: '2026-09-12 14:20'
-  updated: '2026-09-12 14:20'
+  updated: '2026-09-13 21:00'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, mutation-drill]
@@ -16969,7 +17531,24 @@ cards:
      coverage gap on a cost-relevant counter. Solution: add a test that drives the startup-audit path
      and asserts the increment (mutation-anchored), if the audit path is load-bearing.'
   why: flagged by the ARRESTER build per Tier-3 mutation-drill discipline; captured rather than scope-crept.
-  next: 'Confirm the async_startup_audit stale-override path is load-bearing, then add a mutation-anchored test.'
+  driven_2026_09_13: >-
+    DONE (autonomous, Tier-1) @ feature/startup-audit-override-count-anchor, commit b5a783e73 —
+    in review, not deployed. GATE: the path IS load-bearing — async_startup_audit is wired at
+    hvac.py:1540 and override_count_today has 7 consumers incl. the optimizer override-frequency
+    advisory (>=10 -> medium, optimization.py:2342) and the zone efficiency score
+    (override_penalty = count*5, sensor.py:1590), so an uncounted stale override understates both.
+    PRIOR-ART SCAN found the gap was WORSE than carded: an in-repo comment above
+    TestIncrementSitesReachable asserted this site "is exercised by an independent test that
+    drives async_startup_audit" — FALSE, no such test existed. The only coverage naming the method
+    (test_v478_egress_window.py:961) is a SOURCE GREP asserting strings exist in the file, so
+    deleting the increment would not have failed it. Classic hollow anchor.
+    BUILT: behavioural anchor (stale manual zone -> count 1 + direction), a DISCRIMINATING
+    negative (manual-but-within-tolerance -> stays 0, so the anchor cannot pass by counting every
+    manual zone), and a mutation anchor. Drill used a REAL SOURCE deletion of the increment (not a
+    monkeypatch): the behavioural anchor went RED; restored, residue 0, 15 pass in .venv-ha.
+    NOTE: this file cannot be collected by the default env (known const-stub /
+    SUITE-ORDER-POLLUTION issue); validated under .venv-ha — tracked by TEST-STRATEGY-REARCH-1.
+  next: 'DONE — ships with the next deploy.'
   links:
     related: [ARRESTER-CLOUDFLAP-FALSEPOS-1]
   refs: ['hvac_override.py:2009']

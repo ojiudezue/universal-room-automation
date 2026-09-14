@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.101.0
+# Universal Room Automation vv5.101.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6495,6 +6495,15 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:shield-check"
+    # RECORDER-BLOAT-LOGFLOOD-1: `last_check` is a per-refresh
+    # dt_util.utcnow() diagnostic timestamp with no programmatic consumer
+    # (grep of custom_components/ finds only this producer site, no reader).
+    # Marking it unrecorded keeps it visible on the live state but stops it
+    # from generating a new state_attributes payload every refresh (was
+    # ~675K states rows/week on a 4-value state). See HA
+    # `Entity._unrecorded_attributes` at helpers/entity.py:518,563 and its
+    # consumption in components/recorder/db_schema.py:565-568.
+    _unrecorded_attributes = frozenset({"last_check"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -6541,7 +6550,13 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
         return {
             "active_hazards": len(safety.active_hazards),
             "sensors_monitored": safety.sensors_monitored,
-            "last_check": dt_util.utcnow().isoformat(),
+            # RECORDER-BLOAT-LOGFLOOD-1: `last_check` dropped — was a
+            # per-refresh dt_util.utcnow() with no programmatic consumer,
+            # causing EVENT_STATE_CHANGED (and a recorder States row)
+            # each tick despite a 4-value stable state. Consumers wanting
+            # "when last checked" should read entity.last_reported /
+            # last_updated. `_unrecorded_attributes` retained as
+            # belt-and-suspenders in case the key is re-added.
             # v3.6.0.3: Scope and detail
             "scope": scope,
             "worst_location": hazards_detail[0]["location"] if hazards_detail else None,
@@ -7077,6 +7092,13 @@ class SecurityComplianceSensor(AggregationEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:lock-check"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # RECORDER-BLOAT-LOGFLOOD-1: `last_check` flows in from
+    # SecurityCoordinator.get_compliance_summary() (security.py:2463) and
+    # is a per-call dt_util.utcnow() diagnostic timestamp with no
+    # programmatic consumer. Unrecorded so signal-driven refreshes don't
+    # spawn a new state_attributes payload each tick while compliance_rate
+    # is stable.
+    _unrecorded_attributes = frozenset({"last_check"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -14982,6 +15004,12 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
     _attr_icon = "mdi:account-clock"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = True
+    # RECORDER-BLOAT-LOGFLOOD-1: `last_check_at` is a per-cache-refresh
+    # dt_util.utcnow() diagnostic timestamp with no programmatic consumer
+    # (only producer sites in the same file). Unrecorded so signal-driven
+    # refreshes don't spawn a new state_attributes row while the routine
+    # state (stable/drifting/shifted/major_shift) is unchanged.
+    _unrecorded_attributes = frozenset({"last_check_at"})
 
     def __init__(
         self, hass: HomeAssistant, entry: ConfigEntry, person_id: str
@@ -15049,7 +15077,9 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
                     "max_magnitude": None,
                     "max_magnitude_cell": None,
                     "top_changes": [],
-                    "last_check_at": dt_util.utcnow().isoformat(),
+                    # RECORDER-BLOAT-LOGFLOOD-1: last_check_at dropped —
+                    # per-refresh utcnow() with no consumer, forced
+                    # EVENT_STATE_CHANGED (=> States row) every tick.
                 }
                 self._last_query_time = now
                 return
@@ -15083,7 +15113,8 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
                 "max_magnitude": max_row_payload.get("magnitude"),
                 "max_magnitude_cell": max_row_payload.get("cell"),
                 "top_changes": top_changes,
-                "last_check_at": dt_util.utcnow().isoformat(),
+                # RECORDER-BLOAT-LOGFLOOD-1: last_check_at dropped (see
+                # sibling site above).
             }
             _LOGGER.debug(
                 "PersonRoutineStatusSensor %s: state=%s unack=%d",

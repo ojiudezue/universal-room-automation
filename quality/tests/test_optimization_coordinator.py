@@ -1854,6 +1854,112 @@ async def test_optimizer_llm_corpus_under_token_cap():
     assert "# === CURRENT SNAPSHOT ===" in body
 
 
+def _corpus_with_findings(n_findings: int, n_rooms: int = 0):
+    """Build a corpus carrying `n_findings` recent findings + a house block
+    whose open_findings_count agrees with them."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizerContextCorpus,
+    )
+
+    corpus = OptimizerContextCorpus()
+    corpus.house = {"status": "degraded", "open_findings_count": n_findings}
+    corpus.findings_recent = [
+        {
+            "timestamp": f"2026-09-13T0{i % 10}:00:00+00:00",
+            "level": "room",
+            "target_id": f"room_{i}",
+            "dimension": "sensor_health",
+            "severity": "high",
+            "description": (
+                f"Sensor binary_sensor.some_quite_long_entity_name_{i} "
+                "stuck unavailable >60s"
+            ),
+            "created_by": "tier1",
+        }
+        for i in range(n_findings)
+    ]
+    corpus.rooms = [{"room_name": f"room_{i}"} for i in range(n_rooms)]
+    return corpus
+
+
+def test_corpus_truncation_notice_absent_when_nothing_trimmed():
+    """OPTIMIZER-PAGING-PRIMITIVE-1 B1 — an untrimmed corpus must NOT carry
+    the notice (it would be a lie, and would train the LLM to ignore real
+    count-vs-list mismatches)."""
+    corpus = _corpus_with_findings(3)
+    body = corpus.to_prompt_body()
+    assert "corpus_truncation_notice" not in body
+    # Sanity: the findings really are all present.
+    assert body.count("stuck unavailable") == 3
+
+
+def test_corpus_truncation_notice_present_when_findings_trimmed():
+    """OPTIMIZER-PAGING-PRIMITIVE-1 B1 — THE REGRESSION GUARD.
+
+    When the corpus overflows, `findings_recent` is the first section
+    emptied while `house.open_findings_count` is preserved. Before this
+    fix the LLM saw `open_findings_count=N` next to `findings_recent=[]`,
+    correctly reported the contradiction as CRITICAL, and CRITICAL
+    bypasses the NM digest-deferral — so our own truncation paged the
+    operator. Measured 2026-09-13: 6 of 6 criticals in 7 days were this
+    artifact and none described a real house condition.
+
+    The body must now TELL the LLM the section was truncated.
+    """
+    corpus = _corpus_with_findings(50)
+    # Force a budget small enough to guarantee findings_recent is trimmed,
+    # but large enough that the house block survives.
+    body = corpus.to_prompt_body(max_chars=900)
+
+    assert body, "expected a body, not the skip sentinel"
+    assert len(body) <= 900
+
+    # The count field survived (that is what made the contradiction).
+    assert "open_findings_count" in body
+    # ...and the corpus now admits the list is incomplete.
+    assert "corpus_truncation_notice" in body
+    assert "findings_recent" in body
+    # The notice must carry shown-vs-total so "incomplete" is checkable.
+    assert '"total": 50' in body
+    # And it must explicitly tell the LLM not to report this as an anomaly.
+    assert "do NOT report a mismatch" in body
+
+
+def test_corpus_truncation_notice_survives_every_fallback_depth():
+    """The notice must ride along on the DEEPER fallbacks too (bayesian
+    drop, house-stub), not just the section-trim return path — otherwise
+    the most-truncated, most-misleading bodies are exactly the ones that
+    lose the warning.
+
+    Sweeps the budget downward so every fallback depth is exercised. Any
+    non-empty body that dropped items MUST carry the notice; the empty
+    sentinel (caller skips the LLM entirely) is an acceptable outcome.
+    """
+    corpus = _corpus_with_findings(50, n_rooms=200)
+    corpus.bayesian_accuracy = {"accuracy": 0.5}
+
+    checked_truncated = 0
+    for max_chars in (2000, 1500, 1200, 1000, 900, 800, 700,
+                      600, 500, 400, 300, 200):
+        body = corpus.to_prompt_body(max_chars=max_chars)
+        if not body:
+            continue  # skip sentinel — caller will not call the LLM
+        assert len(body) <= max_chars, (
+            f"budget {max_chars} overflowed to {len(body)} — the notice "
+            "must be counted INSIDE the budget, not appended after it"
+        )
+        # Anything at these budgets is necessarily truncated.
+        assert "corpus_truncation_notice" in body, (
+            f"budget {max_chars} produced a truncated body with NO notice"
+        )
+        checked_truncated += 1
+
+    assert checked_truncated >= 3, (
+        "expected several fallback depths to produce a real body; "
+        f"only {checked_truncated} did"
+    )
+
+
 @pytest.mark.asyncio
 async def test_optimizer_llm_delta_trigger_skips_when_unchanged():
     """Two cycles with the same Tier-1 finding set → only ONE LLM call."""
@@ -4001,3 +4107,168 @@ async def test_optimizer_corpus_populates_hvac_zone_fanout():
     assert "climate.zone_1_thermostat" in body
     assert "entertainment" in body and "master_bedroom" in body
     assert "Entertainment + Master Suite" in body
+
+
+# ======================================================================
+# OPTIMIZER-PAGING-PRIMITIVE-1 B2 — repeat sensor_health persistence
+# ======================================================================
+
+def _sensor_health_finding(room="Jaya Bath", eid="binary_sensor.jb_occ",
+                           stuck_state="unavailable"):
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    return OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="room", target_id=room,
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity="high", confidence=0.95, score=0.0,
+        description=f"Sensor {eid} stuck {stuck_state} >60s",
+        payload={"entity_id": eid, "stuck_state": stuck_state},
+        dedup_key=("sensor_health", room, eid),
+    )
+
+
+def test_b2_repeat_sensor_health_suppressed_after_first_persist():
+    """An UNCHANGED stuck sensor persists ONCE, not once per cycle.
+
+    Measured 2026-09-13: one offline entity produced 1550 rows in 7 days
+    (~288/day) because the evaluator dedups only WITHIN a cycle.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding()])) == 1, "FIRST occurrence must persist"
+    for _ in range(20):
+        assert coord._filter_repeat_sensor_health(
+            [_sensor_health_finding()]) == [], "repeat must not re-persist"
+
+
+def test_b2_state_change_and_other_entity_still_persist():
+    """A CHANGED stuck state is new information and must re-emit; and one
+    entity's suppression must never swallow a different entity."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(stuck_state="unavailable")])) == 1
+    assert coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(stuck_state="unavailable")]) == []
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(stuck_state="unknown")])) == 1
+    assert len(coord._filter_repeat_sensor_health(
+        [_sensor_health_finding(eid="binary_sensor.other")])) == 1
+
+
+def test_b2_does_not_touch_other_dimensions():
+    """Suppression is scoped to sensor_health ONLY — comfort rows must
+    persist every cycle exactly as before."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    def comfort():
+        return OptimizationFinding(
+            timestamp=datetime.utcnow().isoformat(),
+            level="room", target_id="Kitchen",
+            dimension=OptimizationDimension.COMFORT,
+            severity="medium", confidence=0.9, score=50.0,
+            description="comfort out of range",
+            dedup_key=("comfort", "Kitchen", "temp"),
+        )
+
+    for _ in range(5):
+        assert len(coord._filter_repeat_sensor_health([comfort()])) == 1
+
+
+def test_b2_kill_switch_restores_per_cycle_persistence(monkeypatch):
+    """Interval 0 = kill switch: every cycle re-persists (pre-fix
+    behaviour), so the change is reversible without a code edit."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    hass, _ = _make_hass()
+    coord = opt_mod.OptimizationCoordinator(hass)
+    monkeypatch.setattr(
+        opt_mod, "OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S", 0,
+    )
+    for _ in range(5):
+        assert len(coord._filter_repeat_sensor_health(
+            [_sensor_health_finding()])) == 1
+
+
+@pytest.mark.asyncio
+async def test_b2_wire_in_persist_batch_writes_stuck_sensor_once():
+    """WIRE-IN ANCHOR (not a helper unit test).
+
+    Drives the ENCLOSING method `_persist_findings_batch` across many
+    simulated cycles and asserts the DATABASE only receives the unchanged
+    stuck-sensor row once. A unit test on `_filter_repeat_sensor_health`
+    alone stays green if the filter is never CALLED — this test is what
+    fails when the call site is removed.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+
+    for _ in range(10):
+        await coord._persist_findings_batch([_sensor_health_finding()])
+
+    persisted = [
+        f for call in db.log_findings_batch.await_args_list
+        for f in call.args[0]
+    ]
+    assert len(persisted) == 1, (
+        "the unchanged stuck sensor must reach the DB exactly once across "
+        f"10 cycles; got {len(persisted)} rows"
+    )
+
+
+@pytest.mark.asyncio
+async def test_b2_wire_in_scoreboard_still_sees_every_occurrence():
+    """THE LOAD-BEARING INVARIANT — suppression must be persistence-only.
+
+    `_update_scoreboard` derives open_findings_count / room_scores /
+    house_score from the in-cycle findings list. If B2 had suppressed at
+    evaluation time instead, a room with a still-broken sensor would score
+    100 and the house score would RISE — hiding a fault would look like
+    fixing it. This asserts the scoreboard is unchanged by B2 even on the
+    cycles whose DB row is suppressed.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    db = hass.data["universal_room_automation"]["database"]
+    db.log_findings_batch = AsyncMock(return_value=1)
+
+    for _ in range(5):
+        findings = [_sensor_health_finding()]
+        coord._update_scoreboard(findings)
+        await coord._persist_findings_batch(findings)
+        # Every cycle the fault is STILL counted, regardless of persistence.
+        assert coord._open_findings_count == 1
+        assert coord._room_scores.get("Jaya Bath") == 85.0
+
+    persisted = [
+        f for call in db.log_findings_batch.await_args_list
+        for f in call.args[0]
+    ]
+    assert len(persisted) == 1

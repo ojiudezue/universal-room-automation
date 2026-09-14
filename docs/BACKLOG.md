@@ -804,7 +804,8 @@ sensor.universal_room_automation_<person>_routine_status
   state: "stable" | "drifting" | "shifted"
   attributes:
     cells_evaluated_last_run, cells_with_recent_data, max_magnitude, max_magnitude_cell,
-    top_changes (list of {cell, magnitude, top_movers}), unacknowledged_events, last_check
+    top_changes (list of {cell, magnitude, top_movers}), unacknowledged_events
+    (last_check removed v5.101.x, RECORDER-BLOAT-LOGFLOOD-1 — use entity.last_reported)
 ```
 
 House aggregate:

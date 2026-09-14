@@ -951,7 +951,8 @@ def get_compliance_summary(self) -> dict[str, Any]:
     return {
         "compliance_rate": self._compliance_rate_7d,
         "overrides_today": self._override_count_today,
-        "last_check": self._last_compliance_check,
+        # last_check removed v5.101.x (RECORDER-BLOAT-LOGFLOOD-1) — per-refresh
+        # utcnow() would force ~1 States row/sec; read entity.last_reported.
         "zones_compliant": self._zones_compliant_count,
         "zones_total": len(self._zone_managers),
     }
@@ -962,7 +963,7 @@ def get_compliance_summary(self) -> dict[str, Any]:
 | Entity ID | State | Attributes |
 |-----------|-------|------------|
 | `sensor.ura_hvac_coordinator_anomaly` | nominal/advisory/alert/critical/learning/insufficient_data | worst_metric, z_score, learning_status, anomalies_today, metrics (per-metric mean/std/samples) |
-| `sensor.ura_hvac_coordinator_compliance` | 0-100% | overrides_today, last_check, zones_compliant, zones_total |
+| `sensor.ura_hvac_coordinator_compliance` | 0-100% | overrides_today, zones_compliant, zones_total (last_check removed v5.101.x, RECORDER-BLOAT-LOGFLOOD-1 — use entity.last_reported) |
 
 These follow the exact same class pattern as `SecurityAnomalySensor` and
 `SecurityComplianceSensor` in sensor.py, using `_hvac_device_info()`.

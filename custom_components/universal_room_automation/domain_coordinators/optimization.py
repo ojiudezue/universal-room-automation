@@ -98,6 +98,7 @@ from ..const import (
     OPTIMIZER_DIGEST_RETENTION_DAYS,
     OPTIMIZER_DIGEST_TOP_N,
     OPTIMIZER_NOTIFY_DEDUP_CYCLES,
+    OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S,
     OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
@@ -578,6 +579,12 @@ class OptimizationCoordinator(BaseCoordinator):
         self._comfort_out_since: dict[tuple, datetime] = {}
         # Per-room sustained-sensor-stuck tracking.
         self._sensor_stuck_since: dict[tuple, datetime] = {}
+        # OPTIMIZER-PAGING-PRIMITIVE-1 B2 — last time an UNCHANGED
+        # sensor_health row was PERSISTED, keyed (dedup_key, stuck_state).
+        # RAM-only by design: a restart re-persists once per stuck sensor,
+        # which is the correct post-restart behaviour (the fact is re-stated
+        # for the new boot) and bounded at one row per sensor.
+        self._sensor_health_last_persisted: dict[tuple, datetime] = {}
         # A6 fix-up: per-room sustained occupancy/motion disagreement tracking.
         # Disagreement must persist >= OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS
         # before emitting (motion-on/occupancy-off is transient at wake).
@@ -1899,6 +1906,16 @@ class OptimizationCoordinator(BaseCoordinator):
                     ))
                 else:
                     self._sensor_stuck_since.pop(key, None)
+                    # B2: recovery RE-ARMS persistence — clear every
+                    # stuck_state variant for this (dimension, room, eid)
+                    # so a re-break is recorded immediately rather than
+                    # waiting out the re-persist interval.
+                    dk = str(("sensor_health", room, eid))
+                    for pk in [
+                        k for k in self._sensor_health_last_persisted
+                        if k[0] == dk
+                    ]:
+                        self._sensor_health_last_persisted.pop(pk, None)
         return findings
 
     def _evaluate_comfort_dimension(self) -> list[OptimizationFinding]:
@@ -3775,6 +3792,68 @@ class OptimizationCoordinator(BaseCoordinator):
                 _LOGGER.debug("tripwire NM fire failed", exc_info=True)
         return True
 
+    def _filter_repeat_sensor_health(
+        self, findings: list[OptimizationFinding],
+    ) -> list[OptimizationFinding]:
+        """Drop sensor_health rows that repeat an UNCHANGED stuck state.
+
+        OPTIMIZER-PAGING-PRIMITIVE-1 B2. `_evaluate_sensor_health_dimension`
+        dedups only within a cycle, so a sensor that stays unavailable
+        re-emits an identical row every ~5 min forever (measured: 1550 rows
+        in 7 days for ONE offline entity). This suppresses the repeats to
+        at most one per
+        ``OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S``.
+
+        WHY AT THE PERSISTENCE LAYER, NOT THE EVALUATOR — this is the
+        load-bearing design decision, do not "simplify" it by moving the
+        check into `_evaluate_sensor_health_dimension`:
+        ``_update_scoreboard`` runs EARLIER in the cycle (see the call at
+        the top of `_run_cycle_body`) and derives `_open_findings_count`,
+        `_room_scores` and `_house_score` from the FULL findings list. If
+        the finding were suppressed at evaluation time, a room whose sensor
+        is still broken would silently score 100 and the house score would
+        rise — i.e. hiding a fault would look like fixing it. Suppressing
+        only the DB row keeps every in-cycle consumer byte-identical:
+          - `_update_scoreboard` / open_findings_count  -> unaffected
+          - `_notify_if_severe`                          -> unaffected
+          - `_last_findings` (LLM corpus)                -> unaffected
+          - DB readers / digest / analytics              -> see the fix
+        Only the persisted row-rate changes, which is exactly the defect.
+
+        Keying: (dedup_key, stuck_state). A state CHANGE re-emits
+        immediately. RECOVERY clears the key in the evaluator, so a
+        re-break also alerts immediately.
+        """
+        interval = OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S
+        if interval <= 0:
+            return findings  # kill switch: restore per-cycle persistence
+        now = dt_util.utcnow()
+        kept: list[OptimizationFinding] = []
+        suppressed = 0
+        for f in findings:
+            if f.dimension != OptimizationDimension.SENSOR_HEALTH:
+                kept.append(f)
+                continue
+            payload = getattr(f, "payload", None) or {}
+            key = (
+                str(getattr(f, "dedup_key", None)),
+                str(payload.get("stuck_state", "")),
+            )
+            last = self._sensor_health_last_persisted.get(key)
+            if last is not None and (now - last).total_seconds() < interval:
+                suppressed += 1
+                continue
+            self._sensor_health_last_persisted[key] = now
+            kept.append(f)
+        if suppressed:
+            _LOGGER.debug(
+                "Optimizer: suppressed %d unchanged repeat sensor_health "
+                "row(s) from persistence (re-persist interval %ds); "
+                "in-cycle scoreboard/notify/corpus are unaffected",
+                suppressed, interval,
+            )
+        return kept
+
     async def _persist_findings_batch(
         self, findings: list[OptimizationFinding],
     ) -> None:
@@ -3789,6 +3868,12 @@ class OptimizationCoordinator(BaseCoordinator):
         v5.11.0 D9: gated by the write-volume tripwire. If persistence
         has been suspended, the call is a no-op (evaluation still runs).
         """
+        if not findings:
+            return
+        # OPTIMIZER-PAGING-PRIMITIVE-1 B2 (2026-09-13): drop unchanged
+        # repeat sensor_health rows. Applied HERE (persistence) and not in
+        # the evaluator ON PURPOSE — see `_filter_repeat_sensor_health`.
+        findings = self._filter_repeat_sensor_health(findings)
         if not findings:
             return
         if self._check_write_volume_tripwire():

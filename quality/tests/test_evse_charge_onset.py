@@ -1459,6 +1459,12 @@ class TestChargeOnsetFixUpWireIns:
         fake._route_to_setter = ns["_route_to_setter"].__get__(fake)
         fake.async_turn_on = ns["async_turn_on"].__get__(fake)
         fake.async_turn_off = ns["async_turn_off"].__get__(fake)
+        # EVSE-CHARGE-ONSET-NOT-HELD-1: turn_on/off now also invoke
+        # `_write_back_options` (entry.options persistence for reload-
+        # resilience). This existing wire-in test only cares about the
+        # sub-controller fan-out, so stub the write-back to a no-op.
+        # Dedicated coverage lives in TestReloadResilienceWriteBack.
+        fake._write_back_options = lambda _v: None
 
         loop = _aio.new_event_loop()
         loop.run_until_complete(fake.async_turn_on())
@@ -1524,4 +1530,371 @@ class TestChargeOnsetFixUpWireIns:
         )
         assert pid in sp._onset_deferred, (
             "sensor observability: plug drain-site hold did not mark _onset_deferred"
+        )
+
+
+# ---------------------------------------------------------------------------
+# EVSE-CHARGE-ONSET-NOT-HELD-1 — reload-resilience of the enable flag.
+#
+# FALSIFIABLE INVARIANT:
+#   After a config-entry reload, `_ev_charge_onset_enabled` on the first
+#   ensure-on tick == the operator's persisted setting (True stays True,
+#   False stays False) — never the hardcoded ship-dormant default when
+#   the operator set it True.
+#
+# The producer that makes this true is
+# `ECEVChargeOnsetEnabledSwitch._write_back_options`: it persists
+# every toggle + RestoreEntity restore into `entry.options[
+# "energy_evse_charge_onset_enabled"]`, so `EnergyCoordinator.__init__`
+# (energy.py:481-489) seeds the correct value on all subsequent
+# reloads.
+#
+# MUTATION: revert the write-back (neuter `_write_back_options` to a
+# no-op) → this test's True-case assertion goes RED because entry.options
+# never receives the operator's True value.
+# ---------------------------------------------------------------------------
+class TestReloadResilienceWriteBack:
+
+    def _extract_switch_methods(self):
+        import ast as _ast, os as _os
+        _sw_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(
+                _os.path.abspath(__file__)))),
+            "custom_components", "universal_room_automation", "switch.py",
+        )
+        with open(_sw_path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        tree = _ast.parse(src)
+        method_srcs: dict[str, str] = {}
+        for node in _ast.walk(tree):
+            if (isinstance(node, _ast.ClassDef)
+                    and node.name == "ECEVChargeOnsetEnabledSwitch"):
+                src_lines = src.splitlines()
+                for child in node.body:
+                    if isinstance(child, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                        seg = "\n".join(
+                            src_lines[child.lineno - 1: child.end_lineno]
+                        )
+                        method_srcs[child.name] = "\n".join(
+                            line[4:] if line.startswith("    ") else line
+                            for line in seg.splitlines()
+                        )
+        return method_srcs
+
+    def _build_fake(self, initial_options: dict):
+        """Assemble a stand-in switch bound to fake entry+hass."""
+        import asyncio as _aio, logging as _logging
+
+        class _FakeEntry:
+            def __init__(self, options):
+                self.options = dict(options)
+                self.entry_id = "fake_entry"
+
+        class _FakeConfigEntries:
+            def __init__(self):
+                self.update_calls = []
+            def async_update_entry(self, entry, options=None, **kw):
+                if options is not None:
+                    entry.options = dict(options)
+                self.update_calls.append(dict(entry.options))
+
+        class _FakeHass:
+            def __init__(self):
+                self.config_entries = _FakeConfigEntries()
+
+        entry = _FakeEntry(initial_options)
+        hass = _FakeHass()
+
+        methods = self._extract_switch_methods()
+        assert "_write_back_options" in methods, (
+            "wire-in broken: _write_back_options missing from "
+            "ECEVChargeOnsetEnabledSwitch — reload-resilience seed will "
+            "read stale entry.options after every CM reload."
+        )
+
+        # Coord stub + real fanout setter (reused from the sibling test).
+        ev, _ = _make_ev(charging=False)
+        sp = SmartPlugController(hass, plug_entities=[])
+        class _CoordStub:
+            _ev_charge_onset_enabled = False
+        coord = _CoordStub()
+        coord._ev = ev
+        coord._smart_plugs = sp
+        def _setter(v):
+            coord._ev_charge_onset_enabled = bool(v)
+            ev.set_ev_charge_onset_enabled(bool(v))
+            sp.set_ev_charge_onset_enabled(bool(v))
+        coord.set_ev_charge_onset_enabled = _setter
+
+        class _FakeSwitch:
+            def _get_energy(self_inner):
+                return coord
+        fake = _FakeSwitch()
+        fake._entry = entry
+        fake.hass = hass
+        fake._deferred_restore = False
+        fake.async_write_ha_state = lambda: None
+
+        # C-LOW-1 fix-up: switch.py write-back now references the imported
+        # constant `_CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED` (was a hardcoded
+        # string literal). Supply it in the exec namespace so the AST-
+        # extracted bytecode resolves the name to the SAME symbol as
+        # production — a rename would break both sites in lockstep.
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CK,
+        )
+        ns: dict = {
+            "_LOGGER": _logging.getLogger("test_reload_writeback"),
+            "_CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED": _CK,
+        }
+        for meth in ("_route_to_setter", "_write_back_options",
+                     "async_turn_on", "async_turn_off",
+                     "_sync_after_restore"):
+            exec(compile(methods[meth],
+                         f"<switch.py-extract-{meth}>", "exec"), ns)
+            setattr(fake, meth, ns[meth].__get__(fake))
+        return fake, entry, hass, coord
+
+    # -------- Seed-block extractor: drives the REAL energy.py seed --------
+    def _extract_seed_block(self) -> str:
+        """C-HIGH-2 fix-up: extract the actual seed statements from
+        `EnergyCoordinator.__init__` (energy.py, the block after the
+        `Rev 6 D-A` marker) so this test's post-write-back assertion
+        drives the production seed code — not a hand-rolled `ec.get`.
+        Mutating energy.py to force the ship-dormant default must fail
+        the test."""
+        import os as _os
+        _e_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.dirname(
+                _os.path.abspath(__file__)))),
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "energy.py",
+        )
+        with open(_e_path, "r", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        # Anchor on the Rev 6 D-A marker comment; take from the `from
+        # .energy_const import ...` line through the second assignment
+        # of `_ev_charge_onset_enabled`. Fails loudly if the shape moves.
+        anchor = None
+        for i, line in enumerate(lines):
+            if "Rev 6 D-A — seed the enable toggle" in line:
+                anchor = i
+                break
+        assert anchor is not None, (
+            "wire-in broken: 'Rev 6 D-A — seed the enable toggle' marker "
+            "gone from energy.py — seed block moved; test needs re-anchor."
+        )
+        # Take the following ~15 lines and stop after the coord-mirror
+        # assignment (`self._ev_charge_onset_enabled: bool = ...`).
+        block: list[str] = []
+        seen_second_assign = False
+        for line in lines[anchor + 1: anchor + 20]:
+            block.append(line)
+            if ("self._ev_charge_onset_enabled: bool"
+                    in line and "_seed:" not in line):
+                seen_second_assign = True
+                break
+        assert seen_second_assign, (
+            "wire-in broken: coord-mirror `self._ev_charge_onset_enabled` "
+            "assignment not found near seed marker."
+        )
+        # Dedent 8 spaces (inside __init__).
+        return "\n".join(
+            (line[8:] if line.startswith("        ") else line)
+            for line in block
+        )
+
+    def _run_real_seed(self, options: dict) -> bool:
+        """Exec the AST-extracted seed block from energy.py against a
+        fake `self` and `ec = dict(options)`. Returns the value the
+        REAL coord __init__ would land in `self._ev_charge_onset_enabled`.
+        Mutation in energy.py (e.g. forcing DEFAULT) reaches this test."""
+        import logging as _logging
+        from custom_components.universal_room_automation.domain_coordinators import (
+            energy_const as _ec_mod,
+        )
+        class _SelfStub:
+            pass
+        stub = _SelfStub()
+        # `from .energy_const import ...` inside the block resolves via
+        # ns; provide the module too so relative-import statement works
+        # via a stubbed `.energy_const` -> point exec at module-scope
+        # symbols directly (drop the import line to keep exec safe).
+        src = self._extract_seed_block()
+        src_lines = [
+            ln for ln in src.splitlines()
+            if not ln.strip().startswith("from ")
+            and not ln.strip().startswith("CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED")
+            and not ln.strip().startswith("DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED")
+            and ln.strip() not in (")",)
+        ]
+        # The `from .energy_const import (` line spans multi-line; strip
+        # it via a state machine: skip from `from .energy_const` until
+        # the closing `)`.
+        cleaned: list[str] = []
+        skipping = False
+        for ln in src.splitlines():
+            s = ln.strip()
+            if s.startswith("from .energy_const"):
+                skipping = True
+                continue
+            if skipping:
+                if s.endswith(")"):
+                    skipping = False
+                continue
+            cleaned.append(ln)
+        seed_src = "\n".join(cleaned)
+        ns = {
+            "self": stub,
+            "ec": dict(options),
+            "bool": bool,
+            "CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED":
+                _ec_mod.CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+            "DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED":
+                _ec_mod.DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+        }
+        exec(compile(seed_src, "<energy.py-extract-seed-block>", "exec"), ns)
+        return bool(getattr(stub, "_ev_charge_onset_enabled"))
+
+    def test_turn_on_writes_back_true_to_entry_options(self):
+        """Toggling ON persists True to entry.options — so next
+        EnergyCoordinator.__init__ seed reads True on the first
+        post-reload tick (in-hold-window will HOLD, not permit)."""
+        import asyncio as _aio
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CK,
+        )
+        fake, entry, hass, coord = self._build_fake(
+            initial_options={_CK: False},
+        )
+        loop = _aio.new_event_loop()
+        loop.run_until_complete(fake.async_turn_on())
+        assert entry.options[_CK] is True, (
+            "INVARIANT VIOLATED: turn_on did not write True back to "
+            "entry.options — coord __init__ seed will read False on the "
+            "next config-entry reload and the onset gate will PERMIT "
+            "inside the hold window (root cause of live flap 02:49)."
+        )
+        assert len(hass.config_entries.update_calls) == 1
+
+    def test_turn_off_writes_back_false_to_entry_options(self):
+        """Ship-dormant semantics preserved: False persists as False."""
+        import asyncio as _aio
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CK,
+        )
+        fake, entry, hass, _ = self._build_fake(
+            initial_options={_CK: True},
+        )
+        loop = _aio.new_event_loop()
+        loop.run_until_complete(fake.async_turn_off())
+        assert entry.options[_CK] is False
+
+    def test_write_back_is_idempotent_when_value_matches(self):
+        """No entry.options churn when the toggle already matches."""
+        import asyncio as _aio
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CK,
+        )
+        fake, entry, hass, _ = self._build_fake(
+            initial_options={_CK: True},
+        )
+        loop = _aio.new_event_loop()
+        loop.run_until_complete(fake.async_turn_on())
+        assert len(hass.config_entries.update_calls) == 0, (
+            "write-back not idempotent — repeated toggles at the same "
+            "value would spam async_update_entry and thrash the "
+            "options-update listener chain."
+        )
+
+    def test_seed_reads_authoritative_value_after_writeback(self):
+        """C-HIGH-2 fix-up: drive the REAL seed block from energy.py.
+
+        Prior version hand-rolled `entry.options.get(...)`, so a mutation
+        of the production seed (force DEFAULT) went undetected. This
+        variant AST-extracts the seed statements from energy.py and
+        execs them against `ec = dict(entry.options)` after the write-
+        back. If a mutation forces the ship-dormant default in
+        energy.py:481-484, `self._ev_charge_onset_enabled` on the
+        coord attr goes False and this test fails RED."""
+        import asyncio as _aio
+        fake, entry, _, _ = self._build_fake(
+            initial_options={},  # empty = install default
+        )
+        # Sanity: pre-write-back, the real seed reads the ship-dormant
+        # default False.
+        assert self._run_real_seed(entry.options) is False
+        # Operator toggles ON via the switch entity.
+        loop = _aio.new_event_loop()
+        loop.run_until_complete(fake.async_turn_on())
+        # A fresh reload's __init__ seed (driven for real here) sees True.
+        seed_after = self._run_real_seed(entry.options)
+        assert seed_after is True, (
+            "post-write-back seed still reads False — the reload-"
+            "resilience contract is broken; either the writer failed "
+            "OR the production seed at energy.py:481-484 was neutered."
+        )
+
+
+class TestSyncAfterRestoreWriteBack:
+    """C-HIGH-1 fix-up: cover `_sync_after_restore`'s write-back call.
+
+    This is the load-bearing one-shot corrector for the existing operator
+    (RestoreEntity holds True, entry.options stale False after a
+    pre-fix session). Without this test, removing the write-back call
+    in `_sync_after_restore` leaves the suite green.
+
+    MUTATION: delete `self._write_back_options(bool(current))` in
+    `_sync_after_restore` (switch.py) → this test goes RED because
+    entry.options is never corrected from the RestoreEntity state.
+    """
+
+    def test_sync_after_restore_writes_back_when_options_stale(self):
+        """RestoreEntity restored coord attr True; entry.options is
+        stale False (or absent). `_sync_after_restore` must write True
+        back so subsequent coord __init__ seeds authoritatively."""
+        harness = TestReloadResilienceWriteBack()
+        fake, entry, hass, coord = harness._build_fake(
+            initial_options={},  # stale/absent — pre-fix operator's state
+        )
+        # Simulate what the RestoreEntity fast-path already did: the
+        # base factory setattr'd coord._ev_charge_onset_enabled = True
+        # (see switch.py `_ec_switch_factory` async_added_to_hass fast
+        # path). We just re-create that precondition.
+        coord._ev_charge_onset_enabled = True
+        # Now the subclass hook fires.
+        fake._sync_after_restore()
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CK,
+        )
+        assert entry.options.get(_CK) is True, (
+            "INVARIANT VIOLATED: _sync_after_restore did not persist the "
+            "restored value to entry.options — the one-shot corrector "
+            "for the existing-operator case is gone; the operator's "
+            "pre-fix session (RestoreEntity True, entry.options stale "
+            "False) will never self-heal and every reload will re-flap "
+            "the onset gate open until they toggle the switch manually."
+        )
+        assert len(hass.config_entries.update_calls) == 1
+
+    def test_sync_after_restore_survives_setter_exception(self):
+        """A-LOW fix-up: setter fanout raising must not silently skip
+        the persistence write-back. Regression guard on try-isolation."""
+        harness = TestReloadResilienceWriteBack()
+        fake, entry, hass, coord = harness._build_fake(
+            initial_options={},
+        )
+        coord._ev_charge_onset_enabled = True
+        # Make the setter raise.
+        def _boom(_v):
+            raise RuntimeError("simulated fanout failure")
+        coord.set_ev_charge_onset_enabled = _boom
+        fake._sync_after_restore()
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CK,
+        )
+        assert entry.options.get(_CK) is True, (
+            "A-LOW regression: setter exception swallowed the write-back "
+            "— reload-resilience lost on the transient path where fanout "
+            "raises. Isolate the write-back in its own try/except."
         )

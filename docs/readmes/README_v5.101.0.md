@@ -78,8 +78,23 @@ rollback is clean: HACS re-download the prior version + restart, or `git revert`
 onboarding commits on develop + redeploy. Existing rooms/House entries are untouched
 (create-path-only change).
 
-## Live validation — acceptance criteria (discriminating)
-*(prospective — filled in with observed results after the post-deploy restart)*
+## Live validation
+
+### Validated 2026-09-12 (post-restart, HACS installed_version=v5.101.0)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| **L1 restart resilience** | **PASS** | `ha_get_integration(domain=universal_room_automation)` → 45 entries, `state_summary {loaded: 45}`; no `setup_error`/`setup_retry`. `ha_get_logs(source=system, search=universal_room_automation)` → 14 entries, **all level WARNING, zero ERROR, zero tracebacks**; every warning is a normal boot transient (sensors-not-yet-reported 60s holds, Envoy/camera-census boot-unavailable) or pre-existing (deprecation frame warnings, HVAC fan-wiring, occupancy-substrate precedence). Nothing onboarding/arrester/const-related. |
+| **L2 one-House** | **PASS** | Exactly one INTEGRATION entry ("Universal Room Automation", `state=loaded`) + room/zone entries; 45/45 loaded. Existing rooms untouched (config-flow-only change). |
+| **L3 no-occupancy install completes** | **PENDING — operator-action-gated** | Manifests only on a fresh install with no occupancy sensor. Code live (`_mint_house_now` at energy_setup + reachable Skip route, confirmed on master); in-suite verified (`test_first_run_no_occupancy_sensor_still_installs`). Validate on next fresh install. |
+| **L4 essentials + auto-detect** | **PENDING — add-room-gated** | Manifests on next add-room. In-suite verified (light_capabilities persists "full"; bathroom seeds wet_room + humidity-fan spike + presence-runtime). Validate on next room add. |
+| **L5 INV-2 live (no guessed commit)** | **PENDING — add-room-gated** | In-suite verified (`suggested_value`, cleared selector persists empty, mutation-anchored). Validate on next room add with a clearable sensor. |
+| **L6 no capability loss** | **PASS (in-suite) / live PENDING** | Reviews A+D independently confirmed all 23 deferred keys round-trip in the Options flow (no capability lost). Live spot-check deferred to next room edit. |
+| **ARRESTER (shipped_organic discriminator)** | **PENDING — event-gated** | Revisit: on next Carrier 3-zone simultaneous unavailable→available reconnect, `override_count_today` does NOT increment (pre-fix +≤3). Query recorder/hvac bookkeeping around a reconnect. |
+
+Boot-only transients seen and dismissed: "All N sensors unavailable — holding occupancy 60s", "Envoy unavailable (SOC=None) — holding", "Census: all camera platforms unavailable", "Setup of sensor platform … over 10 seconds" — all expected immediately post-restart, cleared as sources re-reported.
+
+### Prospective acceptance criteria (discriminating)
 
 - **L1 (restart resilience):** after HA restart URA loads, `ha_check_config` valid,
   **zero new URA ERROR** logs, config-flow handlers importable. Discriminator: a

@@ -254,3 +254,297 @@ def test_camera_census_resolve_camera_entity_warn_once_missing():
     assert "_unresolved_warned.discard(camera_entity_id)" in body, (
         "resolve_camera_entity missing warn-once RE-ARM on resolved entity"
     )
+
+
+# ---------------------------------------------------------------------------
+# D4 (attribute-churn recorder bloat) — write-amplification fix.
+#
+# Three URA status sensors embedded a per-refresh dt_util.utcnow()
+# diagnostic timestamp in extra_state_attributes:
+#     SafetyStatusSensor         "last_check"     (sensor.py:6544)
+#     PersonRoutineStatusSensor  "last_check_at"  (sensor.py:15052,15086)
+#     SecurityComplianceSensor   "last_check"     (via security.py:2463)
+#
+# HA core's async_set_internal (core.py:2313) fires EVENT_STATE_CHANGED
+# whenever the FULL attributes dict differs, and the recorder writes a
+# States row per event (core.py:1088-1165). A churning utcnow() attr
+# therefore forced ~1 States row/sec (~675K/week for the safety_status
+# sensor) even when the underlying state was unchanged. HA's
+# `_unrecorded_attributes` only dedups the state_attributes TABLE
+# (helpers/entity.py:518,563 → recorder/db_schema.py:565-568) — it does
+# NOT prevent States-row creation.
+#
+# The load-bearing fix is REMOVAL of the churning key from the runtime
+# attributes dict at the producer. `_unrecorded_attributes` remains as a
+# belt-and-suspenders declaration in case any future code re-adds the
+# key. These tests assert the runtime dict no longer contains the key
+# (primary invariant) AND that the belt-and-suspenders declaration is
+# still present (regression guard on the fallback).
+#
+# AST parsing beats a full import because sensor.py drags the whole
+# integration graph.
+# ---------------------------------------------------------------------------
+def _sensor_class_unrecorded_attrs(class_name: str) -> frozenset[str] | None:
+    """Return the literal frozenset({...}) declared on a class in
+    sensor.py, or None if the class declares no _unrecorded_attributes."""
+    p = os.path.join(
+        _CC, "universal_room_automation", "sensor.py",
+    )
+    with open(p) as fh:
+        tree = ast.parse(fh.read())
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.ClassDef) and node.name == class_name):
+            continue
+        for stmt in node.body:
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == "_unrecorded_attributes"
+            ):
+                # Expect: frozenset({"key", ...})
+                call = stmt.value
+                if (
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id == "frozenset"
+                    and call.args
+                    and isinstance(call.args[0], ast.Set)
+                ):
+                    keys = {
+                        el.value for el in call.args[0].elts
+                        if isinstance(el, ast.Constant)
+                        and isinstance(el.value, str)
+                    }
+                    return frozenset(keys)
+        return None
+    raise AssertionError(f"class {class_name} not found in sensor.py")
+
+
+def test_safety_status_sensor_last_check_unrecorded():
+    """SafetyStatusSensor: the 675K-rows/week churn source."""
+    attrs = _sensor_class_unrecorded_attrs("SafetyStatusSensor")
+    assert attrs is not None, (
+        "SafetyStatusSensor lost its _unrecorded_attributes declaration — "
+        "recorder attribute-churn regression (RECORDER-BLOAT-LOGFLOOD-1)"
+    )
+    assert "last_check" in attrs, (
+        f"SafetyStatusSensor._unrecorded_attributes missing 'last_check'; "
+        f"got {sorted(attrs)}"
+    )
+
+
+def test_person_routine_status_sensor_last_check_at_unrecorded():
+    attrs = _sensor_class_unrecorded_attrs("PersonRoutineStatusSensor")
+    assert attrs is not None, (
+        "PersonRoutineStatusSensor lost its _unrecorded_attributes declaration"
+    )
+    assert "last_check_at" in attrs, (
+        f"PersonRoutineStatusSensor._unrecorded_attributes missing "
+        f"'last_check_at'; got {sorted(attrs)}"
+    )
+
+
+def test_security_compliance_sensor_last_check_unrecorded():
+    """SecurityComplianceSensor pulls last_check via
+    SecurityCoordinator.get_compliance_summary() (security.py:2463)."""
+    attrs = _sensor_class_unrecorded_attrs("SecurityComplianceSensor")
+    assert attrs is not None, (
+        "SecurityComplianceSensor lost its _unrecorded_attributes declaration"
+    )
+    assert "last_check" in attrs, (
+        f"SecurityComplianceSensor._unrecorded_attributes missing "
+        f"'last_check'; got {sorted(attrs)}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# D4 primary invariant: the churning key is ABSENT from the runtime
+# extra_state_attributes dict at the producer. This is what actually
+# stops EVENT_STATE_CHANGED (and the per-tick States row).
+# ---------------------------------------------------------------------------
+def _dict_literal_keys_in_function(source: str, func_name: str,
+                                   in_class: str | None = None) -> set[str]:
+    """Return every string-literal key that appears in any Dict literal
+    inside the named function (optionally scoped to a class). Used to
+    assert that a churning attribute key is not being written into the
+    entity's attributes dict."""
+    tree = ast.parse(source)
+
+    def walk_func(fn: ast.AST) -> set[str]:
+        keys: set[str] = set()
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Dict):
+                for k in node.keys:
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        keys.add(k.value)
+        return keys
+
+    if in_class is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == in_class:
+                for stmt in node.body:
+                    if (
+                        isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and stmt.name == func_name
+                    ):
+                        return walk_func(stmt)
+        raise AssertionError(
+            f"class {in_class}.{func_name} not found"
+        )
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == func_name
+        ):
+            return walk_func(node)
+    raise AssertionError(f"function {func_name} not found")
+
+
+def _sensor_py() -> str:
+    with open(os.path.join(
+        _CC, "universal_room_automation", "sensor.py",
+    )) as fh:
+        return fh.read()
+
+
+def _security_py() -> str:
+    with open(os.path.join(
+        _CC, "universal_room_automation",
+        "domain_coordinators", "security.py",
+    )) as fh:
+        return fh.read()
+
+
+def test_safety_status_sensor_extra_attrs_omit_last_check():
+    """Primary invariant: churning `last_check` is NOT written to the
+    attributes dict SafetyStatusSensor.extra_state_attributes returns.
+    Mutation drill: re-add `"last_check": dt_util.utcnow().isoformat()`
+    to the returned dict → this test goes RED."""
+    keys = _dict_literal_keys_in_function(
+        _sensor_py(), "extra_state_attributes",
+        in_class="SafetyStatusSensor",
+    )
+    assert "last_check" not in keys, (
+        "SafetyStatusSensor.extra_state_attributes still emits "
+        "'last_check' — write-amplification regression "
+        "(EVENT_STATE_CHANGED will fire every refresh, forcing a new "
+        "States row on the ~1/sec tick even when safety status is stable)"
+    )
+
+
+def test_person_routine_status_sensor_cached_attrs_omit_last_check_at():
+    """PersonRoutineStatusSensor builds its returned attrs via
+    self._cached_attrs assigned inside its refresh coroutine. Assert
+    neither dict-literal branch emits `last_check_at`."""
+    keys = _dict_literal_keys_in_function(
+        _sensor_py(), "async_update",
+        in_class="PersonRoutineStatusSensor",
+    )
+    assert "last_check_at" not in keys, (
+        "PersonRoutineStatusSensor still writes 'last_check_at' into "
+        "self._cached_attrs — write-amplification regression"
+    )
+
+
+def test_security_get_compliance_summary_omits_last_check():
+    """SecurityCoordinator.get_compliance_summary() is the source dict
+    exposed by SecurityComplianceSensor.extra_state_attributes. Assert
+    the source no longer emits `last_check`."""
+    keys = _dict_literal_keys_in_function(
+        _security_py(), "get_compliance_summary",
+        in_class="SecurityCoordinator",
+    )
+    assert "last_check" not in keys, (
+        "SecurityCoordinator.get_compliance_summary still emits "
+        "'last_check' — write-amplification regression on "
+        "SecurityComplianceSensor"
+    )
+
+
+# ---------------------------------------------------------------------------
+# No-churn AST symbol scan on SafetyStatusSensor.extra_state_attributes.
+# Truth-in-labeling (Bug Class #62): this is NOT a behavioral two-read
+# dict-equality test. Constructing SafetyStatusSensor with a stub
+# hass/coordinator would drag the full custom_components import graph
+# (AggregationEntity + DOMAIN + coordinator wiring), so this test instead
+# parses sensor.py's AST, locates the terminal `return {...}` literal in
+# SafetyStatusSensor.extra_state_attributes, and asserts none of its
+# subexpressions reference the time-source symbols that would make two
+# consecutive reads diverge (`dt_util`, `datetime`, `.utcnow`, `.now`,
+# `.isoformat`, `.timestamp`). If all values are static wrt the
+# coordinator, then two reads under an unchanged coordinator ARE
+# dict-equal — that's the invariant this proxy protects.
+#
+# Maintainer note: `_ForbidChurn` flags any Attribute named
+# now/timestamp/isoformat, so a future legitimate STORED `.isoformat()`
+# value (e.g. a persisted last-transition timestamp that only updates
+# on real state change) would false-RED this check. If that happens,
+# audit the new site — if it's genuinely edge-triggered (not
+# per-refresh), narrow this test's forbid-list to `dt_util`/`datetime`
+# names only, or move the assertion to a subtree scan that excludes
+# the new key.
+# ---------------------------------------------------------------------------
+def test_safety_status_return_dict_has_no_churn_symbols():
+    """AST symbol scan: SafetyStatusSensor.extra_state_attributes'
+    terminal `return {...}` literal must not reference dt_util,
+    datetime, .utcnow, .now, .isoformat, or .timestamp — any of which
+    would make two consecutive reads under stable coordinator state
+    produce different dicts (=> EVENT_STATE_CHANGED => per-tick States
+    row).
+
+    Mutation drill: re-adding `"last_check": dt_util.utcnow().isoformat()`
+    to the returned dict re-introduces `dt_util`, `utcnow`, and
+    `isoformat` in the subtree and fails this test."""
+    src = _sensor_py()
+    tree = ast.parse(src)
+    func = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "SafetyStatusSensor":
+            for stmt in node.body:
+                if (
+                    isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and stmt.name == "extra_state_attributes"
+                ):
+                    func = stmt
+    assert func is not None
+
+    # Find the terminal `return {...}` dict literal.
+    ret_dict = None
+    for node in ast.walk(func):
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+            ret_dict = node.value
+    assert ret_dict is not None, (
+        "SafetyStatusSensor.extra_state_attributes: no return-dict "
+        "literal found — shape changed, review this anchor"
+    )
+
+    # Every VALUE in the terminal dict literal must be a static
+    # expression against the local variables (safety, hazards_detail,
+    # scope, num_locations). No `dt_util.` / `.now()` / `.utcnow()` /
+    # `.isoformat()` may appear — those are the churn shapes.
+    class _ForbidChurn(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.hits: list[str] = []
+
+        def visit_Attribute(self, n: ast.Attribute) -> None:
+            name = n.attr
+            if name in ("utcnow", "now", "isoformat", "timestamp"):
+                self.hits.append(name)
+            self.generic_visit(n)
+
+        def visit_Name(self, n: ast.Name) -> None:
+            if n.id in ("dt_util", "datetime"):
+                self.hits.append(n.id)
+            self.generic_visit(n)
+
+    checker = _ForbidChurn()
+    checker.visit(ret_dict)
+    assert not checker.hits, (
+        f"SafetyStatusSensor return-dict contains churn-shape symbols "
+        f"{checker.hits} — re-introducing per-refresh timestamps would "
+        f"restore write-amplification. Two consecutive reads with "
+        f"unchanged coordinator state would then produce different "
+        f"dicts, firing EVENT_STATE_CHANGED and a recorder States row "
+        f"on every tick."
+    )
