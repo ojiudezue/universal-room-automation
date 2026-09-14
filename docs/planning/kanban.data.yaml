@@ -1622,7 +1622,7 @@ cards:
 - id: WORKTREE-BACKLOG-PRUNE-1
   title: 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work
   thread: infra
-  status: planned
+  status: done
   created: '2026-09-13 21:10'
   updated: '2026-09-13 21:15'
   refinement_status: initial
@@ -1683,9 +1683,18 @@ cards:
     that fails any check and report it rather than forcing.
     NEVER delete: branches with an attached worktree, anything unmerged, and the release/scratch
     integration branches from tonight until their releases are validated.
-  next: >-
-    REOPENED on operator instruct: delete the fully-merged local branches under the three-check
-    safety bar above. Report the count deleted, and list anything skipped with the reason.
+  branch_cleanup_done_2026_09_14: >-
+    DONE. 355 branches deleted, 413 -> 58. Used `git branch -d` (which REFUSES anything not fully
+    merged) on top of the three-check bar, so the tool itself was the final guard rather than my
+    classification.
+    ONE REFUSED: feature/household-routine-recency-bound — it carries an upstream ref so `-d` is
+    conservative about it. It IS merged into develop and ships in v5.101.4; left in place.
+    CONSERVATIVE BY CONSTRUCTION: the branches I previously MISJUDGED (device-arrangement-rooms-menu
+    -build, energy-pool-actuation-logging — shipped content with stale pointers that showed
+    "2 commits ahead") are not in `--merged` output at all, so they were never candidates. The
+    earlier ancestry-vs-content confusion could not cause a wrong delete here.
+    Worktrees untouched (46 before and after); develop, master and the release branches intact.
+  next: 'DONE — both halves complete (51 worktrees pruned earlier, 355 branches now).'
   links:
     related: [EVSE-CHARGE-ONSET-NOT-HELD-1]
     context: evse-onset-reload is one of the unmerged worktrees and is part of the held v5.101.1 deploy bundle.
@@ -5707,7 +5716,7 @@ cards:
     button.ura_coordinator_manager_acknowledge_routine_changes AFTER this ships, so it cannot
     silently re-accumulate.
   thread: presence
-  status: shipped_organic
+  status: review
   shipped_version: v5.101.3
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
