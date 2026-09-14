@@ -321,6 +321,57 @@ cards:
     related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1]
     context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
   refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: TOU-RATE-FILE-KEY-UNWIRED-1
+  title: CONF_ENERGY_TOU_RATE_FILE is declared but never read — the TOU file path is hardcoded
+  thread: energy
+  status: planned
+  created: '2026-09-13 23:30'
+  updated: '2026-09-13 23:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA can load a custom electricity-rate schedule from a JSON file, and there is a
+     setting named for exactly that purpose — but nothing ever reads the setting. The file path
+     is hardcoded, so an operator who sets it sees no effect and has no way to rename or relocate
+     the file. Nothing is broken today (the hardcoded value is the same one the setting would
+     default to); the feature was simply never finished. Solution: read the setting at the one
+     place the path is passed, and add the matching field to the energy options form.'
+  origin:
+    date: '2026-09-13'
+    gist: operator challenged the claim while critiquing the TOU pattern for the seam-file plan — "its never read? Are you sure?"
+  verification_2026_09_13: >-
+    CONFIRMED never read, three independent ways: (1) grep of the constant NAME across the whole
+    repo returns only its definition (energy_const.py:740) plus doc mentions; (2) grep of the
+    string VALUE "energy_tou_rate_file" returns only the definition — so nothing reads it via a
+    literal either; (3) the key is absent from every live config entry, so no operator has ever
+    set it. INDEPENDENTLY CORROBORATED: a prior audit already recorded this as finding P16 —
+    AUDIT_excess_solar_and_evse_prior_art.md:249 "CONF_ENERGY_TOU_RATE_FILE is DORMANT —
+    grep-verified zero consumers; setting it has no effect" (its line refs have since drifted:
+    energy_const.py:679 -> :740, __init__.py:3256 -> :3449).
+  the_gap_2026_09_13: >-
+    NOT A BUG, an UNFINISHED WIRE. The place it should be read already exists and is a one-line
+    change — __init__.py:3449-3453 passes the path as the third argument:
+    `await TOURateEngine.async_from_json_file(hass, hass.config.path(""), DEFAULT_TOU_RATE_FILE)`.
+    That argument is exactly where `cm_config.get(CONF_ENERGY_TOU_RATE_FILE,
+    DEFAULT_TOU_RATE_FILE)` belongs. The second missing half is a field in the energy options
+    step to set it. Triage bucket: KEEP + WIRE (a useful capability that a downstream should be
+    consuming) — NOT delete, and not a footgun.
+  next: >-
+    Fold into the seam-file cycle if it is built (same pattern, same critique C3), or ship
+    standalone as a Tier-1: read the key at __init__.py:3449 with DEFAULT_TOU_RATE_FILE as the
+    fallback, add the options-flow field, and add a test that setting the key changes the path
+    the loader receives (wire-in anchor, not a helper test).
+  parsimony:
+    problem: A named configuration key has no effect because its single read site was never written.
+    verdict: BUILD
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  tags: [tier-1, no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1]
+    context: Surfaced while critiquing the TOU loader as prior art for the exterior-seam file; the seam plan's critique C3 exists to avoid repeating this.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_const.py:740
+  - custom_components/universal_room_automation/__init__.py:3449
+  - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:249
 - id: CAMERA-SEAM-RING-CONTRADICTION-1
   title: The written ring contradicts the operator's own seam notes — pool_equipment and the Reolink/PT-Ultra slot look swapped
   thread: perimeter
