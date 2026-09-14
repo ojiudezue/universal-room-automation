@@ -669,7 +669,37 @@ cards:
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
-  status: planned
+  status: review
+  BUILT_2026_09_14: >-
+    BUILT @ feature/camera-stuck-sensor-tripwire — in review, not deployed.
+    NEW `camera_stuck` evaluator in the optimizer cycle. Deliberately a SEPARATE check from
+    sensor_health rather than a threshold tweak to it: sensor_health is ROOM-keyed (all 7,970
+    findings in a month targeted rooms), so a camera binary_sensor is outside its target
+    universe and NO threshold change there could ever catch this.
+    THRESHOLD IS MEASURED, NOT INVENTED: CAMERA_STUCK_ON_THRESHOLD_S=1800, derived from the
+    2026-09-06..09-14 distribution where every non-pathological exterior detector's p99
+    ON-duration was <=355s and the fleet max was 1562s. Backtested over that window it fires
+    exactly twice — the two real incident sensors — and zero times spuriously on the other twelve.
+    PER-CAMERA OVERRIDES so one pathological camera cannot set the fleet bound:
+    garage_a=7200s (interior-facing egress with a real 3.9h dwell; 1800s would false-fire) and
+    pool_equipment=28800s (quarantined — it was firing 25 periods >1h in 7.9 days). NOTE: the
+    operator rebooted pool_equipment on 2026-09-14; if it self-corrects, REMOVE that override
+    rather than leaving a permanent blind spot. That instruction is in the const comment.
+    VOLUME-SAFE: a `_camera_stuck_fired` latch emits at most ONE finding per camera per stuck
+    episode, so it cannot re-create the per-cycle row flood that v5.101.1 B2 removed. The latch
+    clears on recovery so a genuine re-stick alerts again.
+    CONFIG-FOLLOWING: cameras are resolved from the live perimeter+egress config lists, not a
+    hardcoded list that would silently rot when a camera is added (exactly what happened to the
+    egress list).
+    6 tests incl. a WIRE-IN ANCHOR asserting the evaluator is registered in the cycle's evaluator
+    table — an unregistered evaluator never runs no matter how correct it is. TWO mutation drills:
+    unregistering the evaluator and removing the once-per-episode latch each reddened their own
+    named test; restored, residue 0, 113 pass.
+    NOT DONE (deliberate, per the card's own analysis): the PRODUCER-LEVEL staleness check. The
+    measurement showed the real incident was a fleet-wide Frigate freeze (two cameras 11 min
+    apart, both ending the same second), which one producer-level detector would catch faster
+    than 14 per-sensor ones. Left as a follow-up because the per-sensor wire also catches the
+    chronic single-camera case that the producer check would miss.
   created: '2026-09-14 01:50'
   updated: '2026-09-14 01:50'
   refinement_status: initial
