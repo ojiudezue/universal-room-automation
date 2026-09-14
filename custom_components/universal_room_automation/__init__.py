@@ -3482,10 +3482,70 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # TOU-RATE-FILE-KEY-UNWIRED-1: resolve operator-configured
                     # rate-file key with safe fallback + path-traversal guard.
                     from .domain_coordinators.energy_tou import TOURateEngine
+                    from .domain_coordinators.energy_const import (
+                        CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+                        DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED,
+                    )
+                    # BOTH cards apply here and neither subsumes the other:
+                    # TOU-RATE-FILE-KEY-UNWIRED-1 resolves WHICH file (operator
+                    # key + path-traversal guard); TOU-FILE-TOGGLE-AND-LOUD-
+                    # FAILURE-1 decides WHETHER to read it at all. Resolved by
+                    # keeping the resolver for the path argument and the toggle
+                    # for the `enabled` argument — dropping either would
+                    # silently un-wire a shipped card.
                     tou_rate_file = _resolve_tou_rate_file(cm_config)
+                    _tou_file_enabled = bool(cm_config.get(
+                        CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+                        DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED,
+                    ))
                     tou_engine = await TOURateEngine.async_from_json_file(
                         hass, hass.config.path(""), tou_rate_file,
+                        enabled=_tou_file_enabled,
                     )
+                    # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1 (D1 loudness):
+                    # when the file was present but REJECTED, surface an
+                    # operator-visible signal via the shared stuck-signal
+                    # NM path (per-day-latched, fail-open). Reuses the
+                    # established alerting pattern — no new mechanism.
+                    # NM readiness is not guaranteed here; fire_stuck_signal
+                    # is fail-open on missing NM, and this scheduled task
+                    # will fire once NM is registered downstream.
+                    if tou_engine.file_status == "rejected":
+                        try:
+                            from .domain_coordinators._stuck_signal_nm import (
+                                fire_stuck_signal,
+                            )
+                            _tou_errs = tou_engine.rejection_errors
+                            _tou_diag = (
+                                f"TOU rate file {tou_engine.rejected_filepath} "
+                                f"rejected ({len(_tou_errs)} validation error(s)) — "
+                                f"URA is using built-in PEC rates.\n  - "
+                                + "\n  - ".join(_tou_errs)
+                            )
+                            hass.async_create_task(fire_stuck_signal(
+                                hass,
+                                "tou_rate_file_rejected",
+                                (tou_engine.rejected_filepath or "tou_rates.json",),
+                                _tou_diag,
+                                remedy=(
+                                    "Fix the listed validation errors in "
+                                    "tou_rates.json, or set the TOU Rate File "
+                                    "Enabled toggle to OFF to explicitly use "
+                                    "built-in PEC rates."
+                                ),
+                                title_override=(
+                                    "TOU rate file rejected — using built-in PEC rates"
+                                ),
+                            ))
+                            _LOGGER.info(
+                                "TOU rate file rejected (%d errors) — NM stuck_signal scheduled",
+                                len(_tou_errs),
+                            )
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "TOU rejection NM dispatch failed (swallowed)",
+                                exc_info=True,
+                            )
 
                     energy = EnergyCoordinator(
                         hass,

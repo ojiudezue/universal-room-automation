@@ -7,6 +7,7 @@ the PEC Interconnect TOU rate schedule.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -15,6 +16,15 @@ from homeassistant.util import dt as dt_util
 from .energy_const import PEC_FIXED_CHARGES, PEC_TOU_RATES
 
 _LOGGER = logging.getLogger(__name__)
+
+# Sane rate-magnitude ceiling for a residential $/kWh knob. PEC peaks at
+# ~0.16 $/kWh; every real US residential tariff is well under 1.00. Ten
+# dollars/kWh is a two-decimal-typo away from a real rate ("1.61" typed as
+# "16.1") and safely above any legitimate future rate. Reject anything above.
+_MAX_RATE_MAGNITUDE_USD_PER_KWH = 10.0
+
+# All calendar months must be covered by exactly one season across the file.
+_ALL_MONTHS: frozenset[int] = frozenset(range(1, 13))
 
 
 class TOURateEngine:
@@ -41,13 +51,26 @@ class TOURateEngine:
         rate_table: dict | None = None,
         fixed_charges: dict | None = None,
         rate_source: str = "built-in PEC 2026",
+        file_status: str = "absent",
+        rejection_errors: list[str] | None = None,
+        rejected_filepath: str | None = None,
     ) -> None:
-        """Initialize with optional rate table override."""
+        """Initialize with optional rate table override.
+
+        ``file_status`` is one of:
+          * "ok"       — file was read AND passed validation; ``rate_table`` came from it.
+          * "absent"   — no file existed at the configured path (normal).
+          * "rejected" — file existed but failed validation; ``rate_table`` is PEC built-in.
+          * "disabled" — CONF_ENERGY_TOU_RATE_FILE_ENABLED is False; loader skipped I/O.
+        """
         self._rates = rate_table or PEC_TOU_RATES
         self._fixed = fixed_charges or PEC_FIXED_CHARGES
         self._last_period: str | None = None
         self._rate_file_loaded: bool = rate_table is not None
         self._rate_source: str = rate_source
+        self._file_status: str = file_status
+        self._rejection_errors: list[str] = list(rejection_errors or [])
+        self._rejected_filepath: str | None = rejected_filepath
 
     @classmethod
     def _read_json_file(cls, config_dir: str, filename: str) -> tuple[str, dict | None]:
@@ -69,57 +92,306 @@ class TOURateEngine:
         return str(filepath), data
 
     @classmethod
-    async def async_from_json_file(cls, hass, config_dir: str, filename: str) -> "TOURateEngine":
+    async def async_from_json_file(
+        cls,
+        hass,
+        config_dir: str,
+        filename: str,
+        enabled: bool = True,
+    ) -> "TOURateEngine":
         """Load TOU rates from a JSON file without blocking the event loop.
 
         v4.0.5: Async wrapper around blocking file I/O.
+        TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: ``enabled=False`` bypasses all
+        filesystem access and returns a PEC built-in engine with
+        ``file_status="disabled"`` — the explicit kill switch.
         """
+        if not enabled:
+            _LOGGER.info(
+                "TOU rate file ingestion DISABLED via config toggle — using PEC defaults"
+            )
+            return cls(file_status="disabled")
+
         filepath_str, data = await hass.async_add_executor_job(
             cls._read_json_file, config_dir, filename,
         )
         if data is None:
-            return cls()
+            # Distinguish absent (no file) from unparseable JSON (read
+            # returned None after logging the OSError/JSONDecodeError).
+            # Both fall back to PEC built-ins, but a parse failure is a
+            # "rejected" file — the operator needs to see it.
+            from pathlib import Path
+            try:
+                exists = Path(filepath_str).exists()
+            except Exception:  # noqa: BLE001
+                exists = False
+            if exists:
+                errors = [
+                    f"TOU rate file {filepath_str} could not be read or parsed as JSON"
+                ]
+                return cls(
+                    file_status="rejected",
+                    rejection_errors=errors,
+                    rejected_filepath=filepath_str,
+                )
+            return cls(file_status="absent")
         return cls._from_parsed_data(data, filepath_str, filename)
 
     @classmethod
+    def _validate_parsed_data(cls, data: Any) -> list[str]:
+        """Return a list of validation errors for a parsed TOU rate JSON blob.
+
+        WHOLE-FILE-REJECTION contract (mirrors ``exterior_seams.validate_seam_spec``):
+        every violation is collected, so the operator sees ALL faults at once
+        rather than one-at-a-time. A non-empty return means the caller MUST
+        reject the file wholesale and fall back to the PEC built-ins — the
+        SAME behaviour as a missing/unparseable file, so a bad file never
+        leaves the system without rates.
+
+        Rules enforced:
+          * root is a dict with a non-empty ``seasons`` mapping;
+          * every period declares a NUMERIC rate — no silent 0.0 defaulting
+            on a mistyped field name (this is the whole point of the card);
+          * import rates are >= 0 (a negative import rate is either a typo or
+            an unsupported net-metering convention), export rates may be
+            negative (some tariffs charge for export) but magnitudes on both
+            sides are capped at ``_MAX_RATE_MAGNITUDE_USD_PER_KWH``;
+          * ``hours`` are integer [start, end] pairs with 0 <= start < end <= 24
+            and MUST NOT overlap other periods within the same season;
+          * every season declares an ``off_peak`` period (existing invariant);
+          * unknown period names (after alias normalization) are REJECTED
+            wholesale — a deliberate semantic change from the previous
+            warn+skip behaviour, so a misspelled period can no longer sneak
+            through and drop that season's arbitrage window silently;
+          * ``months`` are integers in 1..12, cover every month exactly once
+            across all seasons (no gap, no double-claim).
+        """
+        errors: list[str] = []
+
+        if not isinstance(data, dict):
+            return ["TOU rate file root must be a JSON object"]
+
+        seasons = data.get("seasons")
+        if not isinstance(seasons, dict) or not seasons:
+            errors.append("'seasons' must be a non-empty object")
+            return errors
+
+        months_seen: dict[int, str] = {}
+
+        for season_name, season_data in seasons.items():
+            if not isinstance(season_data, dict):
+                errors.append(f"season '{season_name}': must be an object")
+                continue
+
+            # ── months ───────────────────────────────────────────────────
+            months = season_data.get("months")
+            if not isinstance(months, list) or not months:
+                errors.append(
+                    f"season '{season_name}': 'months' must be a non-empty list"
+                )
+            else:
+                for m in months:
+                    if isinstance(m, bool) or not isinstance(m, int) or not (1 <= m <= 12):
+                        errors.append(
+                            f"season '{season_name}': invalid month {m!r} (must be integer 1..12)"
+                        )
+                        continue
+                    if m in months_seen:
+                        errors.append(
+                            f"month {m} claimed by both seasons '{months_seen[m]}' and '{season_name}'"
+                        )
+                    else:
+                        months_seen[m] = season_name
+
+            # ── periods ──────────────────────────────────────────────────
+            periods = season_data.get("periods")
+            if not isinstance(periods, dict) or not periods:
+                errors.append(
+                    f"season '{season_name}': 'periods' must be a non-empty object"
+                )
+                continue
+
+            seen_internal: dict[str, str] = {}
+            intervals: list[tuple[int, int, str]] = []
+
+            for period_name, period_data in periods.items():
+                internal_name = cls._PERIOD_ALIASES.get(period_name, period_name)
+                if internal_name not in cls._VALID_PERIODS:
+                    errors.append(
+                        f"season '{season_name}': unknown period '{period_name}' "
+                        f"(valid: {sorted(cls._VALID_PERIODS)} plus aliases like 'on_peak')"
+                    )
+                    continue
+                if internal_name in seen_internal:
+                    errors.append(
+                        f"season '{season_name}': period '{internal_name}' declared twice "
+                        f"(as '{seen_internal[internal_name]}' and '{period_name}')"
+                    )
+                    continue
+                seen_internal[internal_name] = period_name
+
+                if not isinstance(period_data, dict):
+                    errors.append(
+                        f"season '{season_name}' period '{period_name}': must be an object"
+                    )
+                    continue
+
+                # Rate presence — the discriminating rule. A misspelled
+                # 'rates' would previously default to 0.0 silently; require
+                # at least one of import_rate / export_rate / rate, and
+                # then validate whichever are present.
+                has_import = "import_rate" in period_data
+                has_export = "export_rate" in period_data
+                has_sym = "rate" in period_data
+                if not (has_import or has_export or has_sym):
+                    errors.append(
+                        f"season '{season_name}' period '{period_name}': missing rate — "
+                        "require 'import_rate' + 'export_rate' (preferred) or a single "
+                        "'rate' field; no default is applied"
+                    )
+
+                def _check(field: str, value: Any, allow_negative: bool) -> None:
+                    if isinstance(value, bool) or not isinstance(value, (int, float)):
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}': "
+                            f"'{field}' must be numeric (got {value!r})"
+                        )
+                        return
+                    if not math.isfinite(value):
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}': "
+                            f"'{field}' must be finite (got {value!r})"
+                        )
+                        return
+                    if not allow_negative and value < 0:
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}': "
+                            f"'{field}' must be >= 0 (got {value})"
+                        )
+                    if abs(value) > _MAX_RATE_MAGNITUDE_USD_PER_KWH:
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}': "
+                            f"'{field}' magnitude {value} exceeds sane limit "
+                            f"{_MAX_RATE_MAGNITUDE_USD_PER_KWH} $/kWh"
+                        )
+
+                if has_import:
+                    _check("import_rate", period_data["import_rate"], allow_negative=False)
+                if has_export:
+                    # Some tariffs charge for over-export; allow negatives.
+                    _check("export_rate", period_data["export_rate"], allow_negative=True)
+                if has_sym and not (has_import or has_export):
+                    _check("rate", period_data["rate"], allow_negative=False)
+
+                # Hours
+                hours = period_data.get("hours")
+                if not isinstance(hours, list) or not hours:
+                    errors.append(
+                        f"season '{season_name}' period '{period_name}': "
+                        "'hours' must be a non-empty list of [start,end] pairs"
+                    )
+                    continue
+                for i, h in enumerate(hours):
+                    if not isinstance(h, (list, tuple)) or len(h) != 2:
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}' hours[{i}]: "
+                            "must be a 2-element [start,end] pair"
+                        )
+                        continue
+                    start, end = h
+                    if (
+                        isinstance(start, bool) or isinstance(end, bool)
+                        or not isinstance(start, int) or not isinstance(end, int)
+                    ):
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}' hours[{i}]: "
+                            f"start/end must be integers (got {start!r}, {end!r})"
+                        )
+                        continue
+                    if not (0 <= start < end <= 24):
+                        errors.append(
+                            f"season '{season_name}' period '{period_name}' hours[{i}]: "
+                            f"[{start},{end}] out of range (need 0 <= start < end <= 24)"
+                        )
+                        continue
+                    intervals.append((start, end, period_name))
+
+            # off_peak invariant preserved
+            if "off_peak" not in seen_internal:
+                errors.append(
+                    f"season '{season_name}': missing required 'off_peak' period"
+                )
+
+            # Overlap check across all validated intervals in this season
+            sorted_ivs = sorted(intervals, key=lambda x: x[0])
+            for i in range(len(sorted_ivs) - 1):
+                s1, e1, n1 = sorted_ivs[i]
+                s2, e2, n2 = sorted_ivs[i + 1]
+                if s2 < e1:
+                    errors.append(
+                        f"season '{season_name}': overlapping hours between "
+                        f"'{n1}' [{s1},{e1}] and '{n2}' [{s2},{e2}]"
+                    )
+
+        # Month coverage across the whole file
+        uncovered = sorted(_ALL_MONTHS - set(months_seen))
+        if uncovered:
+            errors.append(f"months not covered by any season: {uncovered}")
+
+        return errors
+
+    @classmethod
     def _from_parsed_data(cls, data: dict, filepath_str: str, filename: str) -> "TOURateEngine":
-        """Build a TOURateEngine from already-parsed JSON data."""
+        """Build a TOURateEngine from already-parsed JSON data.
+
+        WHOLE-FILE REJECTION: run the validator first; if ANY rule fails, log
+        all errors and return the built-in PEC engine — the same fail-safe as
+        the missing-file path.
+        """
+        errors = cls._validate_parsed_data(data)
+        if errors:
+            _LOGGER.error(
+                "TOU rate file %s rejected (%d validation error(s)) — falling back to PEC defaults:\n  - %s",
+                filepath_str, len(errors), "\n  - ".join(errors),
+            )
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: preserve rejection metadata
+            # on the fallback engine so callers can raise an operator-visible
+            # alert. Rates STILL come from the PEC built-in — loudness is
+            # additive, never fail-open to zero rates.
+            return cls(
+                file_status="rejected",
+                rejection_errors=list(errors),
+                rejected_filepath=filepath_str,
+            )
 
         # Convert JSON format to internal rate table format
         try:
             rate_table = {}
-            for season_name, season_data in data.get("seasons", {}).items():
+            for season_name, season_data in data["seasons"].items():
                 periods = {}
-                for period_name, period_data in season_data.get("periods", {}).items():
+                for period_name, period_data in season_data["periods"].items():
                     # Normalize period names (e.g. "on_peak" → "peak")
                     internal_name = cls._PERIOD_ALIASES.get(period_name, period_name)
-                    hours = [tuple(h) for h in period_data.get("hours", [])]
+                    hours = [tuple(h) for h in period_data["hours"]]
                     # Support separate import/export rates; fall back to
-                    # symmetric "rate" field for backward compat.
-                    symmetric_rate = period_data.get("rate", 0.0)
-                    import_rate = period_data.get("import_rate", symmetric_rate)
-                    export_rate = period_data.get("export_rate", symmetric_rate)
-                    if internal_name not in cls._VALID_PERIODS:
-                        _LOGGER.warning(
-                            "Unknown TOU period '%s' (from '%s') in %s season %s — ignored",
-                            internal_name, period_name, filepath_str, season_name,
-                        )
-                        continue
+                    # symmetric "rate" field for backward compat. Validator
+                    # guarantees at least one of the three is present and
+                    # numeric — no 0.0 sentinel needed.
+                    if "import_rate" in period_data or "export_rate" in period_data:
+                        symmetric = period_data.get("rate")  # may be None; unused if both sides present
+                        import_rate = period_data.get("import_rate", symmetric)
+                        export_rate = period_data.get("export_rate", symmetric)
+                    else:
+                        symmetric = period_data["rate"]
+                        import_rate = symmetric
+                        export_rate = symmetric
                     periods[internal_name] = {
                         "hours": hours,
                         "import_rate": import_rate,
                         "export_rate": export_rate,
                     }
-                # off_peak is required — get_current_period() falls back to it
-                if "off_peak" not in periods:
-                    _LOGGER.error(
-                        "TOU rate file %s missing required 'off_peak' period in season '%s' "
-                        "— falling back to PEC defaults",
-                        filepath_str, season_name,
-                    )
-                    return cls()
                 rate_table[season_name] = {
-                    "months": season_data.get("months", []),
+                    "months": season_data["months"],
                     "periods": periods,
                 }
 
@@ -142,15 +414,37 @@ class TOURateEngine:
                 rate_table=rate_table,
                 fixed_charges=fixed_charges,
                 rate_source=rate_source,
+                file_status="ok",
             )
-        except Exception:
+        except Exception as exc:
             _LOGGER.exception("Failed to parse TOU rate file %s — using PEC defaults", filepath_str)
-            return cls()
+            return cls(
+                file_status="rejected",
+                rejection_errors=[
+                    f"unexpected error converting TOU rate file to internal table: {exc!r}"
+                ],
+                rejected_filepath=filepath_str,
+            )
 
     @property
     def rate_source(self) -> str:
         """Return the source of TOU rates (file path or 'built-in PEC 2026')."""
         return self._rate_source
+
+    @property
+    def file_status(self) -> str:
+        """Return TOU-file loader status: ok / rejected / absent / disabled."""
+        return self._file_status
+
+    @property
+    def rejection_errors(self) -> list[str]:
+        """Return validation errors that caused a REJECTED file (empty otherwise)."""
+        return list(self._rejection_errors)
+
+    @property
+    def rejected_filepath(self) -> str | None:
+        """Return the path of the rejected file, if any."""
+        return self._rejected_filepath
 
     def get_season(self, now: datetime | None = None) -> str:
         """Return the current TOU season: summer, shoulder, or winter."""
@@ -429,4 +723,5 @@ class TOURateEngine:
             "fixed_charges": self._fixed,
             "next_transition": self.get_next_transition(now),
             "rate_source": self._rate_source,
+            "tou_file_status": self._file_status,
         }
