@@ -535,26 +535,9 @@ class PerimeterAlertManager:
                 # to fail). Observability only — does NOT change the legs
                 # actually subscribed (the resolver set already won above);
                 # the union with base+`_2` above is the belt-and-braces.
-                try:
-                    legacy_would = {
-                        eid for eid, _eng in self._legacy_leg_fallback(
-                            base_bs, cam_entity_id, "person",
-                        )
-                    }
-                    missing = legacy_would - set(seen)
-                    if missing:
-                        _LOGGER.warning(
-                            "PerimeterAlertManager: resolver leg set for %s "
-                            "is NOT a superset of the legacy fallback — "
-                            "legacy would also cover %s. Possible silent "
-                            "coverage shrinkage (TEST-1 shadow diff).",
-                            cam_entity_id, sorted(missing),
-                        )
-                except Exception:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "PerimeterAlertManager: TEST-1 shadow diff failed "
-                        "for %s", cam_entity_id, exc_info=True,
-                    )
+                self._warn_if_not_leg_superset(
+                    cam_entity_id, base_bs, "person", set(seen),
+                )
             else:
                 # Legacy fallback path (kill switch OFF / no manager).
                 for eid, engine in self._legacy_leg_fallback(base_bs, cam_entity_id, "person"):
@@ -1935,6 +1918,43 @@ class PerimeterAlertManager:
                 camera_entity_id, family, exc_info=True,
             )
             return []
+
+    def _warn_if_not_leg_superset(
+        self, camera_entity_id: str, base_bs: str, family: str,
+        subscribed: set[str],
+    ) -> set[str]:
+        """TEST-1 shadow diff: WARN if the resolver leg set does not cover
+        everything the retired legacy fallback would have.
+
+        Live tripwire for silent coverage shrinkage that unit tests miss —
+        the reason this card exists: a hardened surface was given new
+        methods and something is bound to fall through. Observability only:
+        returns the missing set and logs; NEVER changes what is subscribed.
+        Returns the set of legs legacy would cover that are NOT subscribed
+        (empty when the resolver set is a proper superset).
+        """
+        try:
+            legacy_would = {
+                eid for eid, _eng in self._legacy_leg_fallback(
+                    base_bs, camera_entity_id, family,
+                )
+            }
+            missing = legacy_would - subscribed
+            if missing:
+                _LOGGER.warning(
+                    "PerimeterAlertManager: resolver leg set for %s is NOT a "
+                    "superset of the legacy fallback — legacy would also "
+                    "cover %s. Possible silent coverage shrinkage "
+                    "(TEST-1 shadow diff).",
+                    camera_entity_id, sorted(missing),
+                )
+            return missing
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: TEST-1 shadow diff failed for %s",
+                camera_entity_id, exc_info=True,
+            )
+            return set()
 
     def _legacy_leg_fallback(
         self, base_bs: str, camera_entity_id: str, family: str,
