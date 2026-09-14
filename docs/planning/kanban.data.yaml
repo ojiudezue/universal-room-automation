@@ -414,6 +414,69 @@ cards:
     related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1]
     context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
   refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1
+  title: Make the TOU file opt-in with a toggle, and make a rejected file LOUD instead of a log line
+  thread: energy
+  status: planned
+  created: '2026-09-14 01:10'
+  updated: '2026-09-14 01:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA will read electricity prices from a file the operator writes by hand, and that
+     file silently takes priority over the built-in schedule. We are about to make the file
+     checks much stricter, and the operator is reasonably worried: if a future edit trips a check,
+     the system quietly falls back to the built-in prices and nobody finds out until the energy
+     decisions look wrong. There is also no way to turn the file off except deleting it, which
+     needs filesystem access. Solution: add an explicit on/off switch for using the file, and make
+     a rejected file announce itself loudly instead of writing one line to a log nobody reads.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "honestly we might need a toggle in config flow to use the file. Nervous about messing this up and having a bad day tmr."
+  measured_2026_09_14: >-
+    THE IMMEDIATE RISK IS ZERO, measured not assumed. The live
+    /config/universal_room_automation/tou_rates.json is IDENTICAL to the built-in PEC_TOU_RATES
+    fallback — zero differences across every season''s rates, hour ranges and month mappings, and
+    the fixed charges match too (service_availability 32.5, delivery 0.022546, transmission
+    0.01993). So if the stricter validator rejected the file tomorrow, the fallback would serve
+    exactly the same numbers that are running today. The operator cannot have a bad day from this
+    change in its current state.
+    THE RISK IS PROSPECTIVE: it appears the moment the file is edited to differ from built-in —
+    which is precisely when a silent rejection would matter.
+  why: >-
+    This reframes what actually protects the operator. A TOGGLE is the knob they asked for, but it
+    does not address the stated fear — a toggle does not tell you the file was rejected. VISIBILITY
+    does. Both are cheap; build both, but the loud-failure half is the one that answers the worry.
+  deliverables:
+  - 'D1 LOUD FAILURE (the important half): when the file is present but REJECTED, do not settle for
+     an ERROR log. Raise an operator-visible signal — an NM alert and/or an HA repair issue —
+     naming the specific validation errors. Also expose the existing rate_source provenance
+     (already computed: "built-in PEC 2026" vs "tou_rates.json (PEC, effective ...)") plus a
+     tou_file_status attribute (ok / rejected / absent) on the energy sensor, so the state is
+     inspectable without log-diving.'
+  - 'D2 TOGGLE: a config-flow boolean, e.g. CONF_ENERGY_TOU_RATE_FILE_ENABLED, default TRUE so
+     current behaviour is preserved byte-identically. When false, skip the file entirely and use
+     built-in — an explicit kill switch that needs no filesystem access. Pairs with the existing
+     (now wired) CONF_ENERGY_TOU_RATE_FILE path key.'
+  constraints:
+  - Default must preserve today's behaviour exactly — file present and valid => file wins.
+  - A rejected file must STILL fall back to built-in. Loudness is additive; never fail-open to no rates.
+  - Do not make the toggle the only protection — an operator who never opens the options page must still learn about a rejection.
+  next: >-
+    BUILD D1 + D2 onto the existing feature/tou-file-validation branch (same surface, same review).
+    Acceptance: (a) a rejected file produces an operator-visible alert naming the errors, not just
+    a log line; (b) tou_file_status attribute reads ok/rejected/absent correctly in all three
+    cases; (c) toggle=false uses built-in even with a valid file present; (d) toggle default
+    leaves behaviour byte-identical.
+  parsimony:
+    problem: A stricter validator can silently demote the operator's price file to the built-in fallback with no visible signal.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [tier-2, numbers-get-knobs, no-fabrication-verify]
+  links:
+    related: [TOU-FILE-NO-RATE-VALIDATION-1, TOU-RATE-FILE-KEY-UNWIRED-1, CAMERA-SEAM-VALIDATION-1]
+    context: Directly mitigates the risk introduced by TOU-FILE-NO-RATE-VALIDATION-1; the same loud-failure pattern should apply to the exterior seam file loader when D3 lands.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_tou.py
 - id: TOU-FILE-NO-RATE-VALIDATION-1
   title: A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours
   thread: energy
