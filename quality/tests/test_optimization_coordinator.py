@@ -4272,3 +4272,120 @@ async def test_b2_wire_in_scoreboard_still_sees_every_occurrence():
         for f in call.args[0]
     ]
     assert len(persisted) == 1
+
+
+# ======================================================================
+# CAMERA-STUCK-SENSOR-TRIPWIRE-1 — exterior camera pinned ON
+#
+# sensor_health cannot catch this: it is ROOM-keyed (all 7,970 of its
+# findings in a month targeted rooms), so a perimeter camera binary_sensor
+# stuck ON is outside its target universe. That is how front_side_ptz sat
+# pinned for 29.5h (2026-09-10 10:05 -> 09-11 15:37 CDT) unnoticed.
+# ======================================================================
+
+def _stuck_coord(monkeypatch=None):
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    return coord
+
+
+class _FakeState:
+    def __init__(self, state):
+        self.state = state
+
+
+def _wire_one_camera(coord, on=True, key="front_side_ptz"):
+    """Resolve exactly one camera, in the given on/off state."""
+    ent = f"binary_sensor.{key}_person_occupancy_2"
+    coord._exterior_person_sensors = lambda: {key: ent}
+    coord._state_value = lambda e: _FakeState("on" if on else "off")
+    return key, ent
+
+
+def test_stuck_camera_fires_only_after_the_threshold():
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    coord = _stuck_coord()
+    key, _ = _wire_one_camera(coord, on=True)
+
+    assert coord._evaluate_camera_stuck_dimension() == [], "first sighting arms, does not fire"
+    # Still ON but well under threshold.
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=300)
+    assert coord._evaluate_camera_stuck_dimension() == [], "300s is normal, must not fire"
+    # Past the 1800s default.
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=2000)
+    out = coord._evaluate_camera_stuck_dimension()
+    assert len(out) == 1
+    assert out[0].payload["camera_key"] == key
+    assert out[0].payload["stuck_seconds"] >= 2000
+
+
+def test_fires_once_per_episode_not_once_per_cycle():
+    """MUST NOT re-create the per-cycle row flood that B2 just removed."""
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    coord = _stuck_coord()
+    key, _ = _wire_one_camera(coord, on=True)
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=5000)
+    assert len(coord._evaluate_camera_stuck_dimension()) == 1
+    for _ in range(10):
+        assert coord._evaluate_camera_stuck_dimension() == [], "latched, must not re-fire"
+
+
+def test_recovery_rearms_so_a_restick_alerts_again():
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    coord = _stuck_coord()
+    key, _ = _wire_one_camera(coord, on=True)
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=5000)
+    assert len(coord._evaluate_camera_stuck_dimension()) == 1
+    _wire_one_camera(coord, on=False)          # sensor recovers
+    assert coord._evaluate_camera_stuck_dimension() == []
+    assert key not in coord._camera_stuck_fired, "recovery must clear the latch"
+    _wire_one_camera(coord, on=True)           # sticks again
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=5000)
+    assert len(coord._evaluate_camera_stuck_dimension()) == 1, "re-stick must alert"
+
+
+def test_per_camera_override_prevents_false_fire_on_long_dwell():
+    """garage_a legitimately sees 3.9h dwells (interior-facing egress); the
+    fleet 1800s default would false-fire on it."""
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    coord = _stuck_coord()
+    key, _ = _wire_one_camera(coord, on=True, key="garage_a")
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=3000)
+    assert coord._evaluate_camera_stuck_dimension() == [], (
+        "3000s is under garage_a's 7200s override — must not fire"
+    )
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=8000)
+    assert len(coord._evaluate_camera_stuck_dimension()) == 1
+
+
+def test_kill_switch_disables_the_tripwire(monkeypatch):
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    coord = _stuck_coord()
+    key, _ = _wire_one_camera(coord, on=True)
+    coord._camera_on_since[key] = dt_util.utcnow() - timedelta(seconds=99999)
+    monkeypatch.setattr(opt_mod, "CAMERA_STUCK_ON_THRESHOLD_S", 0)
+    assert coord._evaluate_camera_stuck_dimension() == []
+
+
+def test_dimension_is_registered_in_the_cycle_wire_in_anchor():
+    """WIRE-IN ANCHOR: the evaluator must be in the cycle's evaluator table,
+    or it never runs no matter how correct it is."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import (
+        optimization as opt_mod,
+    )
+    src = inspect.getsource(opt_mod)
+    assert '("camera_stuck", self._evaluate_camera_stuck_dimension)' in src, (
+        "camera_stuck evaluator is not registered in the cycle"
+    )
