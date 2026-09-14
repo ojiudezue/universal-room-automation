@@ -499,6 +499,60 @@ cards:
   refs:
   - custom_components/universal_room_automation/exterior_track_linker.py
   - docs/examples/exterior_seams.example.json
+- id: FRIGATE-THRESHOLD-CLAIM-DISPUTED-1
+  title: "The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me"
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-14 03:05'
+  updated: '2026-09-14 03:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: an investigation agent reported that almost all real person detections on the
+     exterior cameras score below the 0.70 confidence cut-off, and concluded that ten cameras are
+     effectively blind and should be retuned. The operator says that does not match what they see
+     on their own system, and that the current settings were chosen from measurement in the first
+     place. I cannot reach the detection host from here to check either claim. Solution: do not
+     act on the number until someone can reproduce it; record both positions and what would
+     settle it.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "We're seeing much higher in our infra. The settings were measure first"
+  MY_RECOMMENDATION_IS_WITHDRAWN: >-
+    I recommended sweeping seven ring cameras from threshold 0.7 to 0.6 and called it "the
+    high-value item". THAT RECOMMENDATION IS WITHDRAWN pending verification. It rested entirely on
+    an agent-reported figure I did not reproduce, and the operator — who has direct visibility
+    into the detection host — disputes it.
+    THE CLAIM AS REPORTED: over 8 days, back_yard 382 person events with only 3 (1%) scoring
+    >=0.70, median 0.63; hot_tub 193 events with 4 (2%) >=0.70, median 0.63; ArmCrest 4 events all
+    >=0.70, median 0.75.
+    WHY I CANNOT ADJUDICATE IT: those figures come from the Frigate host's own events table, which
+    is NOT reachable from this session (curl to the Frigate API returns no response) and is not
+    mirrored in the HA recorder — HA only stores the resulting binary_sensor ON/OFF, never the
+    per-event score. So I have no independent path to the numbers.
+    CORROBORATING THE OPERATOR: AUDIT_exterior_camera_detection_settings.md (2026-08-06) shows the
+    settings WERE measured and deliberately tuned — the recall change to 0.6/min_init 1 on three
+    cameras was applied and verified live via /api/config after restart. "Measure first" matches
+    the record.
+  what_would_settle_it: >-
+    A read of the Frigate host's `events` table for a recent window: per camera, the count of
+    person events and the distribution of `top_score` (median, p90, and the fraction >= 0.70).
+    That single query decides whether 0.7 is a sensible cut or a blind one, and it must be run
+    where the events DB actually lives. Until then, treat the 98-99% figure as UNVERIFIED and do
+    NOT cite it as a basis for retuning.
+  next: >-
+    ANSWER or DELEGATE: either share the score distribution you are seeing, or point me at a host
+    I can query read-only. -> if the operator's read is right, this card closes and the seven
+    cameras stay at 0.7; if the agent's is right, the sweep becomes a real (but still
+    operator-owned, homelab-side) change.
+  parsimony:
+    problem: A retuning recommendation rests on a single unreproduced number the operator disputes.
+    verdict: PARK
+  rank: {value: 5, time_criticality: 2, effort: 2}
+  tags: [no-fabrication-verify, falsify-first]
+  links:
+    related: [CAMERA-ZERO-FIRE-DETECTORS-1, FRONT-SIDE-PTZ-CHATTER-1]
+    context: CAMERA-ZERO-FIRE-DETECTORS-1's per-camera verdicts came from the same agent run; its per-camera facts (MadronePTUltra enabled=false, ReolinkStudyBPorchPTZ at 0.7/min_init 3) are separately checkable and are NOT withdrawn — only the fleet-wide score claim is.
+  refs: [docs/planning/AUDIT_exterior_camera_detection_settings.md]
 - id: CAMERA-ZERO-FIRE-DETECTORS-1
   title: Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring
   thread: perimeter
