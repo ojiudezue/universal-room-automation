@@ -1848,71 +1848,63 @@ TRACK_CLOSE_IDLE_S: Final = 300   # close an idle track after 5 min silence
 # a follow-up config surface OR the runtime setter. Same-camera linking
 # works with an empty graph; cross-camera linking requires at least one
 # declared edge. Tests inject their own graph via set_adjacency().
-# Provenance: AUDIT_exterior_camera_adjacency_probe.md "Operator ratification
-# (2026-08-06)". Base = probe's 24 proposed pairs (threshold: symmetric filtered
-# count ≥ 3). Removals per ratification §3,§4: pool_equipment↔rear_ptz and
-# rear_ptz↔utilities_ptz (physically impossible / missed-intermediate
-# artifacts). Additions per ratification §1,§2 (pool service chain +
-# back_yard↔hot_tub confirmed): rear_ptz↔armcrest, rear_ptz↔back_yard,
-# g5_bullet↔armcrest (already in probe), g5_bullet↔back_yard, armcrest↔hot_tub
-# (already in probe), back_yard↔hot_tub, hot_tub↔pool_equipment. Symmetrized
-# in ExteriorTrackLinker constructor — declaring A→B is sufficient.
+# PROVENANCE (2026-09-14 OPERATOR RE-RATIFICATION, rev 2 — supersedes both the
+# 2026-08-06 probe ratification and the 2026-09-13 first pass).
+#
+# The operator validated every prior seam against the physical property and
+# supplied a SINGULAR RING covering all THIRTEEN exterior cameras:
+#
+#   front_side_ptz > madrone_g6_entry > front_door_aerial > utilities_ptz >
+#   madroneptultra > pool_equipment > hot_tub > reolinkstudybporchptz >
+#   armcrest > back_yard > g5_bullet > doorbell_lite > rear_ptz > (wraps)
+#
+# TWO REOLINKS. The 2026-09-13 pass had TWELVE cameras and mapped the
+# operator's label "Madrone PT Ultra/Reolink hub" onto `reolinkstudybporchptz`
+# by assumption. That was WRONG: they are two distinct cameras, each with its
+# own Frigate person detector (`binary_sensor.madroneptultra_person_occupancy`
+# and `binary_sensor.reolinkstudybporchptz_person_occupancy_2`).
+# `madroneptultra` sits at ring position 5; `reolinkstudybporchptz`
+# ("Reolink PTZ") at position 8.
+#
+# This also EXPLAINS the apparent contradiction between the operator's ring and
+# their own per-seam notes (#6, #21). The earlier hypothesis — that
+# pool_equipment and the Reolink slot were SWAPPED — was wrong. The ring was
+# never mis-ordered; it was missing a node.
+#
+# back_yard is on a SEPARATE detached garage and points INTO it.
+#
+# 21 undirected seams = 13 ring edges + 8 operator-validated "skips" (cameras
+# 2-3 ring positions apart with overlapping fields of view).
+#
+# FENCED — struck as physically impossible, do NOT re-add without new evidence
+# (the operator named an intervening camera for most, or called them opposite
+# sides of the house): pool_equipment-rear_ptz, rear_ptz-utilities_ptz,
+# armcrest-rear_ptz, back_yard-front_side_ptz, back_yard-rear_ptz,
+# front_door_aerial-hot_tub, front_door_aerial-rear_ptz, front_side_ptz-g5_bullet,
+# front_side_ptz-hot_tub, front_side_ptz-reolinkstudybporchptz,
+# g5_bullet-madrone_g6_entry, madrone_g6_entry-rear_ptz.
+# back_yard-front_side_ptz is additionally refuted by measurement — see
+# CIRCLING-FOUNDING-CASE-ARTIFACT-1.
+#
+# CONFIG GAP: `madroneptultra` is NOT in the integration's `perimeter_cameras`
+# list, so URA receives no events from it today and its ring position is inert
+# until that config is updated. Tracked by CAMERA-PTULTRA-NOT-IN-PERIMETER-1.
+#
+# Sheet: docs/planning/VALIDATE_exterior_camera_seams.md
+# Declared one-direction-only; ExteriorTrackLinker.__init__ symmetrizes.
 EXTERIOR_ADJACENCY_GRAPH: Final[dict[str, tuple[str, ...]]] = {
-    # Probe pairs kept (22 after the two removals).
-    "front_side_ptz": (
-        "utilities_ptz", "rear_ptz", "g5_bullet", "hot_tub",
-        "reolinkstudybporchptz", "madrone_g6_entry", "front_door_aerial",
-        "back_yard",
-    ),
-    "front_door_aerial": (
-        "madrone_g6_entry", "hot_tub", "front_side_ptz", "rear_ptz",
-    ),
-    "madrone_g6_entry": (
-        "front_door_aerial", "utilities_ptz", "g5_bullet", "front_side_ptz",
-        "rear_ptz",
-    ),
-    "armcrest": (
-        "back_yard", "doorbell_lite", "reolinkstudybporchptz", "hot_tub",
-        "g5_bullet",
-        # Ratified additions (pool service chain).
-        "rear_ptz",
-    ),
-    "doorbell_lite": (
-        "g5_bullet", "armcrest", "rear_ptz",
-    ),
-    "g5_bullet": (
-        "front_side_ptz", "doorbell_lite", "armcrest", "rear_ptz",
-        "madrone_g6_entry",
-        # Ratified addition (pool service chain enters via g5_bullet).
-        "back_yard",
-    ),
-    "rear_ptz": (
-        "front_side_ptz", "g5_bullet", "doorbell_lite", "front_door_aerial",
-        "madrone_g6_entry",
-        # Ratified additions (pool service chain).
-        "armcrest", "back_yard",
-    ),
-    "hot_tub": (
-        "front_side_ptz", "front_door_aerial", "armcrest",
-        # Ratified additions.
-        "back_yard", "pool_equipment",
-    ),
-    "back_yard": (
-        "armcrest", "front_side_ptz",
-        # Ratified additions.
-        "rear_ptz", "g5_bullet", "hot_tub",
-    ),
-    "pool_equipment": (
-        # Only chain-terminal edge: pool_equipment↔hot_tub. The probe's
-        # rear_ptz co-firings were missed-intermediate artifacts.
-        "hot_tub",
-    ),
-    "utilities_ptz": (
-        "front_side_ptz", "madrone_g6_entry",
-    ),
-    "reolinkstudybporchptz": (
-        "armcrest", "front_side_ptz",
-    ),
+    # --- RING (13 edges) --- each camera to its two ring neighbours.
+    "front_side_ptz": ("madrone_g6_entry", "rear_ptz", "utilities_ptz"),
+    "madrone_g6_entry": ("utilities_ptz",),
+    "front_door_aerial": ("front_side_ptz", "madrone_g6_entry", "utilities_ptz"),
+    "madroneptultra": ("pool_equipment", "utilities_ptz"),
+    "pool_equipment": ("hot_tub",),
+    "hot_tub": ("armcrest", "back_yard", "reolinkstudybporchptz"),
+    "reolinkstudybporchptz": ("armcrest",),
+    "armcrest": ("back_yard", "doorbell_lite", "g5_bullet"),
+    "back_yard": ("g5_bullet",),
+    "g5_bullet": ("doorbell_lite", "rear_ptz"),
+    "doorbell_lite": ("rear_ptz",),
 }
 
 # Labels bucketed by the linker (one track family per label). Frigate raw
@@ -1944,13 +1936,27 @@ EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS: Final = 3
 # ratified EXTERIOR_ADJACENCY_GRAPH to ANY of those three. Provenance:
 # AUDIT_exterior_camera_adjacency_probe.md "Operator ratification (2026-08-06)".
 EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS: Final[tuple[str, ...]] = (
-    # Adjacent to madrone_g6_entry.
-    "front_door_aerial", "utilities_ptz", "g5_bullet", "front_side_ptz",
-    "rear_ptz",
-    # Adjacent to doorbell_lite (add-only unique).
-    "armcrest",
-    # Adjacent to front_door_aerial (unique add).
-    "hot_tub",
+    # RECOMPUTED 2026-09-13 from the re-ratified EXTERIOR_ADJACENCY_GRAPH.
+    # Definition: perimeter cameras with an edge to ANY egress camera
+    # (madrone_g6_entry, doorbell_lite, front_door_aerial), EXCLUDING the
+    # egress cameras themselves.
+    # Adjacent to madrone_g6_entry: front_side_ptz, front_door_aerial*, utilities_ptz
+    # Adjacent to doorbell_lite:    armcrest, g5_bullet, rear_ptz
+    # Adjacent to front_door_aerial: front_side_ptz, madrone_g6_entry*, utilities_ptz
+    #   (* = an egress camera, excluded per the definition)
+    #
+    # CHANGED vs the 2026-08-06 list — two removals, no additions:
+    #  - `hot_tub` REMOVED: it qualified only via front_door_aerial-hot_tub,
+    #    which the operator struck 2026-09-13 as physically impossible
+    #    ("opposite sides of the house"). BEHAVIOUR CHANGE: a track seen only
+    #    on hot_tub no longer auto-classifies `approach`; it falls to
+    #    `pass_by` unless it also touches a listed camera.
+    #  - `front_door_aerial` REMOVED: it IS an egress camera, so it never
+    #    satisfied this list's own definition (the Q2 inconsistency the
+    #    operator was asked to confirm). Severity for camera_class=="egress"
+    #    short-circuits track_class anyway, so impact is limited to MIXED
+    #    tracks that also touch perimeter cameras.
+    "front_side_ptz", "utilities_ptz", "armcrest", "g5_bullet", "rear_ptz",
 )
 
 # (label × house-state × classification) severity map.

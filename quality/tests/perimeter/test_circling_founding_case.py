@@ -175,6 +175,19 @@ _real_dt_util.utcnow = lambda: datetime.now(timezone.utc)
 # --- fixture -----------------------------------------------------------------
 
 
+# Historical adjacency (2026-08-06 ratification) under which the founding
+# case was observed and classified. Superseded in production on 2026-09-13
+# — see the note in `_make_hass_with_linker`. Kept verbatim so this
+# regression fixture keeps reproducing the ORIGINAL incident.
+_HISTORICAL_ADJACENCY_2026_08 = {
+    "back_yard": ["front_side_ptz", "armcrest", "rear_ptz", "g5_bullet",
+                  "hot_tub"],
+    "front_side_ptz": ["utilities_ptz", "rear_ptz", "g5_bullet", "hot_tub",
+                       "reolinkstudybporchptz", "madrone_g6_entry",
+                       "front_door_aerial", "back_yard"],
+}
+
+
 def _make_hass_with_linker(cameras: list[str], house_state: str = "home_day"):
     hass = MagicMock()
     cfg = MagicMock()
@@ -213,13 +226,28 @@ def _make_hass_with_linker(cameras: list[str], house_state: str = "home_day"):
 
     cam_manager.resolve_camera_entity = _resolve
 
-    # Real linker instance — build-pred #1: MUST set_adjacency to the
-    # ratified EXTERIOR_ADJACENCY_GRAPH so back_yard ↔ front_side_ptz
-    # link into ONE track. Without this, the fixture forks into 5
-    # single-hop tracks and the classify == "circling" oracle silently
-    # no-ops.
+    # Real linker instance — build-pred #1: the fixture MUST carry an
+    # adjacency graph in which back_yard ↔ front_side_ptz links, or the
+    # 5-hop sequence forks into 5 single-hop tracks and the
+    # classify == "circling" oracle silently no-ops.
+    #
+    # 2026-09-13: this deliberately injects the HISTORICAL topology, NOT
+    # `_const.EXTERIOR_ADJACENCY_GRAPH`. The operator re-ratified the seam
+    # list against the physical property and STRUCK back_yard ↔
+    # front_side_ptz: back_yard is on a SEPARATE detached garage and
+    # front_side_ptz faces the front of the main structure — they are not
+    # adjacent, so the production graph no longer links them.
+    #
+    # The founding case is preserved as a HISTORICAL regression fixture:
+    # it records what the system did on 2026-08-xx under the topology in
+    # force at the time. Pinning the historical graph here keeps that
+    # record honest AND lets production carry the corrected graph. It is
+    # NOT an assertion that these cameras are adjacent today.
+    #
+    # See: docs/planning/VALIDATE_exterior_camera_seams.md and
+    # CAMERA-SEAM-VALIDATION-1 / CIRCLING-FOUNDING-CASE-ARTIFACT-1.
     linker = ExteriorTrackLinker(hass)
-    linker.set_adjacency(_const.EXTERIOR_ADJACENCY_GRAPH)
+    linker.set_adjacency(_HISTORICAL_ADJACENCY_2026_08)
 
     hass.data = {
         _const.DOMAIN: {
