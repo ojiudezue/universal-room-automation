@@ -321,10 +321,154 @@ cards:
     related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1]
     context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
   refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: CAMERA-SEAM-RING-CONTRADICTION-1
+  title: The written ring contradicts the operator's own seam notes — pool_equipment and the Reolink/PT-Ultra slot look swapped
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-13 23:05'
+  updated: '2026-09-13 23:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the operator gave a left-to-right ring of the exterior cameras AND, separately,
+     wrote notes on individual seams saying which cameras sit between which. Those two pieces of
+     the same document disagree about where the pool-equipment camera sits relative to the
+     Reolink/PT-Ultra camera. The agent built the corrected graph from the written ring WITHOUT
+     cross-checking it against the seam notes, so two of the three newly-added seams may be
+     wrong. Solution: get the operator to confirm which ordering is right, then correct the graph
+     before it ships. It is still on a branch, undeployed.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "Don't skim" (after the agent under-read the same document twice)
+  evidence_2026_09_13: >-
+    Scored both orderings against the operator's four explicit "X is between them" notes.
+    RING AS WRITTEN (... utilities_ptz > reolinkstudybporchptz > pool_equipment > hot_tub ...)
+    scores 4/8 and CONTRADICTS note #21 outright: the operator wrote that front_side_ptz and
+    reolinkstudybporchptz have "Utilities and Pool equipment in btw them", but under the written
+    ring pool_equipment is NOT between them (it sits on the far side of reolink).
+    RING WITH POOL/REOLINK SWAPPED (... utilities_ptz > pool_equipment > reolinkstudybporchptz >
+    hot_tub ...) scores 6/8 and makes note #6 EXACT: the operator wrote armcrest <->
+    reolinkstudybporchptz is valid "although technically the hot tub is btw them" — under the
+    swap hot_tub is the ONLY camera between them; under the written ring pool_equipment is there
+    too. Both discrepancies resolve under the same single swap, which is what makes it credible
+    rather than a coincidence.
+    IMPACT IF THE SWAP IS RIGHT: of the 3 seams added to close the ring, only
+    front_door_aerial<->utilities_ptz survives. utilities_ptz<->reolinkstudybporchptz and
+    pool_equipment<->reolinkstudybporchptz would be replaced by utilities_ptz<->pool_equipment
+    and reolinkstudybporchptz<->hot_tub. hot_tub<->pool_equipment (operator-validated #25) stays
+    either way — as a ring edge under the written order, as a 2-skip under the swap.
+  next: >-
+    CONFIRM the ring order around the pool: is it utilities_ptz > pool_equipment >
+    Reolink/PT-Ultra > hot_tub (the swap, which matches your seam notes #6 and #21), or
+    utilities_ptz > Reolink/PT-Ultra > pool_equipment > hot_tub (as written)? -> I correct the
+    graph on the existing branch and re-run the invariants. HOLDING the seam branch undeployed
+    until this is settled.
+  parsimony: {problem: Two of three newly-added seams may be wrong., verdict: BUILD}
+  rank: {value: 8, time_criticality: 6, effort: 1}
+  tags: [no-fabrication-verify, falsify-first]
+  links:
+    blocks: [CAMERA-SEAM-VALIDATION-1]
+    context: CAMERA-SEAM-VALIDATION-1 must not deploy until this ordering is settled — it would ship wrong seams.
+  refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: CAMERA-PTULTRA-NOT-IN-PERIMETER-1
+  title: "'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list"
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-13 23:05'
+  updated: '2026-09-13 23:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the operator named a ring position "Madrone PT Ultra/Reolink hub". There IS a
+     camera called Madrone PT Ultra in Home Assistant, with its own Frigate person detection
+     (binary_sensor.madroneptultra_person_occupancy), but it is NOT one of the nine cameras URA
+     watches as perimeter — URA watches camera.reolinkstudybporchptz in that slot, which is a
+     different physical device (the study-B porch TrackMix). So either the operator used a loose
+     name for the study-B camera, or there is a real exterior camera whose person detections URA
+     never sees. Solution: ask which, and if it is a real gap, add it to the perimeter list and
+     the ring.'
+  origin:
+    date: '2026-09-13'
+    gist: operator ring slot named "Madrone PT Ultra/Reolink hub"; agent silently mapped it to reolinkstudybporchptz without verifying
+  evidence_2026_09_13: >-
+    BOTH devices exist and are distinct. madroneptultra: camera.madroneptultra +
+    binary_sensor.madroneptultra_person_occupancy (Frigate, no _2 suffix) + a Reolink-integration
+    sibling binary_sensor.madrone_pt_ultra_person + camera.madrone_pt_ultra_clear/_fluent.
+    reolinkstudybporchptz: camera.reolinkstudybporchptz +
+    binary_sensor.reolinkstudybporchptz_person_occupancy_2 (Frigate, _2 suffix) + a
+    Reolink-integration sibling binary_sensor.ptzcamreolinktmixpstudybporch_person.
+    URA's perimeter_cameras (9) contains camera.reolinkstudybporchptz and does NOT contain
+    madroneptultra. There is also a reolink_reolink_home_hub device, which is probably the "hub"
+    half of the operator's name.
+    MY ERROR: I mapped the operator's label onto reolinkstudybporchptz purely because the ring
+    had 12 slots and 11 mapped cleanly — an assumption, not a verification.
+  next: >-
+    ANSWER: when you wrote "Madrone PT Ultra/Reolink hub" in the ring, did you mean (a) the
+    study-B porch camera URA already watches (camera.reolinkstudybporchptz), or (b) the separate
+    Madrone PT Ultra camera? If (b), it is an exterior camera with live person detection that URA
+    does not watch at all -> I add it to perimeter_cameras and place it in the ring.
+  parsimony: {problem: A named ring position may refer to a camera URA does not watch., verdict: BUILD}
+  rank: {value: 7, time_criticality: 5, effort: 2}
+  tags: [no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-RING-CONTRADICTION-1, CAMERA-SEAM-VALIDATION-1]
+    context: Same ring slot as the pool/reolink ordering question — settle both together.
+  refs: [.storage/core.config_entries perimeter_cameras]
+- id: EGRESS-CAMERA-LIST-STALE-5-NOT-3-1
+  title: Live egress_cameras is FIVE (adds garage_a, garage_b) but the const and its derived list assume THREE
+  thread: perimeter
+  status: investigating
+  created: '2026-09-13 23:05'
+  updated: '2026-09-13 23:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA is configured with five egress cameras — the front entry, doorbell, front-door
+     aerial AND both garage cameras. But the code that works out which perimeter cameras sit next
+     to an egress only ever considers the first three; the comment in the source still says there
+     are three. So the two garage cameras are invisible to that calculation, and they are also
+     absent from the camera adjacency map entirely. A person arriving at a garage door is
+     therefore not treated as approaching an exit. Solution: confirm the garage cameras should
+     count as egress, then include them in both the adjacency ring and the derived list.'
+  origin:
+    date: '2026-09-13'
+    gist: found while verifying the operator's ring against live config — perimeter_cameras(9) and egress_cameras(5) read from .storage
+  evidence_2026_09_13: >-
+    Live .storage/core.config_entries: egress_cameras = [camera.madrone_g6_entry,
+    camera.doorbell_lite, camera.front_door_aerial, camera.garage_a_2, camera.garage_b_2] = FIVE.
+    const.py:1942 comment still asserts "Egress cameras (operator config): madrone_g6_entry,
+    doorbell_lite, front_door_aerial". EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS is derived from
+    those three only, and the invariant guard I just added
+    (quality/tests/perimeter/test_seam_graph_invariants.py) HARDCODES the same three — so the
+    guard would not catch this drift. Both garage cameras DO have Frigate person detection
+    (binary_sensor.garage_a_person_occupancy_2, binary_sensor.garage_b_person_occupancy) and
+    neither appears in EXTERIOR_ADJACENCY_GRAPH.
+    RELATED PHYSICAL FACT from the operator: the back_yard camera "points into" the standalone
+    detached garage — so back_yard, garage_a and garage_b may all be watching the same structure,
+    which is exactly where their adjacency should be declared.
+  next: >-
+    ANSWER whether garage_a and garage_b should be treated as EGRESS cameras for perimeter
+    alerting (they are already configured as such). If yes -> place them in the ring relative to
+    back_yard, re-derive EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS, and change the invariant guard
+    to read the egress list from CONFIG rather than hardcoding three.
+  parsimony:
+    problem: Two configured egress cameras are invisible to the egress-adjacency derivation and absent from the seam graph.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1]
+    context: The derived egress-adjacent constant shipped on the seam branch was computed from three egress cameras; if it is five, it must be recomputed.
+  refs:
+  - custom_components/universal_room_automation/const.py:1942
+  - quality/tests/perimeter/test_seam_graph_invariants.py
 - id: CAMERA-SEAM-VALIDATION-1
   title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
   thread: perimeter
-  status: review
+  status: waiting_operator
+  HELD_2026_09_13: >-
+    BRANCH HELD, DO NOT DEPLOY. Three findings from a proper re-read of the operator's sheet
+    (CAMERA-SEAM-RING-CONTRADICTION-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1,
+    EGRESS-CAMERA-LIST-STALE-5-NOT-3-1) mean the graph as committed may carry two wrong seams and
+    a derived constant computed from an incomplete egress list. Code is sound and tests pass; the
+    DATA needs operator confirmation first.
   applied_2026_09_13: >-
     OPERATOR RETURNED THE VALIDATED SHEET + a singular ring. APPLIED @
     feature/camera-seam-ratification-2026-09 (f75c18801) — in review, not deployed. 27 -> 20
