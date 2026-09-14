@@ -821,7 +821,21 @@ cards:
 - id: TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1
   title: Make the TOU file opt-in with a toggle, and make a rejected file LOUD instead of a log line
   thread: energy
-  status: planned
+  status: review
+  BUILT_2026_09_14: >-
+    BUILT @ feature/tou-file-toggle-loud (e5a0e5796), merged into release/v5.101.2-integration.
+    Loud failure reuses the existing shared NM path _stuck_signal_nm.fire_stuck_signal
+    (per-day-latched, fail-open) rather than inventing a mechanism. tou_file_status on
+    sensor.ura_tou_period = ok / rejected / absent / disabled — the builder added a FOURTH value
+    for the toggle-off case rather than overloading `absent`, which is better than the brief asked
+    for. CONF_ENERGY_TOU_RATE_FILE_ENABLED defaults TRUE so behaviour is byte-identical until
+    flipped. Both mutation drills passed (alert-raise neutered and toggle-gate neutered each
+    reddened a specific named test).
+    INTEGRATION FIX BY ORCHESTRATOR: this branch and feature/tou-rate-file-key-wire independently
+    rewrote the same TOU engine construction site — each would have silently un-wired the other's
+    card. Resolved keeping BOTH (path resolver AND enabled flag) and mutation-verified the
+    resolution. Also paired the two TOU settings in the options form; they had landed 253 lines
+    apart, reading as unrelated settings.
   created: '2026-09-14 01:10'
   updated: '2026-09-14 01:10'
   refinement_status: initial
@@ -1221,9 +1235,17 @@ cards:
 - id: CAMERA-SEAM-VALIDATION-1
   title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
   thread: perimeter
-  status: waiting_operator
-  HELD_2026_09_13: >-
-    BRANCH HELD, DO NOT DEPLOY. Three findings from a proper re-read of the operator's sheet
+  status: review
+  UNHELD_2026_09_14: >-
+    HOLD LIFTED — the operator answered all three blocking questions. (1) Ring order: resolved by
+    a MISSING CAMERA, not the swap I hypothesised; there are two Reolinks and the ring is 13
+    cameras. (2) 'Madrone PT Ultra' IS a distinct camera (madroneptultra), confirmed in the entity
+    registry with its own Frigate detector. (3) Garage cameras are egress but INTERIOR — they must
+    stay out of the exterior ring, and the egress-adjacent derivation uses EXTERIOR egress only.
+    Graph rebuilt to 13 cameras / 21 seams @ c01d97194 and merged into
+    release/v5.101.2-integration. 95 perimeter/linker tests pass.
+  SUPERSEDED_HELD_2026_09_13: >-
+    (superseded by UNHELD above) BRANCH HELD, DO NOT DEPLOY. Three findings from a proper re-read of the operator's sheet
     (CAMERA-SEAM-RING-CONTRADICTION-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1,
     EGRESS-CAMERA-LIST-STALE-5-NOT-3-1) mean the graph as committed may carry two wrong seams and
     a derived constant computed from an incomplete egress list. Code is sound and tests pass; the
