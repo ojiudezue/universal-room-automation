@@ -546,7 +546,19 @@ cards:
 - id: CAMERA-SEAM-RING-CONTRADICTION-1
   title: The written ring contradicts the operator's own seam notes — pool_equipment and the Reolink/PT-Ultra slot look swapped
   thread: perimeter
-  status: waiting_operator
+  status: done
+  RESOLVED_2026_09_14_MY_HYPOTHESIS_WAS_WRONG: >-
+    I proposed that pool_equipment and the Reolink slot were SWAPPED, scoring that 6/8 against the
+    operator's own between-notes versus 4/8 for the ring as written. THE SWAP WAS THE WRONG
+    EXPLANATION. The operator supplied the actual cause: the ring was MISSING A CAMERA. There are
+    two Reolinks — `madroneptultra` (ring position 5) and `reolinkstudybporchptz` (position 8) —
+    and the 12-camera reading collapsed them into one, which is what made the ring appear to
+    contradict notes #6 and #21.
+    LESSON RECORDED: the ring was never mis-ordered. I had two competing hypotheses (mis-ordering
+    vs missing node) and scored only the first, because I had already assumed the camera set was
+    complete. The assumption that produced the earlier madroneptultra mis-mapping is the same one
+    that produced this wrong hypothesis.
+    Ring corrected to 13 cameras / 21 seams @ c01d97194.
   created: '2026-09-13 23:05'
   updated: '2026-09-13 23:05'
   refinement_status: initial
@@ -595,6 +607,20 @@ cards:
   title: "'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list"
   thread: perimeter
   status: waiting_operator
+  ANSWERED_2026_09_14: >-
+    OPERATOR CONFIRMED IT IS A SEPARATE CAMERA: "There is a missing camera in this loop I had left
+    out. There are 2 reolinks." The corrected ring places `madroneptultra` at position 5 (between
+    utilities_ptz and pool_equipment) and `reolinkstudybporchptz` ("Reolink PTZ") at position 8
+    (between hot_tub and armcrest). Verified in the entity registry: both have their own Frigate
+    person detector (binary_sensor.madroneptultra_person_occupancy and
+    binary_sensor.reolinkstudybporchptz_person_occupancy_2).
+    THE SEAM GRAPH IS UPDATED (13 cameras, 21 seams) — but the CONFIG GAP REMAINS: `madroneptultra`
+    is still absent from the integration's `perimeter_cameras` list, so URA receives no events from
+    it and its ring position is INERT. Fixing the graph did not fix the blindness.
+  REMAINING_ASK: >-
+    DO (operator, or approve me to do it via ha_config): add camera.madroneptultra to the URA
+    integration''s perimeter_cameras list. Until then URA is blind to an exterior camera that has
+    working person detection, and the ring edge through it can never link.
   created: '2026-09-13 23:05'
   updated: '2026-09-13 23:05'
   refinement_status: initial
@@ -623,10 +649,9 @@ cards:
     MY ERROR: I mapped the operator's label onto reolinkstudybporchptz purely because the ring
     had 12 slots and 11 mapped cleanly — an assumption, not a verification.
   next: >-
-    ANSWER: when you wrote "Madrone PT Ultra/Reolink hub" in the ring, did you mean (a) the
-    study-B porch camera URA already watches (camera.reolinkstudybporchptz), or (b) the separate
-    Madrone PT Ultra camera? If (b), it is an exterior camera with live person detection that URA
-    does not watch at all -> I add it to perimeter_cameras and place it in the ring.
+    APPROVE me to add camera.madroneptultra to perimeter_cameras (config-only, no code, no tier),
+    or add it yourself in the integration options. Ring placement is already done; this is the
+    last step that makes the camera actually visible to URA.
   parsimony: {problem: A named ring position may refer to a camera URA does not watch., verdict: BUILD}
   rank: {value: 7, time_criticality: 5, effort: 2}
   tags: [no-fabrication-verify]
@@ -637,7 +662,7 @@ cards:
 - id: EGRESS-CAMERA-LIST-STALE-5-NOT-3-1
   title: Live egress_cameras is FIVE (adds garage_a, garage_b) but the const and its derived list assume THREE
   thread: perimeter
-  status: investigating
+  status: done
   created: '2026-09-13 23:05'
   updated: '2026-09-13 23:05'
   refinement_status: initial
@@ -665,11 +690,22 @@ cards:
     RELATED PHYSICAL FACT from the operator: the back_yard camera "points into" the standalone
     detached garage — so back_yard, garage_a and garage_b may all be watching the same structure,
     which is exactly where their adjacency should be declared.
-  next: >-
-    ANSWER whether garage_a and garage_b should be treated as EGRESS cameras for perimeter
-    alerting (they are already configured as such). If yes -> place them in the ring relative to
-    back_yard, re-derive EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS, and change the invariant guard
-    to read the egress list from CONFIG rather than hardcoding three.
+  ANSWERED_2026_09_14: >-
+    OPERATOR RULING: the garage cameras ARE egress, but they are INTERIOR — "the garage cameras
+    are in the garage not outside so they do not normally see external people but they do see
+    crossings into the house". The other three sit OUTSIDE near the doors (overhead front door,
+    the doorbells).
+    SO THE HARDCODED THREE WAS ACCIDENTALLY CORRECT, FOR THE WRONG REASON. The derivation should
+    use EXTERIOR egress cameras only — but nothing in the code encoded that distinction, so the
+    next person to "fix" the 5-vs-3 mismatch by deriving from the full list would have made it
+    WRONG: interior cameras would confer outdoor egress-adjacency and upgrade unrelated tracks to
+    `approach`.
+    SHIPPED IN D1/D2 (feature/exterior-seam-file-d1d2, 09e9faa61): the seam spec now takes
+    `egress_cameras: {exterior: [...], interior: [...]}`; `derive_egress_adjacent` uses EXTERIOR
+    ONLY; NEW RULE 2b makes an interior egress camera appearing in the exterior ring an ERROR;
+    and RULE 2 no longer warns that interior cameras are missing from the ring (my first version
+    had that backwards). Two tests cover it.
+  next: 'DONE — semantics captured in code + tests. Garage cameras stay egress, stay out of the exterior ring.'
   parsimony:
     problem: Two configured egress cameras are invisible to the egress-adjacency derivation and absent from the seam graph.
     verdict: BUILD
