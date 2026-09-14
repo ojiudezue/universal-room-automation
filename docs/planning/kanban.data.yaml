@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T04:50', at: '2026-09-14T04:50:00', outcome: investigated,
+     headline: 'CIRCLING-SEVERITY-1 — STALE PLAN CAUGHT + promoted to build-ready. Its plan said fold into CONSOL-1; CONSOL-1 has SHIPPED and did not carry it, so the card was waiting on a closed cycle. Re-verified in source: the burst path has decision reasons but the two pre-dispatch gates (egress suppression, cooldown) still return silently. Passes all four gate steps as a Tier-1 REUSE of the existing reason idiom. Scoped, not built (branch hygiene at 05:00, no urgency).',
+     acknowledged: false}
   - {fid: 'NM-REPAGE-IMG-1@2026-09-14T04:35', at: '2026-09-14T04:35:00', outcome: done,
      headline: 'NM-REPAGE-IMG-1 — ALREADY-DONE, closed with zero work. The card still asked me to instrument the BlueBubbles transport and wait for an unacked CRITICAL; the fix shipped a month earlier in v5.73.1 (commit aee318b0e) and the code carries this card ID. A grep answered what a live measurement was queued to find out.',
      acknowledged: false}
@@ -12087,8 +12090,9 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: investigating
-  updated: 2026-09-12 10:30
+  status: planned
+  updated: '2026-09-14 04:50'
+  refinement_status: refined
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: perimeter_alert.py:1050 still gates circling on clock alert-hours; transition-exemption landed in sibling CIRCLING-LABEL-1 but the daytime-gating escape (should circling escape pure clock-time, daytime alert_count=0) is unbuilt. Open decision: escape-vs-accept. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
   relane_2026_09_10: Not a soak -> INVESTIGATING. Trace why alert_count=0 for a circling classification;
     then decide whether circling should escape pure clock-time gating.
@@ -12127,14 +12131,46 @@ cards:
     already exists to let exactly this case through the cooldown once per (track x target-class)
     — so the live question is whether that exemption failed to fire, or egress-suppression
     pre-empted it.
+  stale_vehicle_2026_09_14: >-
+    IMPORTANT — THIS CARD'S PLAN WAS STALE. Its `parsimony.note` said "exactly what CONSOL-1
+    contextual severity is for - fold in rather than a separate cycle". **CONSOL-1 has since
+    SHIPPED (status done), and it did NOT carry this.** Verified in source today: the burst path
+    builds a decision dict with a reason at perimeter_alert.py:2169-2272 ("disabled",
+    "classification_transition_exemption", "outside_night_window", "first_alert",
+    "sibling_corroborated", "adjacent_activity", "burst_isolated") — but the two PRE-DISPATCH
+    gates the trace isolated still have no reason: egress suppression (~:1050) and the per-camera
+    cooldown (~:1082) both just `return` silently. So the fold-in vehicle is gone and the work
+    did not ride it. Left as-was, this card would have waited forever on a cycle that already
+    closed.
+  gate_2026_09_14: >-
+    FOUR-STEP GATE RUN, PASSES — promoted investigating -> planned (build-ready, NOT built).
+    (1) VALIDITY: STILL-REAL, re-verified in source today (the two gates remain reason-less).
+    (2) PRIOR-ART / REUSE: **REUSE, do not invent.** The decision-reason pattern already exists in
+    this same file at perimeter_alert.py:2169-2272; this is extending an established idiom to two
+    more sites, not a new mechanism.
+    (3) PARSIMONY: sharp and falsifiable — "when a circling track is suppressed we cannot tell
+    which gate did it." Simplest version captures the whole benefit: a reason string on the two
+    existing suppression returns, surfaced the way the burst path already surfaces its own.
+    (4) COST/BENEFIT: additive observability with NO control-flow change and no new number, so
+    ingredient risk is near zero even though perimeter_alert.py is a regression-prone path.
+    NOTE ON WHY THIS IS THE RIGHT SHAPE: the alternative in the card's old `next` was "raise to
+    debug and wait for the next circling track" — that is soak-watching, which doctrine forbids.
+    Putting the discriminator in code is the sanctioned form (trip-wire in code, not a calendar).
+  not_built_overnight_because: >-
+    Scoped and gated but deliberately NOT built on this pass. The session is running on the
+    release/v5.101.2-integration branch and a code change belongs on a feature branch off develop;
+    spinning that up for a small observability change at 05:00 adds branch-management risk with no
+    urgency, and the payoff only lands the next time a circling track is suppressed. Left
+    build-ready so an attended session can take it straight to build.
   next: >-
-    MEASURE, do not re-trace: the remaining question is which of TWO named gates fired, and code
-    reading cannot distinguish them retrospectively. Capture the decision reason at the moment of
-    suppression (the burst path already builds a decision dict with a "reason" key; the
-    cooldown/egress pre-dispatch gates need the same), or raise perimeter_alert to debug and wait
-    for the next circling track. Discriminator: reason == egress_suppression vs cooldown vs
-    exemption_not_offered. ONLY THEN decide whether circling should be exempt. Do NOT ship a
-    "circling escapes clock gating" change — that gate is not what suppressed it.
+    BUILD-READY (Tier 1, additive observability, no behaviour change). Add a suppression `reason`
+    to the two pre-dispatch gates in perimeter_alert.py — egress suppression (~:1050) and
+    per-camera cooldown (~:1082) — reusing the existing decision-reason idiom at :2169-2272, and
+    surface it the same way. Acceptance: the next suppressed circling track reports
+    reason == egress_suppression | cooldown | exemption_not_offered, which is the discriminator
+    the 2026-09-13 trace isolated. ONLY THEN decide whether circling should be exempt.
+    DO NOT ship a "circling escapes clock gating" change — the 2026-09-13 trace REFUTED that gate
+    as the cause.
   refs:
   - exterior_track_linker.py classification
   - perimeter_alert.py alert-hours gating
