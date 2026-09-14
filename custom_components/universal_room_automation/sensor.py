@@ -15069,16 +15069,44 @@ class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
 
         try:
             async with database._db_read() as db:
-                cursor = await db.execute(
-                    """SELECT severity, timestamp, context_json
-                       FROM anomaly_log
-                       WHERE coordinator_id = 'bayesian'
-                         AND metric_name = 'bayesian.routine_shift'
-                         AND person_id = ?
-                         AND recovery_at IS NULL
-                       ORDER BY timestamp DESC""",
-                    (self._person_id,),
-                )
+                # ROUTINE-DETECTOR-NO-DISCHARGE-1: bound by recency.
+                # Without this the query has NO time filter, so ONE
+                # unacknowledged row pins this sensor for up to the 365-day
+                # retention. Measured 2026-09-14: severity-4 rows from
+                # 2026-05-15 held the household sensor at `major_shift` for
+                # four months while every detector cell read `stable`.
+                # A shift older than the detector's own 56-day baseline was
+                # computed against data that has itself aged out, so it
+                # cannot describe current routine. This makes acknowledging
+                # OPTIONAL rather than mandatory.
+                from .const import ROUTINE_STATUS_RECENCY_DAYS
+                if ROUTINE_STATUS_RECENCY_DAYS > 0:
+                    _cutoff = (
+                        dt_util.utcnow()
+                        - timedelta(days=int(ROUTINE_STATUS_RECENCY_DAYS))
+                    ).isoformat()
+                    cursor = await db.execute(
+                        """SELECT severity, timestamp, context_json
+                           FROM anomaly_log
+                           WHERE coordinator_id = 'bayesian'
+                             AND metric_name = 'bayesian.routine_shift'
+                             AND person_id = ?
+                             AND recovery_at IS NULL
+                             AND timestamp >= ?
+                           ORDER BY timestamp DESC""",
+                        (self._person_id, _cutoff),
+                    )
+                else:
+                    cursor = await db.execute(
+                        """SELECT severity, timestamp, context_json
+                           FROM anomaly_log
+                           WHERE coordinator_id = 'bayesian'
+                             AND metric_name = 'bayesian.routine_shift'
+                             AND person_id = ?
+                             AND recovery_at IS NULL
+                           ORDER BY timestamp DESC""",
+                        (self._person_id,),
+                    )
                 rows = await cursor.fetchall()
 
             if not rows:

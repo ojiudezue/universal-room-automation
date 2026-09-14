@@ -3508,6 +3508,35 @@ OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S: Final = 86400
 # Knob rung: module constant. This is a detection bound derived from a
 # measured distribution, not policy an operator tunes by observation; a
 # change should be re-derived from data under review. Kill switch: 0.
+# ROUTINE-DETECTOR-NO-DISCHARGE-1 (2026-09-14) — recency bound on the
+# routine-status sensors.
+#
+# THE PROBLEM THIS FIXES. The person/household routine-status sensors
+# query anomaly_log with NO TIME BOUND — `recovery_at IS NULL` and nothing
+# else (sensor.py). The only pruning is 365 days. So a single
+# unacknowledged row pins the sensor for up to a YEAR, and the only escape
+# is a human pressing the acknowledge button. Measured 2026-09-14: Jaya
+# carried severity-4 rows dated 2026-05-15 that had been holding the
+# household sensor at `major_shift` for four months while ALL 48 detector
+# cells read `stable`.
+#
+# WHY 56 DAYS. The detector compares a 14-day recent window against a
+# 56-day baseline. A shift emitted more than one baseline-window ago was
+# computed against data that has itself fully aged out — it is stale BY
+# CONSTRUCTION and cannot describe current routine. Tying the bound to the
+# baseline window keeps the sensor's notion of "recent" consistent with
+# the detector's own, rather than inventing an unrelated number.
+#
+# EFFECT: acknowledgement becomes OPTIONAL rather than mandatory. An
+# unacknowledged shift stops driving the sensor once it ages past the
+# window, so forgetting to press the button is no longer a year-long
+# stuck state. The button still works for clearing early.
+#
+# Knob rung: module constant — it must stay coherent with the detector's
+# baseline window, so changing it is a reviewed code change. 0 disables
+# the bound (restores the pre-fix unbounded behaviour).
+ROUTINE_STATUS_RECENCY_DAYS: Final = 56
+
 CAMERA_STUCK_ON_THRESHOLD_S: Final = 1800
 
 # Per-camera overrides, because one pathological camera must not be
