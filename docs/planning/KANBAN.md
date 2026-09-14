@@ -11,7 +11,7 @@ _Generated: 2026-09-14T01:02:16-05:00_ - _Data commit: `d0ba408aad51`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 11 |
-| 🧭 Pre-planning | 15 |
+| 🧭 Pre-planning | 16 |
 | 📝 Planned | 12 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 2 |
@@ -198,7 +198,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
 
-## 🧭 Pre-planning (15)
+## 🧭 Pre-planning (16)
 _idea being decomposed_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -408,7 +408,22 @@ _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self...
 
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#14 · WSJF 1.8 · v8 tc4 u2 /e8_
+thread: **optimization** - status: **pre_planning**
+_created 2026-09-14 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: sensors get stuck — reporting the same value for hours or days — and URA has no general way to notice. The health check it does have only ever looks at whether a ROOM looks degraded, so a single jammed sensor is invisible unless...
+- **Origin:** 2026-09-14 - operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
+- **Next:** PLAN, do not build. Tier 2 minimum (new finding dimension on a shared coordinator with NM reach). Before any build brief: (1) prior-art scan of sensor_health + the existing unavailable-entity surfaces; (2) measure per-device-class change...
+- **Tags:** tier-2, measure-before-build, no-fabrication-verify, institutional-context
+- **Parsimony:** [BUILD] URA has no sensor-keyed liveness check; every stuck-sensor incident so far was found by hand.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; docs/BACKLOG.md
+- **Forensic keys (3):**
+  - `THE_STRUCTURAL_GAP`: MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS...
+  - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
+  - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
+
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#15 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-12 16:30 · initial_
 - **Problem / Solution:**
@@ -420,7 +435,7 @@ _created 2026-09-12 16:30 · initial_
 - **Forensic keys (1):**
   - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
 
-### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _#15 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _#16 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-12 17:50 · initial_
 - **Problem / Solution:**

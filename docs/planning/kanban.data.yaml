@@ -510,6 +510,73 @@ cards:
   refs:
   - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
   - docs/planning/AUDIT_exterior_camera_detection_settings.md
+- id: OC-STUCK-SENSOR-GENERALIZE-1
+  title: "Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores"
+  thread: optimization
+  status: pre_planning
+  created: '2026-09-14 02:20'
+  updated: '2026-09-14 02:20'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: sensors get stuck — reporting the same value for hours or days — and URA has no
+     general way to notice. The health check it does have only ever looks at whether a ROOM looks
+     degraded, so a single jammed sensor is invisible unless it happens to drag a room score down.
+     This has now bitten repeatedly and differently: a camera pinned "person present" for 29 hours,
+     another reporting a person 53% of all wall-clock time, detectors that stop firing entirely,
+     and offline actuators a room cannot see. Every one was found by hand. Solution: give the
+     Optimization Coordinator one general stuck-sensor check keyed to the SENSOR, covering every
+     kind of device it already watches, with sane per-kind expectations — a door contact may sit
+     unchanged for days; a motion sensor may not.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "I think perhaps OC should surface stuck sensors for diff kinds of devices. This is getting ridiculous."
+  THE_STRUCTURAL_GAP: >-
+    MEASURED, not asserted: sensor_health produced 7,970 findings in a month and EVERY target_id is
+    a URA ROOM NAME (Jaya Bathroom 3402, Kitchen 940, Garage A 739, Butler Pantry 591...). It
+    watches ROOM SCORE DEGRADATION, not SENSOR LIVENESS. An individual sensor stuck at a plausible
+    value is outside its target universe entirely — no threshold change would ever catch it.
+    The same blind spot repeats in the DB: occupancy_events keys on (room_id, trigger_source) where
+    trigger_source is a KIND (presence/motion/ble/mmwave), never an entity_id. URA holds deep
+    history and still cannot answer "was THIS sensor stuck".
+  KNOWN_INSTANCES: >-
+    (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate
+    producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full
+    8-day window, median 408s vs fleet median ~25s; operator rebooted the camera 2026-09-14 and it
+    is expected to self-correct. (3) three exterior detectors firing ZERO times in 8 days
+    (CAMERA-ZERO-FIRE-DETECTORS-1) — the never-fires twin. (4) the standing BACKLOG gap that
+    sensor.<room>_unavailable_entities tracks only INPUT sensors, so a dead ACTUATOR is invisible
+    (documented in CLAUDE.md troubleshooting).
+    FOUR SHAPES: stuck-ON, stuck-OFF/never-fires, stuck-at-a-value (numeric), unavailable-but-
+    unreported. A design must say which it covers.
+  design_questions_do_not_guess: >-
+    (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion
+    sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even
+    while "reporting". Derive horizons from MEASURED p95/p99 per class — as the camera measurement
+    did (p99 <= 355s on 12 of 14 exterior detectors -> 1800s) — never invent numbers.
+    (b) SCOPE: everything URA is configured to consume — room inputs, perimeter/egress cameras,
+    climate, and per the BACKLOG gap, actuators.
+    (c) WHERE: OC already runs a sensor_health dimension with finding/severity/dedup/NM plumbing.
+    This is very likely an EXTENSION of that dimension keyed on entity_id, NOT a new coordinator.
+    Prior-art scan REQUIRED before proposing new infra.
+    (d) VOLUME: v5.101.1 B2 just suppressed repeat sensor_health rows to ~1/day/sensor. A new
+    per-entity dimension MUST adopt the same suppression or it re-creates the flood B2 just fixed.
+  next: >-
+    PLAN, do not build. Tier 2 minimum (new finding dimension on a shared coordinator with NM
+    reach). Before any build brief: (1) prior-art scan of sensor_health + the existing
+    unavailable-entity surfaces; (2) measure per-device-class change-duration distributions to
+    derive horizons from data; (3) pick which of the four shapes v1 covers — recommend stuck-ON and
+    never-fires, both proven to have occurred; (4) state the suppression story up front.
+  parsimony:
+    problem: URA has no sensor-keyed liveness check; every stuck-sensor incident so far was found by hand.
+    verdict: BUILD
+  rank: {value: 8, time_criticality: 4, effort: 8}
+  tags: [tier-2, measure-before-build, no-fabrication-verify, institutional-context]
+  links:
+    related: [CAMERA-STUCK-SENSOR-TRIPWIRE-1, CAMERA-ZERO-FIRE-DETECTORS-1, FRONT-SIDE-PTZ-CHATTER-1]
+    context: CAMERA-STUCK-SENSOR-TRIPWIRE-1 is the camera-only special case; if this is built, that folds into it rather than shipping separately.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/optimization.py
+  - docs/BACKLOG.md
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
@@ -563,6 +630,9 @@ cards:
     publishing; each sensor froze at its last value and only "unstuck" when HA marked it
     unavailable 29.5h later. front_side_ptz was toggling normally every ~30-60s right up to the
     freeze.
+    [OPERATOR 2026-09-14: rebooted the pool_equipment camera; expected to self-correct. RE-MEASURE
+    before calling this an open defect — if it clears, the finding still stands as evidence for the
+    trip-wire (nothing reported it for 8 days) but the instance closes.]
     (B) CHRONIC FALSE POSITIVE ON pool_equipment — a LIVE, CURRENT defect. 25 ON periods over 1h
     in 7.9 days, median 408s against a fleet median of 20-30s, and 100.5 ON hours out of 190 =
     **53% of wall-clock reporting a person present**. This camera is effectively always detecting
