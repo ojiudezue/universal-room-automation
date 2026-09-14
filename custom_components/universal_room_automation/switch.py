@@ -50,6 +50,14 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
+# EVSE-CHARGE-ONSET-NOT-HELD-1 C-LOW-1 / A-LOW / B-LOW: import the CONF
+# key rather than hardcoding the string literal in the write-back sites.
+# A rename would otherwise move the coord seed (energy.py:481-483) but
+# not the writer (silent drift — the exact failure shape this cycle
+# fixes at the persistence layer).
+from .domain_coordinators.energy_const import (
+    CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED as _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1350,13 +1358,72 @@ class ECEVChargeOnsetEnabledSwitch(_ECEVChargeOnsetEnabledBase):
             # after a partial reload). Preserves baseline behavior.
             setattr(energy, "_ev_charge_onset_enabled", bool(value))
 
+    def _write_back_options(self, value: bool) -> None:
+        """EVSE-CHARGE-ONSET-NOT-HELD-1: persist toggle state into
+        `entry.options` so `EnergyCoordinator.__init__` seed
+        (energy.py:481-489) reads the operator's TRUE last-known value
+        on the FIRST post-reload tick — not the hardcoded ship-dormant
+        default (`DEFAULT_ENERGY_EVSE_CHARGE_ONSET_ENABLED = False`).
+
+        Live root cause: prior to this fix, turn_on/turn_off mutated the
+        coord attr only; entry.options stayed at install-default False.
+        On CM/parent config-entry reload (see
+        `feedback_parent_reload_watchdog_hazard`), the coord re-init
+        seeded from stale entry.options → onset gate returned
+        `permits=True` → ensure-on leg flapped the EVSE on inside the
+        hold window (evidence: onset_release at 02:49 with
+        remaining_to_onset=190min).
+
+        Mirrors the HVACPreConditioningSwitch write-back at
+        switch.py:2069 (same lifecycle role — RestoreEntity plus
+        options-persistence for cross-reload durability). The
+        `CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED` key is already listed
+        in `OPTIONS_RELOAD_SUPPRESS_KEYS` (__init__.py:6540) so this
+        write does NOT trigger a full CM reload — only the setter
+        dispatch, which is idempotent when value equals current.
+
+        Idempotent: skip the async_update_entry call if entry.options
+        already matches, avoiding update-listener churn.
+
+        SHIP-DORMANT PRESERVED: this persists whatever the operator
+        toggled — True stays True across reload, False stays False. It
+        does not change the gate's False-permits behavior.
+        """
+        try:
+            entry = self._entry
+            current = entry.options.get(
+                _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED, None,
+            )
+            if current == bool(value):
+                return
+            new_options = {
+                **entry.options,
+                _CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED: bool(value),
+            }
+            self.hass.config_entries.async_update_entry(
+                entry, options=new_options,
+            )
+            _LOGGER.info(
+                "EV Charge Onset enable write-back to entry.options: %s "
+                "(was %s) — reload-resilience seed will be authoritative "
+                "on next reload",
+                bool(value), current,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EVChargeOnsetEnabledSwitch: options write-back failed",
+                exc_info=True,
+            )
+
     async def async_turn_on(self, **kwargs):  # noqa: D401
         self._route_to_setter(True)
+        self._write_back_options(True)
         self._deferred_restore = False
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):  # noqa: D401
         self._route_to_setter(False)
+        self._write_back_options(False)
         self._deferred_restore = False
         self.async_write_ha_state()
 
@@ -1364,13 +1431,34 @@ class ECEVChargeOnsetEnabledSwitch(_ECEVChargeOnsetEnabledBase):
         """Re-fan-out via the coord setter after any base-class restore
         write. The base setattr'd `_ev_charge_onset_enabled` on the coord;
         we then invoke the setter (idempotent) to propagate to both
-        controllers. Cheap: two attribute assignments on live objects."""
+        controllers. Cheap: two attribute assignments on live objects.
+
+        EVSE-CHARGE-ONSET-NOT-HELD-1: also write-back to entry.options
+        after RestoreEntity restore. This is the one-shot corrector for
+        installs whose entry.options is stale relative to the switch's
+        RestoreEntity state (e.g. the operator toggled the switch to ON
+        before this fix shipped — RestoreEntity holds True, entry.options
+        still False). After the first restore post-deploy, entry.options
+        matches the restored state; every subsequent coord __init__ then
+        seeds from the correct value.
+        """
         energy = self._get_energy()
         if energy is None:
             return
+        # A-LOW: isolate the persistence write-back so a setter exception
+        # cannot silently skip it (reload-resilience must survive fanout
+        # errors — else stale entry.options re-emerges on next reload).
+        current = getattr(energy, "_ev_charge_onset_enabled", False)
+        # Persist FIRST — cheapest and independent of setter health.
+        try:
+            self._write_back_options(bool(current))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EVChargeOnsetEnabledSwitch: _sync_after_restore write-back "
+                "raised", exc_info=True,
+            )
         try:
             fn = getattr(energy, "set_ev_charge_onset_enabled", None)
-            current = getattr(energy, "_ev_charge_onset_enabled", False)
             if callable(fn):
                 fn(bool(current))
         except Exception:  # noqa: BLE001
