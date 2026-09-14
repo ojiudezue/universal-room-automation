@@ -196,10 +196,126 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
+  title: The founding circling case may be an artifact of a seam the operator has now struck
+  thread: perimeter
+  status: investigating
+  created: '2026-09-13 22:10'
+  updated: '2026-09-13 22:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the live track that motivated the whole circling feature (xt-000001-695c9e:
+     back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, 133s) was
+     classified as "circling" only because the system believed those two cameras were next to
+     each other. The operator has now confirmed they are NOT: back_yard points into a SEPARATE
+     detached garage and front_side_ptz faces the front of the main house. A person cannot
+     bounce between them five times in 133 seconds, so the "one person circling" reading was
+     probably manufactured by a wrong adjacency entry. Solution: work out what that sequence
+     actually was (two different people? a camera mis-detecting? one person moving along a path
+     we have not modelled?) before treating the founding case as the reference example of
+     circling.'
+  origin:
+    date: '2026-09-13'
+    gist: fell out of applying the operator seam re-ratification — striking back_yard<->front_side_ptz broke all 16 circling tests, which all trace to that one fixture
+  why: >-
+    This matters beyond tidiness: the founding case is the reference example the circling
+    feature was designed and tuned against. If its premise was a wrong seam, then the tuned
+    thresholds (3 distinct cameras, non-monotonic sequence) were fitted to an artifact. With the
+    corrected graph that sequence forks into separate tracks and would not classify as circling
+    at all.
+  evidence_2026_09_13: >-
+    Applying the corrected graph turned 16 tests RED across 4 files
+    (test_circling_founding_case, _transition, test_circling_label_transition,
+    test_circling_diag_sensor) — all of them import the single fixture in
+    test_circling_founding_case.py, whose own comment said it "MUST set_adjacency to the
+    ratified EXTERIOR_ADJACENCY_GRAPH so back_yard <-> front_side_ptz link into ONE track".
+    That dependency is the tell: the entire cluster rests on one now-struck seam.
+    MITIGATION SHIPPED (not a fix): the fixture is pinned to an explicit
+    _HISTORICAL_ADJACENCY_2026_08 graph so it keeps reproducing the original incident as a
+    historical regression record, with a comment stating it is NOT a claim that those cameras
+    are adjacent today. Tests are green again (117 pass, 1 pre-existing failure unchanged).
+  next: >-
+    MEASURE: pull the original event rows for the founding window from the URA DB / recorder
+    (per-camera detection timestamps + snapshots if retained) and decide which explanation fits:
+    (a) TWO people, one front + one at the garage, merged by the bad seam; (b) ONE person on a
+    real path between them that the ring does not model (if so the ring needs an edge and the
+    operator should say which); (c) a detector false-positive on one of the two cameras.
+    Discriminator: the inter-camera gaps. A real walk between opposite sides of the property has
+    a plausible transit time; a merge artifact shows overlapping or implausibly short gaps.
+    THEN decide whether the circling thresholds need re-fitting against a real example.
+  parsimony:
+    problem: The reference example for circling may not have been a circling event at all.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 4, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify, falsify-first]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-SEVERITY-1]
+    context: CAMERA-SEAM-VALIDATION-1 struck the seam that created this doubt; CIRCLING-SEVERITY-1 is the other open question about the same live track (why it produced no page).
+  refs:
+  - quality/tests/perimeter/test_circling_founding_case.py
+  - docs/planning/VALIDATE_exterior_camera_seams.md
+- id: CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1
+  title: Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-13 22:10'
+  updated: '2026-09-13 22:10'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: along with the camera ring, the operator marked five cameras with [C] meaning
+     "close enough that these are not really big transitions" — front_door_aerial, the
+     Madrone/Reolink hub, armcrest, back_yard and doorbell_lite. Nothing in the system currently
+     knows about this. It could matter: a person is flagged as "circling" once they appear on
+     three DIFFERENT cameras in a looping order, so if two of those cameras are really just two
+     views of nearly the same spot, someone milling around one doorway could trip the circling
+     alarm without going anywhere. Solution: decide whether near-identical camera pairs should
+     count as one vantage point for that three-camera test — but first confirm exactly which
+     pairs the operator meant.'
+  origin:
+    date: '2026-09-13'
+    gist: operator seam sheet — "Some are close enough that they are actually not big transitions I will designate by [C] on the camera right after"
+  why: >-
+    Recording it now because it is new physical information with no home in the code, and the
+    capture-first rule exists for exactly this. NOT acting on it yet because the notation is
+    genuinely ambiguous and guessing would encode a wrong physical model into a rung-1
+    safety-adjacent constant.
+  ambiguity_2026_09_13: >-
+    "[C] on the camera right after" can mean either (a) this camera is close to the one BEFORE
+    it in the ring, or (b) close to the one AFTER it. The five marks sit after front_door_aerial,
+    the Madrone PT Ultra/Reolink hub, armcrest, back_yard and doorbell_lite. Under reading (a)
+    the close pairs are madrone_g6_entry-front_door_aerial, utilities_ptz-reolinkstudybporchptz,
+    hot_tub-armcrest, armcrest-back_yard, g5_bullet-doorbell_lite. Under reading (b) they are
+    front_door_aerial-utilities_ptz, reolinkstudybporchptz-pool_equipment, armcrest-back_yard,
+    back_yard-g5_bullet, doorbell_lite-rear_ptz. Only armcrest-back_yard is common to both.
+  next: >-
+    ANSWER which reading is right — for each of the five [C] marks, name the PAIR of cameras
+    that are close together (e.g. "front_door_aerial + utilities_ptz"). -> I then decide with you
+    whether a close-pair should count as ONE camera toward the 3-distinct-camera circling
+    threshold (EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS), which would suppress false circling
+    from someone loitering at a single doorway seen by two overlapping cameras.
+  parsimony:
+    problem: Near-duplicate camera views may inflate the distinct-camera count that triggers circling.
+    verdict: PARK
+  rank: {value: 5, time_criticality: 2, effort: 3}
+  tags: [no-fabrication-verify]
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1]
+    context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
+  refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
 - id: CAMERA-SEAM-VALIDATION-1
   title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
   thread: perimeter
-  status: waiting_operator
+  status: review
+  applied_2026_09_13: >-
+    OPERATOR RETURNED THE VALIDATED SHEET + a singular ring. APPLIED @
+    feature/camera-seam-ratification-2026-09 (f75c18801) — in review, not deployed. 27 -> 20
+    seams: 10 struck, 3 added to close the ring. Derived constant
+    EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS recomputed (hot_tub + front_door_aerial drop out).
+    Q1 resolved (pool_equipment degree 1 -> 2). Q2 resolved (front_door_aerial removed).
+    Q3 answered by the ring (reolinkstudybporchptz sits between utilities_ptz and
+    pool_equipment). 4 invariant guards added + mutation drill. NOTE the "no code change" route
+    does not exist: set_adjacency() has NO production caller and no config surface was ever
+    built, so this is necessarily a const edit.
   created: '2026-09-13 21:30'
   updated: '2026-09-13 21:30'
   refinement_status: initial

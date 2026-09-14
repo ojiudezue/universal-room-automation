@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T20:59:31-05:00_ - _Data commit: `b2fa871c47ee`_ - _last_reconciled: 2026-09-13_
+_Generated: 2026-09-13T21:11:13-05:00_ - _Data commit: `c51095abe272`_ - _last_reconciled: 2026-09-13_
 
 
 ## Columns
@@ -10,11 +10,11 @@ _Generated: 2026-09-13T20:59:31-05:00_ - _Data commit: `b2fa871c47ee`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 6 |
+| 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 16 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 13 |
@@ -34,10 +34,24 @@ _created 2026-09-13 01:30 · initial_
 - **Sibling of:** RECORDER-BLOAT-LOGFLOOD-1
 - **Parsimony:** [BUILD] 6-9 more URA sensors churn recorder rows via per-read elapsed attrs
 
-## 🔬 Investigating (6)
+## 🔬 Investigating (7)
 _measuring; truth not yet known_
 
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CIRCLING-FOUNDING-CASE-ARTIFACT-1` - The founding circling case may be an artifact of a seam the operator has now struck — _#1 · WSJF 2.6 · v7 tc4 u2 /e5_
+thread: **perimeter** - status: **investigating**
+_created 2026-09-13 22:10 · initial_
+- **Problem / Solution:**
+  - Problem: the live track that motivated the whole circling feature (xt-000001-695c9e: back_yard -> front_side_ptz -> back_yard -> front_side_ptz -> back_yard, 133s) was classified as "circling" only because the system believed those two c...
+- **Origin:** 2026-09-13 - fell out of applying the operator seam re-ratification — striking back_yard<->front_side_ptz broke all 16 circling tests, which all trace to that one fixture
+- **Why:** This matters beyond tidiness: the founding case is the reference example the circling feature was designed and tuned against. If its premise was a wrong seam, then the tuned thresholds (3 distinct cameras, non-monotonic sequence) were fi...
+- **Next:** MEASURE: pull the original event rows for the founding window from the URA DB / recorder (per-camera detection timestamps + snapshots if retained) and decide which explanation fits: (a) TWO people, one front + one at the garage, merged b...
+- **Tags:** measure-before-build, no-fabrication-verify, falsify-first
+- **Parsimony:** [BUILD] The reference example for circling may not have been a circling event at all.
+- **Refs:** quality/tests/perimeter/test_circling_founding_case.py; docs/planning/VALIDATE_exterior_camera_seams.md
+- **Forensic keys (1):**
+  - `evidence_2026_09_13`: Applying the corrected graph turned 16 tests RED across 4 files (test_circling_founding_case, _transition, test_circling_label_transition, test_circling_diag_sensor) — all of them import the single fixture in test_circling_founding_case....
+
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating** - approval: **unreviewed**
 _updated 2026-09-12 10:30_
 - **Origin:** 2026-08-08 - observed during v5.62.1 live validation
@@ -52,7 +66,7 @@ _updated 2026-09-12 10:30_
   - `traced_2026_09_13`: CODE TRACE DONE (autonomous, read-only). TWO HYPOTHESES REFUTED, one candidate isolated. REFUTED #1 — "circling was suppressed by clock-time / alert-hours gating" (the card's own framing, and the reason its next asked whether circling sh...
   - `needs_investigation`: False
 
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **investigating** - approval: **explicit**
 _updated 2026-09-12 19:05_
 - **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
@@ -68,7 +82,7 @@ _updated 2026-09-12 19:05_
   - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
   - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
 
-### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **investigating** - approval: **explicit**
 _created 2026-09-05 16:40 · updated 2026-09-12 19:20 · refined_
 - **Problem / Solution:**
@@ -85,7 +99,7 @@ _created 2026-09-05 16:40 · updated 2026-09-12 19:20 · refined_
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with C...
 
-### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating**
 _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook) — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
@@ -103,7 +117,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-09-12 20:45 · initial_
 - **Problem / Solution:**
@@ -113,7 +127,7 @@ _created 2026-09-12 20:45 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** notification_log hazard_type=exterior_person
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#6 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -532,16 +546,11 @@ _created 2026-09-12 09:15 · initial_
 - **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
 - **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
-
-## ⏸️ Waiting on operator (16)
-_needs a human call — groomed first_
-
 ### `CAMERA-SEAM-VALIDATION-1` - Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams — _#1 · WSJF 5.5 · v6 tc3 u2 /e2_
-thread: **perimeter** - status: **waiting_operator**
+thread: **perimeter** - status: **review**
 _created 2026-09-13 21:30 · initial_
 - **Problem / Solution:**
   - Problem: the exterior cameras are wired together by a declared list of "seams" — pairs of cameras a person can plausibly walk between. That list decides whether several sightings of one person become ONE tracked walk or several unrelated...
@@ -551,8 +560,26 @@ _created 2026-09-13 21:30 · initial_
 - **Tags:** no-fabrication-verify, audit-first
 - **Parsimony:** [BUILD] The declared camera adjacency has never been re-validated against the property since Aug 2026.
 - **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md; docs/planning/AUDIT_exterior_camera_adjacency_probe.md; custom_components/universal_room_automation/const.py (EXTERIOR_ADJACENCY_GRAPH)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `applied_2026_09_13`: OPERATOR RETURNED THE VALIDATED SHEET + a singular ring. APPLIED @ feature/camera-seam-ratification-2026-09 (f75c18801) — in review, not deployed. 27 -> 20 seams: 10 struck, 3 added to close the ring. Derived constant EXTERIOR_TRACK_EGRE...
   - `delivered_2026_09_13`: docs/planning/VALIDATE_exterior_camera_seams.md — 27 undirected seams (symmetrized exactly as ExteriorTrackLinker.__init__ does), per-camera degree table, the consumer explanation (link window 180s / close 300s / circling needs 3 cameras...
+
+## ⏸️ Waiting on operator (16)
+_needs a human call — groomed first_
+
+### `CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1` - Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling — _#1 · WSJF 3.0 · v5 tc2 u2 /e3_
+thread: **perimeter** - status: **waiting_operator**
+_created 2026-09-13 22:10 · initial_
+- **Problem / Solution:**
+  - Problem: along with the camera ring, the operator marked five cameras with [C] meaning "close enough that these are not really big transitions" — front_door_aerial, the Madrone/Reolink hub, armcrest, back_yard and doorbell_lite. Nothing ...
+- **Origin:** 2026-09-13 - operator seam sheet — "Some are close enough that they are actually not big transitions I will designate by [C] on the camera right after"
+- **Why:** Recording it now because it is new physical information with no home in the code, and the capture-first rule exists for exactly this. NOT acting on it yet because the notation is genuinely ambiguous and guessing would encode a wrong phys...
+- **Next:** ANSWER which reading is right — for each of the five [C] marks, name the PAIR of cameras that are close together (e.g. "front_door_aerial + utilities_ptz"). -> I then decide with you whether a close-pair should count as ONE camera toward...
+- **Tags:** no-fabrication-verify
+- **Parsimony:** [PARK] Near-duplicate camera views may inflate the distinct-camera count that triggers circling.
+- **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
+- **Forensic keys (1):**
+  - `ambiguity_2026_09_13`: "[C] on the camera right after" can mean either (a) this camera is close to the one BEFORE it in the ring, or (b) close to the one AFTER it. The five marks sit after front_door_aerial, the Madrone PT Ultra/Reolink hub, armcrest, back_yar...
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
