@@ -94,3 +94,46 @@ def test_counter_still_resets_to_zero_on_stable():
         return_value={"unacknowledged_consecutive": 7}
     )
     assert _run(det._persist_state("Jaya", 0, 1, "stable")) == 0
+
+
+# ======================================================================
+# ROUTINE-DETECTOR-NO-DISCHARGE-1 — recency bound
+#
+# The sensor query had NO time filter, so one unacknowledged row pinned
+# the sensor for up to the 365-day retention. Operator requirement:
+# "we need to not have this be a problem if unacknowledged."
+# ======================================================================
+
+def test_recency_bound_is_tied_to_the_detector_baseline_window():
+    """The bound must match the detector's own 56-day baseline, not an
+    unrelated invented number — a shift older than one baseline window was
+    computed against data that has itself aged out."""
+    from custom_components.universal_room_automation.const import (
+        ROUTINE_STATUS_RECENCY_DAYS,
+    )
+    assert ROUTINE_STATUS_RECENCY_DAYS == 56
+
+
+def test_sensor_query_is_recency_bounded_wire_in_anchor():
+    """WIRE-IN ANCHOR: the bound is useless if the query does not apply it.
+    Assert the bounded branch exists AND carries a timestamp predicate."""
+    import inspect
+    from custom_components.universal_room_automation import sensor as _sensor
+    src = inspect.getsource(_sensor)
+    assert "ROUTINE_STATUS_RECENCY_DAYS" in src, "recency const never referenced"
+    assert "AND timestamp >= ?" in src, (
+        "routine-status query is not recency-bounded — one stale "
+        "unacknowledged row will pin the sensor again"
+    )
+
+
+def test_unbounded_fallback_preserved_for_kill_switch():
+    """Setting the constant to 0 must restore the pre-fix behaviour, so the
+    change is reversible without a code edit."""
+    import inspect
+    from custom_components.universal_room_automation import sensor as _sensor
+    src = inspect.getsource(_sensor)
+    assert "if ROUTINE_STATUS_RECENCY_DAYS > 0:" in src
+    assert src.count("AND recovery_at IS NULL") >= 2, (
+        "both the bounded and unbounded query variants must exist"
+    )
