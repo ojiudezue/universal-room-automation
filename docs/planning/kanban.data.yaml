@@ -9,6 +9,12 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'NM-REPAGE-IMG-1@2026-09-14T04:35', at: '2026-09-14T04:35:00', outcome: done,
+     headline: 'NM-REPAGE-IMG-1 — ALREADY-DONE, closed with zero work. The card still asked me to instrument the BlueBubbles transport and wait for an unacked CRITICAL; the fix shipped a month earlier in v5.73.1 (commit aee318b0e) and the code carries this card ID. A grep answered what a live measurement was queued to find out.',
+     acknowledged: false}
+  - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:40', at: '2026-09-14T04:40:00', outcome: investigated,
+     headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 (follow-up) — re-pages are INVISIBLE to notification_log (_repeat_alert never calls log_notification), so 102/day UNDERSTATES the real buzz load: 2153 unacked CRITICALs keep paging on the 300s/1800s/daily ladder. Low ack rate does not just indicate fatigue, it manufactures it. Also confirms the 300s histogram spike is the perimeter cooldown, not the repeat timer (both share a 300s period).',
+     acknowledged: false}
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated,
      headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 — MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working — so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).',
      acknowledged: false}
@@ -9887,8 +9893,8 @@ cards:
   title: Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not
     a design choice
   thread: notifications
-  status: investigating
-  updated: '2026-09-12 19:05'
+  status: done
+  updated: '2026-09-14 04:35'
   verify_2026_09_12: 'APPROVED -> verify-before-work: CANNOT-VERIFY from DB (confirmed — notification_log has NO attachment/snapshot column, so image-presence is undeterminable either way). Re-pages ARE firing in volume: Perimeter Alert Person Detected CRITICAL imessage n=76/7d (~75 unacked), 403 CRITICAL imessage/14d — the unack-CRITICAL 5-min re-page is active and re-fires within minutes. I OWE: arm a DEBUG log of the outbound BlueBubbles transport kwargs (attachment/snapshot_path presence) at the re-page dispatch site, deploy, capture the next re-page -> converts CANNOT-VERIFY to PASS/FAIL. ASIDE (not this card): ~75 unacked CRITICAL perimeter re-pages/7d is an alert-fatigue signal worth its own look.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -9908,11 +9914,28 @@ cards:
   scope: '~5 LoC in NM re-page path: reuse the stored snapshot path from the original dispatch (both WhatsApp
     + iMessage attachment keys, BB v0.6). Tier 1. Anchor: wire-in rule applies (call-site neuter must
     red a test).'
-  next: 'MEASURE, do not fix — nothing is known to be broken. Determine whether iMessage re-pages actually
-    carry the attachment: inspect an outbound BlueBubbles payload at re-page time (log the transport kwargs
-    at debug on the next unack CRITICAL, or check BB-side message records for an attachment). 221 unacknowledged
-    CRITICALs on the imessage channel since 08-12 means opportunities are plentiful. Only if the attachment
-    is genuinely absent does this become a fix.'
+  verified_2026_09_14: >-
+    VERIFY-BEFORE-WORK verdict: **ALREADY-DONE — shipped in v5.73.1 on 2026-08-12.** The card was
+    still sitting in `investigating` asking me to measure whether re-pages carry the attachment;
+    the fix had already been built and released a month earlier. No measurement was needed and no
+    work was done.
+    EVIDENCE (source, not inference): notification_manager.py `_repeat_alert` carries the fix
+    under this card's own ID — "NM-REPAGE-IMG-1: reuse the original snapshot on every re-page so
+    image-bearing CRITICALs (perimeter/security) keep carrying the photo." It reads snapshot_url
+    and snapshot_path off the stored `_active_alert_data` and re-attaches them on each repeat,
+    with the graceful fallback the operator ruling implied: if the local file is gone at re-page
+    time it drops snapshot_path (keeping snapshot_url), logs at DEBUG, and never blocks the
+    re-page. The os.path.exists call is off-loaded to the executor (a LOW fix-up), so it does not
+    do sync I/O on the event loop.
+    PROVENANCE: commit aee318b0e "NM-REPAGE-IMG-1: re-attach snapshot on CRITICAL re-pages"
+    (2026-08-12), present on develop and contained in release tags from v5.73.1 onward.
+  how_this_was_missed: >-
+    The card's `next` proposed an expensive live measurement (instrument the BlueBubbles transport
+    at debug and wait for an unacked CRITICAL) to answer a question a single grep of the re-page
+    function would have settled — and did settle, in seconds. This is the exact case the
+    verify-before-work rule exists for: the board asserted "nothing is known to be broken, go
+    measure" while the fix was a month old and shipped.
+  next: 'DONE — no action. Shipped v5.73.1 (commit aee318b0e); verified in source 2026-09-14.'
   sharp_problem:
   - '2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage.
     The iMessage re-page attachment path did not land. Fix owed before card can close.'
@@ -19023,6 +19046,26 @@ cards:
     So the answer here is NOT a new debounce mechanism. Any volume reduction should come from
     (a) tuning the existing cooldown, (b) the per-channel fan-out policy, or (c) the source
     camera — not from building a second rate limiter alongside the working one.
+  repage_blind_spot_2026_09_14: >-
+    FOLLOW-UP THAT STRENGTHENS THIS CARD (found while verifying NM-REPAGE-IMG-1, same session).
+    The 102/day figure above EXCLUDES re-pages entirely, because **re-pages are invisible to
+    notification_log**. Verified in source: every `log_notification` call site in
+    notification_manager.py sits in the async_notify fan-out (lines 1677-1896) or the audit-row
+    writer (4470); `_repeat_alert` (2626-2790) re-sends to all qualifying channels WITHOUT writing
+    a row. So the table records first-sends only.
+    WHY THAT MATTERS HERE: an unacked CRITICAL keeps paging on the repeat ladder —
+    NM_REPEAT_PHASE1_S=300s for the first hour (NM_REPEAT_PHASE1_WINDOW_S=3600), then
+    NM_REPEAT_PHASE2_S=1800s, then daily (NM_REPEAT_DAILY_AFTER_S). With **2153 unacked CRITICAL
+    rows**, the operator's true buzz count is materially higher than 102/day and is NOT MEASURABLE
+    from this table. This also closes the loop on the 0.44% ack rate: acking is the only thing
+    that stops the ladder, so a low ack rate does not merely indicate fatigue — it actively
+    MANUFACTURES more of it.
+    IT ALSO CONFIRMS THE COOLDOWN ATTRIBUTION ABOVE: because re-pages never log, the clean 299-300s
+    spike in the inter-arrival histogram cannot be the 300s repeat timer and must be
+    PERIMETER_ALERT_COOLDOWN_SECONDS releasing. Both mechanisms share a 300s period, so this was
+    worth checking rather than assuming.
+    CONSEQUENCE FOR LEVER (B): trimming CRITICAL channel fan-out is now clearly the highest-value
+    URA-side lever, because it divides the re-page ladder's cost too, not just the first send.
   next: >-
     PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building
     a second rate limiter):
