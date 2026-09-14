@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated,
+     headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 — MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working — so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).',
+     acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated,
      headline: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 — MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).',
      acknowledged: false}
@@ -18961,10 +18964,10 @@ cards:
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
   thread: security
-  status: investigating
+  status: waiting_operator
   created: '2026-09-12 20:45'
-  updated: '2026-09-12 20:45'
-  refinement_status: initial
+  updated: '2026-09-14 04:20'
+  refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
   problem_solution:
@@ -18978,9 +18981,64 @@ cards:
   why: surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz)
     AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem,
     distinct from the phantom-xcorr severity question.
-  next: 'MEASURE: break exterior_person alert volume by camera + severity + hour; identify the dominant
-    sources (front_side_ptz street cam) and whether per-camera masking/tuning or a re-page cadence cap
-    cuts the fatigue without losing real detections. -> operator review.'
+  measured_2026_09_14: >-
+    ONE-SHOT READ-ONLY PROBE over the full live notification_log (5412 hazard_type=exterior_person
+    rows, 2026-08-15 -> 2026-09-14, 31 days). The volume problem IS REAL, but the headline number
+    this card was built on counts the wrong thing, and two plausible mechanisms are REFUTED.
+    ROW ANATOMY (the correction that matters): notification_log does NOT hold one row per alert.
+    5412 rows decompose into 3165 ALERT records (recipient NULL) + 2247 per-recipient DELIVERY
+    AUDIT rows (message literally '[audit]', recipient person.oji_udezue). On top of that,
+    CRITICAL alerts FAN OUT ACROSS FOUR CHANNELS — 433 rows each for imessage / pushover /
+    whatsapp plus a combined companion row. So one CRITICAL event can write ~5 rows.
+    CORRECTED VOLUME: 3165 alert records / 31d = **102/day**, not the 155/day this card cites
+    (and not the 174.6/day the raw row count gives). Severity split of the real alert records:
+    CRITICAL 1732, HIGH 1433.
+    CONCENTRATION CONFIRMED — the card was right about the source: front_side_ptz_person_occupancy_2
+    alone is 1338 of 3165 = **42%** of all alert records. Next: back_yard 480, pool_equipment 424,
+    hot_tub 225.
+    ACK RATE IS THE REAL FATIGUE EVIDENCE: **24 acknowledged out of 5412 rows (0.44%)**; 2153
+    CRITICAL rows unacked. Whatever the exact volume, essentially nothing is being acknowledged.
+    TIME-OF-DAY: peaks 13:00-17:00 (461/559/407/486/471 rows) — daytime street traffic on the
+    front cam, not an intruder profile.
+  hypotheses_refuted_2026_09_14: >-
+    TWO OF MY OWN HYPOTHESES DIED IN THIS PROBE — recording them so they are not re-derived:
+    (1) "The same physical camera double-alerts through two entity paths." Seven cameras DO expose
+    both a `_person_detected` and a `_person_occupancy_2` leg, which looked damning. MEASURED
+    cross-leg co-firing within 60s: 0-6% of volume (back_yard 2 pairs, front_side_ptz 5,
+    pool_equipment 0). REFUTED — the fused-sourcing dedup in perimeter_alert.py (cooldown keyed by
+    CAMERA, not entity_id) is doing its job.
+    (2) "A per-entity debounce would halve the volume — 58% of rows repeat within 60s." REFUTED,
+    and this one was nearly a false finding. Those sub-60s repeats are the per-recipient and
+    per-channel FAN-OUT rows of a SINGLE alert (the 2s/4s/6s inter-arrival spikes), not repeat
+    detections. Debouncing them would have suppressed delivery legs of one event while changing
+    the real alert rate hardly at all.
+    (3) THE EXISTING COOLDOWN IS WORKING. PERIMETER_ALERT_COOLDOWN_SECONDS=300 (const.py:1570) is
+    consumed at perimeter_alert.py:1082, keyed by camera with an in-flight guard. The
+    inter-arrival histogram shows a clean spike at exactly 299-300s — the cooldown releasing on
+    schedule. This is NOT a Bug-Class-#53 computed-but-not-consumed case; do not open one.
+  prior_art_2026_09_14: >-
+    REUSE-or-BUILD scan before recommending anything: rate limiting for this path ALREADY EXISTS
+    and is live — PERIMETER_ALERT_COOLDOWN_SECONDS (const.py:1570, per-camera, 300s) plus a
+    classification-transition exemption and an in-flight dispatch guard (perimeter_alert.py:1064-1115).
+    So the answer here is NOT a new debounce mechanism. Any volume reduction should come from
+    (a) tuning the existing cooldown, (b) the per-channel fan-out policy, or (c) the source
+    camera — not from building a second rate limiter alongside the working one.
+  next: >-
+    PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building
+    a second rate limiter):
+    (A) SOURCE — front_side_ptz is 42% of all alerts and peaks in daytime street hours. This is
+    already yours on FRONT-SIDE-PTZ-CHATTER-1 ("I'll recheck and handle the crop"). Doing that one
+    crop is the single biggest reduction available and needs no URA change at all. RECOMMENDED
+    FIRST — it is free to URA and cuts the largest slice.
+    (B) CHANNEL FAN-OUT — 433 CRITICAL events each paged imessage + pushover + whatsapp +
+    companion. APPROVE trimming CRITICAL exterior_person to fewer channels (this is the buzz-count
+    driver the 0.44% ack rate reflects) and say which channels to keep.
+    (C) COOLDOWN TUNING — raise PERIMETER_ALERT_COOLDOWN_SECONDS from 300s. Cheap knob turn, but
+    note it is a blunt instrument: it trades away genuine re-approach detections, and per the
+    Numbers-Get-Knobs ladder this number currently sits as a module constant (review-gated) rather
+    than an operator entity. Say if you want it promoted to a live knob.
+    DO NOT pick "add a per-entity debounce" — measured above, it would suppress delivery legs of
+    single events and barely move the real alert rate.
   links:
     related: [PERIMETER-PHANTOM-XCORR-1, NM-REPAGE-IMG-1, CONSOL-1]
     context: 'Spawned from the PERIMETER-PHANTOM + NM-REPAGE probes (2026-09-12). Distinct from

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T02:07:01-05:00_ - _Data commit: `4d6cfe4d2070`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T02:08:46-05:00_ - _Data commit: `ac649f6caf81`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-09-14T02:07:01-05:00_ - _Data commit: `4d6cfe4d2070`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 6 |
+| 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 11 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
-| ⏸️ Waiting on operator | 19 |
+| ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 49 |
@@ -34,7 +34,7 @@ _created 2026-09-13 01:30 · initial_
 - **Sibling of:** RECORDER-BLOAT-LOGFLOOD-1
 - **Parsimony:** [BUILD] 6-9 more URA sensors churn recorder rows via per-read elapsed attrs
 
-## 🔬 Investigating (6)
+## 🔬 Investigating (5)
 _measuring; truth not yet known_
 
 ### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -103,17 +103,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **security** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-12 20:45 · initial_
-- **Problem / Solution:**
-  - Problem: two independent probes surfaced a large perimeter alert load — notification_log hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL iMessage re-pages over 7d on "Perimeter Alert Person Detec...
-- **Why:** surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz) AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem, distinct from the phantom-xcorr severity quest...
-- **Next:** MEASURE: break exterior_person alert volume by camera + severity + hour; identify the dominant sources (front_side_ptz street cam) and whether per-camera masking/tuning or a re-page cadence cap cuts the fatigue without losing real detect...
-- **Tags:** no-fabrication-verify
-- **Refs:** notification_log hazard_type=exterior_person
-
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#6 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#5 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -652,7 +642,7 @@ _created 2026-09-13 23:30 · initial_
   - `KNOWN_LIMITATION_2026_09_14`: THE WIRE-IN ANCHOR IS SOURCE-LEVEL, NOT BEHAVIOURAL — flagged by the builder, confirmed by me, recorded rather than papered over. `test_wire_in_call_site_uses_resolver` parses __init__.py, isolates the async_from_json_file argument list ...
   - `baseline_caveat_2026_09_14`: Full-suite baseline name-diff NOT established — `pytest quality/tests/` exceeds the 2-minute tool timeout (the known TEST-STRATEGY-REARCH-1 problem). The builder verified the affected surface only (test_energy_tou.py, test_day_boundary_t...
 
-## ⏸️ Waiting on operator (19)
+## ⏸️ Waiting on operator (20)
 _needs a human call — groomed first_
 
 ### `CAMERA-PTULTRA-NOT-IN-PERIMETER-1` - 'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list — _#1 · WSJF 7.0 · v7 tc5 u2 /e2_
@@ -909,7 +899,21 @@ _created 2026-09-13 01:00 · initial_
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#18 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **security** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-12 20:45 · updated 2026-09-14 04:20 · refined_
+- **Problem / Solution:**
+  - Problem: two independent probes surfaced a large perimeter alert load — notification_log hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL iMessage re-pages over 7d on "Perimeter Alert Person Detec...
+- **Why:** surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz) AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem, distinct from the phantom-xcorr severity quest...
+- **Next:** PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building a second rate limiter): (A) SOURCE — front_side_ptz is 42% of all alerts and peaks in daytime street hours. This is already yours on FRONT-SIDE-...
+- **Tags:** no-fabrication-verify
+- **Refs:** notification_log hazard_type=exterior_person
+- **Forensic keys (3):**
+  - `measured_2026_09_14`: ONE-SHOT READ-ONLY PROBE over the full live notification_log (5412 hazard_type=exterior_person rows, 2026-08-15 -> 2026-09-14, 31 days). The volume problem IS REAL, but the headline number this card was built on counts the wrong thing, a...
+  - `hypotheses_refuted_2026_09_14`: TWO OF MY OWN HYPOTHESES DIED IN THIS PROBE — recording them so they are not re-derived: (1) "The same physical camera double-alerts through two entity paths." Seven cameras DO expose both a `_person_detected` and a `_person_occupancy_2`...
+  - `prior_art_2026_09_14`: REUSE-or-BUILD scan before recommending anything: rate limiting for this path ALREADY EXISTS and is live — PERIMETER_ALERT_COOLDOWN_SECONDS (const.py:1570, per-camera, 300s) plus a classification-transition exemption and an in-flight dis...
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#19 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -923,7 +927,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#19 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#20 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
