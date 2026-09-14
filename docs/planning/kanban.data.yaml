@@ -17221,11 +17221,14 @@ cards:
     cannot drop Zigbee and WiFi transports simultaneously); (2) the config-flow degradation is a
     SEPARATE and still-unproven suspect (reload-storm loop-stall), whose timing instrumentation
     @eb2f73094 is built but unshipped, so the 25-minute Foyer setup remains unpinned.
+  restart_explained_2026_09_13: >-
+    ANSWERED by operator: "i restarted it" — the 2026-09-14T00:11:53Z restart was INTENTIONAL,
+    operator-initiated recovery. So there is no unexplained restart here and NOTHING to chase on
+    the parent-reload / watchdog-hazard side for this event. Closes the last open thread from my
+    retracted outage claim: restart was deliberate, transients were its expected consequence, and
+    the house healed. Do NOT log this restart as evidence in URA-CONFIG-ENTRY-RELOAD-STORM-1 — it
+    is operator-initiated and would contaminate that card's reload-trigger hunt.
   next: >-
-    ANSWER (quick, operator): did you restart Home Assistant around 19:11 CDT tonight, or did
-    something else (watchdog / supervisor / host) do it? That tells us whether the restart was
-    intentional recovery or an unexplained event worth chasing — my infra escalation is WITHDRAWN
-    either way, since the numbers I escalated on were restart transients.
     -> then I re-measure z2m + Shelly on a SETTLED instance (age-distribution, not raw counts)
     to get a trustworthy verdict on whether the earlier Zigbee event actually cleared, and ship
     the config-flow timing instrumentation to pin the remaining slowness.
