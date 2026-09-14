@@ -19022,6 +19022,14 @@ cards:
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
   thread: config-flow
   status: waiting_operator
+  SUPERSEDES_ALL_BELOW_2026_09_14: >-
+    READ THIS FIRST. Every dated entry below that names "reload storm" as the cause is a PRIOR
+    HYPOTHESIS, NOT a finding — kept for history per the mark-wrong-do-not-delete rule, not to be
+    acted on. There is NO evidence of a reload storm or any event-loop stall for this card. The
+    2026-09-14 instrumentation capture showed URA flow handlers running sub-millisecond and the
+    only large gaps being human data-entry time (form shown -> operator submits). No culprit is
+    named. Do not repeat the storm conclusion without a capture that shows a genuinely slow
+    NON-INTERACTIVE gap.
   disentangled_2026_09_13: 'CORRECTED (operator pushback on linkage + host check). HOST NOT PRESSURED: load 1.48, CPU 91.7%% idle, 0%% iowait, swap 0, 5.5GB free -> the 5585-unavailable-saturates-loop claim is UNSUPPORTED (unavailable entities are inert; no resource saturation). TWO SEPARATE problems, previously conflated: (1) NETWORK OUTAGE — reloaded all 49 shelly, only 173->138 recovered (~35), house-wide 5604 still down; contrast earlier-tonight 614->16 when devices were reachable/stale. Reload now largely FUTILE => devices genuinely off-network (z2m bridges 5/6 off, UniFi ports/Protect/Z-Wave-lock/cloud all down together) = operator infra fix (UniFi path/AP/switch). (2) CONFIG-FLOW DEGRADATION — likely reload-storm discrete loop-stalls (low CPU + periodic unresponsiveness, no blocking-call warnings) NOT the outage; proof requires the flow instrumentation (eb2f73094). No blocking-call detector hits. Onboarding ranking code confirmed sub-second. Log levels reverted.'
   independently_verified_2026_09_13: 'Operator pushback (do not trust optimizer; could be network) = CORRECT. Independent ground truth (NOT optimizer): (a) binary_sensor.zigbee2mqtt_bridge_connection_state 5-of-6 = OFF (the bridges OWN disconnect signal; 31 z2m bridge entities); (b) Shelly WiFi = 173 unavailable now, REGRESSED from 16 after my earlier recovery tonight; (c) 6132 entities unavailable house-wide; (d) MQTT broker (Mosquitto) itself LOADED/up. BOTH Zigbee-transport AND WiFi-transport down simultaneously => NETWORK/HOST event, not a single add-on/integration (a z2m crash would not also drop Shelly WiFi). Recurring (Shelly re-dropped within hours). URA 46/46 loaded — config-flow slow + cannot-add are COLLATERAL from the saturated loop. Corrected my earlier over-reliance on optimizer boot_storm flag. RESOLUTION is operator-side network/host recovery (AP/switch/VLAN serving the z2m coordinator host + WiFi gear), NOT URA.'
   recheck_CORRECTED_2026_09_13_2320: >-
