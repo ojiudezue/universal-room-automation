@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "119",
+  "author": "ojiudezue",
+  "session_id": "claude_20260914_134553_ship_v5_101_4",
+  "timestamp": "2026-09-14T13:45:53Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.101.4 shipped: Household routine sensor recency bound (v5.101.3 fix-up)",
+  "summary": "Household routine sensor recency bound (v5.101.3 fix-up)",
+  "why": "Shipped as its own release rather than folded into a later batch because it completes a property the operator explicitly asked for \u2014 'we need to not have this be a problem if unacknowledged' \u2014 and half-delivered, that property is worse than undelivered: the person sensors self-clear while the household sensor stays pinned, which reads as an inconsistent system rather than a known gap. The miss itself is the lesson: I bounded the query I had traced and never asked how many consumers read the same rows, which is the count-the-consumers rule I have applied to other people's code all night. It was caught only because live validation was run against the real sensors instead of trusting a green suite.",
+  "implications": "Shipped ROUTINE-DETECTOR-NO-DISCHARGE-1 at v5.101.4; card(s) sit shipped_organic pending validation. Acceptance in README_v5.101.4.md (Live criteria).",
+  "revisit_trigger": "live: sensor.ura_coordinator_manager_household_routine_status reads something other than 'major_shift' with no button press, because its driving rows (2026-05-15..05-28) fall outside the 56-day recency window; AND the person routine sensors are unchanged from v5.101.3",
+  "refs": {
+    "cards": [
+      "ROUTINE-DETECTOR-NO-DISCHARGE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.101.4.md"
+    ],
+    "release_notes": "- v5.101.3 bounded the routine-status query by recency so an unacknowledged shift stops driving the sensor once it ages past the detector's 56-day baseline \u2014 making acknowledgement OPTIONAL. It bounded only ONE of TWO sensors.\n- CAUGHT BY LIVE VALIDATION, NOT TESTS: after the v5.101.3 restart the Jaya sensor correctly dropped major_shift -> shifted (its May severity-4 rows aged out exactly as designed) while the HOUSEHOLD sensor still read major_shift on the same 462 rows. Two sensors, two separate queries; the person one working perfectly is what made the household one look like a broken bound rather than an untouched consumer.\n- The household query now carries the same ROUTINE_STATUS_RECENCY_DAYS bound, unbounded variant preserved behind the 0 kill switch.\n- The guard test was HOLLOW TWICE on this feature and both failures are documented in the README: a bare substring check (sensor.py has three queries containing it) and a SELECT-keyword span that ran 5887 chars and swallowed an unrelated predicate. Now anchored on triple-quote boundaries, asserting BOTH queries are bounded, and drilled to RED."
+  }
+}
