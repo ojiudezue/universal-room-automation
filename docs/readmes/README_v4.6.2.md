@@ -56,7 +56,7 @@ Runs nightly via `entry.async_create_background_task` (Bug Class #19 — tracked
 
 **Per-person:** `sensor.ura_coordinator_manager_{person}_routine_status` × N
 - State: `stable` | `drifting` | `shifted` | `major_shift` (mapped from worst unacknowledged severity in `anomaly_log`)
-- Attributes: `unacknowledged_events`, `max_magnitude`, `max_magnitude_cell`, `top_changes`, `last_check_at`
+- Attributes: `unacknowledged_events`, `max_magnitude`, `max_magnitude_cell`, `top_changes` (`last_check_at` removed v5.101.x, RECORDER-BLOAT-LOGFLOOD-1 — per-refresh churn drove ~1 States row/sec; use `entity.last_reported` for live-freshness)
 
 **House aggregate:** `sensor.ura_coordinator_manager_household_routine_status`
 - State: worst-case across persons

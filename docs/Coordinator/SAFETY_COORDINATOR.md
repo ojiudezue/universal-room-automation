@@ -494,7 +494,9 @@ sensor.ura_safety_status:
   attributes:
     active_hazards: 0
     sensors_monitored: 15
-    last_check: "2026-01-24T19:45:00"
+    # last_check removed v5.101.x (RECORDER-BLOAT-LOGFLOOD-1) — was a
+    # per-refresh utcnow() that forced ~1 States row/sec on the recorder;
+    # read entity.last_reported for live-freshness instead.
 
 binary_sensor.ura_safety_alert:
   state: "off"
