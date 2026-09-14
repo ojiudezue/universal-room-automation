@@ -35,49 +35,49 @@ meta:
      acknowledged: true}
   - {fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-14T03:10', at: '2026-09-14T03:10:00', outcome: parked,
      headline: 'FRONT-SIDE-PTZ-CHATTER-1 — LANE FIX only: card sat in investigating while its own next said the operator owns it and nothing was queued on my side. Moved to waiting_operator with an operator-verb next. No finding changed.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00', at: '2026-09-12T12:00:00', outcome: parked,
      headline: 'HVAC-BASELINE-MAXSAMPLES-1 — PARKED at gate (shared-primitive change, margin does not pay)',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'PATHBETA-VESTIGIAL-1@2026-09-12T12:20', at: '2026-09-12T12:20:00', outcome: parked,
      headline: 'PATHBETA-VESTIGIAL-1 — PARKED at gate (hygiene-not-defect; gated on PATH-ALPHA proofs)',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'CRASH-ORPHAN-COMMITS-RECOVERY-1@2026-09-13T20:45', at: '2026-09-13T20:45:00', outcome: done,
      headline: 'CRASH-ORPHAN-COMMITS-RECOVERY-1 — DONE: 14 orphaned develop commits recovered + pushed; no code lost',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'OLLAMA-CONSUMER-AUDIT-1@2026-09-13T20:50', at: '2026-09-13T20:50:00', outcome: done,
      headline: 'OLLAMA-CONSUMER-AUDIT-1 — DONE: cleared to stop Ollama; LLM Vision uses OpenAI cloud (operator hypothesis refuted), zero consumers found',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-13T21:10', at: '2026-09-13T21:10:00', outcome: waiting_operator,
      headline: 'WORKTREE-BACKLOG-PRUNE-1 — ESCALATED: audited all 94 worktrees; ~54 safe-prune, ~40 hold real work. Needs APPROVE (deletion irreversible)',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'ROOM-ENTITY-STALE-CONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
      headline: 'ROOM-ENTITY-STALE-CONFIG-1 — DONE with NO EDITS APPLIED: verify-before-work found 3 of 4 already repointed and the 4th inert (dead ref shadowed by options override). Approval spent on a no-op; no restart needed',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
      headline: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 — KILLED per operator. MBR on studyb_zone_1 confirmed BY DESIGN (3 HVAC zones serve ~40 rooms); the check-side fix already shipped v5.91.4',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1@2026-09-13T21:35', at: '2026-09-13T21:35:00', outcome: done,
      headline: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1 — ACTIVATED: launchd job loaded + verified, nightly 02:00 America/Chicago. Unattended autonomous passes now live (builds stop at review, no unattended deploys)',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: parked,
      headline: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1 + KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 — PARKED per operator (leave alone); both carry revival triggers',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: waiting_operator,
      headline: 'CONFIG-FLOW-SLOW-ONBOARDING-1 — RECHECKED: network outage STILL LIVE and WORSE (7053 unavailable vs 6132; Shelly regressed 138->171; z2m 4/6 off). URA healthy (5 unavail). Operator infra fix',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T02:20', at: '2026-09-14T02:20:00', outcome: investigated,
      headline: 'CIRCLING-SEVERITY-1 — TRACED: refuted the card''s own clock-gating premise (that window gates burst DEMOTION, not alerting) and refuted a dead-severity-table theory; isolated to egress-suppression vs per-camera cooldown. Next step is now a measurement, not a code change',
      acknowledged: false}
   - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-14T01:05', at: '2026-09-14T01:05:00', outcome: done,
      headline: 'WORKTREE-BACKLOG-PRUNE-1 — DONE: 51 worktrees pruned (94->43). The recheck RESCUED 10 orphaned code-review records (2462 lines) that existed only in throwaway worktrees and would have been destroyed',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1-B1@2026-09-13T22:10', at: '2026-09-13T22:10:00', outcome: built,
      headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 B1 — BUILT (review): the corpus TRIMMER empties findings_recent while keeping open_findings_count, manufacturing the contradiction the LLM paged as CRITICAL. Fix = truncation notice. 3 tests + mutation drill',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1-B2@2026-09-14T01:40', at: '2026-09-14T01:40:00', outcome: built,
      headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 B2 — BUILT (review): unchanged stuck-sensor rows now persist ~1/day not ~288/day. Suppressed at the persistence layer so the house score cannot silently rise. 6 tests incl 2 wire-in anchors',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1@2026-09-14T02:00', at: '2026-09-14T02:00:00', outcome: built,
      headline: 'OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 — BUILT (review): existing coverage was a SOURCE GREP (hollow anchor) and an in-repo comment claiming a behavioural test was false. Added real anchors + source-mutation drill',
      acknowledged: false}
@@ -1670,7 +1670,31 @@ cards:
     NOT DONE (deliberately out of scope — operator asked for worktrees, not branches): 60+ local
     branches are fully merged into develop and could be deleted separately on request.
     .claude/worktrees still holds 2.5G across the surviving 43.
-  next: 'DONE. Optional follow-up if wanted: delete the 60+ fully-merged local branches.'
+  operator_instruction_2026_09_14: >-
+    "Do it safely" — operator authorised the deferred half: deleting the fully-merged local
+    branches. REOPENED for that work.
+    SAFETY BAR, informed by what this session already got wrong: my earlier classification used
+    COMMIT ANCESTRY (`rev-list HEAD..branch`) and that is NOT a test of whether work shipped —
+    two branches showed "2 commits ahead" while their CONTENT was fully in develop, applied via a
+    different commit path. So ancestry alone must NOT authorise a delete.
+    DELETE ONLY IF ALL THREE HOLD, per branch: (a) `git merge-base --is-ancestor <branch> develop`
+    passes, i.e. genuinely merged; (b) the branch has no worktree attached; (c) a CONTENT spot-check
+    — at least one distinctive symbol the branch introduced is present in develop. Skip anything
+    that fails any check and report it rather than forcing.
+    NEVER delete: branches with an attached worktree, anything unmerged, and the release/scratch
+    integration branches from tonight until their releases are validated.
+  branch_cleanup_done_2026_09_14: >-
+    DONE. 355 branches deleted, 413 -> 58. Used `git branch -d` (which REFUSES anything not fully
+    merged) on top of the three-check bar, so the tool itself was the final guard rather than my
+    classification.
+    ONE REFUSED: feature/household-routine-recency-bound — it carries an upstream ref so `-d` is
+    conservative about it. It IS merged into develop and ships in v5.101.4; left in place.
+    CONSERVATIVE BY CONSTRUCTION: the branches I previously MISJUDGED (device-arrangement-rooms-menu
+    -build, energy-pool-actuation-logging — shipped content with stale pointers that showed
+    "2 commits ahead") are not in `--merged` output at all, so they were never candidates. The
+    earlier ancestry-vs-content confusion could not cause a wrong delete here.
+    Worktrees untouched (46 before and after); develop, master and the release branches intact.
+  next: 'DONE — both halves complete (51 worktrees pruned earlier, 355 branches now).'
   links:
     related: [EVSE-CHARGE-ONSET-NOT-HELD-1]
     context: evse-onset-reload is one of the unmerged worktrees and is part of the held v5.101.1 deploy bundle.
@@ -5650,6 +5674,26 @@ cards:
     context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
   refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
+  FIXUP_2026_09_14_HOUSEHOLD_SENSOR: >-
+    SHIPPED v5.101.3 WAS INCOMPLETE — caught by live validation, not by tests.
+    There are TWO routine-status sensors with TWO separate queries
+    (PersonRoutineStatusSensor and the Household one). v5.101.3 bounded only the person query.
+    LIVE PROOF: after the restart, Jaya correctly dropped major_shift -> shifted (its May
+    severity-4 rows aged past the 56-day bound, exactly as designed) while the HOUSEHOLD sensor
+    still read major_shift with the same 462 unacknowledged rows. The person sensor working
+    perfectly is what made the household one look like a broken bound rather than an untouched
+    consumer. Count-the-consumers miss.
+    FIXED in v5.101.4: the household query carries the same ROUTINE_STATUS_RECENCY_DAYS bound,
+    with the unbounded variant preserved behind the 0 kill switch.
+    THE GUARD TEST WAS HOLLOW TWICE ON THIS SAME FEATURE, recorded because a silently-fixed
+    hollow anchor teaches nothing: (1) a bare substring check over the module — sensor.py has
+    THREE queries containing "AND timestamp >= ?", so deleting the routine one still matched;
+    (2) locating statements by searching backwards for SELECT, which produced a 5887-character
+    span that swallowed an unrelated query'"'"'s predicate and reported a phantom bound. The test now
+    anchors on the triple-quoted string-literal boundaries and counts bounded-vs-unbounded
+    routine_shift queries, asserting >= 2. Drilled: unbinding the household query turns it RED.
+    PROCESS NOTE: on both drills the mutation had to be verified as APPLIED before a green result
+    was trusted — the first attempt was a silent no-op that read as a passing test.
   BUILT_2026_09_14: >-
     BUILT @ feature/regime-return-to-stable-discharge — in review, not deployed. Option (B)
     return-to-baseline auto-clear, as the measurement indicated: new DAO
@@ -5673,7 +5717,7 @@ cards:
     silently re-accumulate.
   thread: presence
   status: shipped_organic
-  shipped_version: v5.101.3
+  shipped_version: v5.101.4
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
