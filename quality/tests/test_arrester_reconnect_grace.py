@@ -610,3 +610,104 @@ class TestPerSiteMutationAnchors:
         # With the counter neutered, override_count_today stays 0 —
         # this failure is what the sibling anchor test would report.
         assert arrester._zone_manager.zones[ZONE_1].override_count_today == 0
+
+
+# ---------------------------------------------------------------------------
+# OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 (2026-09-13)
+#
+# The comment above TestIncrementSitesReachable asserted that the
+# startup-audit increment site "is exercised by an independent test that
+# drives async_startup_audit". VERIFIED 2026-09-13: NO such behavioural
+# test existed. The only coverage naming this method
+# (test_v478_egress_window.py:961) is a SOURCE GREP — it asserts strings
+# are present in the file, so deleting the `override_count_today += 1`
+# would NOT fail it (hollow anchor).
+#
+# The path IS load-bearing: async_startup_audit is wired at hvac.py:1540,
+# and override_count_today feeds 7 consumers incl. the optimizer's
+# override-frequency advisory (>=10 -> medium, optimization.py:2342) and
+# the zone efficiency score (`override_penalty = count * 5`,
+# sensor.py:1590). An uncounted stale override silently understates both.
+# ---------------------------------------------------------------------------
+
+
+def _fake_preset_manager(cool=76.0, heat=70.0):
+    pm = MagicMock()
+    pm.current_season = "summer"
+    pm.get_preset_for_house_state.return_value = "home"
+    pm.get_seasonal_setpoints.return_value = (cool, heat)
+    return pm
+
+
+def _arrester_with_stale_manual_zone(high=60.0, low=60.0):
+    """ZONE_1 left in `manual` with a large delta vs seasonal expectation —
+    the stale-override-survived-restart scenario the audit exists for."""
+    arrester = _make_arrester()
+    stale = _mk_state("heat_cool", preset="manual", high=high, low=low)
+
+    def _get(entity_id):
+        return stale if entity_id == ENT_1 else None
+
+    arrester.hass.states.get.side_effect = _get
+    arrester._egress_manager = None
+    return arrester
+
+
+@pytest.mark.asyncio
+async def test_startup_audit_counts_stale_override():
+    """BEHAVIOURAL ANCHOR: a stale manual override found at startup must
+    increment override_count_today for that zone."""
+    arrester = _arrester_with_stale_manual_zone()
+    assert arrester._zone_manager.zones[ZONE_1].override_count_today == 0
+
+    await arrester.async_startup_audit(_fake_preset_manager())
+
+    assert arrester._zone_manager.zones[ZONE_1].override_count_today == 1, (
+        "startup audit must count the stale override (feeds the optimizer "
+        "override advisory + zone efficiency score)"
+    )
+    assert arrester._zone_manager.zones[ZONE_1].last_override_direction == "cooler"
+
+
+@pytest.mark.asyncio
+async def test_startup_audit_ignores_zone_within_tolerance():
+    """Discriminator: the anchor above must be failing because of the STALE
+    OVERRIDE specifically, not because the audit counts every manual zone.
+    A manual zone within tolerance must NOT be counted."""
+    arrester = _arrester_with_stale_manual_zone(high=76.0, low=70.0)
+
+    await arrester.async_startup_audit(_fake_preset_manager())
+
+    assert arrester._zone_manager.zones[ZONE_1].override_count_today == 0
+
+
+@pytest.mark.asyncio
+async def test_mutate_startup_audit_site_breaks_anchor():
+    """MUTATION ANCHOR — neutering the increment must break the behavioural
+    test above. Same _LockedZone technique as TestPerSiteMutationAnchors."""
+    arrester = _arrester_with_stale_manual_zone()
+    real = arrester._zone_manager.zones[ZONE_1]
+
+    class _LockedZone:
+        def __init__(self, z):
+            object.__setattr__(self, "_z", z)
+
+        def __getattr__(self, k):
+            return getattr(self._z, k)
+
+        def __setattr__(self, k, v):
+            if k == "override_count_today":
+                pass  # NEUTER the increment
+            else:
+                setattr(self._z, k, v)
+
+        @property
+        def override_count_today(self):
+            return 0
+
+    arrester._zone_manager.zones[ZONE_1] = _LockedZone(real)
+    await arrester.async_startup_audit(_fake_preset_manager())
+    assert arrester._zone_manager.zones[ZONE_1].override_count_today == 0, (
+        "with the increment neutered the counter must stay 0 — proving the "
+        "behavioural anchor above is actually driven by this site"
+    )
