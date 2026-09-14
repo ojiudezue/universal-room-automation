@@ -15244,15 +15244,44 @@ class HouseRoutineStatusSensor(AggregationEntity, SensorEntity):
 
         try:
             async with database._db_read() as db:
-                cursor = await db.execute(
-                    """SELECT person_id, MAX(severity) as max_sev, COUNT(*) as cnt
-                       FROM anomaly_log
-                       WHERE coordinator_id = 'bayesian'
-                         AND metric_name = 'bayesian.routine_shift'
-                         AND recovery_at IS NULL
-                         AND person_id IS NOT NULL
-                       GROUP BY person_id"""
-                )
+                # ROUTINE-DETECTOR-NO-DISCHARGE-1 fix-up: the HOUSEHOLD
+                # sensor has its OWN query and was missed when the PERSON
+                # sensor was bounded — a classic count-the-consumers miss.
+                # Live proof 2026-09-14: after the person bound shipped,
+                # Jaya correctly dropped major_shift -> shifted (its May
+                # severity-4 rows aged past 56 days) while THIS sensor still
+                # read major_shift on the same 462 rows. Same bound, same
+                # reason: a shift older than the detector's 56-day baseline
+                # was computed against data that has itself aged out.
+                from .const import ROUTINE_STATUS_RECENCY_DAYS
+                if ROUTINE_STATUS_RECENCY_DAYS > 0:
+                    _cutoff = (
+                        dt_util.utcnow()
+                        - timedelta(days=int(ROUTINE_STATUS_RECENCY_DAYS))
+                    ).isoformat()
+                    cursor = await db.execute(
+                        """SELECT person_id, MAX(severity) as max_sev,
+                                  COUNT(*) as cnt
+                           FROM anomaly_log
+                           WHERE coordinator_id = 'bayesian'
+                             AND metric_name = 'bayesian.routine_shift'
+                             AND recovery_at IS NULL
+                             AND person_id IS NOT NULL
+                             AND timestamp >= ?
+                           GROUP BY person_id""",
+                        (_cutoff,),
+                    )
+                else:
+                    cursor = await db.execute(
+                        """SELECT person_id, MAX(severity) as max_sev,
+                                  COUNT(*) as cnt
+                           FROM anomaly_log
+                           WHERE coordinator_id = 'bayesian'
+                             AND metric_name = 'bayesian.routine_shift'
+                             AND recovery_at IS NULL
+                             AND person_id IS NOT NULL
+                           GROUP BY person_id"""
+                    )
                 rows = await cursor.fetchall()
 
             persons_stable: list[str] = []
