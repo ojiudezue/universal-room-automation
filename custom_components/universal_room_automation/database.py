@@ -7098,6 +7098,46 @@ class UniversalRoomDatabase:
     # v4.6.2 D5 — anomaly_log acknowledge (bulk recovery_at UPDATE)
     # -----------------------------------------------------------------------
 
+    async def discharge_routine_shifts_for_cell(
+        self, person_id: str, time_bin: int, day_type: int,
+    ) -> int:
+        """Clear open routine-shift rows for ONE cell that returned to stable.
+
+        ROUTINE-DETECTOR-NO-DISCHARGE-1. The detector's in-memory cell
+        counter already resets correctly on return-to-stable
+        (`regime_detector.py` `_persist_state`), but the anomaly_log rows it
+        emitted had no automatic clear path — only a manual button. Measured
+        2026-09-14: 462 rows, 462 unacknowledged since 2026-05-15, zero ever
+        acked, while ALL 48 cells read `stable`. The household sensor was
+        therefore pinned at `major_shift` on rows from May.
+
+        Scoped to the ONE cell that recovered — deliberately NOT a bulk ack.
+        A bulk clear would also discharge cells that are still drifting.
+
+        Returns the number of rows updated.
+        """
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """UPDATE anomaly_log
+                       SET recovery_at = datetime('now')
+                       WHERE coordinator_id = 'bayesian'
+                         AND metric_name = 'bayesian.routine_shift'
+                         AND recovery_at IS NULL
+                         AND json_extract(context_json, '$.cell.person_id') = ?
+                         AND json_extract(context_json, '$.cell.time_bin') = ?
+                         AND json_extract(context_json, '$.cell.day_type') = ?""",
+                    (person_id, int(time_bin), int(day_type)),
+                )
+                await db.commit()
+                return cursor.rowcount or 0
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "discharge_routine_shifts_for_cell failed (%s tb=%s dt=%s): %s",
+                person_id, time_bin, day_type, exc, exc_info=True,
+            )
+            return 0
+
     async def acknowledge_all_routine_shifts(self) -> int:
         """Mark every unacknowledged routine-shift event as recovered.
 
