@@ -2,39 +2,29 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-13T19:20:27-05:00_ - _Data commit: `0d20df9fb2dd`_ - _last_reconciled: 2026-09-12_
+_Generated: 2026-09-13T19:41:08-05:00_ - _Data commit: `7c7e57288e0c`_ - _last_reconciled: 2026-09-12_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 15 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 2 |
-| 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 16 |
+| 🔍 Review | 2 |
+| ⏸️ Waiting on operator | 15 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 9 |
 | 🅿️ Parked | 48 |
-| ✅ Done | 153 |
+| ✅ Done | 154 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
-### `OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1` - override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **hvac** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-12 14:20 · initial_
-- **Problem / Solution:**
-  - Problem: the async_startup_audit stale-override increment of override_count_today (hvac_override.py:2009) has no mutation-anchored test — neutering it leaves the suite green. Found during the ARRESTER 7-site drill; it is NOT reachable by...
-- **Why:** flagged by the ARRESTER build per Tier-3 mutation-drill discipline; captured rather than scope-crept.
-- **Next:** Confirm the async_startup_audit stale-override path is load-bearing, then add a mutation-anchored test.
-- **Tags:** tier-1, mutation-drill
-- **Refs:** hvac_override.py:2009
-
-### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **config-flow** - status: **inbox** - approval: **unreviewed**
 _created 2026-09-13 01:30 · initial_
 - **Problem / Solution:**
@@ -377,17 +367,18 @@ _created 2026-09-13 21:05 · updated 2026-09-13 21:50 · refined ×2_
   - Problem: the optimizer's notifications read like canned template text, so the operator asked to "transition the optimizer to use an actual LLM". VERIFIED FALSE PREMISE — the LLM tier is already live and has been calling Claude for a mont...
 - **Origin:** 2026-09-13 - operator — "we should transition optimizer to use an actual LLM. The current paging from the OC is pretty primitive"
 - **Why:** The complaint is real but the proposed fix targets the wrong layer. Building an LLM integration that already exists would be pure waste; the value is in the last mile (message authoring + volume) that nobody wired to the LLM.
-- **Next:** B1 FIRST (re-sequenced by the measurement, operator's B-then-A intent preserved): fix the self-referential meta finding that is 100% of what pages. Step 1 is to PROVE the mechanism before touching code — confirm which branch the emitting...
+- **Next:** B1 and B2 are both BUILT and in review on their own branches (B1 @feature/optimizer-corpus-truncation-notice, B2 @feature/optimizer-sensor-health-repeat- suppress) — neither deployed. Next: ship them (ideally bundled with the held v5.101...
 - **Tags:** no-fabrication-verify, measure-before-build
 - **Parsimony:** [BUILD] The operator-facing alert text is authored by rule-based templates even though an LLM already analyzes the same findings.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization_llm.py; custom_components/universal_room_automation/domain_coordinators/optimization.py:1037,4139; docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md
-- **Forensic keys (6):**
+- **Forensic keys (7):**
   - `sequence_2026_09_13`: OPERATOR APPROVED with the recommended sequence CONFIRMED: lever B FIRST, then lever A. B = cut the noise (sensor_health/high produced 5026 findings in 7 days and dominates the paging volume — decide digest-only vs raise its bar). A = LL...
   - `measured_2026_09_13_leverB`: LEVER-B PROBE (read-only, URA DB + live config). Findings: (1) PAGING: 6/6 criticals in 7d = the meta "open_findings_count vs findings_recent empty" artifact. Nothing else paged. sensor_health/high does not page (empty NM allowlist -> di...
   - `producer_trace_2026_09_13`: VERIFIED (file:line, no inference): `_open_findings_count` is durable, set at optimization.py:4393. `_last_findings` (which feeds corpus.findings_recent via optimization_llm.py:770) is RAM-only and assigned at optimization.py:1063 — INSI...
   - `hypothesis_not_verified_2026_09_13`: UNVERIFIED HYPOTHESIS, stated as such (no-fabrication): the recurrence may be the boot-storm-skip path — during the live outage `_should_skip_for_boot_storm` fires (the card CONFIG-FLOW-SLOW-ONBOARDING-1 captured optimization.py logging ...
   - `verify_before_work_2026_09_13`: STILL-REAL (paging) + CARD-WAS-WRONG (premise). Ground truth: URA DB `select created_by, count(*) from optimization_findings` -> tier1=13572, tier2_llm=333 (max ts 2026-09-13T09:12). Live `ai_task.claude_ai_task` exists (Claude Haiku 4.5...
   - `prior_art_2026_09_13`: REUSE, do not build. optimization_llm.py (~1200 LoC) already implements corpus assembly, ai_task invocation w/ 45s timeout, cheap-triage routing, findings parse/validate, confidence clamp, per-cycle severity caps, rolling-24h cap seeded ...
+  - `b2_built_2026_09_13`: B2 BUILT (operator: "Go ahead and B2") @ feature/optimizer-sensor-health-repeat-suppress, commit e00918a95 — in review, NOT deployed. Fix: cross-cycle suppression of UNCHANGED repeat sensor_health rows at the PERSISTENCE layer, keyed (de...
 
 ### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
@@ -579,10 +570,22 @@ _created 2026-08-20 14:15 · updated 2026-08-23 15:45 · initial_
   - `relane_2026_09_10`: Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox) covers the Frigate live/dead leg naming inconsistency and is the likely home for the camera_census garage_a/garage_b flood — fold that flood in there rather than duplicating. The MQT...
 
-## 🔍 Review (1)
+## 🔍 Review (2)
 _under review_
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#1 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1` - override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **review** - approval: **unreviewed**
+_created 2026-09-12 14:20 · updated 2026-09-13 21:00 · initial_
+- **Problem / Solution:**
+  - Problem: the async_startup_audit stale-override increment of override_count_today (hvac_override.py:2009) has no mutation-anchored test — neutering it leaves the suite green. Found during the ARRESTER 7-site drill; it is NOT reachable by...
+- **Why:** flagged by the ARRESTER build per Tier-3 mutation-drill discipline; captured rather than scope-crept.
+- **Next:** DONE — ships with the next deploy.
+- **Tags:** tier-1, mutation-drill
+- **Refs:** hvac_override.py:2009
+- **Forensic keys (1):**
+  - `driven_2026_09_13`: DONE (autonomous, Tier-1) @ feature/startup-audit-override-count-anchor, commit b5a783e73 — in review, not deployed. GATE: the path IS load-bearing — async_startup_audit is wired at hvac.py:1540 and override_count_today has 7 consumers i...
+
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#2 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **review** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Problem / Solution:**
@@ -603,22 +606,10 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-## ⏸️ Waiting on operator (16)
+## ⏸️ Waiting on operator (15)
 _needs a human call — groomed first_
 
-### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **infra** - status: **waiting_operator**
-_created 2026-09-13 21:10 · updated 2026-09-13 21:15 · initial_
-- **Problem / Solution:**
-  - Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work safe to delete, but roughly 40 still hold either uncommitted edits or commits that never reached the main branch — so a blanket cleanup would silen...
-- **Origin:** 2026-09-13 - operator — "check the develop tree and any work trees to see work we need to clean or continue"
-- **Next:** APPROVE the safe prune (delete only the ~54 worktrees that are clean AND fully merged into develop; touch nothing dirty or unmerged) -> I run it and report the surviving ~40 with a continue-or-drop recommendation each.
-- **Parsimony:** [SIMPLIFY] 94 worktrees make it impossible to see which branches still hold unfinished work.
-- **Refs:** .claude/worktrees/
-- **Forensic keys (1):**
-  - `findings_2026_09_13`: AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting: DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-c...
-
-### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-26 11:00 · updated 2026-08-28 22:00 · refined ×1_
 - **Problem / Solution:**
@@ -633,7 +624,7 @@ _created 2026-08-26 11:00 · updated 2026-08-28 22:00 · refined ×1_
   - `VERIFIED_CAUSE_2026_08_26`: Confirmed the self-send mechanism from source: NM _send_imessage (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message} where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When th...
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-09-12 11:00 · initial_
 - **Problem / Solution:**
@@ -646,7 +637,7 @@ _created 2026-08-18 02:45 · updated 2026-09-12 11:00 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -665,7 +656,7 @@ _updated 2026-09-12 11:00_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -677,7 +668,7 @@ _updated 2026-09-12 11:00_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
@@ -690,7 +681,7 @@ _updated 2026-09-12 11:00_
   - `folded_2026_08_16`: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **memory** - status: **waiting_operator**
 _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** REVIEW the delivered memory-epic roadmap doc. -> your read drives the roadmap rewrite / memory-epic close-out.
@@ -698,7 +689,7 @@ _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/PLANNING_memory_roadmap_and_critique.md, 2026-08-18). Pure operator-read.
   - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
 
-### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **planning** - status: **waiting_operator**
 _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** REVIEW the delivered ROADMAP/VISION undone-but-worthwhile doc. -> your read drives the roadmap rewrite / close-out.
@@ -706,7 +697,7 @@ _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/AUDIT_roadmap_undone_worthwhile.md, 2026-08-18). Pure operator-read; ball legitimately with operator.
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
-### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboarding** - status: **waiting_operator**
 _created 2026-08-18 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** DECIDE the PWA release: is census-p12 THE branch to promote to main + deploy (ura.phalanxmadrone.com)? YES -> I run the PWA release with its own review. (HA dashboard D3 cards are already live; only the PWA leg is pending.)
@@ -714,7 +705,7 @@ _created 2026-08-18 10:20 · updated 2026-09-12 11:00 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: branch census-p12-exterior-dashboard is 12 commits ahead of main in ~/Code/ura-dashboard-pwa (a whole PWA release: D3 exterior KEEP-BOTH + PWA-CONTROL-LIST-1 + v6....
   - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -726,7 +717,7 @@ _created 2026-08-19 09:00 · updated 2026-09-12 11:00 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
 - **Next:** Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.
@@ -742,7 +733,7 @@ _created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
   - `THE_EVIDENCE_THAT_RULED_OUT_HARDWARE`: DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE. DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY — _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output ...
   - `ACCEPTANCE_AND_NEXT_STEPS`: RE-MEASURE IN 48H with the same script (interval histogram, sub-5s count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare against the recorded baseline: 724 transitions, median interval 44.0s, 116 ...
 
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-12 19:20 · initial_
 - **Problem / Solution:**
@@ -766,7 +757,7 @@ _created 2026-09-10 00:50 · updated 2026-09-12 19:20 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
 - **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
@@ -783,7 +774,7 @@ _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-13 01:00 · initial_
 - **Problem / Solution:**
@@ -803,7 +794,7 @@ _created 2026-09-13 01:00 · initial_
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#15 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -817,7 +808,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#16 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#15 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
@@ -1683,7 +1674,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (153)
+## ✅ Done (154)
 _closed, evidence in refs_
 
 ### `ROOM-ENTITY-STALE-CONFIG-1` - 4 URA room configs reference entities that no longer exist in HA (404) — repoint 3, remove 1 — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1728,6 +1719,19 @@ _created 2026-09-13 20:45 · updated 2026-09-13 21:15 · initial_
 - **Refs:** docs/planning/kanban.data.yaml
 - **Forensic keys (1):**
   - `findings_2026_09_13`: 14 commits on local develop unpushed (the whole CONFIG-FLOW-SLOW investigation chain plus the v5.101.1 bundle readiness notes). All board commits — no code was lost, the crash only orphaned board state. Pushed 8cd4af2ef..42eb0f130; devel...
+
+### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **infra** - status: **done**
+_created 2026-09-13 21:10 · updated 2026-09-13 21:15 · initial_
+- **Problem / Solution:**
+  - Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work safe to delete, but roughly 40 still hold either uncommitted edits or commits that never reached the main branch — so a blanket cleanup would silen...
+- **Origin:** 2026-09-13 - operator — "check the develop tree and any work trees to see work we need to clean or continue"
+- **Next:** DONE. Optional follow-up if wanted: delete the 60+ fully-merged local branches.
+- **Parsimony:** [SIMPLIFY] 94 worktrees make it impossible to see which branches still hold unfinished work.
+- **Refs:** .claude/worktrees/
+- **Forensic keys (2):**
+  - `findings_2026_09_13`: AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting: DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-c...
+  - `executed_2026_09_13`: DONE — operator approved ("Prune worktrees but don't delete what is important. Recheck for recent work that's useful"). Re-classified at delete time (not trusting the earlier audit): 51 worktrees were BOTH clean AND fully merged into dev...
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done** - approval: **unreviewed**
