@@ -17186,9 +17186,30 @@ cards:
   status: waiting_operator
   disentangled_2026_09_13: 'CORRECTED (operator pushback on linkage + host check). HOST NOT PRESSURED: load 1.48, CPU 91.7%% idle, 0%% iowait, swap 0, 5.5GB free -> the 5585-unavailable-saturates-loop claim is UNSUPPORTED (unavailable entities are inert; no resource saturation). TWO SEPARATE problems, previously conflated: (1) NETWORK OUTAGE — reloaded all 49 shelly, only 173->138 recovered (~35), house-wide 5604 still down; contrast earlier-tonight 614->16 when devices were reachable/stale. Reload now largely FUTILE => devices genuinely off-network (z2m bridges 5/6 off, UniFi ports/Protect/Z-Wave-lock/cloud all down together) = operator infra fix (UniFi path/AP/switch). (2) CONFIG-FLOW DEGRADATION — likely reload-storm discrete loop-stalls (low CPU + periodic unresponsiveness, no blocking-call warnings) NOT the outage; proof requires the flow instrumentation (eb2f73094). No blocking-call detector hits. Onboarding ranking code confirmed sub-second. Log levels reverted.'
   independently_verified_2026_09_13: 'Operator pushback (do not trust optimizer; could be network) = CORRECT. Independent ground truth (NOT optimizer): (a) binary_sensor.zigbee2mqtt_bridge_connection_state 5-of-6 = OFF (the bridges OWN disconnect signal; 31 z2m bridge entities); (b) Shelly WiFi = 173 unavailable now, REGRESSED from 16 after my earlier recovery tonight; (c) 6132 entities unavailable house-wide; (d) MQTT broker (Mosquitto) itself LOADED/up. BOTH Zigbee-transport AND WiFi-transport down simultaneously => NETWORK/HOST event, not a single add-on/integration (a z2m crash would not also drop Shelly WiFi). Recurring (Shelly re-dropped within hours). URA 46/46 loaded — config-flow slow + cannot-add are COLLATERAL from the saturated loop. Corrected my earlier over-reliance on optimizer boot_storm flag. RESOLUTION is operator-side network/host recovery (AP/switch/VLAN serving the z2m coordinator host + WiFi gear), NOT URA.'
-  recheck_2026_09_13_2140: >-
-    RECHECKED LIVE on operator request — the outage is STILL ONGOING and has WORSENED, not
-    recovered. Measured via ha_eval_template at 21:40 CDT: house-wide unavailable/unknown = 7053
+  recheck_CORRECTED_2026_09_13_2320: >-
+    MY 21:40 "OUTAGE IS WORSE" CLAIM WAS WRONG — RETRACTED. Operator pushed back ("Ist showing
+    healed on my side") and they were right. The 21:40 and later readings were measuring a
+    HOME ASSISTANT RESTART TRANSIENT, not device loss.
+    PROOF (23:20 CDT / 2026-09-14 00:19 UTC): HA restarted at 2026-09-14T00:11:53Z — the earliest
+    last_changed across ALL binary_sensors is that exact timestamp; all six z2m bridge entities
+    changed state within 31ms of each other (00:14:51.682-.713), which is a re-initialisation
+    signature, not six independent device events. Age-bucketing every unavailable entity:
+    under-2min=258, 2-5min=5790, 5-10min=392, 10-20min=0, 20-60min=0, >1h=0 — i.e. NOTHING has
+    been unavailable for more than ~10 minutes. A real outage leaves a long tail; this has none.
+    URA_UNAVAIL fell to 3. Shelly recovered to 12-of-1211 on its own.
+    METHOD LESSON (the reason I got it wrong): I reported a raw unavailable COUNT as an outage
+    signal across several readings without ever establishing a BASELINE or checking the AGE
+    distribution. A count alone cannot distinguish "devices are dropping" from "HA just
+    restarted and is repopulating" — the age histogram can, and it should have been the first
+    measurement, not the last. Counts rose (5702 -> 6183) purely because a restart re-armed the
+    clock on everything.
+    STILL OPEN / NOT CLAIMED EITHER WAY: the EARLIER Zigbee event tonight was corroborated by
+    independent evidence (the z2m bridges' own disconnect signal + a Shelly regression) and is
+    not retracted. But the CURRENT numbers are unreadable until repopulation finishes; any
+    z2m/Shelly verdict must be re-measured on a settled instance before it is trusted.
+  recheck_SUPERSEDED_2026_09_13_2140: >-
+    [SUPERSEDED — see recheck_CORRECTED above. This claim was WRONG; kept so the error is not
+    re-derived.] Claimed: the outage is STILL ONGOING and has WORSENED, not recovered. Measured via ha_eval_template at 21:40 CDT: house-wide unavailable/unknown = 7053
     (was 6132 at first diagnosis = ~920 WORSE); Shelly unavailable = 171 (my earlier mass reload
     recovered 173->138, it has since REGRESSED to 171 — re-confirming the devices are genuinely
     off-network rather than stale, and that reloading is futile); zigbee2mqtt bridge connection
@@ -17201,12 +17222,13 @@ cards:
     SEPARATE and still-unproven suspect (reload-storm loop-stall), whose timing instrumentation
     @eb2f73094 is built but unshipped, so the 25-minute Foyer setup remains unpinned.
   next: >-
-    DO (operator, infra): fix the network event — 7053 entities are down and the count is rising,
-    not falling. Because BOTH the Zigbee transport (z2m bridges 4/6 off) and the WiFi transport
-    (171 Shelly down) are out together, look at the shared UniFi path (AP / switch port / VLAN)
-    serving the z2m coordinator host and the WiFi gear — not at any single integration or add-on.
-    -> once devices return, I ship the config-flow timing instrumentation and the next room setup
-    pins whether the residual slowness is reload-storm loop-stall or genuine flow-side cost.
+    ANSWER (quick, operator): did you restart Home Assistant around 19:11 CDT tonight, or did
+    something else (watchdog / supervisor / host) do it? That tells us whether the restart was
+    intentional recovery or an unexplained event worth chasing — my infra escalation is WITHDRAWN
+    either way, since the numbers I escalated on were restart transients.
+    -> then I re-measure z2m + Shelly on a SETTLED instance (age-distribution, not raw counts)
+    to get a trustworthy verdict on whether the earlier Zigbee event actually cleared, and ship
+    the config-flow timing instrumentation to pin the remaining slowness.
   root_cause_found_2026_09_13: 'ROOT CAUSE = live mass DEVICE OUTAGE, not URA/onboarding. Operator re-clicked Add-Entry -> same dialog; live capture at that instant: optimization.py logged boot_storm_signature 27/43 rooms unavailable (frac=0.63); house-wide UNAVAILABLE entity count = 6132 (ha_search state_filter). First entity is a raw Zigbee IEEE (0xa4c1382e60e05225). MQTT broker (Mosquitto) = LOADED, but no ZHA integration -> Zigbee via zigbee2mqtt ADD-ON; z2m devices unavailable while broker up => the z2m add-on or Zigbee coordinator dongle is DOWN (stopped publishing -> availability topic offline). Scale (6132) implies broader network event too (Shelly was 614-down earlier tonight). URA HEALTHY: all 46 entries loaded incl Foyer. The config-flow slow + cannot-add-UI dialog (UnknownHandler) are COLLATERAL: 6000+ flapping entities saturate the event loop -> handler resolution starves + steps crawl. NOT the onboarding ranking code (confirmed sub-second) and not primarily the reload storm. RESOLUTION: operator recovers z2m add-on + Zigbee coordinator + network; config flow becomes responsive once devices return. Onboarding step-count adds only marginal overhead under NORMAL load -> instrumentation (eb2f73094) still worth deploying to quantify the baseline, but this is NOT an urgent onboarding regression. Log levels reverted to WARNING.'
   live_diag_armed_2026_09_13: 'Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via logger.set_level: homeassistant.config_entries=debug, homeassistant.setup=info, custom_components.universal_room_automation=info. NEXT: operator does one Add-Entry/add-room -> read reload/setup events live to confirm reload-storm-during-flow (vs flow-side cost). REVERT log levels after capture. Fuller per-step ms still needs the instrumentation deploy (eb2f73094).'
   symptom2_cannot_add_2026_09_13: 'SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (config_entries.py:2868/3475) — HA could not resolve URA config-flow handler at click time. config_flow:true (manifest OK) and async_step_user is CLEAN (routes to entry_type menu / integration_config; onboarding added NO abort path here). UnknownHandler at click = URA transiently degraded/reloading (handler resolution times out on a stalled loop) = SAME reload-storm root cause as the slowness. REFRAME: onboarding did NOT introduce this dialog; it is a reload-storm symptom (storm stall windows widened). Onboarding likely only WORSENED the slowness (4 added steps x stalled loop). REAL FIX for both = the reload storm (separate high-pri). Workaround: transient — retry Add after the reload window. Confirm when dialog appears: check URA integration state (loaded vs not_loaded/setup_retry) + reload logs at that instant.'
