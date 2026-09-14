@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "description": "Phalanx Madrone exterior camera seams — operator-ratified 2026-09-14 (rev 2, 13 cameras)",
+  "_readme": [
+    "A SEAM is an adjacency: a person leaving camera A can plausibly appear next on camera B.",
+    "Seams let the system treat several sightings as ONE tracked walk instead of several alerts.",
+    "A WRONG seam merges two different people into one track and SUPPRESSES the second alert",
+    "  (a silent security failure). A MISSING seam only fragments one person into noisier alerts.",
+    "So: when unsure, leave a seam OUT. Errors of omission are loud; errors of admission are silent.",
+    "Edit this file, then press the reload button (or restart). Any validation error rejects the",
+    "WHOLE file and keeps the previous good graph — it never partially applies."
+  ],
+  "ring": [
+    "front_side_ptz",
+    "madrone_g6_entry",
+    "front_door_aerial",
+    "utilities_ptz",
+    "madroneptultra",
+    "pool_equipment",
+    "hot_tub",
+    "reolinkstudybporchptz",
+    "armcrest",
+    "back_yard",
+    "g5_bullet",
+    "doorbell_lite",
+    "rear_ptz"
+  ],
+  "_ring_note": "Left-to-right sweep of the main structure, wrapping back to the start. back_yard is on a SEPARATE detached garage and points INTO it.",
+  "skips": [
+    ["armcrest", "doorbell_lite"],
+    ["armcrest", "g5_bullet"],
+    ["armcrest", "hot_tub"],
+    ["back_yard", "hot_tub"],
+    ["front_door_aerial", "front_side_ptz"],
+    ["front_side_ptz", "utilities_ptz"],
+    ["g5_bullet", "rear_ptz"],
+    ["madrone_g6_entry", "utilities_ptz"]
+  ],
+  "_skips_note": "Operator-validated shortcuts between cameras 2-3 ring positions apart whose fields of view overlap.",
+  "fenced": [
+    ["pool_equipment", "rear_ptz"],
+    ["rear_ptz", "utilities_ptz"],
+    ["armcrest", "rear_ptz"],
+    ["back_yard", "front_side_ptz"],
+    ["back_yard", "rear_ptz"],
+    ["front_door_aerial", "hot_tub"],
+    ["front_door_aerial", "rear_ptz"],
+    ["front_side_ptz", "g5_bullet"],
+    ["front_side_ptz", "hot_tub"],
+    ["front_side_ptz", "reolinkstudybporchptz"],
+    ["g5_bullet", "madrone_g6_entry"],
+    ["madrone_g6_entry", "rear_ptz"]
+  ],
+  "_fenced_note": "Struck as physically impossible. Listed so re-adding one is an ERROR, not a silent drop. back_yard<->front_side_ptz is additionally refuted by measurement: its cameras' simultaneity is BELOW chance, 32% of its 'hops' complete in under 5 seconds, and it manufactured ~6.6 false circling tracks per day.",
+  "close_pairs": [
+    ["madrone_g6_entry", "front_door_aerial"],
+    ["utilities_ptz", "madroneptultra"],
+    ["hot_tub", "reolinkstudybporchptz"],
+    ["armcrest", "back_yard"],
+    ["g5_bullet", "doorbell_lite"]
+  ],
+  "_close_pairs_note": "Pairs the operator marked as 'not a big transition' — near-identical vantage points. CARRIED BUT NOT YET CONSUMED. Candidate future use: count a close pair as ONE camera toward the 3-distinct-camera circling threshold, so loitering at one doorway seen by two overlapping cameras cannot fake a circling event.",
+  "egress_cameras": {
+    "exterior": ["madrone_g6_entry", "doorbell_lite", "front_door_aerial"],
+    "interior": ["garage_a", "garage_b"]
+  },
+  "_egress_note": "NOT every egress camera is exterior. The garage cameras watch a way INTO the house but sit inside the garage and do not normally see external people — they must NOT appear in the ring. The egress-ADJACENT set is DERIVED from the EXTERIOR list only; never hand-maintain it."
+}
