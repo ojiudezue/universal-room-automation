@@ -1,0 +1,26 @@
+{
+  "format_version": "2.1",
+  "entry_id": "115",
+  "author": "ojiudezue",
+  "session_id": "claude_20260914_014927_ship_v5_101_1",
+  "timestamp": "2026-09-14T01:49:27Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.101.1 shipped: Optimizer noise (false CRITICAL + 288x row flood), recorder bloat, EVSE onset reload resilience, config-flow timing",
+  "summary": "Optimizer noise (false CRITICAL + 288x row flood), recorder bloat, EVSE onset reload resilience, config-flow timing",
+  "why": "Bundled six branches into ONE restart because the house was already restarted once tonight and each extra restart costs a ~5min actuation gap. Sequenced B1 before A (LLM-authored alert text) because measurement showed the LLM was reasoning CORRECTLY over a corpus we corrupted \u2014 better prose on a broken corpus would have been polish on a lie. B2 suppresses at persistence rather than evaluation because _update_scoreboard reads the same list earlier: suppressing at evaluation would have made a still-broken room score 100 and RAISED the house score, so hiding a fault would have looked like fixing it. The B2 wire-in anchors exist because the first mutation drill neutered the call site and all four helper-only tests stayed green.",
+  "implications": "Shipped OPTIMIZER-PAGING-PRIMITIVE-1, OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1, RECORDER-BLOAT-LOGFLOOD-1, EVSE-CHARGE-ONSET-NOT-HELD-1 at v5.101.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.101.1.md (Live criteria).",
+  "revisit_trigger": "sqlite: zero NEW optimization_findings rows with severity='critical' AND description LIKE '%findings_recent%' after the restart timestamp; AND sensor_health/high rows for a continuously-stuck entity drop from ~288/day to <=2/day (query optimization_findings grouped by date for binary_sensor.rgbw_motion_lux_3rdr_wifi_matter_jayabath_occupancy_2)",
+  "refs": {
+    "cards": [
+      "OPTIMIZER-PAGING-PRIMITIVE-1",
+      "OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1",
+      "RECORDER-BLOAT-LOGFLOOD-1",
+      "EVSE-CHARGE-ONSET-NOT-HELD-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.101.1.md"
+    ],
+    "release_notes": "- OPTIMIZER B1: corpus trimmer emptied findings_recent while keeping open_findings_count, manufacturing the contradiction the LLM paged as CRITICAL (6/6 criticals in 7d were this artifact, none real). Fix = truncation notice; genuine empty list still reportable.\n- OPTIMIZER B2: unchanged stuck-sensor rows persisted ~288/day/sensor (1550 rows from ONE entity in 7d). Now ~1/day. Suppressed at the PERSISTENCE layer so the scoreboard/house score cannot silently rise.\n- Startup-audit override_count_today: real behavioural + mutation anchor (prior coverage was a source grep).\n- Recorder bloat: churning diagnostic timestamps unrecorded + last_check* keys dropped.\n- EVSE charge-onset: enable flag now reload-resilient (was restoring off mid-reload, letting both chargers run ~2h early, battery 46%->9%).\n- Config-flow per-step timing instrumentation (diagnostic; CONFIG-FLOW-SLOW stays open)."
+  }
+}

@@ -319,7 +319,8 @@ cards:
 - id: OPTIMIZER-PAGING-PRIMITIVE-1
   title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
   thread: optimizer
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.1
   approval: explicit
   approved_by: 'operator 2026-09-13 ("Approved" + "Your sequence on that card is fine")'
   sequence_2026_09_13: >-
@@ -539,7 +540,8 @@ cards:
   title: Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW
     from 21:02 draining the house battery 46%->9%; L1 also ran in-window
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.1
   verified_shipready_2026_09_13: 'ORCHESTRATOR-VERIFIED @ b13feb770: onset suite 81 pass (.venv-ha), 3 new tests present (sync_after_restore writeback + setter-exception + seed-authoritative), const literal gone from switch.py. A/B=SHIP, C fix-up done (M4/M5 RED). SHIP-READY -> bundled deploy pending operator checkpoint (energy cost/comfort live change).'
   reviews_done_2026_09_13: 'Tier-2DB 3-review: A=SHIP, B=SHIP (production logic correct end-to-end — seed chain closes, no reload cascade [key in OPTIONS_RELOAD_SUPPRESS_KEYS], no flap, ship-dormant preserved), C=FIX-REQUIRED (test-authority only: C-HIGH-1 _sync_after_restore untested, C-HIGH-2 invariant test hand-rolled not driving real seed). TEST-ONLY fix-up dispatched (+ const-import the 3 reviewers flagged, + try-isolation). B-LOW residual: ONE-BOOT first-reload-after-deploy window (operator-ON pre-fix, entry.options stale) self-heals after _sync_after_restore — INHERENT to write-back, do NOT fix, DOCUMENT in README live-validation.'
   built_inreview_2026_09_13: 'BUILT @ df888881e (feature/evse-onset-reload-resilience). Fix: ECEVChargeOnsetEnabledSwitch writes the operator toggle back to entry.options (_write_back_options from turn_on/turn_off/_sync_after_restore) so EnergyCoordinator.__init__ seed (energy.py:481-489) reads the authoritative value on every reload; key in OPTIONS_RELOAD_SUPPRESS_KEYS so write-back does NOT cascade a reload. Ship-dormant preserved (False still permits). Invariant mutation-anchored (3/4 RED on neuter). _sync_after_restore migrates the existing operator entry.options on first restart. 3 framing-disjoint Tier-2DB reviews IN FLIGHT (A local-correctness, B reload/state-machine+residual-first-reload-window, C test-authority-mutation). OPERATOR DECISION 2026-09-13: NO self-start suppression — the vehicle/EVSE-self-started evening charge caveat is DECLINED, no card (onset gate governs URA proactive ensure-on only; self-started sessions remain reactively shut by grid_cap/drain-pause by design).'
@@ -15004,14 +15006,14 @@ cards:
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log
     floods
   thread: platform
-  status: in_progress
+  status: shipped_organic
   shipready_2026_09_13: 'SHIP-READY @ 39b2a525d (feature/recorder-attr-churn). A/B=SHIP (no must-fix; no consumers anywhere incl all 20 dashboards; last_reported validated as live-freshness substitute, historical-tick trace intentionally traded away = the 675k rows bought back). Cleanups done: test truth-in-labeling rename + doc-drift struck (4 docs). Suite baseline unchanged. -> bundled deploy v5.101.1 pending operator checkpoint. Additional 6-9 churn sites carded RECORDER-CHURN-SWEEP-URASENSORS-1.'
   reviewA_2026_09_13: 'Recorder Review A (removal-completeness) = SHIP, no must-fix: 3 removals complete, state values stable, no consumers. Found 6-9 ADDITIONAL enabled churn sites (same class) -> carded RECORDER-CHURN-SWEEP-URASENSORS-1. Nits: test_safety_status_no_churn_across_two_reads is AST-scan not behavioral (rename), README_v4.6.2:59/BACKLOG:807 attr-list doc drift. Awaiting Review B (hidden-consumers).'
   measured_2026_09_13: 'MEASURED (read-only live). 31GB confirmed, purge_keep_days=7, ~7.4M state rows/day, span ~7.8d. CORRECTION: /config is a 457GB NVMe at 28% used (316GB free) — NOT space-constrained; flash-life 51%% UNVERIFIED (smartctl needs root). So this is WRITE-AMPLIFICATION hygiene, not a space crisis. The 3 floods decompose: (1) URA-OWNED bug — sensor.ura_safety_coordinator_safety_status churns last_check=utcnow().isoformat() in recorded attrs (sensor.py:6544) -> 675k rows/wk despite 4 distinct states; NO consumer reads it. FIX BUILDING (feature/recorder-attr-churn, _unrecorded_attributes; + sibling audit :15052/:15086 last_check_at, security.py:2463). (2+3) EXTERNAL telemetry tail (kiosk wall_panel_studyb_*, iphone_*_unfiltered_distance_to_*, invisoutlet_*, outlet_lux_pir_mmwave_*, phalanxudmpro_*_utilization, binary_sensor.madronewatermonitor_low_flow_leak) -> OPERATOR-SIDE recorder exclude globs in configuration.yaml (NOT URA code; exclude block already exists, extend it). One-time reclaim: recorder.purge repack:true OR the URA VACUUM button after excludes land.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): URA-owned attribute-churn half UNFIXED (binary_sensor.py:390 extra_state_attributes still emits changing idle_duration/last_motion). Rest is HA-config work. Re-measure recorder db size first; consider splitting the URA attribute-churn half into its own card.'
   relane_2026_09_10: 'Not a soak -> PLANNED. Config-level, mostly outside URA code: fix Sonoff number
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
-  shipped_version: v5.87.0
+  shipped_version: v5.101.1
   created: 2026-08-20 14:15
   updated: 2026-08-23 15:45
   refinement_status: initial
@@ -17514,7 +17516,8 @@ cards:
 - id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
   title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
   thread: hvac
-  status: review
+  status: shipped_organic
+  shipped_version: v5.101.1
   created: '2026-09-12 14:20'
   updated: '2026-09-13 21:00'
   refinement_status: initial
