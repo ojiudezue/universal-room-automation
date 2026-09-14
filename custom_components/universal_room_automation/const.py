@@ -3456,6 +3456,31 @@ OPTIMIZER_DIGEST_TOP_N: Final = 5
 # cycle, short enough that a re-emergence after resolution still alerts.
 OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
 
+# OPTIMIZER-PAGING-PRIMITIVE-1 B2 (2026-09-13) — cross-cycle RE-PERSIST
+# interval for sensor_health findings, in seconds.
+#
+# Problem this bounds: `_evaluate_sensor_health_dimension` dedups only
+# WITHIN a cycle (`_cycle_dedup`), so a sensor that stays unavailable
+# re-emits an identical row every ~5-min cycle, forever. Measured
+# 2026-09-13 over 7 days: 5026 sensor_health/high rows, of which ONE
+# entity (a Jaya bath occupancy sensor that had been offline the whole
+# window) accounted for 1550 — ~288/day for a single unchanged fact.
+# That floods the DB table, bloats the daily digest, and crowds the LLM
+# corpus, all while carrying zero new information after the first row.
+#
+# 24h means a continuously-stuck sensor persists ~1 row/day instead of
+# ~288: the fact stays visible and dated in the table and the digest,
+# without the table recording it 288 times. A state CHANGE (e.g.
+# unavailable -> unknown) is keyed separately and re-emits immediately,
+# and RECOVERY clears the key so a re-break alerts at once.
+#
+# Knob rung: module constant, NOT an entity/config knob. This is a
+# volume/protocol bound, not policy the operator tunes by observation —
+# lowering it re-floods the write queue (the v5.2.1 saturation class),
+# so a change should require code review. Kill switch: set to 0 to
+# restore per-cycle persistence (every cycle re-persists).
+OPTIMIZER_SENSOR_HEALTH_REPERSIST_INTERVAL_S: Final = 86400
+
 # NM Cycle A (2026-07-20) A2 — Optimizer HIGH/CRIT paging allowlist.
 # Provenance: 2026-07-20 would-have-sent audit — optimizer findings dominated
 # the noise floor with unactionable "you might tweak X" pages that belonged
