@@ -1854,6 +1854,112 @@ async def test_optimizer_llm_corpus_under_token_cap():
     assert "# === CURRENT SNAPSHOT ===" in body
 
 
+def _corpus_with_findings(n_findings: int, n_rooms: int = 0):
+    """Build a corpus carrying `n_findings` recent findings + a house block
+    whose open_findings_count agrees with them."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizerContextCorpus,
+    )
+
+    corpus = OptimizerContextCorpus()
+    corpus.house = {"status": "degraded", "open_findings_count": n_findings}
+    corpus.findings_recent = [
+        {
+            "timestamp": f"2026-09-13T0{i % 10}:00:00+00:00",
+            "level": "room",
+            "target_id": f"room_{i}",
+            "dimension": "sensor_health",
+            "severity": "high",
+            "description": (
+                f"Sensor binary_sensor.some_quite_long_entity_name_{i} "
+                "stuck unavailable >60s"
+            ),
+            "created_by": "tier1",
+        }
+        for i in range(n_findings)
+    ]
+    corpus.rooms = [{"room_name": f"room_{i}"} for i in range(n_rooms)]
+    return corpus
+
+
+def test_corpus_truncation_notice_absent_when_nothing_trimmed():
+    """OPTIMIZER-PAGING-PRIMITIVE-1 B1 — an untrimmed corpus must NOT carry
+    the notice (it would be a lie, and would train the LLM to ignore real
+    count-vs-list mismatches)."""
+    corpus = _corpus_with_findings(3)
+    body = corpus.to_prompt_body()
+    assert "corpus_truncation_notice" not in body
+    # Sanity: the findings really are all present.
+    assert body.count("stuck unavailable") == 3
+
+
+def test_corpus_truncation_notice_present_when_findings_trimmed():
+    """OPTIMIZER-PAGING-PRIMITIVE-1 B1 — THE REGRESSION GUARD.
+
+    When the corpus overflows, `findings_recent` is the first section
+    emptied while `house.open_findings_count` is preserved. Before this
+    fix the LLM saw `open_findings_count=N` next to `findings_recent=[]`,
+    correctly reported the contradiction as CRITICAL, and CRITICAL
+    bypasses the NM digest-deferral — so our own truncation paged the
+    operator. Measured 2026-09-13: 6 of 6 criticals in 7 days were this
+    artifact and none described a real house condition.
+
+    The body must now TELL the LLM the section was truncated.
+    """
+    corpus = _corpus_with_findings(50)
+    # Force a budget small enough to guarantee findings_recent is trimmed,
+    # but large enough that the house block survives.
+    body = corpus.to_prompt_body(max_chars=900)
+
+    assert body, "expected a body, not the skip sentinel"
+    assert len(body) <= 900
+
+    # The count field survived (that is what made the contradiction).
+    assert "open_findings_count" in body
+    # ...and the corpus now admits the list is incomplete.
+    assert "corpus_truncation_notice" in body
+    assert "findings_recent" in body
+    # The notice must carry shown-vs-total so "incomplete" is checkable.
+    assert '"total": 50' in body
+    # And it must explicitly tell the LLM not to report this as an anomaly.
+    assert "do NOT report a mismatch" in body
+
+
+def test_corpus_truncation_notice_survives_every_fallback_depth():
+    """The notice must ride along on the DEEPER fallbacks too (bayesian
+    drop, house-stub), not just the section-trim return path — otherwise
+    the most-truncated, most-misleading bodies are exactly the ones that
+    lose the warning.
+
+    Sweeps the budget downward so every fallback depth is exercised. Any
+    non-empty body that dropped items MUST carry the notice; the empty
+    sentinel (caller skips the LLM entirely) is an acceptable outcome.
+    """
+    corpus = _corpus_with_findings(50, n_rooms=200)
+    corpus.bayesian_accuracy = {"accuracy": 0.5}
+
+    checked_truncated = 0
+    for max_chars in (2000, 1500, 1200, 1000, 900, 800, 700,
+                      600, 500, 400, 300, 200):
+        body = corpus.to_prompt_body(max_chars=max_chars)
+        if not body:
+            continue  # skip sentinel — caller will not call the LLM
+        assert len(body) <= max_chars, (
+            f"budget {max_chars} overflowed to {len(body)} — the notice "
+            "must be counted INSIDE the budget, not appended after it"
+        )
+        # Anything at these budgets is necessarily truncated.
+        assert "corpus_truncation_notice" in body, (
+            f"budget {max_chars} produced a truncated body with NO notice"
+        )
+        checked_truncated += 1
+
+    assert checked_truncated >= 3, (
+        "expected several fallback depths to produce a real body; "
+        f"only {checked_truncated} did"
+    )
+
+
 @pytest.mark.asyncio
 async def test_optimizer_llm_delta_trigger_skips_when_unchanged():
     """Two cycles with the same Tier-1 finding set → only ONE LLM call."""

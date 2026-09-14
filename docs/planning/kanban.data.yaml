@@ -425,6 +425,60 @@ cards:
     _MAX_INVOCATIONS_PER_24H (const.py:3631-3659), wired into the CM options flow
     (config_flow.py:8396,8542). Notification path is the untouched surface:
     optimization.py:4139 `_notify_if_severe` pages with the finding's template description.
+  b1_root_cause_CONFIRMED_2026_09_13: >-
+    ROOT CAUSE FOUND AND FIXED (B1). The corpus TRIMMER manufactures the contradiction.
+    `to_prompt_body` (optimization_llm.py:136) trims greedily in the order
+    findings_recent -> prior_actions -> rooms -> zones, popping until the body fits, while
+    `house` (which carries open_findings_count, set at optimization_llm.py:596) is preserved
+    until a last-resort stub. The intent is stated in the code at line 98-99: "keeps any single
+    section from eating the whole budget so a noisy findings_recent can't crowd out house."
+    So under corpus pressure the LLM receives `open_findings_count=N` next to
+    `findings_recent=[]` — a contradiction WE created — and correctly reports it as CRITICAL
+    "system running blind". CRITICAL bypasses `should_defer_high_to_digest`, so it pages.
+    Corpus pressure peaks exactly when findings are numerous = during this outage, which is why
+    all 6 landed in this window.
+    FIX (additive, ~64 LoC incl. comments): emit a `corpus_truncation_notice` into the
+    serialized snapshot naming each truncated section with shown-vs-total and explicitly telling
+    the model not to report a count-vs-truncated-list mismatch as an anomaly. Chosen over
+    suppressing the LLM's reasoning (it was reasoning CORRECTLY) and over reordering the trim
+    (bigger behavioral change, rooms/zones may matter more). The notice is counted INSIDE the
+    budget and rides along on every deeper fallback.
+  b1_correction_trail_2026_09_13: >-
+    TWO OF MY OWN CLAIMS THIS SESSION WERE WRONG — recorded so they are not inherited:
+    (1) I first said the primitive paging was the TEMPLATE PROSE. WRONG — the prose is not the
+    primary cause; the only things that page are LLM-generated criticals.
+    (2) I then said "mechanism CONFIRMED: tier1 emitted nothing on the emitting cycles",
+    based on a same-timestamp join showing tier1_rows=0. That join was INVALID: LLM findings
+    carry their OWN timestamp (the ai_task call takes up to 45s), so tier1 rows simply sit at a
+    different timestamp. Re-tested with a 6-minute lookback: tier1 emitted 5-11 non-meta findings
+    before EVERY critical, which REFUTES the empty-corpus mechanism entirely. The real cause is
+    the trimmer, above. Also note the earlier `nonmeta_within_3min` column read 0 for all rows
+    because sqlite datetime() formatting did not match the stored ISO+offset strings — a broken
+    query, not evidence.
+  b1_verification_2026_09_13: >-
+    Framing-disjoint review performed SOLO (agent dispatch disabled this session).
+    A/local-correctness: `_orig_counts` snapshots sizes from the PRE-trim `snap`; `_with_notice`
+    never mutates (builds a new dict, only ADDS a key); the pop-loop still terminates on empty;
+    the deeper fallbacks reassign keys on an already-copied dict.
+    B/integration + no-suppression: the no-op path is BYTE-IDENTICAL — an in-budget corpus
+    returns at optimization_llm.py:161 before any new code runs. A GENUINE empty findings_recent
+    (no truncation) produces NO notice, so a real count-vs-list inconsistency is still reportable
+    — this is the load-bearing invariant and it has its own test.
+    C/test authority: MUTATION DRILL run with PYTHONDONTWRITEBYTECODE=1 and __pycache__ cleared
+    (per the .pyc-staleness rule). Neutering `_with_notice` to a no-op turned exactly 2 of the 3
+    tests RED with the expected assertion ("budget 2000 produced a truncated body with NO
+    notice"); source restored, residue grep = 0, re-run green.
+    Suite: 101 passed in the full test_optimization_coordinator.py — no regressions.
+  b1_residual_gap_2026_09_13: >-
+    RESIDUAL, deliberately NOT fixed (parsimony — no evidence it fires): a SECOND path can still
+    produce findings_recent=[] alongside a nonzero open_findings_count, with no truncation and
+    therefore no notice. In `_assemble_corpus`, `recent` is built from `_last_findings` (RAM,
+    assigned at optimization.py:1063) with a `_boot_findings_seed` fallback that is CLEARED
+    ONE-SHOT after the first cycle (optimization.py:1072-1074) — so a steady-state cycle where
+    `_last_findings` is [] AND tier1_findings is [] has no fallback. The 2026-09-13 measurement
+    shows this did NOT cause the 6 observed criticals (tier1 was non-empty every time), so it is
+    unproven as a live defect. REVIVAL TRIGGER: a future meta critical whose cycle shows zero
+    tier1 findings in the preceding 6 minutes.
   b2_built_2026_09_13: >-
     B2 BUILT (operator: "Go ahead and B2") @ feature/optimizer-sensor-health-repeat-suppress,
     commit e00918a95 — in review, NOT deployed.

@@ -164,16 +164,74 @@ class OptimizerContextCorpus:
         # Greedy trim — operate on COPIES so the original corpus is intact.
         snap_trim = {k: list(v) if isinstance(v, list) else v
                      for k, v in snap.items()}
+
+        # OPTIMIZER-PAGING-PRIMITIVE-1 B1 (2026-09-13): record the ORIGINAL
+        # section sizes before trimming so the serialized body can tell the
+        # LLM that a section was truncated.
+        #
+        # Why this exists: `findings_recent` is the FIRST section emptied
+        # here, while `house` (which carries `open_findings_count`) is
+        # preserved until the last-resort stub. Under corpus pressure the
+        # LLM was therefore handed `open_findings_count=N` alongside
+        # `findings_recent=[]` — a contradiction WE manufactured — and it
+        # correctly reported that contradiction as a CRITICAL "system is
+        # running blind" finding. CRITICAL bypasses the NM digest-deferral
+        # (`should_defer_high_to_digest`), so every occurrence paged the
+        # operator with a false alarm about the optimizer's own telemetry.
+        # Measured 2026-09-13: 6 of 6 criticals in the prior 7 days were
+        # this artifact; ZERO described a real house condition.
+        #
+        # The fix is to make the corpus HONEST rather than to suppress the
+        # LLM's (correct) reasoning: when a section is trimmed, say so, so
+        # absence-of-evidence is not read as evidence-of-absence. A genuine
+        # count-vs-list inconsistency is still reportable — it just no
+        # longer fires on OUR truncation.
+        _orig_counts = {
+            k: len(v) for k, v in snap.items() if isinstance(v, list)
+        }
+
+        def _with_notice(snap_d: dict) -> dict:
+            """Return snap_d plus a truncation notice (never mutates)."""
+            truncated = {
+                k: {"shown": len(v), "total": _orig_counts.get(k, len(v))}
+                for k, v in snap_d.items()
+                if isinstance(v, list)
+                and len(v) < _orig_counts.get(k, len(v))
+            }
+            if not truncated:
+                return snap_d
+            out = dict(snap_d)
+            out["corpus_truncation_notice"] = {
+                "reason": (
+                    "Corpus exceeded the size budget; the sections below "
+                    "were truncated to fit. A section showing fewer items "
+                    "than its total is INCOMPLETE — do NOT infer that the "
+                    "missing items do not exist, and do NOT report a "
+                    "mismatch between a count field (e.g. "
+                    "house.open_findings_count) and a truncated list as an "
+                    "anomaly, because the truncation is expected behavior."
+                ),
+                "sections": truncated,
+            }
+            return out
+
+        def _serialize_noticed(stable_d, snap_d) -> str:
+            return _serialize(stable_d, _with_notice(snap_d))
+
         for section_key in ("findings_recent", "prior_actions",
                             "rooms", "zones"):
             section = snap_trim.get(section_key)
             if not isinstance(section, list):
                 continue
             # Halve repeatedly until we either fit or empty the section.
-            while section and len(_serialize(stable, snap_trim)) > max_chars:
+            while section and (
+                len(_serialize_noticed(stable, snap_trim)) > max_chars
+            ):
                 section.pop()
-            if len(_serialize(stable, snap_trim)) <= max_chars:
-                return _serialize(stable, snap_trim)
+            if len(_serialize_noticed(stable, snap_trim)) <= max_chars:
+                return _serialize_noticed(stable, snap_trim)
+        # From here the notice rides along with every remaining fallback.
+        snap_trim = _with_notice(snap_trim)
         # Still over budget: drop bayesian_accuracy entirely.
         snap_trim["bayesian_accuracy"] = {}
         if len(_serialize(stable, snap_trim)) <= max_chars:
