@@ -4362,6 +4362,12 @@ class ExteriorOpenTracksDiagnosticSensor(AggregationEntity, SensorEntity):
                     attrs["burst_demotions_by_camera"] = (
                         mgr.burst_demotion_stats()
                     )
+                # CIRCLING-SEVERITY-1: WHICH pre-dispatch gate suppressed an
+                # alert. The burst path above explains demotions; these two
+                # gates run EARLIER and previously returned silently, so a
+                # suppressed circling track left no evidence of its cause.
+                if mgr is not None and hasattr(mgr, "suppression_stats"):
+                    attrs["suppressions_by_camera"] = mgr.suppression_stats()
             except Exception:  # noqa: BLE001
                 pass
             return attrs

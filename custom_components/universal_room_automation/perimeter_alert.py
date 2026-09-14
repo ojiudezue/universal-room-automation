@@ -334,6 +334,14 @@ class PerimeterAlertManager:
         # sensor so the operator can see WHY something was demoted without
         # log-level surgery. Bounded to one entry per camera.
         self._last_burst_decision: dict[str, dict[str, Any]] = {}
+        # CIRCLING-SEVERITY-1: per-camera_key record of the most recent
+        # PRE-DISPATCH suppression. The burst path records WHY it demoted;
+        # the two gates that run BEFORE dispatch (egress suppression and the
+        # per-camera cooldown) previously returned silently, so a suppressed
+        # track left no evidence of which gate stopped it. That is the exact
+        # ambiguity the 2026-09-13 trace isolated and could not resolve from
+        # code alone. Same idiom, same surfacing, one entry per camera.
+        self._last_suppression: dict[str, dict[str, Any]] = {}
         # F1 (2026-08-07 fix-up cycle-4): remember the derived allowlist
         # so the SIGNAL_EXTERIOR_LINKER_READY handler can (re)install it
         # when the linker registers AFTER perimeter_alert.async_setup().
@@ -1059,6 +1067,13 @@ class PerimeterAlertManager:
                     seconds_since_egress,
                     EGRESS_SUPPRESSION_WINDOW_SECONDS,
                 )
+                # CIRCLING-SEVERITY-1: record WHY before returning.
+                self._record_suppression(
+                    self._camera_key_for_sensor(entity_id) or entity_id,
+                    "egress_suppression",
+                    seconds_since_egress=round(seconds_since_egress, 1),
+                    window_s=int(EGRESS_SUPPRESSION_WINDOW_SECONDS),
+                )
                 return
 
         # --- 3. Check per-camera cooldown (outer, authoritative rate limit) ---
@@ -1093,6 +1108,16 @@ class PerimeterAlertManager:
                         entity_id,
                         seconds_since_alert,
                         PERIMETER_ALERT_COOLDOWN_SECONDS,
+                    )
+                    # CIRCLING-SEVERITY-1: the exemption WAS offered and
+                    # declined here — that distinction is the discriminator.
+                    self._record_suppression(
+                        cooldown_key,
+                        "cooldown",
+                        seconds_since_alert=round(seconds_since_alert, 1),
+                        cooldown_s=int(PERIMETER_ALERT_COOLDOWN_SECONDS),
+                        exemption_offered=True,
+                        exemption_granted=False,
                     )
                     return
                 _LOGGER.info(
@@ -2272,6 +2297,27 @@ class PerimeterAlertManager:
         decision["reason"] = "burst_isolated"
         return True, decision
 
+    def _record_suppression(
+        self, cam_key: str, reason: str, **detail: Any
+    ) -> None:
+        """Record WHY an alert was suppressed before dispatch.
+
+        CIRCLING-SEVERITY-1. Observability only — never changes control
+        flow. Mirrors the burst path's ``decision["reason"]`` idiom rather
+        than introducing a second vocabulary.
+        """
+        try:
+            self._last_suppression[cam_key] = {
+                "reason": reason,
+                "at": dt_util.now().isoformat(),
+                **detail,
+            }
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "PerimeterAlertManager: _record_suppression failed",
+                exc_info=True,
+            )
+
     def _record_burst_alert(self, cam_key: str, now: datetime) -> None:
         """Append a dispatched-alert timestamp and prune stale entries.
 
@@ -2325,6 +2371,19 @@ class PerimeterAlertManager:
                 "window_s": int(PERIMETER_BURST_WINDOW_S),
             }
         return out
+
+    def suppression_stats(self) -> dict[str, dict[str, Any]]:
+        """Return the most recent PRE-DISPATCH suppression per camera.
+
+        CIRCLING-SEVERITY-1. Consumed by the exterior open-tracks
+        diagnostic sensor as ``attrs["suppressions_by_camera"]`` so the
+        operator can tell WHICH gate stopped an alert without raising log
+        levels and waiting for a recurrence (the soak-watch the card's
+        original plan proposed, which doctrine forbids).
+
+        Reasons: ``egress_suppression`` | ``cooldown``.
+        """
+        return dict(self._last_suppression)
 
     def leg_firing_stats(self) -> dict[str, dict[str, Any]]:
         """Return per-camera engine table + sole-firing ratios.
