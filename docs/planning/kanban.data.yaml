@@ -11,13 +11,13 @@ meta:
   autonomy_feed:
   - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T04:50', at: '2026-09-14T04:50:00', outcome: investigated,
      headline: 'CIRCLING-SEVERITY-1 — STALE PLAN CAUGHT + promoted to build-ready. Its plan said fold into CONSOL-1; CONSOL-1 has SHIPPED and did not carry it, so the card was waiting on a closed cycle. Re-verified in source: the burst path has decision reasons but the two pre-dispatch gates (egress suppression, cooldown) still return silently. Passes all four gate steps as a Tier-1 REUSE of the existing reason idiom. Scoped, not built (branch hygiene at 05:00, no urgency).',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'NM-REPAGE-IMG-1@2026-09-14T04:35', at: '2026-09-14T04:35:00', outcome: done,
      headline: 'NM-REPAGE-IMG-1 — ALREADY-DONE, closed with zero work. The card still asked me to instrument the BlueBubbles transport and wait for an unacked CRITICAL; the fix shipped a month earlier in v5.73.1 (commit aee318b0e) and the code carries this card ID. A grep answered what a live measurement was queued to find out.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:40', at: '2026-09-14T04:40:00', outcome: investigated,
      headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 (follow-up) — re-pages are INVISIBLE to notification_log (_repeat_alert never calls log_notification), so 102/day UNDERSTATES the real buzz load: 2153 unacked CRITICALs keep paging on the 300s/1800s/daily ladder. Low ack rate does not just indicate fatigue, it manufactures it. Also confirms the 300s histogram spike is the perimeter cooldown, not the repeat timer (both share a 300s period).',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated,
      headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 — MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working — so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).',
      acknowledged: false}
@@ -32,7 +32,7 @@ meta:
      acknowledged: false}
   - {fid: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1@2026-09-14T03:35', at: '2026-09-14T03:35:00', outcome: waiting_operator,
      headline: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — RECOMMENDATION CHANGED by measurement: MadronePTUltra has fired ZERO Frigate events ALL TIME (on-demand PIR duty-cycle to protect its battery). Adding it to perimeter_cameras is safe but buys ~no coverage. Operator should decide duty-cycle, not just the config toggle.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-14T03:10', at: '2026-09-14T03:10:00', outcome: parked,
      headline: 'FRONT-SIDE-PTZ-CHATTER-1 — LANE FIX only: card sat in investigating while its own next said the operator owns it and nothing was queued on my side. Moved to waiting_operator with an operator-verb next. No finding changed.',
      acknowledged: false}
@@ -1213,7 +1213,7 @@ cards:
 - id: CAMERA-PTULTRA-NOT-IN-PERIMETER-1
   title: "'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list"
   thread: perimeter
-  status: waiting_operator
+  status: done
   ANSWERED_2026_09_14: >-
     OPERATOR CONFIRMED IT IS A SEPARATE CAMERA: "There is a missing camera in this loop I had left
     out. There are 2 reolinks." The corrected ring places `madroneptultra` at position 5 (between
