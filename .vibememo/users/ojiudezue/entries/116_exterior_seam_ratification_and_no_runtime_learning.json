@@ -1,0 +1,25 @@
+{
+  "id": "116",
+  "timestamp": "2026-09-14T04:35:00Z",
+  "author": "ojiudezue",
+  "title": "Exterior camera seams: operator re-ratification, runtime learning killed, file-injection planned",
+  "category": "architecture",
+  "weight": "critical",
+  "summary": "The exterior camera adjacency graph (which sightings can be linked into one tracked walk) was re-validated against the physical property: 27 seams -> 20, with 10 struck as physically impossible. Runtime/observation-based learning of that graph was explicitly killed. A declarative operator-supplied seam file, modelled on the TOU rate-file loader, is planned but not built.",
+  "why": "The 2026-08-06 probe derived seams from camera co-firing within 180s. Of the 27 that reached const.py, the operator struck 10 (37%) as physically impossible - several with observed counts of 3-4 AFTER the probe's simultaneity filter. Co-firing measures household movement patterns, not physical adjacency, and in a 4-person household those diverge badly. The failure is asymmetric: a wrong seam merges two different people into one track and SUPPRESSES the second alert (silent security failure), while a missing seam only fragments one person into noisier alerts. Learning biases toward adding edges - toward the silent-failure side.",
+  "decision": "(1) The adjacency graph is operator-declared physical truth, re-ratified by hand. (2) NO runtime or observation-based adjacency learning - the offline probe is retained only as a suggestion report a human ratifies. (3) If a file-injection path is built, it is a declarative LOADER with a validator, never a learner; the const remains the fail-safe fallback.",
+  "implications": [
+    "Striking back_yard<->front_side_ptz invalidated the premise of the 'founding' circling case: that live track alternated between the detached garage and the front of the main house 5x in 133s. The circling thresholds were fitted to what may be an artifact of a wrong seam (CIRCLING-FOUNDING-CASE-ARTIFACT-1).",
+    "EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS is DERIVED from the graph, so it must move with it - hot_tub and front_door_aerial drop out. A track seen only on hot_tub no longer auto-classifies 'approach'.",
+    "Live egress_cameras is FIVE (adds garage_a, garage_b) while const, the derived list, and the new invariant guard all assume THREE.",
+    "The seam branch is HELD undeployed: the written ring contradicts the operator's own per-seam notes on the pool_equipment/Reolink ordering, and 'Madrone PT Ultra' may be a real camera absent from perimeter_cameras."
+  ],
+  "revisit_trigger": "A camera is physically moved or added; or a future operator/property needs the graph without a code change (then build the planned loader, not a learner).",
+  "supersedes": null,
+  "refs": [
+    "docs/planning/VALIDATE_exterior_camera_seams.md",
+    "docs/planning/PLANNING_exterior_seam_file_injection.md",
+    "docs/planning/AUDIT_exterior_camera_adjacency_probe.md",
+    "feature/camera-seam-ratification-2026-09"
+  ]
+}
