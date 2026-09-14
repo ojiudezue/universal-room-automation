@@ -417,7 +417,41 @@ cards:
 - id: TOU-FILE-NO-RATE-VALIDATION-1
   title: A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours
   thread: energy
-  status: planned
+  status: review
+  BUILT_2026_09_14: >-
+    BUILT by a worktree-isolated builder @ feature/tou-file-validation, commit 85d19e6b1 — in
+    review, NOT merged, NOT deployed. Whole-file rejection contract, mirroring exterior_seams.py:
+    _validate_parsed_data returns a LIST of all errors (operator sees every fault at once), and
+    _from_parsed_data logs them and returns cls() — the same PEC fallback the missing-file path
+    already uses.
+    RULES: a rate field is REQUIRED per period (import_rate+export_rate, or symmetric rate) —
+    this kills the `.get("rate", 0.0)` silent zero; import rate >= 0 while EXPORT may be negative
+    (some tariffs charge for over-export); magnitude ceiling 10.0 $/kWh (PEC peak is ~0.16, so
+    this catches a two-decimal typo like 1.61 -> 16.1); hours must be integer [start,end] with
+    0<=start<end<=24 (the live file uses [21,24], so end==24 is legal) and must not overlap
+    within a season; months 1..12 covered exactly once across all seasons; off_peak still required.
+    DELIBERATE SEMANTIC CHANGE: an unknown period name now REJECTS the whole file (was warn+skip).
+    This unifies the loader's previously inconsistent partial-failure behaviour — flagged because
+    it is a behaviour change, not a pure addition.
+  ORCHESTRATOR_VERIFIED_2026_09_14: >-
+    I did not trust the builder's report. (1) THE CRITICAL REGRESSION CHECK — the operator's REAL
+    /config/universal_room_automation/tou_rates.json still loads CLEAN under the new validator:
+    zero validation errors, _rate_file_loaded=True, source "tou_rates.json (PEC, effective
+    2026-01-01)", summer peak import 0.161843. The tightening did not lock the operator out of
+    their own file. (2) I re-ran the mutation myself with a different neuter (early `return []`
+    from _validate_parsed_data): NINE tests went RED, including
+    test_misspelled_rate_field_rejects_file, test_negative_import_rate_rejects_file,
+    test_absurd_rate_rejects_file, test_out_of_range_hours_reject_file,
+    test_uncovered_month_rejects_file and test_double_claimed_month_rejects_file. Restored,
+    residue 0, tree clean, 40 pass.
+    BASELINE NAME-DIFF (scoped — full suite times out): affected files went 82 passed / 0 failing
+    -> 92 passed / 0 failing. No test went pass->fail.
+  reviewer_note_2026_09_14: >-
+    Builder flagged honestly: the pre-existing `try/except Exception` catch-all in
+    _from_parsed_data remains, so any post-validation exception ALSO lands in the PEC fallback.
+    Safe, but it is why the discriminating test anchors on _validate_parsed_data directly rather
+    than only on _rate_file_loaded — otherwise a KeyError would produce the same observable and
+    the test could not tell the rule fired. Correct call.
   created: '2026-09-14 00:05'
   updated: '2026-09-14 00:05'
   refinement_status: initial
@@ -4713,6 +4747,97 @@ cards:
   links:
     blocked_by:
     - ROUTINE-DETECTOR-NO-DISCHARGE-1
+- id: REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1
+  title: Room renames split one room's history across two labels and manufacture fake "routine drift"
+  thread: analytics
+  status: investigating
+  created: '2026-09-14 00:45'
+  updated: '2026-09-14 00:45'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA watches where each person spends time and flags when someone''s routine changes.
+     It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED,
+     the old name stops appearing and the new one starts — so from the comparison''s point of
+     view a person abruptly abandoned one room for another, which is exactly what a real routine
+     change looks like. The system has been reporting routine shifts that are really just the
+     rename. Solution: make the comparison follow a room across a rename, or exclude cells whose
+     movement is explained by a label swap.'
+  origin:
+    date: '2026-09-14'
+    gist: fell out of the ROUTINE-DETECTOR-NO-DISCHARGE-1 measurement — the live top_movers are the tell
+  evidence_2026_09_14: >-
+    The detector's own live `top_movers` diagnostics show the signature. Jaya time-bin 0:
+    "Jaya Bedroom" p_share 0.499 -> q_share 0.088, while "Jaya Bedroom (Bedroom 4)" p_share
+    **0** -> q_share 0.376. Ziri time-bin 0: "Ziri Bedroom (Bedroom 5)" p_share **0** ->
+    q_share 0.314. Mass moving off an old label onto a near-identical new label with a baseline
+    share of exactly ZERO is a rename, not a person changing behaviour — a real behavioural shift
+    moves mass between rooms that BOTH already exist in the baseline.
+    SCALE: August was the largest month at 206 of the 462 routine_shift rows. A substantial
+    fraction is plausibly this artifact.
+    IMPLICATION FOR A PRIOR VERDICT: the 2026-08-19 audit concluded the drifts were "DEFENSIBLE
+    real signal (summer + kids home, operator travel, a child pre-departure)". That verdict
+    deserves re-examination for the renamed cells specifically — it may be partly right and
+    partly this.
+  why: >-
+    This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL
+    on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename
+    would immediately manufacture a fresh pile.
+  next: >-
+    MEASURE first, do not build: (1) establish which rooms were renamed and when (the sibling card
+    ROOM-NAME-DESYNC-1 already documents renames that never wrote back). (2) For each routine_shift
+    row, classify whether its top_movers show the zero-baseline-share signature. That gives the
+    contaminated fraction. (3) THEN decide between a rename-aware room-identity key (the robust
+    fix, larger) and excluding zero-baseline-share cells from the divergence (the cheap fix).
+    Decompose the margin before building either.
+  parsimony:
+    problem: A room rename is indistinguishable from a behaviour change in the routine baseline.
+    verdict: BUILD
+  rank: {value: 7, time_criticality: 3, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify]
+  links:
+    related: [ROUTINE-DETECTOR-NO-DISCHARGE-1, ROOM-NAME-DESYNC-1]
+    context: ROOM-NAME-DESYNC-1 is the same root cause seen from the config side (renames without write-back); this is its analytics-side consequence.
+  refs: [custom_components/universal_room_automation/domain_coordinators/regime_detector.py]
+- id: REGIME-NOTIFY-PATH-DEAD-1
+  title: The routine-shift notification path has produced nothing in 4 months and 462 events
+  thread: notifications
+  status: investigating
+  created: '2026-09-14 00:45'
+  updated: '2026-09-14 00:45'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: when URA detects that someone''s routine has changed it is supposed to tell the
+     operator, either immediately or in a weekly digest. Over four months it recorded 462 such
+     events and sent NOTHING — both the queue that feeds the weekly digest and the log of
+     notifications actually sent are completely empty. Either the feature is throttled to
+     silence, mis-wired, or never finished. Solution: find out which, then either fix the wiring
+     or retire the feature honestly rather than leaving a dead path that looks alive.'
+  origin:
+    date: '2026-09-14'
+    gist: found while measuring ROUTINE-DETECTOR-NO-DISCHARGE-1 — the consumer check turned up two empty tables
+  evidence_2026_09_14: >-
+    Live URA DB: `regime_weekly_digest_queue` = 0 rows; `regime_event_notification_log` = 0 rows.
+    Against 462 anomaly_log rows with metric_name='bayesian.routine_shift' spanning 2026-05-15 to
+    2026-09-08. The code path exists — regime_detector dispatches SIGNAL_REGIME_EVENT_EMITTED,
+    handled at notification_manager.py:5036, with a weekly digest flush at :5263 via
+    flush_regime_weekly_digest_queue. So handlers are wired but nothing has ever landed in either
+    table.
+  next: >-
+    TRACE, do not fix yet: determine whether (a) SIGNAL_REGIME_EVENT_EMITTED is never actually
+    dispatched (check the emit site is reached — the 462 rows prove the WRITE happens, not that
+    the dispatch does), (b) the NM handler drops it behind a gate/allowlist/severity filter, or
+    (c) the digest queue is written somewhere that never runs. Discriminator: add no code — read
+    the handler's entry conditions and compare against the severity/type of the 462 rows.
+    A dead notification path that looks alive is worse than an absent one.
+  parsimony:
+    problem: A notification path with handlers wired has produced zero output across 462 events.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 3, effort: 3}
+  tags: [no-fabrication-verify, falsify-first]
+  links:
+    related: [ROUTINE-DETECTOR-NO-DISCHARGE-1]
+    context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
+  refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
   thread: presence
   status: planned
@@ -4724,6 +4849,39 @@ cards:
     -> 2026-09-08, monotonic ~3-13/day. And recovery_at is NEVER set for ANY metric_name in the whole
     table (0 discharged) -> the manual ack button (button.py:1275) has effectively never been pressed.
     Mechanism confirmed; build lane is OPEN.'
+  MEASURED_2026_09_14: >-
+    ORCHESTRATOR-VERIFIED (I re-ran every query and read the live sensors myself). VERDICT SPLIT,
+    and the live consequence is worse than the card assumed.
+    REFUTED (detector side): regime_cell_state.unacknowledged_consecutive DOES discharge —
+    regime_detector.py:497-499 resets it to 0 on return-to-stable. Live: 48 cells, ZERO with an
+    open counter, max 0, every bucket 'stable', last evaluated 2026-09-13.
+    CONFIRMED (emission side): the anomaly_log rows have NO automatic clear path. Live:
+    metric_name='bayesian.routine_shift' => 462 rows, 462 UNACKNOWLEDGED, 2026-05-15 to
+    2026-09-08. Zero acknowledged in four months. Only discharge is
+    database.py:7101 acknowledge_all_routine_shifts(), reachable ONLY via a manual button.
+    LIVE DAMAGE: sensor.ura_coordinator_manager_household_routine_status reads **major_shift**
+    with total_unacknowledged_events=462; the Jaya sensor reads major_shift driven by THREE
+    severity-4 rows from 2026-05-21/27/28. Every cell is stable, nothing has been emitted since
+    09-08, and the house has reported a major routine shift since MAY — because the cell state
+    recovers and the emitted event does not.
+    CONSUMERS: PersonRoutineStatusSensor (sensor.py:14987) + HouseholdRoutineStatusSensor
+    (:15150), both DIAGNOSTIC display (no trust decision), plus two NotificationManager paths.
+    Retention is NOT the driver — database.py:5423 already prunes at 365 days, rate ~4/night.
+    This is SENSOR CORRECTNESS, not DB size.
+  design_pick_evidence_2026_09_14: >-
+    The measurement discriminates the A/B/C pick below.
+    (C) KEEP HUMAN-ACK-ONLY is REFUTED BY OUTCOME — it is what ships today, and in four months the
+    button was pressed ZERO times while 462 events piled up and the house sensor latched on three
+    May rows. A care signal nobody can clear stops being a signal.
+    (A) TIME-BASED TTL is unnecessary: every cell DID return to stable, so a timer would just
+    approximate the event we can observe exactly.
+    (B) RETURN-TO-BASELINE AUTO-CLEAR is directly supported: ~15 LoC at the seam that already
+    resets the counter correctly, writing recovery_at on that cell's open rows. Same table, same
+    path, consumers are display-only. Falsifiable acceptance invariant: no cell whose
+    last_magnitude_bucket='stable' may have an open anomaly_log row — one query proves it.
+    RECOMMENDATION: B, plus a one-time button press to clear the 462-row backlog, shipped
+    TOGETHER so the backlog cannot silently re-accumulate. I did NOT press the button — it is a
+    one-shot change over four months of the operator's own care signal.
   next: 'PICK (operator) the discharge DESIGN before any build — this is a product decision, not just
     code: (A) time-based TTL auto-decay (recovery_at = timestamp + N days); (B) return-to-baseline
     auto-clear (discharge when the regime cell returns to its learned behaviour); (C) KEEP human-ack-only
