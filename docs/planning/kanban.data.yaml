@@ -319,7 +319,7 @@ cards:
 - id: OPTIMIZER-PAGING-PRIMITIVE-1
   title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
   thread: optimizer
-  status: planned
+  status: review
   approval: explicit
   approved_by: 'operator 2026-09-13 ("Approved" + "Your sequence on that card is fine")'
   sequence_2026_09_13: >-
