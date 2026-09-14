@@ -9,6 +9,18 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'REGIME-NOTIFY-PATH-DEAD-1@2026-09-14T03:05', at: '2026-09-14T03:05:00', outcome: investigated,
+     headline: 'REGIME-NOTIFY-PATH-DEAD-1 — REFUTED + CLOSED: the routine-shift notify path is ALIVE. notification_log shows 5 Weekly Routine Digests on 5 consecutive Sundays (08-16 -> 09-13). The two empty tables were expected under mode=weekly_digest, and an empty queue is the signature of a HEALTHY drain.',
+     acknowledged: false}
+  - {fid: 'CAMERA-ZERO-FIRE-DETECTORS-1@2026-09-14T03:30', at: '2026-09-14T03:30:00', outcome: investigated,
+     headline: 'CAMERA-ZERO-FIRE-DETECTORS-1 — MEASURED on the Frigate host, then ESCALATED. Not an MQTT gap: Frigate logged ~no person events either, so URA is faithful. All 3 cameras alive + detecting (offline hypothesis refuted). Per-camera causes differ; all remaining fixes are homelab/physical, no URA build. Also found a naming trap: ArmCrestASH41B != ArmCrest.',
+     acknowledged: false}
+  - {fid: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1@2026-09-14T03:35', at: '2026-09-14T03:35:00', outcome: waiting_operator,
+     headline: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — RECOMMENDATION CHANGED by measurement: MadronePTUltra has fired ZERO Frigate events ALL TIME (on-demand PIR duty-cycle to protect its battery). Adding it to perimeter_cameras is safe but buys ~no coverage. Operator should decide duty-cycle, not just the config toggle.',
+     acknowledged: false}
+  - {fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-14T03:10', at: '2026-09-14T03:10:00', outcome: parked,
+     headline: 'FRONT-SIDE-PTZ-CHATTER-1 — LANE FIX only: card sat in investigating while its own next said the operator owns it and nothing was queued on my side. Moved to waiting_operator with an operator-verb next. No finding changed.',
+     acknowledged: false}
   - {fid: 'HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00', at: '2026-09-12T12:00:00', outcome: parked,
      headline: 'HVAC-BASELINE-MAXSAMPLES-1 — PARKED at gate (shared-primitive change, margin does not pay)',
      acknowledged: false}
@@ -475,10 +487,10 @@ cards:
 - id: CAMERA-ZERO-FIRE-DETECTORS-1
   title: Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring
   thread: perimeter
-  status: investigating
+  status: waiting_operator
   created: '2026-09-14 02:05'
-  updated: '2026-09-14 02:05'
-  refinement_status: initial
+  updated: '2026-09-14 03:30'
+  refinement_status: refined
   problem_solution:
   - 'Problem: three of the outdoor cameras reported a person exactly ZERO times over eight days.
      A camera that never reports anything looks identical to a quiet camera, so nothing flags it —
@@ -508,20 +520,59 @@ cards:
     node is harmless per the operator priority ruling — detection is never lost because these
     cameras were contributing nothing anyway). It does mean the ring is effectively 11 live
     cameras, not 13.
+  measured_2026_09_14_frigate_host: >-
+    ONE-SHOT READ-ONLY PROBE against the AUTHORITATIVE source — Frigate 2's own event DB and
+    /api/stats on 192.168.13.18 (the card's named discriminator). Read-only sqlite + the internal
+    stats endpoint; nothing changed on the host.
+    HEADLINE: it is NOT an HA/MQTT publish gap. Frigate itself logged (almost) no person events
+    for all three, so URA's zero is FAITHFUL — the detectors really are contributing nothing.
+    ALL THREE CAMERAS ARE ALIVE AND BEING PROCESSED, so "camera offline" (hypothesis (a)) is
+    REFUTED for every one. Live /api/stats camera_fps / detection_fps: ArmCrestASH41B 6.1 / 0.5
+    (process 5.9), ReolinkStudyBPorchPTZ 6.1 / 2.7, MadronePTUltra 3.1 / 5.2 (awake at probe
+    time — its PIR daemon had it enabled).
+    FRIGATE EVENT COUNTS, per camera:
+    (1) MadronePTUltra — ZERO events of ANY label, ALL TIME (total=0). Not a regression: it has
+    never produced one. Consistent with its on-demand design (homelab CONFIGS.md 2026-09-07: the
+    ptultra-frigate-trigger systemd daemon keeps Frigate detection DISABLED except during short
+    PIR motion windows, because continuous mode drained the battery 100->98% in 33 min).
+    (2) ReolinkStudyBPorchPTZ — 3 events in 30 days total (1 person 2026-09-04, 1 cat, 1 speech).
+    Alive but effectively blind. MECHANISM ALREADY DOCUMENTED: it detects on its sub stream at
+    640x480, the lowest detect resolution on the fleet (config.yaml detect width 640 height 480;
+    h264Preview_01_main carries only record+audio). homelab CONFIGS.md flagged exactly this on
+    2026-08-26 ("0 person events in 7d ... next rung = the h264Preview_01_main stream") and
+    deprioritised it. So the card's "it has since gone silent" (vs 30 ON events in the 2026-08-06
+    audit) lines up with the 2026-08-26/27 F2 detect-stream and fps rework, not a camera fault.
+    (3) ArmCrestASH41B — 272 speech events in 30d (latest 2026-09-14T00:55) and ZERO object
+    events of any kind. The audio role proves the stream is consumed; detection runs (process_fps
+    5.9). Checked and REFUTED: no motion mask and no zones/required_zones on this camera; and the
+    missing per-camera objects.track list is NOT the cause — the global objects: block sets only
+    genai, so Frigate's default track list (person) applies.
+    NAMING TRAP WORTH RECORDING: ArmCrestASH41B (192.168.12.143) and ArmCrest (192.168.15.96) are
+    TWO DIFFERENT Frigate cameras. ArmCrest is healthy — 5 person events in 14d, det_fps 3.1. Do
+    not read one's health as the other's.
+  verdict_2026_09_14: >-
+    Hypothesis (a) camera-offline: REFUTED for all three. Publish/MQTT gap: REFUTED. What remains
+    is the card's own option (d) — aim/field-of-view/recall — with a different answer per camera,
+    and every remaining fix is an OPERATOR/HOMELAB action (re-aim, crop, raise detect resolution,
+    or drop from the ring), NOT a URA code change. No URA build lane opened.
+  ura_side_consequence: >-
+    The URA-relevant conclusion is about the SEAM RING, not the cameras: two of these three are
+    legs in the exterior adjacency ring while contributing ~zero detections, so the ring carries
+    phantom legs. Input to CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1 and
+    PERIMETER-TOLERANCE-AND-SECTIONS-1, and it materially changes the recommendation on
+    CAMERA-PTULTRA-NOT-IN-PERIMETER-1 (see that card's cross_finding).
   next: >-
-    DIAGNOSE each of the three separately — they may have different causes:
-    (a) Is the camera online and streaming at all (Protect/Reolink side)?
-    (b) Is it configured in Frigate 2 with person tracking enabled, and is its detect stream
-        healthy? Check the Frigate host's /api/config and /api/stats for these camera names.
-    (c) For armcrestash41b specifically: the 2026-08-06 audit recorded an ArmCrest asymmetry
-        (left at threshold 0.7 / min_init 2 while its siblings were recall-tuned to 0.6/1) —
-        check whether that explains a low-but-nonzero rate collapsing to zero.
-    (d) Is it simply pointed somewhere nobody walks? That is a legitimate answer for a
-        pool-equipment-adjacent or porch camera and would mean REMOVING it from the ring rather
-        than fixing it.
-    DISCRIMINATOR: Frigate's own events table for these cameras over a longer window — if Frigate
-    logged person events that never reached HA, it is a publish/MQTT problem; if Frigate logged
-    none either, it is a camera/aim/config problem.
+    PICK per camera (all three are homelab/physical calls, none is a URA code change):
+    (1) ReolinkStudyBPorchPTZ — APPROVE moving its detect role onto h264Preview_01_main (640x480
+    -> main res) to restore recall, or DECIDE it stays low-priority and I drop it from the
+    perimeter seam ring so it stops contributing a dead leg. Note the F2 decode budget is the
+    constraint (CONFIGS.md 2026-08-27: this box is software-decode bound), so this is a real
+    trade, not free.
+    (2) ArmCrestASH41B — ANSWER where this camera is actually pointed. It is alive, detecting,
+    unmasked and hearing speech daily, yet has never seen a person: that pattern says aim/scene,
+    not fault. If it covers somewhere nobody walks, the right answer is DROP it from the ring.
+    (3) MadronePTUltra — no action here; it is zero BY DESIGN (battery on-demand PIR windows).
+    See CAMERA-PTULTRA-NOT-IN-PERIMETER-1 before adding it to perimeter_cameras.
   parsimony:
     problem: Two cameras the seam ring depends on have not produced a single detection in eight days.
     verdict: BUILD
@@ -1160,8 +1211,8 @@ cards:
     integration''s perimeter_cameras list. Until then URA is blind to an exterior camera that has
     working person detection, and the ring edge through it can never link.
   created: '2026-09-13 23:05'
-  updated: '2026-09-13 23:05'
-  refinement_status: initial
+  updated: '2026-09-14 03:35'
+  refinement_status: refined
   problem_solution:
   - 'Problem: the operator named a ring position "Madrone PT Ultra/Reolink hub". There IS a
      camera called Madrone PT Ultra in Home Assistant, with its own Frigate person detection
@@ -1207,11 +1258,30 @@ cards:
     (2) DETECTOR: madroneptultra fired ZERO times in 8 days (CAMERA-ZERO-FIRE-DETECTORS-1).
     Fixing the config will NOT produce detections if the detector itself is silent. Diagnosis
     dispatched under that card.
+  cross_finding_2026_09_14: >-
+    CAUTION — MEASURED, AND IT CHANGES THIS CARD'S RECOMMENDATION. While probing
+    CAMERA-ZERO-FIRE-DETECTORS-1 I read Frigate 2's own event DB directly (192.168.13.18,
+    read-only): `MadronePTUltra` has produced **ZERO events of ANY label, ALL TIME** (total=0),
+    not merely zero in the recent window. So adding camera.madroneptultra to perimeter_cameras
+    today would wire in a leg that has never once fired.
+    THIS IS NOT A FAULT — it is the camera's design. It is solar/battery, and per homelab
+    CONFIGS.md (2026-09-07) continuous Frigate detection drained it 100->98% in 33 minutes, so it
+    now runs on-demand: the `ptultra-frigate-trigger` systemd daemon on F2 enables Frigate
+    detection only during short PIR motion windows and lets the camera sleep otherwise. It was
+    alive and awake at probe time (camera_fps 3.1), so the plumbing works; it just produces
+    almost no detection windows.
+    CONSEQUENCE FOR THE ASK BELOW: the config-only change is still correct and still safe (adding
+    a camera that fires rarely costs nothing and fails closed), but it will NOT make the camera
+    "actually visible to URA" in any practical sense until its detection duty-cycle is addressed.
+    Expect it to contribute ~nothing to perimeter coverage as configured. Deciding that is a
+    separate, larger call about whether a battery PT camera can serve a perimeter role at all.
   next: >-
-    DO (operator): in Camera Census -> Perimeter Cameras, REMOVE
-    camera.study_a_closet_reolink_reolink_home_hub_high_resolution_channel and ADD
-    camera.madroneptultra. -> then the zero-fire diagnosis determines whether it actually
-    produces anything.
+    APPROVE me to add camera.madroneptultra to perimeter_cameras (config-only, no code, no tier),
+    or add it yourself in the integration options — BUT read cross_finding_2026_09_14 first: the
+    camera has never fired a single Frigate event because it runs on-demand to protect its
+    battery, so this wires in a near-silent leg rather than new coverage. If what you actually
+    want is perimeter coverage from that angle, the real decision is whether to change its
+    duty-cycle (or use a wired camera there) — say which and I will scope it.
   parsimony: {problem: A named ring position may refer to a camera URA does not watch., verdict: BUILD}
   rank: {value: 7, time_criticality: 5, effort: 2}
   tags: [no-fabrication-verify]
