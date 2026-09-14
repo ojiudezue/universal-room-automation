@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T08:06:01-05:00_ - _Data commit: `65bb0eae7a0c`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T08:42:14-05:00_ - _Data commit: `d5b98010734f`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -12,14 +12,14 @@ _Generated: 2026-09-14T08:06:01-05:00_ - _Data commit: `65bb0eae7a0c`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 16 |
-| 📝 Planned | 8 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 20 |
 | 🅿️ Parked | 50 |
-| ✅ Done | 161 |
+| ✅ Done | 160 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -332,10 +332,24 @@ _created 2026-09-12 17:50 · initial_
 - **Tags:** audit-first, institutional-context, tier-2db
 - **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
 
-## 📝 Planned (8)
+## 📝 Planned (9)
 _has plan / acceptance_
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **infra** - status: **planned**
+_created 2026-09-13 21:10 · updated 2026-09-13 21:15 · initial_
+- **Problem / Solution:**
+  - Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work safe to delete, but roughly 40 still hold either uncommitted edits or commits that never reached the main branch — so a blanket cleanup would silen...
+- **Origin:** 2026-09-13 - operator — "check the develop tree and any work trees to see work we need to clean or continue"
+- **Next:** REOPENED on operator instruct: delete the fully-merged local branches under the three-check safety bar above. Report the count deleted, and list anything skipped with the reason.
+- **Parsimony:** [SIMPLIFY] 94 worktrees make it impossible to see which branches still hold unfinished work.
+- **Refs:** .claude/worktrees/
+- **Forensic keys (3):**
+  - `findings_2026_09_13`: AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting: DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-c...
+  - `executed_2026_09_13`: DONE — operator approved ("Prune worktrees but don't delete what is important. Recheck for recent work that's useful"). Re-classified at delete time (not trusting the earlier audit): 51 worktrees were BOTH clean AND fully merged into dev...
+  - `operator_instruction_2026_09_14`: "Do it safely" — operator authorised the deferred half: deleting the fully-merged local branches. REOPENED for that work. SAFETY BAR, informed by what this session already got wrong: my earlier classification used COMMIT ANCESTRY (`rev-l...
+
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-08-18 10:05_
 - **Problem / Solution:**
@@ -349,7 +363,7 @@ _updated 2026-08-18 10:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-08-21 10:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -366,7 +380,7 @@ _updated 2026-08-21 10:05_
   - `DENOMINATOR_MEASURED_2026_08_21`: THE NUMBER THE AUDIT COULD NOT GET (no shell from that environment) — I ran it from the HA recorder: homeassistant_start events, last 14 days. 20 RESTARTS IN 6.9 DAYS = 2.9/day. Interval stats over 19 gaps: min 0.18h, p25 1.52h, MEDIAN 5...
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
 
-### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **explicit**
 _created 2026-08-23 18:20 · initial_
 - **Problem / Solution:**
@@ -380,7 +394,7 @@ _created 2026-08-23 18:20 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `PROPOSED_SHAPE`: Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in requirements_test.txt + run instructions so nobody silently runs 3.9 again. 2) New tests import real HA; no new file adds sys.modules stubs. 3) Existing files migr...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
 - **Problem / Solution:**
@@ -393,7 +407,7 @@ _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **planned**
 _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · initial_
 - **Next:** Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry path (NOT the front door) and include Protect named face via the webhook, before scoping.
@@ -409,7 +423,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 17:00 · initial_
   - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · initial_
 - **Problem / Solution:**
@@ -421,7 +435,7 @@ _created 2026-09-12 17:10 · initial_
 - **Forensic keys (1):**
   - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#7 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#8 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -439,7 +453,7 @@ _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
   - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
   - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
 
-### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#8 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **unreviewed**
 _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_root_
 - **Problem / Solution:**
@@ -732,7 +746,6 @@ _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
 ### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-> **⚡ OPERATOR: instruct — pending apply** (at 2026-09-14T13:13:52.219Z)
 thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-13 01:00 · initial_
 - **Problem / Solution:**
@@ -1878,7 +1891,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (161)
+## ✅ Done (160)
 _closed, evidence in refs_
 
 ### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -2035,20 +2048,6 @@ _created 2026-09-13 20:45 · updated 2026-09-13 21:15 · initial_
 - **Refs:** docs/planning/kanban.data.yaml
 - **Forensic keys (1):**
   - `findings_2026_09_13`: 14 commits on local develop unpushed (the whole CONFIG-FLOW-SLOW investigation chain plus the v5.101.1 bundle readiness notes). All board commits — no code was lost, the crash only orphaned board state. Pushed 8cd4af2ef..42eb0f130; devel...
-
-### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _WSJF 4.5 · v4 tc3 u2 /e2_
-> **⚡ OPERATOR: instruct — pending apply** (at 2026-09-14T13:13:22.418Z)
-thread: **infra** - status: **done**
-_created 2026-09-13 21:10 · updated 2026-09-13 21:15 · initial_
-- **Problem / Solution:**
-  - Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work safe to delete, but roughly 40 still hold either uncommitted edits or commits that never reached the main branch — so a blanket cleanup would silen...
-- **Origin:** 2026-09-13 - operator — "check the develop tree and any work trees to see work we need to clean or continue"
-- **Next:** DONE. Optional follow-up if wanted: delete the 60+ fully-merged local branches.
-- **Parsimony:** [SIMPLIFY] 94 worktrees make it impossible to see which branches still hold unfinished work.
-- **Refs:** .claude/worktrees/
-- **Forensic keys (2):**
-  - `findings_2026_09_13`: AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting: DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-c...
-  - `executed_2026_09_13`: DONE — operator approved ("Prune worktrees but don't delete what is important. Recheck for recent work that's useful"). Re-classified at delete time (not trusting the earlier audit): 51 worktrees were BOTH clean AND fully merged into dev...
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done** - approval: **unreviewed**
