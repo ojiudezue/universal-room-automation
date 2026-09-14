@@ -5545,8 +5545,29 @@ cards:
     context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
   refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
+  BUILT_2026_09_14: >-
+    BUILT @ feature/regime-return-to-stable-discharge — in review, not deployed. Option (B)
+    return-to-baseline auto-clear, as the measurement indicated: new DAO
+    discharge_routine_shifts_for_cell(person_id, time_bin, day_type) sets recovery_at on that
+    cell's open anomaly_log rows, called from the SAME seam in _persist_state that already
+    resets the counter correctly.
+    SCOPED TO ONE CELL, deliberately not a bulk ack — a bulk clear would also discharge cells
+    that are still genuinely drifting.
+    PAYLOAD SHAPE VERIFIED AGAINST LIVE DATA before writing the query: json_extract on
+    $.cell.person_id / $.cell.time_bin / $.cell.day_type returns ('Jaya',0,1) etc. on real rows.
+    GUARDED against the row-flood shape B2 just fixed: the discharge only runs when the cell's
+    previous counter was > 0, so a stable cell does not hit the DB every cycle across 48 cells.
+    6 BEHAVIOURAL tests (the pre-existing regime tests in this repo are SOURCE GREPS, so these
+    are new in kind): discharges on return-to-stable; scoped to the one cell; does NOT discharge
+    a still-drifting cell; no pointless write when already stable; failure is non-fatal; the
+    pre-existing counter-reset invariant still holds. Mutation: neutering the discharge reddens
+    2 named tests; restored, residue 0.
+    STILL NEEDS THE ONE-TIME BACKLOG CLEAR: 462 rows from 2026-05-15 remain open and the
+    household sensor still reads major_shift. Press
+    button.ura_coordinator_manager_acknowledge_routine_changes AFTER this ships, so it cannot
+    silently re-accumulate.
   thread: presence
-  status: planned
+  status: review
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: only manual ack button.py:1275; no auto-discharge; anomaly_log still INSERT (database.py:6961). Run the row-growth query (unacked routine_shift) then design discharge.'
@@ -12094,7 +12115,25 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: planned
+  status: review
+  BUILT_2026_09_14: >-
+    BUILT @ feature/circling-suppression-reason (c59714de8) — in review, not deployed.
+    Added a suppression `reason` to the TWO pre-dispatch gates the 2026-09-13 trace isolated
+    (egress suppression and the per-camera cooldown), both of which previously just `return`ed
+    silently. REUSE not new mechanism: mirrors the burst path's decision["reason"] idiom already
+    in perimeter_alert.py, surfaced the same way as burst_demotion_stats via the exterior
+    open-tracks diagnostic sensor as attrs["suppressions_by_camera"].
+    The cooldown record also carries exemption_offered/exemption_granted, because "exemption
+    offered and declined" is a DIFFERENT diagnosis from "exemption never reachable" — that
+    distinction is the discriminator the trace actually needed.
+    Additive observability only: no control-flow change, no new behavioural number.
+    5 tests incl. a WIRE-IN ANCHOR (helper-only tests stay green if the call sites are never
+    added). Mutation: changing the egress reason string reddens the anchor; restored, residue 0.
+    117 perimeter/linker tests pass.
+    ORCHESTRATOR NOTE: during this build a `git checkout --` intended to revert a mutation
+    reverted the whole file because the work was UNCOMMITTED — edits were lost and re-applied,
+    then committed BEFORE the drill was re-run. Same class as the 2026-09-11 builder-reset
+    incident; the rule is commit-before-drill, not just commit-before-dispatch.
   updated: '2026-09-14 04:50'
   refinement_status: refined
   disposition_2026_09_12_sweep2: 'INVESTIGATED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: perimeter_alert.py:1050 still gates circling on clock alert-hours; transition-exemption landed in sibling CIRCLING-LABEL-1 but the daytime-gating escape (should circling escape pure clock-time, daytime alert_count=0) is unbuilt. Open decision: escape-vs-accept. (Satisfies the operator 2026-09-11 ''investigate'' flag.)'
