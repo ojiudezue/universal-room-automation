@@ -51,13 +51,26 @@ class TOURateEngine:
         rate_table: dict | None = None,
         fixed_charges: dict | None = None,
         rate_source: str = "built-in PEC 2026",
+        file_status: str = "absent",
+        rejection_errors: list[str] | None = None,
+        rejected_filepath: str | None = None,
     ) -> None:
-        """Initialize with optional rate table override."""
+        """Initialize with optional rate table override.
+
+        ``file_status`` is one of:
+          * "ok"       — file was read AND passed validation; ``rate_table`` came from it.
+          * "absent"   — no file existed at the configured path (normal).
+          * "rejected" — file existed but failed validation; ``rate_table`` is PEC built-in.
+          * "disabled" — CONF_ENERGY_TOU_RATE_FILE_ENABLED is False; loader skipped I/O.
+        """
         self._rates = rate_table or PEC_TOU_RATES
         self._fixed = fixed_charges or PEC_FIXED_CHARGES
         self._last_period: str | None = None
         self._rate_file_loaded: bool = rate_table is not None
         self._rate_source: str = rate_source
+        self._file_status: str = file_status
+        self._rejection_errors: list[str] = list(rejection_errors or [])
+        self._rejected_filepath: str | None = rejected_filepath
 
     @classmethod
     def _read_json_file(cls, config_dir: str, filename: str) -> tuple[str, dict | None]:
@@ -79,16 +92,49 @@ class TOURateEngine:
         return str(filepath), data
 
     @classmethod
-    async def async_from_json_file(cls, hass, config_dir: str, filename: str) -> "TOURateEngine":
+    async def async_from_json_file(
+        cls,
+        hass,
+        config_dir: str,
+        filename: str,
+        enabled: bool = True,
+    ) -> "TOURateEngine":
         """Load TOU rates from a JSON file without blocking the event loop.
 
         v4.0.5: Async wrapper around blocking file I/O.
+        TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: ``enabled=False`` bypasses all
+        filesystem access and returns a PEC built-in engine with
+        ``file_status="disabled"`` — the explicit kill switch.
         """
+        if not enabled:
+            _LOGGER.info(
+                "TOU rate file ingestion DISABLED via config toggle — using PEC defaults"
+            )
+            return cls(file_status="disabled")
+
         filepath_str, data = await hass.async_add_executor_job(
             cls._read_json_file, config_dir, filename,
         )
         if data is None:
-            return cls()
+            # Distinguish absent (no file) from unparseable JSON (read
+            # returned None after logging the OSError/JSONDecodeError).
+            # Both fall back to PEC built-ins, but a parse failure is a
+            # "rejected" file — the operator needs to see it.
+            from pathlib import Path
+            try:
+                exists = Path(filepath_str).exists()
+            except Exception:  # noqa: BLE001
+                exists = False
+            if exists:
+                errors = [
+                    f"TOU rate file {filepath_str} could not be read or parsed as JSON"
+                ]
+                return cls(
+                    file_status="rejected",
+                    rejection_errors=errors,
+                    rejected_filepath=filepath_str,
+                )
+            return cls(file_status="absent")
         return cls._from_parsed_data(data, filepath_str, filename)
 
     @classmethod
@@ -308,7 +354,15 @@ class TOURateEngine:
                 "TOU rate file %s rejected (%d validation error(s)) — falling back to PEC defaults:\n  - %s",
                 filepath_str, len(errors), "\n  - ".join(errors),
             )
-            return cls()
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: preserve rejection metadata
+            # on the fallback engine so callers can raise an operator-visible
+            # alert. Rates STILL come from the PEC built-in — loudness is
+            # additive, never fail-open to zero rates.
+            return cls(
+                file_status="rejected",
+                rejection_errors=list(errors),
+                rejected_filepath=filepath_str,
+            )
 
         # Convert JSON format to internal rate table format
         try:
@@ -360,15 +414,37 @@ class TOURateEngine:
                 rate_table=rate_table,
                 fixed_charges=fixed_charges,
                 rate_source=rate_source,
+                file_status="ok",
             )
-        except Exception:
+        except Exception as exc:
             _LOGGER.exception("Failed to parse TOU rate file %s — using PEC defaults", filepath_str)
-            return cls()
+            return cls(
+                file_status="rejected",
+                rejection_errors=[
+                    f"unexpected error converting TOU rate file to internal table: {exc!r}"
+                ],
+                rejected_filepath=filepath_str,
+            )
 
     @property
     def rate_source(self) -> str:
         """Return the source of TOU rates (file path or 'built-in PEC 2026')."""
         return self._rate_source
+
+    @property
+    def file_status(self) -> str:
+        """Return TOU-file loader status: ok / rejected / absent / disabled."""
+        return self._file_status
+
+    @property
+    def rejection_errors(self) -> list[str]:
+        """Return validation errors that caused a REJECTED file (empty otherwise)."""
+        return list(self._rejection_errors)
+
+    @property
+    def rejected_filepath(self) -> str | None:
+        """Return the path of the rejected file, if any."""
+        return self._rejected_filepath
 
     def get_season(self, now: datetime | None = None) -> str:
         """Return the current TOU season: summer, shoulder, or winter."""
@@ -647,4 +723,5 @@ class TOURateEngine:
             "fixed_charges": self._fixed,
             "next_transition": self.get_next_transition(now),
             "rate_source": self._rate_source,
+            "tou_file_status": self._file_status,
         }

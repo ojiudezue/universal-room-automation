@@ -4391,6 +4391,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             SOLAR_CLASS_MODE_CUSTOM,
             CONF_ENERGY_LOAD_SHEDDING_ENABLED,
             CONF_ENERGY_LOAD_SHEDDING_THRESHOLD,
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: explicit kill switch for
+            # /config/universal_room_automation/tou_rates.json ingestion.
+            CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+            DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED,
             CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
             CONF_ENERGY_LOAD_SHEDDING_MODE,
             CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
@@ -5083,6 +5087,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: explicit kill switch for
+            # /config/universal_room_automation/tou_rates.json ingestion.
+            # Default TRUE — behaviour byte-identical to pre-toggle
+            # (file present + valid => file wins). Set FALSE to skip
+            # filesystem access entirely and use built-in PEC rates.
+            vol.Optional(
+                CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+                default=self._get_current(
+                    CONF_ENERGY_TOU_RATE_FILE_ENABLED,
+                    DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
             # v3.9.0: Load shedding config
             vol.Optional(
                 CONF_ENERGY_LOAD_SHEDDING_ENABLED,

@@ -738,6 +738,12 @@ CONF_ENERGY_EVSE_A_SPAN_BREAKER: Final = "energy_evse_a_span_breaker"
 CONF_ENERGY_EVSE_B_SPAN_BREAKER: Final = "energy_evse_b_span_breaker"
 CONF_ENERGY_L1_CHARGER_ENTITIES: Final = "energy_l1_charger_entities"
 CONF_ENERGY_TOU_RATE_FILE: Final = "energy_tou_rate_file"
+# TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: explicit kill switch for TOU rate-file
+# ingestion. Default True so behaviour is byte-identical to pre-toggle
+# (file present + valid => file wins). Setting False makes the loader skip
+# all filesystem access and use the built-in PEC table.
+CONF_ENERGY_TOU_RATE_FILE_ENABLED: Final = "energy_tou_rate_file_enabled"
+DEFAULT_ENERGY_TOU_RATE_FILE_ENABLED: Final = True
 
 # v4.0.12: Envoy auto-derive — one entity picker derives all Envoy entities
 CONF_ENERGY_ENVOY_ENTITY: Final = "energy_envoy_entity"

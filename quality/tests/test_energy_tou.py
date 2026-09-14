@@ -691,3 +691,104 @@ class TestTodayHighRateTransitions:
         # winter: mid_peak 05-09 + 17-21
         assert (5, "mid_peak") in windows
         assert (17, "mid_peak") in windows
+
+
+# ── D1 loud failure + D2 toggle — TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1 ─────────
+
+import asyncio
+
+
+class _FakeHass:
+    """Minimal HA stub for async_from_json_file — runs the executor sync."""
+    def __init__(self):
+        self.data = {}
+    async def async_add_executor_job(self, fn, *args):
+        return fn(*args)
+
+
+def _run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro) if False else asyncio.new_event_loop().run_until_complete(coro)
+
+
+class TestFileStatusAndToggle:
+    """D1 (loud failure via tou_file_status + rejection_errors) + D2 (toggle)."""
+
+    def test_rejected_file_status_and_errors_populated_and_rates_are_builtin(self):
+        """Rejected file => file_status='rejected', rejection_errors non-empty,
+        rates STILL equal built-in PEC (fallback is byte-safe)."""
+        data = json.loads(json.dumps(_VALID_JSON))
+        # Overlap: peak [16,20] vs mid_peak forced to [14,20] — rejected.
+        data["seasons"]["summer"]["periods"]["mid_peak"]["hours"] = [[14, 20]]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", data)
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json",
+            ))
+            assert engine.file_status == "rejected"
+            assert engine.rejection_errors, "rejection_errors must be populated"
+            assert engine.rejected_filepath is not None
+            # Rates fall back to PEC — verify against a native PEC engine.
+            baseline = TOURateEngine()
+            now = datetime(2026, 7, 15, 17, 0)
+            assert engine.get_current_rate(now) == baseline.get_current_rate(now)
+            assert engine.rate_source == "built-in PEC 2026"
+            # get_period_info surfaces the status attribute.
+            assert engine.get_period_info(now)["tou_file_status"] == "rejected"
+
+    def test_valid_file_status_ok_and_no_alert(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", _VALID_JSON)
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json",
+            ))
+            assert engine.file_status == "ok"
+            assert engine.rejection_errors == []
+            assert engine._rate_file_loaded is True
+
+    def test_absent_file_status_absent_and_no_alert(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "does_not_exist.json",
+            ))
+            assert engine.file_status == "absent"
+            assert engine.rejection_errors == []
+            assert engine.rate_source == "built-in PEC 2026"
+
+    def test_toggle_false_with_valid_file_present_uses_builtin_and_status_disabled(self):
+        """D2 kill switch: enabled=False => skip file entirely even if valid."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", _VALID_JSON)
+            hass = _FakeHass()
+            engine = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json", enabled=False,
+            ))
+            assert engine.file_status == "disabled"
+            assert engine.rejection_errors == []
+            assert engine.rate_source == "built-in PEC 2026"
+            baseline = TOURateEngine()
+            now = datetime(2026, 7, 15, 17, 0)
+            assert engine.get_current_rate(now) == baseline.get_current_rate(now)
+
+    def test_toggle_default_matches_current_behaviour(self):
+        """Default (enabled unset) is byte-identical to prior behaviour:
+        a valid file wins exactly as before."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_json(tmpdir, "tou_rates.json", _VALID_JSON)
+            hass = _FakeHass()
+            engine_default = _run(TOURateEngine.async_from_json_file(
+                hass, tmpdir, "tou_rates.json",
+            ))
+            hass2 = _FakeHass()
+            engine_explicit_true = _run(TOURateEngine.async_from_json_file(
+                hass2, tmpdir, "tou_rates.json", enabled=True,
+            ))
+            assert engine_default.file_status == engine_explicit_true.file_status == "ok"
+            now = datetime(2026, 7, 15, 17, 0)
+            assert (
+                engine_default.get_current_rate(now)
+                == engine_explicit_true.get_current_rate(now)
+                == 0.16  # from _VALID_JSON, not built-in PEC
+            )

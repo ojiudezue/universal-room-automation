@@ -8622,6 +8622,11 @@ class EnergyTOUPeriodSensor(AggregationEntity, SensorEntity):
             "next_period": next_t.get("next_period"),
             "hours_until_transition": next_t.get("hours_until"),
             "rate_source": info.get("rate_source"),
+            # TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1: loader status —
+            # ok / rejected / absent / disabled. Exposes the additive
+            # loudness surface so an operator sees `rejected` from the
+            # sensor even without checking logs.
+            "tou_file_status": info.get("tou_file_status"),
         }
 
 
