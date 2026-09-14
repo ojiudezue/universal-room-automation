@@ -39,6 +39,9 @@ meta:
   - {fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: waiting_operator,
      headline: 'CONFIG-FLOW-SLOW-ONBOARDING-1 — RECHECKED: network outage STILL LIVE and WORSE (7053 unavailable vs 6132; Shelly regressed 138->171; z2m 4/6 off). URA healthy (5 unavail). Operator infra fix',
      acknowledged: false}
+  - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T02:20', at: '2026-09-14T02:20:00', outcome: investigated,
+     headline: 'CIRCLING-SEVERITY-1 — TRACED: refuted the card''s own clock-gating premise (that window gates burst DEMOTION, not alerting) and refuted a dead-severity-table theory; isolated to egress-suppression vs per-camera cooldown. Next step is now a measurement, not a code change',
+     acknowledged: false}
   - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-14T01:05', at: '2026-09-14T01:05:00', outcome: done,
      headline: 'WORKTREE-BACKLOG-PRUNE-1 — DONE: 51 worktrees pruned (94->43). The recheck RESCUED 10 orphaned code-review records (2462 lines) that existed only in throwaway worktrees and would have been destroyed',
      acknowledged: false}
@@ -10633,8 +10636,37 @@ cards:
     not five alerts). But CIRCLING is arguably the classification most deserving of a page, and it produced
     none. Probably correct-by-design (daytime + occupied + outside the 23:00-05:00 window) - NOT VERIFIED,
     do not assert. Needs the actual gating path traced.'
-  next: trace why alert_count=0 for a circling classification; decide whether circling should escape pure
-    clock-time gating
+  traced_2026_09_13: >-
+    CODE TRACE DONE (autonomous, read-only). TWO HYPOTHESES REFUTED, one candidate isolated.
+    REFUTED #1 — "circling was suppressed by clock-time / alert-hours gating" (the card's own
+    framing, and the reason its next asked whether circling should escape clock gating). The
+    ONLY clock window on this path is PERIMETER_BURST_NIGHT_WINDOW (23-05) at
+    perimeter_alert.py:2200-2215, and it gates burst DEMOTION, not alerting: outside the window
+    the burst-demote helper returns False with reason "outside_night_window" — i.e. it DECLINES
+    TO DEMOTE. Daytime therefore makes suppression LESS likely, not more. Clock time cannot zero
+    an alert here, so "should circling escape clock gating" is the wrong question.
+    REFUTED #2 — a dead/unconsumed severity table. NM_HAZARD_EXTERIOR_PERSON_CONTEXTUAL_SEVERITY
+    IS consumed (perimeter_alert.py:1627), and for (home_day, perimeter, circling) the universal
+    override at const.py:1794 returns HIGH. So the track resolved to HIGH, not DIGEST — severity
+    resolution is NOT the suppressor either.
+    ISOLATED — the suppressor is UPSTREAM OF DISPATCH. alert_count increments only in
+    note_alert_dispatched (exterior_track_linker.py:819), called only on the successful-dispatch
+    branch (perimeter_alert.py:1544). alert_count=0 therefore PROVES no dispatch occurred, and
+    the two gates that can do that before dispatch are (a) the egress-crossing suppression window
+    (perimeter_alert.py:1055, EGRESS_SUPPRESSION_WINDOW_SECONDS) and (b) the per-camera cooldown
+    (perimeter_alert.py:1064-1082, PERIMETER_ALERT_COOLDOWN_SECONDS), which the code itself calls
+    the "outer, authoritative rate limit". A CIRCLING-LABEL-1 classification-transition exemption
+    already exists to let exactly this case through the cooldown once per (track x target-class)
+    — so the live question is whether that exemption failed to fire, or egress-suppression
+    pre-empted it.
+  next: >-
+    MEASURE, do not re-trace: the remaining question is which of TWO named gates fired, and code
+    reading cannot distinguish them retrospectively. Capture the decision reason at the moment of
+    suppression (the burst path already builds a decision dict with a "reason" key; the
+    cooldown/egress pre-dispatch gates need the same), or raise perimeter_alert to debug and wait
+    for the next circling track. Discriminator: reason == egress_suppression vs cooldown vs
+    exemption_not_offered. ONLY THEN decide whether circling should be exempt. Do NOT ship a
+    "circling escapes clock gating" change — that gate is not what suppressed it.
   refs:
   - exterior_track_linker.py classification
   - perimeter_alert.py alert-hours gating
