@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated,
+     headline: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 — MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).',
+     acknowledged: false}
   - {fid: 'REGIME-NOTIFY-PATH-DEAD-1@2026-09-14T03:05', at: '2026-09-14T03:05:00', outcome: investigated,
      headline: 'REGIME-NOTIFY-PATH-DEAD-1 — REFUTED + CLOSED: the routine-shift notify path is ALIVE. notification_log shows 5 Weekly Routine Digests on 5 consecutive Sundays (08-16 -> 09-13). The two empty tables were expected under mode=weekly_digest, and an empty queue is the signature of a HEALTHY drain.',
      acknowledged: false}
@@ -5354,10 +5357,10 @@ cards:
 - id: REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1
   title: Room renames split one room's history across two labels and manufacture fake "routine drift"
   thread: analytics
-  status: investigating
+  status: waiting_operator
   created: '2026-09-14 00:45'
-  updated: '2026-09-14 00:45'
-  refinement_status: initial
+  updated: '2026-09-14 03:55'
+  refinement_status: refined
   problem_solution:
   - 'Problem: URA watches where each person spends time and flags when someone''s routine changes.
      It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED,
@@ -5386,13 +5389,66 @@ cards:
     This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL
     on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename
     would immediately manufacture a fresh pile.
+  measured_2026_09_14: >-
+    ONE-SHOT READ-ONLY PROBE over all 462 routine_shift rows in the live URA DB (parsed each
+    row's context_json top_movers). MECHANISM CONFIRMED — but the scale is far NARROWER than this
+    card assumed, and the measurement kills one of the two fixes the card proposed.
+    FIRST PASS (the loose signature the card described — any mover with baseline share exactly 0
+    and current share >5%): 269 of 462 rows = 58%. I did NOT accept this number, because the
+    loose signature cannot tell a rename from a person simply not having visited a room during
+    the baseline window — and a person starting to use a room IS the real signal the detector
+    exists to find. Flagging it as contamination would be the detector eating its own product.
+    The over-count is visible in the label list: the top zero-baseline gainers include Kitchen
+    (31), Media Room (34), Balcony (10) — rooms that plainly were not renamed.
+    SECOND PASS (the strict rename discriminator the card's own evidence actually described — a
+    zero-baseline GAINER whose label near-matches a same-event LOSER that shed >half its share):
+    **82 of 462 rows = 17.8%**, and every single one is ONE rename:
+    "Jaya Bedroom" -> "Jaya Bedroom (Bedroom 4)" (82/82 pairs). Confined to 2026-08 (57 rows) and
+    2026-09 (25). No other rename pair appears anywhere in the corpus.
+    REMAINING 187 rows are zero-baseline-gainer but NOT rename-paired — unexplained by this
+    card's mechanism; they are either genuine new-room behaviour or a separate artifact.
+    NOTE on "Ziri Bedroom (Bedroom 5)": it appears 36 times as a zero-baseline gainer but never
+    with a matching "Ziri Bedroom" loser in the same event, so it does not meet the strict test —
+    likely a rename whose old label had already aged out of the baseline, or a newly-added room.
+  claim_narrowed_2026_09_14: >-
+    The card's `evidence_2026_09_14` speculated "August was the largest month at 206 of 462 rows.
+    A substantial fraction is plausibly this artifact." MEASURED: of August's 206 rows, 57 (28%)
+    are rename-paired — real, but not the bulk of them. The corpus-wide figure is 17.8%, not a
+    majority. The 2026-08-19 audit's "defensible real signal" verdict therefore stands for most
+    of the corpus and needs correcting only for the Jaya-Bedroom cells.
+  fix_option_assessment_2026_09_14: >-
+    MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the
+    measurement suggests:
+    (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the
+    baseline store to fix one rename affecting 82 rows. Poor margin as scoped.
+    (b) CHEAP — exclude zero-baseline-share cells from the divergence. **MEASUREMENT SAYS THIS IS
+    WRONG.** It would suppress all 269 loose-signature rows to catch 82 real ones — discarding
+    187 rows that are not renames and may be exactly the behaviour changes the feature is for.
+    Precision ~30%. Do not build this.
+    (c) NEW, suggested by the probe — a NARROW rename-pair suppressor implementing the strict
+    discriminator above (suppress a cell only when a zero-baseline gainer near-name-matches a
+    same-event loser). On this corpus it selected 82/82 real rename pairs and zero false
+    positives, so it is both cheap AND precise — strictly better than (b) on the measured data.
+    COUNTER-ARGUMENT AGAINST BUILDING ANYTHING: the contamination is SELF-CLEARING. The baseline
+    is a trailing 2-month window, so a rename's effect ages out ~2 months after it happens, and
+    the decline is already visible (Aug 57 -> Sep 25). Against that, renames will recur —
+    ROOM-NAME-DESYNC-1 documents renames that never write back — so this is a recurring artifact,
+    not a one-off.
+  gate_2026_09_14: >-
+    AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate.
+    The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the
+    narrow suppressor" and "park until the next rename" are both defensible calls. That is the
+    operator's to make, not mine.
   next: >-
-    MEASURE first, do not build: (1) establish which rooms were renamed and when (the sibling card
-    ROOM-NAME-DESYNC-1 already documents renames that never wrote back). (2) For each routine_shift
-    row, classify whether its top_movers show the zero-baseline-share signature. That gives the
-    contaminated fraction. (3) THEN decide between a rename-aware room-identity key (the robust
-    fix, larger) and excluding zero-baseline-share cells from the divergence (the cheap fix).
-    Decompose the margin before building either.
+    PICK one — (A) BUILD the narrow rename-pair suppressor (option (c) above: suppress a cell only
+    when a zero-baseline gainer near-name-matches a same-event loser; measured 82/82 precision on
+    this corpus, Tier 1-2, contained to the detector's divergence step), or (B) PARK it — the
+    artifact ages out of the 2-month baseline on its own (already decaying Aug 57 -> Sep 25) and
+    we revisit on the next room rename. Do NOT pick the card's original cheap fix; the
+    measurement shows it suppresses ~187 legitimate rows to catch 82.
+    -> On (A) I plan-review then build; on (B) I park with "next rename" as the revival trigger.
+    SEPARATELY WORTH KNOWING: 187 rows show a zero-baseline gainer with no rename pair. If you
+    want that explained, say so and I will open it as its own investigation.
   parsimony:
     problem: A room rename is indistinguishable from a behaviour change in the routine baseline.
     verdict: BUILD

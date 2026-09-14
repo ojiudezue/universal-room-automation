@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T02:04:11-05:00_ - _Data commit: `efd82aa03881`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T02:07:01-05:00_ - _Data commit: `4d6cfe4d2070`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-09-14T02:04:11-05:00_ - _Data commit: `efd82aa03881`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 7 |
+| 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 16 |
 | 📝 Planned | 11 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 4 |
-| ⏸️ Waiting on operator | 18 |
+| ⏸️ Waiting on operator | 19 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 49 |
@@ -34,24 +34,10 @@ _created 2026-09-13 01:30 · initial_
 - **Sibling of:** RECORDER-BLOAT-LOGFLOOD-1
 - **Parsimony:** [BUILD] 6-9 more URA sensors churn recorder rows via per-read elapsed attrs
 
-## 🔬 Investigating (7)
+## 🔬 Investigating (6)
 _measuring; truth not yet known_
 
-### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#1 · WSJF 2.4 · v7 tc3 u2 /e5_
-thread: **analytics** - status: **investigating**
-_created 2026-09-14 00:45 · initial_
-- **Problem / Solution:**
-  - Problem: URA watches where each person spends time and flags when someone's routine changes. It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED, the old name stops appearing and the new one starts ...
-- **Origin:** 2026-09-14 - fell out of the ROUTINE-DETECTOR-NO-DISCHARGE-1 measurement — the live top_movers are the tell
-- **Why:** This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename would immediately manufacture a fresh pile.
-- **Next:** MEASURE first, do not build: (1) establish which rooms were renamed and when (the sibling card ROOM-NAME-DESYNC-1 already documents renames that never wrote back). (2) For each routine_shift row, classify whether its top_movers show the ...
-- **Tags:** measure-before-build, no-fabrication-verify
-- **Parsimony:** [BUILD] A room rename is indistinguishable from a behaviour change in the routine baseline.
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/regime_detector.py
-- **Forensic keys (1):**
-  - `evidence_2026_09_14`: The detector's own live `top_movers` diagnostics show the signature. Jaya time-bin 0: "Jaya Bedroom" p_share 0.499 -> q_share 0.088, while "Jaya Bedroom (Bedroom 4)" p_share **0** -> q_share 0.376. Ziri time-bin 0: "Ziri Bedroom (Bedroom...
-
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **investigating** - approval: **unreviewed**
 _updated 2026-09-12 10:30_
 - **Origin:** 2026-08-08 - observed during v5.62.1 live validation
@@ -66,7 +52,7 @@ _updated 2026-09-12 10:30_
   - `traced_2026_09_13`: CODE TRACE DONE (autonomous, read-only). TWO HYPOTHESES REFUTED, one candidate isolated. REFUTED #1 — "circling was suppressed by clock-time / alert-hours gating" (the card's own framing, and the reason its next asked whether circling sh...
   - `needs_investigation`: False
 
-### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **investigating** - approval: **explicit**
 _updated 2026-09-12 19:05_
 - **Origin:** 2026-08-12 - operator: "Dont forget the missing images in follow on detections as designed. Intermittency on correctness is a bug." — promotes the LOW folded into PERIM-FP-1.
@@ -82,7 +68,7 @@ _updated 2026-09-12 19:05_
   - `sharp_problem`: 2026-08-23 VIOLATED: README_v5.73.1 L3 = PASS on WhatsApp (organic 2026-08-14) but FAIL on iMessage. The iMessage re-page attachment path did not land. Fix owed before card can close.
   - `organic_evidence`: 2026-08-23 watch-pass: WhatsApp re-page attachment confirmed organic 2026-08-14 (PASS); iMessage re-page FAIL per README_v5.73.1 validation table.
 
-### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **investigating** - approval: **explicit**
 _created 2026-09-05 16:40 · updated 2026-09-12 19:20 · refined_
 - **Problem / Solution:**
@@ -99,7 +85,7 @@ _created 2026-09-05 16:40 · updated 2026-09-12 19:20 · refined_
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with C...
 
-### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating**
 _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook) — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
@@ -117,7 +103,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-09-12 20:45 · initial_
 - **Problem / Solution:**
@@ -127,7 +113,7 @@ _created 2026-09-12 20:45 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** notification_log hazard_type=exterior_person
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#7 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#6 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -666,7 +652,7 @@ _created 2026-09-13 23:30 · initial_
   - `KNOWN_LIMITATION_2026_09_14`: THE WIRE-IN ANCHOR IS SOURCE-LEVEL, NOT BEHAVIOURAL — flagged by the builder, confirmed by me, recorded rather than papered over. `test_wire_in_call_site_uses_resolver` parses __init__.py, isolates the async_from_json_file argument list ...
   - `baseline_caveat_2026_09_14`: Full-suite baseline name-diff NOT established — `pytest quality/tests/` exceeds the 2-minute tool timeout (the known TEST-STRATEGY-REARCH-1 problem). The builder verified the affected surface only (test_energy_tou.py, test_day_boundary_t...
 
-## ⏸️ Waiting on operator (18)
+## ⏸️ Waiting on operator (19)
 _needs a human call — groomed first_
 
 ### `CAMERA-PTULTRA-NOT-IN-PERIMETER-1` - 'Madrone PT Ultra' is a real camera with person detection that is NOT in URA's perimeter list — _#1 · WSJF 7.0 · v7 tc5 u2 /e2_
@@ -720,7 +706,25 @@ _created 2026-09-14 02:05 · updated 2026-09-14 03:30 · refined_
   - `verdict_2026_09_14`: Hypothesis (a) camera-offline: REFUTED for all three. Publish/MQTT gap: REFUTED. What remains is the card's own option (d) — aim/field-of-view/recall — with a different answer per camera, and every remaining fix is an OPERATOR/HOMELAB ac...
   - `ura_side_consequence`: The URA-relevant conclusion is about the SEAM RING, not the cameras: two of these three are legs in the exterior adjacency ring while contributing ~zero detections, so the ring carries phantom legs. Input to CAMERA-SEAM-CLOSE-PAIR-SEMANT...
 
-### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#4 · WSJF 2.4 · v7 tc3 u2 /e5_
+thread: **analytics** - status: **waiting_operator**
+_created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
+- **Problem / Solution:**
+  - Problem: URA watches where each person spends time and flags when someone's routine changes. It compares the last two weeks against the previous two months. But when a ROOM IS RENAMED, the old name stops appearing and the new one starts ...
+- **Origin:** 2026-09-14 - fell out of the ROUTINE-DETECTOR-NO-DISCHARGE-1 measurement — the live top_movers are the tell
+- **Why:** This is the likely reason the detector fails its own plan's success criterion ("zero CRITICAL on a stable household after 4-6 weeks"). Discharging the backlog does NOT fix it — a rename would immediately manufacture a fresh pile.
+- **Next:** PICK one — (A) BUILD the narrow rename-pair suppressor (option (c) above: suppress a cell only when a zero-baseline gainer near-name-matches a same-event loser; measured 82/82 precision on this corpus, Tier 1-2, contained to the detector...
+- **Tags:** measure-before-build, no-fabrication-verify
+- **Parsimony:** [BUILD] A room rename is indistinguishable from a behaviour change in the routine baseline.
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/regime_detector.py
+- **Forensic keys (5):**
+  - `evidence_2026_09_14`: The detector's own live `top_movers` diagnostics show the signature. Jaya time-bin 0: "Jaya Bedroom" p_share 0.499 -> q_share 0.088, while "Jaya Bedroom (Bedroom 4)" p_share **0** -> q_share 0.376. Ziri time-bin 0: "Ziri Bedroom (Bedroom...
+  - `measured_2026_09_14`: ONE-SHOT READ-ONLY PROBE over all 462 routine_shift rows in the live URA DB (parsed each row's context_json top_movers). MECHANISM CONFIRMED — but the scale is far NARROWER than this card assumed, and the measurement kills one of the two...
+  - `claim_narrowed_2026_09_14`: The card's `evidence_2026_09_14` speculated "August was the largest month at 206 of 462 rows. A substantial fraction is plausibly this artifact." MEASURED: of August's 206 rows, 57 (28%) are rename-paired — real, but not the bulk of them...
+  - `fix_option_assessment_2026_09_14`: MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the measurement suggests: (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the baseline store to fix one rename affect...
+  - `gate_2026_09_14`: AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate. The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the narrow suppressor" and "park until the next rename" a...
+
+### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-26 11:00 · updated 2026-08-28 22:00 · refined ×1_
 - **Problem / Solution:**
@@ -735,7 +739,7 @@ _created 2026-08-26 11:00 · updated 2026-08-28 22:00 · refined ×1_
   - `VERIFIED_CAUSE_2026_08_26`: Confirmed the self-send mechanism from source: NM _send_imessage (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message} where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When th...
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-09-12 11:00 · initial_
 - **Problem / Solution:**
@@ -748,7 +752,7 @@ _created 2026-08-18 02:45 · updated 2026-09-12 11:00 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -767,7 +771,7 @@ _updated 2026-09-12 11:00_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -779,7 +783,7 @@ _updated 2026-09-12 11:00_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
@@ -792,7 +796,7 @@ _updated 2026-09-12 11:00_
   - `folded_2026_08_16`: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **memory** - status: **waiting_operator**
 _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** REVIEW the delivered memory-epic roadmap doc. -> your read drives the roadmap rewrite / memory-epic close-out.
@@ -800,7 +804,7 @@ _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/PLANNING_memory_roadmap_and_critique.md, 2026-08-18). Pure operator-read.
   - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
 
-### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **planning** - status: **waiting_operator**
 _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** REVIEW the delivered ROADMAP/VISION undone-but-worthwhile doc. -> your read drives the roadmap rewrite / close-out.
@@ -808,7 +812,7 @@ _created 2026-08-18 02:00 · updated 2026-09-12 11:00 · refined_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/AUDIT_roadmap_undone_worthwhile.md, 2026-08-18). Pure operator-read; ball legitimately with operator.
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
-### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboarding** - status: **waiting_operator**
 _created 2026-08-18 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** DECIDE the PWA release: is census-p12 THE branch to promote to main + deploy (ura.phalanxmadrone.com)? YES -> I run the PWA release with its own review. (HA dashboard D3 cards are already live; only the PWA leg is pending.)
@@ -816,7 +820,7 @@ _created 2026-08-18 10:20 · updated 2026-09-12 11:00 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: branch census-p12-exterior-dashboard is 12 commits ahead of main in ~/Code/ura-dashboard-pwa (a whole PWA release: D3 exterior KEEP-BOTH + PWA-CONTROL-LIST-1 + v6....
   - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-12 11:00 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -828,7 +832,7 @@ _created 2026-08-19 09:00 · updated 2026-09-12 11:00 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
 - **Next:** Re-run the measurement 2026-08-23 and compare to the baseline above. Then follow the discriminating outcomes. Do NOT purchase hardware until (a)/(b) is settled.
@@ -844,7 +848,7 @@ _created 2026-08-21 18:00 · updated 2026-09-12 18:55 · initial_
   - `THE_EVIDENCE_THAT_RULED_OUT_HARDWARE`: DO NOT BUY A REPLACEMENT ON THE CURRENT EVIDENCE. DECISIVE OBSERVATION: Study B (same model, same firmware) sees COMPARABLE RAW RADAR ACTIVITY — _moving_target 1,675 transitions at 1.8s median vs kitchen 3,740 — yet its _presence output ...
   - `ACCEPTANCE_AND_NEXT_STEPS`: RE-MEASURE IN 48H with the same script (interval histogram, sub-5s count, ON/OFF episode distributions, occupancy-normalised transitions per hour-ON) and compare against the recorded baseline: 724 transitions, median interval 44.0s, 116 ...
 
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-12 19:20 · initial_
 - **Problem / Solution:**
@@ -868,7 +872,7 @@ _created 2026-09-10 00:50 · updated 2026-09-12 19:20 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
 - **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
@@ -885,7 +889,7 @@ _created 2026-08-21 17:40 · updated 2026-09-12 19:20 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-13 01:00 · initial_
 - **Problem / Solution:**
@@ -905,7 +909,7 @@ _created 2026-09-13 01:00 · initial_
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#17 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#18 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -919,7 +923,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#18 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#19 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
