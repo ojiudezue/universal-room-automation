@@ -196,6 +196,63 @@ cards:
     _refresh callback; fix + confirm the exception clears.
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
+- id: CAMERA-SEAM-VALIDATION-1
+  title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-13 21:30'
+  updated: '2026-09-13 21:30'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the exterior cameras are wired together by a declared list of "seams" — pairs of
+     cameras a person can plausibly walk between. That list decides whether several sightings of
+     one person become ONE tracked walk or several unrelated alerts, so a wrong seam quietly
+     merges two different people and a missing seam splits one person into repeated weak alerts.
+     The operator declared these once in Aug 2026 and wants to re-check them against the real
+     property. Solution: extract the actual live seam list from the code (not from memory or the
+     original audit) and hand it over as a tick-or-strike sheet, with the three specific spots
+     that look questionable called out.'
+  origin:
+    date: '2026-09-13'
+    gist: operator — "list the adjacent camera seams for the external cameras ie the handoff points btw cameras. I want to validate them"
+  why: >-
+    Seam correctness is upstream of every perimeter classification: linking, circling detection
+    (needs 3 distinct cameras), and severity. Validating it is cheap and the operator is the only
+    oracle for physical adjacency.
+  delivered_2026_09_13: >-
+    docs/planning/VALIDATE_exterior_camera_seams.md — 27 undirected seams (symmetrized exactly as
+    ExteriorTrackLinker.__init__ does), per-camera degree table, the consumer explanation (link
+    window 180s / close 300s / circling needs 3 cameras), and the two ratification-removed edges
+    fenced so they are not re-added by accident.
+    CROSS-CHECKS PASSED: (a) every declared edge live in both directions; (b) the source comment's
+    "22 after the two removals" is the probe-pair subtotal — the 5 non-probe ratified additions
+    bring it to 27, consistent, NOT drift; (c) EXTERIOR_TRACK_EGRESS_ADJACENT_CAMERAS recomputed
+    from the graph — nothing missing.
+    THREE FLAGGED FOR OPERATOR: Q1 pool_equipment is degree-1 (only hot_tub) so pool-area activity
+    can never reach the 3-camera circling threshold — is it really reachable only via the hot tub?
+    Q2 front_door_aerial appears in the egress-ADJACENT list although it IS one of the three egress
+    cameras, while the other two are not listed — cosmetic inconsistency (severity for
+    camera_class=="egress" short-circuits track_class at const.py:1803), confirm intended.
+    Q3 reolinkstudybporchptz is degree-2 (armcrest, front_side_ptz only) — no seam to back_yard or
+    madrone_g6_entry despite being a porch camera?
+  next: >-
+    REVIEW the seam sheet (docs/planning/VALIDATE_exterior_camera_seams.md) and tick/strike each of
+    the 27, plus ANSWER Q1/Q2/Q3. -> I apply the accepted edits to EXTERIOR_ADJACENCY_GRAPH
+    (rung-1 module constant, reviewed code change; declare one direction, it symmetrizes).
+    Note the direction of harm when deciding: a MISSING seam fragments one person into several
+    weaker alerts (noisier), a WRONG seam merges two people into one track (suppresses the second).
+  parsimony:
+    problem: The declared camera adjacency has never been re-validated against the property since Aug 2026.
+    verdict: BUILD
+  rank: {value: 6, time_criticality: 3, effort: 2}
+  tags: [no-fabrication-verify, audit-first]
+  links:
+    related: [CIRCLING-SEVERITY-1]
+    context: CIRCLING-SEVERITY-1 depends on this graph — circling requires 3 distinct adjacent cameras, so a missing seam suppresses circling classification outright.
+  refs:
+  - docs/planning/VALIDATE_exterior_camera_seams.md
+  - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
+  - custom_components/universal_room_automation/const.py (EXTERIOR_ADJACENCY_GRAPH)
 - id: OLLAMA-CONSUMER-AUDIT-1
   title: Ollama eating RAM — audit every LLM/vision integration for a dependency before stopping it
   thread: infra
