@@ -347,6 +347,64 @@ cards:
   refs:
   - quality/tests/perimeter/test_circling_founding_case.py
   - docs/planning/VALIDATE_exterior_camera_seams.md
+- id: SEAM-TOLERANCE-PRIORITY-RULING-1
+  title: "Operator ruling: a missed link is NOT catastrophic — detection still fires; do not trade suppression risk for link tolerance"
+  thread: perimeter
+  status: done
+  created: '2026-09-14 01:25'
+  updated: '2026-09-14 01:25'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the agent was treating a broken camera-to-camera link as a serious defect and
+     proposed a whole cycle to make linking more forgiving. That over-weighted the wrong risk.
+     Solution: record the operator''s priority ordering so the question is not re-opened — keep the
+     camera adjacency map accurate through ordinary diligence, and do NOT loosen the linking rules
+     to compensate for gaps.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "missing is not catastrophic anyway. As long as detection happens. Its just that we have to do basic due diligence to avoid it"
+  THE_RULING: >-
+    PRIORITY ORDER, operator-coined 2026-09-14:
+      1. A DETECTION IS NEVER LOST. Someone seen on any camera produces an alert. This is the
+         load-bearing property and nothing may weaken it.
+      2. NEVER MERGE TWO PEOPLE. A wrong seam links two individuals into one track and SUPPRESSES
+         the second alert. This is the only genuinely dangerous failure mode.
+      3. Link correctly for classification. Track linking is a QUALITY layer — it makes alerts
+         fewer and better-classified (circling vs pass_by). A broken link costs classification
+         fidelity, not safety.
+    CONSEQUENCE: fragmentation (a missed middle camera splitting one walk into two weaker tracks)
+    is a cosmetic-tier problem. It is worth ordinary due diligence — keep the graph accurate — but
+    it does NOT justify engineering.
+  WHY_THE_TOLERANCE_CYCLE_IS_DROPPED: >-
+    I had offered a "tolerance model" cycle (second-order hops, per-camera reliability weighting,
+    asymmetric time windows) to survive missed detections. DROPPED, and the reasoning matters:
+    every one of those levers loosens the SPACE gate, and loosening the space gate pushes toward
+    failure mode 2 (merging two people) in order to buy back failure mode 3 (classification
+    fidelity). That trades a dangerous failure for a cosmetic one — the wrong direction.
+    The measured evidence already showed where that leads: the false founding case happened
+    BECAUSE a non-existent seam let time-proximity merge two independent people into one
+    "circling" track, 6.6 times a day.
+  what_the_code_does_today_2026_09_14: >-
+    Recorded for reference so it need not be re-traced. exterior_track_linker.py:594-598 —
+    `same = last.camera == camera; adj = camera in self._adjacency.get(last.camera, set());
+    if not (same or adj): continue`. Adjacency is a HARD BINARY GATE; time proximity cannot
+    override it (two detections 1s apart on non-adjacent cameras do NOT link). Time is used only
+    as a tiebreaker among candidates that already passed the gate. Anchored on the track''s LAST
+    hop only. No second-order hops, no distance decay, no per-camera reliability weighting —
+    verified by grep. Knobs: TRACK_LINK_WINDOW_S=180, TRACK_CLOSE_IDLE_S=300,
+    EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS=3. None is a spatial tolerance.
+    Measured miss-tolerance on the ratified 13-camera ring: 5 of 13 middle-camera misses are
+    bridged by a validated skip; 8 of 13 break the track, clustered on the thin side/pool run.
+    Per the ruling above this is ACCEPTED, not a defect to fix.
+  next: 'DONE — ruling recorded. Do not re-propose loosening the linking rules; keep the graph accurate instead.'
+  parsimony:
+    problem: Fragmentation was being treated as a defect worth engineering; it is not.
+    verdict: DROP
+  rank: {value: 3, time_criticality: 1, effort: 1}
+  links:
+    related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1]
+    context: This ruling is why the seam validator stays STRICT (wrong seams are the dangerous direction) and why no tolerance-loosening work follows.
+  refs: [custom_components/universal_room_automation/exterior_track_linker.py]
 - id: CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1
   title: Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling
   thread: perimeter

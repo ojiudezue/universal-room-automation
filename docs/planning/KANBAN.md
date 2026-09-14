@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T00:32:59-05:00_ - _Data commit: `6f1a95e65c83`_ - _last_reconciled: 2026-09-13_
+_Generated: 2026-09-14T00:37:58-05:00_ - _Data commit: `d1a17fc7de39`_ - _last_reconciled: 2026-09-13_
 
 
 ## Columns
@@ -19,7 +19,7 @@ _Generated: 2026-09-14T00:32:59-05:00_ - _Data commit: `6f1a95e65c83`_ - _last_r
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 48 |
-| ✅ Done | 157 |
+| ✅ Done | 158 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -1815,8 +1815,22 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (157)
+## ✅ Done (158)
 _closed, evidence in refs_
+
+### `SEAM-TOLERANCE-PRIORITY-RULING-1` - Operator ruling: a missed link is NOT catastrophic — detection still fires; do not trade suppression risk for link tolerance — _WSJF 6.0 · v3 tc1 u2 /e1_
+thread: **perimeter** - status: **done**
+_created 2026-09-14 01:25 · initial_
+- **Problem / Solution:**
+  - Problem: the agent was treating a broken camera-to-camera link as a serious defect and proposed a whole cycle to make linking more forgiving. That over-weighted the wrong risk. Solution: record the operator's priority ordering so the que...
+- **Origin:** 2026-09-14 - operator — "missing is not catastrophic anyway. As long as detection happens. Its just that we have to do basic due diligence to avoid it"
+- **Next:** DONE — ruling recorded. Do not re-propose loosening the linking rules; keep the graph accurate instead.
+- **Parsimony:** [DROP] Fragmentation was being treated as a defect worth engineering; it is not.
+- **Refs:** custom_components/universal_room_automation/exterior_track_linker.py
+- **Forensic keys (3):**
+  - `THE_RULING`: PRIORITY ORDER, operator-coined 2026-09-14:
+  - `WHY_THE_TOLERANCE_CYCLE_IS_DROPPED`: I had offered a "tolerance model" cycle (second-order hops, per-camera reliability weighting, asymmetric time windows) to survive missed detections. DROPPED, and the reasoning matters: every one of those levers loosens the SPACE gate, an...
+  - `what_the_code_does_today_2026_09_14`: Recorded for reference so it need not be re-traced. exterior_track_linker.py:594-598 — `same = last.camera == camera; adj = camera in self._adjacency.get(last.camera, set()); if not (same or adj): continue`. Adjacency is a HARD BINARY GA...
 
 ### `CAMERA-SEAM-RING-CONTRADICTION-1` - The written ring contradicts the operator's own seam notes — pool_equipment and the Reolink/PT-Ultra slot look swapped — _WSJF 18.0 · v8 tc6 u4 /e1_
 thread: **perimeter** - status: **done**
