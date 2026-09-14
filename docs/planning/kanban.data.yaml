@@ -199,10 +199,10 @@ cards:
 - id: FRONT-SIDE-PTZ-CHATTER-1
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
-  status: investigating
+  status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-14 00:20'
-  refinement_status: initial
+  updated: '2026-09-14 03:10'
+  refinement_status: refined
   problem_solution:
   - 'Problem: one exterior camera reports "person detected" far more than any other — it is
      active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed
@@ -255,10 +255,11 @@ cards:
     CAVEATS: the audit is five weeks old and the 0.6/1 settings are NOT re-verified as current;
     the audit itself flags PTZ aiming as an unreadable gap.
   next: >-
-    OPERATOR OWNS THIS — "I'll recheck and handle the crop." Nothing queued on my side.
-    RECOMMENDED SEQUENCE if it comes back: ship the corrected seam graph FIRST, then re-measure
-    circling-shaped track count. If it collapses, the recall tune is fine as-is and no crop is
-    needed — the seam was the fault, not the sensitivity.
+    DO: recheck front_side_ptz and apply the detection-zone crop you flagged ("I'll recheck and
+    handle the crop") -> then I re-measure the circling-shaped track count. RECOMMENDED SEQUENCE
+    if it recurs: ship the corrected seam graph FIRST, then re-measure. If the count collapses on
+    the seam fix alone, the recall tune is fine as-is and no crop is needed — the seam was the
+    fault, not the sensitivity.
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
@@ -268,6 +269,12 @@ cards:
     related: [CIRCLING-FOUNDING-CASE-ARTIFACT-1, CAMERA-SEAM-VALIDATION-1, OPTIMIZER-PAGING-PRIMITIVE-1]
     context: This is the noise source that made the founding circling case look real; the 29.5h stuck-ON may also be feeding the sensor_health row flood that B2 addressed.
   refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+  groom_2026_09_14: >-
+    LANE FIX (overnight groom): this card sat in `investigating` while its own `next` read
+    "OPERATOR OWNS THIS ... Nothing queued on my side" — i.e. there is no measurement left for me
+    to run, which is the entry condition for the investigating lane. Moved to `waiting_operator`
+    and the `next` rewritten operator-verb-first per the waiting-lane rule. No finding changed.
+
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
@@ -376,7 +383,23 @@ cards:
 - id: PERIMETER-TOLERANCE-AND-SECTIONS-1
   title: Measure link tolerance against real history, and decide whether some stretches of the perimeter deserve special treatment
   thread: perimeter
-  status: investigating
+  status: parked
+  DISPOSITION_2026_09_14: >-
+    PARKED WITH AN EXPLICIT FIRING TRIGGER — not left open as a vague investigation.
+    It is genuinely blocked: measuring link tolerance against an adjacency graph we KNOW was wrong
+    would measure the wrong thing, and the corrected graph has not shipped yet. Operator sequencing
+    is explicit — "keep the design as is. Our focus is on seam accuracy. We can measure and act on
+    tolerance after some investigation."
+    REVIVAL TRIGGER (both conditions): (1) v5.101.2 seam graph is deployed AND live-validated; AND
+    (2) at least one full week of detection history exists under the corrected graph — the recorder
+    retains ~8 days, so the replay window opens roughly 7 days post-deploy and would be lost if
+    left much longer. THIS IS TIME-SENSITIVE IN ONE DIRECTION: wait too long past the outage window
+    and the labelled control data ages out.
+    THE REPLAY IS FULLY SPECIFIED on this card already (positive control g5_bullet<->doorbell_lite
+    at 65% overlap, negative control back_yard<->front_side_ptz below chance, three candidate
+    rules). Nothing further is needed to start it when the trigger fires.
+    THE SECTIONS QUESTION is separable and NOT blocked — but it is a design conversation with the
+    operator, not a measurement, so it waits for the same sit-down rather than being driven solo.
   created: '2026-09-14 01:50'
   updated: '2026-09-14 01:50'
   refinement_status: initial
@@ -1163,10 +1186,32 @@ cards:
     half of the operator's name.
     MY ERROR: I mapped the operator's label onto reolinkstudybporchptz purely because the ring
     had 12 slots and 11 mapped cleanly — an assumption, not a verification.
+  WRONG_ENTITY_ADDED_2026_09_14: >-
+    OPERATOR ACTED BUT THE WRONG ENTITY LANDED — verified, not assumed. perimeter_cameras went
+    9 -> 10, but the new entry is
+    `camera.study_a_closet_reolink_reolink_home_hub_high_resolution_channel`, NOT
+    `camera.madroneptultra`.
+    THAT ENTITY HAS NO PERSON DETECTOR: grep of the entity registry returns NONE for any
+    person/occupancy sensor on `study_a_closet_reolink_reolink_home_hub`; its device is "REOLINK
+    Reolink Home Hub", model IPC-BO. By contrast `madroneptultra` has
+    binary_sensor.madroneptultra_person_occupancy plus _all_occupancy, person_count and
+    person_active_count. So URA gains NOTHING from the current add — a camera with no person
+    detection cannot feed census or perimeter alerting.
+    LIKELY CAUSE OF THE MIX-UP: the operator's own ring label was "Madrone PT Ultra/Reolink hub",
+    and there IS a literal Reolink Home Hub device in the registry. The PT Ultra is the one with
+    the detector.
+  TWO_STEPS_NOT_ONE: >-
+    I previously told the operator this card was "down to one config action". WRONG — it is two,
+    and the second decides whether the camera is useful at all:
+    (1) CONFIG: swap the entity (remove the Home Hub channel, add camera.madroneptultra).
+    (2) DETECTOR: madroneptultra fired ZERO times in 8 days (CAMERA-ZERO-FIRE-DETECTORS-1).
+    Fixing the config will NOT produce detections if the detector itself is silent. Diagnosis
+    dispatched under that card.
   next: >-
-    APPROVE me to add camera.madroneptultra to perimeter_cameras (config-only, no code, no tier),
-    or add it yourself in the integration options. Ring placement is already done; this is the
-    last step that makes the camera actually visible to URA.
+    DO (operator): in Camera Census -> Perimeter Cameras, REMOVE
+    camera.study_a_closet_reolink_reolink_home_hub_high_resolution_channel and ADD
+    camera.madroneptultra. -> then the zero-fire diagnosis determines whether it actually
+    produces anything.
   parsimony: {problem: A named ring position may refer to a camera URA does not watch., verdict: BUILD}
   rank: {value: 7, time_criticality: 5, effort: 2}
   tags: [no-fabrication-verify]
@@ -5288,12 +5333,12 @@ cards:
     context: ROOM-NAME-DESYNC-1 is the same root cause seen from the config side (renames without write-back); this is its analytics-side consequence.
   refs: [custom_components/universal_room_automation/domain_coordinators/regime_detector.py]
 - id: REGIME-NOTIFY-PATH-DEAD-1
-  title: The routine-shift notification path has produced nothing in 4 months and 462 events
+  title: 'REFUTED — the routine-shift notification path is ALIVE: weekly digests are sending every Sunday'
   thread: notifications
-  status: investigating
+  status: done
   created: '2026-09-14 00:45'
-  updated: '2026-09-14 00:45'
-  refinement_status: initial
+  updated: '2026-09-14 03:05'
+  refinement_status: refined
   problem_solution:
   - 'Problem: when URA detects that someone''s routine has changed it is supposed to tell the
      operator, either immediately or in a weekly digest. Over four months it recorded 462 such
@@ -5311,16 +5356,46 @@ cards:
     handled at notification_manager.py:5036, with a weekly digest flush at :5263 via
     flush_regime_weekly_digest_queue. So handlers are wired but nothing has ever landed in either
     table.
+  claim_marked_WRONG_2026_09_14: >-
+    The card's own premise — "sent NOTHING", "the log of notifications actually sent [is]
+    completely empty" — is WRONG, and `evidence_2026_09_14` above is superseded. It read the two
+    EMPTY tables as proof of a dead path without checking the table the sends actually land in.
+    Refuted by `notification_log`: 5 rows with coordinator_id='bayesian', title='Weekly Routine
+    Digest', spanning 2026-08-16T14:00Z -> 2026-09-13T14:00Z — exactly 5 consecutive Sundays at
+    09:00 local, i.e. the configured cadence with no misses. (notification_log retention only
+    reaches back to 2026-08-15, so "4 months of silence" was never observable from that table.)
+  measured_2026_09_14: >-
+    ONE-SHOT READ-ONLY TRACE (no code changed). Both empty tables are EXPECTED under the live
+    configuration, not symptoms:
+    (1) MODE. `_dispatch_regime_notification` (notification_manager.py:5169) branches on
+    CONF_ROUTINE_CHANGE_NOTIFICATION_MODE, default "silent". Live value read from
+    /config/.storage/core.config_entries = **"weekly_digest"** — so the per-event branch (which is
+    the only writer of `regime_event_notification_log`) is never taken. That table being empty is
+    correct behaviour, not a defect. Hypothesis (b) severity/cooldown gating REFUTED — those gates
+    live inside the mode=="event" branch and are unreachable here.
+    (2) DISPATCH. Hypothesis (a) REFUTED: regime_detector.py:594-612 dispatches
+    SIGNAL_REGIME_EVENT_EMITTED unconditionally on the success path immediately after
+    save_anomaly_event returns a row_id, and the 462 rows prove that path ran.
+    (3) QUEUE. Hypothesis (c) REFUTED: `regime_weekly_digest_queue` = 0 rows is AMBIGUOUS by
+    construction — `_send_regime_weekly_digest` (:5255) calls flush_regime_weekly_digest_queue,
+    which DRAINS the table on every successful send. An empty queue is the signature of a
+    HEALTHY weekly flush, identical to the signature of never-enqueued. The disambiguator is
+    notification_log (above), which shows the sends.
+    ANOMALY CORPUS for context: 462 rows, 2026-05-15 -> 2026-09-08, severity 0=374 / 1=85 / 4=3.
+  lesson_2026_09_14: >-
+    Two empty tables were read as one finding; neither was the table that records the outcome.
+    This is the discriminating-acceptance-criterion rule (CLAUDE.md "acceptance criteria must
+    DISCRIMINATE"): "queue is empty" is equally the signature of a working drain and of a dead
+    producer, so it could never have settled the question. The cheap decisive observation was
+    `select title, count(*) from notification_log where coordinator_id='bayesian'`.
   next: >-
-    TRACE, do not fix yet: determine whether (a) SIGNAL_REGIME_EVENT_EMITTED is never actually
-    dispatched (check the emit site is reached — the 462 rows prove the WRITE happens, not that
-    the dispatch does), (b) the NM handler drops it behind a gate/allowlist/severity filter, or
-    (c) the digest queue is written somewhere that never runs. Discriminator: add no code — read
-    the handler's entry conditions and compare against the severity/type of the 462 rows.
-    A dead notification path that looks alive is worse than an absent one.
+    NONE — closed REFUTED. The feature works as configured (weekly_digest). If the operator wants
+    per-event routine notifications instead of a Sunday digest, that is a Select change
+    (select.py:330, ura_coordinator_manager_routine_change_notification_mode -> "event"), not a
+    code cycle. No build lane opened.
   parsimony:
     problem: A notification path with handlers wired has produced zero output across 462 events.
-    verdict: BUILD
+    verdict: DROP — premise refuted by measurement; the path is alive and sending weekly.
   rank: {value: 6, time_criticality: 3, effort: 3}
   tags: [no-fabrication-verify, falsify-first]
   links:
