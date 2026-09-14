@@ -115,15 +115,43 @@ def test_recency_bound_is_tied_to_the_detector_baseline_window():
 
 
 def test_sensor_query_is_recency_bounded_wire_in_anchor():
-    """WIRE-IN ANCHOR: the bound is useless if the query does not apply it.
-    Assert the bounded branch exists AND carries a timestamp predicate."""
+    """WIRE-IN ANCHOR: the bound is useless if the ROUTINE-STATUS query does
+    not apply it.
+
+    NOTE the trap this test was rewritten to avoid: a bare
+    `"AND timestamp >= ?" in src` assertion passes on ANY of the three
+    unrelated queries in sensor.py that also filter by timestamp, so it
+    stayed green when the routine-status predicate was deleted. The
+    assertion must be scoped to the routine_shift query itself.
+    """
     import inspect
     from custom_components.universal_room_automation import sensor as _sensor
     src = inspect.getsource(_sensor)
     assert "ROUTINE_STATUS_RECENCY_DAYS" in src, "recency const never referenced"
-    assert "AND timestamp >= ?" in src, (
-        "routine-status query is not recency-bounded — one stale "
+
+    # Isolate the BOUNDED routine_shift query and assert the predicate is
+    # inside THAT statement, not merely somewhere in the module.
+    marker = "AND recovery_at IS NULL"
+    bounded = None
+    start = 0
+    while True:
+        i = src.find(marker, start)
+        if i == -1:
+            break
+        stmt_start = src.rfind("SELECT severity", 0, i)
+        stmt_end = src.find('"""', i)
+        if stmt_start != -1 and stmt_end != -1:
+            stmt = src[stmt_start:stmt_end]
+            if "timestamp >= ?" in stmt:
+                bounded = stmt
+                break
+        start = i + 1
+    assert bounded is not None, (
+        "no routine_shift query carries a recency predicate — one stale "
         "unacknowledged row will pin the sensor again"
+    )
+    assert "bayesian.routine_shift" in bounded, (
+        "the recency-bounded query is not the routine_shift one"
     )
 
 
