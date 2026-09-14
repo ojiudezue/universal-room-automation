@@ -5650,6 +5650,26 @@ cards:
     context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
   refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
+  FIXUP_2026_09_14_HOUSEHOLD_SENSOR: >-
+    SHIPPED v5.101.3 WAS INCOMPLETE — caught by live validation, not by tests.
+    There are TWO routine-status sensors with TWO separate queries
+    (PersonRoutineStatusSensor and the Household one). v5.101.3 bounded only the person query.
+    LIVE PROOF: after the restart, Jaya correctly dropped major_shift -> shifted (its May
+    severity-4 rows aged past the 56-day bound, exactly as designed) while the HOUSEHOLD sensor
+    still read major_shift with the same 462 unacknowledged rows. The person sensor working
+    perfectly is what made the household one look like a broken bound rather than an untouched
+    consumer. Count-the-consumers miss.
+    FIXED in v5.101.4: the household query carries the same ROUTINE_STATUS_RECENCY_DAYS bound,
+    with the unbounded variant preserved behind the 0 kill switch.
+    THE GUARD TEST WAS HOLLOW TWICE ON THIS SAME FEATURE, recorded because a silently-fixed
+    hollow anchor teaches nothing: (1) a bare substring check over the module — sensor.py has
+    THREE queries containing "AND timestamp >= ?", so deleting the routine one still matched;
+    (2) locating statements by searching backwards for SELECT, which produced a 5887-character
+    span that swallowed an unrelated query'"'"'s predicate and reported a phantom bound. The test now
+    anchors on the triple-quoted string-literal boundaries and counts bounded-vs-unbounded
+    routine_shift queries, asserting >= 2. Drilled: unbinding the household query turns it RED.
+    PROCESS NOTE: on both drills the mutation had to be verified as APPLIED before a green result
+    was trusted — the first attempt was a silent no-op that read as a passing test.
   BUILT_2026_09_14: >-
     BUILT @ feature/regime-return-to-stable-discharge — in review, not deployed. Option (B)
     return-to-baseline auto-clear, as the measurement indicated: new DAO
