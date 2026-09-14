@@ -257,10 +257,27 @@ cards:
 - id: CAMERA-SEAM-CLOSE-PAIR-SEMANTICS-1
   title: Operator marked 5 camera transitions "[C] not a big transition" — semantics unclear, may matter for circling
   thread: perimeter
-  status: waiting_operator
+  status: planned
   created: '2026-09-13 22:10'
-  updated: '2026-09-13 22:10'
-  refinement_status: initial
+  updated: '2026-09-13 22:40'
+  refinement_status: refined
+  resolved_2026_09_13: >-
+    AMBIGUITY RESOLVED — and MY EARLIER READING WAS AN UNDER-READ, corrected here.
+    (1) [C] is NOT a system designation; the operator confirms it was explanatory notation only.
+    (2) I called the notation ambiguous and reported only armcrest+back_yard as a confident pair.
+    THAT WAS A MISS: the operator had ALSO annotated seam #11 doorbell_lite<->g5_bullet with
+    "Very close so valid" directly in the verdict table. That annotation independently
+    disambiguates the [C] notation — the [C] on "Doorbell lite" marks closeness to the PREVIOUS
+    ring camera (g5_bullet), confirming reading (a). I had the disambiguating evidence in the
+    document and failed to join it to the [C] question.
+    RESOLVED CLOSE PAIRS (reading (a): [C] on camera X = X is close to its PREDECESSOR in the ring):
+      1. madrone_g6_entry  <-> front_door_aerial
+      2. utilities_ptz     <-> reolinkstudybporchptz
+      3. hot_tub           <-> armcrest
+      4. armcrest          <-> back_yard
+      5. g5_bullet         <-> doorbell_lite   (corroborated by the explicit "Very close" note)
+    All five are live seams in the re-ratified graph, so no graph change is implied — the open
+    question is only whether a close pair should count as ONE vantage point for circling.
   problem_solution:
   - 'Problem: along with the camera ring, the operator marked five cameras with [C] meaning
      "close enough that these are not really big transitions" — front_door_aerial, the
@@ -288,11 +305,13 @@ cards:
     front_door_aerial-utilities_ptz, reolinkstudybporchptz-pool_equipment, armcrest-back_yard,
     back_yard-g5_bullet, doorbell_lite-rear_ptz. Only armcrest-back_yard is common to both.
   next: >-
-    ANSWER which reading is right — for each of the five [C] marks, name the PAIR of cameras
-    that are close together (e.g. "front_door_aerial + utilities_ptz"). -> I then decide with you
-    whether a close-pair should count as ONE camera toward the 3-distinct-camera circling
-    threshold (EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS), which would suppress false circling
-    from someone loitering at a single doorway seen by two overlapping cameras.
+    DECIDE (with operator) whether a close pair should count as ONE camera toward the
+    3-distinct-camera circling threshold (EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS). The five
+    pairs are now known (see resolved_2026_09_13) so no further operator input is needed to
+    SCOPE it. Marginal-benefit first: quantify how many historical circling classifications used
+    >=2 cameras from a single close pair — if the answer is ~0 this is a PARK, not a build. Do
+    NOT collapse close pairs in the ADJACENCY graph (they are genuine seams); the only candidate
+    change is the distinct-camera COUNT used by _classify.
   parsimony:
     problem: Near-duplicate camera views may inflate the distinct-camera count that triggers circling.
     verdict: PARK
