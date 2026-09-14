@@ -165,3 +165,46 @@ def test_unbounded_fallback_preserved_for_kill_switch():
     assert src.count("AND recovery_at IS NULL") >= 2, (
         "both the bounded and unbounded query variants must exist"
     )
+
+
+def test_BOTH_routine_queries_are_recency_bounded():
+    """COUNT THE CONSUMERS. There are TWO routine-status sensors with TWO
+    separate queries. Bounding only the person one left the household sensor
+    pinned — proven live 2026-09-14: Jaya correctly dropped
+    major_shift -> shifted while the household sensor still read major_shift
+    on the same 462 rows.
+
+    NOTE the trap this was rewritten to avoid (twice now on this feature):
+    an earlier version located each SQL statement by searching backwards for
+    a `SELECT` keyword. That span ran 5887 characters on one occurrence,
+    swallowing an unrelated query's `timestamp >= ?` and reporting a bound
+    that was not there. Statements are delimited by the triple-quoted string
+    literal — anchor on THAT, not on keywords.
+    """
+    import inspect
+    from custom_components.universal_room_automation import sensor as _sensor
+    src = inspect.getsource(_sensor)
+
+    bounded = unbounded = 0
+    start = 0
+    while True:
+        i = src.find("bayesian.routine_shift", start)
+        if i == -1:
+            break
+        # The enclosing SQL literal: nearest triple-quote before / after.
+        a = src.rfind('"""', 0, i)
+        b = src.find('"""', i)
+        stmt = src[a:b] if (a != -1 and b != -1) else ""
+        # Only count real routine-status SELECTs, not comments mentioning it.
+        if "SELECT" in stmt and "recovery_at IS NULL" in stmt:
+            if "timestamp >= ?" in stmt:
+                bounded += 1
+            else:
+                unbounded += 1
+        start = i + 1
+
+    assert bounded >= 2, (
+        f"only {bounded} routine_shift query/queries carry a recency bound "
+        f"({unbounded} unbounded); BOTH the person and household sensors "
+        "need it or one stays pinned"
+    )
