@@ -321,6 +321,57 @@ cards:
     related: [CAMERA-SEAM-VALIDATION-1, CIRCLING-FOUNDING-CASE-ARTIFACT-1]
     context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
   refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
+- id: TOU-FILE-NO-RATE-VALIDATION-1
+  title: A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours
+  thread: energy
+  status: planned
+  created: '2026-09-14 00:05'
+  updated: '2026-09-14 00:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: URA can load the electricity price schedule from a JSON file the operator writes by
+     hand. If they misspell a field name — "rates" instead of "rate", say — the loader does not
+     complain: it quietly substitutes a price of ZERO and reports the file as successfully
+     loaded. Every money decision downstream (when to charge the battery, when to sell back, when
+     to shift load) then runs on the belief that electricity is free. Nothing warns anyone.
+     Solution: validate the file on load — prices must be present and sane, hour ranges must be
+     real and non-overlapping — and refuse a file that fails, falling back to the built-in
+     schedule exactly as a missing file already does.'
+  origin:
+    date: '2026-09-14'
+    gist: operator — "Make sure the TOU file is uploaded is quite accurate", while reviewing the TOU loader as prior art for the seam file
+  evidence_2026_09_14: >-
+    energy_tou.py:99-101: `symmetric_rate = period_data.get("rate", 0.0)`, then import_rate and
+    export_rate both fall back to it. A missing or misspelled rate field therefore yields 0.0
+    with no warning. energy_tou.py:96: `hours = [tuple(h) for h in period_data.get("hours", [])]`
+    — no range check, no overlap check, an empty list is accepted. grep for raise/ValueError in
+    the module returns NOTHING: there is no validation path at all. The only checks that exist
+    are JSON-parse failure, unknown period names (warn + skip), and a missing off_peak period
+    (reject file).
+    BLAST RADIUS: get_effective_import_rate / get_export_rate feed the battery arbitrage and TOU
+    strategy. A 0.0 import rate makes displaced-cost arithmetic collapse — the optimizer would
+    see no value in shifting load. And because the file "loaded", rate_source would name it as
+    the authoritative source, so the sensor attribute would actively reassure the operator.
+  next: >-
+    Add validation to _from_parsed_data mirroring the seam validator's whole-file-rejection
+    contract: every period must carry an explicit numeric rate (reject the 0.0 default — require
+    the field rather than defaulting it), rates within a sane band, hours must be integer
+    0-23 ranges, non-overlapping within a season, and seasons must cover all 12 months. ANY
+    failure -> reject the whole file and keep the built-in PEC table (the behaviour a missing
+    file already gets). Add a discriminating test: a file with a misspelled rate field must be
+    REJECTED, not silently loaded at 0.0.
+  parsimony:
+    problem: A hand-written price file can silently set electricity to free, and the system reports success.
+    verdict: BUILD
+  rank: {value: 8, time_criticality: 4, effort: 3}
+  tags: [tier-2, no-fabrication-verify]
+  links:
+    related: [TOU-RATE-FILE-KEY-UNWIRED-1, CAMERA-SEAM-VALIDATION-1]
+    context: Same loader as TOU-RATE-FILE-KEY-UNWIRED-1; the seam-file plan's critique C4/C5 exist because of exactly this class of silent partial-acceptance.
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/energy_tou.py:96
+  - custom_components/universal_room_automation/domain_coordinators/energy_tou.py:99
+  - docs/planning/PLANNING_exterior_seam_file_injection.md
 - id: TOU-RATE-FILE-KEY-UNWIRED-1
   title: CONF_ENERGY_TOU_RATE_FILE is declared but never read — the TOU file path is hardcoded
   thread: energy

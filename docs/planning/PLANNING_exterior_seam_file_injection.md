@@ -92,7 +92,21 @@ Runs before anything is installed. **Any failure → reject the whole file, keep
 ### D3 — Upload surface (config flow)
 Extend **`async_step_perimeter_alerting`** (`config_flow.py:3784`) with an HA file-upload selector. On submit: write to `/config/universal_room_automation/exterior_seams.json`, run D2, and **surface validation errors inline in the form** (fixes C5) — the operator sees "camera `madroneptultra` is not in perimeter_cameras" in the dialog, not in a log.
 
-*Open question for build time:* HA's `FileSelector` is used nowhere in URA (§1). If it proves awkward inside an options flow, the fallback is a **paste-JSON text field** (`TextSelector` multiline) — same validator, same storage, zero new mechanism. Decide by spiking the selector first; do not design around an unverified API (No-Fabrication).
+**D3 SPIKE COMPLETE (2026-09-14) — VIABLE, with four gotchas.** Read from the HA 2026.x source in `.venv-ha`, not from forums (the forum threads on this are dead ends).
+
+*Precedent:* **four core integrations use `FileSelector` inside an OptionsFlow** — `google_cloud`, `knx`, `mqtt`, `zha` — so options-flow usage is established, not novel. `google_cloud/config_flow.py` is the cleanest reference.
+
+*Gotchas:*
+1. **The field value is a UUID, not a file.** `FileSelector.__call__` validates `UUID(data)` and returns the string. You get an opaque `file_id` and must exchange it for the bytes.
+2. **`process_uploaded_file` is a self-deleting context manager.** Its `finally` does `files.pop(file_id)` + `shutil.rmtree(...)`. You get **one** read — copy the contents out inside the `with` block or they are gone. (`components/file_upload/__init__.py:38-55`.)
+3. **It is blocking I/O** — must go through `hass.async_add_executor_job`, exactly as `google_cloud` does. Same constraint as TOU K2.
+4. **`file_upload` must be declared in the manifest.** All four precedents list it in `dependencies`; `process_uploaded_file` raises `ValueError("File does not exist")` if the domain is not loaded. **URA's manifest currently has `["http", "frontend", "logbook"]` — `file_upload` must be added.**
+
+*Non-issues:* `MAX_SIZE` is 100 MB (irrelevant for a seam file); `FileSelectorConfig(accept=".json,application/json")` gives the extension filter.
+
+*Canonical shape* (from `google_cloud`): parse inside an executor job, catch `ValueError`, set `errors["base"]` so the failure renders **in the form** — which is exactly critique C5's fix, for free.
+
+*Fallback if the selector misbehaves:* a paste-JSON `TextSelector` (multiline) — same validator, same storage, zero new mechanism.
 
 ### D4 — Live reload (fixes C2)
 A **button entity** — `button.ura_reload_exterior_seams` — re-reads, re-validates, and calls `set_adjacency()`. No restart. Reuses the existing button platform; `set_adjacency` is already safe to call at runtime (it rebuilds `_adjacency` wholesale).
@@ -100,8 +114,17 @@ A **button entity** — `button.ura_reload_exterior_seams` — re-reads, re-vali
 ### D5 — Provenance + drift visibility (K3 + C6/C7)
 Attributes on the existing perimeter diagnostic sensor: `seam_source` (`"exterior_seams.json (schema 1, 20 seams)"` or `"built-in const"`), `seam_count`, `seam_validation` (`ok` / the first error), `seam_file_sha256`.
 
-### D6 — Const stays the fallback
-`EXTERIOR_ADJACENCY_GRAPH` remains the shipped default and the fail-safe target (K1). The file **overrides**; it never merges.
+### D6 — Const stays the fallback, file is primary  ✅ CONFIRMED MATCHES TOU
+**Operator asked to confirm the precedence. Verified in source:** `TOURateEngine.__init__` does
+`self._rates = rate_table or PEC_TOU_RATES` (`energy_tou.py:46`) — the **file wins when present,
+the const is the fallback**, and `_rate_file_loaded = rate_table is not None` records which won.
+Every failure path (`file missing`, `JSONDecodeError`, `OSError`, `missing off_peak`) returns
+`cls()`, i.e. the built-in table.
+
+The seam scheme is **identical**: `exterior_seams.json` is PRIMARY, `EXTERIOR_ADJACENCY_GRAPH` is
+the FALLBACK and the fail-safe target (K1). The file **overrides wholesale**; it never merges, and
+rejection must restore the previous good graph — **never an empty graph**, which would silently
+disable cross-camera linking (every track fragments, which looks like "working").
 
 ---
 
@@ -142,6 +165,26 @@ Attributes on the existing perimeter diagnostic sensor: `seam_source` (`"exterio
 **Risk:** low-to-moderate, concentrated in **the load path, not the data**. A validator bug that admits a bad graph is the only way this loses alerts, which is why D2 rejects whole-file and D6 keeps the const as fallback. Mitigated by reusing the already-shipped, already-mutation-tested invariants.
 
 **Honest recommendation:** the *format + validator* (D1/D2) carry nearly all the value — they are what would have caught tonight's three errors. **D3's upload UI is the expensive, least-certain part** (unproven API in this codebase) and captures the least marginal benefit, since the operator already has Samba access. If we build, consider **D1+D2+D4+D5 first with a drop-a-file path (exactly TOU's ergonomics, plus validation and reload), and treat D3 as a follow-on** — or use the paste-JSON fallback, which gets the "place to upload" the operator asked for at a fraction of the risk.
+
+## 6b. Build status (2026-09-14)
+
+| Deliverable | State |
+|---|---|
+| **D1** format/parser | **BUILT** — `exterior_seams.py` on `feature/exterior-seam-file-d1d2` |
+| **D2** validator | **BUILT** — 6 rules, whole-file rejection, derived egress-adjacent |
+| **D3** upload | **SPIKED ONLY** — viable, 4 gotchas documented above; manifest needs `file_upload` |
+| **D4** reload button | carded, not built |
+| **D5** provenance attrs | carded, not built |
+| **D6** const fallback | **CONFIRMED** against TOU source; enforced by D2's reject-wholesale contract |
+
+Tests: 15, plus two mutation drills — neutering the fenced-pair check and neutering the
+egress-camera exclusion each turned a specific named test RED; restored, residue 0.
+
+**Sibling finding, carded separately:** the TOU loader it was modelled on has **no rate or hours
+validation at all** — `period_data.get("rate", 0.0)` means a misspelled field silently yields a
+price of ZERO while reporting the file as loaded, which would corrupt every arbitrage decision.
+See TOU-FILE-NO-RATE-VALIDATION-1. This is the strongest argument for D2's whole-file-rejection
+contract: the pattern we copied would otherwise have carried this defect across.
 
 ## 7. Non-goals
 - No runtime learning (§6). No merging file+const. No per-room/interior adjacency. No change to `_classify` or circling thresholds (close-pair semantics stay parked). No DB persistence — the file is the record.
