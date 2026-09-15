@@ -220,6 +220,33 @@ escalation gap) sat in raw-capture lanes while substantial findings accumulated 
 Cards must not rot here. An investigation with no measurable next step belongs in `parked` with a
 revisit-trigger, or in `waiting_me` if the measurement is a debt I owe.
 
+### When an investigation leads to real work — retire-and-relink, keyed on the problem statement (operator-coined 2026-09-14)
+
+The exit above is binary on the *mechanism*; this is the finer rule for *what happens to the card*
+when a measurement surfaces buildable work. **The discriminator is one question: does the surfaced
+build have the SAME problem statement as the card's title?**
+
+- **CONFIRMED — the build IS the card's own premise** → **promote the same card in place**
+  (`investigating → planned`/`pre_planning`), carrying the evidence. Do NOT spawn a new card; the
+  investigation's history, refinement trail, and evidence stay attached to the work they justify.
+  (Example 2026-09-14: ROOM-CLASSIFICATION-CONSISTENCY-1 confirmed its own scope → stayed open,
+  moved to `waiting_operator` with the audit on it.)
+- **REFUTED-but-fertile — the premise was wrong, but a DIFFERENT real problem surfaced** →
+  **close the investigation `done`** (refutation + evidence recorded), and **spawn a NEW card** for
+  the different work, linked `related` / `superseded_by` with a one-line `context`. The new work has
+  its own problem statement and deserves its own acceptance criteria; morphing the refuted card into
+  it under the old title leaves the card teaching a dead premise. **If a card for the surfaced work
+  already exists, point at it instead of minting a duplicate** (Example 2026-09-14:
+  SECURITY-ENTRY-VERDICT-NAME-1 was refuted+misframed, surfaced that the real consumer is the
+  already-carded SECURITY-CENSUS-UNKNOWN-WIRE-1 → parked with a revival trigger + pointer, no new card).
+- **REFUTED-and-barren — wrong premise, nothing else surfaced** → **close `done`**, refutation
+  recorded. A complete result, not a failure.
+
+The failure mode this kills: an investigation that quietly becomes a build under a title that
+describes the *disproven* hypothesis, so a later reader can't tell what the card is actually for. A
+refuted investigation must always END as a closed record; new work always gets a card whose title is
+its own problem statement.
+
 **Two waiting lanes, symmetric.** Track obligations on *both* sides. "Waiting on operator" =
 decisions/actions only the operator can take (physical fixes, go/no-go, design choices).
 "Waiting on me (Claude)" = things I owe (a promised re-measurement, a verification, a sweep).
