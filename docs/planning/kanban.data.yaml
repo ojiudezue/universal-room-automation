@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-14'
+  last_reconciled: '2026-09-15'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -19068,7 +19068,7 @@ cards:
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
   status: shipped_organic
-  shipped_version: v5.102.0
+  shipped_version: v5.102.1
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial

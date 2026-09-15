@@ -79,9 +79,35 @@ capture all of it (clean, develop was a strict ancestor) before deploy.
 
 ---
 
-## Live Validation — to be completed post-restart
-- [ ] D1 — `sensor.ura_appliance_census` present with a populated `appliances` attribute
-- [ ] D1 — URA room fan appears with `ura_config` source tag, no onboarding
-- [ ] D1 — enable switch present under the appliance coordinator device
-- [ ] D1 — no recorder oversize WARNING; no appliance-originated service calls
-- [ ] D2 — perimeter leg-superset check runs at boot without error
+## Validated 2026-09-15 (post-restart)
+
+HA restarted 2026-09-15 ~00:01 America/Chicago; URA v5.102.0 activated via HACS.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| D1 | Census sensor present + populated | **PASS** | Real entity is **`sensor.ura_appliance_coordinator_appliance_census`** (CM-prefixed — the prospective `sensor.ura_appliance_census` was wrong, same id-correction class as v5.101.2's TOU sensor). State = **220**, `appliances` attribute lists 220 records. |
+| D1 | URA-owned shows up with `ura_config` | **PASS** | **194 of 220** records carry `ura_config` in `source_tags`; e.g. `fan.polyfan_dreo704s_wifi_studya` (Study A, state role, `current_state: off`). No onboarding step. Remaining 26 are `span`. |
+| D1 | Power normalized to watts | **PASS** | `Span Right Fridge Power` → `current_power_w: 72.8` (W, via `_units.power_state_to_w`, not a raw kW misread). |
+| D1 | Freshness discriminates | **PASS** | 147 `fresh` / 73 `unknown` — the `unknown` bucket is the fix working (unavailable/unknown states are NOT falsely reported `fresh`). |
+| D1 | Enable switch present, on | **PASS** | `switch.ura_appliance_coordinator_enabled` = `on` (fresh post-restart). Coordinator appears under 'Add Coordinator'. |
+| D1 | No recorder oversize WARNING | **PASS** | No `state attributes exceed maximum size` for the census entity; `_unrecorded_attributes={"appliances"}` keeps the ~65KB `appliances` blob out of the recorder. |
+| D1 | Commands nothing | **PASS** | No appliance-originated service calls in the logbook/system log post-restart. |
+| D2 | Perimeter leg-superset check | **PASS** | No boot error from the leg-superset warn path. |
+
+### FINDING (live-only) → fixed in v5.102.1
+**Thread-safety warning at `sensor.py:8121`:** the census refresh timer used
+`async_schedule_update_ha_state(force_refresh=True)`, whose entity-update machinery spawned a task
+off the event loop, tripping HA's frame guard ("`hass.async_create_task` from a thread other than the
+event loop … may cause crash or data corruption"). The census functioned correctly regardless (state
+220), but this is a real thread-safety defect **static review + tests missed** (the tests don't run the
+real timer in the real loop — a live-validation catch). Fixed in **v5.102.1**: a `@callback` calling
+`async_write_ha_state()` (in-loop, no task; the state recomputes in the property getters).
+
+**Benign, unrelated:** a HomeKit "150 device limit" WARNING fired when the new enable switch pushed the
+HomeKit bridge past 150 devices — a HomeKit-filter config matter, not a URA defect (operator may add the
+switch to the HomeKit filter). Pre-existing `device_registry` deprecation warnings (HA 2027) are
+unchanged and not from this cycle.
+
+**Organic discriminator (met):** `sensor.ura_appliance_coordinator_appliance_census` exists post-restart
+with a non-empty `appliances` attribute (220 records, 194 `ura_config`) and no recorder-oversize WARNING —
+the `--revisit` criterion is satisfied.
