@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "121",
+  "author": "ojiudezue",
+  "session_id": "claude_20260915_051035_ship_v5_102_1",
+  "timestamp": "2026-09-15T05:10:35Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.102.1 shipped: Fix appliance census timer off-loop thread-safety (async_write_ha_state via @callback, not force_refresh) \u2014 v5.102.0 live finding",
+  "summary": "Fix appliance census timer off-loop thread-safety (async_write_ha_state via @callback, not force_refresh) \u2014 v5.102.0 live finding",
+  "why": "v5.102.0 live validation (mandatory post-deploy step) caught a thread-safety defect that static review + the test suite missed: the census refresh timer used async_schedule_update_ha_state(force_refresh=True), whose entity-update machinery spawned a task off the event loop -> HA frame guard 'async_create_task from a thread other than the event loop, may cause crash or data corruption'. The census still worked (state 220), but this is a real off-loop task. Root cause: the sensor computes state+attrs in property getters so it never needed force_refresh; fixed with a @callback -> async_write_ha_state (in-loop, no task). Missed because unit tests drive the resolver/properties directly, not the real async_track_time_interval callback in a running loop -- the exact live-only class the post-deploy validation exists to catch. Also recorded: real entity id is sensor.ura_appliance_coordinator_appliance_census (CM-prefixed), corrected in the README.",
+  "implications": "Shipped APPLIANCE-MGMT-REFINE-1 at v5.102.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.102.1.md (Live criteria).",
+  "revisit_trigger": "after restart, no 'async_create_task from a thread other than the event loop' frame warning citing sensor.py from the appliance census timer, AND sensor.ura_appliance_coordinator_appliance_census still updates on its 30s interval",
+  "refs": {
+    "cards": [
+      "APPLIANCE-MGMT-REFINE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.102.1.md"
+    ],
+    "release_notes": "Tier-1 hotfix: v5.102.0 live validation caught sensor.py:8121 census refresh timer spawning async_create_task off the event loop (HA frame warning, may crash/corrupt). Fixed with an in-loop @callback -> async_write_ha_state; state recomputes in the property getters. 27/27 appliance tests."
+  }
+}
