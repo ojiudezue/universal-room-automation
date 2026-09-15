@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T00:10:35-05:00_ - _Data commit: `8226458baacf`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T00:11:30-05:00_ - _Data commit: `360b9c3d1ca0`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -1176,10 +1176,10 @@ _created 2026-09-12 16:30 · initial_
 - **Problem / Solution:**
   - Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution: critique + refine the v3 plan, find the highest...
 - **Why:** operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral slice) is the existing card — this is the parent refine-and-widen.
-- **Next:** DO (operator, when convenient): restart HA (or I can on your OK) to activate v5.102.1 (census timer thread-safety fix) -> I validate the frame-warning is gone. Meanwhile v1b (categorization+onboarding flow) is the next build slice. No bl...
+- **Next:** WAITING ON ME: verify v1b fix-up (M2 reload mutation RED, flow->census linkage real, AST WRONG-literal RED), then batch-deploy Option C + v1b on a waking-hours restart (+ activate v5.102.1).
 - **Tags:** tier-2db
 - **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
-- **Forensic keys (15):**
+- **Forensic keys (16):**
   - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
   - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
   - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
@@ -1195,6 +1195,7 @@ _created 2026-09-12 16:30 · initial_
   - `V1A_BUILD_REVIEW_2026_09_14`: v1a census BUILT (worktree agent-a4daf81006b20b7a3, 14/14) then Tier-2-DB 3-framing review = FIX-REQUIRED. 5 HIGH across framings: A1 no-drop leak (device_id over-collapse drops 27 entities -> DECISION v1a no auto-merge, 1 record/entity,...
   - `V1A_FIXUP_VERIFIED_2026_09_14`: v1a fix-up COMPLETE + orchestrator-independently-verified: all 5 HIGH + mediums + lows fixed; 27/27 targeted, adjacency 148 pass, full-suite +12 pass no new appliance-surface failures. Builder crashed mid-response once (API) -> WIP safet...
   - `V1A_SHIPPED_VALIDATED_2026_09_15`: v1a SHIPPED v5.102.0 + LIVE-VALIDATED working: sensor.ura_appliance_coordinator_appliance_census (CM-prefixed entity id, README corrected) state=220, 194/220 records ura_config, power normalized (fridge 72.8W), freshness discriminates (1...
+  - `V1B_BUILT_REVIEWED_2026_09_15`: v1b (categorization + onboarding flow) BUILT (worktree agent-a99f761df2f478066) + Tier-2 2-framing review = FIX-REQUIRED. Production reload/live-read/mixed-key paths VERIFIED CORRECT (both reviewers). Defects: (1) index-as-identity — rec...
 
 ## 🅿️ Parked (52)
 _revisit-trigger set_
