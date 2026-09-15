@@ -210,7 +210,18 @@ class _FakeState:
     def __init__(self, state, unit=None, age_seconds=0):
         self.state = state
         import datetime as _dt
-        self.last_updated = _dt.datetime.utcnow() - _dt.timedelta(seconds=age_seconds)
+        # Use the SAME time source production reads (dt_util.utcnow) so the
+        # fixture's tz-awareness matches the code's under every env. Real HA
+        # last_updated is tz-aware; a naive datetime.utcnow() here mismatches
+        # dt_util.utcnow() under modern HA (aware − naive → TypeError, swallowed
+        # → worst_age None → wrongly "unknown"). Fall back to aware UTC if HA
+        # isn't importable.
+        try:
+            from homeassistant.util import dt as _dt_util
+            _now = _dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            _now = _dt.datetime.now(_dt.timezone.utc)
+        self.last_updated = _now - _dt.timedelta(seconds=age_seconds)
         self.attributes = {"unit_of_measurement": unit} if unit else {}
 
 
