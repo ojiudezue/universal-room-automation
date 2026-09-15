@@ -19184,6 +19184,13 @@ cards:
     testable (entity-exclusivity+group-completeness+no-drop; zero-async_call patch-assert). Citations fixed.
     Plan build-ready for v1a (census). Deploy of any slice = Tier-3 operator checkpoint.
   next: 'BUILD v1a (census slice): scaffold first-class passive ApplianceCoordinator (after Energy) + CONF_APPLIANCE_RECORDS schema/read side + 3-source discovery w/ device_id dedup + sensor.ura_appliance_census; commands nothing. Then Tier-3 checkpoint before deploy. No operator action pending.'
+  V1A_BUILD_REVIEW_2026_09_14: >-
+    v1a census BUILT (worktree agent-a4daf81006b20b7a3, 14/14) then Tier-2-DB 3-framing review = FIX-REQUIRED.
+    5 HIGH across framings: A1 no-drop leak (device_id over-collapse drops 27 entities -> DECISION v1a no
+    auto-merge, 1 record/entity, grouping operator-declared); A2 power unit bypass (_units.power_state_to_w);
+    B recorder-flood (should_poll=False + unrecorded + resolve-once); C hollow sensor anchor (+ false RED
+    comments in source) + vacuous commands-nothing test. Consolidated fix-up dispatched to same worktree.
+  next: 'WAITING ON ME: verify fix-up (M1/M2/M3 turn RED; no new suite failures), then Tier-3 pre-deploy CHECKPOINT with operator before merge/deploy. Then build Option C.'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
