@@ -103,14 +103,18 @@ CRITICAL a plan-review caught:
 ## Infrastructure: enum vs switch — the reload window
 
 `ROOM_TYPE_INFRASTRUCTURE` and the live `switch.infrastructure` are two representations of one property,
-and the "switch is runtime authority" story has a caveat:
-- **Producer of `_infrastructure_room`:** `coordinator.py:336` — a **hardcoded `"infrastructure"` string
-  comparison** against room_type (not the enum symbol), re-derived on **every coordinator construction**.
-- The switch (`switch.py:5107`) re-asserts its restored state only **after the entity is added**
-  (`switch.py:5130-5137`).
-- **Therefore:** there is a reload window in which the **enum (via coordinator.py:336), not the switch,**
-  is authority. A change to one representation must account for the other during reload.
-- **Consumer:** energy exclusion aggregates infrastructure rooms out (`aggregation.py:3522+`).
+but **the single collapsed runtime authority is `coordinator._infrastructure_room`** — read it, not the
+switch state:
+- **Every real consumer reads `getattr(coord, "_infrastructure_room", False)`** — energy exclusion at
+  `aggregation.py:3522/3539/3589/3609/3716/3732`. Nothing production-side reads `switch.<slug>_infrastructure`
+  state; constructing that slug is the fragility the entity-registry lookups elsewhere exist to avoid.
+- **The switch WRITES THROUGH to `_infrastructure_room`** — on restore (`switch.py:5137`) and on toggle
+  (`switch.py:5142/5148`). It is an actuator onto the coordinator field, not a separate source.
+- **`_infrastructure_room` is seeded** from the enum at construction (`coordinator.py:336`, a hardcoded
+  `"infrastructure"` string compare) and re-asserted by the switch on `async_added_to_hass`. So it already
+  IS the collapsed representation: read `hass.data[DOMAIN][entry_id]` → coordinator → `_infrastructure_room`,
+  falling back to `room_type == "infrastructure"` only when the coordinator isn't in `hass.data` yet (boot).
+  There is no meaningful reload-window ambiguity if you read the coordinator field rather than the switch.
 
 ---
 

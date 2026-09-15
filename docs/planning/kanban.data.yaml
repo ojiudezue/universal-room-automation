@@ -19436,6 +19436,15 @@ cards:
     no persistence -> would not/should not appear under Add Coordinator; contrast appliances which IS a
     coordinator). Tier 1-2, one adversarial review then build.
   next: 'WAITING ON ME: one adversarial review of the Option C plan, then build D-C1 (accessor + sensor attribute). D1 docs already shipped. No operator action pending.'
+  OPTION_C_REVIEW_2026_09_14: >-
+    Option C review = FIX-PLAN-FIRST (2 HIGH, all plan-text; architecture sound). ALL applied: infra reads
+    coordinator._infrastructure_room NOT switch state (P1, arch doc fixed too); REUSE outdoor_zone_names_snapshot
+    safety.py:510 (it is NOT the coercion) + forbid 4th hand-rolled walk (P2); room->zone = {**data,**options}
+    .get(CONF_ZONE) options-wins, aggregation.py:745 is the inverted anti-model (P3); REUSE _outdoor_zones_cache
+    aggregation.py:4621 (P4); discriminating outdoor criterion = no-SafetyCoordinator-present still outdoor:true
+    (P5); host = RoomSignalInventorySensor sensor.py:2615 not RoomReconcile (P6/P7). Plan now build-ready
+    (Tier 1-2, fixes applied).
+  next: 'WAITING ON ME: build D-C1 (get_room_classification accessor + classification attr on RoomSignalInventorySensor) — Tier 1-2, plan build-ready post-fix. No operator action pending.'
 
 - id: CAMERA-STUCK-MASTER-HALLWAY-1
   title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"
