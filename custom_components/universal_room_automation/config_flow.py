@@ -586,6 +586,15 @@ _ZONE_NAME_PLUS_SEPARATOR_RE = re.compile(r"\s\+\s")
 # dynamic, so they carry this prefix and are dispatched via OptionsFlow.__getattr__.
 _ZONE_PICK_PREFIX = "zpick_"
 
+# APPLIANCE-MGMT-REFINE-1 v1b: menu-option key prefix for the dynamic
+# appliance-record picker (add/edit/remove). Same __getattr__ dispatch
+# pattern as _ZONE_PICK_PREFIX — record indexes are dynamic, so they
+# carry this prefix and route to `async_step_appliance_form`.
+_APPLIANCE_PICK_PREFIX = "apick_"
+# Sentinel index in the menu for "add a new record" — routes to the
+# add branch of `async_step_appliance_form`.
+_APPLIANCE_ADD_KEY = "apick_new"
+
 
 # =============================================================================
 # v4.7.5 — Option C auto-mirror: per-step MIRROR_KEYS_*
@@ -3009,6 +3018,26 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_zone_config_menu()
 
             return _zone_pick_handler
+        # APPLIANCE-MGMT-REFINE-1 v1b — appliance-record picker menu dispatch.
+        # Each menu key ``apick_<i>`` selects existing record index <i>; the
+        # sentinel ``apick_new`` selects the "add a new record" branch. Both
+        # route to the shared ``async_step_appliance_form``.
+        if name.startswith("async_step_" + _APPLIANCE_PICK_PREFIX):
+            key = name[len("async_step_"):]
+
+            async def _appliance_pick_handler(user_input=None, _key=key):
+                if _key == _APPLIANCE_ADD_KEY:
+                    self._appliance_edit_index = None
+                else:
+                    try:
+                        idx = int(_key[len(_APPLIANCE_PICK_PREFIX):])
+                    except (TypeError, ValueError):
+                        # Stale/unknown key — re-render the picker.
+                        return await self.async_step_coordinator_appliance()
+                    self._appliance_edit_index = idx
+                return await self.async_step_appliance_form()
+
+            return _appliance_pick_handler
         raise AttributeError(name)
         self._selected_zone_entry_id = None  # v3.3.3: Track zone selected from integration menu
         self._pending_delete_rule_id = None  # v3.12.0 M3: AI rule deletion tracking
@@ -3341,6 +3370,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_energy",
                     "coordinator_hvac",
                     "coordinator_music_following",
+                    # APPLIANCE-MGMT-REFINE-1 v1b — first-class appliance
+                    # coordinator surface (add/edit/remove records, sets
+                    # each record's functional_domain).
+                    "coordinator_appliance",
                     "coordinator_notifications",
                     # NM Cycle A-2 — rung-2 knobs for Cycle-A noise reduction.
                     "coordinator_notifications_volume",
@@ -12370,3 +12403,222 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if "data" in action and not isinstance(action["data"], dict):
                 errors.append(f"{label}: 'data' must be an object")
         return len(errors) == 0, errors
+
+    # =========================================================================
+    # APPLIANCE-MGMT-REFINE-1 v1b: Appliance record onboarding flow
+    # =========================================================================
+    # First-class operator surface for CONF_APPLIANCE_RECORDS — add/edit/remove
+    # per-appliance records with a functional_domain + optional room + per-role
+    # entity references (power/energy/control/state). REUSE map (per plan):
+    #  - Menu pattern      : zone-picker __getattr__ + dict async_show_menu
+    #                        (above; _ZONE_PICK_PREFIX exemplar).
+    #  - EntitySelector    : per-role EntitySelector w/ multiple=True modeled on
+    #                        CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES at :5457.
+    #  - No-reload path    : CONF_APPLIANCE_RECORDS is in
+    #                        OPTIONS_RELOAD_SUPPRESS_KEYS + _NO_LIVE_ATTR_KEYS
+    #                        (__init__.py); the coordinator re-reads from
+    #                        entry.options fresh on every resolve_census tick.
+    #
+    # Fragile patterns explicitly AVOIDED (per plan §"Fragile patterns"):
+    #  - No device_id / MAC / model auto-merge across integrations. Grouping is
+    #    entirely operator-declared.
+    #  - No media_player platform allow/deny literals.
+    #  - No name-string model parsing.
+    #  - No RestoreEntity for state (records live in CM entry options).
+    async def async_step_coordinator_appliance(self, user_input=None):
+        """Show the appliance record picker menu (add / pick-to-edit)."""
+        from .const import CONF_APPLIANCE_RECORDS
+
+        records = list(self._get_current(CONF_APPLIANCE_RECORDS, []) or [])
+
+        menu_options: dict[str, str] = {
+            _APPLIANCE_ADD_KEY: "➕ Add new appliance",
+        }
+        # Stash a stable index map so the picker handler resolves the same
+        # record even if listing order changes between renders.
+        self._appliance_menu_map: dict[str, int] = {}
+        for i, rec in enumerate(records):
+            if not isinstance(rec, dict):
+                continue
+            name = str(rec.get("name") or f"Appliance {i + 1}")
+            domain = str(rec.get("functional_domain") or "other")
+            key = f"{_APPLIANCE_PICK_PREFIX}{i}"
+            menu_options[key] = f"✏️ {name} [{domain}]"
+            self._appliance_menu_map[key] = i
+
+        return self.async_show_menu(
+            step_id="coordinator_appliance",
+            menu_options=menu_options,
+        )
+
+    async def async_step_appliance_form(self, user_input=None):
+        """Add or edit a single appliance record.
+
+        Editing when ``self._appliance_edit_index`` is set to an int; adding
+        when it is None. A ``remove`` boolean on the submitted form deletes
+        the record instead of updating it.
+
+        Reject-at-validation (plan §"reject-at-validation for entity
+        exclusivity"): a record whose entity_id list overlaps any OTHER
+        record is refused with a per-form error — the flow re-renders with
+        the offending fields highlighted rather than saving and letting the
+        v1a reader take last-wins-with-removal.
+        """
+        from .const import CONF_APPLIANCE_RECORDS
+        from .domain_coordinators.appliance_const import (
+            FUNCTIONAL_DOMAINS,
+            DOMAIN_OTHER,
+            ROLE_POWER, ROLE_ENERGY, ROLE_CONTROL, ROLE_STATE,
+        )
+
+        edit_index = getattr(self, "_appliance_edit_index", None)
+        records: list[dict] = list(
+            self._get_current(CONF_APPLIANCE_RECORDS, []) or []
+        )
+
+        if isinstance(edit_index, int) and 0 <= edit_index < len(records):
+            current = records[edit_index] or {}
+        else:
+            current = {}
+        cur_refs = current.get("entity_refs") or {}
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Remove path — delete the record and return to the picker.
+            if user_input.get("remove") and isinstance(edit_index, int):
+                new_records = [
+                    r for j, r in enumerate(records) if j != edit_index
+                ]
+                merged = {
+                    **self._config_entry.options,
+                    CONF_APPLIANCE_RECORDS: new_records,
+                }
+                return self.async_create_entry(title="", data=merged)
+
+            name = (user_input.get("name") or "").strip()
+            functional_domain = (
+                user_input.get("functional_domain") or DOMAIN_OTHER
+            )
+            room = user_input.get("room") or None
+            new_refs = {
+                ROLE_POWER: list(user_input.get(ROLE_POWER) or []),
+                ROLE_ENERGY: list(user_input.get(ROLE_ENERGY) or []),
+                ROLE_CONTROL: list(user_input.get(ROLE_CONTROL) or []),
+                ROLE_STATE: list(user_input.get(ROLE_STATE) or []),
+            }
+
+            if not name:
+                errors["name"] = "name_required"
+
+            # Reject-at-validation: entity-exclusivity across OTHER records.
+            claimed_by_others: set[str] = set()
+            for j, other in enumerate(records):
+                if not isinstance(other, dict):
+                    continue
+                if isinstance(edit_index, int) and j == edit_index:
+                    continue
+                oref = other.get("entity_refs") or {}
+                for role in (
+                    ROLE_POWER, ROLE_ENERGY, ROLE_CONTROL, ROLE_STATE,
+                ):
+                    for eid in oref.get(role) or []:
+                        if isinstance(eid, str) and eid:
+                            claimed_by_others.add(eid)
+
+            for role, eids in new_refs.items():
+                for eid in eids:
+                    if eid in claimed_by_others:
+                        errors[role] = "entity_already_claimed"
+                        break
+
+            if not errors:
+                new_rec = {
+                    "name": name,
+                    "functional_domain": functional_domain,
+                    "room": room,
+                    "entity_refs": new_refs,
+                    # Operator-declared record — tag it as such. The v1a
+                    # reader passes source_tags through verbatim.
+                    "source_tags": list(
+                        current.get("source_tags") or ["ura_config"]
+                    ),
+                }
+                if (
+                    isinstance(edit_index, int)
+                    and 0 <= edit_index < len(records)
+                ):
+                    new_records = list(records)
+                    new_records[edit_index] = new_rec
+                else:
+                    new_records = list(records) + [new_rec]
+
+                merged = {
+                    **self._config_entry.options,
+                    CONF_APPLIANCE_RECORDS: new_records,
+                }
+                return self.async_create_entry(title="", data=merged)
+
+        domain_options = [
+            {"value": d, "label": d.replace("_", " ").title()}
+            for d in FUNCTIONAL_DOMAINS
+        ]
+
+        schema_dict: dict = {
+            vol.Required(
+                "name",
+                default=current.get("name", vol.UNDEFINED),
+            ): str,
+            vol.Required(
+                "functional_domain",
+                default=current.get("functional_domain", DOMAIN_OTHER),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=domain_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                "room",
+                description={"suggested_value": current.get("room")},
+            ): str,
+            vol.Optional(
+                ROLE_POWER,
+                default=list(cur_refs.get(ROLE_POWER) or []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="power", multiple=True,
+                )
+            ),
+            vol.Optional(
+                ROLE_ENERGY,
+                default=list(cur_refs.get(ROLE_ENERGY) or []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="energy", multiple=True,
+                )
+            ),
+            vol.Optional(
+                ROLE_CONTROL,
+                default=list(cur_refs.get(ROLE_CONTROL) or []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True)
+            ),
+            vol.Optional(
+                ROLE_STATE,
+                default=list(cur_refs.get(ROLE_STATE) or []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(multiple=True)
+            ),
+        }
+        # Editing an existing record exposes the delete checkbox.
+        if isinstance(edit_index, int):
+            schema_dict[vol.Optional("remove", default=False)] = (
+                selector.BooleanSelector()
+            )
+
+        return self.async_show_form(
+            step_id="appliance_form",
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+        )

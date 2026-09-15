@@ -561,6 +561,7 @@
           "coordinator_safety": "🛡️ Safety Monitoring",
           "coordinator_security": "🔒 Security",
           "coordinator_music_following": "🎵 Music Following",
+          "coordinator_appliance": "🔌 Appliances",
           "coordinator_energy": "⚡ Energy",
           "coordinator_hvac": "🌡️ HVAC",
           "coordinator_hvac_settings": "🌡️ HVAC Tuning",
@@ -1325,6 +1326,34 @@
           "mf_high_confidence_distance": "Only transfer music when the person's closest BLE scanner is within this range (feet). Tighter than person tracking (10ft) to avoid BLE bleed-through from adjacent rooms. Default: 8.",
           "mf_sleep_suppress": "When on, music does not follow anyone while the house is in SLEEP state. Default: on.",
           "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night."
+        }
+      },
+      "coordinator_appliance": {
+        "title": "🔌 Appliances",
+        "description": "Manage the appliance records the passive Appliance Coordinator surfaces in the census. Add a new appliance, or pick one to edit or remove."
+      },
+      "appliance_form": {
+        "title": "Appliance record",
+        "description": "Describe one appliance. Any role list may be empty (a TV needs only state+control; a warming drawer needs only power).",
+        "data": {
+          "name": "Name",
+          "functional_domain": "What the appliance does (functional domain)",
+          "room": "Room (optional)",
+          "power": "Power sensors",
+          "energy": "Energy sensors",
+          "control": "Control entities",
+          "state": "State entities",
+          "remove": "Remove this appliance"
+        },
+        "data_description": {
+          "name": "Short human-readable name (e.g. 'Kitchen Fridge').",
+          "functional_domain": "The appliance's function (media_av, kitchen, laundry, climate, cold_chain, water, cleaning, other). This is independent of add-vector.",
+          "room": "Optional room name to attribute the appliance to. Leave blank for house-scope appliances.",
+          "power": "Sensors reporting instantaneous power (W). Sums across multiple refs (e.g. two-leg SPAN circuits).",
+          "energy": "Cumulative energy sensors (kWh).",
+          "control": "Entities that command the appliance (switch, media_player, climate…). v1 references — v1 commands none.",
+          "state": "Entities whose state describes what the appliance is doing (media_player, climate mode, sensor…).",
+          "remove": "When checked, this record is deleted on save."
         }
       },
       "coordinator_optimization": {

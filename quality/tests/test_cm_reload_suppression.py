@@ -347,6 +347,11 @@ def _load_init_listener_helpers():
         # knobs added to `_NM_A2_KEYS`.
         "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",
         "_CONF_STUCK_SENSOR_EXCLUSION_ENABLED":        "stuck_sensor_exclusion_enabled",
+        # APPLIANCE-MGMT-REFINE-1 v1b — appliance records list, added to
+        # OPTIONS_RELOAD_SUPPRESS_KEYS + _NO_LIVE_ATTR_KEYS so iterative
+        # onboarding saves do not trigger a CM reload. Non-aliased const
+        # import, so it needs a stub here too for the AST-slice guard.
+        "CONF_APPLIANCE_RECORDS":                     "appliance_records",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias
