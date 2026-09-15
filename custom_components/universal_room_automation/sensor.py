@@ -8118,7 +8118,7 @@ class ApplianceCensusSensor(AggregationEntity, SensorEntity):
 
             self._unsub_refresh = async_track_time_interval(
                 self.hass,
-                lambda _now: self.async_schedule_update_ha_state(True),
+                self._handle_interval_refresh,
                 timedelta(seconds=30),
             )
         except Exception:  # noqa: BLE001
@@ -8126,6 +8126,20 @@ class ApplianceCensusSensor(AggregationEntity, SensorEntity):
                 "ApplianceCensusSensor: interval refresh install failed",
                 exc_info=True,
             )
+
+    @callback
+    def _handle_interval_refresh(self, _now) -> None:
+        """Re-push state on the interval tick, in-loop.
+
+        The state + attributes are recomputed in the property getters
+        (native_value -> _resolve_cached -> fresh), so a plain
+        async_write_ha_state() is sufficient and stays on the event loop.
+        The previous async_schedule_update_ha_state(force_refresh=True)
+        drove the entity-update machinery, which spawned a task off-loop
+        and tripped HA's thread-safety frame warning (sensor.py:8121,
+        "async_create_task from a thread other than the event loop").
+        """
+        self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         """Cancel the refresh timer."""
