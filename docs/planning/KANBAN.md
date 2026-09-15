@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T02:21:34-05:00_ - _Data commit: `7ea24082772d`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T11:58:40-05:00_ - _Data commit: `6c6224df184e`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -12,14 +12,14 @@ _Generated: 2026-09-15T02:21:34-05:00_ - _Data commit: `7ea24082772d`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 7 |
+| 📝 Planned | 6 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 24 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 22 |
 | 🅿️ Parked | 54 |
-| ✅ Done | 162 |
+| ✅ Done | 163 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -243,7 +243,7 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-## 📝 Planned (7)
+## 📝 Planned (6)
 _has plan / acceptance_
 
 ### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -361,24 +361,6 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
   - `RELATIONSHIP_TO_SIBLINGS`: This is very likely the ROOT of HVAC-PRESET-RESTORE-MISS-1 (zone_1 stranded through the 06:01 home_day boundary) — that card may collapse into this one once the audit lands. It is the mirror image of HVAC-PRESET-FLAP-1: the flap is TOO M...
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
-
-### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _#7 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **config-flow** - status: **planned** - approval: **explicit**
-_created 2026-09-12 17:50 · initial_
-- **Problem / Solution:**
-  - Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented inconsistently and scattered: CONF_ROOM_IS_...
-- **Why:** surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these coherently, which exposed that the underlying representation is itself inconsistent). Operator wants it carded but explicitly gated on audi...
-- **Next:** WAITING ON ME: build D-C1 (get_room_classification accessor + classification attr on RoomSignalInventorySensor) — Tier 1-2, plan build-ready post-fix. No operator action pending.
-- **Tags:** audit-first, institutional-context, tier-2db
-- **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (7):**
-  - `AUDITED_2026_09_14`: AUDIT DONE (read-only) -> docs/planning/AUDIT_room_classification_consistency.md. Enumerated producer/consumer/blast-radius for all 6 surfaces. Key findings: infrastructure is represented TWICE (ROOM_TYPE enum + live switch.infrastructur...
-  - `OPTION_A_PICKED_2026_09_14`: OPERATOR PICKED OPTION A ("but well documented"). Plan written -> docs/planning/PLANNING_room_classification_option_a.md (Tier 2-DB, plan-review pending). Low-churn: keep every consumer read pattern, DOCUMENT the model + invariants (D1),...
-  - `PLAN_REVIEW_2026_09_14`: Tier 2-DB adversarial PLAN review = FIX-PLAN-FIRST (1 CRITICAL, 3 HIGH). Review record: docs/reviews/code-review/ROOM-CLASSIFICATION-CONSISTENCY-1_plan_review.md. CRITICAL: TWO outdoor coercion sites; the load-bearing one (safety.py:1319...
-  - `CORRECTION_2026_09_14`: Operator flagged (correctly) that there IS an outside zone with the patio in it. Re-checked: the "Outside" zone has zone_is_outdoor=True and holds the Patio room. My earlier "0 outdoor zones" was WRONG -- I checked room entries, but the ...
-  - `OPTION_C_REFLECTION_2026_09_14`: Operator wants unification achieved CHEAPLY, keeping the outdoor coercion (do NOT retire it -- "the issue is how to not retire it cleanly, simplest solution"). Reflection -> OPTION C = unify the READS, not the writes. Add ONE derived rea...
-  - `OPTION_C_PLANNED_2026_09_14`: Operator approved planning Option C ("Yes"). Plan -> docs/planning/PLANNING_room_classification_option_c.md. D-C1 = get_room_classification accessor {function, flags[], outdoor, infrastructure} + one read-only sensor attribute on an exis...
-  - `OPTION_C_REVIEW_2026_09_14`: Option C review = FIX-PLAN-FIRST (2 HIGH, all plan-text; architecture sound). ALL applied: infra reads coordinator._infrastructure_room NOT switch state (P1, arch doc fixed too); REUSE outdoor_zone_names_snapshot safety.py:510 (it is NOT...
 
 ## 🔨 In progress (1)
 _being built_
@@ -1937,7 +1919,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (162)
+## ✅ Done (163)
 _closed, evidence in refs_
 
 ### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -2215,6 +2197,25 @@ _updated 2026-09-12 18:55_
   - `operator_decision_2026_08_09`: DROP from migration. Rarity is not itself a defect — a detector guarding a condition that genuinely does not occur is working. This does NOT close the question of whether the thresholds are right; it only removes them from the ledger cyc...
   - `DEDUPE_2026_08_09`: Four-surface sweep: STUCK-SENSOR-1 is adjacent (shares the no-persistence root cause) but is about EXCLUSION POLICY for live detectors; this is about detectors that never fire at all — different problem, linked not merged. BACKLOG B-2026...
   - `organic_evidence`: 2026-08-23 watch-pass: operator decision 2026-08-09 = DROP D1/D3/P24 from ledger migration set. Card tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm drop is recorded in planning doc...
+
+### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **config-flow** - status: **done** - approval: **explicit**
+_created 2026-09-12 17:50 · initial_
+- **Problem / Solution:**
+  - Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented inconsistently and scattered: CONF_ROOM_IS_...
+- **Why:** surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these coherently, which exposed that the underlying representation is itself inconsistent). Operator wants it carded but explicitly gated on audi...
+- **Next:** WAITING ON ME: build D-C1 (get_room_classification accessor + classification attr on RoomSignalInventorySensor) — Tier 1-2, plan build-ready post-fix. No operator action pending.
+- **Tags:** audit-first, institutional-context, tier-2db
+- **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
+- **Forensic keys (8):**
+  - `AUDITED_2026_09_14`: AUDIT DONE (read-only) -> docs/planning/AUDIT_room_classification_consistency.md. Enumerated producer/consumer/blast-radius for all 6 surfaces. Key findings: infrastructure is represented TWICE (ROOM_TYPE enum + live switch.infrastructur...
+  - `OPTION_A_PICKED_2026_09_14`: OPERATOR PICKED OPTION A ("but well documented"). Plan written -> docs/planning/PLANNING_room_classification_option_a.md (Tier 2-DB, plan-review pending). Low-churn: keep every consumer read pattern, DOCUMENT the model + invariants (D1),...
+  - `PLAN_REVIEW_2026_09_14`: Tier 2-DB adversarial PLAN review = FIX-PLAN-FIRST (1 CRITICAL, 3 HIGH). Review record: docs/reviews/code-review/ROOM-CLASSIFICATION-CONSISTENCY-1_plan_review.md. CRITICAL: TWO outdoor coercion sites; the load-bearing one (safety.py:1319...
+  - `CORRECTION_2026_09_14`: Operator flagged (correctly) that there IS an outside zone with the patio in it. Re-checked: the "Outside" zone has zone_is_outdoor=True and holds the Patio room. My earlier "0 outdoor zones" was WRONG -- I checked room entries, but the ...
+  - `OPTION_C_REFLECTION_2026_09_14`: Operator wants unification achieved CHEAPLY, keeping the outdoor coercion (do NOT retire it -- "the issue is how to not retire it cleanly, simplest solution"). Reflection -> OPTION C = unify the READS, not the writes. Add ONE derived rea...
+  - `OPTION_C_PLANNED_2026_09_14`: Operator approved planning Option C ("Yes"). Plan -> docs/planning/PLANNING_room_classification_option_c.md. D-C1 = get_room_classification accessor {function, flags[], outdoor, infrastructure} + one read-only sensor attribute on an exis...
+  - `OPTION_C_REVIEW_2026_09_14`: Option C review = FIX-PLAN-FIRST (2 HIGH, all plan-text; architecture sound). ALL applied: infra reads coordinator._infrastructure_room NOT switch state (P1, arch doc fixed too); REUSE outdoor_zone_names_snapshot safety.py:510 (it is NOT...
+  - `CLOSED_2026_09_15`: DONE @ v5.103.0. D1 docs (docs/architecture/ROOM_CLASSIFICATION.md) shipped v5.102.0; D-C1 read-model accessor + classification attr shipped v5.103.0 (honestly infrastructure — no consumer yet; foundation for a future dashboard "rooms by...
 
 ### `OPTIMIZER-NOTIFY-FLOOD-DEDUP-1` - Optimizer comfort finding re-sends 8+ identical alerts back-to-back — no per-finding dedup / cooldown on the notification path spams the operator — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **done** - approval: **unreviewed**

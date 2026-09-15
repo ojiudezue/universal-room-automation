@@ -19730,7 +19730,7 @@ cards:
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
   title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
   thread: config-flow
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.0
   created: '2026-09-12 17:50'
   updated: '2026-09-12 17:50'
@@ -19838,7 +19838,13 @@ cards:
     (P5); host = RoomSignalInventorySensor sensor.py:2615 not RoomReconcile (P6/P7). Plan now build-ready
     (Tier 1-2, fixes applied).
   next: 'WAITING ON ME: build D-C1 (get_room_classification accessor + classification attr on RoomSignalInventorySensor) — Tier 1-2, plan build-ready post-fix. No operator action pending.'
-
+  CLOSED_2026_09_15: >-
+    DONE @ v5.103.0. D1 docs (docs/architecture/ROOM_CLASSIFICATION.md) shipped v5.102.0; D-C1 read-model
+    accessor + classification attr shipped v5.103.0 (honestly infrastructure — no consumer yet; foundation
+    for a future dashboard "rooms by classification" view). D2 (basement wiring) + D3 (outdoor-coercion
+    retire) PARKED with config-trigger revival (see APPLIANCE... no: PLANNING_room_classification_option_c.md
+    + the parked triggers). Option B (unify all flags) rejected. Revival: a real consumer wants the unified
+    view, or a basement/outdoor-zone-flip config change fires D2/D3.
 - id: CAMERA-STUCK-MASTER-HALLWAY-1
   title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"
   thread: presence
