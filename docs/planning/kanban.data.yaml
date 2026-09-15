@@ -12790,7 +12790,8 @@ cards:
 - id: TEST-1
   title: Boot-time shadow diff (legacy vs resolver leg set)
   thread: resolver
-  status: review
+  status: shipped_organic
+  shipped_version: v5.102.0
   updated: 2026-09-12 10:00
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it''s REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.'
   approval: implied
@@ -19066,7 +19067,8 @@ cards:
 - id: APPLIANCE-MGMT-REFINE-1
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.102.0
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
