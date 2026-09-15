@@ -19042,7 +19042,7 @@ cards:
 - id: APPLIANCE-MGMT-REFINE-1
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
-  status: pre_planning
+  status: waiting_operator
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -19056,8 +19056,7 @@ cards:
      (beyond cost-deferral), and scope the simplest first deliverable.'
   why: operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral
     slice) is the existing card — this is the parent refine-and-widen.
-  next: 'PLAN: critique PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, enumerate practical opportunity
-    areas, marginal-benefit decomposition -> simplest first deliverable. -> operator review.'
+  next: 'APPROVE: v1 appliance census (read-only, measure+categorize+anomaly-wire, NO control/breaker) is planned at Tier 3 -> on go I run 2 framing-disjoint plan reviews then build. Or PICK a tighter v1 (e.g. census+categorization only, defer D3 anomalies).'
   links:
     related: [APPLIANCE-COST-DEFERRAL-1]
   planning_2026_09_12: 'CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md.
@@ -19121,6 +19120,21 @@ cards:
     (measure-only vs controllable), by load-type (cold-chain / heat / deferrable-wet / entertainment-AV
     / etc.), and by source (SPAN circuit / Emporia channel / smart-plug / native integration). Plus the
     energy-vs-cost attribution model (Q4) and the anomaly-subsystem wiring (Q1).
+  PLAN_WRITTEN_2026_09_14: >-
+    Plan drafted -> docs/planning/PLANNING_appliance_coordinator_v1.md. v1 = READ-ONLY census +
+    categorization + anomaly wiring (NO control actuation; NO breaker ever). Tier 3 (new coordinator).
+    D0 measure-first entity probe; D1 3-axis categorization scheme (control/load-type/source) via config
+    flow not enum; D2 energy-used-kwh SEPARATE from mix-aware cost-attribution (discriminating test:
+    100% solar -> kwh>0, cost~=0); D3 AnomalyEvent/save_anomaly_event + sensor.ura_appliance_anomaly +
+    fire_stuck_signal for cold-chain-power-loss (reuses established paths, no new registry); D4 control
+    PARKED to a later Tier-3 phase with revival trigger. Anomaly prior-art scanned (file:line in plan).
+    Awaiting operator go/no-go on BUILD (Tier 3 -> pause for approval), then 2 framing-disjoint plan reviews.
+  CATEGORIZATION_REFINED_2026_09_14: >-
+    Operator: categorize by WHAT THE APPLIANCE DOES (Media, Kitchen Appliance, etc.), INDEPENDENT of the
+    add-vector (breaker vs API). Plan D1 now has 4 orthogonal axes; the PRIMARY is functional domain
+    (media_av/kitchen/laundry/climate/cold_chain/water/cleaning/other) -- the axis anomaly thresholds +
+    operator grouping key off. Add-vector (span/emporia/smart_plug/native) is a SEPARATE axis; a native-API
+    TV and a smart-plug speaker are both media_av (the discriminating test that domain != vector).
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"

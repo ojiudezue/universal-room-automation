@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T20:54:07-05:00_ - _Data commit: `238fef87fbaf`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T21:41:17-05:00_ - _Data commit: `3f99b5baa5ba`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -11,11 +11,11 @@ _Generated: 2026-09-14T20:54:07-05:00_ - _Data commit: `238fef87fbaf`_ - _last_r
 |---|---:|
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 3 |
-| 🧭 Pre-planning | 13 |
+| 🧭 Pre-planning | 12 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 20 |
+| ⏸️ Waiting on operator | 21 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 20 |
 | 🅿️ Parked | 51 |
@@ -85,7 +85,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (12)
 _idea being decomposed_
 
 ### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#1 · WSJF 3.6 · v5 tc3 u10 /e5 ⚠_
@@ -285,22 +285,6 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **energy** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-12 16:30 · initial_
-- **Problem / Solution:**
-  - Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution: critique + refine the v3 plan, find the highest...
-- **Why:** operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral slice) is the existing card — this is the parent refine-and-widen.
-- **Next:** PICK v1 scope + answer Q1-Q4. Recommended v1 = read-only appliance-energy CENSUS (layer a, reuse the 74 sensors, measure-first probe on liveness/freshness of those sensors), with delay-start control (layer b) as the next cycle. Then I wr...
-- **Tags:** tier-2db
-- **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
-- **Forensic keys (5):**
-  - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
-  - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
-  - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
-  - `RESIDUAL_ANSWERS_2026_09_14`: Operator answered the 4 residual questions: Q1 (breaker control): NOT a controller lever. SPAN breaker on/off is "just an architectural fact we can decide to use or not" -- do NOT wire it as an appliance control action. INSTEAD, at minim...
-  - `PLAN_MUST_INCLUDE_2026_09_14`: Operator: "We will need some kind of appliance CATEGORIZATION in the plan" (corrected from 'attribution'). The plan needs an appliance categorization scheme -- e.g. by control-axis (measure-only vs controllable), by load-type (cold-chain...
-
 ## 📝 Planned (9)
 _has plan / acceptance_
 
@@ -490,7 +474,7 @@ _updated 2026-09-12 10:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it's REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.
   - `BUILT_2026_09_14`: BUILT @ feature/perimeter-leg-superset-warn — in review, not deployed. The boot-time shadow diff now exists: _warn_if_not_leg_superset (perimeter_alert.py) computes what the LEGACY fallback WOULD cover and WARNs if the resolver leg set i...
 
-## ⏸️ Waiting on operator (20)
+## ⏸️ Waiting on operator (21)
 _needs a human call — groomed first_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
@@ -773,7 +757,25 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#20 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#20 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **energy** - status: **waiting_operator** - approval: **explicit**
+_created 2026-09-12 16:30 · initial_
+- **Problem / Solution:**
+  - Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution: critique + refine the v3 plan, find the highest...
+- **Why:** operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral slice) is the existing card — this is the parent refine-and-widen.
+- **Next:** PICK v1 scope + answer Q1-Q4. Recommended v1 = read-only appliance-energy CENSUS (layer a, reuse the 74 sensors, measure-first probe on liveness/freshness of those sensors), with delay-start control (layer b) as the next cycle. Then I wr...
+- **Tags:** tier-2db
+- **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
+- **Forensic keys (7):**
+  - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
+  - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
+  - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
+  - `RESIDUAL_ANSWERS_2026_09_14`: Operator answered the 4 residual questions: Q1 (breaker control): NOT a controller lever. SPAN breaker on/off is "just an architectural fact we can decide to use or not" -- do NOT wire it as an appliance control action. INSTEAD, at minim...
+  - `PLAN_MUST_INCLUDE_2026_09_14`: Operator: "We will need some kind of appliance CATEGORIZATION in the plan" (corrected from 'attribution'). The plan needs an appliance categorization scheme -- e.g. by control-axis (measure-only vs controllable), by load-type (cold-chain...
+  - `PLAN_WRITTEN_2026_09_14`: Plan drafted -> docs/planning/PLANNING_appliance_coordinator_v1.md. v1 = READ-ONLY census + categorization + anomaly wiring (NO control actuation; NO breaker ever). Tier 3 (new coordinator). D0 measure-first entity probe; D1 3-axis categ...
+  - `CATEGORIZATION_REFINED_2026_09_14`: Operator: categorize by WHAT THE APPLIANCE DOES (Media, Kitchen Appliance, etc.), INDEPENDENT of the add-vector (breaker vs API). Plan D1 now has 4 orthogonal axes; the PRIMARY is functional domain (media_av/kitchen/laundry/climate/cold_...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#21 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
