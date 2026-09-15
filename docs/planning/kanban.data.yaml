@@ -19137,9 +19137,18 @@ cards:
   title: Every card's state is an unverified claim — sweep the whole board against ground truth before
     any card is worked
   thread: quality
-  status: in_progress
+  status: done
   created: 2026-09-12 09:15
-  updated: 2026-09-12 09:15
+  updated: '2026-09-15'
+  disposition_2026_09_15: 'ALREADY-DONE (closed by its own rule). Verified by counting the
+    durable artifacts, not by re-reading the card: (1) 97 cards carry a `disposition_2026_09_12_sweep*`
+    verdict + evidence line, matching the ~101 cards open at sweep time, so the board-wide
+    pass actually executed; (2) the doctrine shipped as a standing section in
+    .claude/skills/ura-kanban/SKILL.md ("Verify-before-work") AND as step 1 of the four-step
+    build gate, so it now loads at every session start rather than depending on this card
+    staying open. The card was a one-shot sweep plus a doctrine-landing; both are complete.
+    The ONGOING practice is standing doctrine, not open work — leaving this in_progress
+    would be exactly the stale-lane drift the card exists to kill.'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-12 ("Check to see if done first before assuming it needs work" /
@@ -19366,7 +19375,8 @@ cards:
     NOT house-wide-base as first framed. NOT the same as UNLOAD-SYMMETRY-TASK-HYGIENE-1 (that is untracked-task/
     reload-safety, a different class). Sibling EC-SUBSWITCH is CLOSED; its @callback+threadsafe pattern applies
     only if the real producer turns out to be an executor-punted non-callback target.
-  next: 'MEASURE FIRST (blocks any build): capture the FULL boot traceback of "thread other than the event loop" citing a URA frame on the NEXT restart (ssh ha grep the core log immediately post-boot, or raise frame logger detail) to name the REAL off-loop producer. Then fix that producer (marshal its dispatch onto the loop via call_soon_threadsafe / threadsafe dispatcher; the 4 handlers are already @callback so decorating is NOT the fix). Tier 2, 2 framing-disjoint, scoped to the real producer — NOT a base rewrite.'
+  OPERATOR_WINDOW_2026_09_15: 'Operator set the restart window at 20:00 local (earlier only on explicit approval). Reason: mid-peak TOU at ask time + restart-risk aversion (see RESTART-SAFETY-DOCTRINE-1). At 20:00, restart HA and grep the core log IMMEDIATELY post-boot (the traceback rotates out fast — that is why the first attempt missed it).'
+  next: 'MEASURE FIRST (blocks any build), at the 20:00 operator window: capture the FULL boot traceback of "thread other than the event loop" citing a URA frame on the NEXT restart (ssh ha grep the core log immediately post-boot, or raise frame logger detail) to name the REAL off-loop producer. Then fix that producer (marshal its dispatch onto the loop via call_soon_threadsafe / threadsafe dispatcher; the 4 handlers are already @callback so decorating is NOT the fix). Tier 2, 2 framing-disjoint, scoped to the real producer — NOT a base rewrite.'
 
 - id: APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1
   title: "Appliance census: multi-room-same-power-sensor attribution (v1b)"

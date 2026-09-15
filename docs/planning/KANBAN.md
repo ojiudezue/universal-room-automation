@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T12:13:46-05:00_ - _Data commit: `8125f0f345a3`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T14:39:55-05:00_ - _Data commit: `2d42b6cdfe63`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -13,13 +13,13 @@ _Generated: 2026-09-15T12:13:46-05:00_ - _Data commit: `8125f0f345a3`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 6 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 24 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 22 |
 | 🅿️ Parked | 54 |
-| ✅ Done | 163 |
+| ✅ Done | 164 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -35,11 +35,12 @@ _created 2026-09-15 · initial_
 - **Problem / Solution:**
   - Problem: on boot, HA frame helper warns "universal_room_automation calls hass.async_create_task from a thread other than the event loop, may cause crash or data corruption" at sensor.py:8121 -> super().async_added_to_hass(), traced to Ag...
 - **Why:** thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in v5.103.0 live validation (README_v5.103.0 residual finding).
-- **Next:** MEASURE FIRST (blocks any build): capture the FULL boot traceback of "thread other than the event loop" citing a URA frame on the NEXT restart (ssh ha grep the core log immediately post-boot, or raise frame logger detail) to name the REA...
+- **Next:** MEASURE FIRST (blocks any build), at the 20:00 operator window: capture the FULL boot traceback of "thread other than the event loop" citing a URA frame on the NEXT restart (ssh ha grep the core log immediately post-boot, or raise frame ...
 - **Tags:** tier-2
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `DEDUPE_2026_09_15`: NEW (not dup): same off-loop thread-safety CLASS as EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 but different surface (AggregationEntity base vs EC sub-switch). Reuse that fix precedent: v5.100.3 @callback + threadsafe dispatch pattern. Part of th...
   - `INVESTIGATED_2026_09_15`: PREMISE FALSIFIED by static read (do NOT build blind). AggregationEntity.async_added_to_hass (aggregation.py:980) creates NO task: super() chain hits empty Entity.async_added_to_hass; RestoreEntity uses unguarded async_create_task_intern...
+  - `OPERATOR_WINDOW_2026_09_15`: Operator set the restart window at 20:00 local (earlier only on explicit approval). Reason: mid-peak TOU at ask time + restart-risk aversion (see RESTART-SAFETY-DOCTRINE-1). At 20:00, restart HA and grep the core log IMMEDIATELY post-boo...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
@@ -374,19 +375,10 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `VERIFY-BEFORE-WORK-SWEEP-1` - Every card's state is an unverified claim — sweep the whole board against ground truth before any card is worked — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **quality** - status: **in_progress** - approval: **explicit**
-_created 2026-09-12 09:15 · initial_
-- **Problem / Solution:**
-  - Problem: a card records what was true when someone last looked at it, not what is true now. The world moves without touching the board — another cycle fixes the bug, a config change makes the problem go away, a device comes back online, ...
-- **Why:** Coined the moment it paid for itself — the first card checked (BLE-HOLD-CAP-SUITE-POLLUTION-1) carried a same-day "collection now clean" claim that a single pytest run refuted, and the truth was worse than the card said (full-suite colle...
-- **Next:** Sweep open lanes highest-WSJF first (103 open + 42 parked-trigger checks); record ALREADY-DONE / PARTIALLY-DONE / MOOT / STILL-REAL / CARD-WAS-WRONG + evidence per card.
-- **Tags:** tier-1, no-fabrication-verify
-- **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
-- **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
+_(none)_
 
 ## 🔍 Review (0)
 _under review_
@@ -1931,7 +1923,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (163)
+## ✅ Done (164)
 _closed, evidence in refs_
 
 ### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1951,6 +1943,19 @@ _created 2026-09-05 16:40 · updated 2026-09-15 02:30 · refined_
   - `verify_2026_09_12`: APPROVED -> verify-before-work: STILL-REAL (FP live) + CANNOT-VERIFY the exact term from recorder. MEASURED: GUEST flips ~daily (10d); single-resident flip CONFIRMED 2026-09-10 14:17 (people_home_census=1 at flip). Faces dead (face_recog...
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with C...
+
+### `VERIFY-BEFORE-WORK-SWEEP-1` - Every card's state is an unverified claim — sweep the whole board against ground truth before any card is worked — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **quality** - status: **done** - approval: **explicit**
+_created 2026-09-12 09:15 · updated 2026-09-15 · initial_
+- **Problem / Solution:**
+  - Problem: a card records what was true when someone last looked at it, not what is true now. The world moves without touching the board — another cycle fixes the bug, a config change makes the problem go away, a device comes back online, ...
+- **Why:** Coined the moment it paid for itself — the first card checked (BLE-HOLD-CAP-SUITE-POLLUTION-1) carried a same-day "collection now clean" claim that a single pytest run refuted, and the truth was worse than the card said (full-suite colle...
+- **Next:** Sweep open lanes highest-WSJF first (103 open + 42 parked-trigger checks); record ALREADY-DONE / PARTIALLY-DONE / MOOT / STILL-REAL / CARD-WAS-WRONG + evidence per card.
+- **Tags:** tier-1, no-fabrication-verify
+- **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
+- **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
+- **Forensic keys (1):**
+  - `disposition_2026_09_15`: ALREADY-DONE (closed by its own rule). Verified by counting the durable artifacts, not by re-reading the card: (1) 97 cards carry a `disposition_2026_09_12_sweep*` verdict + evidence line, matching the ~101 cards open at sweep time, so t...
 
 ### `NM-REPAGE-IMG-1` - Re-attach stored snapshot on CRITICAL re-pages — text-only repeats are a correctness bug, not a design choice — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **done** - approval: **explicit**
