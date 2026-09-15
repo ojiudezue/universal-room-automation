@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T11:59:19-05:00_ - _Data commit: `a67f158ac796`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T12:13:20-05:00_ - _Data commit: `dbcd23cbb421`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -32,6 +32,8 @@ _created 2026-09-15 · initial_
 - **Why:** thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in v5.103.0 live validation (README_v5.103.0 residual finding).
 - **Next:** Investigate whether async_added_to_hass runs off-loop for CM-entry aggregation sensors or the base create_task is the culprit; then marshal onto the loop. Tier-2 (shared base), 2 framing-disjoint review.
 - **Tags:** tier-2
+- **Forensic keys (1):**
+  - `DEDUPE_2026_09_15`: NEW (not dup): same off-loop thread-safety CLASS as EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 but different surface (AggregationEntity base vs EC sub-switch). Reuse that fix precedent: v5.100.3 @callback + threadsafe dispatch pattern. Part of th...
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_

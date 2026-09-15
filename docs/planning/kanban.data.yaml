@@ -19346,7 +19346,8 @@ cards:
   next: 'Investigate whether async_added_to_hass runs off-loop for CM-entry aggregation sensors or the base
     create_task is the culprit; then marshal onto the loop. Tier-2 (shared base), 2 framing-disjoint review.'
   links:
-    related: [APPLIANCE-MGMT-REFINE-1]
+    related: [APPLIANCE-MGMT-REFINE-1, EC-SUBSWITCH-ASYNC-WRITE-THREAD-1]
+  DEDUPE_2026_09_15: 'NEW (not dup): same off-loop thread-safety CLASS as EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 but different surface (AggregationEntity base vs EC sub-switch). Reuse that fix precedent: v5.100.3 @callback + threadsafe dispatch pattern. Part of the broader async_create_task task-hygiene backlog (178 raw sites).'
 - id: APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1
   title: "Appliance census: multi-room-same-power-sensor attribution (v1b)"
   thread: energy
