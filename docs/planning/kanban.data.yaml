@@ -9,6 +9,27 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'GUEST-FALSE-POSITIVE-JAYA-ONLY-1@2026-09-15T02:30', at: '2026-09-15T02:30:00', outcome: done,
+     headline: 'GUEST-FALSE-POSITIVE-JAYA-ONLY-1 — REFUTED + CLOSED by one probe. The card said the flip-instant census split was not historized and could not be pinned; census_snapshots historizes it exactly. unidentified_count = 0 at 12 of 12 GUEST flips in 30d, identified_persons = residents only. So NEITHER discriminator term: mechanism is the Path-B guest-ROOM gate, zero census involvement. Flips also collapsed 5-9/day (Aug) -> 0 since 09-10.',
+     acknowledged: false}
+  - {fid: 'GUEST-FP-RESIDUALS-1@2026-09-15T02:40', at: '2026-09-15T02:40:00', outcome: parked,
+     headline: 'GUEST-FP-RESIDUALS-1 — YOUR QUESTION ANSWERED BY MEASUREMENT, left your queue. The 50 guest-entry episodes were the FP flavor: entries/month Jun 23 Jul 74 Aug 98 Sep 19 and ZERO since the v5.79.0 Path-B repair, with 31 of them arriving between midnight and 03:00. A1 already shipped v5.78.0; B1 confirmed latent (only 1 of 46 rooms has camera person entities, and it is indoor). PARKED with a revival trigger.',
+     acknowledged: false}
+  - {fid: 'GUEST-GATE-DOOR-IDENTITY-1@2026-09-15T02:45', at: '2026-09-15T02:45:00', outcome: parked,
+     headline: 'GUEST-GATE-DOOR-IDENTITY-1 — PARKED at the gate on measured evidence. Egress identity is no longer dead (0pct through 08-30 -> 17.8pct over 09-08..09-14) but it names RESIDENTS ONLY, so a guest gate keyed on "no name" would fire GUEST on the 82pct of residents the matcher misses — re-introducing the false-GUEST class closed tonight. Revival trigger: >=50pct/14d AND one non-resident ever named.',
+     acknowledged: false}
+  - {fid: 'ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-15T02:50', at: '2026-09-15T02:50:00', outcome: waiting_operator,
+     headline: 'ARRIVAL-DEPARTURE-NOTIFY-1 — ESCALATED with its blocking measurement finished. The egress-identity probe it was waiting on is done (17.8pct/7d, ~1-2 named crossings/day, residents only). Feature is buildable and REUSE-only, but it is outward-facing (pages your phone) and 17.8pct coverage is a taste call. PICK A (named-only, recommended) / B (named-only + quiet hours) / C (hold for a better producer).',
+     acknowledged: false}
+  - {fid: 'HUMIDITY-LOW-RUNG-PAGING-KNOB-1@2026-09-15T03:05', at: '2026-09-15T03:05:00', outcome: waiting_operator,
+     headline: 'HUMIDITY-LOW-RUNG-PAGING-KNOB-1 — NOT BUILT despite your approval, because the premise measured to zero. The code gap is real (safety.py:2080-2085 + :2205-2217 fence bathroom/basement off the CONF_HUMIDITY_NORMAL_* knobs) but notification_log shows ZERO humidity pages in 30 days, 7 bathrooms and 0 basement rooms. Nulling a safety rung is also always-explicit. PICK A (drop, recommended) / B (knob, defaults unchanged) / C (null it).',
+     acknowledged: false}
+  - {fid: 'RECORDER-CHURN-SWEEP-URASENSORS-1@2026-09-15T03:20', at: '2026-09-15T03:20:00', outcome: waiting_operator,
+     headline: 'RECORDER-CHURN-SWEEP-URASENSORS-1 — MEASURED, card ranking REFUTED, value reframed. Recorder took 6.69M rows/24h; ALL URA entities = 147k = 2.2pct, so the whole sweep is worth at most ~2pct. Five sites confirmed above the 2834/day coordinator tick floor; the three the card called high-yield (cooldowns, optimizer ETA, Bayesian x45) do not appear at all. PICK A (fix the water monitor first, recommended) / B (narrow 5-site sweep) / C (drop).',
+     acknowledged: false}
+  - {fid: 'RECORDER-BLOAT-LOGFLOOD-1@2026-09-15T03:25', at: '2026-09-15T03:25:00', outcome: investigated,
+     headline: 'RECORDER-BLOAT-LOGFLOOD-1 — NEW INSTANCE, and it is a FAULT not just noise: binary_sensor.madronewatermonitor_low_flow_leak wrote 60,610 state rows in 24h (more than 40pct of all URA entities combined) with only TWO distinct states — a leak detector flapping ~30k times/day. I did NOT exclude it: suppressing a water-safety sensor hides the fault. UDM cpu+memory utilization add another 80k/day and are the cheapest safe exclude. DB 31GB -> 19.6GB.',
+     acknowledged: false}
   - {fid: 'ROOM-CLASSIFICATION-CONSISTENCY-1@planrev', at: '2026-09-14T16:30:00', outcome: 'plan-reviewed+D1-built',
      headline: 'Room-classification Option A: plan-review caught CRITICAL (2 outdoor coercion sites; safety.py:1319 is NM-A hazard suppression). Live check 0 basement/0 outdoor rooms -> D1 docs BUILT (docs/architecture/ROOM_CLASSIFICATION.md), D2/D3 net-negative -> PARKED, PICK to operator',
      acknowledged: false}
@@ -10936,7 +10957,7 @@ cards:
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
-  updated: 2026-08-18 10:05
+  updated: '2026-09-15 02:50'
   d0_impact_2026_08_17: 'D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces —
     face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement
     is not viable on current sensing. IF cycle 3 rescopes to the face-independent approach-track signal,
@@ -13903,7 +13924,7 @@ cards:
     OUTWARD-FACING (it buzzes your phone), which is an always-explicit case in the autonomy ladder.
     UNAMBIGUOUS sub-finding: do NOT build any variant that announces UNNAMED crossings as an
     unknown/guest arrival — 82pct of unnamed crossings are residents the matcher missed.'
-  updated: '2026-09-12 17:00'
+  updated: '2026-09-15 02:50'
   operator_decision_2026_09_12: 'APPROVED to merge+ship the already-built branch feature/arrival-departure-notify — operator: "Approve esp if built. Better than nothing" (named when identity known ~11%, generic otherwise). approval -> explicit. NEXT: cherry-pick/merge the branch onto current develop (re-verify base not stale), run its tests, Tier-2 review, deploy. Deploy restarts HA -> confirm timing with operator before shipping.'
   measured_2026_09_12: 'PROBE (same egress-identity-rate query as GUEST-GATE-DOOR-IDENTITY-1): attach
     rate = 54/487 (11%) last 14d, GARAGE path garage_a_person_count 11/146 (7.5%); producer live
@@ -16759,9 +16780,44 @@ cards:
 - id: RECORDER-CHURN-SWEEP-URASENSORS-1
   title: "Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status)"
   thread: config-flow
-  status: inbox
+  status: waiting_operator
   created: 2026-09-13 01:30
-  updated: 2026-09-13 01:30
+  updated: '2026-09-15 03:20'
+  measured_2026_09_15: 'OVERNIGHT PASS — THE MEASUREMENT THIS CARD ASKED FOR IS DONE (one-shot read-only
+    query against the live HA recorder, /config/home-assistant_v2.db, 24h window). It confirms the bug
+    class, REFUTES the card own ranking, and reframes the value.
+    SCALE FIRST: the recorder took 6,694,822 state rows in 24 hours and the DB is 19.6 GB. ALL URA
+    entities together account for 147,089 of those rows = 2.2 percent. So the entire sweep proposed here,
+    if it removed every URA churn row, could not move the recorder problem by more than two points.
+    MEASURED URA RANKING (rows/24h): presence_anomaly 4,606; persons_in_house 4,403 (card site
+    sensor.py:3886 — CONFIRMED); ac_kwh_rate_entertainment 3,130 / master_suite 3,129 / back_hallway
+    3,122 (card site :12909 — CONFIRMED, and it is per-zone so it multiplies); ec_sub_switches_synced
+    3,125 (binary_sensor.py:3131 — CONFIRMED); envoy_status 3,102 (:13896 — CONFIRMED); then a dense
+    band of CM sensors at 2,834-2,860 (next_state, memory_usage, house_state, battery_strategy,
+    ev_charging_status, presence_house_state). That 2,834 floor is ~1 row/30s and is shared by sensors
+    with no elapsed attribute at all, so it is the coordinator TICK cadence, not attribute churn —
+    only the sites ABOVE it are genuine per-read-elapsed offenders, which narrows the sweep to about
+    five, not nine.
+    REFUTED — the card named the wrong high-yield sites: SafetyActiveCooldownsSensor (age_seconds at
+    0.1s), OptimizerStatusSensor (next_eta 1s countdown) and BayesianOccupancyForecastSensor (predicted
+    to multiply across 45 rooms) DO NOT APPEAR anywhere in the top 25 URA entities. The predicted worst
+    offenders are not offending — most likely disabled-by-default or rarely active — so the card
+    sentence "some (ACRamp unrounded float, cooldowns 0.1s, Bayesian x45) are the high-yield ones" is
+    WRONG on two of its three examples. This is exactly why the card demanded measurement before the
+    build; the measurement earned its keep by shrinking the work list.
+    BIGGEST FINDING IS NOT URA (recorded as an instance on RECORDER-BLOAT-LOGFLOOD-1): ONE non-URA
+    entity, binary_sensor.madronewatermonitor_low_flow_leak, wrote 60,610 rows in 24h — more than 40
+    percent of URA entire recorder footprint, from a single binary sensor, and it has only TWO distinct
+    states in that window, so it is flapping tens of thousands of times a day. That is a device/integration
+    fault worth more than this whole sweep.'
+  gate_2026_09_15: 'FOUR-STEP GATE -> ESCALATE (value collapsed under measurement; not mine to close).
+    (1) VALIDITY: STILL-REAL, five sites confirmed in source and above the tick floor. (2) PRIOR-ART:
+    REUSE — identical fix shape to the shipped parent RECORDER-BLOAT-LOGFLOOD-1 (drop or quantize the
+    per-read value; _unrecorded_attributes does NOT prevent the states row). (3) PARSIMONY: the sharp
+    version is five sites, not nine. (4) COST/BENEFIT: the honest number is that the full sweep buys at
+    most ~2 percent of recorder volume, and each site is a live sensor attribute some dashboard may read,
+    so it is not free. I am not spending a build on that unattended when a single non-URA entity is worth
+    40 percent of the whole URA footprint.'
   refinement_status: initial
   approval: unreviewed
   sibling_of:
@@ -16769,11 +16825,40 @@ cards:
   problem_solution:
   - "Problem: Recorder Review A (2026-09-13) re-enumerated extra_state_attributes across the package and found the safety_status churn class survives at >=6 ENABLED sites emitting a per-READ elapsed value (new states row every tick): sensor.py:14060/14067 SafetyActiveCooldownsSensor age_seconds/max_remaining_seconds (0.1s); :13896/13909 EnergyEnvoyStatusSensor *_age_seconds; :12909 HVACACRampKwhRateSensor age_s (UNROUNDED float — worst); :17200 OptimizerStatusSensor next_eta (1s countdown); :3886 URAPersonsInHouseSensor frigate_face_last_latched.age_s (house-scope, hot); binary_sensor.py:3131 ECSubSwitchesSyncedSensor seconds_since_ec_ready; :14493 BayesianOccupancyForecastSensor clock-moving forecast xPER-ROOM(45); binary_sensor.py:1859 PersonPhoneLeftBehindSensor hours_since_sighting; aggregation.py:3618 EnergyCostPerOccupiedHourSensor occupied_hours. Plus DORMANT-but-offending-if-enabled: sensor.py:2068/2111/2151/2327 (registry_enabled_default=False; check live across 45 rooms). Solution: same fix as the parent — remove the per-read elapsed value from extra_state_attributes (expose a stored/quantized value or drop it; _unrecorded_attributes does NOT stop the states-row write). Measure each site's live row-rate first to rank; some (ACRamp unrounded float, cooldowns 0.1s, Bayesian x45) are the high-yield ones."
   why: "Same write-amplification bug class as RECORDER-BLOAT-LOGFLOOD-1; these are the long-tail URA contributors the recorder probe predicted. Not scope of the parent fix (which targeted the 3 named last_check* sensors)."
-  next: "MEASURE each site live row-rate (recorder states by entity), rank, then strip the per-read elapsed attr from the top offenders. Tier-1/2 per site."
+  next: 'PICK one — the measurement is done (see measured_2026_09_15): (A) FIX THE WATER MONITOR FIRST
+    and defer this sweep — one flapping leak sensor writes 60,610 rows/day vs 147,089 for all of URA,
+    and a leak detector toggling 30k times a day is a fault worth diagnosing on its own merits (my
+    recommendation; tracked as an instance on RECORDER-BLOAT-LOGFLOOD-1); (B) NARROW SWEEP — strip the
+    per-read elapsed attribute from just the five measured above-tick-floor sites (presence_anomaly,
+    persons_in_house, ac_kwh_rate_*, ec_sub_switches_synced, envoy_status), Tier-1 per site,
+    mutation-anchored, buying ~2pct of recorder volume; (C) DROP the sweep as not worth the churn.'
   parsimony:
     problem: "6-9 more URA sensors churn recorder rows via per-read elapsed attrs"
     verdict: BUILD
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  INSTANCE_2026_09_15_watermonitor_single_entity_dominates_states: 'MEASURED on the live recorder
+    (read-only, 24h window) during the overnight pass, while running the sibling card
+    RECORDER-CHURN-SWEEP-URASENSORS-1 probe. Filed here as an INSTANCE rather than a new card: same
+    problem (recorder bloat on flash), same fix surface (recorder exclude / device config), and this
+    card already owns the DB-size discriminator. THE SINGLE LARGEST WRITER IN THE HOUSE IS ONE NON-URA
+    BINARY SENSOR: binary_sensor.madronewatermonitor_low_flow_leak wrote 60,610 state rows in 24 hours.
+    For scale, that one entity outweighs 40pct of ALL URA entities combined (URA total = 147,089 of
+    6,694,822 rows in the same window; URA is only 2.2pct of recorder volume). It has exactly TWO
+    distinct states across those 60,610 rows, so it is toggling on the order of 30,000 times a day.
+    TWO SEPARATE PROBLEMS, and the second is the important one: (a) recorder cost — a single glob in
+    the configuration.yaml recorder exclude would remove it, BUT it is a LEAK DETECTOR and silently
+    excluding a water-safety sensor from history is an operator call, not an agent call, so I did not
+    touch it; (b) THE DEVICE IS FAULTING — a low-flow leak binary sensor does not legitimately flap
+    30k times/day, so this is a stuck/chattering sensor (the same stuck-signal class as
+    STUCK-SENSOR-1 / OC-STUCK-SENSOR-GENERALIZE-1), and the recorder volume is a SYMPTOM of the fault,
+    not the fault. Suppressing the history would hide it — exactly the trap avoided in
+    INSTANCE_2026_08_23 with the WattBox flood. OTHER TOP NON-URA WRITERS in the same window, for
+    context: phalanxudmpro_cpu_utilization_2 41,549; phalanxudmpro_memory_utilization_2 38,695;
+    masterbath co2 24,924; iphone_jaya_unfiltered_distance_to_jaya_3 23,872; invisoutlet_b7d0_co2
+    22,748 — the UDM utilization pair alone is another 80k/day and is pure telemetry with no safety
+    role, so it is the cheapest safe exclude on the list. DB now 19.6 GB (was 31 GB at card creation),
+    so the shipped log-flood fixes moved the number in the right direction; the residual is entity-level
+    state churn, not log flood.'
   INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault: 'MEASURED over a live 7.7h window (05:17-12:58):
     16,854 raw log lines, 1,505 distinct issues, 73 components. THE LARGEST FEEDER IS NOT URA: pywattbox.http               2,747
     occurrences / 7 issues    ~8,500/day custom_components.wattbox      913 occurrences / 3 issues    ~2,800/day
@@ -19447,9 +19532,33 @@ cards:
 - id: HUMIDITY-LOW-RUNG-PAGING-KNOB-1
   title: "Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung)"
   thread: safety
-  status: inbox
+  status: waiting_operator
   created: '2026-09-14'
-  updated: '2026-09-14'
+  updated: '2026-09-15 03:05'
+  refinement_status: refined
+  gate_2026_09_15: 'OVERNIGHT PASS — FOUR-STEP GATE RUN, NOT BUILT, ESCALATED. I stopped short of
+    building this despite your explicit approval, because a measurement contradicts the premise the
+    approval rested on. (1) VALIDITY — the CODE GAP IS REAL, confirmed by reading the source, not the
+    card: safety.py:2080-2085 sends room_type bathroom/basement to the hardcoded HUMIDITY_THRESHOLDS,
+    while every other room type builds its ladder from CONF_HUMIDITY_NORMAL_LOG_ONLY/MEDIUM/HIGH_PCT via
+    nm_cycle_a_knob (:2086-2109); and at :2205-2217 the log-only demotion is explicitly fenced to
+    `if room_type not in ("bathroom", "basement")`, so those two bands alone still emit a LOW-severity
+    HIGH_HUMIDITY hazard at their low rung with no operator override. The card is accurate. (2) BUT THE
+    HARM IS MEASURED AT ZERO — read-only probe of notification_log: ZERO humidity notifications of any
+    severity in the last 30 days (the same window carries 384 LOW, 3483 HIGH, 2982 CRITICAL pages of
+    other kinds, so the path is not silent for lack of traffic). Live config read: 7 rooms are
+    room_type bathroom and ZERO are basement, so the basement half of the fence is unreachable today
+    and the bathroom half has not fired once in a month. The thing you asked me to null is not
+    currently buzzing you. (3) PRIOR-ART — REUSE, no new mechanism: a knob here would mirror
+    CONF_HUMIDITY_NORMAL_* + nm_cycle_a_knob (safety.py:2086) exactly, and const.py already carries the
+    DEFAULT_HUMIDITY_NORMAL_* pattern to copy. (4) PARSIMONY / COST-BENEFIT — this is where it fails to
+    clear unattended. Marginal benefit of the knob is ~0 pages/30d removed. Marginal cost is a change to
+    a SAFETY hazard severity path, and the "null it" variant lowers hazard coverage by default, which is
+    cost-or-safety-impacting logic — an always-explicit case in CLAUDE.md that an overnight pass must not
+    decide on its own. Building the knob-with-current-defaults instead would be the safe variant, but it
+    delivers nothing observable (the rung never fires), which is a parsimony failure in the other
+    direction. Either way the deciding input is yours, and you now have a number you did not have when
+    you approved.'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-14 ("Change the paging in NM. Make it null for now or configurable. Its a simpler change honestly")'
@@ -19462,8 +19571,15 @@ cards:
      do not page) or expose a knob. Small targeted change, decoupled from room classification.'
   why: operator flagged un-knobbed LOW humidity paging as independently fixable and simpler than any
     classification wiring; removes the "net-negative" objection to future basement wiring.
-  next: 'Verify the exact LOW-rung emit site(s) (safety.py ~2209 + siblings), confirm which bands lack a
-    CM-knob override, then either default the LOW rung to log-only or add a knob. Tier 1, mutation-anchored.'
+  next: 'PICK one — the verification you asked for is done (see gate_2026_09_15; sites are
+    safety.py:2080-2085 + :2205-2217, and the un-knobbed bands are exactly bathroom + basement):
+    (A) DROP IT — 0 humidity pages in 30 days and 0 basement rooms means there is nothing to silence;
+    close the card and revive only if a humidity page actually arrives (this is my recommendation);
+    (B) ADD THE KNOB, defaults unchanged — additive Tier-1 mirror of CONF_HUMIDITY_NORMAL_* so the
+    bathroom/basement rungs become tunable without changing any behaviour today;
+    (C) NULL IT — demote the bathroom/basement LOW rung to log-only by default, which is what you
+    originally asked for, but it reduces safety-hazard coverage by default so I want your explicit
+    go rather than inferring it. Tier 1, mutation-anchored, ~30 LoC for (B) or (C).'
   links:
     related: [ROOM-CLASSIFICATION-CONSISTENCY-1]
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
