@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T22:05:07-05:00_ - _Data commit: `00e087b63ab7`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T22:19:55-05:00_ - _Data commit: `23bf0123be16`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 8 |
@@ -21,10 +21,19 @@ _Generated: 2026-09-14T22:05:07-05:00_ - _Data commit: `00e087b63ab7`_ - _last_r
 | 🅿️ Parked | 51 |
 | ✅ Done | 161 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
-### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HUMIDITY-LOW-RUNG-PAGING-KNOB-1` - Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **safety** - status: **inbox** - approval: **explicit**
+_created 2026-09-14 · initial_
+- **Problem / Solution:**
+  - Problem: the safety humidity hazard path emits a LOW-severity NM page at the 65% RH rung for non-normal room-type bands (surfaced by the room-classification review re basement band safety.py:2209); the `normal` branch honors CONF_HUMIDIT...
+- **Why:** operator flagged un-knobbed LOW humidity paging as independently fixable and simpler than any classification wiring; removes the "net-negative" objection to future basement wiring.
+- **Next:** Verify the exact LOW-rung emit site(s) (safety.py ~2209 + siblings), confirm which bands lack a CM-knob override, then either default the LOW rung to log-only or add a knob. Tier 1, mutation-anchored.
+- **Tags:** tier-1
+
+### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **config-flow** - status: **inbox** - approval: **unreviewed**
 _created 2026-09-13 01:30 · initial_
 - **Problem / Solution:**
@@ -750,14 +759,15 @@ _created 2026-09-12 17:50 · initial_
 - **Problem / Solution:**
   - Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented inconsistently and scattered: CONF_ROOM_IS_...
 - **Why:** surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these coherently, which exposed that the underlying representation is itself inconsistent). Operator wants it carded but explicitly gated on audi...
-- **Next:** PICK: (A) accept D1-docs-only + park D2/D3 [RECOMMENDED -- live config has 0 basement/0 outdoor rooms, so wiring them is net-negative until a real consumer exists] -> I close this card. Or (B) build D2/D3 anyway with the review's safety ...
+- **Next:** PICK: plan Option C (one derived read-model accessor = cheap unification, coercion untouched) -> I write the Tier-1/2 plan + build. D1 docs already shipped. Or stay docs-only + park. Rec: Option C.
 - **Tags:** audit-first, institutional-context, tier-2db
 - **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `AUDITED_2026_09_14`: AUDIT DONE (read-only) -> docs/planning/AUDIT_room_classification_consistency.md. Enumerated producer/consumer/blast-radius for all 6 surfaces. Key findings: infrastructure is represented TWICE (ROOM_TYPE enum + live switch.infrastructur...
   - `OPTION_A_PICKED_2026_09_14`: OPERATOR PICKED OPTION A ("but well documented"). Plan written -> docs/planning/PLANNING_room_classification_option_a.md (Tier 2-DB, plan-review pending). Low-churn: keep every consumer read pattern, DOCUMENT the model + invariants (D1),...
   - `PLAN_REVIEW_2026_09_14`: Tier 2-DB adversarial PLAN review = FIX-PLAN-FIRST (1 CRITICAL, 3 HIGH). Review record: docs/reviews/code-review/ROOM-CLASSIFICATION-CONSISTENCY-1_plan_review.md. CRITICAL: TWO outdoor coercion sites; the load-bearing one (safety.py:1319...
   - `CORRECTION_2026_09_14`: Operator flagged (correctly) that there IS an outside zone with the patio in it. Re-checked: the "Outside" zone has zone_is_outdoor=True and holds the Patio room. My earlier "0 outdoor zones" was WRONG -- I checked room entries, but the ...
+  - `OPTION_C_REFLECTION_2026_09_14`: Operator wants unification achieved CHEAPLY, keeping the outdoor coercion (do NOT retire it -- "the issue is how to not retire it cleanly, simplest solution"). Reflection -> OPTION C = unify the READS, not the writes. Add ONE derived rea...
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#21 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**

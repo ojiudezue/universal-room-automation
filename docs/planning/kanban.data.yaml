@@ -19302,6 +19302,28 @@ cards:
     <=4 screens / <=~12 visible fields. Tier 2-DB (options round-trip risk). Next: operator picks P1-P7
     scope (P1+P2+P5 deliver most of the >=50% alone).'
   refs: [custom_components/universal_room_automation/config_flow.py, custom_components/universal_room_automation/__init__.py, docs/planning/AUDIT_first_run_onboarding.md]
+- id: HUMIDITY-LOW-RUNG-PAGING-KNOB-1
+  title: "Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung)"
+  thread: safety
+  status: inbox
+  created: '2026-09-14'
+  updated: '2026-09-14'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-14 ("Change the paging in NM. Make it null for now or configurable. Its a simpler change honestly")'
+  tags: [tier-1]
+  problem_solution:
+  - 'Problem: the safety humidity hazard path emits a LOW-severity NM page at the 65% RH rung for
+     non-normal room-type bands (surfaced by the room-classification review re basement band
+     safety.py:2209); the `normal` branch honors CONF_HUMIDITY_NORMAL_* but these bands do NOT, so the
+     LOW rung is un-knobbed. Solution (operator, simplest): make that LOW-rung page null by default (log,
+     do not page) or expose a knob. Small targeted change, decoupled from room classification.'
+  why: operator flagged un-knobbed LOW humidity paging as independently fixable and simpler than any
+    classification wiring; removes the "net-negative" objection to future basement wiring.
+  next: 'Verify the exact LOW-rung emit site(s) (safety.py ~2209 + siblings), confirm which bands lack a
+    CM-knob override, then either default the LOW rung to log-only or add a knob. Tier 1, mutation-anchored.'
+  links:
+    related: [ROOM-CLASSIFICATION-CONSISTENCY-1]
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
   title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
   thread: config-flow
@@ -19384,6 +19406,16 @@ cards:
     coercion (safety.py:1319) is LIVE, suppressing patio humidity pages NOW -> retiring it is an ACTIVE
     regression, not latent. D1 doc corrected. Disposition unchanged (park D3, stronger reason); D2
     basement still 0-consumer.
+  OPTION_C_REFLECTION_2026_09_14: >-
+    Operator wants unification achieved CHEAPLY, keeping the outdoor coercion (do NOT retire it -- "the
+    issue is how to not retire it cleanly, simplest solution"). Reflection -> OPTION C = unify the READS,
+    not the writes. Add ONE derived read-model accessor get_room_classification(room) -> {function, flags[],
+    outdoor} that reads the existing scattered surfaces (room_type, guest/wet/shared flags, zone_is_outdoor
+    via zone lookup, infra switch) and presents the unified view. Additive, zero consumer migration, Tier 1-2,
+    no regression. Solves the coercion problem by SIDESTEPPING it: the accessor reads zone_is_outdoor (the
+    real producer) directly, so safety.py:1319 coercion stays untouched as a private safety-internal detail.
+    Consumers opt in over time, never big-bang. Verified: no such accessor exists today (not a dup).
+  next: "PICK: plan Option C (one derived read-model accessor = cheap unification, coercion untouched) -> I write the Tier-1/2 plan + build. D1 docs already shipped. Or stay docs-only + park. Rec: Option C."
 
 - id: CAMERA-STUCK-MASTER-HALLWAY-1
   title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"
