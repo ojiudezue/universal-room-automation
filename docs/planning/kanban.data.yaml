@@ -16169,6 +16169,57 @@ cards:
   title: The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the
     one that would have caught the zone-3 flap
   thread: hvac
+  VERIFIED_2026_09_15: 'Four-step gate step 1 (VALIDITY) — STILL-REAL, but narrowed, and the
+    card''s `next` was STALE. Ground truth taken three ways (live entity + URA DB + source read),
+    not from the card.
+
+    (1) SHIPPED and working: short_cycle_rate IS producing. Live
+    sensor.ura_hvac_coordinator_hvac_anomaly shows per-zone scoped baselines
+    (zone_1 mean 4.5 / zone_2 1.0 / zone_3 6.0), and the persisted counter in
+    .storage/universal_room_automation.hvac_zone_state reads
+    {"date":"2026-09-15","counts":{"zone_1":1,"zone_2":2,"zone_3":1}} written 5 min before the
+    check — so the event-driven producer, the mid-day-restart persistence, and the local-day
+    rollover guard all work TODAY. The old `next` ("write a plan for the short-cycle producer")
+    describes work that shipped in v5.90.0 — REMOVED.
+
+    (2) CARD-WAS-WRONG on the remaining scope. The residual is NOT "wire the other 3 metrics".
+    comfort_deviation_hours + egress_pause_frequency are DELIBERATELY declared-and-suppressed
+    (hvac_const.py:1035-1039 HVAC_SUPPRESSED_FROM_PERSISTENCE, each with a written reason), and
+    this card''s own HIGHEST_LEVERAGE_FIX_2026_08_23 analysis already ruled them NOT RECOMMENDED
+    (event-driven accumulators over rare events = the structurally-inert hazard class per
+    RESTART-SAFETY-DOCTRINE-1). Wiring them stays out of scope unless someone states an expected
+    samples-per-day. That leaves TWO real residuals, A and B below.
+
+    (3) RESIDUAL A — the "silent metric is laundered into nominal" deliverable is NOT shipped,
+    and is now PROVEN LIVE. hvac.py:4286 get_anomaly_status returns learning_status or
+    get_worst_severity().value and never consults metrics_silent, so the live sensor reads
+    "nominal" while its own attributes carry metrics_active_ratio "2/5" and
+    metrics_silent [short_cycle_rate, comfort_deviation_hours, egress_pause_frequency].
+    A human glancing at the sensor sees a pass; the blindness is only visible by opening the
+    attributes. This is the card''s original second deliverable.
+
+    (4) RESIDUAL B — NEW, unexplained, and the sharper find: the ACCRUAL RATE is far below what
+    a once-per-day-per-zone emitter should produce. DB: metric_baselines for hvac shows
+    short_cycle_rate zone_1/2/3 at sample_count=2 each, last_updated 2026-09-14T05:14Z
+    (= 2026-09-14 00:14 local, a correct local-midnight rollover). v5.90.0 shipped 2026-08-25, so
+    ~20 local days have elapsed and the metric holds 2 samples, not ~20. At this rate the
+    HVAC_SHORT_CYCLE_MIN_SAMPLES=14 maturation gate is years away, so the metric is still
+    effectively blind in production despite being correctly wired. CONSEQUENCE: the top-level
+    (short_cycle_rate, "house") baseline has sample_count=0 and therefore lands in metrics_silent
+    and drags metrics_active_ratio to "2/5" even though three zone-scoped baselines DO have data
+    — so Residual A''s surface fix must be scope-aware or it will keep mis-reporting.
+    MECHANISM NOT CONFIRMED — DO NOT BUILD AGAINST A GUESS. Candidate paths, all in
+    _emit_and_reset_short_cycles (hvac.py:4001-4060), each of which exits WITHOUT emitting:
+    prev_date=="" first-boot seed; the gap_days!=1 multi-day-gap DISCARD-and-reseed; or an
+    anomaly_detector-is-None early return. Restart cadence is the obvious suspect (measured
+    ~2.9 restarts/day, median 5.55h) but the persistence snapshot demonstrably survives, so the
+    naive restart story does NOT explain it on its own.
+
+    DISCRIMINATING PROBE (cheap, zero-risk, available tonight): re-read the same DB row after the
+    next local-midnight rollover. sample_count 2 -> 3 on all three zones = the emitter fires on a
+    normal day and the historical deficit is a past-condition artifact (close B). Still 2 = the
+    emitter is being skipped on ordinary days and B is a live defect; then log which of the three
+    exit paths fired. Commands: the metric_baselines SELECT above, plus the .storage snapshot read.'
   ROOT_CAUSE_CORRECTED_2026_08_21: '⚠️ READ THIS BEFORE ACTING ON THIS CARD. The root cause recorded here
     previously — inherited from docs/BACKLOG.md (v4.6.10 Tier-2 review) — is "AnomalyDetector._baselines
     is an in-memory dict that resets to {} every restart, so minimum_samples=10 is structurally unreachable".
@@ -16259,13 +16310,13 @@ cards:
     and egress_pause_frequency are both event-driven accumulators over rare events, which per RESTART-SAFETY-DOCTRINE-1
     is the hazard class that stays structurally inert; wire them only with an explicit statement of expected
     samples-per-day, or leave them declared-and-suppressed.'
-  status: pre_planning
+  status: investigating
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: short_cycle_rate now wired (hvac.py:4077). NARROW to the 2 still-unproduced metrics: comfort_deviation_hours (no call site, :4160) + egress_pause_frequency (0 hits). 4/5 wired.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Plan the short-cycle producer carrying measured distributions
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
   shipped_version: v5.90.0
   created: 2026-08-20 14:15
-  updated: 2026-08-24 18:40
+  updated: '2026-09-15'
   refinement_status: refined
   BUILD_REVIEW_2026_08_24: 'Build 1f4d36325 (branch feature/hvac-shortcycle-producer) orchestrator-verified
     (fresh base, diff=plan scope, restart-guard correct, midday-restart + guard tests present). Tier-2-DB
@@ -16552,9 +16603,50 @@ cards:
     trade, and state whether per-metric minimum_samples or one-sided detection is in scope. Two reviews
     already killed one producer here; a third guess is not worth the round trip. ** D2 metrics_silent
     is UNAFFECTED and still shippable after the B3 five-line reorder.'
-  next: Write a short plan for the short-cycle producer carrying the measured distributions as acceptance
-    fixture; decide rolling-24h-per-tick vs per-completed-cycle-log, and whether per-metric minimum_samples
-    is in scope. D2 metrics_silent shippable separately.
+  next: 'MEASURE FIRST — residual B gates residual A, so nothing is built this pass. Tonight
+    (pairs with the operator''s 20:00 restart window on AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1,
+    then again after local midnight): re-run the metric_baselines SELECT for coordinator_id=hvac
+    and compare short_cycle_rate sample_count against today''s 2. 2->3 on all three zones = the
+    emitter fires normally, the historical deficit is a past artifact, close B and build A.
+    Still 2 = live defect in _emit_and_reset_short_cycles; identify which of its three
+    non-emitting exit paths fired (first-boot seed / gap_days!=1 discard / detector-None) before
+    proposing any fix.'
+  GATE_2026_09_15: 'Four-step gate run in full; verdict DO-NOT-BUILD-YET on residual A, reasoning
+    recorded so the next session does not re-derive it.
+    STEP 1 VALIDITY: see VERIFIED_2026_09_15 — A is real and proven live, B is new.
+    STEP 2 PRIOR-ART: no existing "degraded" convention to reuse — security.py:2478
+    get_anomaly_status is identical in shape to hvac.py:4286 (learning_status, else
+    get_worst_severity), and all five anomaly coordinators share
+    AnomalyDetector.get_status_summary (coordinator_diagnostics.py:1126) which ALREADY computes
+    metrics_silent + metrics_active_ratio. The data exists; only the status projection ignores
+    it — REUSE the summary fields, BUILD nothing new. Note the fix has two possible homes with
+    very different blast radius: the shared detector (helps all 5 coordinators, therefore a
+    shared-primitive change = tier up) vs hvac-only (narrow).
+    STEP 3 PARSIMONY: problem is sharp (sensor reads "nominal" while 3 of 5 metrics have zero
+    samples), but the OBVIOUS simplest fix is WRONG. If "silent metric => degraded" ships as
+    literally stated, the sensor goes degraded PERMANENTLY and immediately, because
+    comfort_deviation_hours and egress_pause_frequency are deliberately never wired
+    (hvac_const.py:1035-1039). A permanently-degraded sensor is exactly as uninformative as a
+    falsely-nominal one — it only moves the alarm fatigue. A real fix must separate
+    DELIBERATELY-UNWIRED from WIRED-BUT-STARVED: a design choice, not a one-liner.
+    STEP 4 COST/BENEFIT: does not pay YET, purely on sequencing. The only metric in the
+    wired-but-starved class is short_cycle_rate — which IS residual B. If B is a live defect,
+    fixing B removes the sole occupant of the class A exists to surface, and A''s design changes
+    shape. Building A first = building the annunciator for a fault before knowing the fault is
+    real. Consumer check supports waiting rather than rushing: the sensor state is DISPLAY-ONLY
+    (5 dashboards render it — ura-v4/v5/v6/v7/v8; no URA code consumes it as a trust input,
+    sensor.py:12211 is the sole reader), so a fast partial fix buys no safety. Two YAML-defined
+    automations could not be scanned (config endpoint 404, likely automations.yaml) — check them
+    before any state-string change, since renaming a state is outward-facing.'
+  refinement:
+  - 'Card framed the residual as "wire the other 3 metrics" → narrowed to 2 residuals: a surface
+    fix (A) and an unexplained accrual deficit (B); the other 2 metrics are deliberately
+    suppressed and stay out of scope.'
+  - 'Intended to build A ("silent = visible fault") this pass → caught that the literal form
+    would pin the sensor to degraded forever, since two metrics are intentionally never wired.
+    Sharpened to: the fix must discriminate deliberately-unwired from wired-but-starved.'
+  - 'Would have built A first → realised B (the only wired-but-starved metric) decides whether A
+    has anything true to report. Sequenced B''s probe ahead of A''s build.'
   refs:
   - docs/BACKLOG.md — CRITICAL "D3 anomaly detection persistence + dispatch"
   - sensor.ura_hvac_coordinator_hvac_anomaly (live attrs 2026-08-20)
