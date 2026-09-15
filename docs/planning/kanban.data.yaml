@@ -9,6 +9,12 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'ROOM-CLASSIFICATION-CONSISTENCY-1@planrev', at: '2026-09-14T16:30:00', outcome: 'plan-reviewed+D1-built',
+     headline: 'Room-classification Option A: plan-review caught CRITICAL (2 outdoor coercion sites; safety.py:1319 is NM-A hazard suppression). Live check 0 basement/0 outdoor rooms -> D1 docs BUILT (docs/architecture/ROOM_CLASSIFICATION.md), D2/D3 net-negative -> PARKED, PICK to operator',
+     acknowledged: false}
+  - {fid: 'APPLIANCE-MGMT-REFINE-1@planwritten', at: '2026-09-14T16:30:00', outcome: planned,
+     headline: 'Appliance coordinator v1 plan written (PLANNING_appliance_coordinator_v1.md): read-only census + categorization (functional-domain axis: media/kitchen/... independent of add-vector) + anomaly-wire (reuse AnomalyEvent/fire_stuck_signal), NO control/breaker. Awaiting APPROVE (Tier 3)',
+     acknowledged: false}
   - {fid: 'TEST-1@2026-09-14T15:30', at: '2026-09-14T15:30:00', outcome: built,
      headline: 'TEST-1 BUILT (review): boot-time shadow diff warns if resolver leg set is not a superset of legacy — live tripwire for silent camera coverage shrinkage. 4 tests + wire-in anchor + 2 mutation drills',
      acknowledged: false}
