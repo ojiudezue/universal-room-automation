@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "120",
+  "author": "ojiudezue",
+  "session_id": "claude_20260915_045853_ship_v5_102_0",
+  "timestamp": "2026-09-15T04:58:53Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.102.0 shipped: Appliance census v1a (first-class passive ApplianceCoordinator + sensor.ura_appliance_census, read-only, commands nothing) + perimeter leg-superset boot trip-wire",
+  "summary": "Appliance census v1a (first-class passive ApplianceCoordinator + sensor.ura_appliance_census, read-only, commands nothing) + perimeter leg-superset boot trip-wire",
+  "why": "Shipping v1a of the appliance program as a FIRST-CLASS passive coordinator (operator ruled Add-Coordinator visibility + own anomaly identity an architecture decision, not code-size). Option (c) read-only census reusing SPANCircuitMonitor/energy_billing/camera_census over extend-monitor or sibling. 3 sweeps + 2 Tier-3 plan reviews made it mostly-reuse and found cross-integration de-dup infeasible (no registry join key) -> operator-declared grouping only. Tier-2-DB 3-framing build review caught 5 HIGH: no-drop leak (my device_id-collapse spec dropped 27 entities; reversed to no-auto-merge), power-unit bypass (#30), recorder-flood polling, a HOLLOW+falsely-self-certifying sensor anchor, vacuous commands-nothing test. Orch independently re-ran M1 (both anchors RED->GREEN). Recovered a branch mishap (39 commits stranded on feature/perimeter-leg-superset-warn; ff'd develop). TEST-1 batched. NOTE: this is a version-stamp fix re-run after --cards was mis-parsed as the version on the first invocation (code identical, already on master).",
+  "implications": "Shipped APPLIANCE-MGMT-REFINE-1, TEST-1 at v5.102.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.102.0.md (Live criteria).",
+  "revisit_trigger": "sensor.ura_appliance_census exists post-restart with a non-empty appliances attribute listing >=1 record carrying ura_config in source_tags, AND no recorder 'state attributes exceed maximum size' WARNING for that entity within 1h",
+  "refs": {
+    "cards": [
+      "APPLIANCE-MGMT-REFINE-1",
+      "TEST-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.102.0.md"
+    ],
+    "release_notes": "MINOR: new ApplianceCoordinator dimension under Add Coordinator (v1a read-only census; categorization/cost/anomaly staged v1b-d). Tier-2-DB 3-framing reviewed, 5 HIGH fixed, orch-verified. TEST-1 perimeter leg-superset warn batched. (version-stamp re-run: prior attempt mis-parsed --cards as the version)"
+  }
+}
