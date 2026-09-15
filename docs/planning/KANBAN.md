@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T11:58:40-05:00_ - _Data commit: `6c6224df184e`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T11:59:19-05:00_ - _Data commit: `a67f158ac796`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 6 |
@@ -21,10 +21,17 @@ _Generated: 2026-09-15T11:58:40-05:00_ - _Data commit: `6c6224df184e`_ - _last_r
 | 🅿️ Parked | 54 |
 | ✅ Done | 163 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1` - AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **platform** - status: **inbox** - approval: **implied**
+_created 2026-09-15 · initial_
+- **Problem / Solution:**
+  - Problem: on boot, HA frame helper warns "universal_room_automation calls hass.async_create_task from a thread other than the event loop, may cause crash or data corruption" at sensor.py:8121 -> super().async_added_to_hass(), traced to Ag...
+- **Why:** thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in v5.103.0 live validation (README_v5.103.0 residual finding).
+- **Next:** Investigate whether async_added_to_hass runs off-loop for CM-entry aggregation sensors or the base create_task is the culprit; then marshal onto the loop. Tier-2 (shared base), 2 framing-disjoint review.
+- **Tags:** tier-2
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_

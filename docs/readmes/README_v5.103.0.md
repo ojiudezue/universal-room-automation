@@ -83,8 +83,25 @@ retire) parked with config-trigger revival; Option B (unify all flags) rejected.
 
 ---
 
-## Live Validation — to be completed post-restart
-- [ ] D1 — Appliance Coordinator options step present; add-a-record persists + shows in census with its domain
-- [ ] D1 — onboarding save does not reload the CM entry
-- [ ] D2 — `classification` attribute present on a room signal-inventory sensor; Patio `outdoor: true`
-- [ ] v5.102.1 — no off-loop `async_create_task` frame warning from the census timer
+## Validated 2026-09-15 (post-restart, ~12:04–12:12 America/Chicago)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| D1 | Census populated + live-updating, commands nothing | **PASS** | `sensor.ura_appliance_coordinator_appliance_census` = 197 → 239 across two 30s ticks (tracks live entities repopulating post-restart); `stale_max_age_s=300`; enable switch `on`; no appliance-originated service call in the log. |
+| D1 | Appliance Coordinator onboarding step | **IN-SUITE + no-error-at-load** | The CM options step + record editor are covered by the v1b flow tests (add/edit/remove/reject, all flow-driven post-fix); no `config_flow` ERROR at setup. Live UI click-through not exercised via API. |
+| D1 | Records save does not reload CM | **IN-SUITE (behavioral)** | Orchestrator-verified: removing `CONF_APPLIANCE_RECORDS` from `OPTIONS_RELOAD_SUPPRESS_KEYS` turns `test_records_only_save_does_not_reload_cm` RED. Not separately live-exercised (needs a real options save). |
+| D2 | `classification` attribute + Patio outdoor | **PASS** | `sensor.patio_signal_inventory.classification = {function: common_area, flags: [shared], outdoor: true, infrastructure: false}` — Patio `outdoor: true` confirms the accessor reads the Outside zone via the snapshot, not the coercion. |
+| v5.102.1 | No RECURRING off-loop census-timer warning | **PASS** | The v5.102.0 every-30s `async_create_task from a thread` flood is GONE; census re-pushes via the `@callback → async_write_ha_state` path (state advanced 197→239 with no recurring frame warning). |
+| — | No URA setup ERROR | **PASS** | `system_log` level=ERROR search `universal_room_automation` = 0 entries. |
+
+**Entity-id note:** the real entities are `sensor.ura_appliance_coordinator_appliance_census` (CM-prefixed) and `sensor.<room>_signal_inventory` — recorded so future validation doesn't read `None` from a guessed id.
+
+### RESIDUAL FINDING (live-only) — carded, not blocking
+A **single boot-time** `async_create_task from a thread other than the event loop` WARNING remains, at
+`sensor.py:8121 → await super().async_added_to_hass()`. Traced to the **`AggregationEntity` base class**
+(`aggregation.py:962`), whose `async_added_to_hass` polls for room coordinators at startup — a
+**pre-existing, house-wide** whole-house-sensor pattern, not census-specific and not a v5.103.0 regression.
+It surfaced at the census sensor's `super()` call only because v5.102.1 removed the census's own recurring
+timer task (which was the v5.102.0 defect and IS fixed). Benign: fires once at boot, no crash, setup clean,
+`system_log` doesn't retain it. Carded as `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1` (shared-base change →
+proper review, not a rushed hotfix).

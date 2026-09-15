@@ -19323,6 +19323,30 @@ cards:
      ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.phalanxmadrone.ura-overnight-pass.plist
      (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
   refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
+- id: AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1
+  title: "AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation)"
+  thread: platform
+  status: inbox
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-2]
+  problem_solution:
+  - 'Problem: on boot, HA frame helper warns "universal_room_automation calls hass.async_create_task from
+     a thread other than the event loop, may cause crash or data corruption" at sensor.py:8121 ->
+     super().async_added_to_hass(), traced to AggregationEntity.async_added_to_hass (aggregation.py:962),
+     the whole-house-sensor room-coordinator startup poll. Pre-existing, house-wide (all AggregationEntity
+     subclasses), benign today (once at boot, no crash) but a HA 2027.x hard-deprecation. Surfaced by the
+     v5.103.0 appliance census live-validation once the census-specific recurring-timer task (v5.102.1) was
+     removed. Solution: make the base async_added_to_hass thread-safe (marshal the create_task/schedule
+     onto the loop, or restructure the poll); shared-base change -> Tier-2 2-framing review, not a hotfix.'
+  why: thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in
+    v5.103.0 live validation (README_v5.103.0 residual finding).
+  next: 'Investigate whether async_added_to_hass runs off-loop for CM-entry aggregation sensors or the base
+    create_task is the culprit; then marshal onto the loop. Tier-2 (shared base), 2 framing-disjoint review.'
+  links:
+    related: [APPLIANCE-MGMT-REFINE-1]
 - id: APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1
   title: "Appliance census: multi-room-same-power-sensor attribution (v1b)"
   thread: energy
