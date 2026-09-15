@@ -19176,6 +19176,14 @@ cards:
     trust) in plan. ONE new structure = per-appliance multi-role record; operator-declared grouping = de-dup
     (no auto-join). Staged v1a census / v1b categorization+onboarding / v1c energy+cost / v1d anomaly.
   next: 'WAITING ON ME: re-review the REWRITTEN plan (Tier-3 x2 framing-disjoint; prior reviews were on the superseded draft), fix any findings, then build v1a (census slice). No operator action pending.'
+  RE_REVIEW_2026_09_14: >-
+    Tier-3 x2 re-review of the rewritten plan = FIX-PLAN-FIRST (spine honest, all citations re-greped);
+    ALL fixes applied. camera_census.py prior-art added (device_id resolver = intra-integration de-dup is
+    reliable, only cross-integration needs operator grouping). v1a now owns record schema+CONF_APPLIANCE_RECORDS
+    (CM options, default []); observability meta-test moved to v1d; register AFTER energy; invariants restated
+    testable (entity-exclusivity+group-completeness+no-drop; zero-async_call patch-assert). Citations fixed.
+    Plan build-ready for v1a (census). Deploy of any slice = Tier-3 operator checkpoint.
+  next: 'BUILD v1a (census slice): scaffold first-class passive ApplianceCoordinator (after Energy) + CONF_APPLIANCE_RECORDS schema/read side + 3-source discovery w/ device_id dedup + sensor.ura_appliance_census; commands nothing. Then Tier-3 checkpoint before deploy. No operator action pending.'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"

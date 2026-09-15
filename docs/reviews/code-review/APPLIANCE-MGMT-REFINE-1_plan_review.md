@@ -39,3 +39,13 @@ Both framings returned **FIX-PLAN-FIRST**. The plan re-scopes to EXTEND, not bui
 Both agree: re-scope to EXTEND SPANCircuitMonitor + operator-declared mapping, staged. Operator ordered a
 deep coordinator-pattern + prior-art sweep (zero duplication, mature patterns only) before the rewrite.
 Sweep dispatched 2026-09-14 (3 agents: pattern-maturity, reuse-map, extend-vs-new). Build NOT dispatched.
+
+---
+
+## RE-REVIEW (post-rewrite, Tier-3 x2) — 2026-09-14
+
+Both framings FIX-PLAN-FIRST; spine confirmed honest (all reuse citations re-greped, drift ≤2). All fixes applied to the rewritten plan.
+- **A (reuse+invariants):** camera_census.py prior-art surface was MISSING → added (resolve_configured_cameras :570 device_id dedup, unresolved-snapshot :631/:1048, cross-platform :658). Blocklist #2 narrowed: intra-config-entry device_id grouping IS reliable+in-production (use it); only CROSS-integration joins fragile. Both invariants restated testable: (i) entity-exclusivity+group-completeness+no-drop; (ii) zero hass.services.async_call of any domain (patch-assert-zero). Citation fixes: NON_GUEST_HOSTNAME_PREFIXES (not IOT_*), UI_COORDINATORS@:34 (=OUT, :24 is COORDINATOR_EMIT_LABELS), _devices.py package-root + DEVICE_MODELS. F4 (v1c): PeakAvoidanceTracker = rate+guard reuse; per-appliance attribution is NEW.
+- **B (scaffolding+build):** slice-boundary defects. v1a now owns the record schema+CONF_APPLIANCE_RECORDS(default [])+read side (metric_baselines CANNOT hold it — numeric-only, prunes non-metric rows). Observability meta-test moved to v1d (presupposes AnomalyDetector; would ship v1a RED); it's a PAIR of module constants + 4 edits. Registration AFTER energy (insertion-order setup or SPAN source empty at boot). Freshness knob named (APPLIANCE_STALE_MAX_AGE_S, appliance_const.py). enable default=True stated. strings=2 sub-sites. UI_COORDINATORS=OUT stated. Same-entity-in-two-records hole closed (reject-at-flow-validation).
+
+Plan now build-ready for v1a. Deploy of any slice = Tier-3 operator checkpoint.

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T22:26:45-05:00_ - _Data commit: `743ff0be3925`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T22:32:27-05:00_ - _Data commit: `3199c63ee4ee`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -829,10 +829,10 @@ _created 2026-09-12 16:30 · initial_
 - **Problem / Solution:**
   - Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution: critique + refine the v3 plan, find the highest...
 - **Why:** operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral slice) is the existing card — this is the parent refine-and-widen.
-- **Next:** WAITING ON ME: re-review the REWRITTEN plan (Tier-3 x2 framing-disjoint; prior reviews were on the superseded draft), fix any findings, then build v1a (census slice). No operator action pending.
+- **Next:** BUILD v1a (census slice): scaffold first-class passive ApplianceCoordinator (after Energy) + CONF_APPLIANCE_RECORDS schema/read side + 3-source discovery w/ device_id dedup + sensor.ura_appliance_census; commands nothing. Then Tier-3 che...
 - **Tags:** tier-2db
 - **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
-- **Forensic keys (11):**
+- **Forensic keys (12):**
   - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
   - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
   - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
@@ -844,6 +844,7 @@ _created 2026-09-12 16:30 · initial_
   - `PLAN_REVIEWS_2026_09_14`: TIER-3 x2 framing-disjoint plan reviews = BOTH FIX-PLAN-FIRST (record: docs/reviews/code-review/APPLIANCE-MGMT-REFINE-1_plan_review.md). Headline: most of the coordinator ALREADY EXISTS as SPANCircuitMonitor (energy_circuits.py) + energy...
   - `RESCOPE_DIRECTION_2026_09_14`: Operator: rewrite the plan after a DEEP coordinator-pattern + prior-art sweep; ZERO duplication; use our MOST MATURE patterns, avoid the ones we cannot rely on. (Reflection = genuine consideration time, not a test.) Sweep dispatched (3 r...
   - `REWRITTEN_2026_09_14`: Plan REWRITTEN post-sweep (3 agents): FIRST-CLASS passive ApplianceCoordinator (appears under 'Add Coordinator', own enable switch + own AnomalyDetector + sensor.ura_appliance_anomaly) -- architecture decision per operator ("where it sho...
+  - `RE_REVIEW_2026_09_14`: Tier-3 x2 re-review of the rewritten plan = FIX-PLAN-FIRST (spine honest, all citations re-greped); ALL fixes applied. camera_census.py prior-art added (device_id resolver = intra-integration de-dup is reliable, only cross-integration ne...
 
 ## 🚀 Shipped (organic open) (20)
 _live, awaiting proof_
