@@ -48,6 +48,8 @@ DEVICE_NAMES: Final[dict[str, str]] = {
     "hvac_coordinator": "URA: HVAC Coordinator",
     "optimization_coordinator": "URA: Optimization Coordinator",
     "music_following_coordinator": "URA: Music Following Coordinator",
+    # APPLIANCE-MGMT-REFINE-1 v1a: first-class passive coordinator.
+    "appliance_coordinator": "URA: Appliance Coordinator",
     "notification_manager": "URA: Notification Manager",
 }
 DEVICE_MODELS: Final[dict[str, str]] = {
@@ -63,6 +65,8 @@ DEVICE_MODELS: Final[dict[str, str]] = {
     "hvac_coordinator": "HVAC Coordinator",
     "optimization_coordinator": "Optimization Coordinator",
     "music_following_coordinator": "Music Following Coordinator",
+    # APPLIANCE-MGMT-REFINE-1 v1a.
+    "appliance_coordinator": "Appliance Coordinator",
     "notification_manager": "Notification Manager",
 }
 
@@ -142,6 +146,8 @@ PARENT_MAP: Final[dict[tuple[str, str], tuple[str, str]]] = {
     (DOMAIN, "hvac_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "optimization_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "music_following_coordinator"): (DOMAIN, "coordinator_manager"),
+    # APPLIANCE-MGMT-REFINE-1 v1a: first-class peer of the other coords.
+    (DOMAIN, "appliance_coordinator"): (DOMAIN, "coordinator_manager"),
     (DOMAIN, "notification_manager"): (DOMAIN, "coordinator_manager"),
 }
 
