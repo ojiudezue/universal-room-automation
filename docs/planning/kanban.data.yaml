@@ -19275,7 +19275,7 @@ cards:
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
   title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
   thread: config-flow
-  status: planned
+  status: waiting_operator
   created: '2026-09-12 17:50'
   updated: '2026-09-12 17:50'
   refinement_status: initial
@@ -19337,6 +19337,16 @@ cards:
     band coming via explicit passthrough (byte-identical value). GUEST gate + AWAY veto + infra
     enum/switch duality are DOCUMENTED ONLY, never touched.
   next: 'PLAN-REVIEW (Tier 2-DB, before build): re-grep consumers independently, confirm basement/outdoor band values vs safety.py tables, confirm no options-flow migration, confirm D3 byte-identical on no-outdoor path. Then build D1-D4.'
+  PLAN_REVIEW_2026_09_14: >-
+    Tier 2-DB adversarial PLAN review = FIX-PLAN-FIRST (1 CRITICAL, 3 HIGH). Review record:
+    docs/reviews/code-review/ROOM-CLASSIFICATION-CONSISTENCY-1_plan_review.md. CRITICAL: TWO outdoor
+    coercion sites; the load-bearing one (safety.py:1319-1323) was built by NM Cycle A to SUPPRESS
+    outdoor humidity pages -- "retire the coercion" would resume real NM pages. Live .storage check:
+    0 rooms typed basement, 0 zones flagged outdoor -> D2/D3 wire dead paths with ZERO current consumer,
+    both net-negative (basement wiring turns on un-knobbed 65%-RH LOW paging). RE-SCOPED:
+    D1 (documentation) BUILT -> docs/architecture/ROOM_CLASSIFICATION.md (all review corrections folded).
+    D2 (basement) + D3 (outdoor coercion) PARKED with config-trigger revival + attached safety-test reqs.
+  next: "PICK: (A) accept D1-docs-only + park D2/D3 [RECOMMENDED -- live config has 0 basement/0 outdoor rooms, so wiring them is net-negative until a real consumer exists] -> I close this card. Or (B) build D2/D3 anyway with the review's safety tests -> I run the full Tier-2-DB build. My rec: (A)."
 
 - id: CAMERA-STUCK-MASTER-HALLWAY-1
   title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"

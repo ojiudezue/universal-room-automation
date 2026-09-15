@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T21:41:17-05:00_ - _Data commit: `3f99b5baa5ba`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T21:45:53-05:00_ - _Data commit: `70920e7226b3`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -12,10 +12,10 @@ _Generated: 2026-09-14T21:41:17-05:00_ - _Data commit: `3f99b5baa5ba`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 9 |
+| 📝 Planned | 8 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 21 |
+| ⏸️ Waiting on operator | 22 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 20 |
 | 🅿️ Parked | 51 |
@@ -285,7 +285,7 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-## 📝 Planned (9)
+## 📝 Planned (8)
 _has plan / acceptance_
 
 ### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -432,19 +432,6 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
   - `audit_2026_08_25_orchestrator`: Fresh-look audit (partial): MECHANISM CONFIRMED in current code. should_change_preset (hvac_preset.py:214-219) returns False when current_preset=='manual' ('Don't fight manual — that's the arrester's job') — so once a zone is in manual t...
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
 
-### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **config-flow** - status: **planned** - approval: **explicit**
-_created 2026-09-12 17:50 · initial_
-- **Problem / Solution:**
-  - Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented inconsistently and scattered: CONF_ROOM_IS_...
-- **Why:** surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these coherently, which exposed that the underlying representation is itself inconsistent). Operator wants it carded but explicitly gated on audi...
-- **Next:** PLAN-REVIEW (Tier 2-DB, before build): re-grep consumers independently, confirm basement/outdoor band values vs safety.py tables, confirm no options-flow migration, confirm D3 byte-identical on no-outdoor path. Then build D1-D4.
-- **Tags:** audit-first, institutional-context, tier-2db
-- **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
-- **Forensic keys (2):**
-  - `AUDITED_2026_09_14`: AUDIT DONE (read-only) -> docs/planning/AUDIT_room_classification_consistency.md. Enumerated producer/consumer/blast-radius for all 6 surfaces. Key findings: infrastructure is represented TWICE (ROOM_TYPE enum + live switch.infrastructur...
-  - `OPTION_A_PICKED_2026_09_14`: OPERATOR PICKED OPTION A ("but well documented"). Plan written -> docs/planning/PLANNING_room_classification_option_a.md (Tier 2-DB, plan-review pending). Low-churn: keep every consumer read pattern, DOCUMENT the model + invariants (D1),...
-
 ## 🔨 In progress (1)
 _being built_
 
@@ -474,7 +461,7 @@ _updated 2026-09-12 10:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it's REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.
   - `BUILT_2026_09_14`: BUILT @ feature/perimeter-leg-superset-warn — in review, not deployed. The boot-time shadow diff now exists: _warn_if_not_leg_superset (perimeter_alert.py) computes what the LEGACY fallback WOULD cover and WARNs if the resolver leg set i...
 
-## ⏸️ Waiting on operator (21)
+## ⏸️ Waiting on operator (22)
 _needs a human call — groomed first_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
@@ -775,7 +762,21 @@ _created 2026-09-12 16:30 · initial_
   - `PLAN_WRITTEN_2026_09_14`: Plan drafted -> docs/planning/PLANNING_appliance_coordinator_v1.md. v1 = READ-ONLY census + categorization + anomaly wiring (NO control actuation; NO breaker ever). Tier 3 (new coordinator). D0 measure-first entity probe; D1 3-axis categ...
   - `CATEGORIZATION_REFINED_2026_09_14`: Operator: categorize by WHAT THE APPLIANCE DOES (Media, Kitchen Appliance, etc.), INDEPENDENT of the add-vector (breaker vs API). Plan D1 now has 4 orthogonal axes; the PRIMARY is functional domain (media_av/kitchen/laundry/climate/cold_...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#21 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `ROOM-CLASSIFICATION-CONSISTENCY-1` - Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup — _#21 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
+_created 2026-09-12 17:50 · initial_
+- **Problem / Solution:**
+  - Problem: URA mixes room FUNCTION (ROOM_TYPE: bedroom/kitchen/... + utility/infrastructure) with LOAD-BEARING structural classes that change cross-coordinator behaviour, but they are represented inconsistently and scattered: CONF_ROOM_IS_...
+- **Why:** surfaced by the ONBOARDING-SIMPLIFY-1 refinement (the onboarding room step wants to present these coherently, which exposed that the underlying representation is itself inconsistent). Operator wants it carded but explicitly gated on audi...
+- **Next:** PICK: (A) accept D1-docs-only + park D2/D3 [RECOMMENDED -- live config has 0 basement/0 outdoor rooms, so wiring them is net-negative until a real consumer exists] -> I close this card. Or (B) build D2/D3 anyway with the review's safety ...
+- **Tags:** audit-first, institutional-context, tier-2db
+- **Refs:** custom_components/universal_room_automation/const.py; custom_components/universal_room_automation/domain_coordinators/presence.py
+- **Forensic keys (3):**
+  - `AUDITED_2026_09_14`: AUDIT DONE (read-only) -> docs/planning/AUDIT_room_classification_consistency.md. Enumerated producer/consumer/blast-radius for all 6 surfaces. Key findings: infrastructure is represented TWICE (ROOM_TYPE enum + live switch.infrastructur...
+  - `OPTION_A_PICKED_2026_09_14`: OPERATOR PICKED OPTION A ("but well documented"). Plan written -> docs/planning/PLANNING_room_classification_option_a.md (Tier 2-DB, plan-review pending). Low-churn: keep every consumer read pattern, DOCUMENT the model + invariants (D1),...
+  - `PLAN_REVIEW_2026_09_14`: Tier 2-DB adversarial PLAN review = FIX-PLAN-FIRST (1 CRITICAL, 3 HIGH). Review record: docs/reviews/code-review/ROOM-CLASSIFICATION-CONSISTENCY-1_plan_review.md. CRITICAL: TWO outdoor coercion sites; the load-bearing one (safety.py:1319...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#22 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**
