@@ -86,7 +86,24 @@ ancestry-vs-content confusion could not have caused a wrong delete.
 
 ---
 
-## Live Validation — to be completed post-restart
+## Validated 2026-09-14 (post-restart)
 
-- [ ] Household routine sensor no longer `major_shift` on May-dated rows
-- [ ] Person routine sensors unchanged (already correct in v5.101.3)
+HA restarted 2026-09-14T13:47:11Z. URA: 5 entities unavailable (normal). **No button was
+pressed** — the change is entirely from the recency bound.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Household sensor leaves `major_shift` | **PASS** | `sensor.ura_coordinator_manager_household_routine_status` = **`shifted`** (was `major_shift`) |
+| Aged rows stop driving it | **PASS** | `total_unacknowledged_events` **462 → 250**. The 212 rows older than 56 days (2026-05-15..05-28, including the three severity-4 rows that had pinned it since May) dropped out of the query. |
+| Person sensors unchanged | **PASS** | Jaya `shifted`, Ziri `shifted` — consistent with v5.101.3, no regression |
+| v5.101.3 D1 still intact | **PASS** | `suppressions_by_camera` = `{}` (present, empty — nothing suppressed since restart) |
+| v5.101.2 TOU still intact | **PASS** | `tou_file_status` = `ok` |
+
+**The operator's requirement is met:** an unacknowledged routine shift is no longer a problem —
+it stops driving the sensor once it ages past the detector's own baseline window, with no human
+action required. The acknowledge button still clears early if wanted.
+
+**Correctly still `shifted`, not `stable`:** 250 rows remain *inside* the 56-day window. Those are
+recent shifts and should count. They will clear individually as their cells return to stable, via
+the v5.101.3 discharge — which is the other half of this card and only fires on a *future*
+return-to-stable, so it does not retroactively clear the backlog.

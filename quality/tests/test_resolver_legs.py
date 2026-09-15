@@ -713,3 +713,81 @@ def test_kill_switch_default_on_and_gates_resolve_legs():
         assert mgr._resolve_legs("camera.back_yard", "person") == []
     finally:
         pa.PERIMETER_MULTI_ENGINE_LEGS_ENABLED = saved
+
+
+# ======================================================================
+# TEST-1: boot-time shadow diff — resolver leg set must superset legacy.
+# A live tripwire for silent coverage shrinkage (a hardened surface given
+# new methods; something is bound to fall through). Drives the extracted
+# helper _warn_if_not_leg_superset directly.
+# ======================================================================
+
+def _mgr_for_superset(monkeypatch, legacy_legs):
+    pa = _load_pa_module()
+    mgr = pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
+    # stub the legacy fallback to a controlled leg set
+    mgr._legacy_leg_fallback = lambda base, cam, fam: legacy_legs
+    return mgr, pa
+
+
+def test_superset_ok_no_warning(monkeypatch, caplog):
+    """Resolver covers everything legacy would → no missing, no warn."""
+    import logging
+    mgr, _ = _mgr_for_superset(
+        monkeypatch,
+        [("binary_sensor.cam_person_occupancy", "legacy"),
+         ("binary_sensor.cam_person_occupancy_2", "legacy2")],
+    )
+    subscribed = {
+        "binary_sensor.cam_person_occupancy",
+        "binary_sensor.cam_person_occupancy_2",
+        "binary_sensor.cam_person_detected",  # resolver added MORE — fine
+    }
+    with caplog.at_level(logging.WARNING):
+        missing = mgr._warn_if_not_leg_superset(
+            "camera.cam", "binary_sensor.cam_person_occupancy", "person", subscribed,
+        )
+    assert missing == set()
+    assert "shadow diff" not in caplog.text
+
+
+def test_shrinkage_warns_and_names_the_missing_leg(monkeypatch, caplog):
+    """THE TRIPWIRE: legacy would cover a leg the resolver dropped → WARN
+    naming exactly that leg."""
+    import logging
+    mgr, _ = _mgr_for_superset(
+        monkeypatch,
+        [("binary_sensor.cam_person_occupancy", "legacy"),
+         ("binary_sensor.cam_person_detected", "legacy")],  # protect leg
+    )
+    subscribed = {"binary_sensor.cam_person_occupancy"}  # resolver dropped the protect leg
+    with caplog.at_level(logging.WARNING):
+        missing = mgr._warn_if_not_leg_superset(
+            "camera.cam", "binary_sensor.cam_person_occupancy", "person", subscribed,
+        )
+    assert missing == {"binary_sensor.cam_person_detected"}
+    assert "coverage shrinkage" in caplog.text
+    assert "binary_sensor.cam_person_detected" in caplog.text
+
+
+def test_shadow_diff_is_observability_only_never_raises(monkeypatch):
+    """A broken legacy fallback must not break setup — swallow + return empty."""
+    def _boom(*a, **k):
+        raise RuntimeError("legacy exploded")
+    pa = _load_pa_module()
+    mgr = pa.PerimeterAlertManager.__new__(pa.PerimeterAlertManager)
+    mgr._legacy_leg_fallback = _boom
+    assert mgr._warn_if_not_leg_superset("camera.c", "binary_sensor.c", "person", set()) == set()
+
+
+def test_shadow_diff_call_site_wired_in_async_setup():
+    """WIRE-IN ANCHOR: the helper only tripwires if async_setup calls it on
+    the resolver path. Assert the call exists inside async_setup's source,
+    scoped to that method (not merely anywhere in the file)."""
+    import inspect
+    pa = _load_pa_module()
+    src = inspect.getsource(pa.PerimeterAlertManager.async_setup)
+    assert "_warn_if_not_leg_superset(" in src, (
+        "async_setup does not call the shadow-diff helper — the tripwire "
+        "never runs no matter how correct the helper is"
+    )
