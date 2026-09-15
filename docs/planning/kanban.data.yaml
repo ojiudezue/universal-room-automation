@@ -19098,6 +19098,29 @@ cards:
   - "Q3 TV CONTROL PATH: TVs named as controllable — via what? webOS/LG ThinQ, HDMI-CEC, a smart plug, or media_player? The control primitive is unclear and each has different semantics (a TV is not a deferrable load like a dishwasher)."
   - "Q4 CENSUS SCOPE: should the visibility census attribute per-appliance COST (kWh x TOU rate) or just power/energy? Cost needs the TOU engine join."
   next: 'PICK v1 scope + answer Q1-Q4. Recommended v1 = read-only appliance-energy CENSUS (layer a, reuse the 74 sensors, measure-first probe on liveness/freshness of those sensors), with delay-start control (layer b) as the next cycle. Then I write a lean APPLIANCE-CENSUS plan (NOT a v3 revival). Q1 (breaker safety allowlist) blocks any control build.'
+  RESIDUAL_ANSWERS_2026_09_14: >-
+    Operator answered the 4 residual questions:
+    Q1 (breaker control): NOT a controller lever. SPAN breaker on/off is "just an architectural
+    fact we can decide to use or not" -- do NOT wire it as an appliance control action. INSTEAD, at
+    minimum, the appliance coordinator must CONNECT UP TO THE ANOMALY SUBSYSTEM like every other
+    coordinator (emit findings the standard way). [prior-art search dispatched]. Cold-chain/heat
+    breaker-off is off the table for automation.
+    Q2 (lists): warming-drawer/kettle (measure-only) and LG-dishwasher/fridge/TVs (controllable) are
+    EXAMPLES, not the full v1 lists -- plan needs a CATEGORIZATION scheme, not a hardcoded enum.
+    Q3 (TV/AV control path): heterogeneous by device -- Samsung integration (Samsung TVs), Amazon
+    Fire TV, EPSON projector, Denon AVR. Some loads approximated via a power-measuring smart plug
+    which ALSO gives on/off. So control primitive is per-device, and a smart plug is both a measure
+    source AND a control actuator for otherwise-dumb loads.
+    Q4 (cost attribution): YES attribute per-appliance cost (kWh x TOU) -- "its infra for a reason."
+    BUT carefully: some appliance energy is served by solar/battery, so the plan MUST separate
+    ENERGY USED (kWh, unambiguous) from COST ATTRIBUTION (which depends on the grid-vs-solar-vs-battery
+    mix at the time of draw). Do not naively multiply every kWh by the import rate.
+  PLAN_MUST_INCLUDE_2026_09_14: >-
+    Operator: "We will need some kind of appliance CATEGORIZATION in the plan" (corrected from
+    'attribution'). The plan needs an appliance categorization scheme -- e.g. by control-axis
+    (measure-only vs controllable), by load-type (cold-chain / heat / deferrable-wet / entertainment-AV
+    / etc.), and by source (SPAN circuit / Emporia channel / smart-plug / native integration). Plus the
+    energy-vs-cost attribution model (Q4) and the anomaly-subsystem wiring (Q1).
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"

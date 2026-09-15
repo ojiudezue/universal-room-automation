@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T17:53:04-05:00_ - _Data commit: `80092a8cb540`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-14T20:54:07-05:00_ - _Data commit: `238fef87fbaf`_ - _last_reconciled: 2026-09-14_
 
 
 ## Columns
@@ -294,10 +294,12 @@ _created 2026-09-12 16:30 · initial_
 - **Next:** PICK v1 scope + answer Q1-Q4. Recommended v1 = read-only appliance-energy CENSUS (layer a, reuse the 74 sensors, measure-first probe on liveness/freshness of those sensors), with delay-start control (layer b) as the next cycle. Then I wr...
 - **Tags:** tier-2db
 - **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
-- **Forensic keys (3):**
+- **Forensic keys (5):**
   - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
   - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
   - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
+  - `RESIDUAL_ANSWERS_2026_09_14`: Operator answered the 4 residual questions: Q1 (breaker control): NOT a controller lever. SPAN breaker on/off is "just an architectural fact we can decide to use or not" -- do NOT wire it as an appliance control action. INSTEAD, at minim...
+  - `PLAN_MUST_INCLUDE_2026_09_14`: Operator: "We will need some kind of appliance CATEGORIZATION in the plan" (corrected from 'attribution'). The plan needs an appliance categorization scheme -- e.g. by control-axis (measure-only vs controllable), by load-type (cold-chain...
 
 ## 📝 Planned (9)
 _has plan / acceptance_
