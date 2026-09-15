@@ -9,6 +9,12 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'HVAC-ANOMALY-BLIND-1@2026-09-15T16:50', at: '2026-09-15T16:50:00', outcome: investigated,
+     headline: 'GOOD NEWS AND A NEW PROBLEM. Good: the short-cycle detector you shipped in v5.90.0 IS working — I can see it counting today (zone_1:1, zone_2:2, zone_3:1) and surviving restarts. The card telling us to "plan the producer" was 3 weeks stale. New problem: it has only banked 2 days of history in ~20 days, so it is still years away from the 14-day maturity gate it needs before it can ever raise an alarm. It is wired and still effectively blind. I did NOT build the obvious fix (make the sensor say "degraded" when a check is silent) because it would pin the sensor to degraded FOREVER — two of the five checks are deliberately never wired — and because the accrual bug decides what that fix should even say. Probe runs at tonight''s rollover: if the count goes 2->3 the deficit is historical; if it stays 2 it is a live defect.',
+     acknowledged: false}
+  - {fid: 'VERIFY-BEFORE-WORK-SWEEP-1@2026-09-15T16:20', at: '2026-09-15T16:20:00', outcome: done,
+     headline: 'Closed the board-wide verification sweep card — it was still sitting in "in progress" three days after it finished. Verified by counting artifacts rather than trusting the card: 97 cards carry a dated sweep verdict (matching the ~101 open at the time) and the doctrine now lives in the kanban skill, so it loads every session instead of depending on this card staying open. Leaving it open was the exact stale-lane drift the card exists to kill.',
+     acknowledged: false}
   - {fid: 'OVERNIGHT-PASS-SUMMARY@2026-09-15T05:00', at: '2026-09-15T05:00:00', outcome: investigated,
      headline: 'WHY NOTHING REACHED THE REVIEW LANE TONIGHT: the contract says Tier-1/2 builds that pass the gate go build -> review -> validate, but validation runs the suite, and the suite is currently unrunnable (10,560 of 10,588 tests error at setup). So the build lane is blocked at the harness until you PICK on TEST-HARNESS-REAL-HA-DEFAULT-1. The pass ran 8 read-only probes instead and disposed 10 cards: 1 closed-refuted, 3 parked at the gate, 6 escalated with measurements attached. No deploys (occupied sleeping house), and no NM page — these are non-urgent decisions and 03:00 buzzing is hostile timing; the board is the report.',
      acknowledged: false}
