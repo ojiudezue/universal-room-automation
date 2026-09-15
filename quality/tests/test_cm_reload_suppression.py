@@ -398,9 +398,15 @@ def _verify_hand_typed_conf_literals(ns: dict) -> None:
             canonical.setdefault(m.group(1), m.group(2))
     mismatches: list[str] = []
     for alias, hand_value in list(ns.items()):
-        if not alias.startswith("_CONF_"):
+        # B-MED-1 fix-up (APPLIANCE-MGMT-REFINE-1 v1b): the prior guard
+        # only matched `_CONF_*` aliases and silently skipped bare
+        # `CONF_*` stubs (e.g. `CONF_APPLIANCE_RECORDS`), so a
+        # hand-typed literal drifting from the const source would slip
+        # past the cross-check. Cover both prefixes.
+        stripped = alias.lstrip("_")
+        if not stripped.startswith("CONF_"):
             continue
-        real_name = alias.lstrip("_")  # "_CONF_X" -> "CONF_X"
+        real_name = stripped  # "_CONF_X" -> "CONF_X"; "CONF_X" -> "CONF_X"
         if real_name not in canonical:
             # Not every ns alias is guaranteed to exist in const sources
             # (some helper stubs are legitimately test-scoped) — skip.

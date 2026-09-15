@@ -2041,7 +2041,10 @@
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again.",
       "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay.",
       "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay.",
-      "confirm_name_mismatch": "That doesn't match the zone name. Type the zone name exactly to confirm removal."
+      "confirm_name_mismatch": "That doesn't match the zone name. Type the zone name exactly to confirm removal.",
+      "name_required": "Name is required.",
+      "entity_already_claimed": "One or more of the selected entities is already claimed by another appliance record. Remove it from the other record first, or pick different entities.",
+      "no_entities": "Add at least one entity (power, energy, control, or state) to this appliance."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",

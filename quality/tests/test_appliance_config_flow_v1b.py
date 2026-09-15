@@ -16,13 +16,17 @@ Covers:
 - Edit path preserves entity ownership (editing the SAME record with its
   own entities does NOT trip the entity-exclusivity check).
 - Remove path deletes the record.
-- No-CM-reload: ``CONF_APPLIANCE_RECORDS`` is a member of both
-  ``OPTIONS_RELOAD_SUPPRESS_KEYS`` and ``_NO_LIVE_ATTR_KEYS`` so an
-  onboarding save takes the in-place-apply branch.
+- Stable record identity: records are keyed by uuid ``id``, not list
+  index. A stale menu-key from a concurrent flow session cannot
+  edit/delete the wrong record (A-HIGH-1/2 + B-LOW-1/2).
+- No-CM-reload: LISTENER BEHAVIORAL test (not comment grep) — a
+  records-only save on the real ``_async_update_listener`` produces
+  zero ``async_create_task`` calls; a mixed change does reload.
 - Mutation drill anchors:
-  * Neuter the record-writer (make save a no-op) -> add round-trip test RED.
+  * Neuter the record-writer (save CONF_APPLIANCE_RECORDS -> some
+    other key) -> census-linkage test RED.
   * Remove ``CONF_APPLIANCE_RECORDS`` from ``OPTIONS_RELOAD_SUPPRESS_KEYS`` ->
-    no-reload assertion RED.
+    the records-only reload-suppress test goes RED.
 
 Piggybacks on ``test_cycle_b_config_flow._load_config_flow`` (HA-mock
 harness) to compile config_flow without a live HA install.
@@ -30,11 +34,9 @@ harness) to compile config_flow without a live HA install.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import importlib
 import os
 import sys
-import types
 
 
 # Load the v1a coordinator-test module FIRST so its HA-mock scaffolding
@@ -92,6 +94,39 @@ def _make_cm_options_flow(records=None):
     return flow
 
 
+class _CensusEntry:
+    """Fake ConfigEntry mirroring the shape ApplianceCoordinator reads."""
+
+    def __init__(self, data, options, title=""):
+        self.data = data
+        self.options = options
+        self.title = title
+        self.entry_id = "cm-test"
+
+
+def _build_census_hass(cm_options: dict, extra_entries=None, span=None):
+    """Build a MagicMock hass with a CM entry carrying ``cm_options`` +
+    any additional URA config entries (e.g. ROOM entries)."""
+    from unittest.mock import MagicMock
+
+    cm = _CensusEntry({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, cm_options)
+    entries = [cm] + list(extra_entries or [])
+    hass = MagicMock()
+    hass.config_entries.async_entries = lambda _d: entries
+    hass.states.get = lambda _e: None
+    coordinator_manager = None
+    if span is not None:
+        energy = MagicMock()
+        energy._circuits = MagicMock()
+        energy._circuits._circuits = span
+        coordinator_manager = MagicMock()
+        coordinator_manager.coordinators = {"energy": energy}
+    hass.data = {"universal_room_automation": {
+        "coordinator_manager": coordinator_manager,
+    }}
+    return hass
+
+
 # ---------------------------------------------------------------------------
 # Menu wiring
 # ---------------------------------------------------------------------------
@@ -105,9 +140,11 @@ def test_cm_init_menu_includes_coordinator_appliance():
 
 
 def test_coordinator_appliance_menu_lists_records_plus_add():
-    """Menu carries an add key + one edit key per record."""
+    """Menu carries an add key + one edit key per record, keyed by
+    stable record id (uuid), not list index."""
     records = [
         {
+            "id": "aaaaaaaa",
             "name": "Fridge",
             "functional_domain": "cold_chain",
             "room": "Kitchen",
@@ -118,6 +155,7 @@ def test_coordinator_appliance_menu_lists_records_plus_add():
             "source_tags": ["ura_config"],
         },
         {
+            "id": "bbbbbbbb",
             "name": "Washer",
             "functional_domain": "laundry",
             "room": "Laundry",
@@ -133,8 +171,11 @@ def test_coordinator_appliance_menu_lists_records_plus_add():
     assert result["type"] == "menu"
     keys = list(result["menu_options"].keys())
     assert "apick_new" in keys
-    assert "apick_0" in keys
-    assert "apick_1" in keys
+    assert "apick_aaaaaaaa" in keys
+    assert "apick_bbbbbbbb" in keys
+    # Map exposes menu-key -> record `id`, not list index.
+    assert flow._appliance_menu_map["apick_aaaaaaaa"] == "aaaaaaaa"
+    assert flow._appliance_menu_map["apick_bbbbbbbb"] == "bbbbbbbb"
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +185,7 @@ def test_coordinator_appliance_menu_lists_records_plus_add():
 
 def test_add_new_record_round_trip():
     flow = _make_cm_options_flow(records=[])
-    flow._appliance_edit_index = None
+    flow._appliance_edit_id = None
     result = _run(flow.async_step_appliance_form(user_input={
         "name": "Kitchen Fridge",
         "functional_domain": "cold_chain",
@@ -160,133 +201,116 @@ def test_add_new_record_round_trip():
     assert saved[0]["name"] == "Kitchen Fridge"
     assert saved[0]["functional_domain"] == "cold_chain"
     assert saved[0]["entity_refs"]["power"] == ["sensor.fridge_power"]
+    # Stable identity: create mints a non-empty uuid `id` string.
+    assert isinstance(saved[0].get("id"), str) and saved[0]["id"]
+
+
+# ---------------------------------------------------------------------------
+# Flow -> census linkage (A-HIGH-3 fix-up — chain the REAL writer through
+# to ApplianceCoordinator.resolve_census, not a hand-forged record dict).
+# ---------------------------------------------------------------------------
+
+
+def _run_flow_and_get_saved(records_before, user_input, edit_id=None):
+    flow = _make_cm_options_flow(records=records_before)
+    flow._appliance_edit_id = edit_id
+    result = _run(flow.async_step_appliance_form(user_input=user_input))
+    assert result["type"] == "create_entry", result
+    return result["data"][CONF_APPLIANCE_RECORDS]
 
 
 def test_add_record_appears_in_census_with_declared_domain():
-    """Declared record round-trips through options -> census reader wires
-    the record's functional_domain (not "other").
+    """Flow -> census linkage: run the REAL writer, feed its saved list
+    into the CM entry.options, and assert resolve_census() surfaces the
+    record with its declared functional_domain.
     """
-    # Import + inject the coordinator's runtime path only for this test.
     from custom_components.universal_room_automation.domain_coordinators.appliance import (  # noqa: E402
         ApplianceCoordinator,
     )
-    from unittest.mock import MagicMock
 
-    # Simulate an entry.options with the new record.
-    class _E:
-        def __init__(self, data, options, title=""):
-            self.data = data
-            self.options = options
-            self.title = title
-            self.entry_id = "x"
-
-    entries = [
-        _E({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, {
-            CONF_APPLIANCE_RECORDS: [{
-                "name": "Living Room TV",
-                "functional_domain": "media_av",
-                "room": "Living Room",
-                "entity_refs": {
-                    "power": [], "energy": [], "control": [],
-                    "state": ["media_player.living_tv"],
-                },
-                "source_tags": ["ura_config"],
-            }],
-        }),
-    ]
-    hass = MagicMock()
-    hass.config_entries.async_entries = lambda _domain: entries
-    hass.states.get = lambda _eid: None
-    hass.data = {"universal_room_automation": {"coordinator_manager": None}}
-    coord = ApplianceCoordinator(hass)
-    recs = coord.resolve_census()
-    assert len(recs) == 1
-    assert recs[0]["name"] == "Living Room TV"
-    # Declared record's functional_domain is preserved (NOT downgraded to "other").
-    assert recs[0]["functional_domain"] == "media_av"
+    saved = _run_flow_and_get_saved(
+        records_before=[],
+        user_input={
+            "name": "Living Room TV",
+            "functional_domain": "media_av",
+            "room": "Living Room",
+            "power": [],
+            "energy": [],
+            "control": [],
+            "state": ["media_player.living_tv"],
+        },
+    )
+    hass = _build_census_hass({CONF_APPLIANCE_RECORDS: saved})
+    recs = ApplianceCoordinator(hass).resolve_census()
+    assert any(
+        r["name"] == "Living Room TV" and r["functional_domain"] == "media_av"
+        for r in recs
+    )
 
 
 def test_net_new_tv_absent_until_added_then_present():
-    """media_player not in any URA room config is invisible in v1a until
-    the operator declares it as a record via the v1b flow.
+    """A media_player not referenced by any URA room config is invisible
+    until the operator declares it via the flow. Drive the REAL flow to
+    add it, then chain through resolve_census().
     """
     from custom_components.universal_room_automation.domain_coordinators.appliance import (  # noqa: E402
         ApplianceCoordinator,
     )
-    from unittest.mock import MagicMock
 
-    class _E:
-        def __init__(self, data, options, title=""):
-            self.data = data
-            self.options = options
-            self.title = title
-            self.entry_id = "x"
+    room_entry = _CensusEntry(
+        {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, "room_name": "Kitchen",
+         "fans": ["fan.kitchen"]}, {},
+    )
 
-    # BEFORE — no ROOM entry references the TV, no declared record.
-    entries_before = [
-        _E({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, {
-            CONF_APPLIANCE_RECORDS: [],
-        }),
-        _E({CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, "room_name": "Kitchen",
-            "fans": ["fan.kitchen"]}, {}),
-    ]
-    hass_b = MagicMock()
-    hass_b.config_entries.async_entries = lambda _d: entries_before
-    hass_b.states.get = lambda _e: None
-    hass_b.data = {"universal_room_automation": {"coordinator_manager": None}}
+    # BEFORE — no declared record.
+    hass_b = _build_census_hass(
+        {CONF_APPLIANCE_RECORDS: []}, extra_entries=[room_entry],
+    )
     recs_before = ApplianceCoordinator(hass_b).resolve_census()
-    names_before = {r["name"] for r in recs_before}
-    assert "media_player.orphan_tv" not in names_before
     assert not any(
         "media_player.orphan_tv" in (r.get("entity_refs", {}).get("state") or [])
         for r in recs_before
     )
 
-    # AFTER — flow saved the declared record.
-    entries_after = [
-        _E({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, {
-            CONF_APPLIANCE_RECORDS: [{
-                "name": "Orphan TV",
-                "functional_domain": "media_av",
-                "room": None,
-                "entity_refs": {
-                    "power": [], "energy": [], "control": [],
-                    "state": ["media_player.orphan_tv"],
-                },
-                "source_tags": ["ura_config"],
-            }],
-        }),
-        _E({CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, "room_name": "Kitchen",
-            "fans": ["fan.kitchen"]}, {}),
-    ]
-    hass_a = MagicMock()
-    hass_a.config_entries.async_entries = lambda _d: entries_after
-    hass_a.states.get = lambda _e: None
-    hass_a.data = {"universal_room_automation": {"coordinator_manager": None}}
+    # Drive the flow to add the TV.
+    saved = _run_flow_and_get_saved(
+        records_before=[],
+        user_input={
+            "name": "Orphan TV",
+            "functional_domain": "media_av",
+            "room": "",
+            "power": [],
+            "energy": [],
+            "control": [],
+            "state": ["media_player.orphan_tv"],
+        },
+    )
+    hass_a = _build_census_hass(
+        {CONF_APPLIANCE_RECORDS: saved}, extra_entries=[room_entry],
+    )
     recs_after = ApplianceCoordinator(hass_a).resolve_census()
-    names_after = {r["name"] for r in recs_after}
-    assert "Orphan TV" in names_after
+    assert any(r["name"] == "Orphan TV" for r in recs_after)
 
 
 def test_cross_integration_triple_covered_appliance_collapses_after_grouping():
-    """A device that has ThinQ state + SPAN power + a room-config entity
-    would produce 3 census records before grouping. After operator
-    groups them into ONE declared record naming all three entities, the
-    census shows ONE record (declared claim suppresses the sibling sources).
+    """Operator groups a SPAN power sensor + a ThinQ state entity under
+    ONE declared record. After the flow saves, the census yields ONE
+    record for the SPAN eid (the declared claim suppresses the SPAN
+    source emission).
+
+    NOTE (A-HIGH-3 fix-up): the previous version of this test asserted
+    ``source_tags == ["ura_config","thinq","span"]`` — an impossible
+    outcome because the flow hard-writes ``source_tags=["ura_config"]``
+    and offers no source-tag field. Rewritten to assert what the flow
+    ACTUALLY yields: ONE census record naming both entities after
+    grouping.
     """
     from custom_components.universal_room_automation.domain_coordinators.appliance import (  # noqa: E402
         ApplianceCoordinator,
     )
     from unittest.mock import MagicMock
 
-    class _E:
-        def __init__(self, data, options, title=""):
-            self.data = data
-            self.options = options
-            self.title = title
-            self.entry_id = "x"
-
-    room_entry = _E(
+    room_entry = _CensusEntry(
         {
             CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
             "room_name": "Laundry",
@@ -295,55 +319,42 @@ def test_cross_integration_triple_covered_appliance_collapses_after_grouping():
         },
         {},
     )
-    # BEFORE grouping — SPAN + room refs both surface. NO declared record.
-    cm_before = _E({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, {
-        CONF_APPLIANCE_RECORDS: [],
-    })
-    hass_b = MagicMock()
-    hass_b.config_entries.async_entries = lambda _d: [cm_before, room_entry]
-    hass_b.states.get = lambda _e: None
-    energy = MagicMock()
-    energy._circuits = MagicMock()
-    energy._circuits._circuits = {
+    span_circuits = {
         "sensor.span_washer_power": MagicMock(friendly_name="Washer"),
     }
-    cm = MagicMock()
-    cm.coordinators = {"energy": energy}
-    hass_b.data = {"universal_room_automation": {"coordinator_manager": cm}}
+
+    # BEFORE grouping — no declared record; SPAN/URA sources compete.
+    hass_b = _build_census_hass(
+        {CONF_APPLIANCE_RECORDS: []},
+        extra_entries=[room_entry],
+        span=span_circuits,
+    )
     recs_before = ApplianceCoordinator(hass_b).resolve_census()
-    # At minimum, the URA-owned power_sensor record shows up (source-3
-    # claims it first, suppressing the SPAN emission for the same eid).
     assert any(
         "sensor.span_washer_power"
         in (r.get("entity_refs", {}).get("power") or [])
         for r in recs_before
     )
 
-    # AFTER — operator declared ONE record grouping SPAN + a ThinQ state
-    # entity. The declared record claims the SPAN eid; the SPAN/URA
-    # sources are suppressed for that eid.
-    cm_after = _E({CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}, {
-        CONF_APPLIANCE_RECORDS: [{
+    # Drive the flow to group SPAN + ThinQ under ONE declared record.
+    saved = _run_flow_and_get_saved(
+        records_before=[],
+        user_input={
             "name": "Washer (grouped)",
             "functional_domain": "laundry",
             "room": "Laundry",
-            "entity_refs": {
-                "power": ["sensor.span_washer_power"],
-                "energy": [],
-                "control": [],
-                # ThinQ state entity — cross-integration bridge under
-                # a single operator-declared record.
-                "state": ["sensor.thinq_washer_state"],
-            },
-            "source_tags": ["ura_config", "thinq", "span"],
-        }],
-    })
-    hass_a = MagicMock()
-    hass_a.config_entries.async_entries = lambda _d: [cm_after, room_entry]
-    hass_a.states.get = lambda _e: None
-    hass_a.data = {"universal_room_automation": {"coordinator_manager": cm}}
+            "power": ["sensor.span_washer_power"],
+            "energy": [],
+            "control": [],
+            "state": ["sensor.thinq_washer_state"],
+        },
+    )
+    hass_a = _build_census_hass(
+        {CONF_APPLIANCE_RECORDS: saved},
+        extra_entries=[room_entry],
+        span=span_circuits,
+    )
     recs_after = ApplianceCoordinator(hass_a).resolve_census()
-    # Exactly ONE record for the SPAN eid — no duplicate URA/SPAN emission.
     matching = [
         r for r in recs_after
         if "sensor.span_washer_power"
@@ -351,13 +362,17 @@ def test_cross_integration_triple_covered_appliance_collapses_after_grouping():
     ]
     assert len(matching) == 1
     assert matching[0]["name"] == "Washer (grouped)"
+    # source_tags is what the FLOW yields, not what the operator claimed.
+    assert matching[0]["source_tags"] == ["ura_config"]
 
 
 def test_edit_existing_record_does_not_trip_exclusivity():
     """Editing a record with its OWN entities must NOT raise
     entity_already_claimed (the exclusivity check must exclude the
-    record being edited)."""
+    record being edited).
+    """
     records = [{
+        "id": "recA",
         "name": "Fridge",
         "functional_domain": "cold_chain",
         "room": "Kitchen",
@@ -368,7 +383,7 @@ def test_edit_existing_record_does_not_trip_exclusivity():
         "source_tags": ["ura_config"],
     }]
     flow = _make_cm_options_flow(records=records)
-    flow._appliance_edit_index = 0
+    flow._appliance_edit_id = "recA"
     result = _run(flow.async_step_appliance_form(user_input={
         "name": "Fridge",
         "functional_domain": "cold_chain",
@@ -382,12 +397,15 @@ def test_edit_existing_record_does_not_trip_exclusivity():
     saved = result["data"][CONF_APPLIANCE_RECORDS]
     assert len(saved) == 1
     assert saved[0]["entity_refs"]["power"] == ["sensor.fridge_power"]
+    # Edit preserves the stable id.
+    assert saved[0]["id"] == "recA"
 
 
 def test_reject_at_validation_entity_already_claimed():
     """Saving a record whose entity is already claimed by ANOTHER record
     is rejected — the form re-renders with an error field."""
     records = [{
+        "id": "recA",
         "name": "Fridge",
         "functional_domain": "cold_chain",
         "room": "Kitchen",
@@ -398,7 +416,7 @@ def test_reject_at_validation_entity_already_claimed():
         "source_tags": ["ura_config"],
     }]
     flow = _make_cm_options_flow(records=records)
-    flow._appliance_edit_index = None  # adding a NEW record
+    flow._appliance_edit_id = None  # adding a NEW record
     result = _run(flow.async_step_appliance_form(user_input={
         "name": "Freezer",
         "functional_domain": "cold_chain",
@@ -416,29 +434,31 @@ def test_reject_at_validation_entity_already_claimed():
 def test_remove_path_deletes_record():
     records = [
         {
+            "id": "recA",
             "name": "A",
             "functional_domain": "other",
             "room": None,
             "entity_refs": {
-                "power": [], "energy": [], "control": [], "state": [],
+                "power": ["sensor.a"], "energy": [], "control": [], "state": [],
             },
             "source_tags": ["ura_config"],
         },
         {
+            "id": "recB",
             "name": "B",
             "functional_domain": "other",
             "room": None,
             "entity_refs": {
-                "power": [], "energy": [], "control": [], "state": [],
+                "power": ["sensor.b"], "energy": [], "control": [], "state": [],
             },
             "source_tags": ["ura_config"],
         },
     ]
     flow = _make_cm_options_flow(records=records)
-    flow._appliance_edit_index = 0
+    flow._appliance_edit_id = "recA"
     result = _run(flow.async_step_appliance_form(user_input={
         "name": "A", "functional_domain": "other", "room": None,
-        "power": [], "energy": [], "control": [], "state": [],
+        "power": ["sensor.a"], "energy": [], "control": [], "state": [],
         "remove": True,
     }))
     assert result["type"] == "create_entry"
@@ -448,54 +468,172 @@ def test_remove_path_deletes_record():
 
 
 # ---------------------------------------------------------------------------
-# No-CM-reload — membership assertion (in-place-apply path is taken)
+# Stable identity — stale-menu wrong-record vector (A-HIGH-1/2 + B-LOW-1/2)
+# ---------------------------------------------------------------------------
+
+
+def test_stale_menu_from_removed_middle_record_does_not_edit_wrong_record():
+    """Two tabs open. Tab-1 renders picker for [A,B,C]; Tab-2 removes B.
+    Tab-1's still-visible menu-key for C (previously index=2, now
+    logically shifted) must NOT resolve to whatever new record sits at
+    index=2 — it must resolve BY ID to C (or, if C is gone too,
+    re-render the picker).
+    """
+    records = [
+        {"id": "A", "name": "A", "functional_domain": "other", "room": None,
+         "entity_refs": {"power": ["sensor.a"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+        {"id": "B", "name": "B", "functional_domain": "other", "room": None,
+         "entity_refs": {"power": ["sensor.b"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+        {"id": "C", "name": "C", "functional_domain": "other", "room": None,
+         "entity_refs": {"power": ["sensor.c"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+    ]
+    flow = _make_cm_options_flow(records=records)
+    # Render the picker — this seeds `_appliance_menu_map`.
+    _run(flow.async_step_coordinator_appliance())
+    stale_menu = dict(flow._appliance_menu_map)
+    assert "apick_C" in stale_menu
+
+    # Tab-2 removes B; the entry.options list mutates behind Tab-1's back.
+    flow._config_entry.options = {
+        CONF_APPLIANCE_RECORDS: [r for r in records if r["id"] != "B"],
+    }
+
+    # Tab-1 now uses its cached menu-key for C. The pick handler looks
+    # up the id from the (still-valid) menu map — for C it resolves to
+    # id="C", which IS still present after B's removal, so we edit C
+    # (its own entities) — no wrong-record mutation.
+    picker = flow.__getattr__(f"async_step_apick_C")
+    _run(picker())
+    assert flow._appliance_edit_id == "C"
+    result = _run(flow.async_step_appliance_form(user_input={
+        "name": "C-renamed",
+        "functional_domain": "other",
+        "room": None,
+        "power": ["sensor.c"], "energy": [], "control": [], "state": [],
+    }))
+    assert result["type"] == "create_entry"
+    saved = result["data"][CONF_APPLIANCE_RECORDS]
+    names = [r["name"] for r in saved]
+    assert names == ["A", "C-renamed"], names
+    # And critically: A was NOT mutated (would happen under index-keying
+    # if Tab-1's cached key had shifted).
+    a_row = next(r for r in saved if r["id"] == "A")
+    assert a_row["name"] == "A"
+    assert a_row["entity_refs"]["power"] == ["sensor.a"]
+
+
+def test_stale_menu_id_gone_rerenders_picker_not_wrong_record():
+    """Tab-1 renders picker for [A,B,C]; Tab-2 removes C entirely.
+    Tab-1's cached menu-key for C must NOT delete/edit A or B — the
+    by-id lookup misses, and the form re-renders the picker.
+    """
+    records = [
+        {"id": "A", "name": "A", "functional_domain": "other", "room": None,
+         "entity_refs": {"power": ["sensor.a"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+        {"id": "B", "name": "B", "functional_domain": "other", "room": None,
+         "entity_refs": {"power": ["sensor.b"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+        {"id": "C", "name": "C", "functional_domain": "other", "room": None,
+         "entity_refs": {"power": ["sensor.c"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+    ]
+    flow = _make_cm_options_flow(records=records)
+    _run(flow.async_step_coordinator_appliance())
+    # Tab-2 removes C entirely.
+    flow._config_entry.options = {
+        CONF_APPLIANCE_RECORDS: [r for r in records if r["id"] != "C"],
+    }
+    # Simulate Tab-1 arriving at appliance_form with edit_id=C AND a
+    # remove submission — the form must NOT delete A or B.
+    flow._appliance_edit_id = "C"
+    result = _run(flow.async_step_appliance_form(user_input={
+        "remove": True,
+        "name": "irrelevant",
+        "functional_domain": "other", "room": None,
+        "power": [], "energy": [], "control": [], "state": [],
+    }))
+    # By-id miss re-renders the picker instead of firing the delete.
+    assert result["type"] == "menu"
+    # The stored list is unchanged.
+    assert [r["id"] for r in flow._config_entry.options[CONF_APPLIANCE_RECORDS]] == ["A", "B"]
+
+
+# ---------------------------------------------------------------------------
+# A-LOW-1: reject a record with a name but ZERO entities.
+# ---------------------------------------------------------------------------
+
+
+def test_reject_record_with_no_entities():
+    flow = _make_cm_options_flow(records=[])
+    flow._appliance_edit_id = None
+    result = _run(flow.async_step_appliance_form(user_input={
+        "name": "Empty",
+        "functional_domain": "other",
+        "room": None,
+        "power": [], "energy": [], "control": [], "state": [],
+    }))
+    assert result["type"] == "form"
+    assert result["errors"].get("base") == "no_entities"
+
+
+# ---------------------------------------------------------------------------
+# Reload-suppress — BEHAVIORAL against the real listener (A-HIGH-4 / B-HIGH-1)
 # ---------------------------------------------------------------------------
 #
-# The listener at __init__.py:_async_update_listener routes a CM options
-# save through _apply_in_place iff changed_keys ⊆ OPTIONS_RELOAD_SUPPRESS_KEYS.
-# Assert CONF_APPLIANCE_RECORDS is in both suppress-keys AND
-# _NO_LIVE_ATTR_KEYS (source-level assertion — no HA runtime required).
-# This is the mutation-anchor for the "no CM reload on onboarding save"
-# invariant. Neutering the OPTIONS_RELOAD_SUPPRESS_KEYS membership turns
-# this RED.
+# Re-uses the ``listener_ns`` + ``_FakeHass`` + ``_FakeEntry`` harness
+# in test_cm_reload_suppression.py so this test drives the SAME code
+# path as the D3 listener suite. The mutation drill — delete
+# CONF_APPLIANCE_RECORDS from OPTIONS_RELOAD_SUPPRESS_KEYS — makes the
+# records-only assertion RED.
 
 
-def _read_init_source() -> str:
-    p = os.path.join(
-        os.path.dirname(__file__), "..", "..",
-        "custom_components", "universal_room_automation", "__init__.py",
+_reload_suite = importlib.import_module("test_cm_reload_suppression")
+
+
+def test_records_only_save_does_not_reload_cm():
+    ns = _reload_suite._load_init_listener_helpers()
+    hass = _reload_suite._FakeHass(hvac=_reload_suite._FakeHvac())
+    entry = _reload_suite._FakeEntry(
+        "cm1", {CONF_APPLIANCE_RECORDS: []},
     )
-    with open(p, encoding="utf-8") as f:
-        return f.read()
-
-
-def test_conf_appliance_records_in_reload_suppress_keys():
-    src = _read_init_source()
-    # The frozenset construction imports CONF_APPLIANCE_RECORDS and the
-    # OPTIONS_RELOAD_SUPPRESS_KEYS block references it. Anchor on both
-    # the sentinel comment and the identifier appearance inside the set.
-    assert "OPTIONS_RELOAD_SUPPRESS_KEYS" in src
-    # Grep for the appliance-records comment sentinel + the identifier
-    # inside the suppress block (both must be present).
-    assert (
-        "APPLIANCE-MGMT-REFINE-1 v1b — appliance records list. Iterative"
-        in src
-    ), (
-        "OPTIONS_RELOAD_SUPPRESS_KEYS is missing the appliance-records "
-        "membership — an onboarding save would trigger a full CM reload."
+    ns["_seed_cm_last_applied_options"](hass, entry)
+    # Iterative onboarding save — records list grows by one.
+    entry.options = {CONF_APPLIANCE_RECORDS: [
+        {"id": "x", "name": "Fridge", "functional_domain": "cold_chain",
+         "room": None,
+         "entity_refs": {"power": ["sensor.f"], "energy": [], "control": [], "state": []},
+         "source_tags": ["ura_config"]},
+    ]}
+    asyncio.new_event_loop().run_until_complete(
+        ns["_async_update_listener"](hass, entry)
     )
+    # allowlisted-only change: NO reload.
+    assert hass.async_create_task.call_count == 0
 
 
-def test_conf_appliance_records_in_no_live_attr_keys():
-    src = _read_init_source()
-    # The _NO_LIVE_ATTR_KEYS block precedes OPTIONS_RELOAD_SUPPRESS_KEYS
-    # in the file; the comment sentinel for the no-live-attr membership
-    # is distinct from the reload-suppress one.
-    assert (
-        "APPLIANCE-MGMT-REFINE-1 v1b — appliance records list. The Appliance\n"
-        "    # Coordinator re-reads"
-        in src
-    ), (
-        "_NO_LIVE_ATTR_KEYS is missing the appliance-records membership — "
-        "the in-place-apply path would not mark the key applied."
+def test_records_plus_non_allowlisted_key_does_reload_cm():
+    ns = _reload_suite._load_init_listener_helpers()
+    hass = _reload_suite._FakeHass(hvac=_reload_suite._FakeHvac())
+    entry = _reload_suite._FakeEntry(
+        "cm1", {CONF_APPLIANCE_RECORDS: [], "presence_enabled": True},
     )
+    ns["_seed_cm_last_applied_options"](hass, entry)
+    # Mixed change: one allowlisted + one non-allowlisted.
+    entry.options = {
+        CONF_APPLIANCE_RECORDS: [
+            {"id": "x", "name": "Fridge", "functional_domain": "cold_chain",
+             "room": None,
+             "entity_refs": {"power": ["sensor.f"], "energy": [], "control": [], "state": []},
+             "source_tags": ["ura_config"]},
+        ],
+        "presence_enabled": False,
+    }
+    asyncio.new_event_loop().run_until_complete(
+        ns["_async_update_listener"](hass, entry)
+    )
+    # Non-allowlisted change dominates: exactly one reload dispatched.
+    assert hass.async_create_task.call_count == 1

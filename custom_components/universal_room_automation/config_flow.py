@@ -3027,14 +3027,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
             async def _appliance_pick_handler(user_input=None, _key=key):
                 if _key == _APPLIANCE_ADD_KEY:
-                    self._appliance_edit_index = None
+                    self._appliance_edit_id = None
                 else:
-                    try:
-                        idx = int(_key[len(_APPLIANCE_PICK_PREFIX):])
-                    except (TypeError, ValueError):
-                        # Stale/unknown key — re-render the picker.
+                    # Fix-up (Tier-2 A-HIGH-1/2 + B-LOW-1/2): the picker
+                    # menu is keyed by stable record `id`, not list index,
+                    # via ``_appliance_menu_map``. A stale menu (record
+                    # removed / reordered by another tab) resolves to
+                    # None -> re-render, never wrong-record edit.
+                    rec_id = getattr(self, "_appliance_menu_map", {}).get(_key)
+                    if not rec_id:
                         return await self.async_step_coordinator_appliance()
-                    self._appliance_edit_index = idx
+                    self._appliance_edit_id = rec_id
                 return await self.async_step_appliance_form()
 
             return _appliance_pick_handler
@@ -12427,24 +12430,40 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     #  - No RestoreEntity for state (records live in CM entry options).
     async def async_step_coordinator_appliance(self, user_input=None):
         """Show the appliance record picker menu (add / pick-to-edit)."""
+        import uuid as _uuid
         from .const import CONF_APPLIANCE_RECORDS
+
+        # Per value entry/exit rule: reset any prior edit selection at the
+        # picker boundary so a stale edit target from a previous flow leg
+        # cannot leak into the add branch (A-LOW-2).
+        self._appliance_edit_id = None
 
         records = list(self._get_current(CONF_APPLIANCE_RECORDS, []) or [])
 
         menu_options: dict[str, str] = {
             _APPLIANCE_ADD_KEY: "➕ Add new appliance",
         }
-        # Stash a stable index map so the picker handler resolves the same
-        # record even if listing order changes between renders.
-        self._appliance_menu_map: dict[str, int] = {}
+        # Menu is keyed by STABLE record id (uuid string), never by list
+        # index. Records missing an `id` (legacy — none in prod) get one
+        # minted here so the picker still routes deterministically for
+        # this render. A subsequent save persists the id on the record.
+        # `_appliance_menu_map`: menu-key -> record `id`.
+        self._appliance_menu_map: dict[str, str] = {}
         for i, rec in enumerate(records):
             if not isinstance(rec, dict):
                 continue
+            rec_id = rec.get("id")
+            if not isinstance(rec_id, str) or not rec_id:
+                rec_id = _uuid.uuid4().hex
+                # Best-effort: stamp the in-memory record so subsequent
+                # renders within this flow instance stay stable. The
+                # canonical persist happens on next save.
+                rec["id"] = rec_id
             name = str(rec.get("name") or f"Appliance {i + 1}")
             domain = str(rec.get("functional_domain") or "other")
-            key = f"{_APPLIANCE_PICK_PREFIX}{i}"
+            key = f"{_APPLIANCE_PICK_PREFIX}{rec_id}"
             menu_options[key] = f"✏️ {name} [{domain}]"
-            self._appliance_menu_map[key] = i
+            self._appliance_menu_map[key] = rec_id
 
         return self.async_show_menu(
             step_id="coordinator_appliance",
@@ -12454,9 +12473,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_appliance_form(self, user_input=None):
         """Add or edit a single appliance record.
 
-        Editing when ``self._appliance_edit_index`` is set to an int; adding
-        when it is None. A ``remove`` boolean on the submitted form deletes
-        the record instead of updating it.
+        Editing when ``self._appliance_edit_id`` is a stable record `id`
+        string; adding when it is None. A ``remove`` boolean on the
+        submitted form deletes the record instead of updating it.
+
+        Records are keyed by a stable ``id`` (uuid) minted at create.
+        The picker menu maps its menu-keys to record ids
+        (``_appliance_menu_map``), so a stale menu (record removed or
+        reordered by another concurrent options-flow tab) cannot cause
+        the wrong record to be edited or deleted — the by-id lookup
+        misses and we re-render the picker.
 
         Reject-at-validation (plan §"reject-at-validation for entity
         exclusivity"): a record whose entity_id list overlaps any OTHER
@@ -12464,6 +12490,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         the offending fields highlighted rather than saving and letting the
         v1a reader take last-wins-with-removal.
         """
+        import uuid as _uuid
         from .const import CONF_APPLIANCE_RECORDS
         from .domain_coordinators.appliance_const import (
             FUNCTIONAL_DOMAINS,
@@ -12471,12 +12498,26 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ROLE_POWER, ROLE_ENERGY, ROLE_CONTROL, ROLE_STATE,
         )
 
-        edit_index = getattr(self, "_appliance_edit_index", None)
+        edit_id = getattr(self, "_appliance_edit_id", None)
         records: list[dict] = list(
             self._get_current(CONF_APPLIANCE_RECORDS, []) or []
         )
 
-        if isinstance(edit_index, int) and 0 <= edit_index < len(records):
+        # Resolve the edit target by stable id, not by index. If an
+        # edit_id was set but no record with that id is present in the
+        # current list, the menu is stale — re-render the picker rather
+        # than silently falling through to the add form (would double-add)
+        # or letting the remove branch delete the wrong record.
+        edit_index: int | None = None
+        if isinstance(edit_id, str) and edit_id:
+            for j, r in enumerate(records):
+                if isinstance(r, dict) and r.get("id") == edit_id:
+                    edit_index = j
+                    break
+            if edit_index is None:
+                return await self.async_step_coordinator_appliance()
+
+        if edit_index is not None:
             current = records[edit_index] or {}
         else:
             current = {}
@@ -12486,7 +12527,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             # Remove path — delete the record and return to the picker.
-            if user_input.get("remove") and isinstance(edit_index, int):
+            # Existence-guarded via `edit_index is not None` (the by-id
+            # lookup above already ruled out the stale-menu case).
+            if user_input.get("remove") and edit_index is not None:
                 new_records = [
                     r for j, r in enumerate(records) if j != edit_index
                 ]
@@ -12511,12 +12554,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not name:
                 errors["name"] = "name_required"
 
+            # A-LOW-1: a record with a name but ZERO entities across all
+            # four roles is useless — the census reader would surface a
+            # ghost. Reject at validation.
+            if name and not any(new_refs[r] for r in (
+                ROLE_POWER, ROLE_ENERGY, ROLE_CONTROL, ROLE_STATE,
+            )):
+                errors["base"] = "no_entities"
+
             # Reject-at-validation: entity-exclusivity across OTHER records.
             claimed_by_others: set[str] = set()
             for j, other in enumerate(records):
                 if not isinstance(other, dict):
                     continue
-                if isinstance(edit_index, int) and j == edit_index:
+                if edit_index is not None and j == edit_index:
                     continue
                 oref = other.get("entity_refs") or {}
                 for role in (
@@ -12533,7 +12584,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         break
 
             if not errors:
+                # Preserve the existing record's stable id on edit; mint
+                # a fresh uuid on create so the picker/menu can key by it
+                # deterministically across renders and concurrent flows.
+                rec_id = current.get("id") if edit_index is not None else None
+                if not isinstance(rec_id, str) or not rec_id:
+                    rec_id = _uuid.uuid4().hex
                 new_rec = {
+                    "id": rec_id,
                     "name": name,
                     "functional_domain": functional_domain,
                     "room": room,
@@ -12544,10 +12602,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         current.get("source_tags") or ["ura_config"]
                     ),
                 }
-                if (
-                    isinstance(edit_index, int)
-                    and 0 <= edit_index < len(records)
-                ):
+                if edit_index is not None:
                     new_records = list(records)
                     new_records[edit_index] = new_rec
                 else:
@@ -12612,7 +12667,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         }
         # Editing an existing record exposes the delete checkbox.
-        if isinstance(edit_index, int):
+        if edit_index is not None:
             schema_dict[vol.Optional("remove", default=False)] = (
                 selector.BooleanSelector()
             )
