@@ -19048,7 +19048,7 @@ cards:
 - id: APPLIANCE-MGMT-REFINE-1
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
-  status: waiting_operator
+  status: waiting_me
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -19149,6 +19149,22 @@ cards:
     "anything NOT already in URA room/coordinator config"; if it IS in URA (fans/lights/climate) it SHOWS
     UP automatically, NOT re-configured; net-new (TVs/AV/projector) can be ADDED via a flow. De-dup across
     sources mandatory (same appliance may be SPAN + ThinQ + URA-entity -> one record).
+  PLAN_REVIEWS_2026_09_14: >-
+    TIER-3 x2 framing-disjoint plan reviews = BOTH FIX-PLAN-FIRST (record:
+    docs/reviews/code-review/APPLIANCE-MGMT-REFINE-1_plan_review.md). Headline: most of the coordinator
+    ALREADY EXISTS as SPANCircuitMonitor (energy_circuits.py) + energy_billing apportionment; my prior-art
+    scan missed both (A-CRIT-1). Automatic cross-integration de-dup is INFEASIBLE (no join key in device
+    registry) -> operator-DECLARED mapping via existing extra/exclude knobs (A-CRIT-2). media_player gate
+    was wrong (airplay not a platform; 183/306 unclassified). "74 entities" unreproducible. D2 cost dup of
+    energy_billing:460-680. 11 scaffolding sites named; a coordinator is NOT a config entry.
+  RESCOPE_DIRECTION_2026_09_14: >-
+    Operator: rewrite the plan after a DEEP coordinator-pattern + prior-art sweep; ZERO duplication; use
+    our MOST MATURE patterns, avoid the ones we cannot rely on. (Reflection = genuine consideration time,
+    not a test.) Sweep dispatched (3 read-only agents: pattern-maturity template, zero-duplication reuse
+    map, extend-vs-new architecture). New direction = EXTEND SPANCircuitMonitor + operator-declared
+    appliance mapping for non-SPAN (ThinQ/TV/plug), staged v1a..v1d. Smart plugs: measuring plugs only,
+    never auto-added (onboarding add-path). Build NOT dispatched until rewritten plan is review-clean.
+  next: 'WAITING ON ME: synthesize the 3-agent pattern/prior-art sweep -> rewrite PLANNING_appliance_coordinator_v1.md on the EXTEND-SPANCircuitMonitor + declared-mapping basis (staged), then re-review. No operator action needed yet.'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
