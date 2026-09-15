@@ -6115,6 +6115,9 @@ from .const import (
     # v5.10.0 D2 — MF sleep + night suppression CM keys.
     CONF_MF_SLEEP_SUPPRESS as _CONF_MF_SLEEP_SUPPRESS,
     CONF_MF_NIGHT_SUPPRESS_MODE as _CONF_MF_NIGHT_SUPPRESS_MODE,
+    # APPLIANCE-MGMT-REFINE-1 v1b — records list, live-tunable via the
+    # options flow, read fresh on every resolve_census tick.
+    CONF_APPLIANCE_RECORDS,
     # NM Cycle A-2 (2026-07-20) — rung-2 promotion of Cycle A knobs.
     # All 12 consumed via `nm_cycle_a_knob(...)` which reads
     # entry.options fresh on every call (cached, invalidated on
@@ -6622,6 +6625,16 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_NM_BUCKET_REFILL_PER_MIN,
     # NM Cycle C — matrix / DND-bypass / mute-duration keys.
     *_NM_C_KEYS,
+    # APPLIANCE-MGMT-REFINE-1 v1b — appliance records list. The Appliance
+    # Coordinator re-reads `entry.options[CONF_APPLIANCE_RECORDS]` fresh on
+    # every `resolve_census()` call (see
+    # `domain_coordinators/appliance.py::_read_declared_records`, which
+    # merges `entry.data + entry.options` on each read via the base's
+    # cached ConfigEntry ref — HA mutates `.options` in place on
+    # `async_update_entry`). So an onboarding save is a pure persistence
+    # — no live-attr push needed; flow through `_apply_in_place` as a
+    # no-op so the snapshot advances.
+    CONF_APPLIANCE_RECORDS,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -6744,6 +6757,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     # NM Cycle C — options-flow-authored keys; NM re-reads via
     # `_refresh_config`. No CM reload needed.
     *_NM_C_KEYS,
+    # APPLIANCE-MGMT-REFINE-1 v1b — appliance records list. Iterative
+    # onboarding saves (add / edit / remove one record at a time) must
+    # NOT trigger a full CM reload (the reload-watchdog hazard on the
+    # parent entry — see `feedback_parent_reload_watchdog_hazard`).
+    # The Appliance Coordinator reads `entry.options[CONF_APPLIANCE_RECORDS]`
+    # fresh on every `resolve_census()` call via the base's cached
+    # ConfigEntry ref (HA mutates `.options` in place on
+    # `async_update_entry`), so the new record list is picked up on the
+    # next natural read — no reload required.
+    CONF_APPLIANCE_RECORDS,
 })
 
 
