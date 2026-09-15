@@ -1,216 +1,124 @@
-# PLANNING — Appliance coordinator, v1 (APPLIANCE-MGMT-REFINE-1)
+# PLANNING — Appliance capability, v1 (APPLIANCE-MGMT-REFINE-1) — REWRITTEN post-sweep
 
-**Card:** APPLIANCE-MGMT-REFINE-1 · **Date:** 2026-09-14 · **Status:** DRAFT for operator go/no-go on build
-**Tier:** 3 (new coordinator, cross-coordinator energy/cost reads, control actuation in a later phase) —
-plan-review (2 framing-disjoint) before any build dispatch.
-**Basis:** operator two-layer reframe (2026-09-14) + 4 residual answers + anomaly prior-art scan (this session).
-
----
-
-## The operator's model (absorbed verbatim, not paraphrased)
-
-Appliances are **two things at once**, and the coordinator must hold both:
-
-- **(a) MEASURABLE** — things that draw energy whether or not we can command them (examples: warming
-  drawer, kettle). Sources: **SPAN** (per-circuit) + **Emporia** (per-channel). Emporia is
-  measurement-only *except EVSEs*; SPAN can toggle a breaker but only for large appliances.
-- **(b) CONTROLLABLE** — things we can command (examples: LG dishwasher, fridge, TVs). Control paths
-  are **per-device, heterogeneous**: Samsung integration, Amazon Fire TV, EPSON projector, Denon AVR,
-  and **power-measuring smart plugs** that are *both* a measure source AND an on/off actuator for
-  otherwise-dumb loads.
-
-An appliance can be in both layers. The dual objective is **visibility** (measure everything) and
-**control** (command the subset we can). Examples above are EXAMPLES — v1 needs a **categorization
-scheme**, not a hardcoded appliance enum.
-
-### The four residual answers that shape the plan
-- **Q1 breaker control = NOT a controller lever.** SPAN breaker on/off is an architectural fact we may
-  *choose* to use; it is **off the table** for automated actuation (a wrong breaker-off = spoiled food
-  / frozen pipe). Instead the coordinator **wires into the anomaly subsystem like every coordinator**
-  (§D3) — SPAN breaker *state* is an input/anomaly signal, never an output.
-- **Q2 lists = examples** → categorization scheme (§D1), not an enum.
-- **Q3 control = heterogeneous per device** → control primitive is a per-appliance property (§D4, later phase).
-- **Q4 cost = yes but careful** → separate **energy-used (kWh)** from **cost-attribution** (§D2), because
-  solar/battery-served energy is not priced at the import rate.
+**Card:** APPLIANCE-MGMT-REFINE-1 · **Date:** 2026-09-14 (rewrite) · **Tier:** 3 (staged; each slice carries its own tier)
+**Status:** rewritten after a deep coordinator-pattern + prior-art sweep (operator-ordered: zero duplication, most-mature patterns only, avoid unreliable ones). Supersedes the pre-sweep draft that both Tier-3 plan reviews returned FIX-PLAN-FIRST on.
+**Inputs:** two Tier-3 plan reviews (record `docs/reviews/code-review/APPLIANCE-MGMT-REFINE-1_plan_review.md`) + three read-only sweeps (pattern-maturity, zero-duplication reuse map, extend-vs-new adjudication).
 
 ---
 
-## Institutional context verified (prior-art scan — Tier 2+ mandate)
+## Decision: a FIRST-CLASS `ApplianceCoordinator` (architecture, not code-size)
 
-**REUSE, not build**, for every mechanism v1 needs:
+**This is an architecture decision, not a "how much code" decision (operator, 2026-09-14).** The question is:
+does appliance management appear as a first-class coordinator under **'Add Coordinator'**, and how does it
+integrate with the **anomaly subsystem** — independent of how much of its internals are reused. The answer
+is **yes, first-class**:
 
-| Piece v1 needs | Verdict | Existing symbol (file:line) |
+- **It appears under 'Add Coordinator'** — its own entry in the CM options menu (`config_flow.py:3334`), its
+  own `CONF_APPLIANCE_COORDINATOR_ENABLED` key + enable switch, its own device. It is a peer of presence /
+  safety / energy / music-following, not a hidden helper.
+- **It wires into the anomaly subsystem like every coordinator** — its own `AnomalyDetector` + a first-class
+  `sensor.ura_appliance_anomaly` + its own NM identity (operator's original Q1 requirement). Appliance
+  anomalies are NOT routed through the Energy coordinator's surface.
+
+**Reuse is an INTERNAL implementation detail, not the architectural identity.** The coordinator *reads* the
+existing `SPANCircuitMonitor` circuits and reuses the mature measure/anomaly/cost primitives — but that
+reuse lives behind the coordinator's own identity; it does not make appliances an Energy-internal concern.
+
+Rejected architectures (both fail the first-class test): (a) forcing appliances into `SPANCircuitMonitor`'s
+EXTRA path — appliances would be invisible under 'Add Coordinator' and anomalies would surface as
+*circuit* anomalies under Energy; also pollutes a Tier-3-delicate power-only engine (`CircuitInfo` has no
+room/domain/control/state, drops non-float `media_player` state at `energy_circuits.py:282-284`). (b) a
+sibling monitor inside the 10k-line `EnergyCoordinator` tick — same invisibility, plus unnecessary coupling.
+
+Chosen: **a first-class, passive `ApplianceCoordinator`** — passive meaning `evaluate()→[]` (it observes,
+it does not drive actions), NOT meaning second-class. **Template = `music_following.py`** (the sweep's
+gold-standard passive coordinator: event-driven, `AnomalyDetector`, tracked-teardown, backed by the
+observability meta-test — and itself a first-class coordinator under 'Add Coordinator'). **Registered like
+`__init__.py:3178-3237`.** **Persisted via the `metric_baselines` DB table** through `AnomalyDetector`
+(`coordinator_diagnostics.py:1251-1345`, table `database.py:1050`) — the most mature persistence path.
+
+---
+
+## Zero-duplication reuse map (the spine — REUSE, do not rebuild)
+
+| Capability | REUSE (file:line) | Class |
 |---|---|---|
-| Appliance power/energy inputs | **REUSE** | 74 existing appliance power/energy entities (SPAN circuits + Emporia channels); enumerate, don't create |
-| Anomaly emit (domain) | **REUSE** | `AnomalyEvent` (anomaly_event.py:154), `build_context_json` (:292), `database.save_anomaly_event` (database.py:6956), `AnomalyDetector.store_event` (coordinator_diagnostics.py:1205) |
-| Anomaly emit (rule-engine) | **REUSE** | `OptimizationFinding` + evaluator tuple (optimization.py:919); `_persist_findings_batch` (:3969) |
-| Loud operator alert | **REUSE** | `fire_stuck_signal` (_stuck_signal_nm.py:165) — per-day latch, fail-open, auto-persists anomaly row |
-| Anomaly status sensor pattern | **REUSE** | `sensor.ura_<domain>_anomaly` family (e.g. presence sensor.py:6160) reading `coord.anomaly_detector.get_worst_severity()` |
-| TOU rate for cost | **REUSE** | `TOURateEngine` / `sensor.ura_energy_coordinator_tou_period` `import_rate` (shipped v5.101.2) |
-| Solar/battery/grid mix | **REUSE (read)** | Envoy grid/solar/battery power entities (see `battery_soc_envoy_not_span` memory) |
-| Dedup / once-per-episode latch | **REUSE pattern** | camera_stuck in-memory `set` latch (optimization.py:589/1905/1915) |
+| Passive coordinator lifecycle template | `music_following.py:1-15,238-687` | model on |
+| Registration (enable-key/switch/device/register) | `__init__.py:3178-3237`; `COORDINATOR_ENABLED_KEYS` const.py:2455; `register_coordinator` manager.py:388; `_coordinator_device_info` base.py:200 | copy shape |
+| Power/energy ingestion (any metered appliance) | `SPANCircuitMonitor` EXTRA_ENTITIES Tier-2 path `energy_circuits.py:196-212` (source-agnostic already — takes any live float sensor) | REUSE-AS-IS |
+| Operator add-path for extra power sensors | `CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES` energy_const.py:971 → config_flow.py:5457 → energy.py:517 | REUSE-AS-IS |
+| De-dup / exclude a double-counted feed | `CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES` energy_const.py:973; exclusion block energy_circuits.py:214-219 | REUSE-AS-IS |
+| Smart-plug control+measure (dumb loads) | `SmartPlugController` energy_pool.py:3361; no-meter estimate `L1_ESTIMATED_POWER_W` energy_const.py:961 | REUSE-AS-IS |
+| TV/AV state (no power sensor) | room `media_player` URA already tracks: `CONF_ROOM_MEDIA_PLAYER` const.py:83, deadness sensor.py:1753 | REUSE reads |
+| Anomaly detection (z-score + sudden-zero) | `check_anomalies` energy_circuits.py:267-395 (detection only) + emit/NM seam energy.py:6407-6456 | REUSE-AS-IS (both halves) |
+| Anomaly emit + NM | `AnomalyEvent`/`save_anomaly_event` (domain_coordinators/anomaly_event.py:155, database.py:6956); `fire_stuck_signal` domain_coordinators/_stuck_signal_nm.py:165 | REUSE-AS-IS |
+| Cost / TOU rate | `_get_effective_rate_kwh` energy_billing.py:29; `PeakAvoidanceTracker` apportionment energy_billing.py:478-675 (double-count guard :605-617) | REUSE (display-only) |
+| "URA-owned shows up" collector | `_iter_configured` typed-yield sensor.py:1829 + key constants :1747-1756, driven over entries like `_collect_presence_input_entities` presence.py:7567 | REUSE skeleton |
+| Onboarding N-record add/edit/remove flow | zone-picker `__getattr__` dynamic menu config_flow.py:2987,8782 + EntitySelector step config_flow.py:5457 | REUSE pattern |
+| No-CM-reload on iterative saves | **EXTEND** `OPTIONS_RELOAD_SUPPRESS_KEYS` __init__.py:6612 (add appliance keys) | EXTEND |
+| Rename-stable identity | `CircuitInfo.unique_id` + `_lookup_unique_id` energy_circuits.py:65,116-140 | REUSE-AS-IS |
+| Persistence | `metric_baselines` table via AnomalyDetector coordinator_diagnostics.py:1251 | REUSE pattern |
 
-**No new anomaly registry exists or is needed** — there is no cross-coordinator registry; a coordinator
-either adds an evaluator to `optimization.py:919` (rule-engine findings) or constructs `AnomalyEvent`
-and calls `save_anomaly_event` (domain anomalies). v1 uses the **domain-anomaly path** (§D3).
+## Fragile patterns — DO NOT use (operator: avoid the ones we cannot rely on)
 
-**Prior planning consulted:** `CRITIQUE_appliance_management_v3.md` (this session — ranked opportunity
-table: #1 delay-start BUILD-FIRST, #5 interrupt PARK Tier-3). **Memory:** `battery_soc_envoy_not_span`
-(cost math source of truth), `EC config surface` (export sign inverted — matters for §D2 mix math).
+1. **`CircuitInfo.controllable` — DEAD STUB.** Init `True`, never assigned anywhere. Do NOT read it as truth; if a controllable signal is needed, resolve it from the breaker/switch entity explicitly.
+2. **Cross-integration `device_id`/`via_device_id`/MAC/model joins — NO reliable key exists** (registry: one config-entry per device, `via_device` parenting races kanban.data.yaml:2499/3252/3307). De-dup is **operator-declared only**, never auto-joined.
+3. **`media_player` platform allow/deny literals** — heuristic default at most, never ground truth (306 media_players, ~10× noise; `airplay` isn't even a platform).
+4. **Parsing model from name strings** (the `IOT_HOSTNAME_PREFIXES` const.py:3110 antipattern; the v5.12.0 SPAN re-key deliberately moved OFF friendly_name).
+5. **RestoreEntity for coordinator state / midnight-snapshot accumulators** — documented restart-wipe history (energy.py:1897-1953,2324; B-HIGH-1/2). Use `metric_baselines`.
+6. **Untracked `async_create_task`** (v4.6.3 A5 class) — track in a set, cancel in teardown (music_following.py:362-367).
+7. **Gating setup on another integration's health** (SPAN/Envoy/cloud availability). A passive census must degrade gracefully, never block on a source being loaded.
+8. **`CONF_ENERGY_CIRCUIT_INTEGRATIONS` energy_const.py:970 — dead stub, do NOT repurpose** as the appliance key.
 
----
-
-## v1 SCOPE — read-only appliance-energy census + categorization + anomaly wiring
-
-**v1 is deliberately measure-only. No control actuation ships in v1** (control = §D4, a later phase gated
-on this census proving out). This follows Measure-Before-Build and Marginal-Benefit: the census de-risks
-control because *power draw is itself the "materially started" signal* control would need.
-
-### Falsifiable invariant
-v1 adds **only** read-only sensors + anomaly findings. It commands **nothing** — no `turn_on`/`turn_off`,
-no breaker call, no `number.set_value` on any appliance. Any actuation in the v1 diff is a defect.
-
----
-
-## D0 (MEASURE FIRST) — appliance DISCOVERY probe across THREE sources
-**Operator correction (2026-09-14): power meters alone miss most appliances — "not enough breakers to
-cover a house."** So discovery is NOT just the 74 power/energy entities. It draws from three sources and
-unions them:
-
-1. **Power meters** — SPAN circuits + Emporia channels (the 74 power/energy entities). Measures draw;
-   covers only what happens to be on a metered circuit.
-2. **HA native appliance integrations** — the appliance *devices* HA already knows about independent of
-   any meter: LG ThinQ (washer/dryer/dishwasher/fridge), Samsung TV, Amazon Fire TV, Denon AVR, EPSON
-   projector, smart plugs, etc. D0 must **enumerate these live** (by integration/domain — `media_player`,
-   `vacuum`, `humidifier`, ThinQ device classes, …) — do NOT hand-assume the list.
-3. **Existing URA room + coordinator config** — entities URA already manages (see the onboarding rule
-   in D0a). These are surfaced, never re-added.
-
-- **Acceptance:** a live table unioning all three sources; per entity: source, current state, freshness,
-  unit, energy-vs-power, and which source(s) cover it (a device may be BOTH metered and integration-known).
-  Dead/stale flagged (a sparse producer caps the census — measure real production first). Committed as the
-  hand-built fixture (Measure-Before-Build corollary).
-
-### D0 RESULTS — probe run 2026-09-14 (live entity/device registry)
-Integration inventory (entity counts): **lg_thinq 112**, smartthings 113, samsungtv 12, denonavr 2,
-pjlink 1, lovesac_stealthtech 25, **emporia_vue 178**, **span_panel 733**, tuya 219, sonoff 129,
-shelly 1128, tplink 97, alexa_devices 231, music_assistant 196, jellyfin 8. Domains: media_player 306,
-fan 32, climate 8, vacuum 3, water_heater 2, humidifier 0.
-
-**Findings that reshape the plan (fold into D1/D0a):**
-1. **The controllable appliance layer is LG ThinQ, native + entity-writable.** washer / washer1 /
-   washtower_one / washtower_two, dishwasher_kitchen + dishwasher_washroom, refrigerator + laundry_fridge,
-   freezer_chest, oven_lower / oven — each with `number.*_delayed_start`, `select.*_operation`,
-   `switch.*_power`, `sensor.*_remaining_time`, `binary_sensor.*_remote_start`. Control = entity writes,
-   NOT `thinq.*` services (corroborates CRITIQUE_appliance_management_v3.md).
-2. **De-dup is the risky core, worse than first written: up to 3 shadows per device.** A TV = `samsungtv`
-   (real controllable) + `smartthings` + `music_assistant` (audio shadow). A laundry appliance = ThinQ
-   (control/state) + a SPAN circuit (power) + possibly a room entity. The resolver must pick the
-   authoritative record per capability (ThinQ→control/state, SPAN/Emporia→power) and collapse the rest.
-3. **306 media_players but most are NOT appliances.** `music_assistant` (196) / airplay / `alexa_devices`
-   (231 echo dots) are **audio endpoints / multiroom zones**, not energy appliances. Categorization MUST
-   gate `media_player` by platform: {samsungtv, pjlink, denonavr, lovesac_stealthtech} = real AV
-   appliances; {music_assistant, airplay, alexa_devices, jellyfin} = audio endpoints → excluded from the
-   appliance census (or a distinct non-appliance class). Without this gate the census is ~10× noise.
-4. **Smart-plug/relay fabric is large** (shelly 1128 / tuya 219 / sonoff 129 / tplink 97) — the dual
-   measure+control substrate for dumb loads, but also mostly NOT appliances (relays, lights). Inclusion
-   must be by explicit onboarding (D0a add-path), not blanket.
-
-**Go/no-go verdict:** the 3-source model is validated and necessary (power-only would miss the entire
-ThinQ appliance set). The build's load-bearing risk is the **de-dup/authority resolver + the
-platform-gated appliance filter**, NOT the measurement. Plan reviews must target those.
-
-## D0a — Onboarding model: URA-owned = SHOW UP, net-new = ADD (operator-coined 2026-09-14)
-The appliance universe is **"basically anything not already in URA room and coordinator config."** The
-governing rule:
-- **If an entity is already in URA** (a room's fan, light, climate entity, or a coordinator-managed
-  device), it **SHOWS UP in the appliance view automatically — it is NOT re-configured.** Fans must not be
-  re-added; they surface. The appliance coordinator READS existing config as a discovery source, it does
-  not ask the operator to re-enter anything URA already knows.
-- **If an entity is net-new** (a TV, an AV receiver, a projector, a standalone smart-plug load URA has
-  never seen), it can be **ADDED** through an onboarding path (config/options flow) — that is the only
-  place the operator does manual work.
-- **De-dup across sources is mandatory:** the same physical appliance can appear as a SPAN circuit AND a
-  ThinQ device AND (if in a room) a URA entity — it must resolve to ONE appliance record, not three.
-- **Acceptance:** an entity already in a URA room (e.g. a room fan) appears in the appliance census with
-  `source_includes: [ura_config]` and requires NO onboarding step (the discriminating test that
-  URA-owned ≠ re-config); a net-new TV requires an explicit add; a triple-covered appliance yields one record.
-
-## D1 — Appliance categorization scheme (the operator's correction, refined 2026-09-14)
-A declarative categorization — NOT a hardcoded enum — on **FOUR ORTHOGONAL axes**. The load-bearing one
-is the **functional domain** — *what the appliance does*, **independent of how it was added or how it is
-controlled** (operator 2026-09-14: "not just categorization by how added but what the appliance does…
-Media, Kitchen Appliance etc."). A Samsung TV on a native API and a dumb speaker on a smart plug are
-BOTH `media`; the add-vector is a separate axis.
-
-1. **Functional domain (PRIMARY — what it does):** `media_av` | `kitchen` | `laundry` | `climate` |
-   `cold_chain` | `water` | `cleaning` | `other` (extensible). This is the axis anomaly thresholds and
-   operator-facing grouping key off — a `cold_chain` appliance is exempt from "left-on"; a `media_av`
-   one is the phantom-draw candidate. Domain is NOT derivable from source or control — it is declared.
-2. **Control axis (can we command it):** `measure_only` | `controllable` (an appliance may be both-layer:
-   controllable AND measured).
-3. **Add-vector / source (how it reaches us):** `span_circuit` | `emporia_channel` | `smart_plug` |
-   `native_integration`. Orthogonal to domain — the same domain spans multiple vectors.
-4. **Energy behaviour (derived, for anomaly logic):** e.g. `always_on` (fridge) vs `session` (dishwasher)
-   vs `standby_prone` (AV). Derived from observed draw in D0, not declared.
-- **Numbers-get-knobs:** the appliance→{domain, control, source} mapping is per-deployment structure →
-  **config/options flow** (rung 2), not module constants. Kill switch: an appliance with no mapping =
-  measured, `other`/`measure_only` — visible but ungrouped, never silently dropped.
-- **Acceptance:** the D0 fixture round-trips; each of the 74 entities gets **exactly one functional
-  domain** + exactly one source + a control tag; two appliances of the same domain on *different*
-  add-vectors (e.g. a native-API TV and a smart-plug speaker → both `media_av`) is the discriminating
-  test that domain is independent of vector; scheme is additive (a new appliance needs config, not code).
-
-## D2 — Energy-used vs cost-attribution (Q4, carefully)
-Two SEPARATE per-appliance values:
-- **`energy_used_kwh`** — unambiguous, straight from the energy entity (or ∫power dt where only W exists).
-- **`cost_attributed`** — energy × the *effective* rate at time-of-draw, where effective rate accounts
-  for the **grid/solar/battery mix**. v1 uses a documented, conservative apportionment (candidate:
-  marginal-grid model — appliance kWh priced at TOU `import_rate` only for the fraction of house load
-  that was grid-served in that interval; solar/battery-served fraction priced at 0 or a battery-cycle
-  cost). The exact model is a **plan-review decision** — the invariant is that the two numbers are
-  distinct and cost is never a naive `kwh × import_rate`.
-- **Acceptance:** a test where the house is 100% solar-served shows `energy_used_kwh > 0` AND
-  `cost_attributed ≈ 0` (the discriminating test — proves the mix is respected, per acceptance-must-discriminate).
-
-## D3 — Anomaly-subsystem wiring (Q1 — the "like every coordinator" requirement)
-The appliance coordinator holds an `AnomalyDetector` and emits **domain anomalies** via
-`AnomalyEvent`/`save_anomaly_event`, exposed as `sensor.ura_appliance_anomaly` (mirroring the
-presence/safety/security status-sensor family). Candidate v1 anomalies (all measure-derived, no control):
-- **appliance-left-on** — a controllable/high-draw appliance drawing above idle for longer than a
-  per-category threshold (cold-chain exempt — it's *supposed* to run).
-- **cold-chain-power-loss** — a fridge/freezer circuit that drops to ~0 W unexpectedly (this is where
-  SPAN breaker *state* is an input signal, not an output).
-- **phantom-draw** — an entertainment-AV load drawing standby power beyond a category threshold.
-- **Numbers-get-knobs:** each threshold is a named constant (rung 1, review-gated) or entity-knob if the
-  operator will tune it by observation; documented on the knob.
-- **Latch:** in-memory once-per-episode set (camera_stuck pattern), cleared on return-to-normal.
-- **Loud path (optional per anomaly):** `fire_stuck_signal` with a new `kind="appliance"` for the ones
-  that warrant an operator page (cold-chain-power-loss yes; phantom-draw no).
-- **Acceptance:** WIRE-IN ANCHOR — the detector must be constructed AND the sensor registered (a
-  helper-only test stays green if not wired); mutation — neuter the emit call, an anomaly test goes RED;
-  cold-chain-power-loss fires on a simulated fridge-circuit drop and pages via NM.
-
-## D4 — Control (LATER PHASE, NOT v1) — parked with trigger
-Per-device control (LG dishwasher delay-start, AV off, smart-plug toggle) is the #1 opportunity from
-`CRITIQUE_appliance_management_v3.md` but is **out of v1 scope**. Parked with the revival trigger: "D0
-census shows the controllable-layer appliances produce a reliable materially-started signal." When
-revived it is its own Tier-3 cycle (control actuation on cost/comfort). Breaker actuation stays
-permanently out per Q1.
+## The ONE genuinely-new structure: the per-appliance record
+Nothing today expresses multi-entity-ref membership (`plug_config` is single-key+bool at __init__.py:3453). The one new config structure:
+```
+appliance = {
+  name, functional_domain,            # media_av|kitchen|laundry|climate|cold_chain|water|cleaning|other
+  room,                               # optional
+  entity_refs: {power:[], energy:[], control:[], state:[]},   # any role may be empty
+  source_tags: [span|emporia|thinq|smartplug|native|ura_config],
+}
+```
+A TV = state+control, no power. A warming drawer = power, no control. **Operator grouping into one record is the de-dup mechanism** (collapses the ≤3 shadows). URA-owned entities are *read in* as a discovery source and shown; net-new entities are *added* through the flow. Measuring **plugs only** (not Shelly relays generally), and **never auto-added** — plugs enter only via the add-path (operator directive 2026-09-14).
 
 ---
 
-## Non-goals (explicit)
-- **NO control actuation in v1** (measure-only). **NO breaker on/off ever** (Q1).
-- **NOT** a hardcoded appliance enum (Q2 → categorization scheme).
-- **NOT** a naive `kwh × import_rate` cost (Q4 → mix-aware).
-- **NOT** a new anomaly registry (none exists; reuse the two established paths).
+## Staging (each slice its own tier + review; ship value at each)
 
-## Plan-review checklist (Tier 3, 2 framing-disjoint before build)
-- **Completeness:** re-run D0 census independently; confirm the 74-entity count and that each has a live,
-  fresh producer (a sparse producer changes the plan).
-- **Build-prediction:** the D2 cost model is the highest-ambiguity area — a reviewer must confirm the
-  apportionment is fully specified before a builder inherits it (avoid the "two options where a third is
-  correct" failure). Confirm the anomaly-path choice (domain vs rule-engine) against the prior-art scan.
-- **Institutional:** verify the anomaly prior-art file:line citations (the scan is a hypothesis) and the
-  Envoy mix-entity ids (export-sign inverted per EC memory).
+### v1a — Appliance census (Tier 2-DB) — the first shippable slice
+- **Scaffold** the passive `ApplianceCoordinator` (all 11 registration sites, below) modeled on music_following.
+- **Discovery (read-only):** union of (1) SPAN circuits (read the existing monitor's `CircuitInfo` set), (2) operator-declared appliance records, (3) URA-owned entities via the `_iter_configured` collector. Freshness-gated; degrades if a source is absent.
+- **Resolver:** collapse shadows **only** by operator-declared grouping (no auto-join). Unmapped entity = visible, `other`/uncategorized, never dropped.
+- **One read-only sensor** `sensor.ura_appliance_census` with per-appliance attributes (name, domain, roles, source_tags, current power/state, freshness).
+- **Falsifiable invariants:** (i) no physical appliance yields >1 census record under any combination of the 3 sources **given the operator grouping**; (ii) the coordinator commands nothing — **no service call in any write domain against any entity** (enumerated: turn_on/off, number.set_value, select.select_option, switch — closing the MED-9 hole).
+- **Persistence:** observed energy-behaviour classification + any baselines via `metric_baselines`. **Restart acceptance criterion mandatory.**
+- **Acceptance (discriminating):** a URA room fan appears with `source_tags:[ura_config]` and requires NO onboarding step (URA-owned ≠ re-config); a net-new TV is absent until added; a triple-covered appliance yields ONE record; **wire-in anchor** — the census reads the live coordinator output, and neutering the resolver call turns a test RED (not a fixture-only assertion).
+
+### v1b — Categorization + onboarding flow (Tier 2)
+- The per-appliance record's options-flow surface, built on the zone-picker `__getattr__` dynamic-menu + EntitySelector step. Add/edit/remove + a remove-path for a vanished entity.
+- **EXTEND `OPTIONS_RELOAD_SUPPRESS_KEYS`** with the appliance keys + in-place re-read; acceptance: an onboarding save does NOT reload the CM (oracle: sibling-entity `last_changed` invariant).
+- 4-axis categorization (functional-domain primary — what it does, independent of add-vector) + strings.json/en.json for every new step.
+
+### v1c — Energy + cost (Tier 3 — money numbers)
+- `energy_used_kwh` (unambiguous) **separate from** mix-aware `cost_attributed`.
+- **REUSE `PeakAvoidanceTracker` apportionment** (energy_billing.py:544-637) + `_get_effective_rate_kwh`; label it **pro-rata** (not "marginal") and carry the **"display-only, not billing-grade"** disclaimer. Cite Envoy ids `sensor.envoy_482543015950_*`.
+- **Adjudicate the genuinely-open question in-plan:** house-level served-locally → per-appliance attribution rule (which appliance's kWh was the grid-served fraction when several drew at once). Do NOT leave this to the builder.
+- **Discriminating acceptance:** 100%-solar → cost≈0 AND (paired) 100%-grid → cost≈kwh×import_rate; a mixed case between. (cost≈0 alone is non-discriminating vs a dead pipeline.)
+
+### v1d — Anomaly (Tier 2-DB)
+- Thin `AnomalyDetector` + `sensor.ura_appliance_anomaly` (music_following wiring).
+- Appliance anomalies as **EXTEND-not-new** vs `energy_circuits.py` (cold-chain-power-loss/tripped-breaker + z-score already exist): add a `cold_chain` **category tag** to the existing detector rather than a second path, and state the **double-alert guard** (one operator page, not `circuit_anomaly` + `appliance_anomaly` both). Phantom-draw / left-on key off category thresholds.
+- Every threshold on the knob ladder with name+rung+why (model on energy_circuits.py:20-44). Wire-in anchor + per-site mutation drill.
+
+## Scaffolding (the 11 sites v1a must touch — a coordinator is NOT a config entry; config_flow.py:703 aborts)
+`COORDINATOR_ENABLED_KEYS` const.py:2455 · `CONF_APPLIANCE_COORDINATOR_ENABLED`+default · construct+`register_coordinator` __init__.py:3178-pattern / manager.py:388 · `DEVICE_NAMES` _devices.py:36 · device-info dispatcher _devices.py:92 · enable switch switch.py:213 · sensors under the **CM entry** sensor.py:186 · CM menu + `async_step_coordinator_appliance` config_flow.py:3334 · strings.json + translations/en.json · telemetry `UI_COORDINATORS` coordinator_telemetry_const.py:24 (decide in/out) · observability meta-test allowlist test_v465_observability_gap.py:822 (omission = silently unguarded metrics) · **new `docs/Coordinator/APPLIANCE_COORDINATOR.md`**.
+
+## Non-goals (v1 overall)
+No control actuation (v1 references control entities by role, commands none). No breaker on/off ever. No auto-join de-dup. No auto-added plugs. No billing-grade cost claim. No new anomaly registry (reuse the two paths).
+
+## Plan-review checklist (per slice, before its build)
+- Re-grep the reuse citations (this plan's map is a hypothesis until re-verified).
+- v1a: confirm `_iter_configured` key-lists cover the appliance-relevant room keys; confirm the resolver invariant is falsifiable and the no-write invariant enumerates every write domain.
+- v1c: confirm the per-appliance attribution rule is fully specified (no builder ambiguity) and the discriminating paired test is present.
+- v1d: confirm EXTEND-vs-new per anomaly + the double-alert guard.

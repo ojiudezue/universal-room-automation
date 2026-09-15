@@ -19165,6 +19165,17 @@ cards:
     appliance mapping for non-SPAN (ThinQ/TV/plug), staged v1a..v1d. Smart plugs: measuring plugs only,
     never auto-added (onboarding add-path). Build NOT dispatched until rewritten plan is review-clean.
   next: 'WAITING ON ME: synthesize the 3-agent pattern/prior-art sweep -> rewrite PLANNING_appliance_coordinator_v1.md on the EXTEND-SPANCircuitMonitor + declared-mapping basis (staged), then re-review. No operator action needed yet.'
+  REWRITTEN_2026_09_14: >-
+    Plan REWRITTEN post-sweep (3 agents): FIRST-CLASS passive ApplianceCoordinator (appears under 'Add
+    Coordinator', own enable switch + own AnomalyDetector + sensor.ura_appliance_anomaly) -- architecture
+    decision per operator ("where it shows up under Add Coordinator + anomaly integration is an
+    architecture issue, not code amount"). Template = music_following.py; register like __init__.py:3178;
+    persist via metric_baselines table (NOT RestoreEntity/snapshot). SPANCircuitMonitor reuse is an INTERNAL
+    measure primitive, not the identity. Zero-dup reuse map + fragile-pattern blocklist (controllable stub
+    dead, no cross-integration joins, no platform literals, no name-string model parse, no cloud-freshness
+    trust) in plan. ONE new structure = per-appliance multi-role record; operator-declared grouping = de-dup
+    (no auto-join). Staged v1a census / v1b categorization+onboarding / v1c energy+cost / v1d anomaly.
+  next: 'WAITING ON ME: re-review the REWRITTEN plan (Tier-3 x2 framing-disjoint; prior reviews were on the superseded draft), fix any findings, then build v1a (census slice). No operator action pending.'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
