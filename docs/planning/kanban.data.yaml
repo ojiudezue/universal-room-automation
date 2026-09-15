@@ -19045,10 +19045,28 @@ cards:
      ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.phalanxmadrone.ura-overnight-pass.plist
      (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
   refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
+- id: APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1
+  title: "Appliance census: multi-room-same-power-sensor attribution (v1b)"
+  thread: energy
+  status: parked
+  created: '2026-09-14'
+  updated: '2026-09-14'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-2]
+  problem_solution:
+  - 'Problem: when two ROOM configs both declare the SAME SPAN power sensor under power_sensors,
+     v1a census attributes the record to the FIRST-scanned room (config-order-dependent). Solution:
+     resolve multi-room shared power sensors deliberately (list rooms, or an operator disambiguation) —
+     same design pass that adds the v1b operator flow. Inline TODO left in appliance.py _read_span_circuits.'
+  why: surfaced by v1a review A7; deferred from the v1a fix-up as v1b territory (needs the operator flow).
+  next: 'Fold into v1b (categorization + onboarding flow): decide multi-room shared-sensor attribution when building the declared-record editor.'
+  links:
+    related: [APPLIANCE-MGMT-REFINE-1]
 - id: APPLIANCE-MGMT-REFINE-1
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
-  status: waiting_me
+  status: review
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -19191,6 +19209,14 @@ cards:
     B recorder-flood (should_poll=False + unrecorded + resolve-once); C hollow sensor anchor (+ false RED
     comments in source) + vacuous commands-nothing test. Consolidated fix-up dispatched to same worktree.
   next: 'WAITING ON ME: verify fix-up (M1/M2/M3 turn RED; no new suite failures), then Tier-3 pre-deploy CHECKPOINT with operator before merge/deploy. Then build Option C.'
+  V1A_FIXUP_VERIFIED_2026_09_14: >-
+    v1a fix-up COMPLETE + orchestrator-independently-verified: all 5 HIGH + mediums + lows fixed;
+    27/27 targeted, adjacency 148 pass, full-suite +12 pass no new appliance-surface failures. Builder
+    crashed mid-response once (API) -> WIP safety-committed b32fef817, resumed, finished c9c8b822a.
+    ORCH VERIFY: re-ran M1 mutation myself -> BOTH wire-in anchors RED (0==1), restore residue 0, GREEN
+    again -> anchor drives the REAL ApplianceCensusSensor (C-HIGH-1 truly fixed). Deferred: multi-room
+    shared power sensor -> APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1 (v1b). Branch worktree-agent-a4daf81006b20b7a3.
+  next: 'APPROVE deploy: v1a census slice is review-clean + orch-verified (new passive read-only coordinator, commands nothing). Tier-3 checkpoint -> on go I merge to develop + deploy + live-validate. Or hold for you to eyeball the diff first.'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
