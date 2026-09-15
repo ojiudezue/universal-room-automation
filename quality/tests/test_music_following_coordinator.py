@@ -375,4 +375,6 @@ class TestBackwardCompatibility:
         assert "hvac" in COORDINATOR_ENABLED_KEYS
         assert "comfort" in COORDINATOR_ENABLED_KEYS
         assert "music_following" in COORDINATOR_ENABLED_KEYS
-        assert len(COORDINATOR_ENABLED_KEYS) == 8
+        # APPLIANCE-MGMT-REFINE-1 v1a added "appliance" (9 keys total).
+        assert "appliance" in COORDINATOR_ENABLED_KEYS
+        assert len(COORDINATOR_ENABLED_KEYS) == 9

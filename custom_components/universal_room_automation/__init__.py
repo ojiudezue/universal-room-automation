@@ -3569,6 +3569,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("Energy Coordinator disabled via config")
                 # else: enabled but validation failed — already logged above.
 
+                # APPLIANCE-MGMT-REFINE-1 v1a: register the passive Appliance
+                # Coordinator AFTER Energy so its lazy SPANCircuitMonitor read
+                # (source #2 of the census) resolves against a constructed
+                # monitor (plan §Scaffolding site B4 / fragile-pattern #7:
+                # do NOT gate on Energy health — read lazily on tick instead).
+                from .const import CONF_APPLIANCE_COORDINATOR_ENABLED
+                if cm_config.get(CONF_APPLIANCE_COORDINATOR_ENABLED, True):
+                    from .domain_coordinators.appliance import (
+                        ApplianceCoordinator,
+                    )
+                    appliance = ApplianceCoordinator(hass)
+                    coordinator_manager.register_coordinator(appliance)
+                else:
+                    _LOGGER.info("Appliance Coordinator disabled via config")
+
                 # v3.8.0-H1: Register HVAC Coordinator
                 from .const import CONF_HVAC_ENABLED
                 if cm_config.get(CONF_HVAC_ENABLED, False):

@@ -2450,6 +2450,13 @@ CONF_OCCUPANCY_WEIGHTED_ENERGY: Final = "occupancy_weighted_energy"  # v4.1.1: B
 CONF_HVAC_ENABLED: Final = "hvac_coordinator_enabled"
 CONF_COMFORT_ENABLED: Final = "comfort_coordinator_enabled"
 CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED: Final = "music_following_coordinator_enabled"
+# APPLIANCE-MGMT-REFINE-1 v1a: passive appliance census coordinator.
+# Default TRUE (matches CoordinatorEnabledSwitch default at switch.py:657).
+CONF_APPLIANCE_COORDINATOR_ENABLED: Final = "appliance_coordinator_enabled"
+# v1a: operator-declared appliance record list, stored on the CM entry
+# options. Default = []. Writer flow (options-flow step + reload
+# suppression) lands in v1b; v1a is READ-ONLY.
+CONF_APPLIANCE_RECORDS: Final = "appliance_records"
 
 # Mapping coordinator_id -> config key for enable/disable
 COORDINATOR_ENABLED_KEYS: Final = {
@@ -2460,6 +2467,7 @@ COORDINATOR_ENABLED_KEYS: Final = {
     "hvac": "hvac_coordinator_enabled",
     "comfort": "comfort_coordinator_enabled",
     "music_following": "music_following_coordinator_enabled",
+    "appliance": "appliance_coordinator_enabled",
     "notification_manager": "notification_manager_enabled",
 }
 

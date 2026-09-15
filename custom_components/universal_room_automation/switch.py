@@ -31,6 +31,7 @@ from .const import (
     CONF_ENTRY_TYPE,
     CONF_HVAC_ENABLED,
     CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
+    CONF_APPLIANCE_COORDINATOR_ENABLED,
     CONF_NM_DRY_RUN,
     CONF_NM_ENABLED,
     DEFAULT_NM_DRY_RUN,
@@ -261,6 +262,20 @@ async def async_setup_entry(
                 device_id="energy_coordinator",
                 device_name="URA: Energy Coordinator",
                 device_model="Energy Coordinator",
+            ),
+            # APPLIANCE-MGMT-REFINE-1 v1a: passive Appliance Coordinator
+            # (first-class peer under 'Add Coordinator'). Default True; the
+            # coordinator commands nothing, so enabling it only adds the
+            # read-only census sensor.
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="appliance",
+                conf_key=CONF_APPLIANCE_COORDINATOR_ENABLED,
+                name="Appliance Coordinator",
+                icon="mdi:washing-machine",
+                device_id="appliance_coordinator",
+                device_name="URA: Appliance Coordinator",
+                device_model="Appliance Coordinator",
             ),
             # v3.8.0: HVAC Coordinator
             CoordinatorEnabledSwitch(

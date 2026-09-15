@@ -245,6 +245,8 @@ async def async_setup_entry(
             SecurityAggregatorSensor(hass, entry),
             # v4.6.9 D3: Energy Coordinator decision stream timeline
             EnergyRecentDecisionsSensor(hass, entry),
+            # APPLIANCE-MGMT-REFINE-1 v1a: read-only appliance census.
+            ApplianceCensusSensor(hass, entry),
             # v3.6.27: Music Following Coordinator sensors
             MusicFollowingAnomalySensor(hass, entry),
             MusicFollowingTransfersTodaySensor(hass, entry),
@@ -8042,6 +8044,94 @@ def _nm_device_info():
     """
     from ._devices import _nm_device_info as _canonical
     return _canonical()
+
+
+# ============================================================================
+# APPLIANCE-MGMT-REFINE-1 v1a: passive appliance census (read-only sensor).
+# ============================================================================
+
+
+def _appliance_coordinator_device_info():
+    """DeviceInfo for the Appliance Coordinator device.
+
+    Routes through the canonical `_devices._coordinator_device_info` so the
+    device model/name match the parity test (`test_device_entity_architecture`).
+    """
+    from ._devices import _coordinator_device_info
+    return _coordinator_device_info("appliance")
+
+
+class ApplianceCensusSensor(AggregationEntity, SensorEntity):
+    """Read-only appliance census (v1a).
+
+    Entity: sensor.ura_appliance_census
+    Device: URA: Appliance Coordinator (peer of the other coord devices)
+
+    State: count of appliance records.
+    Attributes:
+      - appliances: list of per-appliance dicts with
+        (name, functional_domain, room, entity_refs, source_tags,
+        current_power_w, current_state, freshness).
+      - stale_max_age_s: current freshness threshold (module knob).
+
+    v1a INVARIANT: this sensor is READ-ONLY. It calls ONLY the coordinator's
+    resolver — it does not command any device. Neutering the resolver call
+    site here is the wire-in anchor: the invariant test asserts a specific
+    attribute value present in `extra_state_attributes`, and removing the
+    resolver call from `extra_state_attributes` below turns that test RED.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:washing-machine"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_appliance_census"
+        self._attr_name = "Appliance Census"
+        self._attr_device_info = _appliance_coordinator_device_info()
+
+    def _get_coordinator(self):
+        """Fetch the ApplianceCoordinator instance, or None."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            return manager.coordinators.get("appliance")
+        except Exception:  # noqa: BLE001
+            return None
+
+    @property
+    def native_value(self) -> int:
+        coord = self._get_coordinator()
+        if coord is None:
+            return 0
+        try:
+            # WIRE-IN ANCHOR: the census sensor reads through the coordinator
+            # resolver. Neutering this call (e.g. `return 0`) turns the
+            # wire-in test RED.
+            return len(coord.resolve_census())
+        except Exception:  # noqa: BLE001
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        coord = self._get_coordinator()
+        if coord is None:
+            return {"appliances": [], "stale_max_age_s": None}
+        try:
+            from .domain_coordinators.appliance_const import (
+                APPLIANCE_STALE_MAX_AGE_S,
+            )
+            # WIRE-IN ANCHOR (see native_value): this is the load-bearing
+            # site tested by test_wire_in_anchor_appliance_census.
+            appliances = coord.resolve_census()
+            return {
+                "appliances": appliances,
+                "stale_max_age_s": APPLIANCE_STALE_MAX_AGE_S,
+            }
+        except Exception:  # noqa: BLE001
+            return {"appliances": [], "stale_max_age_s": None}
 
 
 class NMLastNotificationSensor(AggregationEntity, SensorEntity):
