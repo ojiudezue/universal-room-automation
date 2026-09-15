@@ -19219,6 +19219,15 @@ cards:
     again -> anchor drives the REAL ApplianceCensusSensor (C-HIGH-1 truly fixed). Deferred: multi-room
     shared power sensor -> APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1 (v1b). Branch worktree-agent-a4daf81006b20b7a3.
   next: 'APPROVE deploy: v1a census slice is review-clean + orch-verified (new passive read-only coordinator, commands nothing). Tier-3 checkpoint -> on go I merge to develop + deploy + live-validate. Or hold for you to eyeball the diff first.'
+  V1A_SHIPPED_VALIDATED_2026_09_15: >-
+    v1a SHIPPED v5.102.0 + LIVE-VALIDATED working: sensor.ura_appliance_coordinator_appliance_census
+    (CM-prefixed entity id, README corrected) state=220, 194/220 records ura_config, power normalized
+    (fridge 72.8W), freshness discriminates (147 fresh/73 unknown), enable switch on, no recorder-oversize
+    WARNING, commands nothing. Live validation CAUGHT a thread-safety defect static review+tests missed
+    (sensor.py:8121 census timer async_create_task off-loop) -> FIXED v5.102.1 (deployed, PR#570). v5.102.1
+    HACS-download+restart HELD (no 2nd sleep-house restart ~00:15; activates on next natural/operator
+    restart, validate then). v1b/v1c/v1d slices remain.
+  next: 'DO (operator, when convenient): restart HA (or I can on your OK) to activate v5.102.1 (census timer thread-safety fix) -> I validate the frame-warning is gone. Meanwhile v1b (categorization+onboarding flow) is the next build slice. No blocker.'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-14T23:05:35-05:00_ - _Data commit: `87a37f5c422e`_ - _last_reconciled: 2026-09-14_
+_Generated: 2026-09-15T00:10:35-05:00_ - _Data commit: `8226458baacf`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -14,10 +14,10 @@ _Generated: 2026-09-14T23:05:35-05:00_ - _Data commit: `87a37f5c422e`_ - _last_r
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 2 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 20 |
+| 🚀 Shipped (organic open) | 22 |
 | 🅿️ Parked | 52 |
 | ✅ Done | 161 |
 
@@ -473,45 +473,10 @@ _created 2026-09-12 09:15 · initial_
 - **Parsimony:** [BUILD] Cards assert a world-state that may have changed since it was written, in either direction.
 - **Refs:** .claude/skills/ura-kanban/SKILL.md "Verify-before-work" section
 
-## 🔍 Review (2)
+## 🔍 Review (0)
 _under review_
 
-### `TEST-1` - Boot-time shadow diff (legacy vs resolver leg set) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **resolver** - status: **review** - approval: **implied**
-_updated 2026-09-12 10:00_
-- **Origin:** 2026-08-07 - we took hardened surface and gave it new methods; something is bound to fail
-- **Why:** live tripwire for silent coverage shrinkage that unit tests miss
-- **Next:** BUILT (review) — ships with the next deploy.
-- **Tags:** mutation-drill
-- **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
-- **Forensic keys (2):**
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it's REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.
-  - `BUILT_2026_09_14`: BUILT @ feature/perimeter-leg-superset-warn — in review, not deployed. The boot-time shadow diff now exists: _warn_if_not_leg_superset (perimeter_alert.py) computes what the LEGACY fallback WOULD cover and WARNs if the resolver leg set i...
-
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#2 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **energy** - status: **review** - approval: **explicit**
-_created 2026-09-12 16:30 · initial_
-- **Problem / Solution:**
-  - Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution: critique + refine the v3 plan, find the highest...
-- **Why:** operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral slice) is the existing card — this is the parent refine-and-widen.
-- **Next:** APPROVE deploy: v1a census slice is review-clean + orch-verified (new passive read-only coordinator, commands nothing). Tier-3 checkpoint -> on go I merge to develop + deploy + live-validate. Or hold for you to eyeball the diff first.
-- **Tags:** tier-2db
-- **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
-- **Forensic keys (14):**
-  - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
-  - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
-  - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
-  - `RESIDUAL_ANSWERS_2026_09_14`: Operator answered the 4 residual questions: Q1 (breaker control): NOT a controller lever. SPAN breaker on/off is "just an architectural fact we can decide to use or not" -- do NOT wire it as an appliance control action. INSTEAD, at minim...
-  - `PLAN_MUST_INCLUDE_2026_09_14`: Operator: "We will need some kind of appliance CATEGORIZATION in the plan" (corrected from 'attribution'). The plan needs an appliance categorization scheme -- e.g. by control-axis (measure-only vs controllable), by load-type (cold-chain...
-  - `PLAN_WRITTEN_2026_09_14`: Plan drafted -> docs/planning/PLANNING_appliance_coordinator_v1.md. v1 = READ-ONLY census + categorization + anomaly wiring (NO control actuation; NO breaker ever). Tier 3 (new coordinator). D0 measure-first entity probe; D1 3-axis categ...
-  - `CATEGORIZATION_REFINED_2026_09_14`: Operator: categorize by WHAT THE APPLIANCE DOES (Media, Kitchen Appliance, etc.), INDEPENDENT of the add-vector (breaker vs API). Plan D1 now has 4 orthogonal axes; the PRIMARY is functional domain (media_av/kitchen/laundry/climate/cold_...
-  - `ONBOARDING_MODEL_2026_09_14`: Operator refinement before APPROVE: (1) power census alone misses most appliances ("not enough breakers to cover a house") -> discovery must ALSO peek into HA native appliance integrations (LG ThinQ, Samsung, Fire TV, Denon, EPSON, smart...
-  - `PLAN_REVIEWS_2026_09_14`: TIER-3 x2 framing-disjoint plan reviews = BOTH FIX-PLAN-FIRST (record: docs/reviews/code-review/APPLIANCE-MGMT-REFINE-1_plan_review.md). Headline: most of the coordinator ALREADY EXISTS as SPANCircuitMonitor (energy_circuits.py) + energy...
-  - `RESCOPE_DIRECTION_2026_09_14`: Operator: rewrite the plan after a DEEP coordinator-pattern + prior-art sweep; ZERO duplication; use our MOST MATURE patterns, avoid the ones we cannot rely on. (Reflection = genuine consideration time, not a test.) Sweep dispatched (3 r...
-  - `REWRITTEN_2026_09_14`: Plan REWRITTEN post-sweep (3 agents): FIRST-CLASS passive ApplianceCoordinator (appears under 'Add Coordinator', own enable switch + own AnomalyDetector + sensor.ura_appliance_anomaly) -- architecture decision per operator ("where it sho...
-  - `RE_REVIEW_2026_09_14`: Tier-3 x2 re-review of the rewritten plan = FIX-PLAN-FIRST (spine honest, all citations re-greped); ALL fixes applied. camera_census.py prior-art added (device_id resolver = intra-integration de-dup is reliable, only cross-integration ne...
-  - `V1A_BUILD_REVIEW_2026_09_14`: v1a census BUILT (worktree agent-a4daf81006b20b7a3, 14/14) then Tier-2-DB 3-framing review = FIX-REQUIRED. 5 HIGH across framings: A1 no-drop leak (device_id over-collapse drops 27 entities -> DECISION v1a no auto-merge, 1 record/entity,...
-  - `V1A_FIXUP_VERIFIED_2026_09_14`: v1a fix-up COMPLETE + orchestrator-independently-verified: all 5 HIGH + mediums + lows fixed; 27/27 targeted, adjacency 148 pass, full-suite +12 pass no new appliance-surface failures. Builder crashed mid-response once (API) -> WIP safet...
+_(none)_
 
 ## ⏸️ Waiting on operator (20)
 _needs a human call — groomed first_
@@ -848,7 +813,7 @@ _created 2026-08-18 00:55 · updated 2026-08-18 02:25 · initial_
   - `d2_gate_2026_08_18`: D2 (Protect corroboration) gate: NO cron (operator: "don't cron, just fire it yourself best you can"). The probe automation fires ura_kp_face_probe_received + logs the payload verbatim; the HA RECORDER durably retains that event+payload ...
   - `l1_validated_2026_08_18`: SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active + egress_identities_stamped live on persons_enter...
 
-## 🚀 Shipped (organic open) (20)
+## 🚀 Shipped (organic open) (22)
 _live, awaiting proof_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -1049,7 +1014,19 @@ _created 2026-08-19 10:20 · updated 2026-09-11 16:20 · refined_
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). (1) AST audit quality/tools/audit_shadow_imports.py scans all 98 component files for the use-before-local-import shadow. (2) It found TWO REAL Bug Class #34 shadows, both fixed: (a) presen...
   - `problem`: v5.84.0 shipped an UnboundLocalError: a function-local `from ..const import CONF_ENTRY_TYPE` inside _run_inference shadowed the module-level import for the WHOLE function, and a moved reference accessed it unbound on the startup path. Th...
 
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-1` - Boot-time shadow diff (legacy vs resolver leg set) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **resolver** - status: **shipped_organic** - approval: **implied**
+_updated 2026-09-12 10:00_
+- **Origin:** 2026-08-07 - we took hardened surface and gave it new methods; something is bound to fail
+- **Why:** live tripwire for silent coverage shrinkage that unit tests miss
+- **Next:** BUILT (review) — ships with the next deploy.
+- **Tags:** mutation-drill
+- **Parsimony:** [BUILD] a camera's leg set silently shrank vs the retired helpers
+- **Forensic keys (2):**
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it's REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.
+  - `BUILT_2026_09_14`: BUILT @ feature/perimeter-leg-superset-warn — in review, not deployed. The boot-time shadow diff now exists: _warn_if_not_leg_superset (perimeter_alert.py) computes what the LEGACY fallback WOULD cover and WARNs if the resolver leg set i...
+
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **shipped_organic** - approval: **operator_proposed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -1063,7 +1040,7 @@ _updated 2026-09-12 11:00_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
@@ -1076,7 +1053,7 @@ _updated 2026-09-12 11:00_
   - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
   - `reconcile_2026_08_16`: Root fixes SHIPPED v5.75.0 (fan duty-flag exclusion + room-name write-through). Deeper structural causes are in flight as PATH-ALPHA-DENOM-1 (H3 over-reach) + GAP-A-CENSUS-HOLE-1 (census half) + Gap-B guard. This card holds the incident ...
 
-### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-12 11:40_
 - **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
@@ -1088,7 +1065,7 @@ _updated 2026-09-12 11:40_
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
 
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _updated 2026-09-12 12:40 · refined ×3_
 - **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
@@ -1103,7 +1080,7 @@ _updated 2026-09-12 12:40 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-09-12 14:55 · refined_
 - **Problem / Solution:**
@@ -1123,7 +1100,7 @@ _created 2026-08-20 14:15 · updated 2026-09-12 14:55 · refined_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CIRCLING-SEVERITY-1` - A "circling" exterior person produced alert_count=0 — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-14 04:50 · refined_
 - **Origin:** 2026-08-08 - observed during v5.62.1 live validation
@@ -1142,7 +1119,7 @@ _updated 2026-09-14 04:50 · refined_
   - `not_built_overnight_because`: Scoped and gated but deliberately NOT built on this pass. The session is running on the release/v5.101.2-integration branch and a code change belongs on a feature branch off develop; spinning that up for a small observability change at 0...
   - `needs_investigation`: False
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#19 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#20 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Problem / Solution:**
@@ -1163,7 +1140,7 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#20 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#21 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
 - **Problem / Solution:**
@@ -1192,6 +1169,32 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
   - `refinement_2026_09_12_loadbearing`: Operator challenge: room-type must NOT silently flip features. URA has LOAD-BEARING classifications beyond room FUNCTION that carry cross-coordinator implications and today are scattered — CONF_ROOM_IS_GUEST_ROOM (const.py:386, consumed ...
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
+
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#22 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **energy** - status: **shipped_organic** - approval: **explicit**
+_created 2026-09-12 16:30 · initial_
+- **Problem / Solution:**
+  - Problem: appliance management has a ready v3 plan (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, BACKLOG B5) but has never shipped (no appliance/thinq/rainbird coordinator exists). Solution: critique + refine the v3 plan, find the highest...
+- **Why:** operator named it a major initiative to plan; APPLIANCE-COST-DEFERRAL-1 (the cost-deferral slice) is the existing card — this is the parent refine-and-widen.
+- **Next:** DO (operator, when convenient): restart HA (or I can on your OK) to activate v5.102.1 (census timer thread-safety fix) -> I validate the frame-warning is gone. Meanwhile v1b (categorization+onboarding flow) is the next build slice. No bl...
+- **Tags:** tier-2db
+- **Refs:** docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md; docs/planning/CRITIQUE_appliance_management_v3.md
+- **Forensic keys (15):**
+  - `planning_2026_09_12`: CRITIQUE written -> docs/planning/CRITIQUE_appliance_management_v3.md. Findings: v3 plan is a thin reskin of v2, 16 months stale (targets v4.7.x; repo is v5.100.x) — re-verify all refs. LIVE devices richer than plan: LG washer/washer1/wa...
+  - `operator_reframe_2026_09_14`: OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two layers that may OVERLAP (an appliance can be both measured and controlled). LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not comman...
+  - `RESIDUAL_QUESTIONS_2026_09_14`: Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) a...
+  - `RESIDUAL_ANSWERS_2026_09_14`: Operator answered the 4 residual questions: Q1 (breaker control): NOT a controller lever. SPAN breaker on/off is "just an architectural fact we can decide to use or not" -- do NOT wire it as an appliance control action. INSTEAD, at minim...
+  - `PLAN_MUST_INCLUDE_2026_09_14`: Operator: "We will need some kind of appliance CATEGORIZATION in the plan" (corrected from 'attribution'). The plan needs an appliance categorization scheme -- e.g. by control-axis (measure-only vs controllable), by load-type (cold-chain...
+  - `PLAN_WRITTEN_2026_09_14`: Plan drafted -> docs/planning/PLANNING_appliance_coordinator_v1.md. v1 = READ-ONLY census + categorization + anomaly wiring (NO control actuation; NO breaker ever). Tier 3 (new coordinator). D0 measure-first entity probe; D1 3-axis categ...
+  - `CATEGORIZATION_REFINED_2026_09_14`: Operator: categorize by WHAT THE APPLIANCE DOES (Media, Kitchen Appliance, etc.), INDEPENDENT of the add-vector (breaker vs API). Plan D1 now has 4 orthogonal axes; the PRIMARY is functional domain (media_av/kitchen/laundry/climate/cold_...
+  - `ONBOARDING_MODEL_2026_09_14`: Operator refinement before APPROVE: (1) power census alone misses most appliances ("not enough breakers to cover a house") -> discovery must ALSO peek into HA native appliance integrations (LG ThinQ, Samsung, Fire TV, Denon, EPSON, smart...
+  - `PLAN_REVIEWS_2026_09_14`: TIER-3 x2 framing-disjoint plan reviews = BOTH FIX-PLAN-FIRST (record: docs/reviews/code-review/APPLIANCE-MGMT-REFINE-1_plan_review.md). Headline: most of the coordinator ALREADY EXISTS as SPANCircuitMonitor (energy_circuits.py) + energy...
+  - `RESCOPE_DIRECTION_2026_09_14`: Operator: rewrite the plan after a DEEP coordinator-pattern + prior-art sweep; ZERO duplication; use our MOST MATURE patterns, avoid the ones we cannot rely on. (Reflection = genuine consideration time, not a test.) Sweep dispatched (3 r...
+  - `REWRITTEN_2026_09_14`: Plan REWRITTEN post-sweep (3 agents): FIRST-CLASS passive ApplianceCoordinator (appears under 'Add Coordinator', own enable switch + own AnomalyDetector + sensor.ura_appliance_anomaly) -- architecture decision per operator ("where it sho...
+  - `RE_REVIEW_2026_09_14`: Tier-3 x2 re-review of the rewritten plan = FIX-PLAN-FIRST (spine honest, all citations re-greped); ALL fixes applied. camera_census.py prior-art added (device_id resolver = intra-integration de-dup is reliable, only cross-integration ne...
+  - `V1A_BUILD_REVIEW_2026_09_14`: v1a census BUILT (worktree agent-a4daf81006b20b7a3, 14/14) then Tier-2-DB 3-framing review = FIX-REQUIRED. 5 HIGH across framings: A1 no-drop leak (device_id over-collapse drops 27 entities -> DECISION v1a no auto-merge, 1 record/entity,...
+  - `V1A_FIXUP_VERIFIED_2026_09_14`: v1a fix-up COMPLETE + orchestrator-independently-verified: all 5 HIGH + mediums + lows fixed; 27/27 targeted, adjacency 148 pass, full-suite +12 pass no new appliance-surface failures. Builder crashed mid-response once (API) -> WIP safet...
+  - `V1A_SHIPPED_VALIDATED_2026_09_15`: v1a SHIPPED v5.102.0 + LIVE-VALIDATED working: sensor.ura_appliance_coordinator_appliance_census (CM-prefixed entity id, README corrected) state=220, 194/220 records ura_config, power normalized (fridge 72.8W), freshness discriminates (1...
 
 ## 🅿️ Parked (52)
 _revisit-trigger set_
