@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.102.1
+# Universal Room Automation vv5.103.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -120,6 +120,7 @@ from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
 from .aggregation import AggregationEntity, _get_room_coordinators
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
+from .room_classification import get_room_classification
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -2771,6 +2772,14 @@ class RoomSignalInventorySensor(UniversalRoomEntity, SensorEntity):
                     CONF_DISABLE_CAMERA_PRESENCE,
                     DEFAULT_DISABLE_CAMERA_PRESENCE,
                 )
+            ),
+            # ROOM-CLASSIFICATION-CONSISTENCY-1 D-C1: unified read-model
+            # projection over CONF_ROOM_TYPE + guest/wet/shared flags +
+            # outdoor (via outdoor_zone_names_snapshot) + infrastructure
+            # (coordinator._infrastructure_room, not the switch state).
+            # Purely additive — no existing consumer edited.
+            "classification": get_room_classification(
+                self.hass, self.coordinator.entry
             ),
         }
 

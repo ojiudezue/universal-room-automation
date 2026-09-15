@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "122",
+  "author": "ojiudezue",
+  "session_id": "claude_20260915_165840_ship_v5_103_0",
+  "timestamp": "2026-09-15T16:58:40Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.0 shipped: Appliance onboarding + categorization (v1b): per-appliance records, functional-domain, reload-suppressed flow + room-classification read-model accessor (D-C1)",
+  "summary": "Appliance onboarding + categorization (v1b): per-appliance records, functional-domain, reload-suppressed flow + room-classification read-model accessor (D-C1)",
+  "why": "Batched two review-clean, orch-verified slices + the already-shipped v5.102.1 fix into one deploy so a single restart activates all three (deploy is git-only; no HA impact until restart). v1b is the operator-visible win (appliance onboarding/categorization/grouping); D-C1 is honestly infrastructure \u2014 one diagnostic attribute no consumer reads yet, shipped per operator go as a foundation, closing ROOM-CLASSIFICATION (D1 docs already shipped, D2/D3 parked). Tier-2 2-framing review on v1b caught a real index-as-identity wrong-record edit/delete bug AND three hollow test anchors (census tests not flow-driven, reload-suppress tests grepping comment text \u2014 the no-reload invariant was untested, AST guard skipping bare CONF_*); all fixed; I independently re-ran the M2 reload mutation to confirm the anchor is now real (RED->GREEN). Pre-deploy gate caught a latent env-coupled freshness fixture bug (naive vs dt_util.utcnow aware under .venv-ha); fixed test-only (production freshness was live-validated correct). Deploy from develop, branch verified after the earlier stranded-commits incident.",
+  "implications": "Shipped APPLIANCE-MGMT-REFINE-1, ROOM-CLASSIFICATION-CONSISTENCY-1 at v5.103.0; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.0.md (Live criteria).",
+  "revisit_trigger": "post-restart: CM options shows an Appliance Coordinator step and adding a record (name+domain+entity) makes it appear in sensor.ura_appliance_coordinator_appliance_census with that functional_domain, AND no off-loop async_create_task frame warning from the census timer",
+  "refs": {
+    "cards": [
+      "APPLIANCE-MGMT-REFINE-1",
+      "ROOM-CLASSIFICATION-CONSISTENCY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.0.md"
+    ],
+    "release_notes": "MINOR: new operator-facing capability \u2014 declare/categorize/group appliances via CM options (net-new TVs addable, URA-owned auto-shown, cross-integration grouping = operator de-dup). + room-classification read-model accessor (additive, closes ROOM-CLASSIFICATION-CONSISTENCY-1). Carries v5.102.1 census thread-safety fix (activates this restart). v1b Tier-2 2-framing reviewed (index-as-identity + 3 hollow anchors fixed, orch-verified); D-C1 reviewed SHIP (M1 pure-reader fix)."
+  }
+}

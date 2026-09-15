@@ -347,6 +347,11 @@ def _load_init_listener_helpers():
         # knobs added to `_NM_A2_KEYS`.
         "_CONF_STUCK_SIGNAL_NM_ENABLED":               "stuck_signal_nm_enabled",
         "_CONF_STUCK_SENSOR_EXCLUSION_ENABLED":        "stuck_sensor_exclusion_enabled",
+        # APPLIANCE-MGMT-REFINE-1 v1b — appliance records list, added to
+        # OPTIONS_RELOAD_SUPPRESS_KEYS + _NO_LIVE_ATTR_KEYS so iterative
+        # onboarding saves do not trigger a CM reload. Non-aliased const
+        # import, so it needs a stub here too for the AST-slice guard.
+        "CONF_APPLIANCE_RECORDS":                     "appliance_records",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # C-MED-2 fix-up (2026-07-20): self-check every hand-typed _CONF_* alias
@@ -393,9 +398,15 @@ def _verify_hand_typed_conf_literals(ns: dict) -> None:
             canonical.setdefault(m.group(1), m.group(2))
     mismatches: list[str] = []
     for alias, hand_value in list(ns.items()):
-        if not alias.startswith("_CONF_"):
+        # B-MED-1 fix-up (APPLIANCE-MGMT-REFINE-1 v1b): the prior guard
+        # only matched `_CONF_*` aliases and silently skipped bare
+        # `CONF_*` stubs (e.g. `CONF_APPLIANCE_RECORDS`), so a
+        # hand-typed literal drifting from the const source would slip
+        # past the cross-check. Cover both prefixes.
+        stripped = alias.lstrip("_")
+        if not stripped.startswith("CONF_"):
             continue
-        real_name = alias.lstrip("_")  # "_CONF_X" -> "CONF_X"
+        real_name = stripped  # "_CONF_X" -> "CONF_X"; "CONF_X" -> "CONF_X"
         if real_name not in canonical:
             # Not every ns alias is guaranteed to exist in const sources
             # (some helper stubs are legitimately test-scoped) — skip.

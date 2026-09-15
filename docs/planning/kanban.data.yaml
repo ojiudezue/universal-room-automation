@@ -9,6 +9,45 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'OVERNIGHT-PASS-SUMMARY@2026-09-15T05:00', at: '2026-09-15T05:00:00', outcome: investigated,
+     headline: 'WHY NOTHING REACHED THE REVIEW LANE TONIGHT: the contract says Tier-1/2 builds that pass the gate go build -> review -> validate, but validation runs the suite, and the suite is currently unrunnable (10,560 of 10,588 tests error at setup). So the build lane is blocked at the harness until you PICK on TEST-HARNESS-REAL-HA-DEFAULT-1. The pass ran 8 read-only probes instead and disposed 10 cards: 1 closed-refuted, 3 parked at the gate, 6 escalated with measurements attached. No deploys (occupied sleeping house), and no NM page — these are non-urgent decisions and 03:00 buzzing is hostile timing; the board is the report.',
+     acknowledged: false}
+  - {fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-15T04:30', at: '2026-09-15T04:30:00', outcome: investigated,
+     headline: 'BIGGEST FIND OF THE NIGHT — THE TEST SUITE IS UNRUNNABLE AS A WHOLE. Full run in .venv-ha: 10,560 ERRORS of 10,588 collected (99.7pct), all one cause — phcc 0.13.316 ships two autouse SYNC fixtures (plugins.py:342 enable_event_loop_debug, :351 verify_cleanup) calling a bare asyncio.get_event_loop(), which raises on Python 3.13. Environmental, not URA code. Collection itself is clean (0 errors). Any recent full-run "N passed" baseline is suspect.',
+     acknowledged: false}
+  - {fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@fix-backed-out', at: '2026-09-15T04:35:00', outcome: waiting_operator,
+     headline: 'FIX ATTEMPTED AND DELIBERATELY BACKED OUT. Overriding enable_event_loop_debug worked, then the same failure reappeared one fixture later in verify_cleanup; the obvious set_event_loop fix is impossible because this harness has NO event_loop fixture (phcc pins its own policy). Handing verify_cleanup the wrong loop would leave its lingering-task/timer assertions passing against an idle placeholder — a green suite that stopped checking for leaks. PICK A (override both, keep leak checks) / B (no-op verify_cleanup, not recommended) / C (dependency bump). Tree clean, nothing committed.',
+     acknowledged: false}
+  - {fid: 'TEST-STRATEGY-REARCH-1@2026-09-15T04:40', at: '2026-09-15T04:40:00', outcome: investigated,
+     headline: 'TEST-STRATEGY-REARCH-1 — re-measured and now BLOCKED ON ITS OWN CHILD. Collection residual retired (10,588 collected, 0 errors — the v5.101.0 const-stub fix held). The "~87 order-dependent runtime failures" cannot be re-measured while the harness masks them behind 10,560 setup errors, so the re-arch audit is not ready to scope. The 4-minute runtime claim IS confirmed: 249s.',
+     acknowledged: false}
+  - {fid: 'URA-CONFIG-ENTRY-RELOAD-STORM-1@2026-09-15T03:50', at: '2026-09-15T03:50:00', outcome: investigated,
+     headline: 'RELOAD-STORM — self-issued-reload hypothesis REFUTED without needing the logs. URA has exactly ONE site that reloads a foreign entry unprompted (hvac.py:4941 Carrier stale-reload); it writes a carrier_reload row to ura_activity_log on every fire, and there are ZERO such rows in 21 days AND all time (same window: 2,683 transit anomalies, so the table is live). Every other async_reload is operator-initiated. The storm is therefore EXTERNAL to URA. The log-read half stayed blocked — see the new card.',
+     acknowledged: false}
+  - {fid: 'OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-15T03:45', at: '2026-09-15T03:45:00', outcome: waiting_operator,
+     headline: 'NEW CARD — the overnight pass cannot read HA logs at all, so every log-based investigation silently stalls (the reload-storm card has debug ARMED and unread because of it). Three routes tried and failed: home-assistant MCP never connects headless, `ha core logs` over ssh returns 401 (no supervisor token), journalctl absent in the ssh add-on. DO: provision a read-only supervisor token for the launchd job -> I wire it in and immediately run the armed probe.',
+     acknowledged: false}
+  - {fid: 'GUEST-FALSE-POSITIVE-JAYA-ONLY-1@2026-09-15T02:30', at: '2026-09-15T02:30:00', outcome: done,
+     headline: 'GUEST-FALSE-POSITIVE-JAYA-ONLY-1 — REFUTED + CLOSED by one probe. The card said the flip-instant census split was not historized and could not be pinned; census_snapshots historizes it exactly. unidentified_count = 0 at 12 of 12 GUEST flips in 30d, identified_persons = residents only. So NEITHER discriminator term: mechanism is the Path-B guest-ROOM gate, zero census involvement. Flips also collapsed 5-9/day (Aug) -> 0 since 09-10.',
+     acknowledged: false}
+  - {fid: 'GUEST-FP-RESIDUALS-1@2026-09-15T02:40', at: '2026-09-15T02:40:00', outcome: parked,
+     headline: 'GUEST-FP-RESIDUALS-1 — YOUR QUESTION ANSWERED BY MEASUREMENT, left your queue. The 50 guest-entry episodes were the FP flavor: entries/month Jun 23 Jul 74 Aug 98 Sep 19 and ZERO since the v5.79.0 Path-B repair, with 31 of them arriving between midnight and 03:00. A1 already shipped v5.78.0; B1 confirmed latent (only 1 of 46 rooms has camera person entities, and it is indoor). PARKED with a revival trigger.',
+     acknowledged: false}
+  - {fid: 'GUEST-GATE-DOOR-IDENTITY-1@2026-09-15T02:45', at: '2026-09-15T02:45:00', outcome: parked,
+     headline: 'GUEST-GATE-DOOR-IDENTITY-1 — PARKED at the gate on measured evidence. Egress identity is no longer dead (0pct through 08-30 -> 17.8pct over 09-08..09-14) but it names RESIDENTS ONLY, so a guest gate keyed on "no name" would fire GUEST on the 82pct of residents the matcher misses — re-introducing the false-GUEST class closed tonight. Revival trigger: >=50pct/14d AND one non-resident ever named.',
+     acknowledged: false}
+  - {fid: 'ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-15T02:50', at: '2026-09-15T02:50:00', outcome: waiting_operator,
+     headline: 'ARRIVAL-DEPARTURE-NOTIFY-1 — ESCALATED with its blocking measurement finished. The egress-identity probe it was waiting on is done (17.8pct/7d, ~1-2 named crossings/day, residents only). Feature is buildable and REUSE-only, but it is outward-facing (pages your phone) and 17.8pct coverage is a taste call. PICK A (named-only, recommended) / B (named-only + quiet hours) / C (hold for a better producer).',
+     acknowledged: false}
+  - {fid: 'HUMIDITY-LOW-RUNG-PAGING-KNOB-1@2026-09-15T03:05', at: '2026-09-15T03:05:00', outcome: waiting_operator,
+     headline: 'HUMIDITY-LOW-RUNG-PAGING-KNOB-1 — NOT BUILT despite your approval, because the premise measured to zero. The code gap is real (safety.py:2080-2085 + :2205-2217 fence bathroom/basement off the CONF_HUMIDITY_NORMAL_* knobs) but notification_log shows ZERO humidity pages in 30 days, 7 bathrooms and 0 basement rooms. Nulling a safety rung is also always-explicit. PICK A (drop, recommended) / B (knob, defaults unchanged) / C (null it).',
+     acknowledged: false}
+  - {fid: 'RECORDER-CHURN-SWEEP-URASENSORS-1@2026-09-15T03:20', at: '2026-09-15T03:20:00', outcome: waiting_operator,
+     headline: 'RECORDER-CHURN-SWEEP-URASENSORS-1 — MEASURED, card ranking REFUTED, value reframed. Recorder took 6.69M rows/24h; ALL URA entities = 147k = 2.2pct, so the whole sweep is worth at most ~2pct. Five sites confirmed above the 2834/day coordinator tick floor; the three the card called high-yield (cooldowns, optimizer ETA, Bayesian x45) do not appear at all. PICK A (fix the water monitor first, recommended) / B (narrow 5-site sweep) / C (drop).',
+     acknowledged: false}
+  - {fid: 'RECORDER-BLOAT-LOGFLOOD-1@2026-09-15T03:25', at: '2026-09-15T03:25:00', outcome: investigated,
+     headline: 'RECORDER-BLOAT-LOGFLOOD-1 — NEW INSTANCE, and it is a FAULT not just noise: binary_sensor.madronewatermonitor_low_flow_leak wrote 60,610 state rows in 24h (more than 40pct of all URA entities combined) with only TWO distinct states — a leak detector flapping ~30k times/day. I did NOT exclude it: suppressing a water-safety sensor hides the fault. UDM cpu+memory utilization add another 80k/day and are the cheapest safe exclude. DB 31GB -> 19.6GB.',
+     acknowledged: false}
   - {fid: 'ROOM-CLASSIFICATION-CONSISTENCY-1@planrev', at: '2026-09-14T16:30:00', outcome: 'plan-reviewed+D1-built',
      headline: 'Room-classification Option A: plan-review caught CRITICAL (2 outdoor coercion sites; safety.py:1319 is NM-A hazard suppression). Live check 0 basement/0 outdoor rooms -> D1 docs BUILT (docs/architecture/ROOM_CLASSIFICATION.md), D2/D3 net-negative -> PARKED, PICK to operator',
      acknowledged: false}
@@ -27,15 +66,6 @@ meta:
   - {fid: 'EXTERIOR-ALERTING-VERIFIED@2026-09-14T15:35', at: '2026-09-14T15:35:00', outcome: investigated,
      headline: 'Exterior linker VERIFIED post-ratification: struck back_yard<->front_side_ptz seam links dropped 73 (7d) -> 1 (and that 1 is a legit full-ring walk, not a direct link). Circling now on adjacent cameras. Fix landed',
      acknowledged: false}
-  - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T04:50', at: '2026-09-14T04:50:00', outcome: investigated,
-     headline: 'CIRCLING-SEVERITY-1 — STALE PLAN CAUGHT + promoted to build-ready. Its plan said fold into CONSOL-1; CONSOL-1 has SHIPPED and did not carry it, so the card was waiting on a closed cycle. Re-verified in source: the burst path has decision reasons but the two pre-dispatch gates (egress suppression, cooldown) still return silently. Passes all four gate steps as a Tier-1 REUSE of the existing reason idiom. Scoped, not built (branch hygiene at 05:00, no urgency).',
-     acknowledged: true}
-  - {fid: 'NM-REPAGE-IMG-1@2026-09-14T04:35', at: '2026-09-14T04:35:00', outcome: done,
-     headline: 'NM-REPAGE-IMG-1 — ALREADY-DONE, closed with zero work. The card still asked me to instrument the BlueBubbles transport and wait for an unacked CRITICAL; the fix shipped a month earlier in v5.73.1 (commit aee318b0e) and the code carries this card ID. A grep answered what a live measurement was queued to find out.',
-     acknowledged: true}
-  - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:40', at: '2026-09-14T04:40:00', outcome: investigated,
-     headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 (follow-up) — re-pages are INVISIBLE to notification_log (_repeat_alert never calls log_notification), so 102/day UNDERSTATES the real buzz load: 2153 unacked CRITICALs keep paging on the 300s/1800s/daily ladder. Low ack rate does not just indicate fatigue, it manufactures it. Also confirms the 300s histogram spike is the perimeter cooldown, not the repeat timer (both share a 300s period).',
-     acknowledged: true}
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated,
      headline: 'PERIMETER-ALERT-VOLUME-FATIGUE-1 — MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working — so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).',
      acknowledged: false}
@@ -48,57 +78,9 @@ meta:
   - {fid: 'CAMERA-ZERO-FIRE-DETECTORS-1@2026-09-14T03:30', at: '2026-09-14T03:30:00', outcome: investigated,
      headline: 'CAMERA-ZERO-FIRE-DETECTORS-1 — MEASURED on the Frigate host, then ESCALATED. Not an MQTT gap: Frigate logged ~no person events either, so URA is faithful. All 3 cameras alive + detecting (offline hypothesis refuted). Per-camera causes differ; all remaining fixes are homelab/physical, no URA build. Also found a naming trap: ArmCrestASH41B != ArmCrest.',
      acknowledged: false}
-  - {fid: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1@2026-09-14T03:35', at: '2026-09-14T03:35:00', outcome: waiting_operator,
-     headline: 'CAMERA-PTULTRA-NOT-IN-PERIMETER-1 — RECOMMENDATION CHANGED by measurement: MadronePTUltra has fired ZERO Frigate events ALL TIME (on-demand PIR duty-cycle to protect its battery). Adding it to perimeter_cameras is safe but buys ~no coverage. Operator should decide duty-cycle, not just the config toggle.',
-     acknowledged: true}
-  - {fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-14T03:10', at: '2026-09-14T03:10:00', outcome: parked,
-     headline: 'FRONT-SIDE-PTZ-CHATTER-1 — LANE FIX only: card sat in investigating while its own next said the operator owns it and nothing was queued on my side. Moved to waiting_operator with an operator-verb next. No finding changed.',
-     acknowledged: true}
-  - {fid: 'HVAC-BASELINE-MAXSAMPLES-1@2026-09-12T12:00', at: '2026-09-12T12:00:00', outcome: parked,
-     headline: 'HVAC-BASELINE-MAXSAMPLES-1 — PARKED at gate (shared-primitive change, margin does not pay)',
-     acknowledged: true}
-  - {fid: 'PATHBETA-VESTIGIAL-1@2026-09-12T12:20', at: '2026-09-12T12:20:00', outcome: parked,
-     headline: 'PATHBETA-VESTIGIAL-1 — PARKED at gate (hygiene-not-defect; gated on PATH-ALPHA proofs)',
-     acknowledged: true}
-  - {fid: 'CRASH-ORPHAN-COMMITS-RECOVERY-1@2026-09-13T20:45', at: '2026-09-13T20:45:00', outcome: done,
-     headline: 'CRASH-ORPHAN-COMMITS-RECOVERY-1 — DONE: 14 orphaned develop commits recovered + pushed; no code lost',
-     acknowledged: true}
-  - {fid: 'OLLAMA-CONSUMER-AUDIT-1@2026-09-13T20:50', at: '2026-09-13T20:50:00', outcome: done,
-     headline: 'OLLAMA-CONSUMER-AUDIT-1 — DONE: cleared to stop Ollama; LLM Vision uses OpenAI cloud (operator hypothesis refuted), zero consumers found',
-     acknowledged: true}
-  - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-13T21:10', at: '2026-09-13T21:10:00', outcome: waiting_operator,
-     headline: 'WORKTREE-BACKLOG-PRUNE-1 — ESCALATED: audited all 94 worktrees; ~54 safe-prune, ~40 hold real work. Needs APPROVE (deletion irreversible)',
-     acknowledged: true}
-  - {fid: 'ROOM-ENTITY-STALE-CONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
-     headline: 'ROOM-ENTITY-STALE-CONFIG-1 — DONE with NO EDITS APPLIED: verify-before-work found 3 of 4 already repointed and the 4th inert (dead ref shadowed by options override). Approval spent on a no-op; no restart needed',
-     acknowledged: true}
-  - {fid: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: done,
-     headline: 'OPTIMIZER-COMFORT-HVAC-ZONE-MAPPING-FP-1 — KILLED per operator. MBR on studyb_zone_1 confirmed BY DESIGN (3 HVAC zones serve ~40 rooms); the check-side fix already shipped v5.91.4',
-     acknowledged: true}
-  - {fid: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1@2026-09-13T21:35', at: '2026-09-13T21:35:00', outcome: done,
-     headline: 'REMINDER-ACTIVATE-OVERNIGHT-PASS-1 — ACTIVATED: launchd job loaded + verified, nightly 02:00 America/Chicago. Unattended autonomous passes now live (builds stop at review, no unattended deploys)',
-     acknowledged: true}
-  - {fid: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: parked,
-     headline: 'KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1 + KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 — PARKED per operator (leave alone); both carry revival triggers',
-     acknowledged: true}
-  - {fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-13T21:40', at: '2026-09-13T21:40:00', outcome: waiting_operator,
-     headline: 'CONFIG-FLOW-SLOW-ONBOARDING-1 — RECHECKED: network outage STILL LIVE and WORSE (7053 unavailable vs 6132; Shelly regressed 138->171; z2m 4/6 off). URA healthy (5 unavail). Operator infra fix',
-     acknowledged: true}
   - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T02:20', at: '2026-09-14T02:20:00', outcome: investigated,
      headline: 'CIRCLING-SEVERITY-1 — TRACED: refuted the card''s own clock-gating premise (that window gates burst DEMOTION, not alerting) and refuted a dead-severity-table theory; isolated to egress-suppression vs per-camera cooldown. Next step is now a measurement, not a code change',
      acknowledged: false}
-  - {fid: 'WORKTREE-BACKLOG-PRUNE-1@2026-09-14T01:05', at: '2026-09-14T01:05:00', outcome: done,
-     headline: 'WORKTREE-BACKLOG-PRUNE-1 — DONE: 51 worktrees pruned (94->43). The recheck RESCUED 10 orphaned code-review records (2462 lines) that existed only in throwaway worktrees and would have been destroyed',
-     acknowledged: true}
-  - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1-B1@2026-09-13T22:10', at: '2026-09-13T22:10:00', outcome: built,
-     headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 B1 — BUILT (review): the corpus TRIMMER empties findings_recent while keeping open_findings_count, manufacturing the contradiction the LLM paged as CRITICAL. Fix = truncation notice. 3 tests + mutation drill',
-     acknowledged: true}
-  - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1-B2@2026-09-14T01:40', at: '2026-09-14T01:40:00', outcome: built,
-     headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 B2 — BUILT (review): unchanged stuck-sensor rows now persist ~1/day not ~288/day. Suppressed at the persistence layer so the house score cannot silently rise. 6 tests incl 2 wire-in anchors',
-     acknowledged: true}
-  - {fid: 'OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1@2026-09-14T02:00', at: '2026-09-14T02:00:00', outcome: built,
-     headline: 'OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 — BUILT (review): existing coverage was a SOURCE GREP (hollow anchor) and an in-repo comment claiming a behavioural test was false. Added real anchors + source-mutation drill',
-     acknowledged: true}
   - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1@2026-09-13T21:05', at: '2026-09-13T21:05:00', outcome: investigated,
      headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 — MEASURED: operator premise refuted, LLM tier already live (333 tier2_llm findings via Claude). Real gap = template alert text + 5026 sensor_health/high in 7d. Needs PICK of lever A/B/C',
      acknowledged: false}
@@ -2023,7 +2005,81 @@ cards:
   - project_charge_onset_correct_site
   - docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
   sibling_of: URA-CONFIG-ENTRY-RELOAD-STORM-1
+- id: OVERNIGHT-PASS-NO-LOG-REACH-1
+  title: The overnight pass cannot read HA logs, so every log-based investigation silently stalls
+  thread: platform
+  status: waiting_operator
+  created: '2026-09-15 03:45'
+  updated: '2026-09-15 03:45'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-1, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: several cards on this board can only be advanced by reading Home Assistant log lines
+     (the reload-storm trigger hunt is the live example, and its debug logging is already armed and
+     waiting to be read). The unattended overnight pass has NO way to read those logs, so those cards
+     cannot move no matter how high they rank — the pass reaches the URA database and the HA recorder
+     database fine over ssh, but the logs live somewhere it cannot get to. Three routes were tried
+     tonight and all three failed: the home-assistant MCP server (which is how an attended session
+     reads logs) never finishes connecting in the headless launchd run; `ha core logs` over ssh
+     returns 401 Unauthorized because that shell has no supervisor token; and `journalctl` does not
+     exist inside the ssh add-on at all, while /config/home-assistant.log.1 is a zero-byte leftover
+     from 2025. Solution: give the unattended pass ONE durable read-only route to the logs — most
+     likely a long-lived supervisor token available to the launchd job, so `ha core logs` works the
+     same way it does for an attended session.'
+  origin:
+    date: '2026-09-15'
+    gist: 'overnight pass tried to run the armed reload-storm log probe and had no route to the logs'
+  why: 'This is a forcing-function gap in the rung-5 overnight contract, not a one-off inconvenience.
+    The contract promises that investigations run autonomously overnight, but an entire CLASS of
+    investigation (anything log-based) is silently unrunnable, and the failure mode is invisible —
+    the pass just reports "could not measure" and the card sits another day. It already cost the
+    reload-storm card a night with its debug armed and unread.'
+  constraints:
+  - 'READ-ONLY is sufficient — the pass never needs to write via the supervisor API, so scope any
+    token to the narrowest read that makes `ha core logs` work.'
+  next: 'DO (one-time, operator): provision a read-only supervisor/long-lived token the launchd
+    overnight job can use for `ha core logs` (or tell me the route you prefer — e.g. making the
+    home-assistant MCP reachable headless). -> I wire it into the overnight script and immediately
+    re-run the armed reload-storm probe on URA-CONFIG-ENTRY-RELOAD-STORM-1.'
+  links:
+    blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
+    context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
+      next action is literally a log read, so it cannot advance unattended until this is fixed.'
+  rank: {value: 6, time_criticality: 5, effort: 2}
 - id: URA-CONFIG-ENTRY-RELOAD-STORM-1
+  measured_2026_09_15_self_issued_reloads: 'OVERNIGHT PASS — THE STATIC HALF OF THIS CARD next IS NOW
+    ANSWERED, and the answer is a clean NEGATIVE that removes the most attractive suspect. The next
+    asked me to "grep the codebase for self-issued homeassistant.reload_config_entry" alongside the log
+    read. Done, and it found exactly ONE site where URA reloads a FOREIGN config entry on its own
+    initiative: the HVAC "Carrier reload" at hvac.py:4941-4946, which calls the homeassistant
+    .reload_config_entry service against the ha_carrier entry when climate state goes stale, guarded by
+    a cooldown and a per-day counter. Every other async_reload in the package is operator-initiated or
+    self-scoped — switch.py:500/508/683/694 (switch entities the operator flips), button.py:345 (a
+    button press), repairs.py:93 (a repair flow the operator completes), config_flow.py:1275 and
+    __init__.py:7651 (options-flow apply). None of those fires unattended at 04:00.
+    THE CARRIER PATH HAS NEVER FIRED: that site writes a `carrier_reload` row into ura_activity_log on
+    every reload it issues, and a read-only query returns ZERO rows for action=carrier_reload over the
+    last 21 days AND zero over all time; a broader query for any action or description containing
+    "reload" in the whole activity log also returns nothing, while the same 7-day window holds 2,683
+    transit anomalies, 1,876 optimizer summaries and 1,158 notifications, so the table is very much
+    being written. CONCLUSION: the nightly storm is NOT URA reloading something on its own schedule.
+    That shifts the remaining hypotheses to an EXTERNAL trigger (another integration, a supervisor or
+    add-on action, or an HA-core-initiated reload) — which is precisely what the log read would
+    discriminate, and the log read is the half that is still blocked (see probe_blocked_2026_09_15 and
+    the new card OVERNIGHT-PASS-NO-LOG-REACH-1). Worth noting the measurement was possible only because
+    the carrier path self-logs to the DB; the negative is as strong as a log read would have been for
+    that specific suspect.'
+  probe_blocked_2026_09_15: 'OVERNIGHT PASS — PROBE ATTEMPTED AND BLOCKED, card NOT advanced. This
+    card next action is a log read ("ha_get_logs core around one blip for reload/Unloading/Setting up")
+    and the debug logging is already armed on the live instance, so this should have been the cheapest
+    win of the night. It could not be run: the home-assistant MCP server never connected in this
+    headless run, `ha core logs` over ssh returns 401 Unauthorized (no supervisor token in that shell),
+    `journalctl` is not present in the ssh add-on, and /config/home-assistant.log.1 is a zero-byte file
+    dated Nov 2025 (logs go to journald per memory reference_ha_logs_journald). The static half of the
+    next — grepping the codebase for self-issued homeassistant.reload_config_entry calls — remains
+    runnable and is still open. Blocked by the newly carded OVERNIGHT-PASS-NO-LOG-REACH-1; the armed
+    debug is NOT lost, it simply has not been read yet.'
   title: The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change —
     118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload
     watchdog risk)
@@ -2884,8 +2940,28 @@ cards:
 - id: GUEST-FALSE-POSITIVE-JAYA-ONLY-1
   title: House flips to GUEST when only a single resident (Jaya) is home
   thread: identity
-  status: investigating
-  updated: '2026-09-12 19:20'
+  status: done
+  updated: '2026-09-15 02:30'
+  measured_2026_09_15: 'OVERNIGHT PASS — ONE-SHOT PROBE RUN, PREMISE REFUTED, CARD CLOSED. The card
+    claimed the flip-instant census split "is NOT historized, so the term cannot be pinned post-hoc" —
+    that claim is WRONG: table `census_snapshots` historizes exactly (identified_count, unidentified_count,
+    total_persons, frigate_count, unifi_count, identified_persons) and the join settles it. Probe (read-only,
+    ssh ha sqlite3): every GUEST transition in house_state_log over 30 days joined to the nearest preceding
+    house-zone census row. RESULT: unidentified_count = 0 at 12 of 12 GUEST flips, total_persons ==
+    identified_count in all 12, and identified_persons contains ONLY residents (e.g. 2026-09-05T19:05
+    flip: identified=["jaya"], total=1, unidentified=0, frigate=0, unifi=0 — the exact single-resident
+    case this card is named for). DISCRIMINATOR VERDICT: NEITHER term of the card. It is not
+    unidentified-inflation (the deficit hypothesis) and not identified-inflation (the double-count bug);
+    the census is CLEAN at the flip instant, so no census path proposed the body. MECHANISM = Path B,
+    the guest-ROOM sustained-unknown-occupancy gate (presence.py `_guest_room_gate_armed`:5159), which
+    fires with ZERO census involvement — Path A (`_guest_gate_armed`:5211) short-circuits on
+    `unidentified_count <= 0`, so it provably could not have armed. This matches prior art already on
+    the board (CENSUS-GHOST-DEDUP-1 `guest_room_designation_correction_2026_08_17`: "72pct of guest
+    minutes had unidentified_count==0 — that is Path B firing on residents"). RESIDUAL IS SHRINKING,
+    NOT OPEN: GUEST flips/day collapsed from 5-9/day (2026-08-21..30, pre-v5.79.0 dead-oracle repair +
+    GUEST_KNOWN_STICKY_S latch) to 0-2/day across September, and ZERO in the last 5 days (last flip
+    2026-09-10T21:13). No new card minted — the Path-B residual belongs to the already-open
+    GUEST-FP-RESIDUALS-1; this card closes as REFUTED per the Investigating-lane binary exit.'
   verify_2026_09_12: 'APPROVED -> verify-before-work: STILL-REAL (FP live) + CANNOT-VERIFY the exact term from recorder. MEASURED: GUEST flips ~daily (10d); single-resident flip CONFIRMED 2026-09-10 14:17 (people_home_census=1 at flip). Faces dead (face_recognized_count=0) -> leans interior-Frigate IDENTIFICATION DEFICIT (this card term, camera_total>identified) not the known double-count. BUT the flip-instant camera_total/identified/unidentified split is NOT historized, so the term cannot be pinned post-hoc. I OWE: a code trip-wire logging census composition (camera_total/identified/unidentified/face_recognized_count) at each GUEST-flip instant -> NM (No-Soak); one capture of the next single-resident flip pins the term. Shares the interior-cam face gap with CENSUS-FACE-MISS-WATCH-1 + FRIGATE-SUBLABEL-FACE-BRIDGE-1 -> sequence behind those.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -2918,7 +2994,9 @@ cards:
   parsimony:
     problem: house flips GUEST with a single resident home -> census over-count proposes a phantom body
     verdict: INVESTIGATE
-  next: 'MEASURE (joined with CENSUS-FACE-MISS-WATCH-1): recorder trace at the GUEST-flip instant — read
+  next: 'CLOSED 2026-09-15 (REFUTED — see measured_2026_09_15). No further action on this card; any
+    residual Path-B guest-room false-arm is tracked on GUEST-FP-RESIDUALS-1. SUPERSEDED next was:
+    MEASURE (joined with CENSUS-FACE-MISS-WATCH-1): recorder trace at the GUEST-flip instant — read
     camera_total (counted bodies) vs identified_count vs unidentified_count with only Jaya home. DISCRIMINATOR:
     unidentified-inflation (camera_total>identified, ~1 body present) = interior-Frigate identification
     DEFICIT (this card, camera_census.py:1594/2232); identified-inflation (Jaya counted twice) = the DISTINCT
@@ -10922,6 +11000,20 @@ cards:
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
   status: planned
+  measured_2026_09_15_egress_attach: 'OVERNIGHT PASS — measured read-only on the live URA DB
+    (person_entry_exit_events). Egress identity attach is ALIVE and the old "0 of N rows" premise is
+    stale: 0pct through 08-30, onset 08-31/09-05, and 57 named of 321 crossings = 17.8pct across
+    09-08..09-14. Per-camera 30d: doorbell_lite ~13-16pct, garage_a person_count 10pct, garage_a
+    occupancy_2 1pct, front_door_aerial 3/106, madrone_g6_entry 2/102. Names are residents ONLY
+    (oji_udezue 31, jaya 27, ezinne 19, ojini 3) — zero non-residents have ever been named. Full
+    derivation on GUEST-GATE-DOOR-IDENTITY-1.'
+  verify_2026_09_15: 'OVERNIGHT PASS verify-before-work: STILL-BLOCKED, premise partially stale. The
+    card blocks on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof; EXTERIOR-GUEST-EGRESS-1 remains
+    parked, so the block HOLDS and I did not start work. But the shared gate input it would need is now
+    measured (above): the producer is alive at ~17.8pct/7d rather than the 0pct this cluster was scoped
+    against, and it names residents only. That changes the sizing question the card defers to — "how
+    often are egress crossings NOT already reflected in the interior count" can now be asked against
+    real named rows for the first time, though only for residents.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, blocker CLEARED: EXTERIOR-GUEST-EGRESS-1 D1 shipped v5.81.0. No ''reinforce'' code exists. Run the measure-before-build gap probe (fraction of egress crossings NOT reflected in interior census, last 14d) before scoping; near-0% => moot.'
   approval: pre_approved_gated
   approved_by: 'operator 2026-08-17: "Seeing how exterior filters into interior and then using that to
@@ -10950,12 +11042,14 @@ cards:
     Must reconcile against interior substrate (no double-count of a person both see) — Bug Class #53/#22
     territory.'
   - 'Reuses the census dedup discipline: a crossing is evidence, not a raw +1.'
-  next: 'BLOCKED on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof. Then: measure how often egress crossings
-    are NOT already reflected in the interior count (the gap this would fill) before designing.'
+  next: 'BLOCKED (unchanged) on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof — verified still parked
+    2026-09-15. When it clears: measure how often egress crossings are NOT already reflected in the
+    interior count, now possible against real named rows (see measured_2026_09_15_egress_attach).'
+
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
-  updated: 2026-08-18 10:05
+  updated: '2026-09-15 02:50'
   d0_impact_2026_08_17: 'D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces —
     face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement
     is not viable on current sensing. IF cycle 3 rescopes to the face-independent approach-track signal,
@@ -11876,8 +11970,30 @@ cards:
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor
     filter (B1, latent)
   thread: presence
-  status: waiting_operator
-  updated: 2026-09-12 11:00
+  status: parked
+  updated: '2026-09-15 02:40'
+  measured_2026_09_15: 'OVERNIGHT PASS — THE OPERATOR QUESTION IS NOW ANSWERED BY MEASUREMENT, so this
+    card no longer waits on the operator (grooming: the blocker cleared). The card asked the operator to
+    judge whether the ~50 daytime guest-ENTRY episodes since 07-13 were real summer guests or an FP
+    flavor. Two read-only probes settle it without the operator. (1) RATE: guest entries per month from
+    house_state_log = Jun 23, Jul 74, Aug 98, Sep 19 — and ZERO since 2026-09-10T21:13, i.e. the
+    population collapsed right after the v5.79.0 Path-B repair (dead known-person oracle + the
+    GUEST_KNOWN_STICKY_S latch) landed. A real-guest population does not vanish on a code deploy.
+    (2) SHAPE: entries by hour over 60d are spread across every hour including 00h=14, 01h=7, 02h=10 —
+    31 entries arriving between midnight and 03:00. Guests do not arrive nightly at 00:00-02:00. VERDICT:
+    the episodes were predominantly the FP flavor, and the fix that removed them has already shipped.
+    (3) CROSS-CHECK: the companion probe on GUEST-FALSE-POSITIVE-JAYA-ONLY-1 found unidentified_count=0
+    at 12 of 12 GUEST flips in 30d, confirming the census (Path A) was never the driver — consistent
+    with a Path-B-only FP population. RESIDUAL DISPOSITION: A1 is ALREADY-DONE (shipped v5.78.0,
+    presence.py:5552/6219). B1 is confirmed STILL-LATENT by live config read: of 46 URA room entries,
+    only ONE (Game Room, common_area, Upstairs — indoor) has camera_person_entities at all, and no
+    room in an outdoor zone has any, so the missing room->outdoor filter cannot fire today. Nothing
+    left to build -> PARK, not waiting_operator.'
+  parked_2026_09_15_revival_trigger: 'Revive B1 (camera-census room->outdoor filter) the moment a
+    camera person entity is attached to a room whose zone is outdoor — that is the single condition
+    that converts B1 from latent to live. Revive the card as a whole if guest entries resume above
+    ~1/day, or if any GUEST flip appears with unidentified_count > 0 (which would mean Path A, a
+    different mechanism than the one measured here).'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: A1 path-alpha exclusion classifier shipped v5.78.0 (presence.py:5552/6219). B1 latent-only (Patio has no camera person sensor). next -> operator: judge whether the 50 daytime guest-ENTRY episodes since 07-13 recur on the guest-FP signature (real guests vs FP flavor).'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. Await your answer on the 50-episode guest-FP pattern;
     then fold A1+B1 into the next presence hotfix batch.
@@ -11893,9 +12009,9 @@ cards:
     ever attached to an outdoor-zone room.'
   operator_question: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests
     or a daytime FP flavor? If the latter, escalate per audit §3.
-  next: ANSWER the 50-episode pattern question (does the guest-FP recur on that signature?). -> I fold
-    A1 (path-alpha classifier ~5 LoC) + B1 (camera-census outdoor filter) into the next presence hotfix
-    batch.
+  next: 'PARKED 2026-09-15 — no operator action required (the 50-episode question was answered by
+    measurement, see measured_2026_09_15; A1 shipped v5.78.0; B1 latent with zero outdoor-zone camera
+    person entities). Revive only on the trigger in parked_2026_09_15_revival_trigger.'
   folded_2026_08_16: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider).
     Building now.
   live_validation_2026_08_16: 'v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count
@@ -13786,7 +13902,36 @@ cards:
     - SECURITY-ENTRY-VERDICT-NAME-1
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
-  status: investigating
+  status: parked
+  measured_2026_09_15_egress_attach: 'OVERNIGHT PASS — SHARED GATE INPUT, measured read-only on the
+    live URA DB (ssh ha sqlite3, person_entry_exit_events). THE PRODUCER IS NO LONGER DEAD, and the
+    long-standing "attach = 0" premise these consumer cards inherited is now STALE. Daily attach
+    (crossings / of-which-named): 08-25..08-30 = 315 crossings, 0 named (0pct, the old ceiling);
+    onset 08-31 (1) then sustained from 09-05; 09-08..09-14 = 57 named of 321 crossings = 17.8pct over
+    the last 7 days (per-day 09-13 = 13/67, 09-14 = 6/90 — volatile but continuously alive, NOT a
+    regression; an earlier by-week read that looked like a 22.6pct -> 6.7pct collapse was an artifact
+    of a partial ISO week). 30-day total 80/1286 = 6.2pct, which understates current performance
+    because it averages in the all-zero pre-09-05 era. BY CAMERA (30d): doorbell_lite person_detected
+    29/232, doorbell_lite person_count 16/103 (~13-16pct), garage_a person_count 18/174 (10pct),
+    garage_a occupancy_2 2/177 (1pct), front_door_aerial 3/106, madrone_g6_entry 2/102. NAMES SEEN are
+    residents only — oji_udezue 31, jaya 27, ezinne 19, ojini 3; zero non-resident names, so identity
+    currently discriminates WHICH RESIDENT, never resident-vs-guest.'
+  gate_verdict_2026_09_15: 'FOUR-STEP GATE RUN -> PARK (clean park, not a skipped build).
+    (1) VALIDITY: the card premise "cannot build the consumer until the producer JOIN lands" is
+    PARTIALLY STALE — the JOIN did land (EGRESS-IDENTITY-JOIN-GAP-1 / EGRESS-BLE-PROVENANCE-GATE-DROPS-
+    DEPARTURES-1 both done) and identity now attaches at ~17.8pct/7d. (2) PRIOR-ART: no new mechanism
+    would be needed — the consumer would REUSE person_entry_exit_events.person_id, already produced.
+    (3) PARSIMONY: the sharp problem is that this card wants a TRUST DECISION (admit/deny guest mode
+    on door identity) from a signal that names fewer than one crossing in five. (4) COST/BENEFIT: FAILS,
+    and not marginally. With 82pct of crossings unnamed, "unnamed" cannot mean "guest" — the overwhelming
+    majority of unnamed crossings are residents the matcher simply missed, so a gate keyed on absence of
+    a name would fire GUEST on residents. That is precisely the false-GUEST class measured and closed
+    tonight on GUEST-FALSE-POSITIVE-JAYA-ONLY-1; building this consumer at the current rate would
+    re-introduce it through a new door. The safe direction is to raise the producer, not to consume it.'
+  parked_2026_09_15_revival_trigger: 'Revive when egress identity attach is >= 50pct sustained over 14
+    consecutive days (re-run the same one-shot query on person_entry_exit_events), AND at least one
+    non-resident crossing has ever been named — both are required, because resident-only naming can
+    never discriminate guest-vs-resident no matter how high the rate goes.'
   updated: '2026-09-12 20:40'
   verify_2026_09_12_perleg: 'OPERATOR-OWED PER-LEG REVERIFY DONE. MEASURED (person_entry_exit_events + live attrs): the producer WORKS now — 57 pid rows all since 2026-08-31, 14d yield 11.5%, live egress_identity_attach_rate_24h=25% and rising (the 0/7010 premise was stale). WHICH LEGS: Frigate _2 face legs ALIVE + naming (dense on INTERIOR cams family_room/master_hallway/staircase; SPARSE on egress/door cams, + CM-reload-storm unavailable blips). UniFi/Protect named-face leg NOT contributing (unifi_count=0, active_platforms=[frigate] only) = unwired. Matcher is NOT the bottleneck (ambiguity_rate=0, abstain_rate=0; join works across a 28s window). ROOT CAUSE of low yield = crossing-instant face SPARSITY (no co-temporal recognized face AT the crossing camera; recognition lives on interior cams the person has not reached) + the dormant Protect leg. LEVERS (gate the consumer build on producer coverage): (1) FRIGATE-SUBLABEL-FACE-BRIDGE-1 (bridge interior sub_label/face to the crossing) ; (2) NEW sub-deliverable: wire the UniFi/Protect named-face leg into the census/egress join. Consumer (guest-gate consuming door-identity) is buildable once yield rises; stays behind the bridge.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -13823,8 +13968,9 @@ cards:
     does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent
     card EGRESS-INTERIOR-COUNT-REINFORCE-1 is count-focused, this is GATE-focused.
   origin: 2026-08-18 should-be-consuming audit G2
-  next: PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook)
-    — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
+  next: 'PARKED 2026-09-15 — the probe this card asked for HAS BEEN RUN (see
+    measured_2026_09_15_egress_attach): producer is alive at ~17.8pct/7d but names residents only, so
+    the consumer would misread unnamed residents as guests. No action until the revival trigger fires.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G2; EGRESS-INTERIOR-COUNT-REINFORCE-1
   coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
     and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
@@ -13850,8 +13996,27 @@ cards:
     blocked_by EGRESS-IDENTITY-JOIN-GAP-1.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: planned
-  updated: '2026-09-12 17:00'
+  status: waiting_operator
+  measured_2026_09_15_egress_attach: 'OVERNIGHT PASS — measured read-only on the live URA DB
+    (person_entry_exit_events). Egress identity attach is ALIVE and the old "0 of N rows" premise is
+    stale: 0pct through 08-30, onset 08-31/09-05, and 57 named of 321 crossings = 17.8pct across
+    09-08..09-14. Per-camera 30d: doorbell_lite ~13-16pct, garage_a person_count 10pct, garage_a
+    occupancy_2 1pct, front_door_aerial 3/106, madrone_g6_entry 2/102. Names are residents ONLY
+    (oji_udezue 31, jaya 27, ezinne 19, ojini 3) — zero non-residents have ever been named. Full
+    derivation on GUEST-GATE-DOOR-IDENTITY-1.'
+  gate_verdict_2026_09_15: 'FOUR-STEP GATE -> ESCALATE (ambiguous cost/benefit + outward-facing).
+    (1) VALIDITY: STILL-REAL, and the measure-before-build the card demanded is now DONE — the probe it
+    was waiting on has been run tonight. (2) PRIOR-ART: REUSE, no new producer — person_id already lands
+    on person_entry_exit_events, and notification_manager already carries the send path; this is a
+    consumer, not a mechanism. (3) PARSIMONY: the simplest version (notify ONLY when a crossing carries
+    a name, stay silent otherwise) captures nearly all the value at ~1-2 named events/day. (4)
+    COST/BENEFIT: GENUINELY AMBIGUOUS, so I am not deciding it unattended. At 17.8pct attach the feature
+    is honest but partial — you would be told about roughly one arrival in five and hear nothing about
+    the rest, which some operators read as useful and others read as a broken feature. It is also
+    OUTWARD-FACING (it buzzes your phone), which is an always-explicit case in the autonomy ladder.
+    UNAMBIGUOUS sub-finding: do NOT build any variant that announces UNNAMED crossings as an
+    unknown/guest arrival — 82pct of unnamed crossings are residents the matcher missed.'
+  updated: '2026-09-15 02:50'
   operator_decision_2026_09_12: 'APPROVED to merge+ship the already-built branch feature/arrival-departure-notify — operator: "Approve esp if built. Better than nothing" (named when identity known ~11%, generic otherwise). approval -> explicit. NEXT: cherry-pick/merge the branch onto current develop (re-verify base not stale), run its tests, Tier-2 review, deploy. Deploy restarts HA -> confirm timing with operator before shipping.'
   measured_2026_09_12: 'PROBE (same egress-identity-rate query as GUEST-GATE-DOOR-IDENTITY-1): attach
     rate = 54/487 (11%) last 14d, GARAGE path garage_a_person_count 11/146 (7.5%); producer live
@@ -13883,8 +14048,14 @@ cards:
   problem: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk
     build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   origin: 2026-08-18 should-be-consuming audit G3
-  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
-    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
+  next: 'PICK one, then I build it (Tier 1-2, consumer-only, no new producer): (A) NAMED-ONLY — notify only
+    when the crossing carries a person_id (~1-2 buzzes/day today, silent on the other ~82pct), the
+    simplest and the one I recommend; (B) NAMED-ONLY + QUIET HOURS — same, suppressed overnight; (C)
+    HOLD until attach improves — park behind a >= 50pct/14d producer trigger, same trigger already set
+    on GUEST-GATE-DOOR-IDENTITY-1. Also tell me the channel (the existing NM default, or a specific
+    one). NOTE: this is outward-facing (it pages your phone), so I will not pick for you; the
+    measurement it was blocked on is finished and on the card.'
+
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G3
   coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
     and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
@@ -14452,6 +14623,36 @@ cards:
     (sensor.ROOM_fan_recheck_state reaching ARMED+vacate). Pre-deploy last eval_count=1 and never vacated
     per README. Awaiting organic fan-ghost episode. H1 PENDING.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  measured_2026_09_15_suite_is_unrunnable: 'OVERNIGHT PASS — I RAN THE SUITE, AND THE HEADLINE IS BIGGER
+    THAN THIS CARD ASSUMED: in .venv-ha (the only environment where the suite is installed) the full run
+    produced 10,560 ERRORS out of 10,588 collected — a 99.7pct setup-error rate — in 249s. The suite is
+    not slow-and-flaky right now; it is effectively UNRUNNABLE AS A WHOLE, and has been silently so.
+    COLLECTION, by contrast, IS CLEAN: 10,588 collected with ZERO collection errors, which retires the
+    2-error collection residual this card carried (the const-stub child shipped in v5.101.0 and has held).
+    Verified by running it, not by trusting the record.
+    ROOT CAUSE PINNED, in installed source (no inference): pytest-homeassistant-custom-component 0.13.316
+    ships TWO autouse, SYNCHRONOUS fixtures that each call a bare `asyncio.get_event_loop()` —
+    plugins.py:342 `enable_event_loop_debug` and plugins.py:351 `verify_cleanup`. Under Python 3.13
+    (3.13.14 here) that call raises `RuntimeError: There is no current event loop in thread MainThread`
+    when no loop is current, so EVERY test whose fixture chain pulls phcc errors at SETUP. Tests that
+    never touch `hass` are unaffected — test_zzz_v318_hvac_sensors.py passes 9-10/10 standalone — which
+    is why the breakage presents as near-total rather than total, and why per-file runs can look healthy
+    while the whole-suite run is a wall of errors. THIS IS ENVIRONMENTAL: it says nothing about URA code,
+    and it means any recent "N passed" baseline taken from a full run in this environment should be
+    treated as suspect until re-measured.
+    I ATTEMPTED THE FIX AND BACKED IT OUT DELIBERATELY. Overriding `enable_event_loop_debug` by name in
+    quality/tests/conftest.py WORKED (the :342 error disappeared) and immediately exposed the identical
+    failure one fixture later at :351 in `verify_cleanup`. The obvious next step — have the override take
+    pytest-asyncio''s `event_loop` fixture and `set_event_loop` it so the bare get_event_loop() resolves —
+    FAILED because there IS no `event_loop` fixture in this harness: the installed plugin set exposes
+    `_function_scoped_runner` / `event_loop_policy` instead (phcc pins its own HassEventLoopPolicy at
+    plugins.py:158 and even neuters `asyncio.set_event_loop_policy`). So the real fix needs to route
+    through this harness''s actual loop provider. I STOPPED THERE rather than guess, because
+    `verify_cleanup` is the fixture that asserts no lingering tasks and no lingering timers, and handing
+    it the WRONG loop would leave those assertions passing against an idle placeholder — a green suite
+    that has quietly stopped checking for task leaks. That is the hollow-anchor failure class, in the one
+    place we can least afford it, and it is not a call to make unattended. Branch created, tested, and
+    deleted; working tree clean, nothing committed.'
   TRUE_COST_MEASURED_2026_08_23: 'THE REAL NUMBER, replacing the misleading 9,733. Full suite under .venv-ha
     with the blocker disabled (`-p no:homeassistant`): stub run (Python 3.9.6)   76 failing IDs   3:41
     real-HA run (3.13.14)    273 failing IDs   7:01 fail ONLY under real HA  207 fail ONLY under stubs     10   <-
@@ -14467,7 +14668,7 @@ cards:
   title: Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large
     infrastructure project" every review doc assumed
   thread: quality
-  status: planned
+  status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: .venv-ha exists but no pytest.ini/pyproject points the suite at it; _HA_REAL still a skip-when-absent gate. Nothing of the migration landed.'
   approval: explicit
   approved_by: operator 2026-08-23 ("We need to make this our default test harness and strategy")
@@ -14507,17 +14708,16 @@ cards:
     there is NO pytest config in the repo — no pytest.ini, setup.cfg, tox.ini, or [tool.pytest]. So plugins
     autoload uncontrolled and asyncio_mode is unset. That is why the two environments diverge at all:
     under 3.9 phcc is not installed, so its autouse fixture never runs.'
-  next: 'D1 (one file): add a pytest config pinning asyncio_mode and either disabling the phcc plugin
-    or overriding enable_event_loop_debug, then re-run the full suite under .venv-ha and record the real
-    failure count. That number — NOT the 9,733 — is the true cost of switching, and it decides everything
-    downstream. Do not scope the migration before it exists.'
-  PROPOSED_SHAPE: 'Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in requirements_test.txt
-    + run instructions so nobody silently runs 3.9 again. 2) New tests import real HA; no new file adds
-    sys.modules stubs. 3) Existing files migrate ONLY when a cycle already touches them. 4) Track BOTH
-    numbers (stub-suite, real-suite) until parity. EVIDENCE THIS PAYS: requirements_test.txt records the
-    same pattern twice — installing real pytest-asyncio dissolved ~180 phantom failures, and real aiosqlite
-    ~30 more, because `sys.modules.setdefault("aiosqlite", MagicMock())` made db.initialize() appear to
-    succeed while writing nothing. Its own words: "dev env drift hiding real failures behind mock no-ops."'
+  next: 'PICK the loop strategy, then I build it (test-only, one file, ~20 LoC, fully reversible — I
+    have the diagnosis, I want your call on which way to route it): (A) OVERRIDE BOTH phcc fixtures in
+    quality/tests/conftest.py, reimplementing verify_cleanup''s lingering-task/timer checks against the
+    loop this harness actually provides — preserves the leak detection, most code; (B) OVERRIDE BOTH,
+    with verify_cleanup reduced to a no-op — smallest change, restores the suite tonight, but SILENTLY
+    DROPS task-leak and timer-leak detection suite-wide, which I do not recommend; (C) UPGRADE/PIN the
+    dependency pair instead (phcc + pytest-asyncio) so the upstream fixtures work on Python 3.13 —
+    cleanest if a compatible pair exists, but it is a dependency bump, not a test edit. Root cause,
+    blast radius and the backed-out attempt are all recorded in measured_2026_09_15_suite_is_unrunnable.'
+
   links:
     related:
     - TEST-STRATEGY-REARCH-1
@@ -14526,6 +14726,19 @@ cards:
       should be re-counted under the real harness BEFORE being worked individually — some will dissolve,
       exactly as the pytest-asyncio and aiosqlite installs did.
 - id: TEST-STRATEGY-REARCH-1
+  measured_2026_09_15: 'OVERNIGHT PASS — two of this card three claims re-measured by RUNNING them,
+    and both moved. (1) COLLECTION IS NOW CLEAN: 10,588 tests collected, ZERO errors (the 2 residual
+    collection errors from the 2026-09-12 verify are gone — the const-stub child shipped v5.101.0 and
+    has held). Verified by running pytest --collect-only, per the rule that a recorded pass/fail count
+    is not evidence. (2) THE RUNTIME FAILURE PICTURE IS NOT "~87 ORDER-DEPENDENT FAILURES" RIGHT NOW —
+    it is 10,560 ERRORS of 10,588, because the harness itself is broken in .venv-ha on Python 3.13
+    (two phcc autouse fixtures calling a bare asyncio.get_event_loop()). Full diagnosis on the child
+    card TEST-HARNESS-REAL-HA-DEFAULT-1, which I have escalated with a three-way PICK. CONSEQUENCE FOR
+    THIS PARENT: the ~87 order-dependent runtime failures CANNOT be re-measured until that harness fix
+    lands — they are currently masked by a wall of setup errors, so any re-architecture scoping done
+    before then would be sizing a number nobody can see. The 4-minute runtime claim, at least, is
+    CONFIRMED: the full run took 249s even while erroring out of almost every test. THIS CARD IS
+    BLOCKED ON ITS OWN CHILD — it is not ready for the re-arch audit it asks for.'
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   status: investigating
@@ -16701,9 +16914,44 @@ cards:
 - id: RECORDER-CHURN-SWEEP-URASENSORS-1
   title: "Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status)"
   thread: config-flow
-  status: inbox
+  status: waiting_operator
   created: 2026-09-13 01:30
-  updated: 2026-09-13 01:30
+  updated: '2026-09-15 03:20'
+  measured_2026_09_15: 'OVERNIGHT PASS — THE MEASUREMENT THIS CARD ASKED FOR IS DONE (one-shot read-only
+    query against the live HA recorder, /config/home-assistant_v2.db, 24h window). It confirms the bug
+    class, REFUTES the card own ranking, and reframes the value.
+    SCALE FIRST: the recorder took 6,694,822 state rows in 24 hours and the DB is 19.6 GB. ALL URA
+    entities together account for 147,089 of those rows = 2.2 percent. So the entire sweep proposed here,
+    if it removed every URA churn row, could not move the recorder problem by more than two points.
+    MEASURED URA RANKING (rows/24h): presence_anomaly 4,606; persons_in_house 4,403 (card site
+    sensor.py:3886 — CONFIRMED); ac_kwh_rate_entertainment 3,130 / master_suite 3,129 / back_hallway
+    3,122 (card site :12909 — CONFIRMED, and it is per-zone so it multiplies); ec_sub_switches_synced
+    3,125 (binary_sensor.py:3131 — CONFIRMED); envoy_status 3,102 (:13896 — CONFIRMED); then a dense
+    band of CM sensors at 2,834-2,860 (next_state, memory_usage, house_state, battery_strategy,
+    ev_charging_status, presence_house_state). That 2,834 floor is ~1 row/30s and is shared by sensors
+    with no elapsed attribute at all, so it is the coordinator TICK cadence, not attribute churn —
+    only the sites ABOVE it are genuine per-read-elapsed offenders, which narrows the sweep to about
+    five, not nine.
+    REFUTED — the card named the wrong high-yield sites: SafetyActiveCooldownsSensor (age_seconds at
+    0.1s), OptimizerStatusSensor (next_eta 1s countdown) and BayesianOccupancyForecastSensor (predicted
+    to multiply across 45 rooms) DO NOT APPEAR anywhere in the top 25 URA entities. The predicted worst
+    offenders are not offending — most likely disabled-by-default or rarely active — so the card
+    sentence "some (ACRamp unrounded float, cooldowns 0.1s, Bayesian x45) are the high-yield ones" is
+    WRONG on two of its three examples. This is exactly why the card demanded measurement before the
+    build; the measurement earned its keep by shrinking the work list.
+    BIGGEST FINDING IS NOT URA (recorded as an instance on RECORDER-BLOAT-LOGFLOOD-1): ONE non-URA
+    entity, binary_sensor.madronewatermonitor_low_flow_leak, wrote 60,610 rows in 24h — more than 40
+    percent of URA entire recorder footprint, from a single binary sensor, and it has only TWO distinct
+    states in that window, so it is flapping tens of thousands of times a day. That is a device/integration
+    fault worth more than this whole sweep.'
+  gate_2026_09_15: 'FOUR-STEP GATE -> ESCALATE (value collapsed under measurement; not mine to close).
+    (1) VALIDITY: STILL-REAL, five sites confirmed in source and above the tick floor. (2) PRIOR-ART:
+    REUSE — identical fix shape to the shipped parent RECORDER-BLOAT-LOGFLOOD-1 (drop or quantize the
+    per-read value; _unrecorded_attributes does NOT prevent the states row). (3) PARSIMONY: the sharp
+    version is five sites, not nine. (4) COST/BENEFIT: the honest number is that the full sweep buys at
+    most ~2 percent of recorder volume, and each site is a live sensor attribute some dashboard may read,
+    so it is not free. I am not spending a build on that unattended when a single non-URA entity is worth
+    40 percent of the whole URA footprint.'
   refinement_status: initial
   approval: unreviewed
   sibling_of:
@@ -16711,11 +16959,40 @@ cards:
   problem_solution:
   - "Problem: Recorder Review A (2026-09-13) re-enumerated extra_state_attributes across the package and found the safety_status churn class survives at >=6 ENABLED sites emitting a per-READ elapsed value (new states row every tick): sensor.py:14060/14067 SafetyActiveCooldownsSensor age_seconds/max_remaining_seconds (0.1s); :13896/13909 EnergyEnvoyStatusSensor *_age_seconds; :12909 HVACACRampKwhRateSensor age_s (UNROUNDED float — worst); :17200 OptimizerStatusSensor next_eta (1s countdown); :3886 URAPersonsInHouseSensor frigate_face_last_latched.age_s (house-scope, hot); binary_sensor.py:3131 ECSubSwitchesSyncedSensor seconds_since_ec_ready; :14493 BayesianOccupancyForecastSensor clock-moving forecast xPER-ROOM(45); binary_sensor.py:1859 PersonPhoneLeftBehindSensor hours_since_sighting; aggregation.py:3618 EnergyCostPerOccupiedHourSensor occupied_hours. Plus DORMANT-but-offending-if-enabled: sensor.py:2068/2111/2151/2327 (registry_enabled_default=False; check live across 45 rooms). Solution: same fix as the parent — remove the per-read elapsed value from extra_state_attributes (expose a stored/quantized value or drop it; _unrecorded_attributes does NOT stop the states-row write). Measure each site's live row-rate first to rank; some (ACRamp unrounded float, cooldowns 0.1s, Bayesian x45) are the high-yield ones."
   why: "Same write-amplification bug class as RECORDER-BLOAT-LOGFLOOD-1; these are the long-tail URA contributors the recorder probe predicted. Not scope of the parent fix (which targeted the 3 named last_check* sensors)."
-  next: "MEASURE each site live row-rate (recorder states by entity), rank, then strip the per-read elapsed attr from the top offenders. Tier-1/2 per site."
+  next: 'PICK one — the measurement is done (see measured_2026_09_15): (A) FIX THE WATER MONITOR FIRST
+    and defer this sweep — one flapping leak sensor writes 60,610 rows/day vs 147,089 for all of URA,
+    and a leak detector toggling 30k times a day is a fault worth diagnosing on its own merits (my
+    recommendation; tracked as an instance on RECORDER-BLOAT-LOGFLOOD-1); (B) NARROW SWEEP — strip the
+    per-read elapsed attribute from just the five measured above-tick-floor sites (presence_anomaly,
+    persons_in_house, ac_kwh_rate_*, ec_sub_switches_synced, envoy_status), Tier-1 per site,
+    mutation-anchored, buying ~2pct of recorder volume; (C) DROP the sweep as not worth the churn.'
   parsimony:
     problem: "6-9 more URA sensors churn recorder rows via per-read elapsed attrs"
     verdict: BUILD
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  INSTANCE_2026_09_15_watermonitor_single_entity_dominates_states: 'MEASURED on the live recorder
+    (read-only, 24h window) during the overnight pass, while running the sibling card
+    RECORDER-CHURN-SWEEP-URASENSORS-1 probe. Filed here as an INSTANCE rather than a new card: same
+    problem (recorder bloat on flash), same fix surface (recorder exclude / device config), and this
+    card already owns the DB-size discriminator. THE SINGLE LARGEST WRITER IN THE HOUSE IS ONE NON-URA
+    BINARY SENSOR: binary_sensor.madronewatermonitor_low_flow_leak wrote 60,610 state rows in 24 hours.
+    For scale, that one entity outweighs 40pct of ALL URA entities combined (URA total = 147,089 of
+    6,694,822 rows in the same window; URA is only 2.2pct of recorder volume). It has exactly TWO
+    distinct states across those 60,610 rows, so it is toggling on the order of 30,000 times a day.
+    TWO SEPARATE PROBLEMS, and the second is the important one: (a) recorder cost — a single glob in
+    the configuration.yaml recorder exclude would remove it, BUT it is a LEAK DETECTOR and silently
+    excluding a water-safety sensor from history is an operator call, not an agent call, so I did not
+    touch it; (b) THE DEVICE IS FAULTING — a low-flow leak binary sensor does not legitimately flap
+    30k times/day, so this is a stuck/chattering sensor (the same stuck-signal class as
+    STUCK-SENSOR-1 / OC-STUCK-SENSOR-GENERALIZE-1), and the recorder volume is a SYMPTOM of the fault,
+    not the fault. Suppressing the history would hide it — exactly the trap avoided in
+    INSTANCE_2026_08_23 with the WattBox flood. OTHER TOP NON-URA WRITERS in the same window, for
+    context: phalanxudmpro_cpu_utilization_2 41,549; phalanxudmpro_memory_utilization_2 38,695;
+    masterbath co2 24,924; iphone_jaya_unfiltered_distance_to_jaya_3 23,872; invisoutlet_b7d0_co2
+    22,748 — the UDM utilization pair alone is another 80k/day and is pure telemetry with no safety
+    role, so it is the cheapest safe exclude on the list. DB now 19.6 GB (was 31 GB at card creation),
+    so the shipped log-flood fixes moved the number in the right direction; the residual is entity-level
+    state churn, not log flood.'
   INSTANCE_2026_08_23_pywattbox_top_feeder_and_a_real_fault: 'MEASURED over a live 7.7h window (05:17-12:58):
     16,854 raw log lines, 1,505 distinct issues, 73 components. THE LARGEST FEEDER IS NOT URA: pywattbox.http               2,747
     occurrences / 7 issues    ~8,500/day custom_components.wattbox      913 occurrences / 3 issues    ~2,800/day
@@ -19068,7 +19345,7 @@ cards:
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
   status: shipped_organic
-  shipped_version: v5.102.1
+  shipped_version: v5.103.0
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -19219,8 +19496,49 @@ cards:
     again -> anchor drives the REAL ApplianceCensusSensor (C-HIGH-1 truly fixed). Deferred: multi-room
     shared power sensor -> APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1 (v1b). Branch worktree-agent-a4daf81006b20b7a3.
   next: 'APPROVE deploy: v1a census slice is review-clean + orch-verified (new passive read-only coordinator, commands nothing). Tier-3 checkpoint -> on go I merge to develop + deploy + live-validate. Or hold for you to eyeball the diff first.'
+  V1A_SHIPPED_VALIDATED_2026_09_15: >-
+    v1a SHIPPED v5.102.0 + LIVE-VALIDATED working: sensor.ura_appliance_coordinator_appliance_census
+    (CM-prefixed entity id, README corrected) state=220, 194/220 records ura_config, power normalized
+    (fridge 72.8W), freshness discriminates (147 fresh/73 unknown), enable switch on, no recorder-oversize
+    WARNING, commands nothing. Live validation CAUGHT a thread-safety defect static review+tests missed
+    (sensor.py:8121 census timer async_create_task off-loop) -> FIXED v5.102.1 (deployed, PR#570). v5.102.1
+    HACS-download+restart HELD (no 2nd sleep-house restart ~00:15; activates on next natural/operator
+    restart, validate then). v1b/v1c/v1d slices remain.
+  next: 'DO (operator, when convenient): restart HA (or I can on your OK) to activate v5.102.1 (census timer thread-safety fix) -> I validate the frame-warning is gone. Meanwhile v1b (categorization+onboarding flow) is the next build slice. No blocker.'
+  V1B_BUILT_REVIEWED_2026_09_15: >-
+    v1b (categorization + onboarding flow) BUILT (worktree agent-a99f761df2f478066) + Tier-2 2-framing
+    review = FIX-REQUIRED. Production reload/live-read/mixed-key paths VERIFIED CORRECT (both reviewers).
+    Defects: (1) index-as-identity — records keyed by list index, _appliance_menu_map computed-but-unused
+    -> stale 2-session menu edits/deletes WRONG record + out-of-range -> silent add (A-HIGH-1/2=B-LOW-1/2);
+    (2) THREE hollow anchors — census tests hand-build records not flow-driven (A-HIGH-3), reload-suppress
+    tests grep COMMENT text (B re-ran M2 mutation: stays GREEN, invariant untested, A-HIGH-4/B-HIGH-1),
+    AST-slice guard skips bare CONF_* (B-MED-1); (3) rejection error keys missing translations (A-MED-1).
+    Consolidated fix-up dispatched: stable per-record uuid id + bounds guards; flow->census linkage tests;
+    listener-driven reload tests (must RED on M2); AST guard fix; translations. Then re-verify anchors.
+  next: 'WAITING ON ME: verify v1b fix-up (M2 reload mutation RED, flow->census linkage real, AST WRONG-literal RED), then batch-deploy Option C + v1b on a waking-hours restart (+ activate v5.102.1).'
+  V1B_FIXUP_VERIFIED_2026_09_15: >-
+    v1b fix-up COMPLETE + orchestrator-verified. All 4 HIGH + MED + LOW fixed: stable per-record uuid id
+    (bounds-guarded pick/edit/remove, stale-menu re-renders not wrong-record-edit); flow->census linkage
+    tests now drive the real async_step_appliance_form; behavioral reload tests replace the comment-greps;
+    AST guard covers bare CONF_*; error-key translations added. Builder ran 3 mutation drills RED->GREEN.
+    ORCH VERIFY: I independently re-ran the M2 reload mutation (removed CONF_APPLIANCE_RECORDS from
+    OPTIONS_RELOAD_SUPPRESS_KEYS, count->0) -> test_records_only_save_does_not_reload_cm RED (reload fired),
+    inverse stayed green, restore->GREEN. The invariant hollow on the first build is now real. +3 tests, no
+    new suite failures. Branch 132d8db39. SHIP-CLEAN, unmerged.
+  next: 'DEPLOY-READY (batch): Option C (fe9ecb75f) + v1b (132d8db39) both ship-clean + orch-verified, unmerged. On a waking-hours restart I merge both -> develop -> one deploy.sh -> restart activates v5.102.1 + Option C + v1b together. Awaiting your restart window (or say go).'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
+  rechecked_2026_09_15: 'OVERNIGHT PASS recheck of the network-outage blocker recorded on 2026-09-13
+    ("STILL LIVE and WORSE, 7053 unavailable"). MEASURED on the live recorder, 15-minute window:
+    614 DISTINCT entities wrote an `unavailable` state, out of 2,174 distinct entities writing any
+    state at all — so roughly 28pct of currently-active entities are flapping to unavailable. That is
+    materially better than the 7,053 figure on the card, but the two numbers are NOT the same
+    measurement (7,053 looks like a total entity count, this is distinct entities active in a 15-min
+    window), so I am recording it as a fresh independent reading rather than claiming a trend. The
+    honest statement: the outage condition has NOT cleared, and onboarding timings measured while it
+    persists remain contaminated — the card premise that config-flow slowness may be loop-stall rather
+    than flow work is still unresolved and still worth instrumenting. No lane change; the operator
+    action this card waits on is unchanged.'
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
   thread: config-flow
   status: waiting_operator
@@ -19359,9 +19677,33 @@ cards:
 - id: HUMIDITY-LOW-RUNG-PAGING-KNOB-1
   title: "Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung)"
   thread: safety
-  status: inbox
+  status: waiting_operator
   created: '2026-09-14'
-  updated: '2026-09-14'
+  updated: '2026-09-15 03:05'
+  refinement_status: refined
+  gate_2026_09_15: 'OVERNIGHT PASS — FOUR-STEP GATE RUN, NOT BUILT, ESCALATED. I stopped short of
+    building this despite your explicit approval, because a measurement contradicts the premise the
+    approval rested on. (1) VALIDITY — the CODE GAP IS REAL, confirmed by reading the source, not the
+    card: safety.py:2080-2085 sends room_type bathroom/basement to the hardcoded HUMIDITY_THRESHOLDS,
+    while every other room type builds its ladder from CONF_HUMIDITY_NORMAL_LOG_ONLY/MEDIUM/HIGH_PCT via
+    nm_cycle_a_knob (:2086-2109); and at :2205-2217 the log-only demotion is explicitly fenced to
+    `if room_type not in ("bathroom", "basement")`, so those two bands alone still emit a LOW-severity
+    HIGH_HUMIDITY hazard at their low rung with no operator override. The card is accurate. (2) BUT THE
+    HARM IS MEASURED AT ZERO — read-only probe of notification_log: ZERO humidity notifications of any
+    severity in the last 30 days (the same window carries 384 LOW, 3483 HIGH, 2982 CRITICAL pages of
+    other kinds, so the path is not silent for lack of traffic). Live config read: 7 rooms are
+    room_type bathroom and ZERO are basement, so the basement half of the fence is unreachable today
+    and the bathroom half has not fired once in a month. The thing you asked me to null is not
+    currently buzzing you. (3) PRIOR-ART — REUSE, no new mechanism: a knob here would mirror
+    CONF_HUMIDITY_NORMAL_* + nm_cycle_a_knob (safety.py:2086) exactly, and const.py already carries the
+    DEFAULT_HUMIDITY_NORMAL_* pattern to copy. (4) PARSIMONY / COST-BENEFIT — this is where it fails to
+    clear unattended. Marginal benefit of the knob is ~0 pages/30d removed. Marginal cost is a change to
+    a SAFETY hazard severity path, and the "null it" variant lowers hazard coverage by default, which is
+    cost-or-safety-impacting logic — an always-explicit case in CLAUDE.md that an overnight pass must not
+    decide on its own. Building the knob-with-current-defaults instead would be the safe variant, but it
+    delivers nothing observable (the rung never fires), which is a parsimony failure in the other
+    direction. Either way the deciding input is yours, and you now have a number you did not have when
+    you approved.'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-14 ("Change the paging in NM. Make it null for now or configurable. Its a simpler change honestly")'
@@ -19374,14 +19716,22 @@ cards:
      do not page) or expose a knob. Small targeted change, decoupled from room classification.'
   why: operator flagged un-knobbed LOW humidity paging as independently fixable and simpler than any
     classification wiring; removes the "net-negative" objection to future basement wiring.
-  next: 'Verify the exact LOW-rung emit site(s) (safety.py ~2209 + siblings), confirm which bands lack a
-    CM-knob override, then either default the LOW rung to log-only or add a knob. Tier 1, mutation-anchored.'
+  next: 'PICK one — the verification you asked for is done (see gate_2026_09_15; sites are
+    safety.py:2080-2085 + :2205-2217, and the un-knobbed bands are exactly bathroom + basement):
+    (A) DROP IT — 0 humidity pages in 30 days and 0 basement rooms means there is nothing to silence;
+    close the card and revive only if a humidity page actually arrives (this is my recommendation);
+    (B) ADD THE KNOB, defaults unchanged — additive Tier-1 mirror of CONF_HUMIDITY_NORMAL_* so the
+    bathroom/basement rungs become tunable without changing any behaviour today;
+    (C) NULL IT — demote the bathroom/basement LOW rung to log-only by default, which is what you
+    originally asked for, but it reduces safety-hazard coverage by default so I want your explicit
+    go rather than inferring it. Tier 1, mutation-anchored, ~30 LoC for (B) or (C).'
   links:
     related: [ROOM-CLASSIFICATION-CONSISTENCY-1]
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
   title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
   thread: config-flow
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.0
   created: '2026-09-12 17:50'
   updated: '2026-09-12 17:50'
   refinement_status: initial
