@@ -72,14 +72,40 @@ no breaker call, no `number.set_value` on any appliance. Any actuation in the v1
 
 ---
 
-## D0 (MEASURE FIRST) — appliance-entity census probe
-Before any coordinator code: a one-shot read-only probe enumerating the 74 appliance power/energy
-entities from the live instance — for each: source (SPAN circuit / Emporia channel / smart-plug /
-native), current state, freshness (last_updated age), unit, and whether it carries energy (kWh) or only
-power (W). Output → this doc as the acceptance fixture (hand-built categorization table, per
-Measure-Before-Build corollary).
-- **Acceptance:** table committed; every entity classified live; dead/stale entities flagged (a sparse
-  producer caps the census — measure the real production rate first).
+## D0 (MEASURE FIRST) — appliance DISCOVERY probe across THREE sources
+**Operator correction (2026-09-14): power meters alone miss most appliances — "not enough breakers to
+cover a house."** So discovery is NOT just the 74 power/energy entities. It draws from three sources and
+unions them:
+
+1. **Power meters** — SPAN circuits + Emporia channels (the 74 power/energy entities). Measures draw;
+   covers only what happens to be on a metered circuit.
+2. **HA native appliance integrations** — the appliance *devices* HA already knows about independent of
+   any meter: LG ThinQ (washer/dryer/dishwasher/fridge), Samsung TV, Amazon Fire TV, Denon AVR, EPSON
+   projector, smart plugs, etc. D0 must **enumerate these live** (by integration/domain — `media_player`,
+   `vacuum`, `humidifier`, ThinQ device classes, …) — do NOT hand-assume the list.
+3. **Existing URA room + coordinator config** — entities URA already manages (see the onboarding rule
+   in D0a). These are surfaced, never re-added.
+
+- **Acceptance:** a live table unioning all three sources; per entity: source, current state, freshness,
+  unit, energy-vs-power, and which source(s) cover it (a device may be BOTH metered and integration-known).
+  Dead/stale flagged (a sparse producer caps the census — measure real production first). Committed as the
+  hand-built fixture (Measure-Before-Build corollary).
+
+## D0a — Onboarding model: URA-owned = SHOW UP, net-new = ADD (operator-coined 2026-09-14)
+The appliance universe is **"basically anything not already in URA room and coordinator config."** The
+governing rule:
+- **If an entity is already in URA** (a room's fan, light, climate entity, or a coordinator-managed
+  device), it **SHOWS UP in the appliance view automatically — it is NOT re-configured.** Fans must not be
+  re-added; they surface. The appliance coordinator READS existing config as a discovery source, it does
+  not ask the operator to re-enter anything URA already knows.
+- **If an entity is net-new** (a TV, an AV receiver, a projector, a standalone smart-plug load URA has
+  never seen), it can be **ADDED** through an onboarding path (config/options flow) — that is the only
+  place the operator does manual work.
+- **De-dup across sources is mandatory:** the same physical appliance can appear as a SPAN circuit AND a
+  ThinQ device AND (if in a room) a URA entity — it must resolve to ONE appliance record, not three.
+- **Acceptance:** an entity already in a URA room (e.g. a room fan) appears in the appliance census with
+  `source_includes: [ura_config]` and requires NO onboarding step (the discriminating test that
+  URA-owned ≠ re-config); a net-new TV requires an explicit add; a triple-covered appliance yields one record.
 
 ## D1 — Appliance categorization scheme (the operator's correction, refined 2026-09-14)
 A declarative categorization — NOT a hardcoded enum — on **FOUR ORTHOGONAL axes**. The load-bearing one

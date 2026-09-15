@@ -12,8 +12,11 @@ documented exception. Read it before touching any classification consumer — th
 
 Live config snapshot (2026-09-14, 46 URA entries): `common_area` 15, `closet` 7, `bathroom` 7,
 `bedroom` 6, `generic` 2, `garage` 2, `utility` 2, `infrastructure` 1, `media_room` 1. **0 rooms typed
-`basement`; 0 zones flagged `outdoor`.** Two classification code paths (basement bands, outdoor
-coercion) therefore fire for **no configured room today** — see §Dead-but-load-bearing.
+`basement`** (basement bands are unreachable — §Dead-but-load-bearing). **The `Outside` zone IS flagged
+`zone_is_outdoor: True`, and the `Patio` room sits in it** — so the outdoor coercion below is **LIVE**,
+actively suppressing humidity hazards for the patio (exactly NM Cycle A's intent). Note the scope
+carefully: `zone_is_outdoor` lives on the **zone definition inside the zone_manager entry's `zones` map**,
+NOT on room config entries — checking room entries for it (as an earlier pass did) reports a false zero.
 
 ---
 
@@ -76,8 +79,9 @@ CRITICAL a plan-review caught:
   - `safety.py:707/766/799` — rate-detector `exclude_room_types`.
   This coercion was **built deliberately by the NM overhaul (Cycle A: A4 / fix-up H1 / B-HIGH-1)** to
   stop outdoor humidity sensors paging — see the comment at `safety.py:1301-1307`. **The
-  `room_type=="outdoor"` code path is dead BY DESIGN; that is a feature, not debt.** Removing the
-  coercion resumes outdoor humidity NM pages.
+  `room_type=="outdoor"` code path is dead BY DESIGN; that is a feature, not debt.** It is **LIVE for the
+  `Patio` room** (in the `Outside` zone, `zone_is_outdoor: True`): removing the coercion resumes patio
+  humidity NM pages **today**, not hypothetically.
 - **Also:** `presence.py:5661` AWAY-veto exclusion.
 
 ---

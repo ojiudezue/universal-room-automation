@@ -13,21 +13,21 @@ The plan-review returned **FIX-PLAN-FIRST with a CRITICAL**, and a live `.storag
 read settled the value question. The original Option A had three build deliverables (D1 doc, D2 wire
 basement, D3 retire outdoor coercion). The evidence collapses that:
 
-- **Live config: 0 rooms typed `basement`, 0 zones flagged `outdoor`** (46 URA entries; distribution:
-  common_area 15, closet 7, bathroom 7, bedroom 6, generic 2, garage 2, utility 2, infrastructure 1,
-  media_room 1). So **D2 and D3 have ZERO current benefit** — they wire code paths that fire for no
-  configured room today.
+- **Live config (corrected 2026-09-14 after operator flagged it): 0 rooms typed `basement`; the
+  `Outside` zone IS flagged `zone_is_outdoor: True` with the `Patio` room inside it.** The earlier
+  "0 outdoor zones" reading was WRONG — it checked room entries, but `zone_is_outdoor` lives on the zone
+  definition inside the zone_manager entry's `zones` map. So **D2 has zero current consumer** (no
+  basement), but **D3's coercion is LIVE** (patio).
 - **D2 is net-negative:** the review (HIGH-3) shows wiring `basement` reachable *simultaneously* turns
   on the `safety.py:2082/2146/2209` hazard behaviours — including an **un-knobbed LOW-severity NM page
   at 65% RH** that a normal room logs silently. A basement is *more* alert-prone, not neutral. Wiring a
   band nobody uses, whose activation creates a new alert source, is negative expected value.
-- **D3 is net-negative and dangerous:** the review (CRITICAL-1) found **TWO** coercion sites, not one.
-  `safety.py:428` is a display-only chip helper. `safety.py:1319-1323` is the **safety-coordinator's
-  sensor-discovery coercion, deliberately built by NM Cycle A (A4/H1/B-HIGH-1) to SUPPRESS humidity
-  hazards on outdoor sensors** (see the comment at `safety.py:1301-1307`). "Retire the coercion" would,
-  read literally, remove `:1319` and **resume real NM humidity pages on every outdoor sensor** the day a
-  zone is flagged outdoor. There is no outdoor zone today, so it fixes nothing now and plants a latent
-  regression for later.
+- **D3 is actively dangerous (not merely latent):** the review (CRITICAL-1) found **TWO** coercion sites,
+  not one. `safety.py:428` is a display-only chip helper. `safety.py:1319-1323` is the
+  **safety-coordinator's sensor-discovery coercion, deliberately built by NM Cycle A (A4/H1/B-HIGH-1) to
+  SUPPRESS humidity hazards on outdoor sensors** (see the comment at `safety.py:1301-1307`). Because the
+  `Outside` zone is live and holds the `Patio`, "retire the coercion" — read literally — removes `:1319`
+  and **resumes patio humidity NM pages TODAY**. This is not a latent future risk; it is a live regression.
 
 **Conclusion (Marginal-Benefit Decomposition):** the entire value of "Option A well documented" lives in
 **D1 — the documentation**. D2/D3 are speculative wiring with negative expected value given the live
@@ -99,8 +99,9 @@ neutral wiring fix — per plan-review HIGH-3 it must:
 - add the ROOM_TYPE_BASEMENT const + dropdown, seed decisions for all 5 room_type tables (HIGH-2).
 
 ## D3 — Retire the outdoor coercion — **PARKED**
-**Revival trigger:** an operator flags a zone `outdoor` (today: 0), OR a cycle deliberately reworks the
-NM outdoor-humidity-exclusion. When revived, per plan-review CRITICAL-1 / MEDIUM-1:
+**Revival trigger:** a cycle deliberately reworks the NM outdoor-humidity-exclusion (the `Outside` zone
+is already live with the `Patio` in it, so the coercion is NOT dormant — touching it is a live change).
+When revived, per plan-review CRITICAL-1 / MEDIUM-1:
 - enumerate BOTH coercion sites; **`safety.py:1319-1323` stays** (it is the NM-A hazard suppression) unless
   the cycle carries its own before/after hazard-emission proof;
 - if a passthrough is introduced, state the `is_outdoor`-before-`garage`/`bathroom` precedence explicitly
@@ -122,6 +123,6 @@ Not needed for D1 (no code). When D2/D3 revive, the fence must cover the safety-
 
 ## Recommendation to operator
 Build **D1 (documentation) now** — pure win, zero risk, delivers "well documented." **Park D2/D3** — the
-live config (0 basement, 0 outdoor) gives them no benefit today and the review shows both are net-negative
+live config (0 basement rooms; the outdoor coercion is LIVE for the patio and must NOT be retired) shows both are net-negative-or-dangerous
 until a real consumer exists. PICK: (A) D1-only + park [recommended] · (B) full Option A with the
 review's safety tests attached.
