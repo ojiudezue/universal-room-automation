@@ -19345,7 +19345,7 @@ cards:
   title: "Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities"
   thread: energy
   status: shipped_organic
-  shipped_version: v5.102.1
+  shipped_version: v5.103.0
   created: '2026-09-12 16:30'
   updated: '2026-09-12 16:30'
   refinement_status: initial
@@ -19730,7 +19730,8 @@ cards:
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
   title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
   thread: config-flow
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.0
   created: '2026-09-12 17:50'
   updated: '2026-09-12 17:50'
   refinement_status: initial
