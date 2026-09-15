@@ -1987,7 +1987,81 @@ cards:
   - project_charge_onset_correct_site
   - docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
   sibling_of: URA-CONFIG-ENTRY-RELOAD-STORM-1
+- id: OVERNIGHT-PASS-NO-LOG-REACH-1
+  title: The overnight pass cannot read HA logs, so every log-based investigation silently stalls
+  thread: platform
+  status: waiting_operator
+  created: '2026-09-15 03:45'
+  updated: '2026-09-15 03:45'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-1, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: several cards on this board can only be advanced by reading Home Assistant log lines
+     (the reload-storm trigger hunt is the live example, and its debug logging is already armed and
+     waiting to be read). The unattended overnight pass has NO way to read those logs, so those cards
+     cannot move no matter how high they rank — the pass reaches the URA database and the HA recorder
+     database fine over ssh, but the logs live somewhere it cannot get to. Three routes were tried
+     tonight and all three failed: the home-assistant MCP server (which is how an attended session
+     reads logs) never finishes connecting in the headless launchd run; `ha core logs` over ssh
+     returns 401 Unauthorized because that shell has no supervisor token; and `journalctl` does not
+     exist inside the ssh add-on at all, while /config/home-assistant.log.1 is a zero-byte leftover
+     from 2025. Solution: give the unattended pass ONE durable read-only route to the logs — most
+     likely a long-lived supervisor token available to the launchd job, so `ha core logs` works the
+     same way it does for an attended session.'
+  origin:
+    date: '2026-09-15'
+    gist: 'overnight pass tried to run the armed reload-storm log probe and had no route to the logs'
+  why: 'This is a forcing-function gap in the rung-5 overnight contract, not a one-off inconvenience.
+    The contract promises that investigations run autonomously overnight, but an entire CLASS of
+    investigation (anything log-based) is silently unrunnable, and the failure mode is invisible —
+    the pass just reports "could not measure" and the card sits another day. It already cost the
+    reload-storm card a night with its debug armed and unread.'
+  constraints:
+  - 'READ-ONLY is sufficient — the pass never needs to write via the supervisor API, so scope any
+    token to the narrowest read that makes `ha core logs` work.'
+  next: 'DO (one-time, operator): provision a read-only supervisor/long-lived token the launchd
+    overnight job can use for `ha core logs` (or tell me the route you prefer — e.g. making the
+    home-assistant MCP reachable headless). -> I wire it into the overnight script and immediately
+    re-run the armed reload-storm probe on URA-CONFIG-ENTRY-RELOAD-STORM-1.'
+  links:
+    blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
+    context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
+      next action is literally a log read, so it cannot advance unattended until this is fixed.'
+  rank: {value: 6, time_criticality: 5, effort: 2}
 - id: URA-CONFIG-ENTRY-RELOAD-STORM-1
+  measured_2026_09_15_self_issued_reloads: 'OVERNIGHT PASS — THE STATIC HALF OF THIS CARD next IS NOW
+    ANSWERED, and the answer is a clean NEGATIVE that removes the most attractive suspect. The next
+    asked me to "grep the codebase for self-issued homeassistant.reload_config_entry" alongside the log
+    read. Done, and it found exactly ONE site where URA reloads a FOREIGN config entry on its own
+    initiative: the HVAC "Carrier reload" at hvac.py:4941-4946, which calls the homeassistant
+    .reload_config_entry service against the ha_carrier entry when climate state goes stale, guarded by
+    a cooldown and a per-day counter. Every other async_reload in the package is operator-initiated or
+    self-scoped — switch.py:500/508/683/694 (switch entities the operator flips), button.py:345 (a
+    button press), repairs.py:93 (a repair flow the operator completes), config_flow.py:1275 and
+    __init__.py:7651 (options-flow apply). None of those fires unattended at 04:00.
+    THE CARRIER PATH HAS NEVER FIRED: that site writes a `carrier_reload` row into ura_activity_log on
+    every reload it issues, and a read-only query returns ZERO rows for action=carrier_reload over the
+    last 21 days AND zero over all time; a broader query for any action or description containing
+    "reload" in the whole activity log also returns nothing, while the same 7-day window holds 2,683
+    transit anomalies, 1,876 optimizer summaries and 1,158 notifications, so the table is very much
+    being written. CONCLUSION: the nightly storm is NOT URA reloading something on its own schedule.
+    That shifts the remaining hypotheses to an EXTERNAL trigger (another integration, a supervisor or
+    add-on action, or an HA-core-initiated reload) — which is precisely what the log read would
+    discriminate, and the log read is the half that is still blocked (see probe_blocked_2026_09_15 and
+    the new card OVERNIGHT-PASS-NO-LOG-REACH-1). Worth noting the measurement was possible only because
+    the carrier path self-logs to the DB; the negative is as strong as a log read would have been for
+    that specific suspect.'
+  probe_blocked_2026_09_15: 'OVERNIGHT PASS — PROBE ATTEMPTED AND BLOCKED, card NOT advanced. This
+    card next action is a log read ("ha_get_logs core around one blip for reload/Unloading/Setting up")
+    and the debug logging is already armed on the live instance, so this should have been the cheapest
+    win of the night. It could not be run: the home-assistant MCP server never connected in this
+    headless run, `ha core logs` over ssh returns 401 Unauthorized (no supervisor token in that shell),
+    `journalctl` is not present in the ssh add-on, and /config/home-assistant.log.1 is a zero-byte file
+    dated Nov 2025 (logs go to journald per memory reference_ha_logs_journald). The static half of the
+    next — grepping the codebase for self-issued homeassistant.reload_config_entry calls — remains
+    runnable and is still open. Blocked by the newly carded OVERNIGHT-PASS-NO-LOG-REACH-1; the armed
+    debug is NOT lost, it simply has not been read yet.'
   title: The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change —
     118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload
     watchdog risk)
