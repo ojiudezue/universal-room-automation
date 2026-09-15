@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'OVERNIGHT-PASS-SUMMARY@2026-09-15T05:00', at: '2026-09-15T05:00:00', outcome: investigated,
+     headline: 'WHY NOTHING REACHED THE REVIEW LANE TONIGHT: the contract says Tier-1/2 builds that pass the gate go build -> review -> validate, but validation runs the suite, and the suite is currently unrunnable (10,560 of 10,588 tests error at setup). So the build lane is blocked at the harness until you PICK on TEST-HARNESS-REAL-HA-DEFAULT-1. The pass ran 8 read-only probes instead and disposed 10 cards: 1 closed-refuted, 3 parked at the gate, 6 escalated with measurements attached. No deploys (occupied sleeping house), and no NM page — these are non-urgent decisions and 03:00 buzzing is hostile timing; the board is the report.',
+     acknowledged: false}
   - {fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-15T04:30', at: '2026-09-15T04:30:00', outcome: investigated,
      headline: 'BIGGEST FIND OF THE NIGHT — THE TEST SUITE IS UNRUNNABLE AS A WHOLE. Full run in .venv-ha: 10,560 ERRORS of 10,588 collected (99.7pct), all one cause — phcc 0.13.316 ships two autouse SYNC fixtures (plugins.py:342 enable_event_loop_debug, :351 verify_cleanup) calling a bare asyncio.get_event_loop(), which raises on Python 3.13. Environmental, not URA code. Collection itself is clean (0 errors). Any recent full-run "N passed" baseline is suspect.',
      acknowledged: false}
