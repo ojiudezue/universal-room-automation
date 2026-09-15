@@ -936,14 +936,31 @@ class TestRegistrationAnchor:
 
     def test_appliance_census_sensor_registered_by_source(self):
         # Reading the setup path exhaustively at import time is heavy;
-        # inspect the file source for the concrete registration line and
-        # for the class name. Both must be present.
+        # inspect the file source for the concrete registration line.
+        # The stripped line MUST be exactly the constructor call (a
+        # commented-out registration counts as removed).
         sensor_path = os.path.join(
             _ura_path, "sensor.py",
         )
         with open(sensor_path, encoding="utf-8") as f:
-            src = f.read()
-        assert "ApplianceCensusSensor(hass, entry)" in src
+            lines = f.readlines()
+        # The registration is `ApplianceCensusSensor(hass, entry),` as a
+        # non-commented list item.
+        found = False
+        for ln in lines:
+            stripped = ln.strip()
+            if stripped.startswith("#"):
+                continue
+            if stripped == "ApplianceCensusSensor(hass, entry),":
+                found = True
+                break
+        assert found, (
+            "ApplianceCensusSensor not registered as a live entity in "
+            "sensor.async_setup_entry list (commented-out registration "
+            "counts as removed)"
+        )
+        # Class definition still exists.
+        src = "".join(lines)
         assert "class ApplianceCensusSensor" in src
 
     def test_enable_default_is_true(self):

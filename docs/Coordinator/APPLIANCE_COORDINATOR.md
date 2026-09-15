@@ -17,7 +17,8 @@ The census unions three discovery sources:
 
 De-dup discipline:
 - Every `entity_id` claimed by a declared record is suppressed in sources (2) and (3) — invariant **(i) entity-exclusivity**.
-- Intra-integration shadows collapse by `device_id` (reuse pattern: `camera_census.py:589-628`).
+- Duplicate declared claims resolve as **real** last-wins: the later record wins the entity_id and it is **removed from the earlier record's role lists** (not just a warning). The v1b flow validator will reject-at-save.
+- **NO device_id auto-collapse in v1a.** `device_id` is not a reliable appliance boundary. A single LG ThinQ washer registers as one HA device with many entities (control + energy + state); a 2-channel Shelly registers as one device with two independent appliances. Collapsing on `device_id` either shatters a real appliance across records or silently merges two distinct appliances into one — both are unsafe. Source (3) therefore emits **one record per unique unclaimed `entity_id`** (dedup by `entity_id` ONLY). Grouping across entity_ids is an **operator decision** captured in source (1) declared records — never a heuristic. The Tier-2-DB Reviewer A1 finding (2026-09-13) is the record of this decision.
 - Cross-integration bridging is **operator-declared only** (fragile-pattern #2 — no reliable cross-integration join key).
 - Every unclaimed entity → exactly one `other` record — invariant **(i) no-drop**.
 
