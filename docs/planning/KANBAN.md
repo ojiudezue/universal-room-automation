@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T02:14:39-05:00_ - _Data commit: `48e1d6542057`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T02:21:07-05:00_ - _Data commit: `43d4e19cf500`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -665,7 +665,8 @@ _created 2026-09-13 01:00 · initial_
 - **Next:** INSTRUMENT: add per-async_step duration logging to config_flow steps + the heavy helpers; next room setup pins where the minutes go (flow work vs loop-stall/reload). Then fix root cause.
 - **Sibling of:** ONBOARDING-SIMPLIFY-1
 - **Parsimony:** [INVESTIGATE] config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `rechecked_2026_09_15`: OVERNIGHT PASS recheck of the network-outage blocker recorded on 2026-09-13 ("STILL LIVE and WORSE, 7053 unavailable"). MEASURED on the live recorder, 15-minute window: 614 DISTINCT entities wrote an `unavailable` state, out of 2,174 dis...
   - `SUPERSEDES_ALL_BELOW_2026_09_14`: READ THIS FIRST. Every dated entry below that names "reload storm" as the cause is a PRIOR HYPOTHESIS, NOT a finding — kept for history per the mark-wrong-do-not-delete rule, not to be acted on. There is NO evidence of a reload storm or ...
   - `disentangled_2026_09_13`: CORRECTED (operator pushback on linkage + host check). HOST NOT PRESSURED: load 1.48, CPU 91.7%% idle, 0%% iowait, swap 0, 5.5GB free -> the 5585-unavailable-saturates-loop claim is UNSUPPORTED (unavailable entities are inert; no resourc...
   - `independently_verified_2026_09_13`: Operator pushback (do not trust optimizer; could be network) = CORRECT. Independent ground truth (NOT optimizer): (a) binary_sensor.zigbee2mqtt_bridge_connection_state 5-of-6 = OFF (the bridges OWN disconnect signal; 31 z2m bridge entiti...

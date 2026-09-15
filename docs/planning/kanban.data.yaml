@@ -19525,6 +19525,17 @@ cards:
   next: 'DEPLOY-READY (batch): Option C (fe9ecb75f) + v1b (132d8db39) both ship-clean + orch-verified, unmerged. On a waking-hours restart I merge both -> develop -> one deploy.sh -> restart activates v5.102.1 + Option C + v1b together. Awaiting your restart window (or say go).'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
+  rechecked_2026_09_15: 'OVERNIGHT PASS recheck of the network-outage blocker recorded on 2026-09-13
+    ("STILL LIVE and WORSE, 7053 unavailable"). MEASURED on the live recorder, 15-minute window:
+    614 DISTINCT entities wrote an `unavailable` state, out of 2,174 distinct entities writing any
+    state at all — so roughly 28pct of currently-active entities are flapping to unavailable. That is
+    materially better than the 7,053 figure on the card, but the two numbers are NOT the same
+    measurement (7,053 looks like a total entity count, this is distinct entities active in a 15-min
+    window), so I am recording it as a fresh independent reading rather than claiming a trend. The
+    honest statement: the outage condition has NOT cleared, and onboarding timings measured while it
+    persists remain contaminated — the card premise that config-flow slowness may be loop-stall rather
+    than flow work is still unresolved and still worth instrumenting. No lane change; the operator
+    action this card waits on is unchanged.'
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
   thread: config-flow
   status: waiting_operator
