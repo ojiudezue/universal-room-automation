@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-15T04:30', at: '2026-09-15T04:30:00', outcome: investigated,
+     headline: 'BIGGEST FIND OF THE NIGHT — THE TEST SUITE IS UNRUNNABLE AS A WHOLE. Full run in .venv-ha: 10,560 ERRORS of 10,588 collected (99.7pct), all one cause — phcc 0.13.316 ships two autouse SYNC fixtures (plugins.py:342 enable_event_loop_debug, :351 verify_cleanup) calling a bare asyncio.get_event_loop(), which raises on Python 3.13. Environmental, not URA code. Collection itself is clean (0 errors). Any recent full-run "N passed" baseline is suspect.',
+     acknowledged: false}
+  - {fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@fix-backed-out', at: '2026-09-15T04:35:00', outcome: waiting_operator,
+     headline: 'FIX ATTEMPTED AND DELIBERATELY BACKED OUT. Overriding enable_event_loop_debug worked, then the same failure reappeared one fixture later in verify_cleanup; the obvious set_event_loop fix is impossible because this harness has NO event_loop fixture (phcc pins its own policy). Handing verify_cleanup the wrong loop would leave its lingering-task/timer assertions passing against an idle placeholder — a green suite that stopped checking for leaks. PICK A (override both, keep leak checks) / B (no-op verify_cleanup, not recommended) / C (dependency bump). Tree clean, nothing committed.',
+     acknowledged: false}
+  - {fid: 'TEST-STRATEGY-REARCH-1@2026-09-15T04:40', at: '2026-09-15T04:40:00', outcome: investigated,
+     headline: 'TEST-STRATEGY-REARCH-1 — re-measured and now BLOCKED ON ITS OWN CHILD. Collection residual retired (10,588 collected, 0 errors — the v5.101.0 const-stub fix held). The "~87 order-dependent runtime failures" cannot be re-measured while the harness masks them behind 10,560 setup errors, so the re-arch audit is not ready to scope. The 4-minute runtime claim IS confirmed: 249s.',
+     acknowledged: false}
+  - {fid: 'URA-CONFIG-ENTRY-RELOAD-STORM-1@2026-09-15T03:50', at: '2026-09-15T03:50:00', outcome: investigated,
+     headline: 'RELOAD-STORM — self-issued-reload hypothesis REFUTED without needing the logs. URA has exactly ONE site that reloads a foreign entry unprompted (hvac.py:4941 Carrier stale-reload); it writes a carrier_reload row to ura_activity_log on every fire, and there are ZERO such rows in 21 days AND all time (same window: 2,683 transit anomalies, so the table is live). Every other async_reload is operator-initiated. The storm is therefore EXTERNAL to URA. The log-read half stayed blocked — see the new card.',
+     acknowledged: false}
+  - {fid: 'OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-15T03:45', at: '2026-09-15T03:45:00', outcome: waiting_operator,
+     headline: 'NEW CARD — the overnight pass cannot read HA logs at all, so every log-based investigation silently stalls (the reload-storm card has debug ARMED and unread because of it). Three routes tried and failed: home-assistant MCP never connects headless, `ha core logs` over ssh returns 401 (no supervisor token), journalctl absent in the ssh add-on. DO: provision a read-only supervisor token for the launchd job -> I wire it in and immediately run the armed probe.',
+     acknowledged: false}
   - {fid: 'GUEST-FALSE-POSITIVE-JAYA-ONLY-1@2026-09-15T02:30', at: '2026-09-15T02:30:00', outcome: done,
      headline: 'GUEST-FALSE-POSITIVE-JAYA-ONLY-1 — REFUTED + CLOSED by one probe. The card said the flip-instant census split was not historized and could not be pinned; census_snapshots historizes it exactly. unidentified_count = 0 at 12 of 12 GUEST flips in 30d, identified_persons = residents only. So NEITHER discriminator term: mechanism is the Path-B guest-ROOM gate, zero census involvement. Flips also collapsed 5-9/day (Aug) -> 0 since 09-10.',
      acknowledged: false}
@@ -14605,6 +14620,36 @@ cards:
     (sensor.ROOM_fan_recheck_state reaching ARMED+vacate). Pre-deploy last eval_count=1 and never vacated
     per README. Awaiting organic fan-ghost episode. H1 PENDING.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  measured_2026_09_15_suite_is_unrunnable: 'OVERNIGHT PASS — I RAN THE SUITE, AND THE HEADLINE IS BIGGER
+    THAN THIS CARD ASSUMED: in .venv-ha (the only environment where the suite is installed) the full run
+    produced 10,560 ERRORS out of 10,588 collected — a 99.7pct setup-error rate — in 249s. The suite is
+    not slow-and-flaky right now; it is effectively UNRUNNABLE AS A WHOLE, and has been silently so.
+    COLLECTION, by contrast, IS CLEAN: 10,588 collected with ZERO collection errors, which retires the
+    2-error collection residual this card carried (the const-stub child shipped in v5.101.0 and has held).
+    Verified by running it, not by trusting the record.
+    ROOT CAUSE PINNED, in installed source (no inference): pytest-homeassistant-custom-component 0.13.316
+    ships TWO autouse, SYNCHRONOUS fixtures that each call a bare `asyncio.get_event_loop()` —
+    plugins.py:342 `enable_event_loop_debug` and plugins.py:351 `verify_cleanup`. Under Python 3.13
+    (3.13.14 here) that call raises `RuntimeError: There is no current event loop in thread MainThread`
+    when no loop is current, so EVERY test whose fixture chain pulls phcc errors at SETUP. Tests that
+    never touch `hass` are unaffected — test_zzz_v318_hvac_sensors.py passes 9-10/10 standalone — which
+    is why the breakage presents as near-total rather than total, and why per-file runs can look healthy
+    while the whole-suite run is a wall of errors. THIS IS ENVIRONMENTAL: it says nothing about URA code,
+    and it means any recent "N passed" baseline taken from a full run in this environment should be
+    treated as suspect until re-measured.
+    I ATTEMPTED THE FIX AND BACKED IT OUT DELIBERATELY. Overriding `enable_event_loop_debug` by name in
+    quality/tests/conftest.py WORKED (the :342 error disappeared) and immediately exposed the identical
+    failure one fixture later at :351 in `verify_cleanup`. The obvious next step — have the override take
+    pytest-asyncio''s `event_loop` fixture and `set_event_loop` it so the bare get_event_loop() resolves —
+    FAILED because there IS no `event_loop` fixture in this harness: the installed plugin set exposes
+    `_function_scoped_runner` / `event_loop_policy` instead (phcc pins its own HassEventLoopPolicy at
+    plugins.py:158 and even neuters `asyncio.set_event_loop_policy`). So the real fix needs to route
+    through this harness''s actual loop provider. I STOPPED THERE rather than guess, because
+    `verify_cleanup` is the fixture that asserts no lingering tasks and no lingering timers, and handing
+    it the WRONG loop would leave those assertions passing against an idle placeholder — a green suite
+    that has quietly stopped checking for task leaks. That is the hollow-anchor failure class, in the one
+    place we can least afford it, and it is not a call to make unattended. Branch created, tested, and
+    deleted; working tree clean, nothing committed.'
   TRUE_COST_MEASURED_2026_08_23: 'THE REAL NUMBER, replacing the misleading 9,733. Full suite under .venv-ha
     with the blocker disabled (`-p no:homeassistant`): stub run (Python 3.9.6)   76 failing IDs   3:41
     real-HA run (3.13.14)    273 failing IDs   7:01 fail ONLY under real HA  207 fail ONLY under stubs     10   <-
@@ -14620,7 +14665,7 @@ cards:
   title: Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large
     infrastructure project" every review doc assumed
   thread: quality
-  status: planned
+  status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: .venv-ha exists but no pytest.ini/pyproject points the suite at it; _HA_REAL still a skip-when-absent gate. Nothing of the migration landed.'
   approval: explicit
   approved_by: operator 2026-08-23 ("We need to make this our default test harness and strategy")
@@ -14660,17 +14705,16 @@ cards:
     there is NO pytest config in the repo — no pytest.ini, setup.cfg, tox.ini, or [tool.pytest]. So plugins
     autoload uncontrolled and asyncio_mode is unset. That is why the two environments diverge at all:
     under 3.9 phcc is not installed, so its autouse fixture never runs.'
-  next: 'D1 (one file): add a pytest config pinning asyncio_mode and either disabling the phcc plugin
-    or overriding enable_event_loop_debug, then re-run the full suite under .venv-ha and record the real
-    failure count. That number — NOT the 9,733 — is the true cost of switching, and it decides everything
-    downstream. Do not scope the migration before it exists.'
-  PROPOSED_SHAPE: 'Strangler, not a switch. 1) Pin .venv-ha as the documented interpreter in requirements_test.txt
-    + run instructions so nobody silently runs 3.9 again. 2) New tests import real HA; no new file adds
-    sys.modules stubs. 3) Existing files migrate ONLY when a cycle already touches them. 4) Track BOTH
-    numbers (stub-suite, real-suite) until parity. EVIDENCE THIS PAYS: requirements_test.txt records the
-    same pattern twice — installing real pytest-asyncio dissolved ~180 phantom failures, and real aiosqlite
-    ~30 more, because `sys.modules.setdefault("aiosqlite", MagicMock())` made db.initialize() appear to
-    succeed while writing nothing. Its own words: "dev env drift hiding real failures behind mock no-ops."'
+  next: 'PICK the loop strategy, then I build it (test-only, one file, ~20 LoC, fully reversible — I
+    have the diagnosis, I want your call on which way to route it): (A) OVERRIDE BOTH phcc fixtures in
+    quality/tests/conftest.py, reimplementing verify_cleanup''s lingering-task/timer checks against the
+    loop this harness actually provides — preserves the leak detection, most code; (B) OVERRIDE BOTH,
+    with verify_cleanup reduced to a no-op — smallest change, restores the suite tonight, but SILENTLY
+    DROPS task-leak and timer-leak detection suite-wide, which I do not recommend; (C) UPGRADE/PIN the
+    dependency pair instead (phcc + pytest-asyncio) so the upstream fixtures work on Python 3.13 —
+    cleanest if a compatible pair exists, but it is a dependency bump, not a test edit. Root cause,
+    blast radius and the backed-out attempt are all recorded in measured_2026_09_15_suite_is_unrunnable.'
+
   links:
     related:
     - TEST-STRATEGY-REARCH-1
@@ -14679,6 +14723,19 @@ cards:
       should be re-counted under the real harness BEFORE being worked individually — some will dissolve,
       exactly as the pytest-asyncio and aiosqlite installs did.
 - id: TEST-STRATEGY-REARCH-1
+  measured_2026_09_15: 'OVERNIGHT PASS — two of this card three claims re-measured by RUNNING them,
+    and both moved. (1) COLLECTION IS NOW CLEAN: 10,588 tests collected, ZERO errors (the 2 residual
+    collection errors from the 2026-09-12 verify are gone — the const-stub child shipped v5.101.0 and
+    has held). Verified by running pytest --collect-only, per the rule that a recorded pass/fail count
+    is not evidence. (2) THE RUNTIME FAILURE PICTURE IS NOT "~87 ORDER-DEPENDENT FAILURES" RIGHT NOW —
+    it is 10,560 ERRORS of 10,588, because the harness itself is broken in .venv-ha on Python 3.13
+    (two phcc autouse fixtures calling a bare asyncio.get_event_loop()). Full diagnosis on the child
+    card TEST-HARNESS-REAL-HA-DEFAULT-1, which I have escalated with a three-way PICK. CONSEQUENCE FOR
+    THIS PARENT: the ~87 order-dependent runtime failures CANNOT be re-measured until that harness fix
+    lands — they are currently masked by a wall of setup errors, so any re-architecture scoping done
+    before then would be sizing a number nobody can see. The 4-minute runtime claim, at least, is
+    CONFIRMED: the full run took 249s even while erroring out of almost every test. THIS CARD IS
+    BLOCKED ON ITS OWN CHILD — it is not ready for the re-arch audit it asks for.'
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   status: investigating
