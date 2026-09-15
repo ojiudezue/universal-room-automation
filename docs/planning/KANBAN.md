@@ -2,15 +2,15 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T12:13:20-05:00_ - _Data commit: `dbcd23cbb421`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T12:13:46-05:00_ - _Data commit: `8125f0f345a3`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
-| 🔬 Investigating | 1 |
+| 📥 Inbox | 0 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 6 |
 | 🔨 In progress | 1 |
@@ -21,24 +21,27 @@ _Generated: 2026-09-15T12:13:20-05:00_ - _Data commit: `dbcd23cbb421`_ - _last_r
 | 🅿️ Parked | 54 |
 | ✅ Done | 163 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (0)
 _raw capture_
 
+_(none)_
+
+## 🔬 Investigating (2)
+_measuring; truth not yet known_
+
 ### `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1` - AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **inbox** - approval: **implied**
+thread: **platform** - status: **investigating** - approval: **implied**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
   - Problem: on boot, HA frame helper warns "universal_room_automation calls hass.async_create_task from a thread other than the event loop, may cause crash or data corruption" at sensor.py:8121 -> super().async_added_to_hass(), traced to Ag...
 - **Why:** thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in v5.103.0 live validation (README_v5.103.0 residual finding).
-- **Next:** Investigate whether async_added_to_hass runs off-loop for CM-entry aggregation sensors or the base create_task is the culprit; then marshal onto the loop. Tier-2 (shared base), 2 framing-disjoint review.
+- **Next:** MEASURE FIRST (blocks any build): capture the FULL boot traceback of "thread other than the event loop" citing a URA frame on the NEXT restart (ssh ha grep the core log immediately post-boot, or raise frame logger detail) to name the REA...
 - **Tags:** tier-2
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `DEDUPE_2026_09_15`: NEW (not dup): same off-loop thread-safety CLASS as EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 but different surface (AggregationEntity base vs EC sub-switch). Reuse that fix precedent: v5.100.3 @callback + threadsafe dispatch pattern. Part of th...
+  - `INVESTIGATED_2026_09_15`: PREMISE FALSIFIED by static read (do NOT build blind). AggregationEntity.async_added_to_hass (aggregation.py:980) creates NO task: super() chain hits empty Entity.async_added_to_hass; RestoreEntity uses unguarded async_create_task_intern...
 
-## 🔬 Investigating (1)
-_measuring; truth not yet known_
-
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -3091,12 +3094,13 @@ _created 2026-09-06 15:20 · initial_
   - Problem: an Energy-Coordinator sub-switch deferred-restore callback (switch.py:1221) calls self.async_write_ha_state() from a thread other than the event loop. HA 2026.x escalates this from a warning to an ERROR with a full RuntimeError ...
 - **Origin:** 2026-09-06 - v5.97.0 post-restart error_log scan
 - **Why:** Real thread-safety violation HA now treats as ERROR; risks a future hard failure. Pre-existing, EC scope (not identity), so carded not hotfixed inline. Verify the dispatch thread before fixing (is the signal fired from a worker?).
-- **Next:** Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221 (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.
+- **Next:** DONE — fixed v5.100.3 (all 4 _handle_ec_ready sites @callback + threadsafe SIGNAL_ENERGY_COORDINATOR_READY dispatch; on-loop write). Investigation 2026-09-15 confirmed: the old switch.py:1221 ref is STALE (now a docstring). No action.
 - **Tags:** energy, thread-safety, ha-2026-escalation, no-fabrication-verify, found-during-validation
 - **Parsimony:** [BUILD] EC sub-switch writes HA state off-loop -> HA-2026 ERROR, possible future crash
 - **Refs:** switch.py:1195-1225 (EC deferred-restore callback); v5.97.0 post-restart error_log
-- **Forensic keys (1):**
+- **Forensic keys (2):**
   - `disposition_2026_09_09`: DONE — ALREADY FIXED by v5.100.3 (subsumed). Same root as ENERGY-ENTITIES-UPDATE-DISPATCH-ERROR-1: HA executor-punts a non-@callback sync dispatcher target. The _handle_ec_ready OVERRIDE at switch.py:1393 lacked @callback, so the SIGNAL_...
+  - `INVESTIGATED_2026_09_15`: Re-verified fixed. Reusable pattern for the sibling: decorate the sync dispatcher-target @callback (so HA does not executor-punt it off-loop) + fire the signal threadsafe. Applies ONLY when the defect is an executor-punted non-callback t...
 
 ### `EGRESS-EXIT-DISPLAY-REREAD-1` - Exit list still shows "unidentified" after a backfill names the crossing (display not re-read) — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **done** - approval: **unreviewed**

@@ -97,11 +97,18 @@ retire) parked with config-trigger revival; Option B (unify all flags) rejected.
 **Entity-id note:** the real entities are `sensor.ura_appliance_coordinator_appliance_census` (CM-prefixed) and `sensor.<room>_signal_inventory` — recorded so future validation doesn't read `None` from a guessed id.
 
 ### RESIDUAL FINDING (live-only) — carded, not blocking
-A **single boot-time** `async_create_task from a thread other than the event loop` WARNING remains, at
-`sensor.py:8121 → await super().async_added_to_hass()`. Traced to the **`AggregationEntity` base class**
-(`aggregation.py:962`), whose `async_added_to_hass` polls for room coordinators at startup — a
-**pre-existing, house-wide** whole-house-sensor pattern, not census-specific and not a v5.103.0 regression.
-It surfaced at the census sensor's `super()` call only because v5.102.1 removed the census's own recurring
-timer task (which was the v5.102.0 defect and IS fixed). Benign: fires once at boot, no crash, setup clean,
-`system_log` doesn't retain it. Carded as `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1` (shared-base change →
-proper review, not a rushed hotfix).
+A **single boot-time** `async_create_task from a thread other than the event loop` warning remains, reported
+at `sensor.py:8121 → await super().async_added_to_hass()`.
+
+**Correction (investigated 2026-09-15):** my first read blamed the `AggregationEntity` base's
+`async_added_to_hass`. A static trace **falsified** that — the base creates no task (its `super()` chain
+reaches an empty `Entity.async_added_to_hass`; its room-poll uses `async_schedule_update_ha_state()` with no
+force_refresh). The reported line is a **frame-walker artifact** (the nearest URA frame on the stack when an
+off-loop call fires elsewhere), not the producer. The **true off-loop producer is unidentified** — the boot
+traceback rotated out before capture. **Risk correction:** on the running HA (core-2026.9.2) this guard
+*raises a RuntimeError today* for a custom integration (not a 2027 warning) — non-fatal only because it's
+swallowed in the dispatch/worker thread; it fires once at boot, so **practical impact is LOW now**, high only
+if a hot-path producer ever dispatches off-loop. Carded as `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1`, moved
+to **investigating** with a measure-first gate: capture the full boot traceback on the next restart to name
+the real producer before any build. Not a v5.103.0 regression (v5.102.1's recurring census-timer task IS
+fixed; this is a separate, pre-existing boot-time off-loop dispatch).

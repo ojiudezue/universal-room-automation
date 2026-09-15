@@ -3654,11 +3654,12 @@ cards:
     2026-09-09: all four _handle_ec_ready sites (1187/1393/1527/1799) are @callback; no switch.py async_write_ha_state
     thread error since the v5.100.3 boot (recent switch.py log lines are unrelated ac_infinity/wattbox
     via_device warnings). No new work.'
-  next: 'Tier-1/2: reproduce the off-loop write, marshal async_write_ha_state onto the loop at switch.py:1221
-    (and any sibling EC restore callbacks); confirm the ERROR traceback clears post-fix.'
+  next: 'DONE — fixed v5.100.3 (all 4 _handle_ec_ready sites @callback + threadsafe SIGNAL_ENERGY_COORDINATOR_READY dispatch; on-loop write). Investigation 2026-09-15 confirmed: the old switch.py:1221 ref is STALE (now a docstring). No action.'
   refs:
   - switch.py:1195-1225 (EC deferred-restore callback)
   - v5.97.0 post-restart error_log
+  INVESTIGATED_2026_09_15: 'Re-verified fixed. Reusable pattern for the sibling: decorate the sync dispatcher-target @callback (so HA does not executor-punt it off-loop) + fire the signal threadsafe. Applies ONLY when the defect is an executor-punted non-callback target.'
+
 - id: EGRESS-EXIT-COMULTI-DEPART-1
   title: Name BOTH people when a couple leaves together — each BLE tracker already identifies its own
     person
@@ -19326,7 +19327,7 @@ cards:
 - id: AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1
   title: "AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation)"
   thread: platform
-  status: inbox
+  status: investigating
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
@@ -19348,6 +19349,25 @@ cards:
   links:
     related: [APPLIANCE-MGMT-REFINE-1, EC-SUBSWITCH-ASYNC-WRITE-THREAD-1]
   DEDUPE_2026_09_15: 'NEW (not dup): same off-loop thread-safety CLASS as EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 but different surface (AggregationEntity base vs EC sub-switch). Reuse that fix precedent: v5.100.3 @callback + threadsafe dispatch pattern. Part of the broader async_create_task task-hygiene backlog (178 raw sites).'
+  INVESTIGATED_2026_09_15: >-
+    PREMISE FALSIFIED by static read (do NOT build blind). AggregationEntity.async_added_to_hass
+    (aggregation.py:980) creates NO task: super() chain hits empty Entity.async_added_to_hass;
+    RestoreEntity uses unguarded async_create_task_internal; the room-poll uses
+    async_schedule_update_ha_state() WITHOUT force_refresh (no task). The reported sensor.py:8121 ->
+    aggregation.py:962 is a FRAME-WALKER ARTIFACT (nearest URA frame on the stack), not the producer.
+    185 AggregationEntity subclasses exist (sensor 139 / aggregation 38 / binary_sensor 8) but that is NOT
+    the cause. The only reachable public async_create_task is async_schedule_update_ha_state(force_refresh=True)
+    at 4 sites (sensor.py:14826/15019/15226/15401, all @callback) whose signal producers dispatch from
+    ON-LOOP async contexts (transitions.py:544, regime_detector.py:633, button.py:1346) -> guard does NOT
+    currently fire at those. TRUE off-loop producer = UNIDENTIFIED (boot traceback rotated out before capture).
+    RISK CORRECTION: on core-2026.9.2 this guard RAISES RuntimeError for a custom integration TODAY (not a
+    2027 warning) — non-fatal only because swallowed in the dispatch/worker thread; fires once at boot ->
+    practical impact LOW now, HIGH only if a HOT-PATH producer ever dispatches one of these off-loop.
+    NOT house-wide-base as first framed. NOT the same as UNLOAD-SYMMETRY-TASK-HYGIENE-1 (that is untracked-task/
+    reload-safety, a different class). Sibling EC-SUBSWITCH is CLOSED; its @callback+threadsafe pattern applies
+    only if the real producer turns out to be an executor-punted non-callback target.
+  next: 'MEASURE FIRST (blocks any build): capture the FULL boot traceback of "thread other than the event loop" citing a URA frame on the NEXT restart (ssh ha grep the core log immediately post-boot, or raise frame logger detail) to name the REAL off-loop producer. Then fix that producer (marshal its dispatch onto the loop via call_soon_threadsafe / threadsafe dispatcher; the 4 handlers are already @callback so decorating is NOT the fix). Tier 2, 2 framing-disjoint, scoped to the real producer — NOT a base rewrite.'
+
 - id: APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1
   title: "Appliance census: multi-room-same-power-sensor attribution (v1b)"
   thread: energy
