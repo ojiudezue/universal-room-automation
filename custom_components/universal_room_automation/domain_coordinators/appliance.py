@@ -23,12 +23,17 @@ v1a scope (this file):
      ROOM config entry, using the appliance-relevant room keys
      (``URA_ROOM_APPLIANCE_KEYS`` in ``appliance_const.py``). Modeled on
      ``presence.py:7567`` ``_collect_presence_input_entities``.
-- Intra-integration shadow de-dup by ``device_id`` — reuses the pattern
-  established by ``camera_census.py:589-628``. Cross-integration bridging
-  is operator-declared only (fragile-pattern #2 in the plan).
+- **NO device_id auto-collapse.** ``device_id`` is not a reliable
+  appliance boundary — a single LG ThinQ washer registers as one device
+  with many entities (control + energy + state), a 2-channel Shelly
+  registers as one device with two independent appliances. Grouping
+  across entity_ids is an operator decision (source-1 declared records
+  in v1b), NEVER a heuristic. Source-3 emits **one record per unique
+  unclaimed entity_id** (dedup by entity_id ONLY, no-drop invariant).
 - Unmapped entity = visible, ``other`` / uncategorized, never dropped.
 - Same-entity-in-two-records is a legal-config hole; v1a treats a duplicate
-  as last-wins-with-warning (v1b's flow validator will reject-at-save).
+  as last-wins-with-removal (actually removes the entity_id from the
+  earlier record — the v1b flow validator will reject-at-save).
 
 v1a does NOT construct an ``AnomalyDetector`` (that lands in v1d, along
 with the observability meta-test wiring). No gating on the Energy
@@ -39,16 +44,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 
 from ..const import (
+    CONF_APPLIANCE_RECORDS,
     CONF_ENTRY_TYPE,
     DOMAIN,
     ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_ROOM,
 )
+from ._units import power_state_to_w
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .appliance_const import (
     APPLIANCE_STALE_MAX_AGE_S,
@@ -72,11 +80,17 @@ from .appliance_const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-# CM options key for operator-declared appliance record list. Read here in
-# v1a; the writer (options-flow step + reload-suppression key) lands in
-# v1b (per the plan's staging). Declared as a module constant on the
-# coordinator so v1a owns its own surface without polluting const.py yet.
-CONF_APPLIANCE_RECORDS = "appliance_records"
+# Boot-settle horizon: for the first N seconds after construct, refs with
+# no last_updated / stale states are reported "unknown" rather than
+# "stale" — a device off-WiFi since before restart shouldn't be labeled
+# "stale" on the first census tick (consistent with other coordinators'
+# boot-settle gates, e.g. hvac.py:515).
+_APPLIANCE_BOOT_SETTLE_S: int = 60
+
+# HA "not a live signal" state strings — excluded from counting toward
+# ``seen_any`` in freshness (a stuck `unavailable` state is not proof of
+# a fresh signal).
+_NON_LIVE_STATES: frozenset[str] = frozenset({"unavailable", "unknown", "none", ""})
 
 
 class ApplianceCoordinator(BaseCoordinator):
@@ -92,6 +106,9 @@ class ApplianceCoordinator(BaseCoordinator):
         # Tracked task set — cancelled in async_teardown BEFORE anything else
         # (Fragile pattern #6: untracked async_create_task, v4.6.3 A5).
         self._pending_tasks: set[asyncio.Task] = set()
+        # Boot-settle anchor. Monotonic so the gate is immune to wall-clock
+        # jumps during startup.
+        self._boot_monotonic = time.monotonic()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -133,6 +150,7 @@ class ApplianceCoordinator(BaseCoordinator):
         for task in list(self._pending_tasks):
             task.cancel()
         self._pending_tasks.clear()
+        # Base class handles listener cleanup (base.py:284).
         self._cancel_listeners()
         _LOGGER.info("ApplianceCoordinator torn down")
 
@@ -156,59 +174,76 @@ class ApplianceCoordinator(BaseCoordinator):
         - Every ``entity_id`` in a declared record is CLAIMED — sources
           (2) and (3) are suppressed for that entity (invariant #i:
           entity-exclusivity + group-completeness).
-        - Intra-integration shadows collapse by ``device_id`` (pattern:
-          ``camera_census.py:589-628``). Only within a single source.
+        - Duplicate declared claims: last-wins with actual removal from
+          the earlier record (v1b flow will reject-at-save).
+        - Source (3): one record per unique unclaimed ``entity_id``.
+          NO device_id auto-collapse — device_id is not a reliable
+          appliance boundary (ThinQ washer = 1 device / many entities;
+          2-channel Shelly = 1 device / 2 appliances).
         - Unclaimed entities from source (3) each become exactly one
           ``other``/uncategorized record (invariant #i: no-drop).
         """
         records: list[dict[str, Any]] = []
-        claimed_entity_ids: set[str] = set()
+        # Map claimed entity_id -> the record dict it belongs to. Lets us
+        # actually remove a duplicate from the earlier record when a
+        # later declared record re-claims it (real "last-wins").
+        claim_owner: dict[str, dict[str, Any]] = {}
 
         # Source (1): declared records — highest precedence.
-        declared = self._read_declared_records()
-        for rec in declared:
-            entity_refs = rec.get(KEY_ENTITY_REFS) or {}
+        for rec in self._read_declared_records():
+            try:
+                augmented = self._augment_declared_record(rec)
+            except Exception:  # noqa: BLE001 — one malformed record must
+                # not blank the whole census. Skip it, log, keep going.
+                _LOGGER.warning(
+                    "Appliance census: skipping malformed declared record %r",
+                    rec.get(KEY_NAME, "?") if isinstance(rec, dict) else "?",
+                    exc_info=True,
+                )
+                continue
+            # Record-local set — an entity legitimately appearing as
+            # BOTH control and state of the SAME record must not warn.
+            local_ids: set[str] = set()
+            entity_refs = augmented.get(KEY_ENTITY_REFS) or {}
             for role in ROLES:
                 for eid in entity_refs.get(role) or []:
                     if not eid:
                         continue
-                    if eid in claimed_entity_ids:
-                        # Last-wins-with-warning backstop (v1b flow will
-                        # reject-at-save).
+                    if eid in local_ids:
+                        continue  # same record, different role — legal
+                    local_ids.add(eid)
+                    prior = claim_owner.get(eid)
+                    if prior is not None and prior is not augmented:
+                        # Real removal: strip the entity_id from the
+                        # earlier record's every role list.
                         _LOGGER.warning(
-                            "Appliance record %r references entity_id %s "
-                            "already claimed by an earlier record; "
-                            "last-wins backstop applied (v1b flow will "
-                            "reject-at-save)",
-                            rec.get(KEY_NAME, "?"),
-                            eid,
+                            "Appliance record %r claims entity_id %s already "
+                            "claimed by earlier record %r; removing from "
+                            "earlier record (v1b flow will reject-at-save)",
+                            augmented.get(KEY_NAME, "?"), eid,
+                            prior.get(KEY_NAME, "?"),
                         )
-                    claimed_entity_ids.add(eid)
-            records.append(self._augment_declared_record(rec))
+                        prior_refs = prior.get(KEY_ENTITY_REFS) or {}
+                        for r_role in ROLES:
+                            lst = prior_refs.get(r_role) or []
+                            if eid in lst:
+                                prior_refs[r_role] = [x for x in lst if x != eid]
+                    claim_owner[eid] = augmented
+            records.append(augmented)
+
+        claimed_entity_ids: set[str] = set(claim_owner.keys())
 
         # Source (2): SPAN circuits.
         for span_rec in self._read_span_circuits(claimed_entity_ids):
             records.append(span_rec)
 
         # Source (3): URA-owned entities.
-        # Intra-integration shadow de-dup: within the URA source we
-        # collapse entities on the same device_id (mirrors
-        # camera_census.py:589-628 — a device with two representative
-        # entities gets one record).
-        seen_ura_device_ids: set[str] = set()
+        # Dedup ONLY on entity_id. NO device_id auto-collapse — see
+        # docstring.
         for entry in self._iter_ura_owned_appliance_entities(claimed_entity_ids):
             entity_id = entry["entity_id"]
-            device_id = entry.get("device_id")
-            if device_id and device_id in seen_ura_device_ids:
-                _LOGGER.debug(
-                    "Appliance census: intra-integration shadow collapse — "
-                    "%s shares device_id=%s with a previously seen URA-owned "
-                    "entity; skipping",
-                    entity_id, device_id,
-                )
+            if entity_id in claimed_entity_ids:
                 continue
-            if device_id:
-                seen_ura_device_ids.add(device_id)
             records.append(self._build_ura_owned_record(entry))
             claimed_entity_ids.add(entity_id)
 
@@ -219,16 +254,21 @@ class ApplianceCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     def _read_declared_records(self) -> list[dict[str, Any]]:
-        """Read the operator-declared record list from the CM entry."""
+        """Read the operator-declared record list from the CM entry.
+
+        Routes through the base class's cached CM-entry lookup
+        (``base.py:267``) so we don't rescan config entries every tick.
+        """
         try:
-            for ce in self.hass.config_entries.async_entries(DOMAIN):
-                if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
-                    continue
-                merged = {**(ce.data or {}), **(ce.options or {})}
-                declared = merged.get(CONF_APPLIANCE_RECORDS) or []
-                if isinstance(declared, list):
-                    return [d for d in declared if isinstance(d, dict)]
+            # Poke the base cache — populates ``self._cm_entry_cache``.
+            self._get_signal_config("__appliance_prime__", default=False)
+            entry = self._cm_entry_cache
+            if entry is None:
                 return []
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            declared = merged.get(CONF_APPLIANCE_RECORDS) or []
+            if isinstance(declared, list):
+                return [d for d in declared if isinstance(d, dict)]
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "Appliance census: reading declared records failed",
@@ -237,12 +277,15 @@ class ApplianceCoordinator(BaseCoordinator):
         return []
 
     def _augment_declared_record(self, rec: dict[str, Any]) -> dict[str, Any]:
-        """Attach current power/state/freshness to a declared record."""
+        """Attach current power/state/freshness to a declared record.
+
+        May raise on badly-shaped input — the caller catches and skips.
+        """
         entity_refs = rec.get(KEY_ENTITY_REFS) or {}
-        power_w = self._read_first_float_state(entity_refs.get(ROLE_POWER) or [])
+        power_w = self._sum_power_w(entity_refs.get(ROLE_POWER) or [])
         state_val = self._read_first_state(entity_refs.get(ROLE_STATE) or [])
-        # Freshness — most recent last_updated across ALL referenced
-        # entity_ids; STALE if older than APPLIANCE_STALE_MAX_AGE_S.
+        # Freshness — WORST (oldest) last_updated across ALL referenced
+        # entity_ids; STALE if ANY is older than APPLIANCE_STALE_MAX_AGE_S.
         freshness = self._freshness_for_entity_refs(entity_refs)
         return {
             KEY_NAME: rec.get(KEY_NAME, "?"),
@@ -279,15 +322,24 @@ class ApplianceCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             return out
 
+        # Build a reverse-index from configured power_sensors → room name
+        # (from ROOM entries) so a SPAN circuit that an operator has ALSO
+        # configured as a room's power sensor picks up the room attribution.
+        room_for_power_sensor = self._build_room_index_for_power_sensors()
+
         for entity_id, info in circuits.items():
             if entity_id in claimed_entity_ids:
                 continue
-            power_w = self._read_first_float_state([entity_id])
+            power_w = self._sum_power_w([entity_id])
             friendly = getattr(info, "friendly_name", entity_id)
+            # TODO card: multi-room same power_sensor — current behavior
+            # picks the FIRST room that references it. If the operator
+            # legitimately shares a SPAN circuit across two rooms, that's
+            # ambiguous and needs a design call (v1b territory).
             record = {
                 KEY_NAME: friendly,
                 KEY_FUNCTIONAL_DOMAIN: DOMAIN_OTHER,
-                KEY_ROOM: None,
+                KEY_ROOM: room_for_power_sensor.get(entity_id),
                 KEY_ENTITY_REFS: {
                     ROLE_POWER: [entity_id],
                     ROLE_ENERGY: [],
@@ -304,6 +356,33 @@ class ApplianceCoordinator(BaseCoordinator):
             out.append(record)
             claimed_entity_ids.add(entity_id)
         return out
+
+    def _build_room_index_for_power_sensors(self) -> dict[str, str]:
+        """Return {power_sensor_entity_id: first_room_name_that_references_it}."""
+        idx: dict[str, str] = {}
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                room_name = merged.get("room_name") or entry.title or ""
+                val = merged.get("power_sensors")
+                if not val:
+                    continue
+                ids: list[str] = []
+                if isinstance(val, str):
+                    ids = [val]
+                elif isinstance(val, (list, tuple, set)):
+                    ids = [str(v) for v in val if v]
+                for eid in ids:
+                    if eid and eid not in idx:
+                        idx[eid] = room_name
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Appliance census: room-index for power_sensors build failed",
+                exc_info=True,
+            )
+        return idx
 
     def _get_span_monitor(self) -> Any | None:
         """Return the Energy coordinator's SPANCircuitMonitor, or None."""
@@ -332,12 +411,12 @@ class ApplianceCoordinator(BaseCoordinator):
         appliance-relevant room-config keys.
 
         Skips any entity_id already claimed by source (1). Returns a list
-        of dicts with ``entity_id``, ``room``, ``room_key``, ``device_id``.
+        of dicts with ``entity_id``, ``room``, ``room_key``. No device_id
+        dedup — each unclaimed entity_id yields at most one entry here.
         """
         out: list[dict[str, Any]] = []
         seen: set[str] = set()
         try:
-            ent_reg = self._safe_entity_registry()
             for entry in self.hass.config_entries.async_entries(DOMAIN):
                 merged = {**(entry.data or {}), **(entry.options or {})}
                 if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
@@ -356,12 +435,10 @@ class ApplianceCoordinator(BaseCoordinator):
                         if not eid or eid in seen or eid in claimed_entity_ids:
                             continue
                         seen.add(eid)
-                        device_id = self._lookup_device_id(ent_reg, eid)
                         out.append({
                             "entity_id": eid,
                             "room": room_name,
                             "room_key": key,
-                            "device_id": device_id,
                         })
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
@@ -384,7 +461,7 @@ class ApplianceCoordinator(BaseCoordinator):
                 ROLE_POWER: [eid], ROLE_ENERGY: [],
                 ROLE_CONTROL: [], ROLE_STATE: [],
             }
-            power_w = self._read_first_float_state([eid])
+            power_w = self._sum_power_w([eid])
             state_val = None
         else:
             refs = {
@@ -408,34 +485,27 @@ class ApplianceCoordinator(BaseCoordinator):
     # Small read helpers — all guarded per CLAUDE.md rule 4.
     # ------------------------------------------------------------------
 
-    def _safe_entity_registry(self):
-        try:
-            from homeassistant.helpers import entity_registry as er
-            return er.async_get(self.hass)
-        except Exception:  # noqa: BLE001
-            return None
+    def _sum_power_w(self, entity_ids: list[str]) -> float | None:
+        """Return SUM of power readings across entity_ids in Watts, or None.
 
-    def _lookup_device_id(self, ent_reg, entity_id: str) -> str | None:
-        if ent_reg is None:
-            return None
-        try:
-            entry = ent_reg.async_get(entity_id)
-            if entry is None:
-                return None
-            return getattr(entry, "device_id", None)
-        except Exception:  # noqa: BLE001
-            return None
-
-    def _read_first_float_state(self, entity_ids: list[str]) -> float | None:
+        Routes each read through ``power_state_to_w`` so a source
+        reporting in kW / mW / MW normalizes to Watts (Bug Class #30).
+        Sums across all refs so a 240V appliance with two SPAN legs
+        reports the combined draw. Returns None if no ref parses.
+        """
+        total: float | None = None
         for eid in entity_ids:
             try:
                 st = self.hass.states.get(eid)
                 if st is None:
                     continue
-                return float(st.state)
+                watts = power_state_to_w(st)
+                if watts is None:
+                    continue
+                total = (total or 0.0) + watts
             except Exception:  # noqa: BLE001
                 continue
-        return None
+        return total
 
     def _read_first_state(self, entity_ids: list[str]) -> str | None:
         for eid in entity_ids:
@@ -451,14 +521,27 @@ class ApplianceCoordinator(BaseCoordinator):
     def _freshness_for_entity_refs(
         self, entity_refs: dict[str, list[str]],
     ) -> str:
-        """Return 'fresh' | 'stale' | 'unknown' per APPLIANCE_STALE_MAX_AGE_S."""
+        """Return 'fresh' | 'stale' | 'unknown' per APPLIANCE_STALE_MAX_AGE_S.
+
+        - Uses the WORST (oldest) age across ALL refs — a record is
+          stale if ANY ref is stale.
+        - ``unavailable`` / ``unknown`` states do NOT count as a live
+          signal (they don't set ``seen_any``).
+        - During boot-settle (first ``_APPLIANCE_BOOT_SETTLE_S`` seconds
+          after construct), a record with no live ref reports 'unknown'
+          rather than 'stale' — a device off-WiFi since before restart
+          shouldn't be flagged stale on the first tick.
+        - Kill value: ``APPLIANCE_STALE_MAX_AGE_S <= 0`` disables
+          freshness reporting entirely (every record with a live ref
+          reports 'fresh').
+        """
         try:
             from homeassistant.util import dt as dt_util
             now = dt_util.utcnow()
         except Exception:  # noqa: BLE001
             return "unknown"
-        seen_any = False
-        oldest_age_s: float | None = None
+        seen_live_signal = False
+        worst_age_s: float | None = None
         try:
             for role in ROLES:
                 for eid in entity_refs.get(role) or []:
@@ -468,38 +551,29 @@ class ApplianceCoordinator(BaseCoordinator):
                         st = self.hass.states.get(eid)
                         if st is None:
                             continue
-                        seen_any = True
+                        raw = getattr(st, "state", None)
+                        if isinstance(raw, str) and raw.strip().lower() in _NON_LIVE_STATES:
+                            # Not a live signal — don't count for seen_any.
+                            continue
+                        seen_live_signal = True
                         lu = getattr(st, "last_updated", None)
                         if lu is None:
                             continue
                         age = (now - lu).total_seconds()
-                        if oldest_age_s is None or age < oldest_age_s:
-                            oldest_age_s = age
+                        # WORST-age: track the maximum.
+                        if worst_age_s is None or age > worst_age_s:
+                            worst_age_s = age
                     except Exception:  # noqa: BLE001
                         continue
         except Exception:  # noqa: BLE001
             return "unknown"
-        if not seen_any:
+        # Boot-settle: suppress stale during startup grace.
+        if not seen_live_signal:
+            if time.monotonic() - self._boot_monotonic < _APPLIANCE_BOOT_SETTLE_S:
+                return "unknown"
             return "unknown"
         if APPLIANCE_STALE_MAX_AGE_S <= 0:
             return "fresh"  # kill-value
-        if oldest_age_s is None:
+        if worst_age_s is None:
             return "unknown"
-        return "fresh" if oldest_age_s <= APPLIANCE_STALE_MAX_AGE_S else "stale"
-
-    # ------------------------------------------------------------------
-    # BaseCoordinator hook
-    # ------------------------------------------------------------------
-
-    def _cancel_listeners(self) -> None:
-        """No listeners in v1a — override the base helper if it exists."""
-        for unsub in list(getattr(self, "_unsub_listeners", []) or []):
-            try:
-                unsub()
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "ApplianceCoordinator: listener unsub failed (non-fatal)",
-                    exc_info=True,
-                )
-        if hasattr(self, "_unsub_listeners"):
-            self._unsub_listeners = []
+        return "fresh" if worst_age_s <= APPLIANCE_STALE_MAX_AGE_S else "stale"

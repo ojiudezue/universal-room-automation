@@ -8075,21 +8075,70 @@ class ApplianceCensusSensor(AggregationEntity, SensorEntity):
       - stale_max_age_s: current freshness threshold (module knob).
 
     v1a INVARIANT: this sensor is READ-ONLY. It calls ONLY the coordinator's
-    resolver — it does not command any device. Neutering the resolver call
-    site here is the wire-in anchor: the invariant test asserts a specific
-    attribute value present in `extra_state_attributes`, and removing the
-    resolver call from `extra_state_attributes` below turns that test RED.
+    resolver — it does not command any device.
+
+    Update model: signal-driven / interval-driven, NOT default 30s polling.
+    ``_attr_should_poll = False`` avoids recorder churn on a large
+    ``appliances`` attribute. ``_unrecorded_attributes`` further excludes
+    the ``appliances`` list from recorder writes.
     """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:washing-machine"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # B-HIGH-1: signal/interval-driven, not the default 30s poll — recorder
+    # would flood on a large `appliances` attribute if left polling.
+    _attr_should_poll = False
+    # Exclude the large `appliances` list from recorder writes (idiom at
+    # sensor.py:8528 / :6514).
+    _unrecorded_attributes = frozenset({"appliances"})
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_appliance_census"
         self._attr_name = "Appliance Census"
         self._attr_device_info = _appliance_coordinator_device_info()
+        self._unsub_refresh = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register a periodic refresh (30s) instead of default polling.
+
+        Signal-based would be lower cost still, but v1a has no signal
+        source for the census. The interval matches the previous poll
+        cadence but is driven by our own timer so ``_attr_should_poll``
+        can stay False (avoids the recorder-churn hazard from the
+        default poll writing the large `appliances` attribute).
+        """
+        await super().async_added_to_hass()
+        try:
+            from homeassistant.helpers.event import (
+                async_track_time_interval,
+            )
+            from datetime import timedelta
+
+            self._unsub_refresh = async_track_time_interval(
+                self.hass,
+                lambda _now: self.async_schedule_update_ha_state(True),
+                timedelta(seconds=30),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ApplianceCensusSensor: interval refresh install failed",
+                exc_info=True,
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the refresh timer."""
+        if self._unsub_refresh is not None:
+            try:
+                self._unsub_refresh()
+            except Exception:  # noqa: BLE001
+                pass
+            self._unsub_refresh = None
+        try:
+            await super().async_will_remove_from_hass()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _get_coordinator(self):
         """Fetch the ApplianceCoordinator instance, or None."""
@@ -8101,37 +8150,45 @@ class ApplianceCensusSensor(AggregationEntity, SensorEntity):
         except Exception:  # noqa: BLE001
             return None
 
-    @property
-    def native_value(self) -> int:
+    def _resolve_cached(self) -> list:
+        """Resolve once per update tick. Cache lives on the entity instance.
+
+        HA calls native_value then extra_state_attributes back-to-back on
+        each write — we don't want to run the resolver twice per write.
+        """
         coord = self._get_coordinator()
         if coord is None:
-            return 0
+            return []
         try:
-            # WIRE-IN ANCHOR: the census sensor reads through the coordinator
-            # resolver. Neutering this call (e.g. `return 0`) turns the
-            # wire-in test RED.
-            return len(coord.resolve_census())
+            appliances = coord.resolve_census()
         except Exception:  # noqa: BLE001
-            return 0
+            appliances = []
+        self._cached_appliances = appliances
+        return appliances
+
+    @property
+    def native_value(self) -> int:
+        appliances = self._resolve_cached()
+        return len(appliances)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        coord = self._get_coordinator()
-        if coord is None:
-            return {"appliances": [], "stale_max_age_s": None}
+        # Read the cache written by native_value if present; otherwise
+        # resolve fresh (the write-order in HA is native_value then
+        # extra_state_attributes, so this is normally a hit).
+        appliances = getattr(self, "_cached_appliances", None)
+        if appliances is None:
+            appliances = self._resolve_cached()
         try:
             from .domain_coordinators.appliance_const import (
                 APPLIANCE_STALE_MAX_AGE_S,
             )
-            # WIRE-IN ANCHOR (see native_value): this is the load-bearing
-            # site tested by test_wire_in_anchor_appliance_census.
-            appliances = coord.resolve_census()
             return {
                 "appliances": appliances,
                 "stale_max_age_s": APPLIANCE_STALE_MAX_AGE_S,
             }
         except Exception:  # noqa: BLE001
-            return {"appliances": [], "stale_max_age_s": None}
+            return {"appliances": appliances, "stale_max_age_s": None}
 
 
 class NMLastNotificationSensor(AggregationEntity, SensorEntity):
