@@ -19239,6 +19239,16 @@ cards:
     Consolidated fix-up dispatched: stable per-record uuid id + bounds guards; flow->census linkage tests;
     listener-driven reload tests (must RED on M2); AST guard fix; translations. Then re-verify anchors.
   next: 'WAITING ON ME: verify v1b fix-up (M2 reload mutation RED, flow->census linkage real, AST WRONG-literal RED), then batch-deploy Option C + v1b on a waking-hours restart (+ activate v5.102.1).'
+  V1B_FIXUP_VERIFIED_2026_09_15: >-
+    v1b fix-up COMPLETE + orchestrator-verified. All 4 HIGH + MED + LOW fixed: stable per-record uuid id
+    (bounds-guarded pick/edit/remove, stale-menu re-renders not wrong-record-edit); flow->census linkage
+    tests now drive the real async_step_appliance_form; behavioral reload tests replace the comment-greps;
+    AST guard covers bare CONF_*; error-key translations added. Builder ran 3 mutation drills RED->GREEN.
+    ORCH VERIFY: I independently re-ran the M2 reload mutation (removed CONF_APPLIANCE_RECORDS from
+    OPTIONS_RELOAD_SUPPRESS_KEYS, count->0) -> test_records_only_save_does_not_reload_cm RED (reload fired),
+    inverse stayed green, restore->GREEN. The invariant hollow on the first build is now real. +3 tests, no
+    new suite failures. Branch 132d8db39. SHIP-CLEAN, unmerged.
+  next: 'DEPLOY-READY (batch): Option C (fe9ecb75f) + v1b (132d8db39) both ship-clean + orch-verified, unmerged. On a waking-hours restart I merge both -> develop -> one deploy.sh -> restart activates v5.102.1 + Option C + v1b together. Awaiting your restart window (or say go).'
 
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
