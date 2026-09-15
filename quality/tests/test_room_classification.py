@@ -243,22 +243,33 @@ def test_indoor_zone_not_outdoor() -> None:
     assert result["outdoor"] is False
 
 
-def test_outdoor_zone_cache_reused() -> None:
-    """The accessor writes ``_outdoor_zones_cache`` into hass.data[DOMAIN]
-    so a second call shares the ZoneSafetyAlertSensor invalidator's key
-    (aggregation.py:4641). Discriminating: mutating the cached set changes
-    the second read's outdoor answer without any zone-registry change."""
+def test_accessor_is_pure_reader_does_not_write_cache() -> None:
+    """M1 regression guard: the accessor is a PURE READER of
+    ``_outdoor_zones_cache``. On a miss it fresh-scans but must NOT write the
+    key — the cache is owned+invalidated by ZoneSafetyAlertSensor
+    (aggregation.py:4641). A room-sensor read seeding a stale empty set before
+    any zone exists would make a later outdoor-zone add read stale until
+    restart. Correct outdoor answer either way."""
     outside_zone = _zone_entry("outside", zone_name="Outside", is_outdoor=True)
     hass = _make_hass(zone_entries=[outside_zone])
     entry = _room_entry("Patio", room_type="outdoor_room", zone="Outside")
+    # Miss path: fresh-scan yields the correct answer AND leaves the cache key
+    # unwritten (the accessor must never become a second writer).
+    assert "_outdoor_zones_cache" not in hass.data.get(DOMAIN, {})
     assert get_room_classification(hass, entry)["outdoor"] is True
-    # Cache populated under the shared key.
-    assert "_outdoor_zones_cache" in hass.data[DOMAIN]
-    # Simulate the aggregation invalidator popping the key on
-    # SIGNAL_ZM_ZONES_UPDATED; next read re-populates.
-    hass.data[DOMAIN].pop("_outdoor_zones_cache")
-    assert get_room_classification(hass, entry)["outdoor"] is True
-    assert "_outdoor_zones_cache" in hass.data[DOMAIN]
+    assert "_outdoor_zones_cache" not in hass.data.get(DOMAIN, {})
+
+
+def test_accessor_reads_present_cache() -> None:
+    """When the shared cache IS present (filled by the aggregation sensor),
+    the accessor reads it — so the two share one source of truth."""
+    outside_zone = _zone_entry("outside", zone_name="Outside", is_outdoor=True)
+    hass = _make_hass(zone_entries=[outside_zone])
+    entry = _room_entry("Patio", room_type="outdoor_room", zone="Outside")
+    # Pre-seed a cache that DISAGREES with a fresh scan (empty set): the
+    # accessor must honor the present cache, proving it reads the shared key.
+    hass.data.setdefault(DOMAIN, {})["_outdoor_zones_cache"] = set()
+    assert get_room_classification(hass, entry)["outdoor"] is False
 
 
 def test_no_zone_configured_not_outdoor() -> None:

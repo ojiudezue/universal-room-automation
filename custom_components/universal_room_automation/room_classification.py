@@ -64,14 +64,19 @@ def _get_outdoor_zones(hass) -> set[str]:
     on cache miss. Fails open (empty set) on any error.
     """
     try:
-        bag = hass.data.setdefault(DOMAIN, {})
+        bag = hass.data.get(DOMAIN, {})
         cached = bag.get("_outdoor_zones_cache")
-        if cached is None:
-            # Import lazily to avoid module-import cycles at package init.
-            from .domain_coordinators.safety import outdoor_zone_names_snapshot
-            cached = outdoor_zone_names_snapshot(hass)
-            bag["_outdoor_zones_cache"] = cached
-        return cached
+        if cached is not None:
+            return cached
+        # Cache miss: fresh-scan but DO NOT write the cache. This accessor is
+        # a pure READER of a cache owned+invalidated by ZoneSafetyAlertSensor
+        # (aggregation.py:4641, SIGNAL_ZM_ZONES_UPDATED). If a room-sensor read
+        # seeded the cache before any zone existed, a later outdoor-zone add
+        # would leave the safety consumer reading a stale empty set until
+        # restart (review M1). The aggregation sensor fills it correctly at
+        # boot; we just fresh-scan in the gap. Import lazily to avoid cycles.
+        from .domain_coordinators.safety import outdoor_zone_names_snapshot
+        return outdoor_zone_names_snapshot(hass)
     except Exception:  # noqa: BLE001 — fail-open, this is a diagnostic
         _LOGGER.debug(
             "room_classification: outdoor-zone cache read failed; "
@@ -93,7 +98,26 @@ def get_room_classification(hass, room_entry) -> dict[str, Any]:
         "infrastructure": bool}``. Every field derived from the SAME
         producers real consumers read (see module docstring). No dispatch,
         no writes, no coercion.
+
+    Fails open to the empty-default dict on ANY error — this feeds a room
+    sensor's extra_state_attributes, which must never raise (an escape would
+    blank every OTHER attribute on that sensor, not just classification;
+    review L1).
     """
+    try:
+        return _compute_room_classification(hass, room_entry)
+    except Exception:  # noqa: BLE001 — fail-open, this is a display diagnostic
+        _LOGGER.debug(
+            "room_classification: get_room_classification failed; "
+            "returning empty default (fail-open)",
+            exc_info=True,
+        )
+        return {"function": "", "flags": [], "outdoor": False,
+                "infrastructure": False}
+
+
+def _compute_room_classification(hass, room_entry) -> dict[str, Any]:
+    """Inner computation for :func:`get_room_classification` (may raise)."""
     # Merged config: options-wins (matches config_flow.py:435 and the safety
     # authority at safety.py:1319-1322). data-first (aggregation.py:745) is
     # inverted / Bug Class #14 and NOT the model here.
