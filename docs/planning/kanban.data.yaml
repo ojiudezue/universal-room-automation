@@ -2827,8 +2827,28 @@ cards:
 - id: GUEST-FALSE-POSITIVE-JAYA-ONLY-1
   title: House flips to GUEST when only a single resident (Jaya) is home
   thread: identity
-  status: investigating
-  updated: '2026-09-12 19:20'
+  status: done
+  updated: '2026-09-15 02:30'
+  measured_2026_09_15: 'OVERNIGHT PASS — ONE-SHOT PROBE RUN, PREMISE REFUTED, CARD CLOSED. The card
+    claimed the flip-instant census split "is NOT historized, so the term cannot be pinned post-hoc" —
+    that claim is WRONG: table `census_snapshots` historizes exactly (identified_count, unidentified_count,
+    total_persons, frigate_count, unifi_count, identified_persons) and the join settles it. Probe (read-only,
+    ssh ha sqlite3): every GUEST transition in house_state_log over 30 days joined to the nearest preceding
+    house-zone census row. RESULT: unidentified_count = 0 at 12 of 12 GUEST flips, total_persons ==
+    identified_count in all 12, and identified_persons contains ONLY residents (e.g. 2026-09-05T19:05
+    flip: identified=["jaya"], total=1, unidentified=0, frigate=0, unifi=0 — the exact single-resident
+    case this card is named for). DISCRIMINATOR VERDICT: NEITHER term of the card. It is not
+    unidentified-inflation (the deficit hypothesis) and not identified-inflation (the double-count bug);
+    the census is CLEAN at the flip instant, so no census path proposed the body. MECHANISM = Path B,
+    the guest-ROOM sustained-unknown-occupancy gate (presence.py `_guest_room_gate_armed`:5159), which
+    fires with ZERO census involvement — Path A (`_guest_gate_armed`:5211) short-circuits on
+    `unidentified_count <= 0`, so it provably could not have armed. This matches prior art already on
+    the board (CENSUS-GHOST-DEDUP-1 `guest_room_designation_correction_2026_08_17`: "72pct of guest
+    minutes had unidentified_count==0 — that is Path B firing on residents"). RESIDUAL IS SHRINKING,
+    NOT OPEN: GUEST flips/day collapsed from 5-9/day (2026-08-21..30, pre-v5.79.0 dead-oracle repair +
+    GUEST_KNOWN_STICKY_S latch) to 0-2/day across September, and ZERO in the last 5 days (last flip
+    2026-09-10T21:13). No new card minted — the Path-B residual belongs to the already-open
+    GUEST-FP-RESIDUALS-1; this card closes as REFUTED per the Investigating-lane binary exit.'
   verify_2026_09_12: 'APPROVED -> verify-before-work: STILL-REAL (FP live) + CANNOT-VERIFY the exact term from recorder. MEASURED: GUEST flips ~daily (10d); single-resident flip CONFIRMED 2026-09-10 14:17 (people_home_census=1 at flip). Faces dead (face_recognized_count=0) -> leans interior-Frigate IDENTIFICATION DEFICIT (this card term, camera_total>identified) not the known double-count. BUT the flip-instant camera_total/identified/unidentified split is NOT historized, so the term cannot be pinned post-hoc. I OWE: a code trip-wire logging census composition (camera_total/identified/unidentified/face_recognized_count) at each GUEST-flip instant -> NM (No-Soak); one capture of the next single-resident flip pins the term. Shares the interior-cam face gap with CENSUS-FACE-MISS-WATCH-1 + FRIGATE-SUBLABEL-FACE-BRIDGE-1 -> sequence behind those.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -2861,7 +2881,9 @@ cards:
   parsimony:
     problem: house flips GUEST with a single resident home -> census over-count proposes a phantom body
     verdict: INVESTIGATE
-  next: 'MEASURE (joined with CENSUS-FACE-MISS-WATCH-1): recorder trace at the GUEST-flip instant — read
+  next: 'CLOSED 2026-09-15 (REFUTED — see measured_2026_09_15). No further action on this card; any
+    residual Path-B guest-room false-arm is tracked on GUEST-FP-RESIDUALS-1. SUPERSEDED next was:
+    MEASURE (joined with CENSUS-FACE-MISS-WATCH-1): recorder trace at the GUEST-flip instant — read
     camera_total (counted bodies) vs identified_count vs unidentified_count with only Jaya home. DISCRIMINATOR:
     unidentified-inflation (camera_total>identified, ~1 body present) = interior-Frigate identification
     DEFICIT (this card, camera_census.py:1594/2232); identified-inflation (Jaya counted twice) = the DISTINCT
@@ -10865,6 +10887,20 @@ cards:
   title: Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress)
   thread: presence
   status: planned
+  measured_2026_09_15_egress_attach: 'OVERNIGHT PASS — measured read-only on the live URA DB
+    (person_entry_exit_events). Egress identity attach is ALIVE and the old "0 of N rows" premise is
+    stale: 0pct through 08-30, onset 08-31/09-05, and 57 named of 321 crossings = 17.8pct across
+    09-08..09-14. Per-camera 30d: doorbell_lite ~13-16pct, garage_a person_count 10pct, garage_a
+    occupancy_2 1pct, front_door_aerial 3/106, madrone_g6_entry 2/102. Names are residents ONLY
+    (oji_udezue 31, jaya 27, ezinne 19, ojini 3) — zero non-residents have ever been named. Full
+    derivation on GUEST-GATE-DOOR-IDENTITY-1.'
+  verify_2026_09_15: 'OVERNIGHT PASS verify-before-work: STILL-BLOCKED, premise partially stale. The
+    card blocks on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof; EXTERIOR-GUEST-EGRESS-1 remains
+    parked, so the block HOLDS and I did not start work. But the shared gate input it would need is now
+    measured (above): the producer is alive at ~17.8pct/7d rather than the 0pct this cluster was scoped
+    against, and it names residents only. That changes the sizing question the card defers to — "how
+    often are egress crossings NOT already reflected in the interior count" can now be asked against
+    real named rows for the first time, though only for residents.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, blocker CLEARED: EXTERIOR-GUEST-EGRESS-1 D1 shipped v5.81.0. No ''reinforce'' code exists. Run the measure-before-build gap probe (fraction of egress crossings NOT reflected in interior census, last 14d) before scoping; near-0% => moot.'
   approval: pre_approved_gated
   approved_by: 'operator 2026-08-17: "Seeing how exterior filters into interior and then using that to
@@ -10893,8 +10929,10 @@ cards:
     Must reconcile against interior substrate (no double-count of a person both see) — Bug Class #53/#22
     territory.'
   - 'Reuses the census dedup discipline: a crossing is evidence, not a raw +1.'
-  next: 'BLOCKED on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof. Then: measure how often egress crossings
-    are NOT already reflected in the interior count (the gap this would fill) before designing.'
+  next: 'BLOCKED (unchanged) on EXTERIOR-GUEST-EGRESS-1 D1 ship + accuracy proof — verified still parked
+    2026-09-15. When it clears: measure how often egress crossings are NOT already reflected in the
+    interior count, now possible against real named rows (see measured_2026_09_15_egress_attach).'
+
   refs:
   - docs/planning/PLANNING_exterior_guest_egress.md
   - 'depends-on: EXTERIOR-GUEST-EGRESS-1'
@@ -11819,8 +11857,30 @@ cards:
   title: Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor
     filter (B1, latent)
   thread: presence
-  status: waiting_operator
-  updated: 2026-09-12 11:00
+  status: parked
+  updated: '2026-09-15 02:40'
+  measured_2026_09_15: 'OVERNIGHT PASS — THE OPERATOR QUESTION IS NOW ANSWERED BY MEASUREMENT, so this
+    card no longer waits on the operator (grooming: the blocker cleared). The card asked the operator to
+    judge whether the ~50 daytime guest-ENTRY episodes since 07-13 were real summer guests or an FP
+    flavor. Two read-only probes settle it without the operator. (1) RATE: guest entries per month from
+    house_state_log = Jun 23, Jul 74, Aug 98, Sep 19 — and ZERO since 2026-09-10T21:13, i.e. the
+    population collapsed right after the v5.79.0 Path-B repair (dead known-person oracle + the
+    GUEST_KNOWN_STICKY_S latch) landed. A real-guest population does not vanish on a code deploy.
+    (2) SHAPE: entries by hour over 60d are spread across every hour including 00h=14, 01h=7, 02h=10 —
+    31 entries arriving between midnight and 03:00. Guests do not arrive nightly at 00:00-02:00. VERDICT:
+    the episodes were predominantly the FP flavor, and the fix that removed them has already shipped.
+    (3) CROSS-CHECK: the companion probe on GUEST-FALSE-POSITIVE-JAYA-ONLY-1 found unidentified_count=0
+    at 12 of 12 GUEST flips in 30d, confirming the census (Path A) was never the driver — consistent
+    with a Path-B-only FP population. RESIDUAL DISPOSITION: A1 is ALREADY-DONE (shipped v5.78.0,
+    presence.py:5552/6219). B1 is confirmed STILL-LATENT by live config read: of 46 URA room entries,
+    only ONE (Game Room, common_area, Upstairs — indoor) has camera_person_entities at all, and no
+    room in an outdoor zone has any, so the missing room->outdoor filter cannot fire today. Nothing
+    left to build -> PARK, not waiting_operator.'
+  parked_2026_09_15_revival_trigger: 'Revive B1 (camera-census room->outdoor filter) the moment a
+    camera person entity is attached to a room whose zone is outdoor — that is the single condition
+    that converts B1 from latent to live. Revive the card as a whole if guest entries resume above
+    ~1/day, or if any GUEST flip appears with unidentified_count > 0 (which would mean Path A, a
+    different mechanism than the one measured here).'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: A1 path-alpha exclusion classifier shipped v5.78.0 (presence.py:5552/6219). B1 latent-only (Patio has no camera person sensor). next -> operator: judge whether the 50 daytime guest-ENTRY episodes since 07-13 recur on the guest-FP signature (real guests vs FP flavor).'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. Await your answer on the 50-episode guest-FP pattern;
     then fold A1+B1 into the next presence hotfix batch.
@@ -11836,9 +11896,9 @@ cards:
     ever attached to an outdoor-zone room.'
   operator_question: 50 guest ENTRY episodes since 07-13 (1-7/day, daytime, flappy) — real summer guests
     or a daytime FP flavor? If the latter, escalate per audit §3.
-  next: ANSWER the 50-episode pattern question (does the guest-FP recur on that signature?). -> I fold
-    A1 (path-alpha classifier ~5 LoC) + B1 (camera-census outdoor filter) into the next presence hotfix
-    batch.
+  next: 'PARKED 2026-09-15 — no operator action required (the 50-episode question was answered by
+    measurement, see measured_2026_09_15; A1 shipped v5.78.0; B1 latent with zero outdoor-zone camera
+    person entities). Revive only on the trigger in parked_2026_09_15_revival_trigger.'
   folded_2026_08_16: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider).
     Building now.
   live_validation_2026_08_16: 'v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count
@@ -13729,7 +13789,36 @@ cards:
     - SECURITY-ENTRY-VERDICT-NAME-1
 - id: GUEST-GATE-DOOR-IDENTITY-1
   title: Guest gate should consume door-identity (not just BLE room-location)
-  status: investigating
+  status: parked
+  measured_2026_09_15_egress_attach: 'OVERNIGHT PASS — SHARED GATE INPUT, measured read-only on the
+    live URA DB (ssh ha sqlite3, person_entry_exit_events). THE PRODUCER IS NO LONGER DEAD, and the
+    long-standing "attach = 0" premise these consumer cards inherited is now STALE. Daily attach
+    (crossings / of-which-named): 08-25..08-30 = 315 crossings, 0 named (0pct, the old ceiling);
+    onset 08-31 (1) then sustained from 09-05; 09-08..09-14 = 57 named of 321 crossings = 17.8pct over
+    the last 7 days (per-day 09-13 = 13/67, 09-14 = 6/90 — volatile but continuously alive, NOT a
+    regression; an earlier by-week read that looked like a 22.6pct -> 6.7pct collapse was an artifact
+    of a partial ISO week). 30-day total 80/1286 = 6.2pct, which understates current performance
+    because it averages in the all-zero pre-09-05 era. BY CAMERA (30d): doorbell_lite person_detected
+    29/232, doorbell_lite person_count 16/103 (~13-16pct), garage_a person_count 18/174 (10pct),
+    garage_a occupancy_2 2/177 (1pct), front_door_aerial 3/106, madrone_g6_entry 2/102. NAMES SEEN are
+    residents only — oji_udezue 31, jaya 27, ezinne 19, ojini 3; zero non-resident names, so identity
+    currently discriminates WHICH RESIDENT, never resident-vs-guest.'
+  gate_verdict_2026_09_15: 'FOUR-STEP GATE RUN -> PARK (clean park, not a skipped build).
+    (1) VALIDITY: the card premise "cannot build the consumer until the producer JOIN lands" is
+    PARTIALLY STALE — the JOIN did land (EGRESS-IDENTITY-JOIN-GAP-1 / EGRESS-BLE-PROVENANCE-GATE-DROPS-
+    DEPARTURES-1 both done) and identity now attaches at ~17.8pct/7d. (2) PRIOR-ART: no new mechanism
+    would be needed — the consumer would REUSE person_entry_exit_events.person_id, already produced.
+    (3) PARSIMONY: the sharp problem is that this card wants a TRUST DECISION (admit/deny guest mode
+    on door identity) from a signal that names fewer than one crossing in five. (4) COST/BENEFIT: FAILS,
+    and not marginally. With 82pct of crossings unnamed, "unnamed" cannot mean "guest" — the overwhelming
+    majority of unnamed crossings are residents the matcher simply missed, so a gate keyed on absence of
+    a name would fire GUEST on residents. That is precisely the false-GUEST class measured and closed
+    tonight on GUEST-FALSE-POSITIVE-JAYA-ONLY-1; building this consumer at the current rate would
+    re-introduce it through a new door. The safe direction is to raise the producer, not to consume it.'
+  parked_2026_09_15_revival_trigger: 'Revive when egress identity attach is >= 50pct sustained over 14
+    consecutive days (re-run the same one-shot query on person_entry_exit_events), AND at least one
+    non-resident crossing has ever been named — both are required, because resident-only naming can
+    never discriminate guest-vs-resident no matter how high the rate goes.'
   updated: '2026-09-12 20:40'
   verify_2026_09_12_perleg: 'OPERATOR-OWED PER-LEG REVERIFY DONE. MEASURED (person_entry_exit_events + live attrs): the producer WORKS now — 57 pid rows all since 2026-08-31, 14d yield 11.5%, live egress_identity_attach_rate_24h=25% and rising (the 0/7010 premise was stale). WHICH LEGS: Frigate _2 face legs ALIVE + naming (dense on INTERIOR cams family_room/master_hallway/staircase; SPARSE on egress/door cams, + CM-reload-storm unavailable blips). UniFi/Protect named-face leg NOT contributing (unifi_count=0, active_platforms=[frigate] only) = unwired. Matcher is NOT the bottleneck (ambiguity_rate=0, abstain_rate=0; join works across a 28s window). ROOT CAUSE of low yield = crossing-instant face SPARSITY (no co-temporal recognized face AT the crossing camera; recognition lives on interior cams the person has not reached) + the dormant Protect leg. LEVERS (gate the consumer build on producer coverage): (1) FRIGATE-SUBLABEL-FACE-BRIDGE-1 (bridge interior sub_label/face to the crossing) ; (2) NEW sub-deliverable: wire the UniFi/Protect named-face leg into the census/egress join. Consumer (guest-gate consuming door-identity) is buildable once yield rises; stays behind the bridge.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -13766,8 +13855,9 @@ cards:
     does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent
     card EGRESS-INTERIOR-COUNT-REINFORCE-1 is count-focused, this is GATE-focused.
   origin: 2026-08-18 should-be-consuming audit G2
-  next: PROBE real egress identity rate on GARAGE + family-room path (incl. Protect named-face webhook)
-    — cannot build the consumer until the producer JOIN lands (EGRESS-IDENTITY-JOIN-GAP-1).
+  next: 'PARKED 2026-09-15 — the probe this card asked for HAS BEEN RUN (see
+    measured_2026_09_15_egress_attach): producer is alive at ~17.8pct/7d but names residents only, so
+    the consumer would misread unnamed residents as guests. No action until the revival trigger fires.'
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G2; EGRESS-INTERIOR-COUNT-REINFORCE-1
   coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
     and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
@@ -13793,7 +13883,26 @@ cards:
     blocked_by EGRESS-IDENTITY-JOIN-GAP-1.'
 - id: ARRIVAL-DEPARTURE-NOTIFY-1
   title: '"Oji arrived/left" notifications from egress person_id'
-  status: planned
+  status: waiting_operator
+  measured_2026_09_15_egress_attach: 'OVERNIGHT PASS — measured read-only on the live URA DB
+    (person_entry_exit_events). Egress identity attach is ALIVE and the old "0 of N rows" premise is
+    stale: 0pct through 08-30, onset 08-31/09-05, and 57 named of 321 crossings = 17.8pct across
+    09-08..09-14. Per-camera 30d: doorbell_lite ~13-16pct, garage_a person_count 10pct, garage_a
+    occupancy_2 1pct, front_door_aerial 3/106, madrone_g6_entry 2/102. Names are residents ONLY
+    (oji_udezue 31, jaya 27, ezinne 19, ojini 3) — zero non-residents have ever been named. Full
+    derivation on GUEST-GATE-DOOR-IDENTITY-1.'
+  gate_verdict_2026_09_15: 'FOUR-STEP GATE -> ESCALATE (ambiguous cost/benefit + outward-facing).
+    (1) VALIDITY: STILL-REAL, and the measure-before-build the card demanded is now DONE — the probe it
+    was waiting on has been run tonight. (2) PRIOR-ART: REUSE, no new producer — person_id already lands
+    on person_entry_exit_events, and notification_manager already carries the send path; this is a
+    consumer, not a mechanism. (3) PARSIMONY: the simplest version (notify ONLY when a crossing carries
+    a name, stay silent otherwise) captures nearly all the value at ~1-2 named events/day. (4)
+    COST/BENEFIT: GENUINELY AMBIGUOUS, so I am not deciding it unattended. At 17.8pct attach the feature
+    is honest but partial — you would be told about roughly one arrival in five and hear nothing about
+    the rest, which some operators read as useful and others read as a broken feature. It is also
+    OUTWARD-FACING (it buzzes your phone), which is an always-explicit case in the autonomy ladder.
+    UNAMBIGUOUS sub-finding: do NOT build any variant that announces UNNAMED crossings as an
+    unknown/guest arrival — 82pct of unnamed crossings are residents the matcher missed.'
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'APPROVED to merge+ship the already-built branch feature/arrival-departure-notify — operator: "Approve esp if built. Better than nothing" (named when identity known ~11%, generic otherwise). approval -> explicit. NEXT: cherry-pick/merge the branch onto current develop (re-verify base not stale), run its tests, Tier-2 review, deploy. Deploy restarts HA -> confirm timing with operator before shipping.'
   measured_2026_09_12: 'PROBE (same egress-identity-rate query as GUEST-GATE-DOOR-IDENTITY-1): attach
@@ -13826,8 +13935,14 @@ cards:
   problem: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk
     build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   origin: 2026-08-18 should-be-consuming audit G3
-  next: 'Measure-before-build: probe the REAL egress identity rate against the GARAGE + family-room entry
-    path (NOT the front door) and include Protect named face via the webhook, before scoping.'
+  next: 'PICK one, then I build it (Tier 1-2, consumer-only, no new producer): (A) NAMED-ONLY — notify only
+    when the crossing carries a person_id (~1-2 buzzes/day today, silent on the other ~82pct), the
+    simplest and the one I recommend; (B) NAMED-ONLY + QUIET HOURS — same, suppressed overnight; (C)
+    HOLD until attach improves — park behind a >= 50pct/14d producer trigger, same trigger already set
+    on GUEST-GATE-DOOR-IDENTITY-1. Also tell me the channel (the existing NM default, or a specific
+    one). NOTE: this is outward-facing (it pages your phone), so I will not pick for you; the
+    measurement it was blocked on is finished and on the card.'
+
   refs: AUDIT_census_identity_supersession_and_consumers.md §3 G3
   coverage_note_2026_08_18: 'CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling
     and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera
