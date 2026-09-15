@@ -19072,6 +19072,33 @@ cards:
     clean-by-morning) as a lean NEW plan (not a v3 revival); measure-first how often cycles start in
     peak. Verify Rainbird service then likely DROP.'
   refs: [docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md, docs/planning/CRITIQUE_appliance_management_v3.md]
+  operator_reframe_2026_09_14: >-
+    OPERATOR REFRAME — appliances are a DUAL-OBJECTIVE domain: VISIBILITY and CONTROL, in two
+    layers that may OVERLAP (an appliance can be both measured and controlled).
+    LAYER (a) MEASURABLE-ONLY — things we can see draw juice but not command: warming drawer,
+    kettle, etc. Sources: SPAN + Emporia integrations. Emporia is MEASUREMENT-ONLY for most
+    circuits (the EVSEs are its only control surface). SPAN measures everything AND exposes
+    breaker on/off — but per operator, treat breaker control as available ONLY for large
+    appliances, not a general actuator.
+    LAYER (b) CONTROLLABLE — things we can command: LG dishwasher (native number.*_delayed_start /
+    select.*_operation), fridge, TVs. Control paths differ per device and are NOT uniform.
+    OVERLAP: an appliance in (b) is usually also in (a); layer both when they overlap.
+    GROUND TRUTH (verified 2026-09-14): 74 appliance power/energy entities already exist across
+    Emporia (kitchen_dishwasher / pantry_microwave power_minute_average + energy_today/month),
+    SPAN (double_oven / dryer / fridge / freezer / range power + energy_net), and LG ThinQ
+    (current_status / current_cycle). SPAN exposes 65 breaker switches incl. fridge, freezer,
+    double_oven, furnace.
+    SEQUENCING (measure-first): the FIRST deliverable is the read-only VISIBILITY census (reuse
+    the 74 sensors), then delay-start CONTROL on the (b) subset, then interrupt ONLY if census
+    data shows frequent costly peak starts (the critique's Tier-3 tail). Measurement de-risks
+    control: power draw IS the "materially started" signal the interrupt feature needed.
+  RESIDUAL_QUESTIONS_2026_09_14:
+  - "Q1 SAFETY / breaker control: SPAN can breaker-off fridge, freezer, double_oven, furnace. Are ANY of these ever legitimate to cut under automation, or is breaker control hard-limited to a named allowlist (e.g. dryer, water heater, EVSE) and NEVER cold-chain (fridge/freezer) or heat (furnace)? A wrong breaker-off is a spoiled-food / frozen-pipe event."
+  - "Q2 LAYER MEMBERSHIP: are warming-drawer/kettle (measure-only) and LG-dishwasher/fridge/TVs (control) the full initial lists, or examples? Which specific appliances are in scope for v1?"
+  - "Q3 TV CONTROL PATH: TVs named as controllable — via what? webOS/LG ThinQ, HDMI-CEC, a smart plug, or media_player? The control primitive is unclear and each has different semantics (a TV is not a deferrable load like a dishwasher)."
+  - "Q4 CENSUS SCOPE: should the visibility census attribute per-appliance COST (kWh x TOU rate) or just power/energy? Cost needs the TOU engine join."
+  next: 'PICK v1 scope + answer Q1-Q4. Recommended v1 = read-only appliance-energy CENSUS (layer a, reuse the 74 sensors, measure-first probe on liveness/freshness of those sensors), with delay-start control (layer b) as the next cycle. Then I write a lean APPLIANCE-CENSUS plan (NOT a v3 revival). Q1 (breaker safety allowlist) blocks any control build.'
+
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
   thread: config-flow
@@ -19211,7 +19238,7 @@ cards:
 - id: ROOM-CLASSIFICATION-CONSISTENCY-1
   title: "Room classification is scattered + inconsistent (function vs load-bearing class) — audit-first consistency cleanup"
   thread: config-flow
-  status: waiting_operator
+  status: planned
   created: '2026-09-12 17:50'
   updated: '2026-09-12 17:50'
   refinement_status: initial
@@ -19261,6 +19288,18 @@ cards:
     orphans, keep read patterns) over Option B (unify into one multi-select, high regression). Any
     change is Tier 2-DB (presence/safety/energy/security/automation ripple). Nothing to delete.
   next: 'PICK (operator): Option A (formalize + wire basement/outdoor orphans, document infra switch-as-authority — low churn, Tier 2-DB) vs Option B (unify to one CONF_ROOM_CLASSES multi-select — high regression, parked) vs leave as-is. -> I plan-review then build the picked option.'
+  OPTION_A_PICKED_2026_09_14: >-
+    OPERATOR PICKED OPTION A ("but well documented"). Plan written ->
+    docs/planning/PLANNING_room_classification_option_a.md (Tier 2-DB, plan-review pending).
+    Low-churn: keep every consumer read pattern, DOCUMENT the model + invariants (D1), WIRE the two
+    orphans (D2 basement enum member, D3 make CONF_ZONE_IS_OUTDOOR the canonical outdoor producer
+    and retire the safety.py:428 string coercion), and add a regression FENCE (D4) asserting no
+    already-configured room/zone changes any consumer read. Option B (unify) rejected + parked.
+    Falsifiable invariant: Option A changes NO runtime behaviour for any existing room/zone; the
+    only intended deltas are a basement-typed room getting basement bands and an outdoor zone's
+    band coming via explicit passthrough (byte-identical value). GUEST gate + AWAY veto + infra
+    enum/switch duality are DOCUMENTED ONLY, never touched.
+  next: 'PLAN-REVIEW (Tier 2-DB, before build): re-grep consumers independently, confirm basement/outdoor band values vs safety.py tables, confirm no options-flow migration, confirm D3 byte-identical on no-outdoor path. Then build D1-D4.'
 
 - id: CAMERA-STUCK-MASTER-HALLWAY-1
   title: "master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it"
