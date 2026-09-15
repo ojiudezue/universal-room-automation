@@ -91,6 +91,35 @@ unions them:
   Dead/stale flagged (a sparse producer caps the census — measure real production first). Committed as the
   hand-built fixture (Measure-Before-Build corollary).
 
+### D0 RESULTS — probe run 2026-09-14 (live entity/device registry)
+Integration inventory (entity counts): **lg_thinq 112**, smartthings 113, samsungtv 12, denonavr 2,
+pjlink 1, lovesac_stealthtech 25, **emporia_vue 178**, **span_panel 733**, tuya 219, sonoff 129,
+shelly 1128, tplink 97, alexa_devices 231, music_assistant 196, jellyfin 8. Domains: media_player 306,
+fan 32, climate 8, vacuum 3, water_heater 2, humidifier 0.
+
+**Findings that reshape the plan (fold into D1/D0a):**
+1. **The controllable appliance layer is LG ThinQ, native + entity-writable.** washer / washer1 /
+   washtower_one / washtower_two, dishwasher_kitchen + dishwasher_washroom, refrigerator + laundry_fridge,
+   freezer_chest, oven_lower / oven — each with `number.*_delayed_start`, `select.*_operation`,
+   `switch.*_power`, `sensor.*_remaining_time`, `binary_sensor.*_remote_start`. Control = entity writes,
+   NOT `thinq.*` services (corroborates CRITIQUE_appliance_management_v3.md).
+2. **De-dup is the risky core, worse than first written: up to 3 shadows per device.** A TV = `samsungtv`
+   (real controllable) + `smartthings` + `music_assistant` (audio shadow). A laundry appliance = ThinQ
+   (control/state) + a SPAN circuit (power) + possibly a room entity. The resolver must pick the
+   authoritative record per capability (ThinQ→control/state, SPAN/Emporia→power) and collapse the rest.
+3. **306 media_players but most are NOT appliances.** `music_assistant` (196) / airplay / `alexa_devices`
+   (231 echo dots) are **audio endpoints / multiroom zones**, not energy appliances. Categorization MUST
+   gate `media_player` by platform: {samsungtv, pjlink, denonavr, lovesac_stealthtech} = real AV
+   appliances; {music_assistant, airplay, alexa_devices, jellyfin} = audio endpoints → excluded from the
+   appliance census (or a distinct non-appliance class). Without this gate the census is ~10× noise.
+4. **Smart-plug/relay fabric is large** (shelly 1128 / tuya 219 / sonoff 129 / tplink 97) — the dual
+   measure+control substrate for dumb loads, but also mostly NOT appliances (relays, lights). Inclusion
+   must be by explicit onboarding (D0a add-path), not blanket.
+
+**Go/no-go verdict:** the 3-source model is validated and necessary (power-only would miss the entire
+ThinQ appliance set). The build's load-bearing risk is the **de-dup/authority resolver + the
+platform-gated appliance filter**, NOT the measurement. Plan reviews must target those.
+
 ## D0a — Onboarding model: URA-owned = SHOW UP, net-new = ADD (operator-coined 2026-09-14)
 The appliance universe is **"basically anything not already in URA room and coordinator config."** The
 governing rule:
