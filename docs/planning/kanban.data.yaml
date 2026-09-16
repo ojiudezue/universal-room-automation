@@ -9,8 +9,8 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - {fid: 'EXTERIOR-GUEST-FACE-FASTFOLLOW-1@2026-09-15T20:35', at: '2026-09-15T20:35:00', outcome: investigated,
-     headline: 'ONE ARRIVAL FROM YOU CLOSES A CARD THAT SAT STUCK FOR 4 WEEKS. It was parked on "consultation running" — but that consultation had already finished, on the same card, back on 18 Aug. Nothing was blocked; it was just never re-laned. I ran the real gate instead: the Protect face webhook receives fine (I fired a test payload through it and got it back verbatim, name and confidence intact), and 5 real posts did arrive 10-12 Sep — but all 5 landed EMPTY, so we still have never seen a real face payload and I will not guess its field names. Next real face match settles it either way: payload present = build it against the true fields; still empty = Protect posts a bodiless ping, the recommended path is dead, and I switch to the fallbacks. Walk in via the garage / past the family-room camera once and I will read the answer out of the recorder.',
+  - {fid: 'EXTERIOR-GUEST-FACE-FASTFOLLOW-1@2026-09-15T21:05', at: '2026-09-15T21:05:00', outcome: done,
+     headline: 'CLOSED — and you were right, so IGNORE my earlier ask to walk past the camera. You remembered we dropped the UniFi face path because only two cameras would benefit; our own probe from 18 Aug says exactly that: Protect face fires on just Family Room and the G6 entry, every other camera zero — and worse, it only puts a NAME to people once they are already inside the family room, not as they cross the door. On top of that, Home Assistant cannot read Protect names at all, and the webhook workaround was already abandoned on 28 Aug because Protect posts an empty body from a UI we can no longer reach. That is why the 5 empty payloads I found today were expected, not a mystery. My mistake was measuring before searching our own history. The Frigate half already shipped (v5.81.0); the only surviving Protect path is the poll-based add-on card, which is parked waiting on you to create one local Protect user.',
      acknowledged: false}
   - {fid: 'HVAC-ANOMALY-BLIND-1@2026-09-15T16:50', at: '2026-09-15T16:50:00', outcome: investigated,
      headline: 'GOOD NEWS AND A NEW PROBLEM. Good: the short-cycle detector you shipped in v5.90.0 IS working — I can see it counting today (zone_1:1, zone_2:2, zone_3:1) and surviving restarts. The card telling us to "plan the producer" was 3 weeks stale. New problem: it has only banked 2 days of history in ~20 days, so it is still years away from the 14-day maturity gate it needs before it can ever raise an alarm. It is wired and still effectively blind. I did NOT build the obvious fix (make the sensor say "degraded" when a check is silent) because it would pin the sensor to degraded FOREVER — two of the five checks are deliberately never wired — and because the accrual bug decides what that fix should even say. Probe runs at tonight''s rollover: if the count goes 2->3 the deficit is historical; if it stays 2 it is a live defect.',
@@ -6146,7 +6146,48 @@ cards:
   - custom_components/universal_room_automation/memory_writers.py:186
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
-  status: waiting_operator
+  status: done
+  CLOSED_2026_09_15: 'DONE — both deliverables resolved; the card depends on nothing further.
+    Operator recalled we had abandoned the UniFi face path because only two cameras would benefit;
+    that recollection is CORRECT and our own investigation is more specific than the recollection.
+
+    EVIDENCE CHAIN (all pre-existing, found by search — not re-derived):
+    (1) docs/planning/PROBE_protect_face_egress.md (2026-08-18, read-only probe) measured Protect
+    face across the house: face events fire on EXACTLY TWO cameras — Family Room (276 events in
+    7.7d) and Madrone G6 Entry (10). Every other camera: ZERO. That is the operator''s "G5 entry +
+    Family camera", confirmed. Worse for the use case: NAMED recognitions cluster on the INTERIOR
+    Family Room (Oji x2, Ziri x2 in the NVR sample) while the actual entry camera produced 10
+    detections and 0 named. Probe verdict, quoted: "Protect adds nothing to egress identity."
+    Its Q3 table puts combined consumable egress identity at ~7% (Frigate only), unchanged by
+    adding Protect.
+    (2) Protect names are not reachable from HA regardless: the unifiprotect integration exposes
+    face as DETECTION only (event_type:"face", no name/confidence); recognized_person_name exists
+    solely on the NVR REST API.
+    (3) The webhook workaround — this card''s D2 — was ALREADY ABANDONED on 2026-08-28, recorded in
+    memory reference_egress_face_coverage_7pct_not_a_ceiling and on D1-PROTECT-FACE-BRIDGE-ADDON-1:
+    "via POLL, not the webhook (the webhook rule lives in the inaccessible v2 Alarm Manager; real
+    Protect POSTs arrive empty {})." So the 5 empty payloads I measured today are the KNOWN,
+    EXPECTED signature of a path already ruled dead, not a new open question.
+
+    MY ERROR, CORRECTED: earlier this session I framed the empty payloads as an unresolved
+    two-world question and asked the operator to generate a face event to settle it. That ask was
+    UNNECESSARY — the answer was already on the board and in memory, and I proposed it before
+    searching the prior art. The four-surface adjacency/prior-art sweep would have caught it; I ran
+    the measurement first and the search second. Ask retracted.
+
+    DISPOSITION: D1 (Frigate person_id stamp + census union fuse) SHIPPED v5.81.0. D2 (Protect
+    corroboration via Alarm Manager webhook) CLOSED DEAD — wrong cameras, no HA-readable name, and
+    a bodiless webhook behind an inaccessible UI. No orphaned work: the surviving Protect-identity
+    path is the poll-based add-on on D1-PROTECT-FACE-BRIDGE-ADDON-1 (parked, gated on the operator
+    provisioning one local Protect user), and the Frigate real-time name path is
+    FRIGATE-SUBLABEL-FACE-BRIDGE-1 (done).
+
+    RESIDUAL HYGIENE (not blocking, deliberately not auto-actioned): automation
+    ura_kp_face_webhook_probe is still armed and still receiving real POSTs. Its own description
+    says "Remove after probe concludes" — the probe has now concluded. It is harmless (zero URA
+    consumers, writes only an event + a log line), so it is left running rather than deleted
+    without the operator: removing an automation is an outward-facing change to their HA config.
+    Its content_type channel is also dead (trigger.headers undefined on this HA version).'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D1 Frigate leg shipped v5.81.0 (fa5b57c52). Only D2 (Protect Alarm Manager webhook) remains open, gated on the consultation in next. No alarm_manager/protect_face code exists yet.'
   relane_2026_09_10: Not a soak -> WAITING_ME. Duplicate-vs-complementary consultation running; I owe
     the operator the report, then operator go, then build.
@@ -6176,13 +6217,9 @@ cards:
     direct.'
   - Re-measure coverage against GARAGE entries + family-room arrival, NOT the front door (the first probe
     measured the wrong cam).
-  next: 'DO: walk in through the garage / past the family-room camera once, so UniFi Protect fires
-    a real Alarm Manager face match -> I read the captured payload out of the recorder and the D2
-    gate resolves either way (populated = GO build D2 against the real field names; empty =
-    Protect posts a bodiless ping, path 4b is dead, and I re-rank the two fallback paths from
-    RESEARCH_protect_face_to_ha.md instead of guessing). Probe is armed and PROVEN working, so no
-    setup is needed — just an arrival. It resolves on its own at the next natural garage entry
-    too; this only makes it happen tonight rather than whenever.'
+  next: 'NONE — closed. D1 shipped v5.81.0; D2 (Protect Alarm Manager webhook) is dead by
+    measurement. Surviving Protect work lives on D1-PROTECT-FACE-BRIDGE-ADDON-1 (parked, needs a
+    local Protect user provisioned).'
   D2_GATE_2026_09_15: 'D2 gate run (this was my debt, not the operator''s — the card sat in
     waiting_me for 4 weeks behind a `next` that was ALREADY STALE when written: it said the
     duplicate-vs-complementary consultation was "running", but prebuild_consultation_2026_08_18 on
@@ -6223,8 +6260,17 @@ cards:
     rendered "no-headers", meaning `trigger.headers` is not defined on this HA version, so the
     probe cannot report the POST content-type. Harmless for the json/form/query channels that
     matter, but it means we will not learn the content-type from this probe as designed.'
+  links:
+    superseded_by: D1-PROTECT-FACE-BRIDGE-ADDON-1
+    related: [FRIGATE-SUBLABEL-FACE-BRIDGE-1, EXTERIOR-GUEST-EGRESS-1]
+    context: 'D1-PROTECT-FACE-BRIDGE-ADDON-1 carries the surviving Protect-identity path — the
+      POLL-based add-on that replaced this card''s dead webhook approach on 2026-08-28; it is the
+      card to revive if Protect identity is ever wanted, NOT this one.
+      FRIGATE-SUBLABEL-FACE-BRIDGE-1 (done) is the other half of the same identity producer: the
+      real-time Frigate name path. EXTERIOR-GUEST-EGRESS-1 holds the face-independent fallback arm.'
   refs:
   - docs/planning/RESEARCH_protect_face_to_ha.md
+  - docs/planning/PROBE_protect_face_egress.md (the 2-camera measurement that killed the Protect arm)
   - EXTERIOR-GUEST-EGRESS-1
   webhook_live_2026_08_18: 'OPERATOR 2026-08-18: the Protect Alarm Manager face webhook is LIVE. So the
     recommended path (4b) precondition is MET. Next probe-first step: capture ONE real face POST (HA webhook
