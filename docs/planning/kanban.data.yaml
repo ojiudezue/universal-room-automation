@@ -9821,6 +9821,55 @@ cards:
       (the independent witness). HVAC-PRESET-FLAP-1 remains the evidence ledger to read before
       starting. HVAC-ANOMALY-BLIND-1 and S14-CEILING-NEEDS-AN-ENDING-1 run in parallel.'
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16: 'OPERATOR ASKED for a simulation before building
+    ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic
+    framing is what made it decisive, because even the upper bound fails.
+
+    THE MODEL: HVAC reads room.occupied (HELD ~6-8min by the lighting clearance timeout) and
+    applies zone_entry_dwell=5min. Proposed: read the RAW body signal, same 5min dwell. So the
+    question is simply — what fraction of RAW activations last 5 minutes?
+
+    MEASURED (7d, the two zone_3 rooms that carry sensors — and they are the ideal contrast pair):
+      Garage Hallway (TRANSIT):   152 activations  median 0.5min  p90 1.0min  max 2.6min  -> 100% under dwell
+      Guest Bedroom 1 (DWELL):     11 activations  median 1.1min  p90 1.9min  max 4.1min  -> 100% under dwell
+
+    THE FALSIFICATION: the DWELLING room also never sustains 5 minutes. So the tap as designed
+    would filter the bedroom too — a guest sleeping there would never satisfy dwell, the zone would
+    never go home, and the room would sit at the ~80F away ceiling all night. That is EXACTLY the
+    stranding the operator warned about ("a blanket transit-zone rule would strand the guest
+    bedroom"). Building this would have created a comfort failure worse than the one it fixes.
+
+    MY CORE PREMISE WAS WRONG, and this corrects it: I argued the room clearance timeout is "a
+    lighting artifact HVAC should not inherit". No. These sensors emit SPARSE DETECTION EVENTS — a
+    sleeping body produces almost nothing. The hold is what CONVERTS sparse detections into a
+    usable continuous occupancy signal. Strip it and you do not get truth, you get blips no timer
+    can use. The room layer is not being sloppy; it is doing necessary work.
+
+    THE OBVIOUS ALTERNATIVE ALSO FAILS, and it fails INVERTED. Tested "recurrence within a window"
+    (>=3 detections clustered within 10min) as the transit/dwell discriminator:
+      Garage Hallway (TRANSIT):  76 sessions, 22 with >=3 detections (28%), median span 6.3min, max 25.8min
+      Guest Bedroom 1 (DWELL):    8 sessions,  7 with >=3 detections (87%), median span 1.0min, max  4.5min
+    The TRANSIT corridor produces LONGER, more clustered sessions than the BEDROOM. Neither
+    duration nor recurrence separates them.
+
+    HONEST LIMIT ON ALL OF THE ABOVE — state it, do not paper over it: Guest Bedroom 1 shows 8
+    sessions in 7 days with a 4.5-minute max. THERE IS NO ACTUAL DWELLING IN THIS SAMPLE (a guest
+    room with no guest). So the discriminator is not REFUTED for dwelling — it is UNTESTED, because
+    the sample contains nothing to test against. The transit half is solid; the dwell half has no
+    data.
+
+    CONSEQUENCE FOR THE CARD: the premise that HVAC can tell transit from dwelling out of the room
+    SUBSTRATE is UNVALIDATED and, on the available evidence, unlikely to hold with these sensors.
+    Do NOT build the tap as specified. Two honest paths:
+      (a) RE-TEST on a room that is genuinely OCCUPIED (a zone_1 bedroom), where a real dwelling
+          signal exists. That is a measurement, not a build, and it is the cheap next step.
+      (b) REVISIT THE OPERATOR''S ORIGINAL INSTINCT — "we could even just drive hvac directly from
+          person seen in zone vs room occupancy timeout". The simulation is evidence FOR that
+          framing: person/BLE presence is a continuous fact about a person, not a sparse detection
+          event, so it does not have the sustain problem that just killed the substrate tap. That
+          makes HVAC-GUEST-AS-ZONE-PERSON-1 (currently step 5, conditional) potentially the MAIN
+          line rather than a follow-on.
+    Either way step 4 does not proceed on its current design.'
   blocks_step5_2026_09_15: [HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
   seq_2026_09_15: 'STEP 4 of HVAC-SUPPLE-SEQUENCE-1 — the ONLY behaviour change in the arc, and the operator checkpoint. Blocked until the attribution foundation (step 1) and the witness (step 2) exist, because without them its success criteria cannot be evaluated. PRE-GATE that can kill it: raw-signal gaps during DWELLING episodes must be shorter than vacancy_grace.'
   TAP_POINT_RESOLVED_2026_09_15: 'OPERATOR: "Does it re-use stuck sensor machinery correctly? We
