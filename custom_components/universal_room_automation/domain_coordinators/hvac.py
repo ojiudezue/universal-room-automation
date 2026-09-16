@@ -4123,11 +4123,75 @@ class HVACCoordinator(BaseCoordinator):
                         "HVAC short-cycle: anomaly persist failed",
                         exc_info=True,
                     )
+        # B4 (2026-08-23 Tier-2-DB review residual): persist the baselines
+        # NOW, on the genuine-rollover path only. record_observation is
+        # pure in-memory (coordinator_diagnostics.py:988) and the
+        # coordinator's only other save_baselines() call is in
+        # async_teardown — so at ~2.9 restarts/day the once-per-local-day
+        # short_cycle_rate observation was almost always discarded before
+        # reaching metric_baselines, leaving sample_count stuck far below
+        # HVAC_SHORT_CYCLE_MIN_SAMPLES.
+        #
+        # Same doctrine as the CM setup_duration_seconds precedent at
+        # __init__.py:4058-4068: a metric that fires ONCE per day/boot
+        # cannot use the teardown-only cadence its many-times-per-session
+        # peers use. This save deliberately does NOT run on any of the
+        # four early-return paths above (first-boot seed, mid-day restart,
+        # detector-None, multi-day gap) — a save on the mid-day-restart
+        # path would fire on every boot.
+        #
+        # Isolated so a DB failure can never prevent the load-bearing
+        # counter reset / date stamp (same defensive style as store_event
+        # and clear_active_anomalies_filtered above).
+        #
+        # ORDERING (fix-up round, Review B LOW-2): the counter reset and
+        # the date stamp run BEFORE the await, not after. `CancelledError`
+        # is a `BaseException`, so it escapes the `except Exception` below
+        # — if a shutdown cancels this tick inside the awaited save, a
+        # reset-after-save ordering would never reach the date stamp;
+        # teardown would then persist {date: prev_date, counts: non-zero}
+        # and the NEXT boot's rollover would re-record the same day, a
+        # duplicate observation into a 14-sample gate. Reordering is free:
+        # every observation is already recorded in memory above, so what
+        # gets persisted is unchanged.
         # Reset counter keyed on the new day.
         self._short_cycles_today = {
             zid: 0 for zid in self._zone_manager.zones
         }
         self._short_cycles_today_date = today
+        # DURABILITY NUDGE (fix-up round, Review A MEDIUM-1): the stamp
+        # above is RAM-only. The durable copy lives in the zone-state
+        # `.storage` snapshot, written at clean teardown or by the
+        # periodic block below (gated on `_zone_state_save_counter >= 5`,
+        # ~25 min). Setting the counter to 4 here makes the increment in
+        # `_run_decision_cycle` reach 5 and write the durable snapshot
+        # later in the SAME decision cycle (this method is awaited from
+        # that function, and there is no `return` between the two sites).
+        #
+        # HONEST SCOPE: this SHRINKS the double-count window from up to
+        # ~25 minutes to the remainder of one decision cycle. It does NOT
+        # close it — an unclean kill between this baseline save and the
+        # snapshot write later in the tick can still double-count the
+        # day. Full closure needs the durable snapshot written BEFORE the
+        # baseline save, i.e. a shared snapshot-construction helper used
+        # by all three sites (rollover, periodic, teardown). Deliberately
+        # out of scope for an unattended overnight change; carded.
+        self._zone_state_save_counter = 4
+        try:
+            await self.anomaly_detector.save_baselines()
+            _LOGGER.info(
+                "HVAC short-cycle: baselines persisted after day rollover "
+                "(prev=%s today=%s)", prev_date, today,
+            )
+        except Exception as e:
+            # `save_baselines` already swallows DB errors one level down,
+            # so anything reaching here is a programming error — error,
+            # not warning (fix-up round, Review A LOW-2).
+            _LOGGER.error(
+                "HVAC short-cycle: save_baselines failed after rollover "
+                "(prev=%s today=%s): %s — counter already reset",
+                prev_date, today, e,
+            )
 
     async def _record_anomaly_observations(self) -> None:
         """Record observations for anomaly detection and persist anomalies to anomaly_log.
