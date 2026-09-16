@@ -8077,6 +8077,7 @@ cards:
   - 'the 7 bypassing set_hvac_mode sites: hvac.py:1724, hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778'
   - hvac_excursion.py return_excursion ("Callers still emit the actual wire writes")
 - id: HVAC-PRESET-WRITE-STRATEGY-1
+  SUBSUMED_2026_09_16: 'SUBSUMED by HVAC-THERMOSTAT-ABSTRACTION-1 (step 8). The vendor strategy becomes a PROPERTY OF THE HANDLE rather than a standalone seam — do NOT build it separately. Its capability-gate half already shipped in v5.103.2 (the resume-then-pin path fires only when the entity advertises `resume`), so the immediate hazard is already contained.'
   seq_2026_09_16: 'STEP 6 of HVAC-SUPPLE-SEQUENCE-1 — LAST, deliberately. It generalises the
     step-1 mechanism to other vendors, and abstracting a mechanism before its numeric prediction
     validates would be abstracting a guess. The capability gate shipped in v5.103.2 removes the
@@ -9818,6 +9819,48 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  ARC_ADJACENT_CARDS_2026_09_16: 'THE OTHER 9 LINKED CARDS — operator: "There were more linked
+    cards in the sequence. Find and represent." Traversed the link graph rather than recalling:
+    20 cards are reachable from the arc. 11 are sequence MEMBERS (each carries a seq_ stamp). The
+    other 9 are CONTEXT — they constrain or inform the arc without being steps. Named here so the
+    arc cannot be read as if they do not exist.
+
+    CARRIES BUILT WORK THAT AFFECTS THIS ARC:
+    * HVAC-ANOMALY-BLIND-1 (review, v5.90.0 + built-not-deployed). An overnight pass diagnosed and
+      fixed the short_cycle_rate ACCRUAL deficit found on 2026-09-15 (observations recorded at the
+      daily rollover were lost unless HA happened to save baselines; the fix REUSES save_baselines
+      rather than adding machinery). MATTERS HERE because short_cycle_rate IS the cycle-count
+      guard for step 6''s energy metric (B3) — a conditioning "fix" that cut episodes by
+      short-cycling more would be invisible without it. Deploy it before judging step 6.
+
+    CONSTRAINS A STEP (read before building it):
+    * ARRESTER-CLOUDFLAP-FALSEPOS-1 (shipped v5.101.0). Its reconnect guard runs BEFORE
+      _is_genuine_manual precisely because a Carrier fault+reconnect inside the suppression window
+      used to book a phantom override. v5.103.2 LENGTHENED the preset window to 120s, which makes
+      that overlap MORE frequent. The ordering is a regression risk to TEST, not assume.
+    * CARRIER-STALE-POLL-REFRESH-1 (done, v5.100.6). The bounded-reload machinery. The write
+      sequence''s step 5 wants a REFRESH, never this RELOAD — conflating them would burn the daily
+      reload budget on routine writes amid an open reload-storm problem.
+    * HVAC-TICK-LITERAL-1 (done, v5.100.9). Named the 5-minute decision quantum that is the HARD
+      FLOOR on "react quickly if it is hot". Any step-7 fast-in work must address the tick or it
+      is promising something arithmetically out of reach.
+
+    ADJACENT TO 4a (the boot path) — check when that validates:
+    * ARRESTER-BOOT-BLIND-1 (parked). Arrester boot-window manual blindness: manual holds that
+      PREDATE the listener. Same boot window 4a operates in; its revival trigger should be checked
+      once 4a is exercised.
+    * OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 (shipped_organic, v5.101.1). The override_count_today
+      startup-audit increment site has no test anchor — and 4a just added a second behaviour to
+      that same startup audit.
+
+    SAME FAMILY, ALREADY CLOSED (context only, no action):
+    * AC-RAMP-NO-RECURRENCE-ESCALATION-1 (done, v5.89.0), RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+      (done, v5.89.0) — the AC-ramp lineage that produced the nudge paths D2b and 4a now restore.
+
+    CAPTURE FAILURE, NOW FIXED: HVAC-PRESET-LOCKOUT-TELEMETRY-1 was built, committed and referenced
+    as "the next release" across several turns WITHOUT being carded. It is now step 4c. Logged as a
+    hygiene miss rather than quietly corrected — capture-first exists to prevent exactly this, and
+    the miss happened while moving fast between build and deploy.'
   ARC_STATE_2026_09_16: 'COMPLETE PICTURE — what shipped, what it is validated to, and what remains.
     Supersedes the earlier step lists on this card. Operator asked for the abstraction to be placed
     "in the right spot" with "all of it including what shipped and the validation state".
@@ -9848,7 +9891,9 @@ cards:
        and the 2 orphaned registry rows were cleared. Behaviour-neutral by construction.
 
     ===== BUILT, NOT DEPLOYED =====
-    -  HVAC-PRESET-LOCKOUT-TELEMETRY-1      instruments the refusal site
+    4c HVAC-PRESET-LOCKOUT-TELEMETRY-1      instruments the refusal site
+    -  HVAC-ANOMALY-BLIND-1 residual B      short_cycle_rate accrual fix (overnight pass); deploy
+                                            BEFORE judging step 6 — it is the cycle-count guard
        This is the NEXT RELEASE and the gate on everything below. It answers the question the
        proxy metric cannot: how often is URA REFUSED a preset write, and what did it want?
 
@@ -10110,7 +10155,63 @@ cards:
       HVAC-MANUAL-PRESET-CONTRACT-1 is step 1 (attribution), ARRESTER-LEDGER-INVISIBLE-1 is step 2
       (the independent witness). HVAC-PRESET-FLAP-1 remains the evidence ledger to read before
       starting. HVAC-ANOMALY-BLIND-1 and S14-CEILING-NEEDS-AN-ENDING-1 run in parallel.'
+- id: HVAC-PRESET-LOCKOUT-TELEMETRY-1
+  title: The refusal that locks URA out of a zone is recorded nowhere, so we can only measure a
+    proxy and never diagnose it
+  thread: hvac
+  status: review
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-16 ("what are you measuring? We need to be measuring the right
+    thing... maybe the other thing we can do is add enough logging and telemetry to be able to
+    figure out why it is not as low as we expect. Or maybe we have that already.")'
+  seq_2026_09_16: 'STEP 4c of HVAC-SUPPLE-SEQUENCE-1 — the NEXT RELEASE, and the gate on steps 5-8.
+    CARDED LATE (capture failure): it was built, committed and referenced as "the next release"
+    across several turns without ever being carded. Recorded because capture-first exists to stop
+    exactly this.'
+  tags: [tier-1, observability, found-during-validation]
+  problem_solution:
+  - 'Problem: we have been judging the thermostat work by how much of the time a zone sits on a
+    hand-set temperature. That is only a stand-in for what we actually care about — whether URA can
+    control the zone at all. The moment that matters is when URA decides a room should be on a
+    named setting and is refused, and that refusal is currently recorded nowhere, so when the
+    number does not improve we cannot tell whether the fix failed or something else is blocking.
+    Solution: record each refusal, with what URA wanted, once per episode.'
+  why: 'The operator asked what "going down to 6%%" actually means. It is a PROXY, and the ~6%%
+    target was BORROWED from zone_3 — a transit corridor that is structurally different from a
+    continuously-occupied bedroom. The direct measure is lockout episodes. This also answers
+    "maybe we have that already": we do NOT. should_change_preset (hvac_preset.py:202-217) is a
+    pure two-string function with no logger and no counter, so a zone could be locked out for hours
+    with nothing recorded.'
+  BUILT_2026_09_16: 'BUILT, tests green, NOT DEPLOYED. Edge-triggered activity row
+    (action=preset_change_locked_out, carrying what URA wanted) + a daily counter, at the refusal
+    site in hvac.py. DISCRIMINATING: gated on zone.preset_mode == "manual" so the benign
+    already-at-target no-op is excluded — recording both would drown the signal and make the
+    counter rise on healthy zones. Episode discharges when the zone leaves manual
+    (suppression-needs-a-discharge: an episode that never ended would hide every LATER lockout).
+    6 tests. One trap caught by reading the primitive rather than assuming its signature:
+    DailyCounter raises ValueError on an empty reason, so the first construction would have crashed
+    the coordinator at init.'
+  parsimony:
+    problem: The refusal that locks URA out of a zone is unrecorded, so the residual after
+      v5.103.2 cannot be attributed.
+    verdict: BUILD
+  next: 'DEPLOY. Then read it after a full day: are lockouts frequent on zone_1? That single answer
+    decides HVAC-PRESET-LOCKOUT-ESCAPE-1 (frequent -> confirmed, build it; rare -> that card is
+    WRONG and the residual is elsewhere). Report lockout EPISODES per zone per day, not manual%%.'
+  links:
+    blocks: [HVAC-PRESET-LOCKOUT-ESCAPE-1]
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'blocks HVAC-PRESET-LOCKOUT-ESCAPE-1 deliberately — that card is a HYPOTHESIS about
+      why zone_1 only reached 46%%, and building it before the telemetry reports would be building
+      on the hypothesis. HVAC-MANUAL-PRESET-CONTRACT-1 is the cycle whose partial result prompted it.'
+  refs:
+  - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
+  - hvac.py (the instrumented refusal site)
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  seq_2026_09_16: 'STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
   thread: hvac
@@ -10471,6 +10572,7 @@ cards:
   - hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling)
   - hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
 - id: HVAC-PRESET-FLAP-1
+  seq_2026_09_16: 'STEP 9 (closeout) of HVAC-SUPPLE-SEQUENCE-1 — superseded_by step 6 for the BUILD; survives only as the evidence ledger. It CLOSES at step 9 with a recorded disposition, not by being forgotten. Read it before any new work here; do NOT re-derive tuning recommendations from it.'
   PRECONDITION_2_CLEARED_2026_09_15: 'OPERATOR TASK DONE + RE-MEASURED. The card gated unparking on
     two preconditions; this records that (2) is CLEARED and what it did and did not buy.
 
