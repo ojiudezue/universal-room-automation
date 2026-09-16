@@ -15575,6 +15575,16 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  REVIEW_B_2026_09_16: 'Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES
+    with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close
+    its window (drain runs before the parked NM background task resumes + re-registers the retry)
+    and its except branch is dead (async_on_unload cannot raise) -> gate on entry.state is LOADED
+    + re-check inside _retry. On the compliance drop, B judged it CORRECT-but-undocumented (lighter
+    than A''s discharge option) -> document it. CLEARED with evidence: double-teardown idempotent,
+    two-owners-distinct-instances, partial-setup safe, order-vs-resetup safe, restart-safe,
+    symmetry complete. CONSOLIDATED FIX-UP (both reviews): (1) self-removal-on-fire at 4 append
+    sites; (2) __init__ entry-state gate + drop dead except; (3) document compliance drop
+    (comment+README); (4) real behavioral tests for 2 hollow anchors + double-teardown test.'
   REVIEW_A_2026_09_16: 'Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix
     INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check
     per-command; transit_validator.py:1075,1119 per-detection) append unsubs to a list that never
