@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T01:24:07-05:00_ - _Data commit: `7d8fa6ab15e3`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T01:27:23-05:00_ - _Data commit: `ed0a4edbe232`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -427,14 +427,15 @@ _updated 2026-09-15 02:50_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#10 · WSJF 1.5 · v5 tc3 u4 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
 - **Tags:** tier-2db, re-litigates-shipped-trade, suppression-needs-a-discharge
 - **Parsimony:** [BUILD] an energy-saving hold with no exit locks the zone out of preset control indefinitely
 - **Refs:** hvac.py:2972-2983; hvac_preset.py:202; PLANNING_preset_flap_offphase_honesty.md:184-195,:280; PLANNING_hvac_governed_excursion.md §12; test_ceiling_held_until_next_preset_transition; HVAC-MANUAL-PRESET-CONTRACT-1 (+1 more)
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `seq_2026_09_16`: STEP 4b of HVAC-SUPPLE-SEQUENCE-1 — ADDED TO THE ARC by operator 2026-09-16. It is the LAST member of the setpoint-writer family: S14 writes a raw setpoint to hold the cooling ceiling during a coast/shed off-phase and has NO RETURN PATH ...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a...
   - `OPERATOR_DECISION_2026_08_21`: Operator chose option (a) "give it an ending" from the three costed in HVAC-MANUAL-PRESET-CONTRACT-1 / S14_OPERATOR_VERDICT (a: add ending, b: reduce to suppression-only, c: remove entirely). Operator suggestion for the mechanism: "Maybe...
   - `THE_DEFECT`: During an energy coast/shed off-phase in an OCCUPIED zone, S14 (_apply_duty_off_phase, hvac.py ~:2972-2983) writes a RAW SETPOINT to hold the cooling ceiling instead of flipping the zone to away. The raw write puts the Bryant into preset...
@@ -961,7 +962,7 @@ _created 2026-08-19 13:15 · updated 2026-09-12 17:00 · refined_
   - `MEASURED_2026_09_14`: ORCHESTRATOR-VERIFIED (I re-ran every query and read the live sensors myself). VERDICT SPLIT, and the live consequence is worse than the card assumed. REFUTED (detector side): regime_cell_state.unacknowledged_consecutive DOES discharge —...
   - `design_pick_evidence_2026_09_14`: The measurement discriminates the A/B/C pick below. (C) KEEP HUMAN-ACK-ONLY is REFUTED BY OUTCOME — it is what ships today, and in four months the button was pressed ZERO times while 462 events piled up and the house sensor latched on th...
 
-### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#10 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
+### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#10 · WSJF 2.2 · v5 tc3 u10 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_root_
 - **Problem / Solution:**

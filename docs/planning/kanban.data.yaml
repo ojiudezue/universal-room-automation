@@ -10104,7 +10104,7 @@ cards:
   - 'Gated on HVAC-MANUAL-PRESET-CONTRACT-1: with 0/10 preset restores taking, URA-induced manual
     cannot be told from a human yank, which would corrupt the measurement of every item here.'
   links:
-    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1]
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, S14-CEILING-NEEDS-AN-ENDING-1]
     blocks: [HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
     mirror_note_2026_09_16: 'blocked_by gained the boot-ramp card (step 4a) — step 4''s measurement must not be taken while every restart still strands zones. blocks added as the mirror for the two step-5 children that already declared blocked_by this card.'
     related: [HVAC-PRESET-FLAP-1, HVAC-HOT-ENTRY-LATENCY-1, HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-TICK-LITERAL-1]
@@ -17072,6 +17072,26 @@ cards:
   - '2026-08-23 watch-pass: friendly_name = "URA: HVAC Coordinator Temporary Thermostat Changes" confirmed
     live; validation table PASS 2026-08-22 in README_v5.88.1. H1 confirmed.'
 - id: S14-CEILING-NEEDS-AN-ENDING-1
+  seq_2026_09_16: 'STEP 4b of HVAC-SUPPLE-SEQUENCE-1 — ADDED TO THE ARC by operator 2026-09-16.
+    It is the LAST member of the setpoint-writer family: S14 writes a raw setpoint to hold the
+    cooling ceiling during a coast/shed off-phase and has NO RETURN PATH AT ALL — its documented
+    exit ("holds until the next preset transition") is structurally unreachable, because
+    should_change_preset refuses to act while the zone reads manual. So it is the one writer that
+    strands a zone INDEFINITELY by construction, not just until the next rescue.
+    Sits beside 4a (boot-ramp) rather than after it: both are non-restoring setpoint writers, same
+    fix family, and both contaminate step 4''s measurement while they keep manufacturing anonymous
+    holds. Operator has already ruled the feature "marginal, fix or remove" — so REMOVAL must be
+    costed alongside repair rather than assumed away.'
+  links:
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    related: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-SUPPLE-SEQUENCE-1, HVAC-PRESET-FLAP-1]
+    context: 'blocked_by the preset contract because any restore it gains is only useful once
+      preset writes LAND (v5.103.2). blocks step 4 for the same reason 4a does — a writer that
+      strands zones indefinitely would contaminate the conditioning measurement.
+      HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1 is its sibling (non-restoring setpoint writer);
+      HVAC-PRESET-FLAP-1 is where S14 came from — the flap fix introduced this permanent-manual
+      writer, which is why the two must be scoped together.'
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose
     option (a) 2026-08-21), preferably by making it a borrow kind
   thread: hvac
@@ -17244,7 +17264,7 @@ cards:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
-  arc_blocks_2026_09_16: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-PRESET-WRITE-STRATEGY-1, HVAC-ZONE-CONDITIONING-DEMAND-1]
+  arc_blocks_2026_09_16: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-PRESET-WRITE-STRATEGY-1, HVAC-ZONE-CONDITIONING-DEMAND-1, S14-CEILING-NEEDS-AN-ENDING-1]
   arc_mirror_note_2026_09_16: 'blocks back-refs for the arc, added during the finish-the-job link
     pass. This card (step 1, shipped v5.103.2) gates three descendants: the boot-ramp residual
     (step 4a — its restore is only useful once preset writes LAND), the conditioning-demand tap
