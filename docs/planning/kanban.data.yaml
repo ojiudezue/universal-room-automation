@@ -9,6 +9,9 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'EXTERIOR-GUEST-FACE-FASTFOLLOW-1@2026-09-15T20:35', at: '2026-09-15T20:35:00', outcome: investigated,
+     headline: 'ONE ARRIVAL FROM YOU CLOSES A CARD THAT SAT STUCK FOR 4 WEEKS. It was parked on "consultation running" — but that consultation had already finished, on the same card, back on 18 Aug. Nothing was blocked; it was just never re-laned. I ran the real gate instead: the Protect face webhook receives fine (I fired a test payload through it and got it back verbatim, name and confidence intact), and 5 real posts did arrive 10-12 Sep — but all 5 landed EMPTY, so we still have never seen a real face payload and I will not guess its field names. Next real face match settles it either way: payload present = build it against the true fields; still empty = Protect posts a bodiless ping, the recommended path is dead, and I switch to the fallbacks. Walk in via the garage / past the family-room camera once and I will read the answer out of the recorder.',
+     acknowledged: false}
   - {fid: 'HVAC-ANOMALY-BLIND-1@2026-09-15T16:50', at: '2026-09-15T16:50:00', outcome: investigated,
      headline: 'GOOD NEWS AND A NEW PROBLEM. Good: the short-cycle detector you shipped in v5.90.0 IS working — I can see it counting today (zone_1:1, zone_2:2, zone_3:1) and surviving restarts. The card telling us to "plan the producer" was 3 weeks stale. New problem: it has only banked 2 days of history in ~20 days, so it is still years away from the 14-day maturity gate it needs before it can ever raise an alarm. It is wired and still effectively blind. I did NOT build the obvious fix (make the sensor say "degraded" when a check is silent) because it would pin the sensor to degraded FOREVER — two of the five checks are deliberately never wired — and because the accrual bug decides what that fix should even say. Probe runs at tonight''s rollover: if the count goes 2->3 the deficit is historical; if it stays 2 it is a live defect.',
      acknowledged: false}
@@ -6143,14 +6146,14 @@ cards:
   - custom_components/universal_room_automation/memory_writers.py:186
 - id: EXTERIOR-GUEST-FACE-FASTFOLLOW-1
   thread: presence
-  status: waiting_me
+  status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D1 Frigate leg shipped v5.81.0 (fa5b57c52). Only D2 (Protect Alarm Manager webhook) remains open, gated on the consultation in next. No alarm_manager/protect_face code exists yet.'
   relane_2026_09_10: Not a soak -> WAITING_ME. Duplicate-vs-complementary consultation running; I owe
     the operator the report, then operator go, then build.
   shipped_version: v5.81.0
   approval: explicit
   created: 2026-08-18 00:55
-  updated: 2026-08-18 02:25
+  updated: '2026-09-15'
   refinement_status: initial
   title: Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage
     named recognition
@@ -6173,8 +6176,53 @@ cards:
     direct.'
   - Re-measure coverage against GARAGE entries + family-room arrival, NOT the front door (the first probe
     measured the wrong cam).
-  next: 'HOLD: consultation (duplicate-vs-complementary) running -> report to operator -> operator go
-    -> then build.'
+  next: 'DO: walk in through the garage / past the family-room camera once, so UniFi Protect fires
+    a real Alarm Manager face match -> I read the captured payload out of the recorder and the D2
+    gate resolves either way (populated = GO build D2 against the real field names; empty =
+    Protect posts a bodiless ping, path 4b is dead, and I re-rank the two fallback paths from
+    RESEARCH_protect_face_to_ha.md instead of guessing). Probe is armed and PROVEN working, so no
+    setup is needed — just an arrival. It resolves on its own at the next natural garage entry
+    too; this only makes it happen tonight rather than whenever.'
+  D2_GATE_2026_09_15: 'D2 gate run (this was my debt, not the operator''s — the card sat in
+    waiting_me for 4 weeks behind a `next` that was ALREADY STALE when written: it said the
+    duplicate-vs-complementary consultation was "running", but prebuild_consultation_2026_08_18 on
+    this same card records it COMPLETE with verdict COMPLEMENTARY. Nothing was actually blocked;
+    the card was just never re-laned. Corrected.)
+
+    WHAT I MEASURED. (1) Real POSTs DO arrive: the recorder holds 5 ura_kp_face_probe_received
+    events (2026-09-10 23:54, 09-11 00:02, 09-11 00:21, 09-11 17:58, 09-12 19:22), so something
+    upstream is posting to the webhook. (2) BUT every one of those 5 carries event_data `{}` —
+    no payload. (3) The capture chain itself is NOT the problem: I fired a test POST from the HA
+    host (local_only=true) with body {"name":"PROBE_TEST_OJI","confidence":0.93,
+    "camera":"family_room"} -> HTTP 200 -> the recorder captured
+    {"json":{"name":"PROBE_TEST_OJI","confidence":0.93,"camera":"family_room"},"form":{},
+    "query":{},"content_type":"no-headers"}. So webhook -> automation -> event -> recorder works
+    end-to-end TODAY, verbatim, including a nested JSON body. Test event is at 2026-09-16 01:31Z
+    (ignore it in any future payload scan — it is mine, not a real face).
+
+    WHAT THIS DOES AND DOES NOT PROVE. It does NOT yet satisfy the measure-before-build gate: we
+    still have ZERO real Alarm Manager payloads, so the name/confidence field names remain
+    UNKNOWN. Per no-fabrication, D2 stays unbuilt — do not hard-code a guessed field. The 5 empty
+    events are consistent with two different worlds and I cannot separate them from the surviving
+    evidence (automation traces expired; the log window was reset by today''s 12:04 restart):
+    (a) those POSTs predate the 2026-08-28 four-channel enhancement, so the empties are an
+    artifact of the older single-field probe; or (b) UniFi Protect''s Alarm Manager posts a
+    BODILESS ping, in which case path 4b (webhook) cannot ever carry identity and the whole D2
+    approach must move to a fallback (unifi-protect-bridge HACS, or uiprotect direct). Note (b)
+    would be a genuine design-killer for the recommended path, so it must be settled by
+    observation, not assumption.
+
+    THE DISCRIMINATOR IS NOW CLEAN AND BINARY, which is why this is worth one deliberate arrival:
+    the NEXT real face POST runs against the enhanced 4-channel probe. Populated `json` (or
+    `form`/`query`) = world (a), the empties were a stale-probe artifact, and we read the true
+    field names straight off it -> GO. Still-empty with all four channels present
+    ({"json":{},"form":{},"query":{},...}) = world (b), Protect sends no body -> 4b is dead, PARK
+    D2 on this path and re-rank the fallbacks. Either outcome closes the gate.
+
+    PROBE DEFECT FOUND (minor, fix when D2 is built): the content_type channel is dead — it
+    rendered "no-headers", meaning `trigger.headers` is not defined on this HA version, so the
+    probe cannot report the POST content-type. Harmless for the json/form/query channels that
+    matter, but it means we will not learn the content-type from this probe as designed.'
   refs:
   - docs/planning/RESEARCH_protect_face_to_ha.md
   - EXTERIOR-GUEST-EGRESS-1
