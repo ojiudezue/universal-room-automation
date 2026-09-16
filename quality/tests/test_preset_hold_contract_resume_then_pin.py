@@ -422,3 +422,76 @@ def test_boot_preset_restore_cannot_break_the_setpoint_restore():
         "the excursion-row load must be wrapped — an unavailable table must not "
         "prevent the setpoint restore this audit exists to perform"
     )
+
+
+# --------------------------------------------------------------------------
+# HVAC-PRESET-LOCKOUT-TELEMETRY-1 — measure the HARM, not the proxy.
+# --------------------------------------------------------------------------
+
+def _hvac_src():
+    return (DC / "hvac.py").read_text()
+
+
+def test_lockout_is_recorded_at_the_refusal_site():
+    """`manual%` is a PROXY. The harm is URA deciding a preset and being
+    REFUSED. That refusal happens at the should_change_preset `continue`, and
+    was previously silent — a pure two-string function with no logger and no
+    counter, so a zone could be locked out for hours with nothing recorded."""
+    src = _hvac_src()
+    assert "preset_change_locked_out" in src, (
+        "the refusal site must record a lockout; otherwise we can only measure "
+        "the proxy and never diagnose why it is not improving"
+    )
+
+
+def test_lockout_excludes_the_benign_no_op():
+    """DISCRIMINATING: should_change_preset returns False for TWO reasons.
+
+    already-at-target is a benign no-op and happens constantly; manual is the
+    lockout. Recording both would drown the signal in noise — the counter would
+    rise on healthy zones and mean nothing.
+    """
+    src = _hvac_src()
+    i = src.index("preset_change_locked_out")
+    window = src[max(0, i - 1500):i]
+    assert 'zone.preset_mode == "manual"' in window, (
+        "the lockout record must be gated on the zone being in manual, not on "
+        "should_change_preset simply returning False"
+    )
+
+
+def test_lockout_is_edge_triggered_not_per_tick():
+    """At a 5-minute cadence a per-tick row is ~288/zone/day.
+
+    The ledger would become unreadable and the daily counter would measure tick
+    count rather than episodes.
+    """
+    src = _hvac_src()
+    assert "_preset_lockout_since" in src, (
+        "lockout must track an episode start so it records once per episode"
+    )
+    i = src.index("preset_change_locked_out")
+    window = src[max(0, i - 1500):i]
+    assert "if _lk is None" in window or "_lk is None" in window, (
+        "the row must fire only when no episode is already open"
+    )
+
+
+def test_lockout_episode_has_a_discharge():
+    """suppression-needs-a-discharge: an episode that never ends would make
+    every LATER lockout invisible, under-counting exactly what we are trying
+    to measure."""
+    src = _hvac_src()
+    assert "_preset_lockout_since.pop(" in src, (
+        "the lockout episode must clear when the zone leaves manual"
+    )
+
+
+def test_daily_counter_declares_its_restart_reason():
+    """DailyCounter raises ValueError on an empty reason (RESTART-SAFETY
+    doctrine). A counter that crashes the coordinator at init is worse than no
+    counter — this pins the declaration."""
+    src = _hvac_src()
+    i = src.index("hvac.preset_lockouts_today")
+    window = src[i:i + 500]
+    assert "reason=" in window and "persist=False" in window

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.3
+# Universal Room Automation vv5.103.4
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -12778,13 +12778,12 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
             _shed_on = bool(hvac.shed_active)
         except Exception:  # noqa: BLE001
             _shed_on = False
-        attrs["duty_cycle_off_phase"] = bool(
-            getattr(zone, "runtime_exceeded", False)
-            and getattr(zone, "any_room_occupied", False)
-            and not _d3_skipped
-            and _honest_on
-            and not _shed_on
-        )
+        # S14 REMOVED 2026-09-16: `duty_cycle_off_phase` reported whether a
+        # zone was in the S14 "honest off-phase" ceiling hold. That state can
+        # no longer occur, so the attribute is gone rather than pinned False —
+        # an attribute that is always False is still a surface someone builds
+        # a dashboard card or automation on. Removing observability for a
+        # removed feature is part of removing the feature.
         if zone.last_override_direction:
             attrs["last_override_direction"] = zone.last_override_direction
         # Add seasonal preset target from PresetManager

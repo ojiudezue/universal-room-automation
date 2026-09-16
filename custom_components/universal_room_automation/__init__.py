@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.3
+# Universal Room Automation vv5.103.4
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3712,17 +3712,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             )),
                             "comfort_soc_floor_pct": int(_cfg.get(
                                 "hvac_comfort_soc_floor_pct", 80,
-                            )),
-                            # HVAC-PRESET-FLAP-1 D4 (2026-08-11): eager-seed
-                            # the duty off-phase honesty knobs so the D5
-                            # else-limb never reads defaults during the boot
-                            # window between HC init and the Number/Switch
-                            # entities' async_added_to_hass push.
-                            "comfort_offphase_offset_f": float(_cfg.get(
-                                "hvac_comfort_offphase_offset_f", 2.0,
-                            )),
-                            "hvac_offphase_honesty_enabled": bool(_cfg.get(
-                                "hvac_offphase_honesty_enabled", True,
                             )),
                             # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 kill
                             # switch. Default ON. BEGIN-ONLY.

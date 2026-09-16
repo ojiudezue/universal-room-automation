@@ -7981,7 +7981,103 @@ cards:
   refs:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
+- id: HVAC-THERMOSTAT-ABSTRACTION-1
+  seq_2026_09_16: 'STEP 8 of HVAC-SUPPLE-SEQUENCE-1 — LAST. Fixes duplication, not a live defect: every bug this arc surfaced is already patched at its site. Earlier would mean a large Tier-3 refactor of every thermostat write in an occupied house, competing with fixes that move real numbers. Subsumes HVAC-PRESET-WRITE-STRATEGY-1.'
+  title: We unified the call sites but never built an abstraction — three write verbs, two funnels,
+    and vendor knowledge loose inside a shared path
+  thread: hvac
+  status: pre_planning
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-16 ("We should have a function that can encapsulate all writes to
+    HVAC and maybe reads... so it can be extended to any therm system. Borrow was a similar cycle
+    on return and maybe it is as good machinery to extend?" / "It feels like we unified site and
+    callers but did not use an abstraction")'
+  tags: [tier-3, platform-enabler, institutional-context]
+  problem_solution:
+  - 'Problem: every instruction URA sends a thermostat goes through one of two shared helpers,
+    which looks tidy — but they are traffic funnels, not a model of a thermostat. Callers still
+    describe the mechanics ("write these two numbers, then write that named setting") rather than
+    the intention ("put this zone on home"), a third kind of instruction escapes the funnels
+    entirely, and the knowledge of how one particular brand behaves sits loose inside the shared
+    path. The result is that the same restore logic gets copied to each new site, and each copy is
+    a chance to forget one. Solution: give each zone a single thermostat handle that owns all the
+    instructions and the brand-specific behaviour, so callers state intent and the handle decides
+    how.'
+  origin:
+    date: '2026-09-16'
+    gist: Operator observed that the night''s work unified callers without introducing an
+      abstraction — and the evidence confirmed it
+  THE_EVIDENCE_2026_09_16: 'MEASURED, not asserted — this is what distinguishes a funnel from an
+    abstraction:
+    * 22 call sites route through emit_set_temperature / emit_set_preset_mode. Tidy.
+    * BUT 7 raw `climate.set_hvac_mode` calls BYPASS them entirely (hvac.py:1724,
+      hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778) — there is no third funnel, so
+      a whole write verb escapes. A real abstraction cannot have a verb leak out of it.
+    * The funnels know `climate.set_temperature` CONCRETELY; callers express mechanics, not intent.
+    * Vendor knowledge leaked in as a free function + module constants (_needs_resume_first,
+      PRESET_RESUME, ANONYMOUS_HOLD) INSIDE a shared path — which is exactly why it is
+      Carrier-specific where every thermostat passes.
+    * The borrow holds the snapshot but CANNOT perform a restore, because it has no handle to act
+      through. Its own docstring says so: "Callers still emit the actual wire writes."'
+  PER_ZONE_CORRECTED_2026_09_16: 'OPERATOR: "If we did this, why per zone? It should be the same
+    function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold:
+    entity_id is a PARAMETER; the vendor is DERIVED from the entity''s platform (memoizable by
+    entity_id); the current hold is READ from HA, never held; the suppression TTL lives in the
+    arrester and the excursion token lives in the borrow. Nothing is left. A per-zone object would
+    be STATE-FREE — which means it should not be an object per zone at all.
+    The right shape is what emit_set_temperature ALREADY is — stateless functions parameterised by
+    entity_id — merely COMPLETED. That makes this migration SMALLER than the original sketch:
+    extend a module, do not introduce an object graph. Recorded because "make it an object" was a
+    reflex, not a derivation.'
+  DESIGN_SHAPE_2026_09_16: 'Stateless, entity-parameterised, all three verbs plus vendor dispatch:
+      read_hold(hass, entity_id)              -> named / anonymous / none
+      set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin
+      set_setpoints(hass, entity_id, lo, hi)  -> knows this INDUCES an anonymous hold
+      set_mode(hass, entity_id, mode, ...)    -> the verb that currently escapes
+      _strategy_for(hass, entity_id)          -> memoized per entity, NOT per-zone state
+    Same call-signature style as today''s emit_* helpers, so migration is additive.
+    THE BORROW IS THE RIGHT CLIENT (operator''s instinct, and it is correct). The borrow already
+    models the LIFECYCLE — take the zone, snapshot pre_preset/pre_target_low/high (already
+    PERSISTED in hvac_excursion_state), hand it back. That is exactly the shape a restore needs;
+    what it lacks is something to act THROUGH. Give return_excursion a ZoneThermostat and the
+    restore stops being copy-pasted per site — which is precisely the Bug-Class-#53 exposure we
+    patched one site at a time all night (D2b''s two return paths, 4a''s boot path, and the nine
+    non-restoring writers still out there).
+    THREE CONCERNS, ONE PLACE EACH: borrow = lifecycle, handle = mechanism, strategy = vendor.
+    HVAC-PRESET-WRITE-STRATEGY-1 becomes a PROPERTY OF THE HANDLE rather than a special case inside
+    a funnel — which is what makes "extends to any thermostat system" real rather than aspirational.'
+  parsimony:
+    problem: Write mechanics are duplicated per call site and one verb bypasses the funnels
+      entirely, so every new restore path is a fresh chance to omit one.
+    verdict: BUILD
+  next: 'GATED — do NOT start before the lockout telemetry reports. A write abstraction does NOT
+    fix the lockout (HVAC-PRESET-LOCKOUT-ESCAPE-1): that failure is "URA never ATTEMPTS the write",
+    and there is nothing for a better writer to improve. If lockouts dominate zone_1''s residual,
+    this refactor would be a large Tier-3 change to live HVAC paths that moves the metric very
+    little. Let a day of telemetry say whether the write path is even the bottleneck before
+    rebuilding it.
+    WHEN IT PROCEEDS: Tier 3 (touches every thermostat write in an occupied house). Migrate in this
+    order — (1) introduce the handle wrapping today''s funnels, no behaviour change; (2) add the
+    missing set_mode verb and migrate the 7 bypassing sites; (3) move the vendor strategy inside;
+    (4) give return_excursion the handle and collapse the per-site restores. Each step ships
+    separately with its own acceptance; a big-bang migration of this surface is how the flap fix
+    introduced S14 in the first place.'
+  links:
+    related: [HVAC-PRESET-WRITE-STRATEGY-1, HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-PRESET-LOCKOUT-ESCAPE-1]
+    context: 'HVAC-PRESET-WRITE-STRATEGY-1 is SUBSUMED as a property of the handle rather than a
+      standalone seam — do not build it separately once this proceeds.
+      HVAC-MANUAL-PRESET-CONTRACT-1 is the cycle whose per-site patching exposed the need.
+      HVAC-PRESET-LOCKOUT-ESCAPE-1 gates it: if the bottleneck is not-writing rather than
+      writing-badly, this refactor is not where the value is.'
+  refs:
+  - hvac_setpoint.py (the two funnels + the leaked vendor constants)
+  - 'the 7 bypassing set_hvac_mode sites: hvac.py:1724, hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778'
+  - hvac_excursion.py return_excursion ("Callers still emit the actual wire writes")
 - id: HVAC-PRESET-WRITE-STRATEGY-1
+  SUBSUMED_2026_09_16: 'SUBSUMED by HVAC-THERMOSTAT-ABSTRACTION-1 (step 8). The vendor strategy becomes a PROPERTY OF THE HANDLE rather than a standalone seam — do NOT build it separately. Its capability-gate half already shipped in v5.103.2 (the resume-then-pin path fires only when the entity advertises `resume`), so the immediate hazard is already contained.'
   seq_2026_09_16: 'STEP 6 of HVAC-SUPPLE-SEQUENCE-1 — LAST, deliberately. It generalises the
     step-1 mechanism to other vendors, and abstracting a mechanism before its numeric prediction
     validates would be abstracting a guess. The capability gate shipped in v5.103.2 removes the
@@ -9723,12 +9819,267 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  ARC_RECOMPOSED_NO_FAKE_GATES_2026_09_16: 'Operator: "recompose the full arc with old and new. Put
+    in problem/solution and link purpose... put it in proper sequence with no fake gates." The prior
+    step-numbered lists implied a CHAIN. Most of this arc is NOT a chain. Only FOUR edges are real
+    (hard) dependencies; the rest is shipped, parallel, or a stated preference I had dressed as
+    sequential. This block is the honest picture and supersedes the ordering claims above where they
+    conflict.
+
+    THE THESIS (what the whole arc proves): URA can keep a zone on the preset it chooses AND stop
+    conditioning empty rooms — measurably, not anecdotally.
+
+    REAL (HARD) GATES — B genuinely cannot be MEASURED or BUILT until A exists:
+      G1  instrument(2) -> baseline(3): cannot capture a spurious-away baseline without the ledger
+          that makes spurious-away visible.
+      G2  baseline(3) -> conditioning tap(4): cannot judge a behaviour change with no before-number.
+      G3  lockout telemetry(4c) -> escape(6): escape is a HYPOTHESIS; telemetry confirms/refutes it
+          before anyone builds it (measure-before-build).
+      G4  conditioning tap(4) -> guest-person(5) + hot-entry(5): both consume the conditioning signal.
+
+    THE CARDS (problem -> solution | gated-by | link purpose):
+      1  HVAC-MANUAL-PRESET-CONTRACT-1   SHIPPED v5.103.2 NOT-ACCEPTED. named hold cannot pin over an
+         anonymous manual -> resume-then-pin. gate: none. LINK: the write MECHANISM the arc rests on.
+      2  ARRESTER-LEDGER-INVISIBLE-1     SHIPPED v5.103.1. arrest decisions went to discarded INFO ->
+         durable ledger. gate: none. LINK: the INSTRUMENT, independent witness for spurious-away.
+      3  baseline capture                DONE. no before-numbers -> committed 7d comfort+energy.
+         gate: G1(needs 2). LINK: the BEFORE picture step 4 is judged against.
+      -  HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1  SHIPPED v5.103.3, PARALLEL. every restart ~2.9/day
+         manufactured an anonymous hold -> boot restores preset from persisted snapshot. gate: none.
+         LINK: sibling defect that was CONTAMINATING step 1 acceptance — NOT a gate on 4 (fake gate
+         removed: I had claimed step 4 measurement must wait on it; it is a quality sibling, parallel).
+      -  S14-CEILING-NEEDS-AN-ENDING-1   SHIPPED v5.103.3, PARALLEL. permanent-manual writer with no
+         exit -> removed code+control+observability. gate: none. LINK: independent cleanup the operator
+         ordered; touches preset-writing but blocks nothing (fake gate removed: it was never "step 4b
+         in a chain").
+      4c HVAC-PRESET-LOCKOUT-TELEMETRY-1 BUILT, v5.103.4 gate. refusal site was silent -> edge-triggered
+         row + daily counter. gate: none. LINK: the INSTRUMENT that explains why step 1 hit 46% not 6%.
+      4d HVAC-ANOMALY-BLIND-1 residual B4 BUILT, v5.103.4 gate. short-cycle sample lost on unclean
+         restart -> persist at rollover. gate: none. LINK: step 4 CYCLE-COUNT GUARD, live before 4 judged.
+      4  HVAC-ZONE-CONDITIONING-DEMAND-1 PRE-PLANNING. rooms conditioned while empty -> publish
+         grace_hold?held:any_sensor_active. gate: G2(needs 3). LINK: THE behaviour change, operator
+         checkpoint.
+      6  HVAC-PRESET-LOCKOUT-ESCAPE-1    PLANNED. should_change_preset refuses manual assuming a human,
+         but URA MADE the manual -> provenance-aware escape. gate: G3(needs 4c to confirm real). LINK:
+         the "write never attempted" half, disjoint from step 1 "write does not land".
+      5  HVAC-GUEST-AS-ZONE-PERSON-1     PRE-PLANNING. guest wing has no zone person -> derive one.
+         gate: G4(needs 4). LINK: conditional on the conditioning signal.
+      5  HVAC-HOT-ENTRY-LATENCY-1        PLANNED. slow to cool on hot entry -> fast-in. gate: G4(needs
+         4). LINK: conditional on the conditioning signal.
+      8  HVAC-THERMOSTAT-ABSTRACTION-1   PRE-PLANNING. 22 sites route 2 funnels but 7 raw calls bypass;
+         callers express mechanics not intent -> one ZoneThermostat handle. gate: NONE (no hard
+         dependency). PLACEMENT ON THE MERITS = LAST, specifically AFTER escape(6). REASONING
+         CORRECTED 2026-09-16 (operator: "where should it go on the merits?"): my earlier reason
+         "abstract after the mechanism is proven" was WRONG — it conflated the WRITE MECHANISM
+         (resume-then-pin, PROVEN live) with the BEHAVIOURAL THESIS (does it move manual%, unproven);
+         the abstraction only needs the mechanism, which is proven. THE REAL MERITS REASON: an
+         abstraction interface is defined by what its clients need to EXPRESS, and steps 4/5/6 are the
+         cycles that reveal that vocabulary (escape may need PROVENANCE on the handle; the tap may need
+         a new INTENT verb; hot-entry may need a PRIORITY write). Building the handle before them =
+         guessing the interface and reshaping per client, and interface churn ripples to EVERY client
+         (worse than migrating call sites against a known interface). After escape it is a mechanical
+         consolidation. VERIFIED it is a consolidation not a prerequisite: the 7 bypassing calls are
+         all set_hvac_mode (mode off/on — egress leave/resume, override pause/resume in hvac_egress.py
+         + hvac_override.py), NOT setpoint writes, so they do NOT create the anonymous manual hold that
+         causes the lockout — they are DEBT, not a live stranding bug. Escape provenance can be stamped
+         at the existing setpoint funnel (emit_set_temperature) without the handle, so escape does not
+         hard-depend on it. ONE SPOT-CHECK when we get there: hvac_override.py:1601 comments on
+         "set_hvac_mode to a zone we deliberately paused - defeating egress" — confirm that guard is
+         handled, not merely described; a spot-check, not a resequencing reason.
+      R1 HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1   PARKED. residual of 4d; dispose at close.
+      R2 ANOMALY-SAVE-BASELINES-DICT-MUTATION-1  PARKED. pre-existing, surfaced by 4d; dispose at close.
+
+    THE FOUR FAKE GATES REMOVED, NAMED SO THEY DO NOT COME BACK:
+      (a) "baseline(3) cannot precede step 1" — FALSE; zone_3 gate is open 93.7% of the time, its
+          baseline measures behaviour not an outage. Operator caught this first.
+      (b) "boot-fix gates step 4" — parallel sibling that cleaned step 1 acceptance, not a prerequisite.
+      (c) "S14 removal is step 4b in the chain" — independent cleanup, blocks nothing.
+      (d) "abstraction is blocked until the mechanism is proven" — operator preference to be last, not
+          a hard dependency.
+
+    WHAT IS ACTUALLY ON THE CRITICAL PATH RIGHT NOW: deploy v5.103.4 (4c + 4d) -> read the lockout
+    counter -> that single number forks the arc: non-zero on zone_1 => build escape(6); near-zero =>
+    re-diagnose the residual 46%. Step 4 (the behaviour change) is a SEPARATE track gated only on the
+    baseline, which is already done, and on the operator checkpoint.'
+  OPERATOR_RECALL_RECONCILED_2026_09_16: 'The operator recited the sequence from memory as five rows
+    (1 CONTRACT planned, 2 LEDGER planned, 4 CONDITIONING-DEMAND pre_planning blocked-by-1, 5
+    GUEST-AS-ZONE-PERSON pre_planning blocked-by-4, 5 HOT-ENTRY-LATENCY planned blocked-by-4).
+
+    VERDICT: CORRECT FOR ITS VINTAGE — that is exactly SEQUENCE_2026_09_15 as carded, and every one
+    of the five cards is still real, still in the arc, and still in that relative order. Nothing the
+    operator remembered has been dropped or resequenced. Recorded because a recall that matches the
+    card is itself a useful signal: the arc has not drifted out from under the operator.
+
+    WHAT IS STALE IN THE RECALL — the LANES, not the order. Steps 1 and 2 both SHIPPED (v5.103.2 and
+    v5.103.1), so "planned" is out of date for both; step 1 is shipped-but-NOT-ACCEPTED (its numeric
+    prediction has not been met), which is a state the five-row table has no column for and is the
+    single most important fact about the arc right now.
+
+    WHAT WAS INSERTED AFTER THAT TABLE WAS WRITTEN — 3 (baseline capture, done), 4a (boot strands
+    preset, shipped v5.103.3), 4b (S14 removal, shipped v5.103.3), 4c (lockout telemetry, built and
+    in the v5.103.4 gate), plus 6-8 on the tail (escape, abstraction, close). The recall reads short
+    only because it predates those, not because they were smuggled in: 4a came from a LIVE
+    observation (boot manufactures an anonymous hold ~2.9x/day, watched on zone_3 at 01:17:04) and
+    4c came from the operator''s OWN challenge to the metric.'
+  ARC_RESIDUALS_2026_09_16: 'TWO CARDS THIS CYCLE MINTED AND DID NOT REPRESENT — operator: "I think
+    we carded 2 things in this cycle. Hunt for them in the transcript. They were sequences after 4a."
+    Found by creation-date audit, not recall: both stamped 2026-09-16 04:00, both authored by the
+    overnight anomaly pass that produced step 6''s gate, both PARKED with revival triggers, and
+    neither reachable from this arc until now. That is exactly the straggler shape the finish-the-job
+    rule exists to catch, and it recurred INSIDE the pass that was applying that rule.
+
+    R1  HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1   parked   (child of HVAC-ANOMALY-BLIND-1)
+        The daily short-cycle sample is now saved durably; the "already did today" date stamp is
+        not saved in the same moment. An unclean kill in the gap re-records a day already counted.
+        CAUSED BY the arc''s own step-6 gate fix — before it, the re-record was RAM-only and died
+        with the process, so this failure mode did not exist. The fix-up shrank the window from
+        ~25min to the remainder of one decision cycle (~1000x) and stopped there deliberately.
+        REVIVE IF a metric_baselines read shows sample_count advancing >1 per zone per day.
+
+    R2  ANOMALY-SAVE-BASELINES-DICT-MUTATION-1  parked   (pre-existing, SURFACED by that review)
+        save_baselines iterates the baseline dict across awaits; a new metric appearing mid-save
+        raises RuntimeError into a blanket except, so the save silently stops partway. NOT caused
+        by this arc and NOT reachable from the new rollover save (lock-protected) — the exposed
+        site is the teardown save. Fix is one line (`list(self._baselines.items())`), held only
+        because it lives in the shared AnomalyDetector consumed by five coordinators and an
+        unattended pass should not touch a shared primitive for a low-severity pre-existing bug.
+
+    WHY BOTH STAY PARKED RATHER THAN JOINING THE STEP LIST: neither blocks a step. R1 degrades the
+    step-6 cycle-count guard only under an unclean kill inside a sub-second window on the one tick
+    per day that rolls over; R2 predates the arc entirely. They are recorded here so step 6 cannot
+    be judged while forgetting that its guard has a known residual — and so that closing the arc
+    (step 7) has to dispose of them explicitly rather than leaving them orphaned on the board.
+
+    STANDING RIDER — the cheapest disposal for both: R2 is a one-line rider on the next cycle that
+    opens coordinator_diagnostics.py for any reason, and R1''s own revival trigger (b) says the same
+    thing — extract the shared helper when someone is next in that path with a reason. Neither
+    should be scheduled on its own.'
+  ARC_ADJACENT_CARDS_2026_09_16: 'THE OTHER 9 LINKED CARDS — operator: "There were more linked
+    cards in the sequence. Find and represent." Traversed the link graph rather than recalling:
+    20 cards are reachable from the arc. 11 are sequence MEMBERS (each carries a seq_ stamp). The
+    other 9 are CONTEXT — they constrain or inform the arc without being steps. Named here so the
+    arc cannot be read as if they do not exist.
+
+    CARRIES BUILT WORK THAT AFFECTS THIS ARC:
+    * HVAC-ANOMALY-BLIND-1 (review, v5.90.0 + built-not-deployed). An overnight pass diagnosed and
+      fixed the short_cycle_rate ACCRUAL deficit found on 2026-09-15 (observations recorded at the
+      daily rollover were lost unless HA happened to save baselines; the fix REUSES save_baselines
+      rather than adding machinery). MATTERS HERE because short_cycle_rate IS the cycle-count
+      guard for step 6''s energy metric (B3) — a conditioning "fix" that cut episodes by
+      short-cycling more would be invisible without it. Deploy it before judging step 6.
+
+    CONSTRAINS A STEP (read before building it):
+    * ARRESTER-CLOUDFLAP-FALSEPOS-1 (shipped v5.101.0). Its reconnect guard runs BEFORE
+      _is_genuine_manual precisely because a Carrier fault+reconnect inside the suppression window
+      used to book a phantom override. v5.103.2 LENGTHENED the preset window to 120s, which makes
+      that overlap MORE frequent. The ordering is a regression risk to TEST, not assume.
+    * CARRIER-STALE-POLL-REFRESH-1 (done, v5.100.6). The bounded-reload machinery. The write
+      sequence''s step 5 wants a REFRESH, never this RELOAD — conflating them would burn the daily
+      reload budget on routine writes amid an open reload-storm problem.
+    * HVAC-TICK-LITERAL-1 (done, v5.100.9). Named the 5-minute decision quantum that is the HARD
+      FLOOR on "react quickly if it is hot". Any step-7 fast-in work must address the tick or it
+      is promising something arithmetically out of reach.
+
+    ADJACENT TO 4a (the boot path) — check when that validates:
+    * ARRESTER-BOOT-BLIND-1 (parked). Arrester boot-window manual blindness: manual holds that
+      PREDATE the listener. Same boot window 4a operates in; its revival trigger should be checked
+      once 4a is exercised.
+    * OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 (shipped_organic, v5.101.1). The override_count_today
+      startup-audit increment site has no test anchor — and 4a just added a second behaviour to
+      that same startup audit.
+
+    SAME FAMILY, ALREADY CLOSED (context only, no action):
+    * AC-RAMP-NO-RECURRENCE-ESCALATION-1 (done, v5.89.0), RAMP-GATE4-HVAC-ACTION-LEVER-LEAK-1
+      (done, v5.89.0) — the AC-ramp lineage that produced the nudge paths D2b and 4a now restore.
+
+    CAPTURE FAILURE, NOW FIXED: HVAC-PRESET-LOCKOUT-TELEMETRY-1 was built, committed and referenced
+    as "the next release" across several turns WITHOUT being carded. It is now step 4c. Logged as a
+    hygiene miss rather than quietly corrected — capture-first exists to prevent exactly this, and
+    the miss happened while moving fast between build and deploy.'
+  ARC_STATE_2026_09_16: 'COMPLETE PICTURE — what shipped, what it is validated to, and what remains.
+    Supersedes the earlier step lists on this card. Operator asked for the abstraction to be placed
+    "in the right spot" with "all of it including what shipped and the validation state".
+
+    ===== SHIPPED =====
+    1  HVAC-MANUAL-PRESET-CONTRACT-1        v5.103.2  resume-then-pin (D1 TTL split, D2a chokepoint,
+                                                      D2b excursion returns)
+       VALIDATION: PARTIAL, NOT ACCEPTED. Mechanism PROVEN live (zone_3 rescued 01:19:06, held 8min
+       across 9 cloud refreshes; the old name-drop visible a minute earlier at 01:17:21). But the
+       NUMERIC PREDICTION has not been met: zone_1 69.6%% -> 46.0%% over a 6.9h OVERNIGHT window
+       (target ~6%%), tail 1073min -> 111min. zone_2 moved the WRONG way (+4.4, 186min tail).
+       zone_3 flat at ~6.8%% (already healthy). Treat as directionally right, not validated.
+    2  ARRESTER-LEDGER-INVISIBLE-1          v5.103.1  durable arrest ledger
+       VALIDATION: PROVED ITSELF within the hour — captured the exact preset_change that rescued
+       zone_3. The co-shipped ura_action entity_id guard is STILL UNEXERCISED (the EVSE onset
+       producer has not fired since deploy), so its "no ValueError" is not yet discriminating.
+    3  baseline capture                     done      7d comfort + energy, committed on this card
+       VALIDATION: N/A (a measurement). zone_3 is the VALID step-4 baseline; zone_1/zone_2 rows are
+       CONTRAST ONLY — captured with their preset gate closed, they measure an outage.
+    4a HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1 v5.103.3 boot restores the preset from the PERSISTED
+                                                      snapshot
+       VALIDATION: NOT YET EXERCISED. The 08:28 restart had no in-flight nudge, so the path did not
+       run. Needs a restart that actually has one.
+    4b S14-CEILING-NEEDS-AN-ENDING-1        v5.103.3  REMOVED (code, control, observability,
+                                                      registry orphans)
+       VALIDATION: PASS on the part that matters — the integration LOADED CLEANLY after the removal
+       (28 URA entities live post-restart), no dashboard/automation referenced the deleted entities,
+       and the 2 orphaned registry rows were cleared. Behaviour-neutral by construction.
+
+    ===== BUILT, NOT DEPLOYED =====
+    4c HVAC-PRESET-LOCKOUT-TELEMETRY-1      instruments the refusal site
+    -  HVAC-ANOMALY-BLIND-1 residual B      short_cycle_rate accrual fix (overnight pass); deploy
+                                            BEFORE judging step 6 — it is the cycle-count guard
+       This is the NEXT RELEASE and the gate on everything below. It answers the question the
+       proxy metric cannot: how often is URA REFUSED a preset write, and what did it want?
+
+    ===== REMAINING, IN ORDER =====
+    5  HVAC-PRESET-LOCKOUT-ESCAPE-1     gated on the telemetry. Probably the BIGGER half of the
+                                        original defect: resume-then-pin fixes "the write does not
+                                        land"; this is "the write is never attempted". Disjoint.
+                                        If lockouts dominate zone_1, this is the fix; if they are
+                                        rare, this card is WRONG and the residual is elsewhere.
+    6  HVAC-ZONE-CONDITIONING-DEMAND-1  the conditioning tap. ITS DESIGN WAS FALSIFIED by the
+                                        2026-09-16 simulation (neither transit NOR dwelling rooms
+                                        sustain the 5-min dwell on raw signal, so the tap would
+                                        have stranded the guest bedroom). Needs a NEW design —
+                                        current best candidate is room-CLASSIFICATION weighting
+                                        (corridors do not vote for conditioning), which keeps all
+                                        existing machinery and uses the shipped v5.103.0
+                                        classification read-model. GATE before building: of
+                                        zone_3''s 82 home episodes, how many were driven ONLY by
+                                        corridor rooms? Read-only, computable today.
+    7  HVAC-GUEST-AS-ZONE-PERSON-1 + HVAC-HOT-ENTRY-LATENCY-1   conditional, gated on 6.
+    8  HVAC-THERMOSTAT-ABSTRACTION-1    LAST, and deliberately so (operator: "maybe it is the last
+                                        thing in the sequence"). It is the architecture the whole
+                                        arc kept bumping into — 22 sites funnelled but 7 raw
+                                        set_hvac_mode calls escaping, callers expressing mechanics
+                                        not intent, vendor knowledge loose in a shared path, and a
+                                        borrow that holds the snapshot but cannot restore. It
+                                        SUBSUMES HVAC-PRESET-WRITE-STRATEGY-1. Placed last because
+                                        it fixes DUPLICATION, not any live defect: every bug this
+                                        arc found is already patched at its site. Doing it earlier
+                                        would be a large Tier-3 refactor of every thermostat write
+                                        in an occupied house, competing with fixes that move real
+                                        numbers.
+    9  close the arc                    README write-back + dispose HVAC-PRESET-FLAP-1 (the
+                                        evidence ledger, superseded by 6).
+
+    THE ARC IS NOT DONE until 5-9 are disposed — shipped, or parked with an explicit revival
+    trigger. And step 1 is NOT closed until its numeric prediction is met or explicitly abandoned
+    with a reason; "directionally right" is not acceptance.'
   ARC_MEMBERSHIP_CLOSED_2026_09_16: 'FINISH-THE-JOB LINK PASS (operator: "We MUST finish them all
     to complete the thread and not leave stragglers. Link them now."). The arc''s membership is now
     CLOSED and wired in the DATA, not just in prose — every dependency is mirrored on both sides,
     so ranking cannot pull a member before its gate and no member can be quietly dropped.
 
-    THE COMPLETE ARC — seven steps, nothing else belongs to it:
+    THE COMPLETE ARC — seven steps. AMENDED 2026-09-16: "nothing else belongs to it" was an
+    OVERCLAIM. It was true of STEPS, and false of RESIDUALS — two parked cards minted by this
+    cycle''s own overnight pass hung off step 6''s gate card and were unrepresented until the
+    operator asked for them. See ARC_RESIDUALS_2026_09_16. The membership rule is therefore:
+    seven steps, PLUS whatever residuals the steps themselves mint, which must be listed as they
+    are created rather than discovered later.
+
+    THE SEVEN STEPS:
       1  HVAC-MANUAL-PRESET-CONTRACT-1        SHIPPED v5.103.2  (resume-then-pin, D1+D2a+D2b)
       2  ARRESTER-LEDGER-INVISIBLE-1          SHIPPED v5.103.1  (the instrument)
       3  baseline capture                     DONE 2026-09-16   (committed on this card)
@@ -9934,18 +10285,140 @@ cards:
     problem: Related HVAC cards are order-dependent for MEASUREMENT, not just for code, so building
       them in the wrong order yields changes nobody can prove helped.
     verdict: BUILD
-  next: 'START STEP 1 — HVAC-MANUAL-PRESET-CONTRACT-1, already operator-directed ("we have to
-    finish this"). Steps 1-3 are all no-behaviour-change or read-only, so they can be driven
-    without a further operator gate; the operator checkpoint falls at STEP 4, which is the live
-    comfort/spend change.'
+  next: 'DEPLOY STEP 4c (HVAC-PRESET-LOCKOUT-TELEMETRY-1, built on develop) — it gates steps 5-8
+    because it is the instrument that answers WHY zone_1 only reached 46.0%% against a ~6%% target,
+    and without it step 4 would be judged on a number nobody can decompose. Deploy the
+    HVAC-ANOMALY-BLIND-1 residual B in the same push (step 6''s cycle-count guard). THEN re-measure
+    step 1''s numeric prediction on a DAYTIME window — the 46.0%% was overnight-only and is not
+    comparable to the 7d baseline. Step 4 proper remains the operator checkpoint. Two parked
+    residuals (ARC_RESIDUALS_2026_09_16) must be disposed at step 7, not left orphaned.'
   links:
     blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
-    related: [HVAC-MANUAL-PRESET-CONTRACT-1, ARRESTER-LEDGER-INVISIBLE-1, HVAC-PRESET-FLAP-1, HVAC-ANOMALY-BLIND-1, S14-CEILING-NEEDS-AN-ENDING-1]
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, ARRESTER-LEDGER-INVISIBLE-1, HVAC-PRESET-FLAP-1, HVAC-ANOMALY-BLIND-1, S14-CEILING-NEEDS-AN-ENDING-1, HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-PRESET-LOCKOUT-TELEMETRY-1, HVAC-THERMOSTAT-ABSTRACTION-1, HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1, ANOMALY-SAVE-BASELINES-DICT-MUTATION-1]
     context: 'This card is the ORDER; the linked cards are the work. It blocks the three cards
       whose measurement is impossible until the instrumentation and baseline exist.
       HVAC-MANUAL-PRESET-CONTRACT-1 is step 1 (attribution), ARRESTER-LEDGER-INVISIBLE-1 is step 2
       (the independent witness). HVAC-PRESET-FLAP-1 remains the evidence ledger to read before
       starting. HVAC-ANOMALY-BLIND-1 and S14-CEILING-NEEDS-AN-ENDING-1 run in parallel.'
+- id: HVAC-PRESET-LOCKOUT-TELEMETRY-1
+  title: The refusal that locks URA out of a zone is recorded nowhere, so we can only measure a
+    proxy and never diagnose it
+  thread: hvac
+  status: shipped_organic
+  shipped_version: v5.103.4
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-16 ("what are you measuring? We need to be measuring the right
+    thing... maybe the other thing we can do is add enough logging and telemetry to be able to
+    figure out why it is not as low as we expect. Or maybe we have that already.")'
+  seq_2026_09_16: 'STEP 4c of HVAC-SUPPLE-SEQUENCE-1 — the NEXT RELEASE, and the gate on steps 5-8.
+    CARDED LATE (capture failure): it was built, committed and referenced as "the next release"
+    across several turns without ever being carded. Recorded because capture-first exists to stop
+    exactly this.'
+  tags: [tier-1, observability, found-during-validation]
+  problem_solution:
+  - 'Problem: we have been judging the thermostat work by how much of the time a zone sits on a
+    hand-set temperature. That is only a stand-in for what we actually care about — whether URA can
+    control the zone at all. The moment that matters is when URA decides a room should be on a
+    named setting and is refused, and that refusal is currently recorded nowhere, so when the
+    number does not improve we cannot tell whether the fix failed or something else is blocking.
+    Solution: record each refusal, with what URA wanted, once per episode.'
+  why: 'The operator asked what "going down to 6%%" actually means. It is a PROXY, and the ~6%%
+    target was BORROWED from zone_3 — a transit corridor that is structurally different from a
+    continuously-occupied bedroom. The direct measure is lockout episodes. This also answers
+    "maybe we have that already": we do NOT. should_change_preset (hvac_preset.py:202-217) is a
+    pure two-string function with no logger and no counter, so a zone could be locked out for hours
+    with nothing recorded.'
+  BUILT_2026_09_16: 'BUILT, tests green, NOT DEPLOYED. Edge-triggered activity row
+    (action=preset_change_locked_out, carrying what URA wanted) + a daily counter, at the refusal
+    site in hvac.py. DISCRIMINATING: gated on zone.preset_mode == "manual" so the benign
+    already-at-target no-op is excluded — recording both would drown the signal and make the
+    counter rise on healthy zones. Episode discharges when the zone leaves manual
+    (suppression-needs-a-discharge: an episode that never ended would hide every LATER lockout).
+    6 tests. One trap caught by reading the primitive rather than assuming its signature:
+    DailyCounter raises ValueError on an empty reason, so the first construction would have crashed
+    the coordinator at init.'
+  parsimony:
+    problem: The refusal that locks URA out of a zone is unrecorded, so the residual after
+      v5.103.2 cannot be attributed.
+    verdict: BUILD
+  next: 'DEPLOY. Then read it after a full day: are lockouts frequent on zone_1? That single answer
+    decides HVAC-PRESET-LOCKOUT-ESCAPE-1 (frequent -> confirmed, build it; rare -> that card is
+    WRONG and the residual is elsewhere). Report lockout EPISODES per zone per day, not manual%%.'
+  links:
+    blocks: [HVAC-PRESET-LOCKOUT-ESCAPE-1]
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'blocks HVAC-PRESET-LOCKOUT-ESCAPE-1 deliberately — that card is a HYPOTHESIS about
+      why zone_1 only reached 46%%, and building it before the telemetry reports would be building
+      on the hypothesis. HVAC-MANUAL-PRESET-CONTRACT-1 is the cycle whose partial result prompted it.'
+  refs:
+  - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
+  - hvac.py (the instrumented refusal site)
+- id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  seq_2026_09_16: 'STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".'
+  title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
+    manual, so nothing ever rescues it
+  thread: hvac
+  status: planned
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-2db, no-fabrication-verify, found-during-validation]
+  problem_solution:
+  - 'Problem: when a zone''s thermostat is sitting on a hand-set temperature, URA deliberately does
+    not overwrite it — the reasoning being that a person set it, so a different part of the system
+    should handle putting it back. But URA''s own energy features also leave the thermostat in that
+    hand-set state, and URA cannot tell its own handiwork from a person''s. When that happens
+    nobody puts it back: the part meant to handle human changes deliberately ignores URA''s own.
+    The zone then sits outside normal control until it happens to empty out. Solution: let URA
+    recognise the hand-set states IT caused and correct those, while still leaving a real person''s
+    adjustment alone.'
+  origin:
+    date: '2026-09-16'
+    gist: Operator asked "is that continue a bug?" while reviewing the lockout telemetry site
+  why: 'THIS IS PROBABLY THE BIGGER HALF OF THE DEFECT, and it explains the v5.103.2 measurement.
+    resume-then-pin fixes "URA writes a preset and the cloud discards the name". The lockout is a
+    DIFFERENT failure: URA never attempts the write at all, so there is nothing for resume-then-pin
+    to rescue. The paths that DO still write all bypass should_change_preset explicitly — the
+    vacancy bypass, the D2b excursion returns, the 4a boot restore — while the ROUTINE house-state
+    preset path stays blocked. That plausibly explains why zone_1 moved 69.6%% -> 46.0%% rather than
+    toward 6%%: the explicit paths were fixed and the routine path was not. It also reframes why
+    zone_3 looks healthy — not because it is fixed, but because vacancy (the one guard-bypassing
+    path) rescues it constantly.'
+  THE_MECHANISM_2026_09_16: 'should_change_preset (hvac_preset.py:202-217) returns False when
+    current_preset == "manual", with the rationale "Don''t fight manual — that''s the arrester''s
+    job". The `continue` at the call site is CORRECT for the already-at-target case and WRONG for
+    the manual case — a missing-discrimination bug, not a wrong-branch one, because the guard''s
+    PREMISE is false: manual does NOT imply a human. URA''s own raw setpoint writes create it.
+    AND THE ASSUMED HANDOFF DOES NOT HAPPEN: the arrester reverts HUMAN overrides and SUPPRESSES
+    itself on URA''s own writes. So for URA-induced manual, neither side acts. That is the
+    self-lockout, stated precisely.'
+  parsimony:
+    problem: URA refuses to re-preset a zone in manual even when URA itself caused the manual, and
+      the component expected to handle it deliberately ignores URA-caused cases.
+    verdict: BUILD
+  next: 'GATED ON TELEMETRY, deliberately — do not build on the hypothesis. The lockout telemetry
+    shipped alongside this card records every refusal with what URA wanted. FIRST question it
+    answers: are lockouts frequent on zone_1? If yes the diagnosis is confirmed and this is the
+    next fix; if they are rare then the residual is elsewhere and this card is wrong. THEN build:
+    extend the provenance tag (_suppress_kind, hvac_override.py:185 — exists today but carries a
+    ~5s TTL and is consulted only by a counter) so should_change_preset can escape a manual hold
+    URA itself induced. Operator has already ruled that reverting deliberate HUMAN adjustments is
+    intended, so the policy question is settled; only the provenance lifetime is open.
+    ACCEPTANCE must DISCRIMINATE: a URA-induced manual is escaped, a HUMAN-induced manual is still
+    left alone. A test that only proves the first would pass with the guard removed entirely.'
+  links:
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'HVAC-MANUAL-PRESET-CONTRACT-1 (v5.103.2) fixed the write-does-not-land half; this is
+      the write-never-attempted half. They are disjoint, which is why the numeric prediction only
+      partially moved. Its plan already parked this as "provenance-aware escape" with the revival
+      trigger "if zone_1 manual%% does not fall below ~20%%" — that trigger has effectively fired.'
+  refs:
+  - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
+  - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
   SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16: 'OPERATOR ASKED for a simulation before building
     ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic
@@ -10245,6 +10718,7 @@ cards:
   - hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling)
   - hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
 - id: HVAC-PRESET-FLAP-1
+  seq_2026_09_16: 'STEP 9 (closeout) of HVAC-SUPPLE-SEQUENCE-1 — superseded_by step 6 for the BUILD; survives only as the evidence ledger. It CLOSES at step 9 with a recorded disposition, not by being forgotten. Read it before any new work here; do NOT re-derive tuning recommendations from it.'
   PRECONDITION_2_CLEARED_2026_09_15: 'OPERATOR TASK DONE + RE-MEASURED. The card gated unparking on
     two preconditions; this records that (2) is CLEARED and what it did and did not buy.
 
@@ -16077,6 +16551,29 @@ cards:
   - quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring)
   - .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
+    (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during
+    the v5.103.4 pre-deploy gate: running the documented command produced 98 ERRORS in 0.26s on
+    code that is perfectly green, and the errors read like real reds
+    (`fixture ''expected_lingering_tasks'' not found`, 12 more per file).
+
+    CAUSE: CLAUDE.md''s Testing section AND .claude/agents/ura-validator.md:21 both say
+    `PYTHONPATH=quality python3 -m pytest quality/tests/`. On this machine bare `python3` is
+    3.9.6, which does NOT have pytest-homeassistant-custom-component installed. The real harness is
+    `.venv-ha/bin/python` (3.13.14, phcc 0.13.316, pytest 9.0.0). Same selection under .venv-ha:
+    98 PASSED in 1.13s. There is also a `.venv-test` (3.14.5) with NO pytest at all — a third
+    interpreter to fall into.
+
+    WHY IT MATTERS MORE THAN A PAPERCUT: the failure is LOUD BUT MISLEADING. It does not say
+    "wrong interpreter"; it says a fixture is missing, which reads as harness breakage or a bad
+    conftest edit. An agent following the documented command literally gets a red suite on green
+    code, and the two plausible wrong reactions are both damaging — "fix" the conftest to stop
+    requesting the phcc fixture (silently disabling cleanup checks), or declare a regression and
+    stop a ship. The pre-deploy zero-bugs gate depends on this command being right.
+
+    CHEAPEST FIX, INDEPENDENT OF THIS CARD''S A/B DECISION: correct the two documented commands to
+    name `.venv-ha/bin/python` explicitly. That is a docs edit with no bearing on whether the
+    real-HA venv becomes the DEFAULT harness, so it should not wait on the operator PICK below.'
   HARNESS_VS_PRODUCTION_DRIFT_2026_09_15: 'ADJACENT FINDING, surfaced while eliminating option C —
     flagging rather than acting. The test harness validates URA against homeassistant 2026.2.3
     (pinned by phcc 0.13.316, which is the latest published phcc), while the LIVE house runs
@@ -18392,7 +18889,9 @@ cards:
     parent: HVAC-ANOMALY-BLIND-1
     related:
     - RESTART-SAFETY-DOCTRINE-1
-    context: 'parent HVAC-ANOMALY-BLIND-1 is the cycle that introduced the durable save and therefore
+    - HVAC-SUPPLE-SEQUENCE-1
+    context: 'ARC: residual R1 of HVAC-SUPPLE-SEQUENCE-1 (see ARC_RESIDUALS_2026_09_16) — minted BY
+      that arc''s step-6 gate work, so the arc''s step 7 owns disposing of it. parent HVAC-ANOMALY-BLIND-1 is the cycle that introduced the durable save and therefore
       created this residual — before that fix the re-record was RAM-only and died with the process,
       so this failure mode did not exist. RESTART-SAFETY-DOCTRINE-1 owns the general class of
       in-memory-versus-durable split state.'
@@ -18449,7 +18948,10 @@ cards:
     related:
     - HVAC-ANOMALY-BLIND-1
     - RESTART-SAFETY-DOCTRINE-1
-    context: 'surfaced by the HVAC-ANOMALY-BLIND-1 review but NOT caused by it — the new rollover save
+    - HVAC-SUPPLE-SEQUENCE-1
+    context: 'ARC: residual R2 of HVAC-SUPPLE-SEQUENCE-1 (see ARC_RESIDUALS_2026_09_16) — PRE-EXISTING,
+      merely surfaced by that arc''s step-6 gate review, so it is the arc''s to dispose but not the
+      arc''s to blame. surfaced by the HVAC-ANOMALY-BLIND-1 review but NOT caused by it — the new rollover save
       is lock-protected; the exposed site is the teardown save. Related to
       RESTART-SAFETY-DOCTRINE-1 because a silently-partial baseline save is exactly the kind of
       persistence gap that card tracks.'
@@ -18687,11 +19189,11 @@ cards:
     and egress_pause_frequency are both event-driven accumulators over rare events, which per RESTART-SAFETY-DOCTRINE-1
     is the hazard class that stays structurally inert; wire them only with an explicit statement of expected
     samples-per-day, or leave them declared-and-suppressed.'
-  status: review
+  status: shipped_organic
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: short_cycle_rate now wired (hvac.py:4077). NARROW to the 2 still-unproduced metrics: comfort_deviation_hours (no call site, :4160) + egress_pause_frequency (0 hits). 4/5 wired.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Plan the short-cycle producer carrying measured distributions
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
-  shipped_version: v5.90.0
+  shipped_version: v5.103.4
   created: 2026-08-20 14:15
   updated: '2026-09-16 04:05'
   refinement_status: refined
