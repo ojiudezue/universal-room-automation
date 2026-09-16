@@ -123,7 +123,11 @@ Checklist:
 
 ## Testing
 ```bash
-PYTHONPATH=quality python3 -m pytest quality/tests/ -v
+# Use .venv-ha/bin/python, NOT bare `python3` (which is 3.9 here and lacks
+# pytest-homeassistant-custom-component). The wrong interpreter fails LOUDLY but
+# MISLEADINGLY: ~98 errors of `fixture 'expected_lingering_tasks' not found` on
+# perfectly green code. There is also a .venv-test (3.14) with no pytest at all.
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -v
 ```
 
 ## Key Architecture

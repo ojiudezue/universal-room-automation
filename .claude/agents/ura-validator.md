@@ -18,7 +18,9 @@ The pytest guard **KILLS** concurrent full-suite runs (it does not queue), and a
 ```bash
 export PYTHONDONTWRITEBYTECODE=1
 find . -name __pycache__ -type d -prune -exec rm -rf {} +   # pyc-staleness gives false PASS
-PYTHONPATH=quality python3 -m pytest quality/tests/ -q -p no:cacheprovider > /tmp/suite.txt 2>&1
+# MUST be .venv-ha/bin/python — bare `python3` is 3.9 without phcc and yields a
+# red suite on green code (`fixture 'expected_lingering_tasks' not found`).
+PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:cacheprovider > /tmp/suite.txt 2>&1
 ```
 Then extract failing names: `grep '^FAILED' /tmp/suite.txt | sed 's/FAILED //' | sort`.
 - Note: `pytest | sort > file` yields empty (redirect raw, sort after). A `Py_FinalizeEx` hang at the end is a known harness quirk, not a failure.

@@ -9819,6 +9819,26 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  OPERATOR_RECALL_RECONCILED_2026_09_16: 'The operator recited the sequence from memory as five rows
+    (1 CONTRACT planned, 2 LEDGER planned, 4 CONDITIONING-DEMAND pre_planning blocked-by-1, 5
+    GUEST-AS-ZONE-PERSON pre_planning blocked-by-4, 5 HOT-ENTRY-LATENCY planned blocked-by-4).
+
+    VERDICT: CORRECT FOR ITS VINTAGE — that is exactly SEQUENCE_2026_09_15 as carded, and every one
+    of the five cards is still real, still in the arc, and still in that relative order. Nothing the
+    operator remembered has been dropped or resequenced. Recorded because a recall that matches the
+    card is itself a useful signal: the arc has not drifted out from under the operator.
+
+    WHAT IS STALE IN THE RECALL — the LANES, not the order. Steps 1 and 2 both SHIPPED (v5.103.2 and
+    v5.103.1), so "planned" is out of date for both; step 1 is shipped-but-NOT-ACCEPTED (its numeric
+    prediction has not been met), which is a state the five-row table has no column for and is the
+    single most important fact about the arc right now.
+
+    WHAT WAS INSERTED AFTER THAT TABLE WAS WRITTEN — 3 (baseline capture, done), 4a (boot strands
+    preset, shipped v5.103.3), 4b (S14 removal, shipped v5.103.3), 4c (lockout telemetry, built and
+    in the v5.103.4 gate), plus 6-8 on the tail (escape, abstraction, close). The recall reads short
+    only because it predates those, not because they were smuggled in: 4a came from a LIVE
+    observation (boot manufactures an anonymous hold ~2.9x/day, watched on zone_3 at 01:17:04) and
+    4c came from the operator''s OWN challenge to the metric.'
   ARC_RESIDUALS_2026_09_16: 'TWO CARDS THIS CYCLE MINTED AND DID NOT REPRESENT — operator: "I think
     we carded 2 things in this cycle. Hunt for them in the transcript. They were sequences after 4a."
     Found by creation-date audit, not recall: both stamped 2026-09-16 04:00, both authored by the
@@ -16448,6 +16468,29 @@ cards:
   - quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring)
   - .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
+    (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during
+    the v5.103.4 pre-deploy gate: running the documented command produced 98 ERRORS in 0.26s on
+    code that is perfectly green, and the errors read like real reds
+    (`fixture ''expected_lingering_tasks'' not found`, 12 more per file).
+
+    CAUSE: CLAUDE.md''s Testing section AND .claude/agents/ura-validator.md:21 both say
+    `PYTHONPATH=quality python3 -m pytest quality/tests/`. On this machine bare `python3` is
+    3.9.6, which does NOT have pytest-homeassistant-custom-component installed. The real harness is
+    `.venv-ha/bin/python` (3.13.14, phcc 0.13.316, pytest 9.0.0). Same selection under .venv-ha:
+    98 PASSED in 1.13s. There is also a `.venv-test` (3.14.5) with NO pytest at all — a third
+    interpreter to fall into.
+
+    WHY IT MATTERS MORE THAN A PAPERCUT: the failure is LOUD BUT MISLEADING. It does not say
+    "wrong interpreter"; it says a fixture is missing, which reads as harness breakage or a bad
+    conftest edit. An agent following the documented command literally gets a red suite on green
+    code, and the two plausible wrong reactions are both damaging — "fix" the conftest to stop
+    requesting the phcc fixture (silently disabling cleanup checks), or declare a regression and
+    stop a ship. The pre-deploy zero-bugs gate depends on this command being right.
+
+    CHEAPEST FIX, INDEPENDENT OF THIS CARD''S A/B DECISION: correct the two documented commands to
+    name `.venv-ha/bin/python` explicitly. That is a docs edit with no bearing on whether the
+    real-HA venv becomes the DEFAULT harness, so it should not wait on the operator PICK below.'
   HARNESS_VS_PRODUCTION_DRIFT_2026_09_15: 'ADJACENT FINDING, surfaced while eliminating option C —
     flagging rather than acting. The test harness validates URA against homeassistant 2026.2.3
     (pinned by phcc 0.13.316, which is the latest published phcc), while the LIVE house runs
