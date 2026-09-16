@@ -96,6 +96,26 @@ The guard has to be live *before* step 4 is judged, not after.
 
 ## Live validation
 
+### Validated 2026-09-16 (post-restart, wiring only)
+
+The house restarted onto v5.103.4 cleanly. What is provable at boot is the
+**wiring**, not the discriminator — the discriminator is a ~24h DB read
+(below), per no-soak.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Integration loaded at v5.103.4 | **PASS** | HACS `installed_version: v5.103.4`, `pending_update: false` |
+| No setup crash / RecursionError | **PASS** | `source=system` scan: zero ERROR entries for the integration |
+| `_DailyCounter` init did not raise | **PASS** | coordinator up and emitting; the empty-`reason` ValueError that would crash init did not fire |
+| No `resume-then-pin: CLEARED … could not pin` | **PASS** | absent from the system log |
+| Boot restore did not break setpoint restore | **PASS** | no boot-path exception; D1-of-v5.103.3 wrapper held |
+
+Boot transients seen and dismissed: the known aggregation coverage re-anchor
+(`aggregation.py:916`, INCOMPLETE until midnight) and routine SPAN/SOC/weather
+unavailability warnings — all pre-existing, none from this cycle.
+
+### Pending — the discriminator (one-shot DB read at ~24h, NOT a watch)
+
 - [ ] **D1 is the point of the release:** within a few hours, read the daily
       lockout counter and the `preset_change_locked_out` rows per zone. This is
       the number that decides whether `HVAC-PRESET-LOCKOUT-ESCAPE-1` gets built.
