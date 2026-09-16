@@ -453,6 +453,13 @@ COMFORT_DELTA_MIN_F: Final = 2.0  # °F
 # raw home cool baseline, which may still permit compressor demand. INV #1
 # is documented INERT at 0 (§1 inertness clause (f)); boot INFO log emitted.
 COMFORT_OFFPHASE_OFFSET_F: Final = 2.0  # °F
+# S14 REMOVED 2026-09-16 — TOMBSTONED, NOT DELETED.
+# The off-phase ceiling hold is gone (see hvac.py), so nothing reads these.
+# They are kept ONLY because the option KEYS may still exist in a stored
+# config entry: deleting the names would make a stale key unreadable rather
+# than merely inert. Per dead-does-not-mean-delete, this is the
+# KEEP+DOCUMENT bucket — no consumer, no control, no observability.
+# Safe to delete once no config entry carries the keys.
 CONF_COMFORT_OFFPHASE_OFFSET_F: Final = "hvac_comfort_offphase_offset_f"
 DEFAULT_COMFORT_OFFPHASE_OFFSET_F: Final = COMFORT_OFFPHASE_OFFSET_F
 MIN_COMFORT_OFFPHASE_OFFSET_F: Final = 0.0

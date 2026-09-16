@@ -32,10 +32,8 @@ from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
     HVAC_DECISION_TICK,
-    COMFORT_OFFPHASE_OFFSET_F,
     COMFORT_SOC_FLOOR_PCT,
     COMFORT_GRACE_MIN,
-    DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED,
     CONF_HVAC_ARRESTER_ENABLED,
     DEFAULT_ARRESTER_ENABLED,
     DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -221,8 +219,6 @@ class HVACCoordinator(BaseCoordinator):
         # stale defaults during the boot window between HC init and the
         # Number/Switch entities' async_added_to_hass push. None => use
         # module defaults (fresh install / test bench).
-        comfort_offphase_offset_f: float | None = None,
-        hvac_offphase_honesty_enabled: bool | None = None,
         excursion_primitive_enabled: bool | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
@@ -314,19 +310,6 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.set_comfort_soc_floor_pct(
                 int(comfort_soc_floor_pct)
             )
-        # HVAC-PRESET-FLAP-1 D4 (2026-08-11): duty off-phase honesty state.
-        # Offset in °F above home cool baseline held during off-phase, and
-        # kill-switch (False => byte-identical pre-cycle behavior).
-        self._comfort_offphase_offset_f: float = (
-            float(comfort_offphase_offset_f)
-            if comfort_offphase_offset_f is not None
-            else float(COMFORT_OFFPHASE_OFFSET_F)
-        )
-        self._hvac_offphase_honesty_enabled: bool = (
-            bool(hvac_offphase_honesty_enabled)
-            if hvac_offphase_honesty_enabled is not None
-            else bool(DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED)
-        )
         # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 — Excursion Primitive kill switch.
         # BEGIN-ONLY. Persisted rows still run their return path when OFF.
         from .hvac_const import DEFAULT_EXCURSION_PRIMITIVE_ENABLED as _DFLT_EX
@@ -349,17 +332,14 @@ class HVACCoordinator(BaseCoordinator):
         # (below in the helper); a new house_state is a new episode.
         # NB: episode granularity is per-(zone, house_state), NOT a rolling
         # window — one row per house_state occupancy of the condition.
-        self._offphase_logged: set[tuple[str, str]] = set()
         # B11 (fix-up): explicit init of the discharge sentinel — no
         # empty-string ambiguity.
-        self._offphase_logged_state: str = ""
         # B1 (fix-up): per-zone emit throttle mirroring S10's
         # `_last_emitted_range` (hvac.py:2219). Suppresses re-emitting the
         # SAME (low, high) tuple across consecutive ticks — the operator's
         # thermostat sees ONE write per (low, high) change, not one per
         # tick. Cleared per-zone when runtime_exceeded drops false OR
         # house_state changes (see D5 branch clear + helper discharge).
-        self._last_offphase_emit: dict[str, tuple[float, float]] = {}
         # Per-zone D3-guard skip flag exposed cross-tick for the D3 sensor
         # attribute (§3.3). Updated inside the D5 branch each tick.
         self._d3_skipped_current_tick: dict[str, bool] = {}
@@ -719,31 +699,6 @@ class HVACCoordinator(BaseCoordinator):
             return int(COMFORT_SOC_FLOOR_PCT)
 
     @property
-    def comfort_offphase_offset_f(self) -> float:
-        """HVAC-PRESET-FLAP-1 D4: live rung-3 off-phase offset (°F).
-
-        Read by ``_apply_duty_off_phase``. Setter is the
-        ``ComfortOffphaseOffsetNumber`` entity's ``async_set_native_value``
-        push (live-tunable; no restart required).
-        """
-        return float(self._comfort_offphase_offset_f)
-
-    @comfort_offphase_offset_f.setter
-    def comfort_offphase_offset_f(self, value: float) -> None:
-        self._comfort_offphase_offset_f = float(value)
-
-    @property
-    def hvac_offphase_honesty_enabled(self) -> bool:
-        """HVAC-PRESET-FLAP-1 D4: kill-switch. False => D5 else-limb takes
-        the dominance short-circuit and writes ``effective_preset = "away"``
-        (byte-identical pre-cycle behavior)."""
-        return bool(self._hvac_offphase_honesty_enabled)
-
-    @hvac_offphase_honesty_enabled.setter
-    def hvac_offphase_honesty_enabled(self, value: bool) -> None:
-        self._hvac_offphase_honesty_enabled = bool(value)
-
-    @property
     def excursion_primitive_enabled(self) -> bool:
         """HVAC-GOVERNED-EXCURSION-1 §4.7 kill switch. BEGIN-ONLY."""
         return bool(self._excursion_primitive_enabled)
@@ -872,28 +827,6 @@ class HVACCoordinator(BaseCoordinator):
                     _live_floor,
                 )
         except Exception:  # noqa: BLE001 — never let a log call block setup
-            pass
-
-        # HVAC-PRESET-FLAP-1 D4 (2026-08-11): duty off-phase honesty boot
-        # visibility. Kill-switch OFF is a WARN so a persisted-off state is
-        # loud in the logs. Offset == 0.0 is a documented diagnostic (INV
-        # inertness clause (f)) — INFO, not WARN.
-        try:
-            if not self._hvac_offphase_honesty_enabled:
-                _LOGGER.warning(
-                    "HVAC-PRESET-FLAP-1: hvac_offphase_honesty_enabled=False "
-                    "— duty off-phase in occupied zones will fall through to "
-                    "the pre-cycle preset=away path (kill-switch active)."
-                )
-            if float(self._comfort_offphase_offset_f) == 0.0:
-                _LOGGER.info(
-                    "HVAC-PRESET-FLAP-1: COMFORT_OFFPHASE_OFFSET_F=0.0 — "
-                    "diagnostic config: off-phase ceiling collapses to the "
-                    "raw home cool baseline (compressor demand may still "
-                    "trigger). Legitimate diagnostic mode; not an INV "
-                    "violation."
-                )
-        except Exception:  # noqa: BLE001
             pass
 
         # Cold-boot away-actuation storm mitigation — Gate 2 init.
@@ -1971,8 +1904,6 @@ class HVACCoordinator(BaseCoordinator):
                 # anew (even if the resolved (low, high) tuple is
                 # identical). Matches reviewer spec: throttle discharges
                 # on runtime_exceeded clear OR house_state change.
-                if not zone.runtime_exceeded:
-                    self._last_offphase_emit.pop(zone_id, None)
                 if zone.runtime_exceeded and self._house_state != "sleep":
                     _cd_soc = self.battery_soc
                     _cd_blind = self.battery_blind
