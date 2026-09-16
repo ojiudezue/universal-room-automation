@@ -9517,6 +9517,34 @@ cards:
   - hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling)
   - hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
 - id: HVAC-PRESET-FLAP-1
+  PRECONDITION_2_CLEARED_2026_09_15: 'OPERATOR TASK DONE + RE-MEASURED. The card gated unparking on
+    two preconditions; this records that (2) is CLEARED and what it did and did not buy.
+
+    SWAP VERIFIED LANDED (live core.config_entries read, not operator report): room "Garage Hallway"
+    no longer lists binary_sensor.staircase_person_occupancy. It now runs
+    motion_sensors = [binary_sensor.rgbw_motion_lux_3rdr_zigbee_garagehallway_occupancy_2 (Zigbee
+    PIR), binary_sensor.mmwave_temp_hum_lux_garagehallway_presence (mmWave)]; occupancy_sensors [].
+    INPUT CHATTER COLLAPSED as intended: 24h ON-counts are mmWave 17 + PIR 2 = 19, against the
+    camera''s previously-measured 89 cycles/24h — roughly a 4x reduction in the noisiest single leg.
+
+    BUT THE BEHAVIOUR DID NOT GO AWAY, and this is the decisive part. zone_3 preset episodes over
+    the LAST 24h (definitively post-swap): AWAY n=31 median 30.0 min (baseline 2026-08-20: 10.0) —
+    genuinely FIXED, the zone now commits to away and holds it. HOME n=15 median 10.0 min, 66%
+    under 15 min. The home median is EXACTLY vacancy_grace (live 10.0), which is the signature, not
+    a coincidence: the zone flips home, nobody stays, grace elapses, it flips back — 15 times a day
+    it conditions a transit corridor for someone who has already left.
+
+    CONCLUSION: the camera was an AMPLIFIER, not the cause. Removing it cut the noise ~4x without
+    changing the mechanism, because the ROOM-layer clearance timeout still stretches any PIR/mmWave
+    hit into a multi-minute room session that outlasts the 5-minute (1-tick) dwell. This is an
+    INDEPENDENT confirmation of the structural diagnosis — HVAC is consuming an occupancy signal
+    smoothed for lighting. Precondition (1), HVAC-MANUAL-PRESET-CONTRACT-1, remains OPEN.
+
+    WHY THIS CARD IS NOT RETIRED (operator asked): its tracked behaviour is still live and
+    measurable. What IS retired is its framing — the knob-tuning analysis is superseded. The BUILD
+    moves to HVAC-ZONE-CONDITIONING-DEMAND-1; this card remains the evidence ledger (measurements,
+    operator design rulings, and the three corrections made on it). Do not re-derive tuning
+    recommendations from it.'
   DWELL_VS_BLIP_CLARIFIED_2026_09_15: 'OPERATOR CHALLENGE: "a single ~20-second blip in any of 12 —
     I thought we had an entry dwell wait timer?" They are RIGHT, and my paraphrase was sloppy in a
     way that misrepresented the design. Corrected here from a fresh source read so it is not
@@ -9915,6 +9943,15 @@ cards:
     the lying preset; the 2F offset Number is the real knob). RETIRE the switch when L3 (occupied-coast
     founding case) AND L4 (arrester echo flat) organically validate: Tier-1 removal (single-user no-backcompat)
     or demote to rung-1 constant. This closes the card fully when it fires.'
+  links:
+    superseded_by: HVAC-ZONE-CONDITIONING-DEMAND-1
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-GUEST-AS-ZONE-PERSON-1]
+    context: 'HVAC-ZONE-CONDITIONING-DEMAND-1 carries the BUILD — the structural fix this card''s
+      knob analysis kept arriving at. This card stays open as the EVIDENCE LEDGER (measurements,
+      operator design rulings, and three recorded corrections) and should be read before any new
+      work here, but no tuning recommendation should be re-derived from it.
+      HVAC-MANUAL-PRESET-CONTRACT-1 is the one remaining precondition (preset restores do not take,
+      so URA-induced manual cannot be told from a human yank).'
 - id: ARREST-COMFORT-1
   STATUS_CONTRADICTION_RESOLVED_2026_08_23: 'This card carried an internal contradiction: status shipped_organic
     at v5.69.0, while review_state recorded three DO-NOT-SHIP verdicts and `next` said the Cycle A build

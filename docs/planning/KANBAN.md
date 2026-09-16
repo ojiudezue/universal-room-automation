@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T22:28:24-05:00_ - _Data commit: `341ce6621025`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T22:30:49-05:00_ - _Data commit: `82620357adac`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -1348,7 +1348,8 @@ _updated 2026-08-20 18:10 · refined_
 - **Next:** BLOCKED ON PRECONDITIONS, not awaiting a decision — the design axis is ALREADY RULED by the operator (person-assignment-aware + transit-aware zone policy, explicitly NOT a global debounce). Gates, in order: (1) the manual-write half — v5...
 - **Tags:** no-fabrication-verify, measure-before-build, context-wide-scoping
 - **Refs:** docs/planning/kanban.data.yaml card P1P3 (the falsification); custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder), :1660-1675 (ledger row), :2470-2492 (coast duty limiter)
-- **Forensic keys (36):**
+- **Forensic keys (37):**
+  - `PRECONDITION_2_CLEARED_2026_09_15`: OPERATOR TASK DONE + RE-MEASURED. The card gated unparking on two preconditions; this records that (2) is CLEARED and what it did and did not buy.
   - `DWELL_VS_BLIP_CLARIFIED_2026_09_15`: OPERATOR CHALLENGE: "a single ~20-second blip in any of 12 — I thought we had an entry dwell wait timer?" They are RIGHT, and my paraphrase was sloppy in a way that misrepresented the design. Corrected here from a fresh source read so it...
   - `REMEASURED_2026_09_15_MY_CLAIM_WITHDRAWN`: I told the operator "the flap is still live" on the strength of a RAW TRANSITION COUNT. That was wrong twice over and is WITHDRAWN.
   - `PRECONDITION_ASSUMPTION_REFUTED_2026_08_23`: THIS CARD'S `next` SAYS: "v5.88.0 shipped the borrow restore so URA-induced manual is largely addressed". THAT IS NOW REFUTED BY MEASUREMENT. The borrow restores the SETPOINT (912/914) but NOT the preset: 0/10 restores of a real preset t...
