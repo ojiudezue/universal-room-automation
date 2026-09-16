@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T00:38:42-05:00_ - _Data commit: `576090a8b159`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T00:56:44-05:00_ - _Data commit: `16aea9f05ffb`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -107,7 +107,8 @@ _created 2026-09-16 · initial_
 - **Tags:** platform-enabler, institutional-context
 - **Parsimony:** [SIMPLIFY] Vendor-specific write semantics live in a shared chokepoint, so a different thermostat is either mishandled or silently unsupported.
 - **Refs:** hvac_setpoint.py PRESET_RESUME / ANONYMOUS_HOLD / _needs_resume_first (the hardcoded seam); ha_carrier/climate.py:405-409 (resume_schedule), :418-430 (set_config_hold)
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `DESIGN_DETECT_VS_SPECIFY_2026_09_16`: OPERATOR: "Give thought to how an operator might specify their integration's mechanism or we can detect it." The question splits, and the two halves have DIFFERENT answers — that split is the whole design.
   - `MITIGATED_NOT_SOLVED_2026_09_16`: A capability gate shipped WITH D2a as the cheap half: the resume-then-pin path now fires only when the entity itself advertises `resume` among its preset_modes, so a non-Carrier thermostat falls through to the pre-existing direct-pin beh...
 
 ### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_

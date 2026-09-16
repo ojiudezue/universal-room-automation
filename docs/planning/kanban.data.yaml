@@ -7885,6 +7885,45 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-PRESET-WRITE-STRATEGY-1
+  DESIGN_DETECT_VS_SPECIFY_2026_09_16: 'OPERATOR: "Give thought to how an operator might specify
+    their integration''s mechanism or we can detect it." The question splits, and the two halves
+    have DIFFERENT answers — that split is the whole design.
+
+    WHETHER A CLEAR IS NEEDED -> DETECTABLE, no vendor knowledge required. URA can measure whether
+    its own preset writes LAND: write, force a refresh, compare hold_activity against what was
+    asked. That is exactly the measurement done by hand on 2026-09-16, and the arrester ledger
+    (shipped v5.103.1) makes it durable. A zone whose named writes do not stick is self-identifying.
+
+    HOW TO CLEAR -> NOT detectable in general; it needs vendor knowledge. But the common SHAPES are
+    discoverable at runtime:
+      * PRESET-BASED clear — visible in the entity''s own `preset_modes`. Verified live 2026-09-16:
+        both Carrier zones advertise ["away","home","manual","sleep","wake","vacation","resume"].
+        This is what the capability gate already reads.
+      * SERVICE-BASED clear — visible in the service registry (a resume-program-shaped service
+        under the platform''s domain). Readable via hass.services.
+      * NEITHER -> only the operator can say.
+
+    THE SAFETY ASYMMETRY THAT SHAPES THE DESIGN: clearing RELEASES the zone to the vendor''s own
+    schedule. On Carrier that is harmless because the operator does not use the Bryant schedule. On
+    unfamiliar equipment we would have NO IDEA what that schedule does. So auto-DIAGNOSING is safe;
+    auto-ARMING a clear on unknown hardware is not. Detection may diagnose; a human arms the remedy.
+
+    RECOMMENDED SHAPE, cheapest first:
+      1. DEFAULT DirectPin — today''s behaviour, correct for most integrations, zero risk.
+      2. SEED TABLE for known platforms (ha_carrier -> ClearThenPin with resume/manual), so a known
+         vendor is correct immediately with no learning cost. Learning-by-failing is bad UX for a
+         comfort system: every lesson is a stranded zone for up to hours.
+      3. EMPIRICAL DETECTOR — "preset writes are not landing on this entity" surfaces as a
+         diagnostic + NM page, NOT an automatic behaviour change.
+      4. OPERATOR ARMS THE REMEDY for an unknown vendor, and URA PROPOSES it when a capability or
+         service probe finds an obvious candidate ("this thermostat advertises a `resume` preset;
+         use it as the clear step?"). One field, not a config surface.
+
+    WHY NOT A FULL CONFIG SURFACE YET (knob ladder + parsimony): one house, one vendor — there is
+    nothing to choose between. Ship the strategy SEAM; add selection when a second vendor exists.
+    ACCEPTANCE MUST DISCRIMINATE: a Carrier zone still gets clear-then-pin AND a stubbed
+    other-vendor zone gets a direct pin with NO clear attempted. A test that only proves the Carrier
+    path still works would pass with the abstraction absent.'
   title: How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in
     a shared chokepoint every thermostat write passes through
   thread: hvac
