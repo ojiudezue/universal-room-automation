@@ -515,6 +515,19 @@ class HVACCoordinator(BaseCoordinator):
         # display-only counter surfaced on HVAC diagnostics + read via
         # getattr in sensor.py (line ~12673). Pre-arrival dispatch is
         # driven by person state on live signals, not by this count.
+        # HVAC-PRESET-LOCKOUT-TELEMETRY-1: per-zone lockout episode start, and
+        # a daily count of episodes. Measures how often URA is REFUSED a preset
+        # write because the zone sits in an anonymous manual hold.
+        self._preset_lockout_since: dict[str, Any] = {}
+        self._preset_lockouts_today = _DailyCounter(
+            name="hvac.preset_lockouts_today",
+            persist=False,
+            reason=(
+                "display/diagnostic counter; a lockout episode is re-detected "
+                "on the next decision tick after a restart, so resetting to 0 "
+                "loses only the running day's tally, not the condition"
+            ),
+        )
         self._pre_arrival_triggers_today = _DailyCounter(
             name="hvac.pre_arrival_triggers_today",
             persist=False,
@@ -1401,6 +1414,7 @@ class HVACCoordinator(BaseCoordinator):
             # internal UTC clock.
             self._vacancy_sweeps_today.rollover_if_needed()
             self._pre_arrival_triggers_today.rollover_if_needed()
+            self._preset_lockouts_today.rollover_if_needed()
             # CARRIER-STALE-POLL-REFRESH-1: roll day-scoped safety cap +
             # release the D3 suppress-for-day flag on the local-day hinge.
             self._carrier_reloads_today.rollover_if_needed()
@@ -2074,12 +2088,69 @@ class HVACCoordinator(BaseCoordinator):
 
             # --- Determine if preset change is needed ---
             # Bypass should_change_preset() manual guard for vacancy (RH3 fix)
+            # Lockout episode discharges as soon as the zone is out of manual
+            # (suppression-needs-a-discharge: an episode that never ends would
+            # under-count every later lockout).
+            if zone.preset_mode != "manual":
+                self._preset_lockout_since.pop(zone_id, None)
             if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
                 if zone.preset_mode == "away":
                     continue  # Already away
             elif not self._preset_manager.should_change_preset(
                 zone.preset_mode, effective_preset
             ):
+                # HVAC-PRESET-LOCKOUT-TELEMETRY-1 — measure the ACTUAL harm.
+                #
+                # WHY: "% of time a zone reads manual" is only a PROXY. What we
+                # care about is whether URA can CONTROL the zone — i.e. how
+                # often it decides a preset and is refused. That refusal
+                # happens exactly here, and until now it was SILENT:
+                # should_change_preset is a pure two-string function with no
+                # logger and no counter, so a zone could be locked out for
+                # hours with nothing recorded.
+                #
+                # DISCRIMINATING: the two False cases are NOT the same.
+                #   preset_mode == effective_preset -> already at target, a
+                #       benign no-op; recording it would drown the signal.
+                #   preset_mode == "manual"         -> LOCKOUT: URA wanted a
+                #       different preset and was refused. This is the harm.
+                # Only the second is recorded.
+                #
+                # EDGE-TRIGGERED, not per-tick: at a 5-minute cadence a
+                # per-tick row would be ~288/zone/day and the ledger would
+                # become unreadable. One row when a lockout EPISODE begins,
+                # carrying what URA wanted; the episode ends when the zone
+                # leaves manual (cleared below on the success path).
+                if zone.preset_mode == "manual":
+                    _lk = self._preset_lockout_since.get(zone_id)
+                    if _lk is None:
+                        self._preset_lockout_since[zone_id] = dt_util.utcnow()
+                        self._preset_lockouts_today.increment()
+                        if activity_logger is not None:
+                            try:
+                                self.hass.async_create_task(
+                                    activity_logger.log(
+                                        coordinator="hvac",
+                                        action="preset_change_locked_out",
+                                        description=(
+                                            f"{zone.zone_name} wanted preset "
+                                            f"{effective_preset} but the zone is "
+                                            f"in an anonymous manual hold"
+                                        ),
+                                        importance="info",
+                                        zone=zone_id,
+                                        entity_id=zone.climate_entity,
+                                        details={
+                                            "wanted": effective_preset,
+                                            "blocked_by": "manual",
+                                        },
+                                    )
+                                )
+                            except Exception:  # noqa: BLE001
+                                _LOGGER.debug(
+                                    "preset lockout ledger write failed",
+                                    exc_info=True,
+                                )
                 continue
 
             # Reason-ledger derivation (Writer-B removal cycle 2026-08-06):
