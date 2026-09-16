@@ -9593,6 +9593,40 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  STEP3_BASELINE_COMMITTED_2026_09_16: 'STEP 3 DONE — baseline captured and committed BEFORE the
+    only behaviour change (step 4), which is the whole point of its position in the sequence.
+    Measured 7d from the recorder, immediately after the v5.103.2 deploy so it still describes
+    PRE-fix behaviour.
+
+    COMFORT SIDE (7d):
+      zone      preset_changes  home_eps  home_median  home_eps<=10m  away_median
+      zone_1               286       102        11.7m             45         8.4m
+      zone_2               178        45        10.0m             19        10.0m
+      zone_3               325        82        10.0m             40        25.0m
+
+    ENERGY SIDE (7d):
+      zone      cooling_h   idle_h   duty%   cool_cycles
+      zone_1       134.1h    33.7h   79.9%           155
+      zone_2       115.3h    52.7h   68.6%            76
+      zone_3        62.7h   105.3h   37.3%           113
+
+    READING IT — three things worth carrying into step 4:
+    (1) zone_3 has the MOST preset changes (325) yet the LOWEST duty (37.3%). Churn and energy are
+        NOT the same axis, which is exactly why the success criteria are PAIRED. A transition-count
+        target alone would have optimised the wrong thing.
+    (2) zone_3''s pointless-conditioning signal holds up: 82 home episodes, median 10.0m == live
+        vacancy_grace, 40 of them at or under 10 minutes. ~12/day, consistent with the ~15/day
+        measured on a 24h window earlier. THIS is the number step 4 must move.
+    (3) zone_3 short-cycles hardest: 113 cool cycles on only 62.7h of cooling (~0.55h/cycle) vs
+        zone_1''s 155 on 134.1h (~0.87h/cycle). So the cycle-count guard (metric B3) matters most
+        in the very zone step 4 targets — a "fix" that cut conditioning episodes by cycling more
+        would be a regression the duty number alone would hide.
+
+    SCOPE DISCIPLINE (recorded because it is easy to violate later): these zone_1/zone_2 rows are
+    CONTRAST ONLY. They were captured while those zones were 69.6%/46.4% in `manual`, i.e. with the
+    preset gate closed — they measure an outage, not a behaviour. Do NOT use them as a step-4
+    baseline. Re-capture zone_1/zone_2 only AFTER v5.103.2''s numeric prediction validates.
+    zone_3 (93.7% named) is the valid step-4 baseline today.'
   TUNABILITY_REMEASURED_2026_09_16: 'OPERATOR CHALLENGED the "zone 1 tunable ~9 of 24 hours" figure
     I had been repeating: "We have to verify if this is right and a legit blocker or not." It was a
     2026-08-20 number, ~4 weeks old, and I had never re-verified it. RE-MEASURED over the last 7
