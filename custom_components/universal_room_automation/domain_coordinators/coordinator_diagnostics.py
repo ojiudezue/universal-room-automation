@@ -345,6 +345,11 @@ class ComplianceTracker:
         # switch.ura_compliance_consensus_defer_gate for rollback without
         # restart. Default ON.
         self._compliance_defer_gate_enabled: bool = True
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retained one-shot ``async_call_later``
+        # unsubs from ``schedule_check`` so an entry unload can cancel any
+        # pending compliance verifications before they fire against a
+        # torn-down coordinator.
+        self._pending_check_unsubs: list = []
 
     @property
     def _database(self) -> Any:
@@ -359,18 +364,65 @@ class ComplianceTracker:
         device_id: str,
         commanded_state: dict,
     ) -> None:
-        """Schedule a compliance check after command execution."""
+        """Schedule a compliance check after command execution.
+
+        UNLOAD-SYMMETRY-TASK-HYGIENE-1 fix-up (2026-09-16): ``schedule_check``
+        is a PER-GOVERNED-COMMAND hot path and the CM's shared
+        ``ComplianceTracker`` lives for the process lifetime. If the retained
+        one-shot unsub stayed on ``_pending_check_unsubs`` after its
+        ``async_call_later`` fired, the list would grow monotonically (each
+        entry still pins ``hass`` + ``HassJob`` + closure). The self-removing
+        idiom (mirrors ``hvac.py:1351 _unsub_kick``) removes the entry from
+        the retention list at fire time so only genuinely-pending unsubs
+        remain — bounded retention, still cancellable on teardown.
+        """
+        _captured_unsub = None
 
         async def _delayed_check(_now: Any = None) -> None:
+            # Self-removal on fire: drop the retention entry BEFORE doing
+            # the work so a concurrent ``async_teardown`` can't try to
+            # cancel an already-fired unsub.
+            if _captured_unsub is not None:
+                try:
+                    self._pending_check_unsubs.remove(_captured_unsub)
+                except ValueError:
+                    pass  # Already removed by teardown — benign
             await self._check_compliance(
                 decision_id, scope, device_type, device_id, commanded_state
             )
 
-        async_call_later(
+        _captured_unsub = async_call_later(
             self.hass,
             self.COMPLIANCE_CHECK_DELAY,
             _delayed_check,
         )
+        self._pending_check_unsubs.append(_captured_unsub)
+
+    def async_teardown(self) -> None:
+        """Cancel any pending scheduled compliance checks.
+
+        UNLOAD-SYMMETRY-TASK-HYGIENE-1: called from HVACCoordinator
+        ``async_teardown`` and CoordinatorManager ``async_stop`` so
+        deferred ``_delayed_check`` callbacks cannot fire against a
+        torn-down coordinator after an entry unload/reload.
+
+        DELIBERATE DROP (2026-09-16 fix-up, Review B): cancelling a
+        pending ``_delayed_check`` means the compliance-verification row
+        for THAT governed command is never written — the tracker resolves
+        state live (no queue, no persisted intent). This is the correct
+        trade-off: firing against a torn-down coordinator would read
+        undefined state and be worse than a missed audit row.
+        A reload inside the ``COMPLIANCE_CHECK_DELAY`` (120s) window
+        therefore drops at most one row per active governed command.
+        No backstop needed; documented as intentional in the release
+        README so post-hoc audits don't see it as unexplained data loss.
+        """
+        for _unsub in list(self._pending_check_unsubs):
+            try:
+                _unsub()
+            except Exception:  # noqa: BLE001 — defensive; unsub may already have fired
+                pass
+        self._pending_check_unsubs.clear()
 
     async def _check_compliance(
         self,

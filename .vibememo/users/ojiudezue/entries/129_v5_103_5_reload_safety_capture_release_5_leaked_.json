@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "129",
+  "author": "ojiudezue",
+  "session_id": "claude_20260916_225403_ship_v5_103_5",
+  "timestamp": "2026-09-16T22:54:03Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.5 shipped: Reload-safety: capture+release 5 leaked one-shot async_call_later timers",
+  "summary": "Reload-safety: capture+release 5 leaked one-shot async_call_later timers",
+  "why": "Ships the reload-safety hardening: 5 async_call_later timers discarded their cancel-handles, firing against torn-down objects on reload. Reviewed twice framing-disjoint - both caught that the naive fix INTRODUCED an unbounded-retention leak on hot paths + a non-working entry-state fix; both fixed in-cycle, no CRIT/HIGH. Orchestrator ran the serial name-diff: 305==305 vs develop, zero new failures. Behavior-neutral hygiene, build-implies-ship, operator in ship-mode.",
+  "implications": "Shipped UNLOAD-SYMMETRY-TASK-HYGIENE-1 at v5.103.5; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.5.md (Live criteria).",
+  "revisit_trigger": "after next reload: no async_call_later exceptions in the URA log AND ComplianceTracker retention lists stay bounded (no monotonic growth over uptime); integration loads clean at v5.103.5",
+  "refs": {
+    "cards": [
+      "UNLOAD-SYMMETRY-TASK-HYGIENE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.5.md"
+    ],
+    "release_notes": "- Capture + release 5 discarded async_call_later unsubs on teardown (reload-safety / task-hygiene)\n- Per-event sites self-remove on fire (bounded retention); once-per-instance drain on teardown\n- No behavior change on the happy path; deliberate documented compliance-check drop on reload-within-120s\n- Reviewed 2x framing-disjoint (both caught the introduced-leak + non-working-fix, fixed in-cycle); 12 neuter-drilled tests; name-diff vs develop byte-identical (zero new failures)"
+  }
+}

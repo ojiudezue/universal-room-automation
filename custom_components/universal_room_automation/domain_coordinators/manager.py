@@ -504,6 +504,20 @@ class CoordinatorManager:
             except Exception:
                 _LOGGER.exception("Error stopping Notification Manager")
 
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: cancel any pending compliance
+        # ``schedule_check`` callbacks retained on the CM's shared
+        # ``ComplianceTracker`` so they cannot fire against a torn-down
+        # manager after unload/reload.
+        try:
+            _ct = getattr(self, "_compliance_tracker", None)
+            if _ct is not None and hasattr(_ct, "async_teardown"):
+                _ct.async_teardown()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "CM: ComplianceTracker teardown raised (non-fatal)",
+                exc_info=True,
+            )
+
         self._intent_queue.clear()
         _LOGGER.info("Coordinator Manager stopped")
 
