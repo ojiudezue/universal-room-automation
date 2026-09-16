@@ -571,10 +571,95 @@ cards:
     related: [CAMERA-ZERO-FIRE-DETECTORS-1, FRONT-SIDE-PTZ-CHATTER-1]
     context: CAMERA-ZERO-FIRE-DETECTORS-1's per-camera verdicts came from the same agent run; its per-camera facts (MadronePTUltra enabled=false, ReolinkStudyBPorchPTZ at 0.7/min_init 3) are separately checkable and are NOT withdrawn — only the fleet-wide score claim is.
   refs: [docs/planning/AUDIT_exterior_camera_detection_settings.md]
+- id: CAMERA-BY-DESIGN-SILENT-EXCLUSION-1
+  title: Cameras that are silent ON PURPOSE look identical to broken ones, so every zero-detection
+    sweep re-investigates them
+  thread: cameras
+  status: inbox
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [observability, false-positive]
+  problem_solution:
+  - 'Problem: some cameras are meant to report nothing. The office camera is physically shielded
+    whenever the operator is home; the power-wall camera watches the grid connections and only
+    wakes briefly every ten minutes. To any check that looks for "cameras that never saw a person",
+    these are indistinguishable from a camera that has died — so each sweep re-opens them, and a
+    real fault hiding among them is easier to miss because the list is full of expected names.
+    Solution: record WHY each by-design-silent camera is silent, so checks can exclude them by
+    name and reason instead of rediscovering them, and so anything left on the list is genuinely
+    suspicious.'
+  origin:
+    date: '2026-09-15'
+    gist: Closing CAMERA-ZERO-FIRE-DETECTORS-1 — 2 of 3 silent cameras turned out to be
+      by-design or already fixed, and the operator had to explain the same designs again
+  why: 'A detector whose output is mostly known false positives stops being read. This is the same
+    failure shape as the HVAC anomaly sensor reporting nominal while blind — a check nobody trusts
+    is worse than no check, because it still costs attention. Cheap to fix once the reasons are
+    known, and they are known right now.'
+  ADJACENCY_SWEEP_2026_09_15: 'Swept before minting. ADJACENT, not duplicate, to
+    CAMERA-STUCK-SENSOR-TRIPWIRE-1 (that one detects sensors STUCK ON; this is about legitimately
+    never-ON) and to CAMERA-ZERO-FIRE-DETECTORS-1 (the one-shot investigation this fell out of,
+    now closed). CAMERA-PTULTRA-NOT-IN-PERIMETER-1 is related: it must not "fix" MadronePTUltra
+    into perimeter_cameras, since that camera is aimed at the grid power connections by design and
+    is not a person-recall camera. No BACKLOG or planning-doc item covers by-design silence.'
+  parsimony:
+    problem: Zero-detection checks cannot distinguish deliberate silence from failure, so they
+      generate recurring false positives on the same cameras.
+    verdict: SIMPLIFY
+  next: 'Smallest useful version FIRST (do not build a config surface yet): write the three known
+    reasons into the camera/adjacency documentation and into whatever the zero-detection sweep
+    reads, so the next sweep says "expected-silent: office shielded while home" rather than
+    flagging it. Known set today — ArmCrestASH41B (office, physically shielded while the operator
+    is home; live only while away), MadronePTUltra (grid power-wall watcher, ~10-min wake cycle,
+    never a person-recall camera). Only escalate to a real config field if the list grows or a
+    consumer needs it programmatically.'
+  links:
+    related: [CAMERA-ZERO-FIRE-DETECTORS-1, CAMERA-STUCK-SENSOR-TRIPWIRE-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1]
+    context: 'CAMERA-ZERO-FIRE-DETECTORS-1 is the closed investigation that produced these
+      reasons. CAMERA-STUCK-SENSOR-TRIPWIRE-1 is the mirror-image detector (stuck ON vs never ON)
+      and should share the exclusion list. CAMERA-PTULTRA-NOT-IN-PERIMETER-1 must read the
+      power-wall purpose before proposing to add that camera to perimeter_cameras.'
+  refs:
+  - docs/planning/AUDIT_exterior_camera_adjacency_probe.md
+  - docs/planning/AUDIT_exterior_camera_detection_settings.md
 - id: CAMERA-ZERO-FIRE-DETECTORS-1
   title: Three exterior person detectors fired ZERO times in 8 days — two of them are in the new seam ring
   thread: perimeter
-  status: waiting_operator
+  status: done
+  CLOSED_2026_09_15: 'DONE — all three answered by the operator, and TWO ARE NOW MEASURABLY FIXED.
+    Not one of the three is a URA defect; the card''s value was proving that and getting the ring
+    picture right.
+
+    VERIFIED LIVE (HA recorder, ON-state rows in the last 48h — the authoritative view of what URA
+    can actually consume):
+    - ReolinkStudyBPorchPTZ: 11 ON rows (was ZERO across 8 days). The operator raised its detect
+      resolution off the 640x480 sub-stream on 2026-09-14/15. FIX CONFIRMED WORKING — recall is
+      back, and the earlier "alive but effectively blind" diagnosis is resolved rather than merely
+      explained. Its seam-ring leg is live again.
+    - MadronePTUltra: 5 ON rows (previously ZERO events of ANY label, ALL TIME). Operator made a
+      design change — it now wakes every ~10 minutes rather than only on PIR motion. So it is no
+      longer a silent node either. Operator also clarified its PURPOSE, which the card had wrong by
+      omission: it is aimed at a narrow stretch by the external power wall and its primary job is
+      watching the main grid power connections — it is not a general perimeter/person camera and
+      should never be judged on person recall.
+    - ArmCrestASH41B: still 0 ON, and that is CORRECT BY DESIGN. Operator: it is in their office
+      and physically SHIELDED while they are home, unshielded when away. That fully explains the
+      signature the probe found puzzling — alive, detecting, unmasked, hearing speech daily, yet
+      never a person. It is a privacy shutter, not an aim or recall fault. My "find out where it
+      points / probably drop it" recommendation is WITHDRAWN.
+
+    CONSEQUENCE FOR THE SEAM RING (corrects this card''s own earlier claim): the ring is NOT
+    "effectively 11 live cameras of 13". Two of the three silent nodes now produce. The residual is
+    that ArmCrestASH41B is intentionally silent WHENEVER THE OPERATOR IS HOME, i.e. its ring leg is
+    live only while they are away — an unusual but deliberate property that downstream seam logic
+    should not treat as a fault.
+
+    FOLLOW-UP CARDED SEPARATELY: a zero-detection sweep will flag ArmCrestASH41B (and any future
+    by-design-silent camera) every time it runs. That is a false positive built into the detector,
+    so the by-design cameras need an explicit exclusion rather than being re-investigated each
+    pass — see CAMERA-BY-DESIGN-SILENT-EXCLUSION-1.'
   created: '2026-09-14 02:05'
   updated: '2026-09-14 03:30'
   refinement_status: refined
