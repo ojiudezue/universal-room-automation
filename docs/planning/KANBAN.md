@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T13:35:11-05:00_ - _Data commit: `a6610dce49a2`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T13:44:52-05:00_ - _Data commit: `1c84c25a83b0`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -216,7 +216,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (13):**
+- **Forensic keys (14):**
+  - `PLANNING_DOC_2026_09_16`: The readable proposal + full digest lives at docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md (operator: "cards are not a substitute" for planning hygiene). That doc is the SOURCE for this cycle — hypothesis history (H1 fals...
   - `MODALITY_SCAN_RESULT_2026_09_16`: THE PIVOTAL SCAN IS DONE (operator: "run that scan now"). RESULT: mmWave stillness kind IS readable end-to-end -> this is a COMPOSE job, not a plumbing build. The infrastructure the card feared might be missing exists in THREE places, al...
   - `OPERATOR_DESIGN_THESIS_RECOVERED_2026_09_16`: Recovered from the pre-compaction transcript after the operator flagged compaction was dropping detail. These are LOAD-BEARING design constraints stated across several turns; capturing verbatim-close so they survive. Compaction has alrea...
   - `SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16`: OPERATOR ASKED for a simulation before building ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic framing is what made it decisive, because even the upper bound fails.

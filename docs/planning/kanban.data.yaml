@@ -10420,6 +10420,7 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  PLANNING_DOC_2026_09_16: 'The readable proposal + full digest lives at docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md (operator: "cards are not a substitute" for planning hygiene). That doc is the SOURCE for this cycle — hypothesis history (H1 falsified / H2 flaky / H3 survivor), the room_type skeptical catch, the staged proposal, success metrics, live numbers, and the operator checkpoint. The card keys are working notes; read the doc for the coherent version. Keep the doc updated as the plan firms — not just the card.'
   MODALITY_SCAN_RESULT_2026_09_16: 'THE PIVOTAL SCAN IS DONE (operator: "run that scan now"). RESULT:
     mmWave stillness kind IS readable end-to-end -> this is a COMPOSE job, not a plumbing build. The
     infrastructure the card feared might be missing exists in THREE places, all verified in code:
